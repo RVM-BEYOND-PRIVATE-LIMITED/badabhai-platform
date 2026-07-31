@@ -32,6 +32,7 @@ import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import { PayerPricingController } from "./payer-pricing.controller";
 import { PayerOrgMembersController } from "./payer-org-members.controller";
 import { PayerOrgInvitesController } from "./payer-org-invites.controller";
+import { JobPostingChatModule } from "./job-posting-chat/job-posting-chat.module";
 import { PayerAuthService } from "./payer-auth.service";
 import { PayerOrgMembersService } from "./payer-org-members.service";
 import {
@@ -83,6 +84,12 @@ import {
     // The payer-facing LIVE catalog read (D-6) reuses PricingService (the one
     // fail-closed engine) unchanged — a read-only products projection, no write path.
     PricingModule,
+    // The AI job-posting chat (ADR-0035) — a conversational FRONT DOOR onto the same
+    // JobPostingsService.createForPayer path PayerJobPostingsController already uses.
+    // Its own feature module (controller + service + repository) rather than another
+    // controller here, because it owns state (sessions/messages) and therefore a
+    // repository; it rides the same PayerAuthGuard and adds no new principal.
+    JobPostingChatModule,
     // Reuse BullMQ's Redis connection (client only) for the payer OTP store + XB-G cap.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],

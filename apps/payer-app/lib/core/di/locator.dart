@@ -15,6 +15,9 @@ import '../../features/find/presentation/cubit/find_cubit.dart';
 import '../../features/find/presentation/cubit/reveal_cubit.dart';
 import '../../features/jobs/presentation/cubit/jobs_cubit.dart';
 import '../../features/jobs/presentation/cubit/agency_jobs_cubit.dart';
+import '../../features/job_posting_chat/data/job_posting_chat_repository_impl.dart';
+import '../../features/job_posting_chat/presentation/bloc/job_posting_chat_bloc.dart';
+import '../../features/job_posting_chat/presentation/cubit/chat_sessions_cubit.dart';
 import '../../features/referral/presentation/cubit/referral_cubit.dart';
 import '../../features/credits/presentation/cubit/credits_screen_cubit.dart';
 import '../../features/org/presentation/cubit/org_cubit.dart';
@@ -143,6 +146,19 @@ void setupLocator({
   );
   locator.registerFactory<CreditsScreenCubit>(
     () => CreditsScreenCubit(locator<PayerApiClient>()),
+  );
+
+  // --- AI job-posting chat (ADR-0035) ---------------------------------------
+  // A FACTORY, and each bloc gets its OWN repository: the repository owns the
+  // bound `session_id` for the life of one conversation, so sharing a singleton
+  // would leak a finished session's id into the next chat the payer opens.
+  locator.registerFactory<JobPostingChatBloc>(
+    () => JobPostingChatBloc(
+      JobPostingChatRepositoryImpl(locator<PayerApiClient>()),
+    ),
+  );
+  locator.registerFactory<ChatSessionsCubit>(
+    () => ChatSessionsCubit(locator<PayerApiClient>()),
   );
   locator.registerFactory<AccountCubit>(
     () => AccountCubit(locator<PayerAccountApi>()),

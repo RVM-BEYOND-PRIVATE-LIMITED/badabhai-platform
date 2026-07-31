@@ -32,6 +32,10 @@ from .contracts import (
     DraftProfile,
     GrowthClusterInput,
     GrowthClusterOutput,
+    JobPostingChatOpeningInput,
+    JobPostingChatOpeningOutput,
+    JobPostingChatTurnInput,
+    JobPostingChatTurnOutput,
     ProfileExtractionInput,
     ProfileExtractionOutput,
     ProfilingOpeningInput,
@@ -56,6 +60,8 @@ from .contracts import (
     WorkerProfileDraft,
 )
 from .extraction import build_resume, resolve_taxonomy_ids
+from .job_posting_chat import answers as job_posting_answers
+from .job_posting_chat import interview_engine as job_posting_engine
 from .logging_config import configure_logging, get_logger
 from .profiling import interview_engine, profile_extractor
 from .profiling.canonical_roles import (
@@ -606,6 +612,113 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     )
 
 
+@app.post("/job-posting-chat/opening", response_model=JobPostingChatOpeningOutput)
+async def job_posting_chat_opening(
+    body: JobPostingChatOpeningInput,
+) -> JobPostingChatOpeningOutput:
+    """The payer-facing opening line (ADR-0035).
+
+    Unconditional and pure, mirroring /profiling/opening: this route always serves
+    the opener and the decision of whether a payer SEES it lives in apps/api. No
+    model call and no pseudonymization — the response is a module constant.
+
+    PII-free by construction: the opener carries no vocative, no payer name and no
+    organisation name (§Decision 3 — the org name is stamped server-side at publish
+    and never enters this service).
+    """
+    return JobPostingChatOpeningOutput(
+        opening_text=job_posting_engine.opening_message(body.trade_hint)
+    )
+
+
+@app.post("/job-posting-chat/respond", response_model=JobPostingChatTurnOutput)
+async def job_posting_chat_respond(body: JobPostingChatTurnInput) -> JobPostingChatTurnOutput:
+    """One payer turn of the job-posting interview (ADR-0035).
+
+    Structurally identical to /profiling/respond, with the privacy order IDENTICAL
+    and one deliberate difference (step 3).
+    """
+    # 1. Pseudonymize FIRST — the gate for any external LLM call, and it fails CLOSED.
+    #    It runs even though the payer is describing a job rather than themselves: a
+    #    payer can absolutely type their own phone number, a plant manager's name, or
+    #    an applicant's name into free text, and the privacy gateway does not get an
+    #    exemption based on who the principal is (§2 #3, ADR-0035 §Decision 2). It
+    #    also runs BEFORE the engine, so a blocked turn never advances the interview
+    #    and never touches the draft.
+    result = pseudonymize(body.message_text)
+    if result.blocked:
+        logger.warning(
+            "job posting chat blocked", extra={"extra": {"reason": result.blocked_reason}}
+        )
+        return JobPostingChatTurnOutput(
+            reply_text=_BLOCKED_REPLY,
+            blocked=True,
+            blocked_reason=result.blocked_reason,
+            is_mock=True,
+            # Both null: nothing was parsed, so the caller keeps the state and draft
+            # it already had. The turn is a no-op by construction.
+            draft=None,
+            updated_state=None,
+            pseudonymization_metadata=_pseudonymization_meta(result),
+        )
+
+    # 2. The text the DRAFT may keep. Raw by default — a job's city and pay figures
+    #    are the point of the posting and are masked before an LLM call but must
+    #    survive onto the draft. Masked when this turn carried IDENTITY-class content
+    #    (phone/person/employer/id), so a phone number typed into a description can
+    #    never reach the stored draft or a published posting.
+    draft_text = job_posting_answers.safe_draft_text(
+        body.message_text, result.text, result.placeholder_tokens
+    )
+
+    # 3. Clarify BEFORE advancing: a clarifying message ("what do you mean?") is not
+    #    an answer, and next_turn would mis-advance the state (the confusing topic
+    #    lands in asked_question_ids and _next_topic skips it forever, essentials
+    #    included). clarify_turn refuses — None, engine runs normally — when there is
+    #    nothing to re-serve, when the message carries an extractable ANSWER
+    #    (answer-trumps-clarify), or when the consecutive clarify budget is spent.
+    is_clarify = job_posting_engine.needs_rephrase(body.message_text)
+    turn = (
+        job_posting_engine.clarify_turn(
+            body.conversation_state, body.message_text, body.trade_hint
+        )
+        if is_clarify
+        else None
+    )
+    if turn is None:
+        turn = job_posting_engine.next_turn(
+            body.conversation_state,
+            body.message_text,
+            body.trade_hint,
+            draft_text=draft_text,
+        )
+    reply_text, asked_id, updated_state, draft_ready = turn
+
+    # 4. ZERO LLM CALLS, on every path — the one place this route deviates from
+    #    /profiling/respond, and it deviates in the cheaper direction. The engine has
+    #    already produced a short, on-tone, employer-facing question, so the reply is
+    #    returned verbatim: no router round-trip, no tokens, no cost. The rephrase
+    #    seam (prompts.build_job_posting_chat_messages) is written and documented but
+    #    NOT wired, because AIRouter.run resolves the task route first and RAISES on
+    #    an unknown task type — registering `job_posting_chat_turn` in
+    #    app/ai/model_config.py plus a rephrase settings flag is the follow-up that
+    #    turns it on. `is_mock=True` and `ai_metadata=None` are therefore the honest
+    #    values, not placeholders.
+    return JobPostingChatTurnOutput(
+        reply_text=reply_text,
+        blocked=False,
+        # Chips are ANSWERS to the question in `reply_text`, keyed on the topic
+        # actually being asked this turn — `None` on the wrap-up turn yields none.
+        suggested_answers=job_posting_engine.suggested_answers(asked_id, body.trade_hint),
+        is_mock=True,
+        asked_question_id=asked_id,
+        draft_ready=draft_ready,
+        draft=job_posting_engine.build_draft(updated_state, body.trade_hint),
+        updated_state=updated_state,
+        pseudonymization_metadata=_pseudonymization_meta(result),
+    )
+
+
 @app.post("/profile/extract", response_model=ProfileExtractionOutput)
 async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutput:
     # Two texts, deliberately different, because two consumers need different things.
@@ -879,9 +992,49 @@ async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput
         "machines": [label_for_id(m) for m in data.get("machines", [])],
         "skill_labels": [label_for_id(s) for s in data.get("skill_labels", [])],
     }
+    payload = json.dumps(sanitized)
+
+    # PSEUDONYMIZE GATE — invariant #3 on the ONE route that had none.
+    #
+    # THE GAP THIS CLOSES. `certified_clean_skill_labels` above filters exactly three
+    # LIST fields; `build_resume` then returns `profile.model_dump()` — the ENTIRE
+    # DraftProfile — and `sanitized` overrides only the taxonomy-id fields. So every
+    # remaining value went into the user message VERBATIM: `education_level` and
+    # `education_field` (model-authored free-text scalars, certified by nothing),
+    # `location_preference.current_city` / `preferred_cities`, `experience`,
+    # `salary_expectation`, `availability`. A name, phone or employer that a model
+    # wrote into any of those egressed raw — while `/profiling/respond` and
+    # `/profile/extract` mask that exact class of value on every turn.
+    #
+    # FAIL-CLOSED THE SAME WAY `/profiling/respond` DOES: on `blocked` the provider is
+    # NEVER called. The route still COMPLETES — `text` is the deterministic résumé
+    # `build_resume` already produced LOCALLY from the filtered profile, so a worker
+    # never loses their résumé over a gateway block; only the LLM polish is skipped.
+    # The OUTPUT SHAPE is unchanged (this schema carries no `blocked` field), and
+    # `resume_json` stays `data`, the machine-readable ids, exactly as before.
+    #
+    # ACCEPTED COST, stated plainly: the masked payload is what a REAL model now sees,
+    # so a worker's city can reach it as "[CITY_1]" and a 7-digit salary as
+    # "[AMOUNT_1]". That is the same treatment every other route already applies to
+    # those values, and over-masking is the locked safe direction. Under the committed
+    # default (`AI_ENABLE_REAL_CALLS=false`) nothing changes at all: the router takes
+    # its mock path and returns `text`, which is built from the unmasked profile.
+    gate = pseudonymize(payload)
+    if gate.blocked:
+        logger.warning(
+            "resume generation blocked before the LLM",
+            extra={"extra": {"reason": gate.blocked_reason}},
+        )
+        return ResumeGenerationOutput(
+            resume_text=resolve_taxonomy_ids(text),
+            resume_json=data,
+            format="text",
+            is_mock=True,
+        )
+
     messages = [
         {"role": "system", "content": RESUME_SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps(sanitized)},
+        {"role": "user", "content": gate.text},
     ]
     resume_text, meta = await router.run(
         "resume_generation",
@@ -914,14 +1067,40 @@ async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
     )
     # Translate the transcript to English (gated, mock-by-default, fail-closed).
     # The adapter skips English sources and returns empty english on any failure.
+    #
+    # PSEUDONYMIZE GATE — this leg used to hand `result.transcript_text` to
+    # `translate_adapter.translate` RAW AND VERBATIM, and `translate.py` says so in its
+    # own module docstring ("the real /translate call sends the RAW transcript (which
+    # may contain PII) to Sarvam"). Documented is not gated: it was an ungated
+    # worker-free-text egress to an external provider, on the one route where the
+    # worker is SPEAKING — the surface most likely to carry a name, a phone number and
+    # an employer in one breath.
+    #
+    # THE STT HOP ABOVE IS DIFFERENT AND IS NOT TOUCHED: its input is AUDIO, which
+    # cannot be pseudonymized, and that exposure is inherent and already recorded
+    # (stt.py). This gate covers the TEXT hop, which is the one that can be masked.
+    #
+    # FAIL CLOSED, consistently: on `blocked` the provider is not called and
+    # `english_text` stays "" — the exact degraded value the adapter already returns
+    # on any translation failure, so the OUTPUT SHAPE and every downstream consumer
+    # are unchanged. `transcript_text` returned below is the RAW transcript exactly as
+    # before: this route's job is to give the worker their own words back, and those
+    # words go to `voice_notes` inside our own boundary, not to a provider.
     english_text = ""
     if body.translate_to_english and result.transcript_text.strip():
-        translation = await translate_adapter.translate(
-            text=result.transcript_text,
-            source_language_code=result.language_code,
-            real_call_allowed=body.real_call_allowed,
-        )
-        english_text = translation.english_text
+        translate_gate = pseudonymize(result.transcript_text)
+        if translate_gate.blocked:
+            logger.warning(
+                "voice translation blocked before the provider",
+                extra={"extra": {"reason": translate_gate.blocked_reason}},
+            )
+        else:
+            translation = await translate_adapter.translate(
+                text=translate_gate.text,
+                source_language_code=result.language_code,
+                real_call_allowed=body.real_call_allowed,
+            )
+            english_text = translation.english_text
     # PRIVACY: never log transcript or english TEXT (raw worker free-text). Counts only.
     logger.info(
         "voice transcribe",

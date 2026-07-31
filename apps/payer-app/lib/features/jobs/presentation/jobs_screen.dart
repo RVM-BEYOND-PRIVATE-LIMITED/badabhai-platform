@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/config/app_config.dart';
+import '../../../core/data/job_posting_chat_models.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session_cubit.dart';
@@ -13,24 +16,75 @@ import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_progress.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
+import '../../job_posting_chat/presentation/cubit/chat_sessions_cubit.dart';
 import 'agency_jobs_screen.dart';
 import 'cubit/jobs_cubit.dart';
 import 'edit_company_job_screen.dart';
+
+/// Opens an external URL. Overridable so widget tests can assert WHERE a link
+/// went without a platform channel (`launchUrl` throws MissingPluginException
+/// under `flutter test`).
+typedef ExternalUrlLauncher = Future<bool> Function(Uri url);
+
+/// Production launcher: hand the url to the OS browser, never an in-app webview
+/// — the payer signs in and pays on the web portal, outside this app.
+Future<bool> defaultExternalUrlLauncher(Uri url) =>
+    launchUrl(url, mode: LaunchMode.externalApplication);
+
+/// The seam a "manage this on the web" link leaves through. Production must
+/// always leave this as [defaultExternalUrlLauncher].
+@visibleForTesting
+ExternalUrlLauncher jobsExternalUrlLauncher = defaultExternalUrlLauncher;
+
+/// Label of the external affordance that REPLACED the in-app purchase actions.
+const String kManagePlanOnWebLabel = 'Manage plan on web';
+
+/// Says the missing capability out loud on the screen, so "where do I buy a
+/// plan?" is answered here instead of read as a bug (the same honesty the
+/// Credits screen already applies to buying credits).
+const String kManagePlanOnWebNote =
+    'Plans, boosts and quota top-ups are managed on the BadaBhai website.';
+
+/// Entry point label for the conversational create path (ADR-0035).
+const String kAiPostLabel = 'Create with AI';
+
+/// Resume-card copy for a chat left in progress — possibly on another device.
+const String kResumeChatTitle = 'Continue your job posting';
 
 /// My jobs — role-branched on [AppSession.role].
 ///
 ///  - COMPANY: a REAL row (`job.id != null`, from `GET /payer/job-postings`)
 ///    renders the honest [_RealJobCard] (lifecycle pill + only the LEGAL actions
-///    for that state + a plan-&-boost sheet); a MOCK row (`id == null`) keeps the
-///    rich [_JobCard] so MOCK stays walkable.
+///    for that state); a MOCK row (`id == null`) keeps the rich [_JobCard] so
+///    MOCK stays walkable. Two create paths sit side by side: the existing
+///    manual form ([onPost]) and the AI-assisted chat ([onAiPost], ADR-0035) —
+///    the chat is ADDITIVE and replaces nothing.
 ///  - AGENCY: the faceless agency postings (`GET /payer/agency/jobs`) render via
 ///    [AgencyJobsView] (trade · city/area · pay & experience bands · applicants ·
 ///    open/closed pill with Pause/Close). The agent routes 403 for a company, so
 ///    they are only ever mounted here for an agency session.
+///
+/// NO MONEY ACTION EXISTS ON THIS SCREEN (owner decision). The one-tap
+/// "Buy plan" / "Boost reach" / "Top up quota" sheet that used to live on the
+/// open/paused cards charged real money from inside a store-distributed app —
+/// exactly what App Store / Play Store IAP policy governs. It is replaced by
+/// [kManagePlanOnWebLabel], an external link to the web portal. The API-client
+/// methods and the backend endpoints are untouched.
+///
+/// AGENCY DOES NOT GET THE AI PATH: ADR-0035's publish step calls
+/// `JobPostingsService.createForPayer`, which writes a COMPANY `job_postings`
+/// row. An agency's My-jobs list reads `/payer/agency/jobs`, so a posting
+/// published from the chat would not appear in it — offering the entry point
+/// there would promise a posting the agent could never find.
 class JobsScreen extends StatelessWidget {
-  const JobsScreen({super.key, required this.onPost});
+  const JobsScreen({super.key, required this.onPost, this.onAiPost});
 
   final VoidCallback onPost;
+
+  /// Opens the AI-assisted chat. A non-null argument RESUMES that session
+  /// (cross-device pickup); null starts a fresh one. Optional so existing
+  /// mounts (and tests) keep working without the chat wired.
+  final void Function(String? resumeSessionId)? onAiPost;
 
   @override
   Widget build(BuildContext context) {
@@ -40,15 +94,22 @@ class JobsScreen extends StatelessWidget {
     if (isAgency) return AgencyJobsView(onPost: onPost);
     return BlocProvider<JobsCubit>(
       create: (_) => locator<JobsCubit>()..load(),
-      child: _JobsView(onPost: onPost),
+      // The cross-device pickup read, nested so both cubits are in scope for the
+      // view. Loaded alongside the postings so a chat started in the web portal
+      // is already on screen when the tab opens.
+      child: BlocProvider<ChatSessionsCubit>(
+        create: (_) => locator<ChatSessionsCubit>()..load(),
+        child: _JobsView(onPost: onPost, onAiPost: onAiPost),
+      ),
     );
   }
 }
 
 class _JobsView extends StatelessWidget {
-  const _JobsView({required this.onPost});
+  const _JobsView({required this.onPost, this.onAiPost});
 
   final VoidCallback onPost;
+  final void Function(String? resumeSessionId)? onAiPost;
 
   @override
   Widget build(BuildContext context) {
@@ -107,6 +168,20 @@ class _JobsView extends StatelessWidget {
                 ),
               ],
             ),
+            if (onAiPost != null) ...<Widget>[
+              const SizedBox(height: AppSpacing.s3),
+              // ADDITIVE second create path (ADR-0035). The manual form above is
+              // untouched and stays the default for a payer who knows the fields.
+              BbButton(
+                label: kAiPostLabel,
+                variant: BbButtonVariant.tonal,
+                size: BbButtonSize.sm,
+                iconLeft: Icons.auto_awesome,
+                block: true,
+                onPressed: () => onAiPost!(null),
+              ),
+              _ResumeChatCard(onResume: onAiPost!),
+            ],
             const SizedBox(height: AppSpacing.s3),
             for (final JobPosting job in state.jobs) ...<Widget>[
               // REAL rows carry an id; MOCK rows do not.
@@ -117,6 +192,69 @@ class _JobsView extends StatelessWidget {
               const SizedBox(height: AppSpacing.s3),
             ],
           ],
+        );
+      },
+    );
+  }
+}
+
+/// The MOBILE side of ADR-0035's cross-device pickup: a chat the payer left in
+/// progress — on this phone or, just as often, in the web portal — offered back
+/// to them by `GET /payer/job-posting-chat/sessions`.
+///
+/// Renders NOTHING when there is nothing resumable, and nothing when the read
+/// failed (a silent degrade — this is an optional card on a tab whose job is
+/// listing postings, so an error banner here would be noise).
+class _ResumeChatCard extends StatelessWidget {
+  const _ResumeChatCard({required this.onResume});
+
+  final void Function(String? resumeSessionId) onResume;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<ChatSessionsCubit, ChatSessionsState>(
+      builder: (BuildContext context, ChatSessionsState state) {
+        final JobPostingChatSessionSummary? session = state.mostRecent;
+        if (session == null) return const SizedBox.shrink();
+        final String subtitle = session.roleTitle == null
+            ? (session.draftReady
+                ? 'Draft ready to publish'
+                : 'Started on one of your devices')
+            : '${session.roleTitle} · '
+                '${session.draftReady ? 'draft ready' : 'in progress'}';
+        return Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.s3),
+          child: BbCard(
+            onTap: () => onResume(session.id),
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.forum_outlined, color: AppColors.brand),
+                const SizedBox(width: AppSpacing.s3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        kResumeChatTitle,
+                        style: AppTypography.display(
+                          size: AppTypography.sizeBase,
+                          weight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: AppTypography.body(
+                          size: AppTypography.sizeSm,
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: AppColors.textMuted),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -160,64 +298,36 @@ class _RealJobCard extends StatelessWidget {
     );
   }
 
-  void _openPlanSheet(BuildContext context) {
-    final String id = job.id!;
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AppColors.surfaceCard,
-      showDragHandle: true,
-      builder: (BuildContext sheetContext) {
-        Widget action(String label, IconData icon, VoidCallback onTap) =>
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-              child: BbButton(
-                label: label,
-                iconLeft: icon,
-                variant: BbButtonVariant.secondary,
-                block: true,
-                onPressed: () {
-                  Navigator.of(sheetContext).pop();
-                  onTap();
-                },
-              ),
-            );
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter,
-            0,
-            AppSpacing.gutter,
-            AppSpacing.s5,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                'Plan & boost',
-                style: AppTypography.display(
-                  size: AppTypography.sizeMd,
-                  weight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.s3),
-              action('Buy plan · Standard', Icons.workspace_premium,
-                  () => _run(context, (JobsCubit c) => c.buyPlan(id, 'standard'))),
-              action('Buy plan · Pro', Icons.workspace_premium,
-                  () => _run(context, (JobsCubit c) => c.buyPlan(id, 'pro'))),
-              action('Boost reach', Icons.rocket_launch,
-                  () => _run(context, (JobsCubit c) => c.boost(id))),
-              // Quota top-up tiers are the pricing `quota_topup` codes
-              // (topup_10 / topup_30) — NOT a plan tier like 'standard' (that
-              // would be a 400 invalid-tier and the feature would be dead). A
-              // 409 (no active plan to top up) is still shown honestly.
-              action('Top up quota · +10 views', Icons.add_chart,
-                  () => _run(context, (JobsCubit c) => c.topup(id, 'topup_10'))),
-              action('Top up quota · +30 views', Icons.add_chart,
-                  () => _run(context, (JobsCubit c) => c.topup(id, 'topup_30'))),
-            ],
-          ),
-        );
-      },
+  /// Hands the payer to the WEB portal to manage plans / boosts / top-ups.
+  ///
+  /// This REPLACED a one-tap in-app purchase sheet ("Buy plan · Standard",
+  /// "Buy plan · Pro", "Boost reach", "Top up quota") that charged real money
+  /// behind a confirm dialog. Selling a digital entitlement from inside a
+  /// store-distributed app is precisely what the App Store / Play Store IAP
+  /// rules cover, so the app now has zero money-spending actions and points
+  /// outward instead.
+  ///
+  /// Falls back to an honest toast (no dead-end, no fabricated link) when no
+  /// usable web origin is configured or nothing on the device can open it.
+  Future<void> _openPlanOnWeb(BuildContext context) async {
+    final String? base = resolvePayerWebUrl();
+    bool opened = false;
+    if (base != null) {
+      final Uri? url = Uri.tryParse('$base/jobs/${job.id}');
+      if (url != null) {
+        try {
+          opened = await jobsExternalUrlLauncher(url);
+        } catch (_) {
+          opened = false;
+        }
+      }
+    }
+    if (opened || !context.mounted) return;
+    showBbToast(
+      context,
+      title: 'Open on web',
+      message: kManagePlanOnWebNote,
+      icon: Icons.open_in_new,
     );
   }
 
@@ -389,39 +499,19 @@ class _RealJobCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.s2),
-          BbButton(
-            label: 'Plan & boost',
-            variant: BbButtonVariant.tonal,
-            size: BbButtonSize.sm,
-            iconLeft: Icons.rocket_launch,
-            block: true,
-            onPressed: () => _openPlanSheet(context),
-          ),
+          _manageOnWeb(context),
         ];
       case 'paused':
         return <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: BbButton(
-                  label: 'Resume',
-                  size: BbButtonSize.sm,
-                  iconLeft: Icons.play_arrow,
-                  onPressed: () => _run(context, (JobsCubit c) => c.resume(id)),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: BbButton(
-                  label: 'Plan & boost',
-                  variant: BbButtonVariant.tonal,
-                  size: BbButtonSize.sm,
-                  iconLeft: Icons.rocket_launch,
-                  onPressed: () => _openPlanSheet(context),
-                ),
-              ),
-            ],
+          BbButton(
+            label: 'Resume',
+            size: BbButtonSize.sm,
+            iconLeft: Icons.play_arrow,
+            block: true,
+            onPressed: () => _run(context, (JobsCubit c) => c.resume(id)),
           ),
+          const SizedBox(height: AppSpacing.s2),
+          _manageOnWeb(context),
         ];
       default: // closed — terminal, no actions.
         return <Widget>[
@@ -434,6 +524,32 @@ class _RealJobCard extends StatelessWidget {
           ),
         ];
     }
+  }
+
+  /// The external "manage plan on web" affordance + the one-line note that says
+  /// out loud why there is no purchase button here.
+  Widget _manageOnWeb(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        BbButton(
+          label: kManagePlanOnWebLabel,
+          variant: BbButtonVariant.secondary,
+          size: BbButtonSize.sm,
+          iconLeft: Icons.open_in_new,
+          block: true,
+          onPressed: () => _openPlanOnWeb(context),
+        ),
+        const SizedBox(height: AppSpacing.s1),
+        Text(
+          kManagePlanOnWebNote,
+          style: AppTypography.body(
+            size: AppTypography.sizeXs,
+            color: AppColors.textMuted,
+          ),
+        ),
+      ],
+    );
   }
 
   /// The date portion of an ISO timestamp (no intl dep). Falls back to the raw
@@ -519,28 +635,16 @@ class _JobCard extends StatelessWidget {
             countText: '${job.filled}/${job.quota}',
           ),
           const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: BbButton(
-                  label: 'Applicants',
-                  variant: BbButtonVariant.secondary,
-                  size: BbButtonSize.sm,
-                  iconLeft: Icons.groups_outlined,
-                  onPressed: () {},
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: BbButton(
-                  label: 'Boost',
-                  variant: BbButtonVariant.tonal,
-                  size: BbButtonSize.sm,
-                  iconLeft: Icons.rocket_launch,
-                  onPressed: () {},
-                ),
-              ),
-            ],
+          // The 'Boost' button that used to sit beside this was removed with the
+          // rest of the money surface: it was a dead no-op that still advertised
+          // an in-app purchase, which is the store-policy risk this slice closes.
+          BbButton(
+            label: 'Applicants',
+            variant: BbButtonVariant.secondary,
+            size: BbButtonSize.sm,
+            iconLeft: Icons.groups_outlined,
+            block: true,
+            onPressed: () {},
           ),
         ],
       ),

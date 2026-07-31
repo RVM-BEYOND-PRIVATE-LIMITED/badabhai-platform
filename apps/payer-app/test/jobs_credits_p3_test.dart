@@ -8,7 +8,6 @@ import 'package:payer_app/core/auth/payer_http.dart';
 import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/core/data/http_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
-import 'package:payer_app/features/jobs/presentation/cubit/jobs_cubit.dart';
 
 /// PASS P3 — company job-postings CRUD + lifecycle + monetization, and the
 /// credits balance/ledger/purchase, over `HttpPayerApiClient` driven by a mock
@@ -341,11 +340,16 @@ void main() {
       );
     });
 
-    test('JobsCubit.topup forwards a valid quota_topup tier to the wire',
-        () async {
+    // STORE POLICY (owner decision, ADR-0035 slice): the money actions were
+    // removed from the MOBILE app entirely — `JobsCubit.buyPlan/boost/topup` are
+    // gone along with the "Plan & boost" sheet that called them, so the app
+    // cannot trip App Store / Play Store IAP policy. The API-CLIENT methods and
+    // the backend endpoints are untouched (apps/payer-web still drives them),
+    // which is what this now asserts: the quota_topup tier contract still holds
+    // on the seam that remains.
+    test('quotaTopup still forwards a valid quota_topup tier on the API seam '
+        '(the cubit action is gone — no money action in the app)', () async {
       final h = _harness(<String, http.Response>{
-        // The list refetch that follows a successful top-up.
-        'GET /payer/job-postings': _json(<String, dynamic>{'items': <dynamic>[]}),
         'POST /payer/job-postings/$_jobId/quota-topup': _json(<String, dynamic>{
           'plan': <String, dynamic>{
             'applicantVisibilityQuota': 10,
@@ -355,15 +359,15 @@ void main() {
         }, 201),
       });
 
-      final JobsCubit cubit = JobsCubit(h.api);
-      final JobActionResult result = await cubit.topup(_jobId, 'topup_10');
+      final PlanPurchase p = await h.api.quotaTopup(_jobId, tier: 'topup_10');
 
-      expect(result.success, isTrue);
+      expect(p.applicantVisibilityQuota, 10);
       final http.Request topup = h.router.seen.firstWhere(
           (http.Request r) => r.url.path.endsWith('/quota-topup'));
       final Map<String, dynamic> body =
           jsonDecode(topup.body) as Map<String, dynamic>;
-      // The screen sends topup_10 / topup_30 — NEVER a plan tier like 'standard'.
+      // topup_10 / topup_30 are the pricing `quota_topup` codes — NEVER a plan
+      // tier like 'standard' (that would be a 400 invalid-tier).
       expect(body['tier'], 'topup_10');
       expect(<String>['topup_10', 'topup_30'], contains(body['tier']));
     });

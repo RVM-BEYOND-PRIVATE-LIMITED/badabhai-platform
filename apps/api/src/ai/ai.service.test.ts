@@ -473,4 +473,78 @@ describe("AiService", () => {
       expect(meta.error_code).toBeNull();
     });
   });
+
+  // ---------------------------------------------------------------
+  //  job-posting chat (ADR-0035)
+  // ---------------------------------------------------------------
+  describe("jobPostingChatOpening / jobPostingChatRespond", () => {
+    beforeEach(() => {
+      config = mockConfig();
+      ai = new AiService(config);
+    });
+
+    it("posts the opener to /job-posting-chat/opening and memoizes the success", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(fakeResponse({ json: async () => ({ opening_text: "Kya role hai?" }) }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      expect(await ai.jobPostingChatOpening()).toBe("Kya role hai?");
+      expect(await ai.jobPostingChatOpening()).toBe("Kya role hai?");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("http://ai-service:8000/job-posting-chat/opening");
+      // The opener request carries a trade hint and NOTHING else — no payer id, no
+      // session id, and never the payer's organisation name (ADR-0035 §Decision 3).
+      expect(JSON.parse(init.body as string)).toEqual({ trade_hint: null });
+    });
+
+    it("does NOT memoize a failure — one blip must not pin later sessions to the fallback", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(fakeResponse({ ok: false, status: 500 }))
+        .mockResolvedValue(fakeResponse({ json: async () => ({ opening_text: "Kya role hai?" }) }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      expect(await ai.jobPostingChatOpening()).toBeNull();
+      expect(await ai.jobPostingChatOpening()).toBe("Kya role hai?");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("returns the parsed turn from /job-posting-chat/respond", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            json: async () => ({
+              reply_text: "Kitne log chahiye?",
+              asked_question_id: "q_vacancy",
+              suggested_answers: ["1", "2-5"],
+            }),
+          }),
+        ),
+      );
+
+      const turn = await ai.jobPostingChatRespond({
+        session_id: "s-1",
+        message_text: "CNC operator chahiye",
+      });
+      expect(turn?.reply_text).toBe("Kitne log chahiye?");
+      expect(turn?.asked_question_id).toBe("q_vacancy");
+      // Contract defaults fill in on the wire-absent fields.
+      expect(turn?.blocked).toBe(false);
+      expect(turn?.draft).toBeNull();
+    });
+
+    it("returns NULL rather than a fabricated turn when the AI service is unreachable", async () => {
+      // The deliberate difference from profilingRespond: there is no second copy of
+      // the job-posting interview engine in TS to fall back to, so the honest answer
+      // is "no turn happened" and the caller fails the request loudly.
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+      expect(
+        await ai.jobPostingChatRespond({ session_id: "s-1", message_text: "hi" }),
+      ).toBeNull();
+    });
+  });
 });

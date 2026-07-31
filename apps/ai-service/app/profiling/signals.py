@@ -547,6 +547,134 @@ _MATERIALS: list[tuple[str, str]] = [
 
 _ROLE_LABELS: dict[str, str] = {rid: label for _, label, rid, _ in _ROLES}
 
+# --- Education / certification canonical values ------------------------------
+# The exact strings `detect()` appends to `sig.education` / `sig.certifications`.
+# Lifted to module constants so the vocabulary below and the detector cannot drift:
+# there is ONE place that says what an education/certification token may read as.
+_EDUCATION_LABELS: tuple[str, ...] = ("ITI", "Diploma", "Degree")
+_CERTIFICATION_LABELS: tuple[str, ...] = (
+    "RVM CAD",
+    "NSDC",
+    "NCVT",
+    "SCVT",
+    "NSQF",
+    "Apprenticeship",
+)
+
+
+# --- Curated trade/education VOCABULARY (the FIX-5 data-loss guard) ----------
+#
+# WHAT THIS EXISTS FOR. `pseudonymize._EMPLOYER_RE` masks "<Capitalised words> +
+# <company suffix>", and its suffix list contains words that are ALSO ordinary trade
+# and education vocabulary — Steel, Engineering, Tools, Precision, Tech, Fabrication,
+# Manufacturing. MEASURED on main, before this guard:
+#     pseudonymize("Stainless Steel")                -> "[EMPLOYER_1]"
+#     pseudonymize("Diploma Mechanical Engineering") -> "[EMPLOYER_1]"
+# and because `certified_clean_skill_labels` DROPS any label the gateway altered,
+# those two were silently deleted from workers' persisted profiles and résumés. Real
+# skills and real qualifications, gone, with no signal anywhere.
+#
+# WHAT IT IS NOT. It does NOT weaken employer masking. `pseudonymize()` is untouched:
+# on general worker free text "Stainless Steel Industries Pvt Ltd" still masks exactly
+# as before. This set is consulted ONLY by the label-CERTIFICATION path, and only to
+# decide whether a label the gateway masked as an EMPLOYER is in fact vocabulary.
+#
+# THE DISCRIMINATOR, and why it holds. A label qualifies only when EVERY one of its
+# tokens is curated vocabulary. A real company name always carries at least one token
+# that is not — a proper noun ("Jyoti", "Bharat", "Ramesh") or a legal/organisational
+# form ("Industries", "Pvt", "Ltd", "Enterprises", "Works", "Solutions", "Motors"),
+# none of which any trade table contains. So "Stainless Steel" and "Mechanical
+# Engineering" pass while "Ramesh Steel Industries", "Jyoti CNC Industries" and
+# "Precision Engineering Works" do not. This is a whole-label test, never a
+# token-by-token exemption.
+#
+# THE VOCABULARY IS DERIVED, NOT WRITTEN. Every token is harvested from the keyword /
+# label tables ABOVE — the same tables the detector matches on — so a new machine,
+# skill, material or trade added there is automatically vocabulary here and the two
+# can never disagree. Nothing is hand-listed.
+_VOCAB_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+# Tables whose FIRST column is a plain string (matched with `in` / plain compare):
+# harvest keyword and label verbatim.
+_PLAIN_VOCAB_TABLES: tuple[tuple[tuple[str, ...], ...], ...] = (
+    tuple((kw, label) for kw, label, _mid in _MACHINES),
+    tuple((kw, label) for kw, label, _sid in _CONTROLLERS),
+    tuple((kw, label) for kw, label, _rid, _trade in _ROLES),
+    tuple((kw, label) for kw, label, _sid in _SKILLS),
+    tuple(_INSPECTION),
+    tuple(_MATERIALS),
+)
+
+# Tables whose FIRST column is a REGEX SOURCE. Harvested with a >=3-character floor:
+# every regex escape in these patterns is a SINGLE letter (`\s`, `\b`, `\d`), so the
+# floor provably excludes escape artifacts while keeping every real term
+# ("mig", "tig", "3ds", "mechanical", "cutting"). MEASURED, not assumed — the test
+# suite asserts no 1-2 character junk enters the set.
+_REGEX_VOCAB_TABLES: tuple[tuple[tuple[str, str, str], ...], ...] = (
+    tuple(_WELDING),
+    tuple(_PLUMBING),
+    tuple(_CARPENTRY),
+    tuple(_DESIGN),
+    tuple(_INTERIOR_DESIGN),
+)
+
+# Degree/education words the detector itself recognises (the `\b(b\.?tech|be|degree|
+# engineering)\b` arm in `detect()`): "engineering" is trade+education vocabulary in
+# this product, and is exactly the `_COMPANY_SUFFIX` collision that deleted
+# "Diploma Mechanical Engineering".
+_EDUCATION_DETECTOR_WORDS: tuple[str, ...] = ("btech", "tech", "degree", "engineering", "diploma")
+
+
+def _build_vocabulary_tokens() -> frozenset[str]:
+    tokens: set[str] = set()
+
+    def add(text: str, *, min_len: int = 1) -> None:
+        for tok in _VOCAB_TOKEN_RE.findall(text.lower()):
+            if len(tok) >= min_len:
+                tokens.add(tok)
+
+    for table in _PLAIN_VOCAB_TABLES:
+        for row in table:
+            for cell in row:
+                add(cell)
+    for regex_table in _REGEX_VOCAB_TABLES:
+        for pattern, label, _sid in regex_table:
+            add(pattern, min_len=3)
+            add(label)
+    for label in _ID_LABELS.values():
+        add(label)
+    for acronym in _ID_ACRONYMS:
+        add(acronym)
+    for label in _EDUCATION_LABELS:
+        add(label)
+    for label in _CERTIFICATION_LABELS:
+        add(label)
+    for word in _EDUCATION_DETECTOR_WORDS:
+        add(word)
+    return frozenset(tokens)
+
+
+VOCABULARY_TOKENS: frozenset[str] = _build_vocabulary_tokens()
+
+
+def is_curated_vocabulary_label(label: str) -> bool:
+    """True when EVERY token of ``label`` is curated trade/education vocabulary.
+
+    The whole-label test described at :data:`VOCABULARY_TOKENS`. A label with no
+    alphanumeric token at all (punctuation only) is NOT vocabulary — there is nothing
+    to recognise, so it fails closed.
+
+    Callers: ``pseudonymize.certified_clean_skill_labels`` ONLY, and only to rescue a
+    label the gateway masked as an EMPLOYER. This function grants nothing on its own.
+    """
+    if not isinstance(label, str):
+        return False
+    tokens = _VOCAB_TOKEN_RE.findall(label.lower())
+    if not tokens:
+        return False
+    return all(tok in VOCABULARY_TOKENS for tok in tokens)
+
+
 # P1-3(a): DECIMAL-SAFE experience.
 #
 # The previous `(\d{1,2})` had no left boundary, so on "2.5 saal" the engine

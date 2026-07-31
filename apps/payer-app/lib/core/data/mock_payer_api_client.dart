@@ -1,3 +1,4 @@
+import 'job_posting_chat_models.dart';
 import 'models.dart';
 import 'payer_api_client.dart';
 
@@ -310,6 +311,98 @@ class MockPayerApiClient implements PayerApiClient {
 
   @override
   Future<ReferralLink> referralLink({String? campaign}) async => _referralLink;
+
+  // --- AI job-posting chat (ADR-0035) — canned DETERMINISTIC interview -------
+  // A tiny in-memory stand-in for the server-side interview engine so the whole
+  // chat → draft → publish loop is walkable with `USE_MOCKS=true` and in widget
+  // tests, with no backend and no LLM.
+  //
+  // It mirrors the two properties of the real engine that matter to the client:
+  //   1. DETERMINISTIC topic order (invariant #4 — the engine decides the next
+  //      question and readiness; nothing here is generative or random), and
+  //   2. NO org/company question anywhere in the bank (ADR-0035 §Decision 3 —
+  //      the payer's own name is auto-filled server-side at publish and never
+  //      travels through the conversation). A test asserts that hole stays shut.
+  //
+  // Vacancy is banded ([kVacancyBands], ADR-0012): the mock maps a headcount
+  // answer to a band exactly as `bandForCount()` does server-side, so the client
+  // can never learn to expect a raw integer here.
+
+  int _chatSeq = 0;
+  final Map<String, _MockChatSession> _chatSessions = <String, _MockChatSession>{};
+
+  @override
+  Future<JobPostingChatTurn> startJobPostingChatSession() async {
+    _chatSeq += 1;
+    final String id = 'mock-chat-$_chatSeq';
+    final _MockChatSession session = _MockChatSession(id);
+    _chatSessions[id] = session;
+    session.messages.add(
+      JobPostingChatMessageRow(
+        fromPayer: false,
+        messageType: 'text',
+        bodyText: _kMockChatOpening,
+        createdAt: _mockNow,
+      ),
+    );
+    return JobPostingChatTurn(
+      sessionId: id,
+      reply: _kMockChatOpening,
+      draft: session.draft,
+      suggestedReplies: _kMockChatTopics.first.chips,
+    );
+  }
+
+  @override
+  Future<JobPostingChatTurn> sendJobPostingChatMessage({
+    required String sessionId,
+    required String text,
+  }) async {
+    final _MockChatSession? session = _chatSessions[sessionId];
+    // Neutral unknown/not-owned — same shape the real route's no-oracle 404 has.
+    if (session == null) throw const PayerApiException(404);
+    return session.answer(text);
+  }
+
+  @override
+  Future<List<JobPostingChatSessionSummary>>
+      fetchJobPostingChatSessions() async =>
+          _chatSessions.values
+              .map((_MockChatSession s) => s.summary)
+              .toList(growable: false)
+              .reversed
+              .toList(growable: false);
+
+  @override
+  Future<JobPostingChatTranscript?> fetchJobPostingChatTranscript(
+    String sessionId,
+  ) async {
+    // Neutral 404 → null (never an oracle), matching the real client.
+    final _MockChatSession? session = _chatSessions[sessionId];
+    if (session == null) return null;
+    return JobPostingChatTranscript(
+      sessionId: session.id,
+      status: session.status,
+      draft: session.draft,
+      draftReady: session.draftReady,
+      suggestedReplies: session.currentChips,
+      messages: session.messages.toList(growable: false),
+    );
+  }
+
+  @override
+  Future<String> publishJobPostingChatSession(String sessionId) async {
+    final _MockChatSession? session = _chatSessions[sessionId];
+    if (session == null) throw const PayerApiException(404);
+    if (session.published) throw const PayerApiException(409);
+    // The server validates the stored draft against PayerCreateJobPostingSchema
+    // and rejects an incomplete one — mirror that so the UI's publish-failure
+    // path is exercised in MOCK too.
+    if (!session.draft.hasRequiredFields) throw const PayerApiException(400);
+    session.published = true;
+    _chatSeq += 1;
+    return 'mock-posting-$_chatSeq';
+  }
 
   // --- Agency demand — jobs CRUD + lifecycle + referrals summary (canned) ----
   // An in-memory list so the agency My-jobs + Post-a-job flow is walkable in
@@ -688,5 +781,221 @@ class MockPayerApiClient implements PayerApiClient {
         cityLabel: c.loc,
       );
     }).toList(growable: false);
+  }
+}
+
+// ===========================================================================
+// MOCK job-posting interview engine (ADR-0035)
+// ===========================================================================
+
+/// Fixed timestamp so canned rows are stable across runs/tests.
+const String _mockNow = '2026-07-27T00:00:00Z';
+
+/// The opener. Deliberately does NOT greet the payer by company name and does
+/// NOT ask for one (ADR-0035 §Decision 3) — the org name is auto-filled
+/// server-side at publish time and never enters the conversation.
+const String _kMockChatOpening =
+    'Namaste! Main aapki job posting banane mein madad karunga. '
+    'Shuru karte hain — aapko kis kaam ke liye log chahiye?';
+
+/// One deterministic interview topic: the question asked, the chips offered, and
+/// how the payer's free-text answer folds into the draft.
+class _MockChatTopic {
+  const _MockChatTopic({
+    required this.key,
+    required this.question,
+    required this.chips,
+    required this.apply,
+  });
+
+  /// Field KEY (never a value) — this is what `missing_fields` carries.
+  final String key;
+  final String question;
+  final List<String> chips;
+  final JobPostingDraft Function(JobPostingDraft draft, String answer) apply;
+}
+
+/// The MOCK topic bank. Ordered, finite, and — critically — carrying NO
+/// company/org question. The real engine's bank lives in
+/// `apps/ai-service/app/job_posting_chat/question_bank.py`; this exists only so
+/// the client is walkable without it.
+final List<_MockChatTopic> _kMockChatTopics = <_MockChatTopic>[
+  _MockChatTopic(
+    key: 'role_title',
+    question: 'Aapko kis kaam ke liye log chahiye?',
+    chips: <String>['CNC Setter', 'CNC Operator', 'Welder', 'Fitter'],
+    apply: (JobPostingDraft d, String a) => _copyDraft(d, roleTitle: a),
+  ),
+  _MockChatTopic(
+    key: 'location_label',
+    question: 'Kaam kahan hai — city aur area?',
+    chips: <String>['Pune', 'Chakan', 'Pimpri'],
+    apply: (JobPostingDraft d, String a) => _copyDraft(d, locationLabel: a),
+  ),
+  _MockChatTopic(
+    key: 'vacancy_band',
+    question: 'Kitne log chahiye?',
+    // The chips ARE the band enum labels — a tapped chip can never record a
+    // headcount the payer did not give (ADR-0012).
+    chips: <String>['1', '2-5', '6-10', '11-25', '25+'],
+    apply: (JobPostingDraft d, String a) =>
+        _copyDraft(d, vacancyBand: _mockBandFor(a)),
+  ),
+  _MockChatTopic(
+    key: 'pay',
+    question: 'Salary range kya rahegi (per month)?',
+    chips: <String>['18000-24000', '24000-30000', '30000-40000'],
+    apply: (JobPostingDraft d, String a) {
+      final List<int> nums = RegExp(r'\d+')
+          .allMatches(a)
+          .map((RegExpMatch m) => int.parse(m.group(0)!))
+          .where((int n) => n >= 1000)
+          .toList();
+      if (nums.isEmpty) return d;
+      nums.sort();
+      return _copyDraft(d, payMin: nums.first, payMax: nums.last);
+    },
+  ),
+  _MockChatTopic(
+    key: 'shift',
+    question: 'Shift kaunsi hai?',
+    chips: <String>['Day', 'Night', 'Rotational'],
+    apply: (JobPostingDraft d, String a) => _copyDraft(d, shift: a),
+  ),
+  _MockChatTopic(
+    key: 'requirements',
+    question: 'Kaam ke liye kya zaroori hai — experience ya koi skill?',
+    chips: <String>['2+ years', 'Fanuc', 'Drawing reading'],
+    apply: (JobPostingDraft d, String a) =>
+        _copyDraft(d, requirements: <String>[...d.requirements, a]),
+  ),
+];
+
+/// Maps a vacancy answer to the `vacancy_band` enum — the MOCK mirror of the
+/// shared `bandForCount()` validator (ADR-0012). An answer that is already a
+/// band is passed through; a headcount is bucketed; anything else falls back to
+/// the smallest band rather than inventing a bigger one.
+String _mockBandFor(String answer) {
+  final String trimmed = answer.trim();
+  if (kVacancyBands.contains(trimmed)) return trimmed;
+  final RegExpMatch? m = RegExp(r'\d+').firstMatch(trimmed);
+  final int n = m == null ? 1 : int.parse(m.group(0)!);
+  if (n <= 1) return '1';
+  if (n <= 5) return '2-5';
+  if (n <= 10) return '6-10';
+  if (n <= 25) return '11-25';
+  return '25+';
+}
+
+/// `copyWith` for the immutable [JobPostingDraft] (kept here, not on the model,
+/// so the wire DTO stays a plain parsed value with no mock-only surface).
+JobPostingDraft _copyDraft(
+  JobPostingDraft d, {
+  String? roleTitle,
+  String? locationLabel,
+  String? vacancyBand,
+  int? payMin,
+  int? payMax,
+  String? shift,
+  List<String>? requirements,
+  List<String>? missingFields,
+}) {
+  return JobPostingDraft(
+    roleTitle: roleTitle ?? d.roleTitle,
+    tradeKey: d.tradeKey,
+    skillPhrases: d.skillPhrases,
+    locationLabel: locationLabel ?? d.locationLabel,
+    vacancyBand: vacancyBand ?? d.vacancyBand,
+    payMin: payMin ?? d.payMin,
+    payMax: payMax ?? d.payMax,
+    shift: shift ?? d.shift,
+    benefits: d.benefits,
+    requirements: requirements ?? d.requirements,
+    description: d.description,
+    confidence: d.confidence,
+    missingFields: missingFields ?? d.missingFields,
+    clarificationQuestions: d.clarificationQuestions,
+  );
+}
+
+/// One in-memory MOCK conversation: transcript + draft + a cursor into the
+/// topic bank. Stateless-engine semantics (the cursor is derived from what the
+/// draft already has, not from a counter that can drift).
+class _MockChatSession {
+  _MockChatSession(this.id);
+
+  final String id;
+  final List<JobPostingChatMessageRow> messages = <JobPostingChatMessageRow>[];
+  JobPostingDraft draft = const JobPostingDraft();
+  bool published = false;
+  int _asked = 0;
+
+  bool get draftReady => _asked >= _kMockChatTopics.length;
+
+  String get status => published
+      ? 'published'
+      : (draftReady ? 'draft_ready' : 'active');
+
+  /// Chips for the question currently on screen (empty once the bank is done).
+  List<String> get currentChips => _asked < _kMockChatTopics.length
+      ? _kMockChatTopics[_asked].chips
+      : const <String>[];
+
+  JobPostingChatSessionSummary get summary => JobPostingChatSessionSummary(
+        id: id,
+        status: status,
+        startedAt: _mockNow,
+        lastMessageAt: _mockNow,
+        draftReady: draftReady,
+        roleTitle: draft.roleTitle,
+      );
+
+  /// Applies the payer's [text] to the CURRENT topic and asks the next one.
+  JobPostingChatTurn answer(String text) {
+    messages.add(
+      JobPostingChatMessageRow(
+        fromPayer: true,
+        messageType: 'text',
+        bodyText: text,
+        createdAt: _mockNow,
+      ),
+    );
+
+    if (_asked < _kMockChatTopics.length) {
+      draft = _kMockChatTopics[_asked].apply(draft, text.trim());
+      _asked += 1;
+    }
+
+    final _MockChatTopic? next =
+        _asked < _kMockChatTopics.length ? _kMockChatTopics[_asked] : null;
+    final String reply = next == null
+        ? 'Bas ho gaya — neeche draft dekh lijiye aur publish kar dijiye.'
+        : next.question;
+
+    draft = _copyDraft(
+      draft,
+      missingFields: _kMockChatTopics
+          .skip(_asked)
+          .map((_MockChatTopic t) => t.key)
+          .toList(growable: false),
+    );
+
+    messages.add(
+      JobPostingChatMessageRow(
+        fromPayer: false,
+        messageType: 'text',
+        bodyText: reply,
+        createdAt: _mockNow,
+      ),
+    );
+
+    return JobPostingChatTurn(
+      sessionId: id,
+      reply: reply,
+      status: status,
+      draft: draft,
+      draftReady: draftReady,
+      suggestedReplies: next?.chips ?? const <String>[],
+    );
   }
 }

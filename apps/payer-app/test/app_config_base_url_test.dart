@@ -82,4 +82,34 @@ void main() {
       );
     });
   });
+
+  /// The web origin the "Manage plan on web" link opens. It exists because
+  /// every money action was REMOVED from this app (store IAP policy), which
+  /// would otherwise leave the payer at a dead end.
+  group('resolvePayerWebUrl — the external money surface', () {
+    test('defaults to the documented payer-web origin, over https', () {
+      final String? url = resolvePayerWebUrl(configuredUrl: '');
+      expect(url, isNotNull);
+      expect(Uri.parse(url!).scheme, 'https');
+    });
+
+    test('a supplied https origin wins', () {
+      expect(
+        resolvePayerWebUrl(configuredUrl: '  https://portal.example.com  '),
+        'https://portal.example.com',
+      );
+    });
+
+    test('plaintext / malformed → null, so the UI shows the honest copy with '
+        'NO broken link rather than launching a dead URL', () {
+      for (final String bad in <String>[
+        'http://portal.example.com',
+        'portal.example.com',
+        'not a url',
+        '://nope',
+      ]) {
+        expect(resolvePayerWebUrl(configuredUrl: bad), isNull, reason: bad);
+      }
+    });
+  });
 }

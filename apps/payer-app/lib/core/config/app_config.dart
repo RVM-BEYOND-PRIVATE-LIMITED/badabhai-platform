@@ -77,6 +77,40 @@ String resolvePayerApiBaseUrl({String? configuredUrl, bool? isRelease}) {
   return configured;
 }
 
+/// The payer/agency WEB portal origin (`apps/payer-web`), overridable at build
+/// time with `--dart-define=PAYER_WEB_URL=https://…`.
+///
+/// WHY THE APP NEEDS ONE AT ALL: every money action — buying a plan, a boost, a
+/// quota top-up, credits — is deliberately absent from this app so it can never
+/// trip App Store / Play Store in-app-purchase policy. That leaves the payer
+/// needing somewhere to go, and a dead end ("not available here", full stop) is
+/// how a real capability gets read as a broken app. So the app POINTS, and the
+/// purchase itself happens on the web, outside the store's payment rules.
+const String _kPayerWebUrl = String.fromEnvironment('PAYER_WEB_URL');
+
+/// Default payer-web origin, matching the origin the server config already
+/// documents for this app (`packages/config/src/server.ts` — the
+/// `MEMBER_INVITE_ACCEPT_URL` / CORS examples). Overridable per build.
+const String _kDefaultPayerWebUrl = 'https://app.badabhai.in';
+
+/// Resolves the payer-web origin an external "manage this on the web" link
+/// opens. Returns null when the configured value is not a usable absolute URL,
+/// so the caller renders the honest text WITHOUT a broken link rather than
+/// launching something that cannot resolve.
+///
+/// [configuredUrl] is injectable only so the rules can be unit-tested (the
+/// dart-define is fixed at compile time). Production callers pass nothing.
+String? resolvePayerWebUrl({String? configuredUrl}) {
+  final String configured = (configuredUrl ?? _kPayerWebUrl).trim();
+  final String candidate =
+      configured.isEmpty ? _kDefaultPayerWebUrl : configured;
+  final Uri? uri = Uri.tryParse(candidate);
+  if (uri == null || !uri.isAbsolute || uri.host.isEmpty) return null;
+  // Plaintext would send a signed-in payer to an unprotected origin.
+  if (uri.scheme != 'https') return null;
+  return candidate;
+}
+
 /// The single place that picks the data client. Screens resolve their client
 /// through the locator, which calls this factory, so MOCK vs REAL is chosen in
 /// exactly one spot.

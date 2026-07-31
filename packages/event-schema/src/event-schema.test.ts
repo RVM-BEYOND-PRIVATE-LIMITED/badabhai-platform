@@ -2161,9 +2161,113 @@ describe("worker.push_token_claimed (TD92)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// job_posting_chat.* (ADR-0035) — the AI job-posting chat domain.
+//
+// The privacy contract is the point of these tests: the payer's typed message,
+// any draft field VALUE, and the payer's organisation name must be structurally
+// unable to reach the spine. `.strict()` is what makes that true, so each schema
+// is probed with the exact keys a careless caller would add.
+// ---------------------------------------------------------------------------
+describe("job_posting_chat.* (ADR-0035)", () => {
+  const chatEvent = (
+    name:
+      | "job_posting_chat.session_started"
+      | "job_posting_chat.message_sent"
+      | "job_posting_chat.draft_ready",
+    payload: Record<string, unknown>,
+    subjectType = "payer_job_posting_chat_session",
+  ): Record<string, unknown> => ({
+    event_id: UUID_A,
+    event_name: name,
+    event_version: 1,
+    occurred_at: "2026-07-28T10:00:00.000Z",
+    actor: { actor_type: "payer", actor_id: UUID_B },
+    subject: { subject_type: subjectType, subject_id: UUID_C },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  it("accepts the PII-free session_started / draft_ready shape (two opaque ids)", () => {
+    for (const name of ["job_posting_chat.session_started", "job_posting_chat.draft_ready"] as const) {
+      const ok = validateEvent(chatEvent(name, { session_id: UUID_C, payer_id: UUID_B }));
+      expect(ok.success).toBe(true);
+    }
+  });
+
+  it("accepts message_sent with ids + the message-type enum", () => {
+    const ok = validateEvent(
+      chatEvent(
+        "job_posting_chat.message_sent",
+        { session_id: UUID_C, payer_id: UUID_B, message_id: UUID_A, message_type: "text" },
+        "payer_job_posting_chat_message",
+      ),
+    );
+    expect(ok.success).toBe(true);
+  });
+
+  it("REJECTS smuggled chat free text, draft VALUES, or the payer's org name (.strict)", () => {
+    const smuggled = [
+      { body_text: "we need 5 welders, call me on 9876543210" },
+      { text: "night shift, 25000 rupees" },
+      { org_label: "Sharma Engineering Works" },
+      { company: "Sharma Engineering Works" },
+      { role_title: "CNC Operator" },
+      { location_label: "Pune" },
+      { description: "day shift, PF + ESI" },
+      { pay_min: 20000 },
+      { draft: { role_title: "CNC Operator" } },
+    ];
+    for (const extra of smuggled) {
+      const bad = validateEvent(
+        chatEvent("job_posting_chat.session_started", {
+          session_id: UUID_C,
+          payer_id: UUID_B,
+          ...extra,
+        }),
+      );
+      expect(bad.success).toBe(false);
+    }
+  });
+
+  it("REJECTS a non-uuid payer/session id and an unknown message_type", () => {
+    expect(
+      validateEvent(
+        chatEvent("job_posting_chat.session_started", { session_id: UUID_C, payer_id: "acme-ltd" }),
+      ).success,
+    ).toBe(false);
+    expect(
+      validateEvent(
+        chatEvent(
+          "job_posting_chat.message_sent",
+          {
+            session_id: UUID_C,
+            payer_id: UUID_B,
+            message_id: UUID_A,
+            message_type: "draft",
+          },
+          "payer_job_posting_chat_message",
+        ),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("has NO publish event — publish reuses the shipped job_posting.created", () => {
+    // ADR-0035 §Decision 6: this slice adds no second writer of job_posting.created.
+    expect(isEventName("job_posting_chat.published")).toBe(false);
+    expect(EVENT_NAMES.filter((n) => n.startsWith("job_posting_chat."))).toHaveLength(3);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 122 event names (118 prior + TD64 worker notifications + job_posting.verification_updated)", () => {
-    expect(EVENT_NAMES).toHaveLength(122);
+  it("exposes all 125 event names (122 prior + the ADR-0035 job_posting_chat domain)", () => {
+    expect(EVENT_NAMES).toHaveLength(125);
+    expect(isEventName("job_posting_chat.session_started")).toBe(true);
+    expect(isEventName("job_posting_chat.message_sent")).toBe(true);
+    expect(isEventName("job_posting_chat.draft_ready")).toBe(true);
     expect(isEventName("consent.revoked")).toBe(true);
     expect(isEventName("interview_kit.ready_for_worker")).toBe(true);
     expect(isEventName("job_posting.verification_updated")).toBe(true);

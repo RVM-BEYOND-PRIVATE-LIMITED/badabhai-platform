@@ -1,4 +1,5 @@
 import '../auth/payer_http.dart';
+import 'job_posting_chat_models.dart';
 import 'models.dart';
 import 'payer_api_client.dart';
 
@@ -219,6 +220,112 @@ class HttpPayerApiClient implements PayerApiClient {
     // 409 when there is no active plan to top up.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     return _planFromResponse(res.body);
+  }
+
+  // --- AI job-posting chat (ADR-0035) ----------------------------------------
+  // Five routes behind PayerAuthGuard. NEVER a body `payer_id` (the server
+  // derives it from the bearer) and NEVER an org/company name on the wire — the
+  // draft has no such field by construction (see [JobPostingDraft]).
+
+  @override
+  Future<JobPostingChatTurn> startJobPostingChatSession() async {
+    // EMPTY body — no payer id (XB-A) and no org name (rule A) to send.
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/job-posting-chat/session',
+      body: <String, dynamic>{},
+    );
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final JobPostingChatTurn turn = JobPostingChatTurn.fromJson(res.body);
+    // A 2xx with no session id is CONTRACT BREAKAGE, not an open session: every
+    // later call keys off this id, and an empty one would send the payer into a
+    // chat whose every turn 404s. Fail here instead (mirrors the #370 rule that
+    // a malformed 2xx must not decode to a confident-looking empty value).
+    if (turn.sessionId.isEmpty) throw PayerApiException(res.statusCode);
+    return turn;
+  }
+
+  @override
+  Future<JobPostingChatTurn> sendJobPostingChatMessage({
+    required String sessionId,
+    required String text,
+  }) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/job-posting-chat/message',
+      // EXACTLY {session_id, text} — the frozen contract.
+      body: <String, dynamic>{'session_id': sessionId, 'text': text},
+    );
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return JobPostingChatTurn.fromJson(res.body);
+  }
+
+  @override
+  Future<List<JobPostingChatSessionSummary>>
+      fetchJobPostingChatSessions() async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.get,
+      '/payer/job-posting-chat/sessions',
+    );
+    // A non-2xx must NOT decode to an empty list rendered as "no chat in
+    // progress" — that is exactly the cross-device promise this endpoint makes,
+    // so a 5xx here has to surface as an error, never as "you have nothing".
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final List<JobPostingChatSessionSummary> rows = _rows(res.body, 'sessions')
+        .map(JobPostingChatSessionSummary.fromJson)
+        .where((JobPostingChatSessionSummary s) => s.id.isNotEmpty)
+        .toList();
+    // Newest activity first — the same ordering the web client applies, so both
+    // devices offer the same conversation back.
+    rows.sort((JobPostingChatSessionSummary a, JobPostingChatSessionSummary b) =>
+        b.activityKey.compareTo(a.activityKey));
+    return List<JobPostingChatSessionSummary>.unmodifiable(rows);
+  }
+
+  @override
+  Future<JobPostingChatTranscript?> fetchJobPostingChatTranscript(
+    String sessionId,
+  ) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.get,
+      '/payer/job-posting-chat/sessions/$sessionId/messages',
+    );
+    // Neutral 404 (unknown OR not-owned — the no-oracle IDOR defence the worker
+    // transcript route already uses) → null, never an exception and never a
+    // distinguishable error the caller could probe with.
+    if (res.statusCode == 404) return null;
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return JobPostingChatTranscript.fromJson(res.body);
+  }
+
+  @override
+  Future<String> publishJobPostingChatSession(String sessionId) async {
+    // EMPTY body: the draft already lives server-side on the session row, the
+    // payer IS the session (XB-A), and the org name is auto-filled there.
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/job-posting-chat/sessions/$sessionId/publish',
+      body: <String, dynamic>{},
+    );
+    // 400 draft incomplete · 409 already published / not ready · 404 unknown.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final Object? id = res.body['job_posting_id'] ?? res.body['jobPostingId'];
+    // A 2xx without the created id is contract breakage — do NOT report a
+    // success the caller cannot route to.
+    if (id is! String || id.isEmpty) throw PayerApiException(res.statusCode);
+    return id;
+  }
+
+  /// Rows from `{<key>: [...]}`, falling back to the `items` envelope
+  /// [PayerHttp] wraps a bare top-level array in (both list conventions ship
+  /// in-repo, so both are accepted).
+  static List<Map<String, dynamic>> _rows(
+    Map<String, dynamic> body,
+    String key,
+  ) {
+    final Object? raw = body[key] ?? body['items'];
+    if (raw is! List<dynamic>) return const <Map<String, dynamic>>[];
+    return raw.whereType<Map<String, dynamic>>().toList(growable: false);
   }
 
   // --- Credits — balance + ledger (read-only; no purchase surface) -----------

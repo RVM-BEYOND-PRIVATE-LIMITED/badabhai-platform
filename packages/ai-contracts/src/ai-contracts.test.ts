@@ -1,9 +1,16 @@
 import { describe, it, expect } from "vitest";
 import openingKeys from "./__fixtures__/profiling-opening.keys.json";
+import jobPostingChatKeys from "./__fixtures__/job-posting-chat.keys.json";
 import {
   AICallMetadataSchema,
   ConversationStateSchema,
   DraftProfileSchema,
+  JobPostingChatOpeningInputSchema,
+  JobPostingChatOpeningOutputSchema,
+  JobPostingChatStateSchema,
+  JobPostingChatTurnInputSchema,
+  JobPostingChatTurnOutputSchema,
+  JobPostingDraftSchema,
   ProfileExtractionInputSchema,
   ProfilingOpeningInputSchema,
   ProfilingOpeningOutputSchema,
@@ -463,5 +470,100 @@ describe("ProfilingOpening contract parity", () => {
   it("output requires opening_text — an empty body must not parse", () => {
     expect(ProfilingOpeningOutputSchema.safeParse({}).success).toBe(false);
     expect(ProfilingOpeningOutputSchema.safeParse({ opening_text: "hi" }).success).toBe(true);
+  });
+});
+
+describe("Job-posting chat contract parity (ADR-0035 — contracts.py mirror)", () => {
+  // Asserted against a JSON fixture the PYTHON suite asserts against too
+  // (apps/ai-service/tests/test_contract_parity.py). Neither side can add, rename or
+  // remove a field without the other going red.
+  const shapes: Array<[string, Record<string, unknown>]> = [
+    ["JobPostingChatState", JobPostingChatStateSchema.shape],
+    ["JobPostingDraft", JobPostingDraftSchema.shape],
+    ["JobPostingChatOpeningInput", JobPostingChatOpeningInputSchema.shape],
+    ["JobPostingChatOpeningOutput", JobPostingChatOpeningOutputSchema.shape],
+    ["JobPostingChatTurnInput", JobPostingChatTurnInputSchema.shape],
+    ["JobPostingChatTurnOutput", JobPostingChatTurnOutputSchema.shape],
+  ];
+  it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {
+    // `_why` is prose documentation in the fixture, so the record is not uniformly
+    // string[] — narrow the one entry we read.
+    const golden = (jobPostingChatKeys as unknown as Record<string, string[] | string>)[name];
+    expect(golden, `fixture is missing ${name}`).toBeDefined();
+    expect(Array.isArray(golden)).toBe(true);
+    expect(Object.keys(shape).sort()).toEqual([...(golden as string[])].sort());
+  });
+
+  it("the draft carries NO org_label — the payer's org name is never asked (§Decision 3)", () => {
+    // The rule is structural, not stylistic: the org name is already on
+    // `payers.orgNameEnc` and is stamped server-side at publish. A field here would
+    // mean asking for it in free text, which both duplicates data we hold and
+    // invites a payer to type personal contact details next to it.
+    const banned = ["org_label", "org_name", "company", "company_name", "employer_name"];
+    for (const field of banned) {
+      expect(Object.keys(JobPostingDraftSchema.shape)).not.toContain(field);
+    }
+  });
+
+  it("an empty draft parses to the all-empty defaults", () => {
+    const draft = JobPostingDraftSchema.parse({});
+    expect(draft.role_title).toBeNull();
+    expect(draft.vacancy_band).toBeNull();
+    expect(draft.skills).toEqual([]);
+    expect(draft.confidence).toBe(0);
+    expect(draft.missing_fields).toEqual([]);
+  });
+
+  it("vacancy_band accepts ONLY the five shipped bands (ADR-0012 — never an integer)", () => {
+    for (const band of ["1", "2-5", "6-10", "11-25", "25+"]) {
+      expect(JobPostingDraftSchema.safeParse({ vacancy_band: band }).success).toBe(true);
+    }
+    expect(JobPostingDraftSchema.safeParse({ vacancy_band: "7" }).success).toBe(false);
+    expect(JobPostingDraftSchema.safeParse({ vacancy_band: 7 }).success).toBe(false);
+  });
+
+  it("caps skills at 10 phrases of 80 chars (matches the publish DTO's skillsInput)", () => {
+    const ten = Array.from({ length: 10 }, (_, i) => `skill ${i}`);
+    expect(JobPostingDraftSchema.safeParse({ skills: ten }).success).toBe(true);
+    expect(JobPostingDraftSchema.safeParse({ skills: [...ten, "one more"] }).success).toBe(false);
+    expect(JobPostingDraftSchema.safeParse({ skills: ["x".repeat(81)] }).success).toBe(false);
+  });
+
+  it("shift accepts only the closed jobs.shift enum", () => {
+    expect(JobPostingDraftSchema.safeParse({ shift: "rotational" }).success).toBe(true);
+    expect(JobPostingDraftSchema.safeParse({ shift: "evening" }).success).toBe(false);
+  });
+
+  it("state defaults mirror Pydantic and reject a non-slug topic id", () => {
+    const st = JobPostingChatStateSchema.parse({});
+    expect(st.trade_hint).toBeNull();
+    expect(st.ask_counts).toEqual({});
+    expect(st.unanswered_essentials).toEqual([]);
+    expect(JobPostingChatStateSchema.safeParse({ answered_topics: ["Role Title"] }).success).toBe(
+      false,
+    );
+    expect(JobPostingChatStateSchema.safeParse({ ask_counts: { role_title: -1 } }).success).toBe(
+      false,
+    );
+  });
+
+  it("turn input requires session_id + message_text and has NO history field (COST-3)", () => {
+    expect(JobPostingChatTurnInputSchema.safeParse({ message_text: "welder" }).success).toBe(false);
+    expect(
+      JobPostingChatTurnInputSchema.safeParse({ session_id: "s1", message_text: "welder" }).success,
+    ).toBe(true);
+    expect(Object.keys(JobPostingChatTurnInputSchema.shape)).not.toContain("history");
+  });
+
+  it("a blocked turn output carries a null draft and a null state", () => {
+    const out = JobPostingChatTurnOutputSchema.parse({
+      reply_text: "…",
+      blocked: true,
+      blocked_reason: "residual numeric sequence detected",
+    });
+    expect(out.draft).toBeNull();
+    expect(out.updated_state).toBeNull();
+    expect(out.draft_ready).toBe(false);
+    expect(out.is_mock).toBe(true);
   });
 });

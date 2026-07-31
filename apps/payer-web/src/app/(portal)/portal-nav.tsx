@@ -28,18 +28,24 @@ export function PortalNav({ isAgency, isOwner }: PortalNavProps) {
 
   const links: NavLink[] = [
     { href: "/dashboard", label: "Dashboard", match: (p) => p === "/dashboard" },
+    { href: "/profile", label: "Profile", match: (p) => p.startsWith("/profile") },
     {
       href: "/postings/new",
       label: isAgency ? "Post a vacancy" : "Post a job",
-      match: (p) => p === "/postings/new",
+      // The ADR-0035 AI chat (/postings/ai/new) is the same "post a job" task, so it keeps
+      // this entry active rather than lighting up "Manage".
+      match: (p) => p === "/postings/new" || p.startsWith("/postings/ai"),
     },
     {
       href: "/postings",
       label: isAgency ? "Manage vacancies" : "Manage postings",
-      // Manage covers the list + any /postings/[id]/… detail, but NOT /postings/new.
-      match: (p) => p === "/postings" || (p.startsWith("/postings/") && p !== "/postings/new"),
+      // Manage covers the list + any /postings/[id]/… detail, but NOT the create routes
+      // (/postings/new or the AI chat at /postings/ai/…).
+      match: (p) =>
+        p === "/postings" ||
+        (p.startsWith("/postings/") && p !== "/postings/new" && !p.startsWith("/postings/ai")),
     },
-    { href: "/capacity", label: "Capacity", match: (p) => p.startsWith("/capacity") },
+    { href: "/plans", label: "Plans & Capacity", match: (p) => p.startsWith("/plans") },
   ];
 
   if (isOwner) {
@@ -56,6 +62,11 @@ export function PortalNav({ isAgency, isOwner }: PortalNavProps) {
       href: "/agency/referrals",
       label: "Referrals & payouts",
       match: (p) => p.startsWith("/agency/referrals"),
+    });
+    links.push({
+      href: "/agency/revenue",
+      label: "Revenue",
+      match: (p) => p.startsWith("/agency/revenue"),
     });
   }
 

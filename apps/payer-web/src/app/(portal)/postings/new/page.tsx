@@ -51,6 +51,31 @@ export default async function NewPostingPage() {
       <h1 className="dash-title">Post a job</h1>
       <p className="dash-sub">Describe the role. Applicants appear faceless until you unlock them.</p>
 
+      {/* ADR-0035 entry point: the AI chat is an ALTERNATIVE INPUT SURFACE onto this same
+          create path — the manual form below is unchanged and remains the default. */}
+      <Card variant="outline" className="posting-mode">
+        <div className="posting-mode__opt">
+          <Badge tone="brand" upper>
+            AI-assisted
+          </Badge>
+          <p className="posting-mode__msg">
+            Answer a few questions in plain language and we&rsquo;ll build the posting for you —
+            resumable on any device you sign in on.
+          </p>
+          <Link className="posting-mode__cta" href="/postings/ai/new">
+            Post with AI →
+          </Link>
+        </div>
+        <div className="posting-mode__opt">
+          <Badge tone="neutral" upper>
+            Manual form
+          </Badge>
+          <p className="posting-mode__msg">
+            Prefer to type the fields yourself? The full form is right below — nothing changes.
+          </p>
+        </div>
+      </Card>
+
       {atCapacity ? (
         <Card variant="outline" className="posting-note">
           <Badge tone="warning" upper>

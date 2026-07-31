@@ -15,6 +15,10 @@ import {
   creditLedgerWireSchema,
   creditsWireSchema,
   creditTopUpSchema,
+  jobPostingChatPublishWireSchema,
+  jobPostingChatSessionListWireSchema,
+  jobPostingChatTranscriptWireSchema,
+  jobPostingChatTurnWireSchema,
   jobPostingListWireSchema,
   jobPostingWireSchema,
   maskedResumeResultSchema,
@@ -24,6 +28,9 @@ import {
   payerMeWireSchema,
   postingSummarySchema,
   reachApplicantListWireSchema,
+  toJobPostingChatSessions,
+  toJobPostingChatTranscript,
+  toJobPostingChatTurn,
   topUpResultSchema,
   unlockResultSchema,
   unlockResultWireSchema,
@@ -44,6 +51,10 @@ import {
   type CreditTopUp,
   type Dashboard,
   type FacelessApplicant,
+  type JobPostingChatPublishResult,
+  type JobPostingChatSessionSummary,
+  type JobPostingChatTranscript,
+  type JobPostingChatTurn,
   type MaskedResumeResult,
   type PostingSummary,
   type RevealResult,
@@ -686,8 +697,15 @@ export async function requestAgencyPayout(): Promise<AgencyPayoutRequestWire | n
 
 /**
  * Map a LIVE job-posting wire row → the faceless {@link PostingSummary} the pages consume.
- * DEFENCE-IN-DEPTH (invariant #2): the wire row carries the payer's OWN `orgLabel`/`description`
- * + `payerId`/`createdBy` (their own ids) — none of which any page needs, so they are DROPPED
+ *
+ * The wire row is the backend's SNAKE_CASE `JobPostingApi` projection
+ * (`apps/api/src/job-postings/job-postings.repository.ts` → `toJobPostingApi`); this is the
+ * PURE wire→domain mapper for it. The wire schema itself stays a plain Zod object with NO
+ * `.transform` — `payerFetch`'s `schema: z.ZodType<T>` bound requires input === output, so a
+ * transforming schema cannot be handed to the transport.
+ *
+ * DEFENCE-IN-DEPTH (invariant #2): the wire row carries the payer's OWN `org_label`/`description`
+ * + `payer_id`/`created_by` (their own ids) — none of which any page needs, so they are DROPPED
  * here and never reach the UI domain object. `applicantCount` is 0 and `applicantQuota` is
  * omitted: NEITHER is in the job-posting projection (the applicant count is the separate faceless
  * reach feed's concern; the quota was a mock-only config stamp). `vacancyBand` is the backend
@@ -696,12 +714,12 @@ export async function requestAgencyPayout(): Promise<AgencyPayoutRequestWire | n
 function toPostingSummary(wire: ReturnType<typeof jobPostingWireSchema.parse>): PostingSummary {
   return postingSummarySchema.parse({
     id: wire.id,
-    roleTitle: wire.roleTitle,
-    locationLabel: wire.locationLabel,
-    vacancyBand: wire.vacancyBand,
+    roleTitle: wire.role_title,
+    locationLabel: wire.location_label,
+    vacancyBand: wire.vacancy_band,
     status: wire.status,
     applicantCount: 0, // NOT in this projection — the count is the reach feed's, not the row's.
-    createdAt: wire.createdAt,
+    createdAt: wire.created_at,
     // applicantQuota intentionally omitted (not a live-row concept) → the page renders "—".
   });
 }
@@ -996,5 +1014,125 @@ export class QuotaTopUpNoPlanError extends Error {
   constructor() {
     super("no active plan to top up");
     this.name = "QuotaTopUpNoPlanError";
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * LIVE — AI JOB-POSTING CHAT (ADR-0035), the five payer-authed endpoints.
+ *
+ * A conversational FRONT DOOR onto the UNCHANGED job-posting create path: the chat
+ * builds a `JobPostingDraft`, and publish validates it against the same
+ * `PayerCreateJobPostingSchema` the manual form uses and calls the same
+ * `JobPostingsService.createForPayer` (which already emits `job_posting.created`).
+ *
+ * TENANCY (XB-A): every call rides `payerFetch` → the httpOnly-cookie Bearer. NO request
+ * body here carries a `payer_id`; the message body is EXACTLY `{ session_id, text }`, and
+ * session-start / publish send `{}`. The token never reaches client JS (server-only module).
+ *
+ * ORG NAME (ADR-0035 §Decision 3 / rule A): this seam NEVER sends the payer's company/org
+ * name — unlike {@link createPosting}, publish sends NO `org_label`. The server auto-fills it
+ * from `payers.orgNameEnc` post-hoc, so it never crosses the LLM boundary.
+ *
+ * NEUTRALITY: an unknown OR not-owned session id returns the SAME neutral 404 (the #349
+ * no-oracle transcript-hydration pattern) → mapped to `null`, exactly like {@link getPosting}.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Map the shared neutral-404 contract to `null` (no cross-tenant existence oracle). */
+function nullOnNeutral404<T>(e: unknown): T | null {
+  if (e instanceof Error && /returned 404/.test(e.message)) return null;
+  throw e;
+}
+
+/**
+ * POST /payer/job-posting-chat/session — start a chat for the SESSION payer (XB-A).
+ * The body is empty: there is no payer id and no org name to send (rule A).
+ */
+export async function startJobPostingChatSession(): Promise<JobPostingChatTurn> {
+  const wire = await payerFetch("/payer/job-posting-chat/session", {
+    method: "POST",
+    body: {},
+    schema: jobPostingChatTurnWireSchema,
+  });
+  return toJobPostingChatTurn(wire);
+}
+
+/**
+ * POST /payer/job-posting-chat/message — one payer turn → the next engine turn.
+ * The body is EXACTLY `{ session_id, text }` (the frozen contract) — never a payer id,
+ * never an org label. An unknown/not-owned session → neutral 404 → `null`.
+ */
+export async function sendJobPostingChatMessage(input: {
+  sessionId: string;
+  text: string;
+}): Promise<JobPostingChatTurn | null> {
+  try {
+    const wire = await payerFetch("/payer/job-posting-chat/message", {
+      method: "POST",
+      body: { session_id: input.sessionId, text: input.text },
+      schema: jobPostingChatTurnWireSchema,
+    });
+    return toJobPostingChatTurn(wire);
+  } catch (e) {
+    return nullOnNeutral404<JobPostingChatTurn>(e);
+  }
+}
+
+/**
+ * GET /payer/job-posting-chat/sessions — the caller's OWN chat sessions (LIVE).
+ *
+ * The CROSS-DEVICE pickup point: because ownership is the payer ACCOUNT (not a device or
+ * browser session), a chat started in the Flutter payer app appears here on the web and
+ * can be resumed by hydrating its transcript. Newest activity first.
+ */
+export async function getJobPostingChatSessions(): Promise<JobPostingChatSessionSummary[]> {
+  const wire = await payerFetch("/payer/job-posting-chat/sessions", {
+    schema: jobPostingChatSessionListWireSchema,
+  });
+  const sessions = toJobPostingChatSessions(wire);
+  return sessions.sort((a, b) => {
+    const at = a.lastMessageAt ?? a.startedAt;
+    const bt = b.lastMessageAt ?? b.startedAt;
+    return bt.localeCompare(at);
+  });
+}
+
+/**
+ * GET /payer/job-posting-chat/sessions/:id/messages — hydrate one session's full transcript
+ * (the resume path). Unknown OR not-owned → the SAME neutral 404 → `null`.
+ */
+export async function getJobPostingChatTranscript(
+  sessionId: string,
+): Promise<JobPostingChatTranscript | null> {
+  try {
+    const wire = await payerFetch(`/payer/job-posting-chat/sessions/${sessionId}/messages`, {
+      schema: jobPostingChatTranscriptWireSchema,
+    });
+    return toJobPostingChatTranscript(wire);
+  } catch (e) {
+    return nullOnNeutral404<JobPostingChatTranscript>(e);
+  }
+}
+
+/**
+ * POST /payer/job-posting-chat/sessions/:id/publish — turn the session's draft into the REAL
+ * job posting. The body is EMPTY: the draft already lives server-side on the session row, the
+ * payer is the session (XB-A), and the org name is auto-filled server-side (rule A). Returns
+ * the created posting's id so the caller routes to its EXISTING detail page.
+ *
+ * A 409 (draft not ready / already published) surfaces as a thrown error the action turns into
+ * retryable copy; unknown/not-owned stays the neutral 404 → `null`.
+ */
+export async function publishJobPostingChatSession(
+  sessionId: string,
+): Promise<JobPostingChatPublishResult | null> {
+  try {
+    const wire = await payerFetch(`/payer/job-posting-chat/sessions/${sessionId}/publish`, {
+      method: "POST",
+      body: {},
+      schema: jobPostingChatPublishWireSchema,
+    });
+    return { jobPostingId: wire.job_posting_id };
+  } catch (e) {
+    return nullOnNeutral404<JobPostingChatPublishResult>(e);
   }
 }

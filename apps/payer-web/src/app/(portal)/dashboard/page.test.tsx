@@ -247,8 +247,9 @@ describe("MERGE-1 · single role-aware dashboard composition (agent vs employer)
     // agents (the agency Demand summary + manager in AgentSections are the source of truth),
     // so they can never contradict.
     const tiles = findAll(tree, StatTile);
-    expect(tiles.length).toBe(2); // Credit balance + Contacts unlocked only
+    expect(tiles.length).toBe(3); // Credit balance + Revenue (agent-only) + Contacts unlocked
     const labels = tiles.map((t) => p(t).label);
+    expect(labels).toContain("Revenue"); // agent-only tile, no posting-derived data
     expect(labels).not.toContain("Open postings");
     expect(labels).not.toContain("Open vacancies");
     // the employer-postings list does NOT render for an agent (no contradictory second list)

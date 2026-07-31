@@ -120,13 +120,14 @@ describe("portal nav — Owner-only links by getOrgRole (affordance, NOT authz)"
     expect(hrefs).not.toContain("/team");
   });
 
-  it("both roles keep the shared recruiter surfaces (post / search / manage / capacity)", async () => {
+  it("both roles keep the shared recruiter surfaces (post / manage / plans+capacity)", async () => {
     for (const orgRole of ["owner", "recruiter"] as const) {
       const { hrefs } = await render({ orgRole });
       expect(hrefs).toContain("/dashboard");
       expect(hrefs).toContain("/postings/new");
       expect(hrefs).toContain("/postings");
-      expect(hrefs).toContain("/capacity");
+      // Capacity now lives under the combined "Plans & Capacity" entry.
+      expect(hrefs).toContain("/plans");
     }
   });
 });

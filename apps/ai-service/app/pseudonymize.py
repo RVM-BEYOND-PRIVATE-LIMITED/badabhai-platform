@@ -317,11 +317,39 @@ _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 #     actual ID in the same sentence unmasked.
 #   - group 1 must contain a DIGIT. A credential ID always does; without the
 #     requirement "certificate number chahiye" masked the Hindi word "chahiye".
+#
+# QUADRATIC-SCAN BOUND on the digit lookahead (`{0,%d}` below, not `*`).
+#
+# MEASURED: one 20,000-character BENIGN message — `"reg-" * 5000`, no digits at all —
+# stalled the event loop for 1243ms (997ms of it inside `pseudonymize`, 975ms of THAT
+# inside this one pattern; the control 20k input costs 7-12ms). `/profiling/respond`
+# and `/profile/extract` are `async def` and call `pseudonymize()` INLINE, so the stall
+# is the whole process, not one request: every concurrent worker's turn waits.
+#
+# THE MECHANISM. In `"reg-reg-reg-…"` every `reg` is `\b`-delimited, so the cue matches
+# at ~5000 offsets. At each one the unbounded `[A-Za-z0-9/\-]*` scanned forward to the
+# END of the string — the class contains both `-` and alphanumerics, so nothing stops
+# it — looking for a digit that is never there. 5000 cues x 20k characters = O(n^2).
+# (`"reg-abc"*n` is fast for the opposite reason: `abcreg` gives no `\b`, so there is
+# only one cue. The cost needs MANY cues, which a separator-joined cue produces.)
+#
+# THE BOUND IS STRUCTURAL, NOT A REWRITE. Only the lookahead's quantifier changes:
+# `*` -> `{0,64}`. Worst case becomes 5000 x 64 instead of 5000 x 20000. The capture
+# group stays UNBOUNDED, so what gets masked is byte-identical — a matched credential
+# id is still consumed whole, however long. The only behavioural difference is an id
+# whose FIRST digit sits past 64 leading `[A-Za-z0-9/\-]` characters, which no roll or
+# registration number resembles; 64 is ~5x the longest realistic prefix. The residual
+# digit net still governs long digit runs either way.
+#
+# NOT the max_length cap's job: 20,000 characters is UNDER `DEFAULT_MAX_LENGTH`, so the
+# fail-closed size gate never fires here — this input is accepted, as it should be. The
+# cap bounds size; this bounds work per character.
+_CREDENTIAL_ID_LOOKAHEAD_MAX = 64
 _CREDENTIAL_ID_RE = re.compile(
     r"(?i:\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b"
     r"(?:\s+(?:ka|ki|ke|mera|meri))?"
     r"\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*)"
-    r"(?=[A-Za-z0-9/\-]*\d)"
+    r"(?=[A-Za-z0-9/\-]{0," + str(_CREDENTIAL_ID_LOOKAHEAD_MAX) + r"}\d)"
     r"([A-Za-z0-9][A-Za-z0-9/\-]{5,})"
 )
 
@@ -495,10 +523,46 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
         return PseudonymizationResult("", True, f"pseudonymization error: {exc}", 0, [])
 
 
+def _is_employer_only_mask(result: PseudonymizationResult) -> bool:
+    """True when the ONLY placeholders minted for a label were ``[EMPLOYER_n]``.
+
+    Deliberately narrow. A PHONE / ID / PERSON / CITY / STATE / AMOUNT mask on a skill
+    label is a genuine PII signal and must keep dropping the label; the employer
+    pattern is the only one whose vocabulary provably overlaps trade terms (its suffix
+    list contains Steel, Engineering, Tools, Precision, Tech, Fabrication,
+    Manufacturing), so it is the only one this rescue considers.
+    """
+    return bool(result.placeholder_tokens) and all(
+        tok.startswith("[EMPLOYER_") for tok in result.placeholder_tokens
+    )
+
+
+def _is_known_trade_vocabulary(label: str) -> bool:
+    """Whole-label vocabulary test, delegated to the ONE curated vocabulary.
+
+    The vocabulary lives in ``app/profiling/signals.py``, derived from the keyword and
+    label tables the detector itself matches on, so it cannot drift from what the
+    product actually recognises. The import is DEFERRED because ``signals`` imports
+    THIS module at load time (``KNOWN_CITIES`` / ``MAX_PLAUSIBLE_SALARY_INR``) — a
+    module-level import here would be a cycle, and this module is deliberately
+    dependency-light. By call time both modules are fully loaded.
+
+    Any failure to consult the vocabulary returns False, i.e. the label is DROPPED —
+    the pre-existing behaviour. The rescue can only ever keep a label the vocabulary
+    positively recognises; it can never widen the gate by failing.
+    """
+    try:
+        from .profiling.signals import is_curated_vocabulary_label
+
+        return is_curated_vocabulary_label(label)
+    except Exception:  # pragma: no cover - defensive; degrade to today's behaviour
+        return False
+
+
 def certified_clean_skill_labels(labels: list[str]) -> list[str]:
     """Keep only labels this gateway certifies CLEAN (Q14/ADR-0030 OQ#3 — SG-2).
 
-    A label passes ONLY when ``pseudonymize(label)`` (a) does not block,
+    A label passes when ``pseudonymize(label)`` (a) does not block,
     (b) masks nothing (``replaced_entities == 0``), and (c) returns the label
     byte-identical. Anything else — blocked, masked, altered, or an internal
     gateway error (which returns ``blocked=True``) — is DROPPED (fail-closed:
@@ -506,11 +570,37 @@ def certified_clean_skill_labels(labels: list[str]) -> list[str]:
     never relaxes the gateway, never returns masked text or the token mapping,
     and never logs. Used to certify ``DraftProfile.skill_labels`` AT REST when
     populated (profile extraction) and to RE-certify at the résumé boundary.
+
+    PLUS ONE NARROW RESCUE (the FIX-5 silent-data-loss bug). MEASURED on main:
+
+        pseudonymize("Stainless Steel")                -> "[EMPLOYER_1]"
+        pseudonymize("Diploma Mechanical Engineering") -> "[EMPLOYER_1]"
+        certified_clean_skill_labels(
+            ["Stainless Steel", "Diploma Mechanical Engineering", "VMC Operation"]
+        )                                              -> ["VMC Operation"]
+
+    Two real skills and a real qualification were being DELETED from every worker's
+    persisted profile and résumé, silently, with no counter and no log of what went.
+    The cause is `_COMPANY_SUFFIX` overlapping ordinary trade vocabulary, not a
+    genuine PII hit.
+
+    So a label ALSO passes when BOTH hold: the gateway's only placeholders were
+    ``[EMPLOYER_n]`` (`_is_employer_only_mask`) AND every token of the label is
+    curated trade/education vocabulary (`_is_known_trade_vocabulary`). Both halves are
+    load-bearing — a company name always carries a token no trade table contains (a
+    proper noun, or a legal form like Industries / Pvt / Ltd / Works / Enterprises),
+    so "Ramesh Steel Industries" and "Jyoti CNC Industries" still drop. `pseudonymize`
+    itself is UNCHANGED: on general free text those strings mask exactly as before.
+    The ORIGINAL label is returned, never the masked text.
     """
-    return [
-        label
-        for label in labels
-        if (r := pseudonymize(label)).blocked is False
-        and r.replaced_entities == 0
-        and r.text == label
-    ]
+    kept: list[str] = []
+    for label in labels:
+        result = pseudonymize(label)
+        if result.blocked:
+            continue
+        if result.replaced_entities == 0 and result.text == label:
+            kept.append(label)
+            continue
+        if _is_employer_only_mask(result) and _is_known_trade_vocabulary(label):
+            kept.append(label)
+    return kept

@@ -39,6 +39,12 @@ function make(
     profile?: unknown;
     /** T3 — the fail-closed leg (pseudonymization blocked the LLM call). */
     blocked?: boolean;
+    /** R32 — stored chat rows the transcript is built from. */
+    messages?: { direction: string; bodyText: string }[];
+    /** R32 — the worker's DECRYPTED full name (null = none stored). */
+    workerName?: string | null;
+    /** R32 — a rotated/tampered key: `pii.decrypt` throws. */
+    decryptThrows?: boolean;
   } = {},
 ) {
   const draft = opts.profile ?? DraftProfileSchema.parse({});
@@ -49,8 +55,23 @@ function make(
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
   };
-  const chat = { listMessages: vi.fn().mockResolvedValue([]) };
+  const chat = {
+    listMessages: vi.fn().mockResolvedValue(opts.messages ?? []),
+  };
   const events = { emit: vi.fn().mockResolvedValue(undefined) };
+  // R32 — full_name is stored ENCRYPTED (TD21); the plaintext lives only behind decrypt.
+  const workers = {
+    findById: vi.fn().mockResolvedValue({
+      id: JOB.workerId,
+      fullName: opts.workerName == null ? null : "ENC_FULL_NAME_TOKEN",
+    }),
+  };
+  const pii = {
+    decrypt: vi.fn((_token: string) => {
+      if (opts.decryptThrows) throw new Error("bad/rotated key");
+      return opts.workerName ?? "";
+    }),
+  };
   const ai = {
     extractProfile: opts.extractThrows
       ? vi.fn().mockRejectedValue(new Error("boom"))
@@ -76,8 +97,10 @@ function make(
     chat as never,
     events as never,
     ai as never,
+    workers as never,
+    pii as never,
   );
-  return { proc, profiles, aiJobs, chat, events, ai };
+  return { proc, profiles, aiJobs, chat, events, ai, workers, pii };
 }
 
 describe("ProfileExtractionProcessor", () => {
@@ -504,5 +527,71 @@ describe("ProfileExtractionProcessor — T3 profile_status follows CONTENT, not 
       taxonomyVersion: String(SKILL_TAXONOMY_VERSION),
     });
     expect(arg.rawProfile).toEqual(DraftProfileSchema.parse({}));
+  });
+});
+
+// R32 — the extraction transcript is the WIDEST worker-free-text egress to the
+// ai-service: it replays every stored inbound line, so an introduction typed on
+// turn 1 rides along on every later extraction. The worker's own KNOWN name is
+// removed from both shapes before the hop.
+describe("ProfileExtractionProcessor — R32 known-name redaction on the transcript", () => {
+  const CONVO = [
+    { direction: "inbound", bodyText: "Suresh Kumar, CNC operator" },
+    { direction: "outbound", bodyText: "Theek hai. Kaunsi machine?" },
+    { direction: "inbound", bodyText: "VMC. Suresh yahin se bol raha hun" },
+  ];
+
+  it("removes the name from BOTH the flat transcript and the role-tagged messages", async () => {
+    const { proc, ai } = make({ messages: CONVO, workerName: "Suresh Kumar" });
+    await proc.process(makeJob());
+
+    const sent = ai.extractProfile.mock.calls[0]![0] as {
+      transcript: string;
+      messages: { role: string; text: string }[];
+    };
+    expect(sent.transcript).not.toContain("Suresh");
+    expect(sent.transcript).not.toContain("Kumar");
+    expect(sent.transcript).toBe(
+      "Worker: [NAME], CNC operator\n" +
+        "Bada Bhai: Theek hai. Kaunsi machine?\n" +
+        "Worker: VMC. [NAME] yahin se bol raha hun",
+    );
+    expect(sent.messages.map((m) => m.text)).toEqual([
+      "[NAME], CNC operator",
+      "Theek hai. Kaunsi machine?",
+      "VMC. [NAME] yahin se bol raha hun",
+    ]);
+    // The role tags are carried through untouched.
+    expect(sent.messages.map((m) => m.role)).toEqual(["worker", "assistant", "worker"]);
+  });
+
+  it("a DECRYPT FAILURE does NOT fail the extraction — it degrades to un-redacted", async () => {
+    const { proc, ai, aiJobs } = make({
+      messages: CONVO,
+      workerName: "Suresh Kumar",
+      decryptThrows: true,
+    });
+    const out = await proc.process(makeJob());
+    expect(out).toEqual({ profile_id: PROFILE });
+    expect(aiJobs.markCompleted).toHaveBeenCalledOnce();
+    const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
+    expect(sent.transcript).toContain("Suresh Kumar");
+  });
+
+  it("no name stored → the transcript is sent exactly as it always was", async () => {
+    const { proc, ai } = make({ messages: CONVO, workerName: null });
+    await proc.process(makeJob());
+    const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
+    expect(sent.transcript).toContain("Suresh Kumar, CNC operator");
+  });
+
+  it("leaves trade vocabulary alone (the measured-dead gazetteer regression class)", async () => {
+    const { proc, ai } = make({
+      messages: [{ direction: "inbound", bodyText: "Wire EDM, Jyoti CNC, ITI fitter 2018-2020" }],
+      workerName: "Suresh Kumar",
+    });
+    await proc.process(makeJob());
+    const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
+    expect(sent.transcript).toBe("Worker: Wire EDM, Jyoti CNC, ITI fitter 2018-2020");
   });
 });

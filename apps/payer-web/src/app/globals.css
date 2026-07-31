@@ -1240,6 +1240,63 @@ textarea.input {
   color: var(--success);
 }
 
+.account-section {
+  margin: var(--section-gap) 0 0;
+}
+.account-section__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+.account-section__sub {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  margin: var(--space-3) 0 0;
+  max-width: var(--reading-max);
+}
+.account-section__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-4) 0 0;
+}
+.account-stat {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+.account-stat__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.account-stat__label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.account-stat__value {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+}
+.account-stat__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.account-stat__hint {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
 /* ------------------------------------------------------------------
  * DASHBOARD (DS1.2) — StatTiles + faceless MaskedCandidate teasers + DS states.
  * ------------------------------------------------------------------ */
@@ -2925,6 +2982,78 @@ textarea.input {
   }
 }
 
+/* ------------------------------------------------------------------
+ * PLANS PAGE — product cards for credits / capacity / posting plans.
+ * ------------------------------------------------------------------ */
+.plans-section {
+  margin: 0 0 var(--section-gap);
+}
+.plans-section__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+.plans-section__sub {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  margin: var(--space-3) 0 0;
+  max-width: var(--reading-max);
+}
+.plans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-4) 0 0;
+}
+.plans-empty {
+  margin: var(--space-4) 0 0;
+}
+.plan-card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+.plan-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.plan-card__name {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.plan-card__price {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+}
+.plan-card__detail {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin: 0;
+}
+.plan-card__action {
+  margin: var(--space-3) 0 0;
+  display: block;
+  text-decoration: none;
+}
+.plans-nudge {
+  display: grid;
+  gap: var(--space-2);
+}
+.plans-nudge__msg {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
 /* Pre-auth toggle placement: pinned to the top-right of the login viewport. */
 .login-theme {
   position: fixed;
@@ -2955,4 +3084,241 @@ textarea.input {
   html.theme-anim .login-card {
     transition: var(--theme-fade);
   }
+}
+
+/* ------------------------------------------------------------------
+ * AI JOB-POSTING CHAT (ADR-0035) — the chat-first posting surface + the
+ * AI-vs-manual chooser on /postings/new. LAYOUT ONLY: every colour, space, radius and
+ * type value resolves from the design tokens (no raw hex/px) and every visual element
+ * is an existing DS primitive (Card / Badge / Button / Chip / Textarea) — this block
+ * adds no new visual language, only the composition those primitives sit in.
+ * ------------------------------------------------------------------ */
+
+/* --- Entry-point chooser on /postings/new (AI-assisted vs manual form) --- */
+.posting-mode {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-5);
+  margin: var(--space-4) 0;
+}
+.posting-mode__opt {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  align-content: start;
+}
+.posting-mode__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.posting-mode__cta {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+/* --- Start / resume screen --- */
+.ai-chat-start {
+  display: grid;
+  gap: var(--space-5);
+  margin: var(--space-4) 0;
+  max-width: var(--reading-max);
+}
+.ai-chat-resume,
+.ai-chat-intro {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.ai-chat-intro__title {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--leading-snug);
+}
+.ai-chat-resume__msg,
+.ai-chat-intro__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.ai-chat-resume__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+}
+.ai-chat-resume__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.ai-chat-resume__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.ai-chat-resume__role {
+  font-weight: var(--weight-semibold);
+}
+.ai-chat-resume__when {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.ai-chat-intro__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+.ai-chat-intro__alt {
+  font-size: var(--text-sm);
+}
+
+/* --- Conversation + live draft (two columns on wide viewports) --- */
+.ai-chat {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+  margin: var(--space-4) 0;
+}
+@media (max-width: 60rem) {
+  .ai-chat {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.ai-chat__thread {
+  display: grid;
+  gap: var(--space-4);
+}
+.ai-chat__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.ai-chat__line {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  line-height: var(--leading-normal);
+}
+.ai-chat__line--payer {
+  background: var(--brand-tint);
+}
+.ai-chat__who {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ai-chat__text {
+  white-space: pre-wrap;
+}
+.ai-chat__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.ai-chat__composer {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.ai-chat-status:empty {
+  display: none;
+}
+.ai-chat-status__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* --- Structured draft preview --- */
+.ai-chat__side {
+  display: grid;
+  gap: var(--space-4);
+  position: sticky;
+  top: var(--space-5);
+}
+.ai-draft {
+  display: grid;
+  gap: var(--space-3);
+}
+.ai-draft__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.ai-draft__title {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: var(--leading-snug);
+}
+.ai-draft__list {
+  margin: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.ai-draft__row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 8rem) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: baseline;
+}
+.ai-draft__label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.ai-draft__value {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+.ai-draft__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.ai-draft__empty,
+.ai-draft__missing,
+.ai-draft__note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.ai-draft__note {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.ai-chat__publish {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+.ai-chat__publish-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
 }

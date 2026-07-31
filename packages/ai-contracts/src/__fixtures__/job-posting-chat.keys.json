@@ -1,0 +1,52 @@
+{
+  "_why": "Golden key list for the ADR-0035 job-posting-chat contracts, asserted from BOTH the TypeScript suite (ai-contracts.test.ts) and the Python suite (apps/ai-service/tests/test_contract_parity.py) so Zod and Pydantic cannot drift apart. CI runs the node and ai-service jobs independently with nothing else comparing the two, and Pydantic silently DROPS unknown request keys — so without this file, adding or renaming a field on one side only is green on both sides. NOTE: JobPostingDraft deliberately has NO org_label (ADR-0035 §Decision 3 — the payer's organisation name is never asked in the chat, never sent to an LLM, and is stamped server-side at publish from payers.orgNameEnc). If a future edit adds it, both suites go red, which is the point.",
+  "JobPostingChatState": [
+    "trade_hint",
+    "turn_count",
+    "answered_topics",
+    "asked_question_ids",
+    "collected",
+    "clarify_count",
+    "ask_counts",
+    "unanswered_essentials"
+  ],
+  "JobPostingDraft": [
+    "role_title",
+    "skills",
+    "location_label",
+    "vacancy_band",
+    "pay_min",
+    "pay_max",
+    "shift",
+    "benefits",
+    "requirements",
+    "description",
+    "confidence",
+    "missing_fields",
+    "clarification_questions"
+  ],
+  "JobPostingChatOpeningInput": ["trade_hint"],
+  "JobPostingChatOpeningOutput": ["opening_text"],
+  "JobPostingChatTurnInput": [
+    "session_id",
+    "payer_ref",
+    "language",
+    "message_text",
+    "trade_hint",
+    "conversation_state",
+    "real_call_allowed"
+  ],
+  "JobPostingChatTurnOutput": [
+    "reply_text",
+    "blocked",
+    "blocked_reason",
+    "suggested_answers",
+    "is_mock",
+    "asked_question_id",
+    "draft_ready",
+    "draft",
+    "updated_state",
+    "ai_metadata",
+    "pseudonymization_metadata"
+  ]
+}
