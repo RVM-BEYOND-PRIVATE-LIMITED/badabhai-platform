@@ -33,6 +33,7 @@ import { PayerReachController } from "../payer-portal/payer-reach.controller";
 import { MatchSkillsController } from "../match/match-skills.controller";
 import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
+import { AgencyWorkersController } from "../agency/agency-workers.controller";
 import { AgencyPayoutsController } from "../agency/agency-payouts.controller";
 import { AgencyKycOpsController } from "../agency/agency-kyc-ops.controller";
 import { AdminAuthController } from "../admin/admin-auth.controller";
@@ -254,6 +255,15 @@ const CONTRACT: ControllerContract[] = [
     name: "AgencyInvites",
     ctor: AgencyInvitesController,
     routes: { createInvite: [P, R], recordClick: [P, R], referralsSummary: [P, R] },
+  },
+  // B5 — the referred-worker ENGAGEMENT view. Agent-only, like every sibling. The
+  // DPDP consent gate is NOT a guard: it lives in the repository's SQL, because a
+  // worker who did not consent must be ABSENT from the result set rather than
+  // produce a 403 (a 403 would be a consent oracle).
+  {
+    name: "AgencyWorkers",
+    ctor: AgencyWorkersController,
+    routes: { listReferred: [P, R] },
   },
   // Agency supply-money surface (ADR-0022 Amendment 2): agent-only [PayerAuthGuard,
   // PayerRoleGuard] PLUS the AgencyPayoutsEnabledGuard launch gate (neutral 404 while

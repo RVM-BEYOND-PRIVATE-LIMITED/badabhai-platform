@@ -16,6 +16,9 @@ import { AgencyPayoutService } from "./agency-payout.service";
 import { AgencyPayoutsController } from "./agency-payouts.controller";
 import { AgencyPayoutsEnabledGuard } from "./agency-payouts-enabled.guard";
 import { AgencyKycOpsController } from "./agency-kyc-ops.controller";
+import { AgencyWorkersController } from "./agency-workers.controller";
+import { AgencyWorkersRepository } from "./agency-workers.repository";
+import { AgencyWorkersService } from "./agency-workers.service";
 
 /**
  * Agency Supply Portal — demand slice (ADR-0022, ACCEPTED; mock + staging-only).
@@ -49,11 +52,16 @@ import { AgencyKycOpsController } from "./agency-kyc-ops.controller";
     AgencyInvitesController,
     AgencyPayoutsController,
     AgencyKycOpsController,
+    // B5 — the referred-worker ENGAGEMENT view. Consent-gated in SQL, tenant-scoped
+    // on `agency_invites.inviter_payer_id`, per-agency pseudonymized ids.
+    AgencyWorkersController,
   ],
   providers: [
     AgencyService,
     AgencyJobsRepository,
     AgencyInvitesRepository,
+    AgencyWorkersRepository,
+    AgencyWorkersService,
     PayerDisclosureRateLimit,
     // Agency supply-money loop (ADR-0022 Amendment 2) — KYC + payout ledger. EventsService +
     // PiiCryptoService are @Global; SERVER_CONFIG is @Global.
