@@ -18,7 +18,7 @@ FIX 5 — ``certified_clean_skill_labels`` SILENTLY DELETED real skills and
 
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -170,7 +170,7 @@ def _meta():
         latency_ms=0,
         success=True,
         error_code=None,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
     )
 
 
