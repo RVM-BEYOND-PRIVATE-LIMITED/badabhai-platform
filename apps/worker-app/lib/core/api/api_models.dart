@@ -106,7 +106,7 @@ class FeedItem extends Equatable {
   final bool viaRelated;
 
   /// Matching V1 / E18: the skill that actually earned the match, for the
-  /// card's "aapke <skill> ke kaam se milta-julta hai" line. A closed-set
+  /// card's "aapke `<skill>` ke kaam se milta-julta hai" line. A closed-set
   /// label, never free text. Null on the legacy feed and whenever the server
   /// could not name it — the card then hides the line rather than inventing a
   /// reason for why the job is being shown.
