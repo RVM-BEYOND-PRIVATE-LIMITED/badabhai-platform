@@ -215,9 +215,25 @@ comfort, because comfort here would be a promise we cannot keep.**
 | **Honesty** | No promise · no score · no rank · no rejection reason · no faked domain expertise |
 | **Purpose** | The turn fills trade, skills, experience, location, salary or availability. **If it fills none of those, it does not exist.** |
 
-> **[repo note]** Two shipped strings violate §3's no-exclamation rule: `ONE_SHOT_OPENER`
-> in `apps/ai-service/app/profiling/question_bank.py` and `kChatOpeningText` in
-> `apps/worker-app/lib/features/chat/bloc/chat_bloc.dart`, both containing `"Namaste!"`.
-> They must stay byte-identical to each other, so either both change to `"Namaste."` or the
-> exclamation is recorded as a sanctioned exception in `team-decisions.md`. Open at the time
-> of writing.
+> **[repo note — RESOLVED 2026-07-31]** Both openers said `"Namaste!"`, violating §3's
+> no-exclamation rule. Both are now `"Namaste."` and verified **byte-identical** by comparing
+> the evaluated Python constant against the concatenated Dart literals — not by reading them
+> side by side. `ONE_SHOT_OPENER` (`apps/ai-service/app/profiling/question_bank.py`) and
+> `kChatOpeningText` (`apps/worker-app/lib/features/chat/presentation/bloc/chat_bloc.dart`)
+> must stay identical, because the client renders the served opener and falls back to its own
+> constant; a drift shows up as the greeting changing when a flag flips.
+
+### Two scope clarifications (2026-07-31)
+
+**"Chalo" is sanctioned, despite being a plural/tum-form imperative.** It is listed verbatim
+in §3's closed acknowledgement set and appears in the ratified opener. A neutrality net that
+bans tum-forms by pattern will flag it; the sheet outranks the pattern. Where an automated
+check and the sheet's own vocabulary disagree, the sheet wins and the check gets the
+exception — recorded here rather than as a silent allowlist entry.
+
+**The emoji ban applies to the persona's voice, not to app chrome.** §3's "never says" list
+governs what *bada bhai* says — chat turns, questions, acknowledgements. It does not govern
+a version string in a settings screen or a status affordance on a card, which are the app
+speaking as an app. Two such strings exist (`Made in India 🇮🇳`, `Aapne apply kar diya ✓`)
+and are deliberately left alone. If a future check wants to enforce emoji-freedom, it must
+scope itself to persona surfaces or it will generate false positives forever.
