@@ -17,6 +17,20 @@
 -- `payer_id` is the opaque faceless-rails ref (NO FK), mirroring payer_credits /
 -- credit_ledger, which this sits in front of.
 --
+-- AMENDED IN PLACE (not a follow-on migration) to add `credits_granted`. This file has
+-- never been applied anywhere but a throwaway local cluster and is not on `main`, and the
+-- runbook presents this train as ONE ordered pass — so amending keeps that promise instead
+-- of shipping a 0059 that immediately alters a table nobody has yet created.
+--
+-- WHY `credits_granted` EXISTS: the row already stamped `amount_inr`, but the credits the
+-- order buys were being re-resolved from the live catalog at CAPTURE time. If ops re-priced
+-- or re-sized a pack in between, the buyer paid the stamped amount and received the pack's
+-- then-current credits — two sources of truth for one transaction, over an unbounded window
+-- (a browser tab left open across a pricing change is enough), and an unreconcilable ledger.
+-- Stamping BOTH at creation makes a mid-flight catalog change structurally unable to touch
+-- an order that already exists. NOT NULL + CHECK (> 0): an order that buys zero credits is a
+-- resolver bug, and the DB is the only place that cannot be forgotten.
+--
 -- ── referral_bonus_accruals ─────────────────────────────────────────────────
 -- UNIQUE (invited_worker_id) IS THE FRAUD RULE'S TEETH: one bonus per REFERRED worker,
 -- ever. Deliberately NOT (inviter, invited) — that key would let the same referred
@@ -51,6 +65,7 @@ CREATE TABLE "payment_orders" (
 	"payer_id" uuid NOT NULL,
 	"pack_code" text NOT NULL,
 	"amount_inr" integer NOT NULL,
+	"credits_granted" integer NOT NULL,
 	"provider" text DEFAULT 'razorpay' NOT NULL,
 	"provider_order_id" text NOT NULL,
 	"status" text DEFAULT 'created' NOT NULL,
@@ -58,6 +73,7 @@ CREATE TABLE "payment_orders" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "payment_orders_amount_pos_chk" CHECK ("payment_orders"."amount_inr" > 0),
+	CONSTRAINT "payment_orders_credits_pos_chk" CHECK ("payment_orders"."credits_granted" > 0),
 	CONSTRAINT "payment_orders_status_chk" CHECK ("payment_orders"."status" IN ('created', 'paid', 'failed'))
 );
 --> statement-breakpoint

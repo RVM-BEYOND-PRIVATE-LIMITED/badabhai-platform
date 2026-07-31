@@ -9,20 +9,28 @@ import {
   type UnlockStatus,
   type UnlockDenyReason,
   type RoutingChannel,
+  type PaymentOrder,
+  type PaymentOrderStatus,
   unlocks,
   unlockRouting,
   payerCredits,
   creditLedger,
+  paymentOrders,
   workers,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
-import {
-  paymentOrders,
-  RAZORPAY_PROVIDER,
-  type PaymentOrder,
-  type PaymentOrderStatus,
-} from "./payment-orders.table";
+
+/**
+ * The one payment provider this stream supports, and the value that must match
+ * `payment_orders.provider`'s DB default.
+ *
+ * It lives HERE, with the only writer of that table, so the string that goes into the
+ * uniqueness key `(provider, provider_order_id)` is defined once. A second provider is an
+ * additive value, never a rename — renaming it would silently split the idempotency key's
+ * namespace and let an already-settled order settle a second time under the new name.
+ */
+export const RAZORPAY_PROVIDER = "razorpay";
 
 /**
  * A Drizzle transaction handle. The chokepoint ({@link UnlockService}) opens ONE
@@ -468,14 +476,19 @@ export class UnlocksRepository {
   // ===========================================================================
 
   /**
-   * Persist a freshly-created provider order. The amount is the ₹ the pricing catalog
-   * resolved at creation time — this row is the receipt, so a later ops price edit can
-   * never change what this purchase cost.
+   * Persist a freshly-created provider order.
+   *
+   * BOTH SIDES OF THE TRANSACTION ARE STAMPED HERE, once: `amountInr` is the ₹ the pricing
+   * catalog resolved at creation, and `creditsGranted` is what that ₹ buys. The settle path
+   * reads BOTH off this row and never re-consults the catalog, so an ops price/size edit
+   * between creation and capture cannot change what an existing order is worth. A receipt
+   * carrying only the amount and not the goods is not a receipt.
    */
   async createPaymentOrder(input: {
     payerId: string;
     packCode: string;
     amountInr: number;
+    creditsGranted: number;
     providerOrderId: string;
     provider?: string;
   }): Promise<PaymentOrder> {
@@ -485,6 +498,7 @@ export class UnlocksRepository {
         payerId: input.payerId,
         packCode: input.packCode,
         amountInr: input.amountInr,
+        creditsGranted: input.creditsGranted,
         provider: input.provider ?? RAZORPAY_PROVIDER,
         providerOrderId: input.providerOrderId,
         status: "created",

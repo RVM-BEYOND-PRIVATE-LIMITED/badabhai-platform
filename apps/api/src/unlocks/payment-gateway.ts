@@ -2,12 +2,11 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
-import { CREDIT_PACKS, type CreditPack } from "@badabhai/db";
+import { CREDIT_PACKS, type CreditPack, type PaymentOrder } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PricingService } from "../pricing/pricing.service";
 import { UnlocksRepository, type Tx } from "./unlocks.repository";
 import { RazorpayClient } from "./razorpay.client";
-import type { PaymentOrder } from "./payment-orders.table";
 
 /**
  * The PaymentGateway / CreditService seam (ADR-0010 §D5 / Phase-0 F-6) — the single
@@ -64,9 +63,14 @@ export type SettleResult =
     }
   | { outcome: "already_settled"; order: PaymentOrder }
   /** No such order for this provider (or, on the verify path, not the caller's order). */
-  | { outcome: "unknown_order" }
-  /** The order's pack no longer resolves — money was taken but the grant size is unknown. */
-  | { outcome: "unresolvable_pack"; order: PaymentOrder };
+  | { outcome: "unknown_order" };
+//
+// THERE IS DELIBERATELY NO "cannot size the grant" OUTCOME. It existed while credits were
+// re-resolved from the catalog at capture, and it meant a captured payment could be
+// stranded by an ops edit. Now the grant is stamped on the order row, so a settle can only
+// succeed, be a no-op, or not find an order. A genuine INFRASTRUCTURE failure (DB down, the
+// layer-3 unique index firing) still throws, which surfaces as a 5xx and makes Razorpay
+// redeliver — the correct retry signal, without a special-case return value to forget.
 
 @Injectable()
 export class PaymentGateway {
@@ -215,7 +219,10 @@ export class PaymentGateway {
     const row = await this.repo.createPaymentOrder({
       payerId,
       packCode: pack.code,
-      amountInr: pack.priceInr, // the STAMPED receipt amount
+      // BOTH sides of the transaction are stamped, from ONE catalog read, at this instant.
+      // The settle path reads them back off the row and never re-resolves the pack.
+      amountInr: pack.priceInr,
+      creditsGranted: pack.credits,
       providerOrderId: created.orderId,
     });
 
@@ -227,7 +234,7 @@ export class PaymentGateway {
       amountPaise: created.amountPaise,
       currency: created.currency,
       packCode: row.packCode,
-      credits: pack.credits,
+      credits: row.creditsGranted, // echo the STAMPED value, not the local `pack`
     };
   }
 
@@ -267,28 +274,13 @@ export class PaymentGateway {
     // Fast path: already settled by the other channel. Skips the write entirely.
     if (existing.status === "paid") return { outcome: "already_settled", order: existing };
 
-    // How many credits this pack grants. Resolved from the pack CODE stamped on the order
-    // row, never from the provider payload — the provider tells us money moved, our own
-    // catalog decides what that buys.
-    const pack = await this.resolvePack(existing.packCode);
-    if (!pack) {
-      // Money may have been captured but we cannot size the grant. Do NOT invent a number
-      // and do NOT mark the order failed (that would erase a real payment). Leave it
-      // 'created' so a later retry (or an ops grant) can settle it once the tier is back.
-      this.logger.error(
-        `payment order pack no longer resolves — grant deferred order_row=${existing.id} pack=${existing.packCode}`,
-      );
-      return { outcome: "unresolvable_pack", order: existing };
-    }
-    if (pack.priceInr !== existing.amountInr) {
-      // Ops re-priced the tier between order creation and capture. The payer paid the
-      // STAMPED amount, so that is what the ledger records; the grant follows the pack.
-      // Grant-not-strand is deliberate: money has already moved, and refusing credits for
-      // captured money is the worse failure. Logged PII-free for reconciliation.
-      this.logger.warn(
-        `catalog price drifted between order and capture order_row=${existing.id} pack=${existing.packCode} stamped_inr=${existing.amountInr} catalog_inr=${pack.priceInr}`,
-      );
-    }
+    // THE CATALOG IS NOT CONSULTED HERE. Both the ₹ charged and the credits bought were
+    // resolved once, at order creation, and stamped on this immutable row. Re-resolving
+    // either at capture would reintroduce the drift this design exists to remove: an ops
+    // re-price/re-size between creation and capture would charge the stamped amount and
+    // grant a different number of credits, over a window bounded only by how long a
+    // checkout tab stays open.
+    await this.warnOnCatalogDrift(existing);
 
     const settled = await this.repo.withTransaction(async (tx) => {
       const claimed = await this.repo.claimPaymentOrderPaidWithinTx(tx, {
@@ -298,7 +290,8 @@ export class PaymentGateway {
       if (!claimed) return null; // lost the race — the winner granted; we must not.
       const balanceAfter = await this.repo.creditPackWithinTx(tx, {
         payerId: claimed.payerId,
-        credits: pack.credits,
+        // The STAMPED grant — what this order was sold as, not what the pack is today.
+        credits: claimed.creditsGranted,
         reason: "pack_purchase",
         packCode: claimed.packCode,
         // OPAQUE provider payment id only (`pay_*`) — never a card/UPI/contact value.
@@ -324,9 +317,47 @@ export class PaymentGateway {
       outcome: "granted",
       order: settled.claimed,
       balanceAfter: settled.balanceAfter,
-      credits: pack.credits,
+      credits: settled.claimed.creditsGranted,
       priceInr: settled.claimed.amountInr,
     };
+  }
+
+  /**
+   * OPS SIGNAL, NOT A CONTROL: log when the live catalog no longer matches what an order
+   * was sold as.
+   *
+   * Nothing downstream reads this — the grant comes off the order row either way. Its whole
+   * purpose is to tell ops "you changed a pack while live orders were open against it", so
+   * a support query about a mismatched receipt has an answer. It deliberately runs AFTER
+   * the settle decision is already determined and BEFORE the transaction, so a catalog read
+   * failure can neither block a grant nor hold a row lock.
+   *
+   * A pack that no longer resolves at all is logged too — under the old design that was a
+   * stranded payment, and it is now merely informational, which is the point.
+   *
+   * PII-free: opaque row id, catalog code, integer ₹/counts.
+   */
+  private async warnOnCatalogDrift(order: PaymentOrder): Promise<void> {
+    try {
+      const pack = await this.resolvePack(order.packCode);
+      if (!pack) {
+        this.logger.warn(
+          `catalog no longer offers a settled order's pack (grant unaffected — stamped on the order) order_row=${order.id} pack=${order.packCode}`,
+        );
+        return;
+      }
+      if (pack.priceInr !== order.amountInr || pack.credits !== order.creditsGranted) {
+        this.logger.warn(
+          `catalog drifted between order and capture (grant unaffected — stamped on the order) order_row=${order.id} pack=${order.packCode} stamped_inr=${order.amountInr} catalog_inr=${pack.priceInr} stamped_credits=${order.creditsGranted} catalog_credits=${pack.credits}`,
+        );
+      }
+    } catch {
+      // A catalog read failure must NEVER affect a capture. Under the old design this path
+      // could strand a real payment; now it cannot, so it is swallowed deliberately.
+      this.logger.warn(
+        `catalog unavailable during drift check (grant unaffected) order_row=${order.id}`,
+      );
+    }
   }
 
   /**

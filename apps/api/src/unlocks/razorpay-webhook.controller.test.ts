@@ -1,6 +1,5 @@
 import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ServiceUnavailableException } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import { RazorpayWebhookController } from "./razorpay-webhook.controller";
 import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
@@ -17,7 +16,7 @@ const CTX: RequestContext = {
   requestId: "req-1",
 };
 
-function makeCtrl(result: "granted" | "failed_recorded" | "no_op" | "retry" = "granted") {
+function makeCtrl(result: "granted" | "failed_recorded" | "no_op" = "granted") {
   const unlocks = {
     handleRazorpayEvent: vi.fn(async (_event: unknown, _ctx: unknown) => ({ result })),
   };
@@ -63,11 +62,12 @@ describe("RazorpayWebhookController — status codes are retry control signals",
     expect(d.unlocks.handleRazorpayEvent).not.toHaveBeenCalled();
   });
 
-  it("an internal failure asks Razorpay to RETRY (503) so captured money is never dropped", async () => {
-    const retry = makeCtrl("retry");
-    await expect(retry.ctrl.webhook(req(CAPTURE), CTX)).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+  it("an INFRASTRUCTURE failure PROPAGATES (5xx ⇒ Razorpay redelivers) — never swallowed into a 200", async () => {
+    // Answering 200 to a capture we failed to process would tell Razorpay the money was
+    // handled and stop the retries that are the only thing that would recover it.
+    const broken = makeCtrl();
+    broken.unlocks.handleRazorpayEvent.mockRejectedValueOnce(new Error("db connection lost"));
+    await expect(broken.ctrl.webhook(req(CAPTURE), CTX)).rejects.toThrow("db connection lost");
   });
 
   it("the response body reveals nothing about the order, the payer, or the outcome", async () => {

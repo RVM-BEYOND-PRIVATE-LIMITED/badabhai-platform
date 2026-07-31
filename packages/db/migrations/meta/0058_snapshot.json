@@ -3800,6 +3800,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "credits_granted": {
+          "name": "credits_granted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "provider": {
           "name": "provider",
           "type": "text",
@@ -3893,6 +3899,10 @@
         "payment_orders_amount_pos_chk": {
           "name": "payment_orders_amount_pos_chk",
           "value": "\"payment_orders\".\"amount_inr\" > 0"
+        },
+        "payment_orders_credits_pos_chk": {
+          "name": "payment_orders_credits_pos_chk",
+          "value": "\"payment_orders\".\"credits_granted\" > 0"
         },
         "payment_orders_status_chk": {
           "name": "payment_orders_status_chk",
