@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { looksLikeActionContextPii } from "@badabhai/validators";
 import { createAgencyInvite } from "../../../../lib/payer-api";
 import { requireAgent } from "../../../../lib/auth/roles";
 
@@ -22,19 +23,30 @@ import { requireAgent } from "../../../../lib/auth/roles";
  */
 
 /**
- * The campaign tag is PII-screened at the boundary (matching the backend DTO heuristic):
- * a phone/email in this human-typed field is a leak risk; we name the field, never the
- * offending content.
+ * The campaign tag is PII-screened at the boundary, using the SAME helper as the backend
+ * DTO (`campaignTag` in agency.dto.ts) rather than a local regex.
+ *
+ * WHY THE SHARED HELPER, AND WHY THE STRICTER ONE. This field is written to
+ * `agency_invites.campaign` AND emitted in the `agency_invite.created` payload — an
+ * invariant-#2 sink. The local regex this replaces mirrored `looksLikePii`, which catches
+ * only email shapes and long digit runs, so a worker's NAME typed as a campaign tag passed
+ * every screen and landed on the event spine. `looksLikeActionContextPii` adds the
+ * name/address shapes.
+ *
+ * That stricter check is safe HERE specifically because a campaign tag is a short non-PII
+ * label ("diwali-drive"), the same shape as the actions-context bag it was written for — not
+ * legitimate title-case free text like a job title ("Night Shift Operator"), which is what
+ * rules the name check out of the general `looksLikePii`. Scoped to this field on purpose.
+ *
+ * We name the field, never echo the offending content.
  */
-const PHONE_OR_EMAIL = /(\+?\d[\d\s-]{7,}\d)|([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/;
-
 const campaignSchema = z
   .string()
   .trim()
   .min(1)
   .max(64)
-  .refine((s) => !PHONE_OR_EMAIL.test(s), {
-    message: "The campaign tag must be a non-PII label — remove any phone or email.",
+  .refine((s) => !looksLikeActionContextPii(s), {
+    message: "The campaign tag must be a non-PII label — use a short slug like diwali-drive, never a person's name, phone, or email.",
   });
 
 const NEUTRAL_FAILURE = "Could not create an invite right now. Please try again shortly.";

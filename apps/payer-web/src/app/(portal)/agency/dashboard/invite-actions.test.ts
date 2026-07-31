@@ -42,6 +42,17 @@ describe("createInviteAction — faceless campaign screen", () => {
     expect(createAgencyInvite).not.toHaveBeenCalled();
   });
 
+  // THE PARITY FIX (2026-07-31). The screen used to be a local PHONE_OR_EMAIL regex mirroring
+  // `looksLikePii`, which catches ONLY email shapes and digit runs — so a worker's NAME passed
+  // every screen and landed in `agency_invites.campaign` AND the `agency_invite.created`
+  // payload, an invariant-#2 sink. The client now shares `looksLikeActionContextPii` with the
+  // backend DTO. This test FAILS against the old regex.
+  it("rejects a campaign tag that is a person's NAME, without minting (invariant #2 sink)", async () => {
+    const res = await createInviteAction({ campaign: "Ramesh Kumar" });
+    expect(res.ok).toBe(false);
+    expect(createAgencyInvite).not.toHaveBeenCalled();
+  });
+
   it("rejects a campaign tag containing an email, without minting", async () => {
     const res = await createInviteAction({ campaign: "ping ramesh@example.com" });
     expect(res.ok).toBe(false);

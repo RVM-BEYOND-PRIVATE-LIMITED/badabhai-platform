@@ -1,16 +1,21 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { looksLikeActionContextPii } from "@badabhai/validators";
 import { Badge, Button, Card, Input } from "../../../../components/ds";
 import { createInviteAction } from "./invite-actions";
 
 /**
- * Client-side PII screen for the campaign tag (C11), mirroring `campaignSchema`'s
- * PHONE_OR_EMAIL in invite-actions.ts. The Server Action + backend DTO stay the AUTHORITY —
- * this only rejects a phone-like / email-like tag INLINE before the round-trip. It names the
- * field, never the offending content (no echo).
+ * Client-side PII screen for the campaign tag (C11), using the SAME `looksLikeActionContextPii`
+ * helper as `campaignSchema` in invite-actions.ts and the backend DTO — not a local regex copy.
+ * The Server Action + backend DTO stay the AUTHORITY; this only rejects INLINE before the
+ * round-trip. It names the field, never the offending content (no echo).
+ *
+ * The regex this replaces mirrored `looksLikePii` (email + digit runs only), so a worker's
+ * NAME passed — and the tag reaches the `agency_invite.created` payload, an invariant-#2 sink.
+ * Three copies of that regex existed across the two mint panels and their actions; sharing one
+ * helper is what stops the screens drifting apart again.
  */
-const PHONE_OR_EMAIL = /(\+?\d[\d\s-]{7,}\d)|([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/;
 const TAG_MAX = 64; // parity with campaignSchema.max(64)
 
 /**
@@ -37,13 +42,13 @@ export function AgencyInvitePanel() {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  /** Inline tag screen (C11): empty is fine (optional); a phone/email-like tag is rejected. */
+  /** Inline tag screen (C11): empty is fine (optional); a name/phone/email-like tag is rejected. */
   function tagError(raw: string): string | null {
     const t = raw.trim();
     if (t === "") return null;
     if (t.length > TAG_MAX) return "The campaign tag is too long.";
-    if (PHONE_OR_EMAIL.test(t))
-      return "The campaign tag must be a non-PII label — remove any phone or email.";
+    if (looksLikeActionContextPii(t))
+      return "The campaign tag must be a non-PII label — use a short slug like diwali-drive, never a person's name, phone, or email.";
     return null;
   }
 
@@ -96,7 +101,7 @@ export function AgencyInvitePanel() {
           value={campaign}
           error={campaignError ?? undefined}
           aria-invalid={campaignError ? true : undefined}
-          hint="A short, non-identifying label to group invites. Never a phone, name, or email."
+          hint="A short slug to group invites, like diwali-drive. Never a phone, name, or email."
           onChange={(e) => {
             setCampaign(e.target.value);
             if (campaignError) setCampaignError(null);
