@@ -30,6 +30,7 @@ import {
  * No ops auth in alpha — `created_by` is supplied on the create body.
  */
 @Controller("job-postings")
+@UseGuards(InternalServiceGuard)
 export class JobPostingsController {
   constructor(private readonly jobPostings: JobPostingsService) {}
 

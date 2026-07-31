@@ -93,7 +93,7 @@ const PE = "AgencyPayoutsEnabledGuard";
 const RZ = "RazorpayWebhookGuard";
 
 const CONTRACT: ControllerContract[] = [
-  { name: "Actions", ctor: ActionsController, routes: { record: [], recordBatch: [] } },
+  { name: "Actions", ctor: ActionsController, routes: { record: [I], recordBatch: [I] } },
   {
     name: "Applications",
     ctor: ApplicationsController,
@@ -131,8 +131,8 @@ const CONTRACT: ControllerContract[] = [
   },
   // P0 fix (PR #91): worker AI routes are worker-authed + consent-gated.
   { name: "Chat", ctor: ChatController, routes: { startSession: [C, W], postMessage: [C, W] } },
-  { name: "Consent", ctor: ConsentController, routes: { accept: [] } },
-  { name: "Events", ctor: EventsController, routes: { list: [] } },
+  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W] } },
+  { name: "Events", ctor: EventsController, routes: { list: [I] } },
   { name: "Health", ctor: HealthController, routes: { check: [] } },
   { name: "InterviewKit", ctor: InterviewKitController, routes: { download: [] } },
   // Worker-scoped job detail (ADR-0024 final addendum): GET /jobs/:jobId is
@@ -146,7 +146,16 @@ const CONTRACT: ControllerContract[] = [
     // alpha-open ops controller — widening a reach set changes which workers see a job
     // on a posting whose owner chose a narrower net, so it takes the ops service guard
     // even though its siblings do not.
-    routes: { create: [], list: [], getOne: [], update: [], close: [], widenReach: [I] },
+    routes: {
+      create: [I],
+      list: [I],
+      getOne: [I],
+      update: [I],
+      close: [I],
+      verify: [I],
+      reject: [I],
+      widenReach: [I],
+    },
   },
   {
     name: "Messaging",
@@ -165,10 +174,10 @@ const CONTRACT: ControllerContract[] = [
     ctor: PricingController,
     routes: { getCatalog: [I], updateCatalog: [I], quote: [I] },
   },
-  { name: "AiJobs", ctor: AiJobsController, routes: { list: [], get: [] } },
+  { name: "AiJobs", ctor: AiJobsController, routes: { list: [I], get: [I] } },
   // P0 fix (PR #91).
   { name: "Profiles", ctor: ProfilesController, routes: { extract: [C, W], confirm: [C, W] } },
-  { name: "Reach", ctor: ReachController, routes: { applicants: [], feed: [] } },
+  { name: "Reach", ctor: ReachController, routes: { applicants: [I], feed: [I] } },
   // Self-serve PAYER surface (ADR-0019). signup/login are PUBLIC (external boundary);
   // refresh/logout + every unlock/reach route bind to the payer session (PayerAuthGuard).
   // The ops `/reach/*` + `/unlocks*` rows above stay their own principal (one per route).
@@ -309,7 +318,7 @@ const CONTRACT: ControllerContract[] = [
     name: "Workers",
     ctor: WorkersController,
     routes: {
-      list: [],
+      list: [I],
       getProfile: [I],
       setName: [I],
       setMyName: [C, W],

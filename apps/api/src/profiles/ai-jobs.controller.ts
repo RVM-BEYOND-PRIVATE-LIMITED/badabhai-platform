@@ -1,10 +1,12 @@
-import { Controller, Get, NotFoundException, Param, ParseUUIDPipe, Query } from "@nestjs/common";
+import { Controller, Get, NotFoundException, Param, ParseUUIDPipe, Query, UseGuards } from "@nestjs/common";
+import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { clampLimit } from "../common/pagination";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import type { AiJobResponse } from "./ai-jobs.dto";
 
 /** Read-only AI-jobs for the ops console + async-job polling (refs only, no PII). */
 @Controller("ai-jobs")
+@UseGuards(InternalServiceGuard)
 export class AiJobsController {
   constructor(private readonly aiJobs: AiJobsRepository) {}
 

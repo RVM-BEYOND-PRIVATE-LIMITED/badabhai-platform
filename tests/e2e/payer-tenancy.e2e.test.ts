@@ -73,9 +73,12 @@ async function loginWorker(): Promise<{ workerId: string; token: string; phone: 
   return { workerId: r2.json.worker_id as string, token: r2.json.access_token as string, phone };
 }
 
-async function consent(workerId: string, purposes: string[]): Promise<void> {
+async function consent(token: string, purposes: string[]): Promise<void> {
+  // `POST /consent/accept` is WORKER-AUTHED: the subject is the SESSION worker,
+  // never a body id. Sending `worker_id` would be silently stripped by the DTO.
   const r = await req("POST", "/consent/accept", {
-    body: { worker_id: workerId, consent_version: CONSENT_VERSION, purposes },
+    body: { consent_version: CONSENT_VERSION, purposes },
+    token,
   });
   expect(r.status).toBe(201);
 }
@@ -118,7 +121,7 @@ describe.skip("Payer self-serve horizontal authz (e2e, ADR-0019 R16 / XB-A) — 
 
     // A worker B will unlock (consented for employer_sharing).
     const w = await loginWorker();
-    await consent(w.workerId, ["profiling", "employer_sharing"]);
+    await consent(w.token, ["profiling", "employer_sharing"]);
 
     // B unlocks through B's OWN session — no payer_id in the body, identity is the session.
     const bGrant = await req("POST", "/payer/unlocks", {
@@ -175,7 +178,7 @@ describe.skip("Payer self-serve horizontal authz (e2e, ADR-0019 R16 / XB-A) — 
       body: { pack_code: "pack_10" },
     });
     const w = await loginWorker();
-    await consent(w.workerId, ["profiling", "employer_sharing"]);
+    await consent(w.token, ["profiling", "employer_sharing"]);
 
     // A forged `payer_id` in the body must be IGNORED (the DTO carries none; identity is the
     // session). The debit hits A, never the forged victim id.

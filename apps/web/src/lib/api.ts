@@ -136,20 +136,44 @@ export class ApiError extends Error {
   }
 }
 
+/** Header carrying the shared internal-service secret (mirrors the API guard). */
+const INTERNAL_SERVICE_TOKEN_HEADER = "x-internal-service-token";
+
+/**
+ * ONE TRANSPORT RULE FOR THE OPS CONSOLE: every call it makes authenticates.
+ *
+ * This console is entirely server-rendered and every endpoint it touches is
+ * ops-internal — worker/event/ai-job reads, the reach views, the job-posting
+ * lifecycle, the pricing catalog. There is no public read among them, so there is
+ * no reason for an unauthenticated transport to exist here at all, and having one
+ * is how `/events`, `/job-postings` and friends came to be reachable by anyone on
+ * the internet: the API had no guard and the console had no token, so nothing
+ * anywhere failed.
+ *
+ * SECURITY: `INTERNAL_SERVICE_TOKEN` is a SERVER secret. It is read from
+ * `process.env` (NEVER `publicConfig`, which whitelists only `NEXT_PUBLIC_*`), so
+ * it is never inlined into the client bundle. When it is unset the header is
+ * omitted, the API guard fails CLOSED, and the page renders its error state — a
+ * missing secret breaks the console loudly instead of silently opening the API.
+ */
+function opsHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = { accept: "application/json", ...extra };
+  const token = process.env.INTERNAL_SERVICE_TOKEN;
+  if (token) headers[INTERNAL_SERVICE_TOKEN_HEADER] = token;
+  return headers;
+}
+
 async function apiGet<T>(path: string): Promise<T> {
   // Ops data must always be fresh; never cache it at the framework level.
   const res = await fetch(`${publicConfig.NEXT_PUBLIC_API_URL}${path}`, {
     cache: "no-store",
-    headers: { accept: "application/json" },
+    headers: opsHeaders(),
   });
   if (!res.ok) {
     throw new ApiError(res.status, `API GET ${path} failed: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as T;
 }
-
-/** Header carrying the shared internal-service secret (mirrors the API guard). */
-const INTERNAL_SERVICE_TOKEN_HEADER = "x-internal-service-token";
 
 /**
  * Server-only GET for ops endpoints behind the API's `InternalServiceGuard`
@@ -164,20 +188,14 @@ const INTERNAL_SERVICE_TOKEN_HEADER = "x-internal-service-token";
  * the secret is never surfaced.
  */
 async function apiGetInternal<T>(path: string): Promise<T> {
-  const headers: Record<string, string> = { accept: "application/json" };
-  const token = process.env.INTERNAL_SERVICE_TOKEN;
-  if (token) {
-    headers[INTERNAL_SERVICE_TOKEN_HEADER] = token;
-  }
-  // Ops data must always be fresh; never cache it at the framework level.
-  const res = await fetch(`${publicConfig.NEXT_PUBLIC_API_URL}${path}`, {
-    cache: "no-store",
-    headers,
-  });
-  if (!res.ok) {
-    throw new Error(`API GET ${path} failed: ${res.status} ${res.statusText}`);
-  }
-  return (await res.json()) as T;
+  // Now IDENTICAL to `apiGet` — both authenticate, via `opsHeaders`. Kept as a
+  // named alias rather than collapsed across ~20 call sites during a release
+  // freeze; the distinction it used to draw no longer exists (TD121).
+  //
+  // NOTE the error type differs and callers depend on it: `apiGet` throws
+  // `ApiError` (carrying the status, so pages can tell a 404 from an outage),
+  // which is strictly more information than the bare Error this used to throw.
+  return apiGet<T>(path);
 }
 
 /**
@@ -193,14 +211,9 @@ async function apiGetInternal<T>(path: string): Promise<T> {
  * secret is never surfaced.
  */
 async function apiPostInternal<T>(path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { accept: "application/json" };
-  const token = process.env.INTERNAL_SERVICE_TOKEN;
-  if (token) {
-    headers[INTERNAL_SERVICE_TOKEN_HEADER] = token;
-  }
-  if (body !== undefined) {
-    headers["content-type"] = "application/json";
-  }
+  const headers = opsHeaders(
+    body !== undefined ? { "content-type": "application/json" } : {},
+  );
   const res = await fetch(`${publicConfig.NEXT_PUBLIC_API_URL}${path}`, {
     method: "POST",
     cache: "no-store",
@@ -311,10 +324,7 @@ async function apiWrite<T>(
   const res = await fetch(`${publicConfig.NEXT_PUBLIC_API_URL}${path}`, {
     method,
     cache: "no-store",
-    headers: {
-      accept: "application/json",
-      ...(body !== undefined ? { "content-type": "application/json" } : {}),
-    },
+    headers: opsHeaders(body !== undefined ? { "content-type": "application/json" } : {}),
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {

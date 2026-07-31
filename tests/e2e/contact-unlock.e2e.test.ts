@@ -71,9 +71,12 @@ async function loginWorker(): Promise<{ workerId: string; token: string; phone: 
   return { workerId: r2.json.worker_id as string, token: r2.json.access_token as string, phone };
 }
 
-async function consent(workerId: string, purposes: string[]): Promise<void> {
+async function consent(token: string, purposes: string[]): Promise<void> {
+  // `POST /consent/accept` is WORKER-AUTHED: the subject is the SESSION worker,
+  // never a body id. Sending `worker_id` would be silently stripped by the DTO.
   const r = await req("POST", "/consent/accept", {
-    body: { worker_id: workerId, consent_version: CONSENT_VERSION, purposes },
+    body: { consent_version: CONSENT_VERSION, purposes },
+    token,
   });
   expect(r.status).toBe(201);
 }
@@ -101,9 +104,9 @@ describe.skip("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
   it("F-1: a zero-credit payer cannot distinguish a consented-uncapped worker from a non-consented one", async () => {
     const payer = randomUUID(); // zero credits (never topped up)
     const consented = await loginWorker();
-    await consent(consented.workerId, ["profiling", "employer_sharing"]);
+    await consent(consented.token, ["profiling", "employer_sharing"]);
     const notConsented = await loginWorker();
-    await consent(notConsented.workerId, ["profiling"]); // NO employer_sharing
+    await consent(notConsented.token, ["profiling"]); // NO employer_sharing
 
     const a = await req("POST", "/unlocks", {
       ops: true,
@@ -143,7 +146,7 @@ describe.skip("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
   it("happy path: purchase → grant → reveal, emitting PII-free events; balance debited once", async () => {
     const payer = randomUUID();
     const w = await loginWorker();
-    await consent(w.workerId, ["profiling", "employer_sharing"]);
+    await consent(w.token, ["profiling", "employer_sharing"]);
 
     const buy = await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
     expect(buy.status).toBe(200);
@@ -174,7 +177,7 @@ describe.skip("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
   it("F-6: a retried unlock returns the SAME grant and debits only once", async () => {
     const payer = randomUUID();
     const w = await loginWorker();
-    await consent(w.workerId, ["employer_sharing"]);
+    await consent(w.token, ["employer_sharing"]);
     await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
 
     const g1 = await req("POST", "/unlocks", { ops: true, body: { payer_id: payer, worker_id: w.workerId } });
@@ -192,7 +195,7 @@ describe.skip("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
     // the per-worker weekly-distinct-payers cap (default 10) and that no balance goes
     // negative under concurrency.
     const w = await loginWorker();
-    await consent(w.workerId, ["employer_sharing"]);
+    await consent(w.token, ["employer_sharing"]);
 
     const payersList = Array.from({ length: 14 }, () => randomUUID());
     await Promise.all(
@@ -216,7 +219,7 @@ describe.skip("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
   it("F-5: the sentinel phone never appears in any emitted event or in any unlock-family table", async () => {
     const payer = randomUUID();
     const w = await loginWorker();
-    await consent(w.workerId, ["employer_sharing"]);
+    await consent(w.token, ["employer_sharing"]);
     await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
     const grant = await req("POST", "/unlocks", { ops: true, body: { payer_id: payer, worker_id: w.workerId } });
     await req("POST", `/unlocks/${grant.json.unlock_id}/reveal`, { ops: true });
@@ -249,7 +252,7 @@ describe.skip("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
   it("ops reads are PII-free projections (no routing token, no phone)", async () => {
     const payer = randomUUID();
     const w = await loginWorker();
-    await consent(w.workerId, ["employer_sharing"]);
+    await consent(w.token, ["employer_sharing"]);
     await req("POST", `/payers/${payer}/credits`, { ops: true, body: { pack_code: "pack_10" } });
     await req("POST", "/unlocks", { ops: true, body: { payer_id: payer, worker_id: w.workerId } });
 
