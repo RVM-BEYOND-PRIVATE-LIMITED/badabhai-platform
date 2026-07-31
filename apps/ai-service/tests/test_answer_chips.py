@@ -30,7 +30,12 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.profiling import interview_engine, signals
-from app.profiling.question_bank import GENERIC_ROLE_FAMILY, options_for, topics_for
+from app.profiling.question_bank import (
+    _TOPICS_BY_FAMILY,
+    GENERIC_ROLE_FAMILY,
+    options_for,
+    topics_for,
+)
 
 client = TestClient(app)
 
@@ -69,6 +74,48 @@ def test_every_chip_resolves_the_topic_it_is_offered_under():
                 f"chip {option!r} under topic {topic.id!r} resolves {detected} — "
                 "it does not answer the question it is offered under"
             )
+
+
+def test_the_launch_families_chips_ALL_resolve_and_the_rest_are_measured_as_TD119():
+    """TD119, pinned as EXECUTABLE data rather than a snapshot in a register.
+
+    The property above is asserted for `cnc_vmc` only, and that hid a real gap: the five
+    non-CNC banks were written as question COPY and never executed against the detector,
+    because the detector's gazetteers are CNC/VMC plus the TAX-WELD-1 welding role/skill
+    layer and nothing else. A chip that does not resolve is worse than no chip — the
+    worker taps, sees their words in the transcript, and the field stays empty while the
+    engine burns a bounded re-ask — and some of them key the WRONG topic outright
+    ("MIG welder" under `welding:equipment` records `role`).
+
+    TWO CLASSES, deliberately asserted differently:
+
+    * `cnc_vmc` and `generic` are the families a real alpha worker meets (CLAUDE.md §1:
+      the launch wedge is CNC/VMC; `generic` is the uncovered-trade bank and carries no
+      trade chips at all). They must be 100%, and that is an INVARIANT.
+    * The other five are RECORDED at their measured counts. Fixing them needs tool/skill
+      gazetteers with canonical ids — the TAX-WELD-1 shape, not a detector patch — so
+      this pins the size of the job and fails the moment it changes in either direction.
+    """
+    resolving = {}
+    for family in _TOPICS_BY_FAMILY:
+        chips = [(t.id, o) for t in topics_for(family) for o in t.options]
+        ok = [1 for tid, o in chips if tid in signals.detect_answered_topics(o, tid)]
+        resolving[family] = (len(ok), len(chips))
+
+    for launch_family in ("cnc_vmc", GENERIC_ROLE_FAMILY):
+        ok, total = resolving[launch_family]
+        assert ok == total, f"{launch_family}: only {ok}/{total} chips resolve — a launch family"
+
+    assert resolving == {
+        "cnc_vmc": (39, 39),
+        GENERIC_ROLE_FAMILY: (23, 23),
+        # --- TD119: unserved families, gazetteers absent ---
+        "welding": (26, 42),
+        "plumbing": (26, 38),
+        "carpentry": (26, 39),
+        "design": (31, 39),
+        "interior_design": (31, 39),
+    }, "chip resolution moved — update TD119 in docs/registers/tech-debt-register.md"
 
 
 def test_no_chip_is_a_question():

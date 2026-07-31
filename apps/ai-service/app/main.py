@@ -63,7 +63,7 @@ from .extraction import build_resume, resolve_taxonomy_ids
 from .job_posting_chat import answers as job_posting_answers
 from .job_posting_chat import interview_engine as job_posting_engine
 from .logging_config import configure_logging, get_logger
-from .profiling import interview_engine, profile_extractor
+from .profiling import interview_engine, profile_extractor, signals
 from .profiling.canonical_roles import (
     ROLE_TRADE,
     canonicalization_instruction,
@@ -599,10 +599,17 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     #    message carries an extractable ANSWER (answer-trumps-clarify: the predicate
     #    has false-positive classes like "Fanuc?" / "2 saal?" that must never eat an
     #    answer, #238 HIGH), or when the consecutive clarify budget (2) is spent.
+    #    PERSONA v3.2 §5: a worker ASKING whether they will get a job takes the SAME
+    #    re-serve path — the sheet requires answering them honestly and then going back
+    #    to the open question, not advancing past it. It is routed separately from
+    #    `is_clarify` on purpose: `is_clarify` also gates the optional LLM rephrase
+    #    below, and the guarantee line is a FIXED string with nothing to rephrase.
     is_clarify = interview_engine.needs_rephrase(body.message_text)
+    asks_about_job = signals.asks_about_job_prospects(body.message_text)
+    wants_reserve = is_clarify or asks_about_job
     turn = (
         interview_engine.clarify_turn(body.conversation_state, body.message_text, role_family)
-        if is_clarify
+        if wants_reserve
         else None
     )
     if turn is None:
@@ -623,7 +630,15 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     #    COST-3: the chat turn is STATELESS — prior history is NOT sent to the model
     #    (build_chat_messages ignores it); only the current (already-pseudonymized)
     #    message + the engine's question reach the LLM if a rephrase call does fire.
-    wants_rephrase = settings.ai_profiling_rephrase_enabled and is_clarify
+    #    ...EXCEPT on a job-prospect turn, which is excluded outright. `needs_rephrase`
+    #    is TRUE for the short forms of that question ("job milegi kya?" is 3 words and
+    #    ends in "?"), so without `not asks_about_job` the reply handed to the model
+    #    would be the §5 guarantee line — a sanctioned, verbatim commitment string
+    #    ("Guarantee nahi de sakta — profile poora hoga toh companies dekhengi.") that a
+    #    rephrase could soften into the promise §2 Law 9 forbids. Inert today
+    #    (AI_PROFILING_REPHRASE_ENABLED is off by default) and closed here so flipping
+    #    that flag cannot reword it.
+    wants_rephrase = settings.ai_profiling_rephrase_enabled and is_clarify and not asks_about_job
     messages = build_chat_messages([], mock_reply, result.text, role_family=role_family)
     reply_text, meta = await router.run(
         "profiling_chat_turn",

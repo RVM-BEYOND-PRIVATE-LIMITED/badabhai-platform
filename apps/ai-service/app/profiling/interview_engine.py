@@ -25,8 +25,55 @@ from .question_bank import (
     topics_for,
 )
 
-# A senior's acknowledgement: two words, no praise (persona rule G4).
+# A senior's acknowledgement: two words, no praise (persona rule G4). One of §3's
+# closed acknowledgement set ("Theek hai. · Achha. · Samajh gaya. · Note kar liya. ·
+# Chalo. · Bilkul. — nothing else").
 _ACK = "Theek hai. "
+
+# --- §5 acknowledgement variants (persona v3.2) ------------------------------
+# Each is a DETERMINISTIC string on a detected condition. No LLM, no cost, and — the
+# part that makes them legal under §4's "character is a REWRITE of a line, never an
+# ADDITION to it" — none of them adds a turn or a sentence. They occupy the ack slot
+# the turn already had, so the served turn is still `[ack] + [ONE question]`.
+#
+# All four are §3-compliant by construction and are swept by the neutrality nets:
+# aap-form, no vocative, no exclamation, no emoji, no praise.
+
+# "Says 'nahi pata' -> 'Koi baat nahi.' -> next question. No teaching, no re-ask, no
+# disappointment. No appreciation on this turn." (The engine emits no appreciations at
+# all, so the last clause holds trivially — see the persona tests.)
+_ACK_DONT_KNOW = "Koi baat nahi. "
+
+# "Says work has been hard -> One line, <=8 words, no advice: 'Samajh sakta hoon.'"
+# Three words. It must fire on hardship and NEVER on achievement — that discipline
+# lives in signals.is_hardship, which is a phrase list, not a keyword list.
+_ACK_HARDSHIP = "Samajh sakta hoon. "
+
+# "Is abusive -> One neutral line, continues. Never mirrors tone, never moralises."
+#
+# The sheet does not supply the string, and inventing a sentence for this row is how a
+# bot ends up moralising. So the "neutral line" is "Chalo." — a member of §3's CLOSED
+# acknowledgement set whose whole meaning is *moving on*. It neither mirrors nor
+# lectures, and it is visibly not the warm "Theek hai." the worker would otherwise get,
+# which is the only thing the row actually asks for. A distinct sentence here is a copy
+# decision for the owner, not something to guess at.
+_ACK_ABUSIVE = "Chalo. "
+
+# "Asks 'job milegi?' -> 'Guarantee nahi de sakta — profile poora hoga toh companies
+#  dekhengi.' -> back to the open question. No reassurance, no promise."
+#
+# VERBATIM from §5 and worked conversation 06. It is served by `clarify_turn`, not by
+# `next_turn`, because the sheet requires going BACK TO THE OPEN QUESTION rather than
+# advancing — the worker asked us something instead of answering, so the question on
+# screen is still owed. Re-serving is explicitly "not counted as re-asking": ask_counts
+# is untouched, so it costs the worker none of their bounded re-ask budget.
+#
+# WHY THIS ROW MATTERS MORE THAN ITS SIZE: before it, a worker asking a direct, anxious
+# question got SILENCE — the engine detected nothing, advanced, and served the next
+# topic. Silence is not neutrality at the moment a person is most exposed; it reads as
+# being ignored. §2 Law 9 (never promise) is satisfied by the line itself, which
+# refuses the guarantee in its first three words.
+_GUARANTEE_LINE = "Guarantee nahi de sakta — profile poora hoga toh companies dekhengi. "
 _WRAP_UP = (
     "Itni jaankari kaafi hai. Aapka resume ban raha hai — kuch detail baad mein confirm karenge."
 )
@@ -240,6 +287,32 @@ def _extraction_ready(st: ConversationState, role_family: str | None = None) -> 
     if not all(t in st.answered_topics for t in essentials):
         return False
     return all(t in st.answered_topics or t in st.asked_question_ids for t in MUST_ASK_TOPICS)
+
+
+def _acknowledgement(worker_message_raw: str) -> str:
+    """The ack slot for THIS turn — §5's rows, resolved in a fixed priority order.
+
+    Priority, and each step is a decision rather than an accident:
+
+    1. **Hardship** outranks everything. A message can carry hardship AND a don't-know
+       ("nahi pata, ghar chalana mushkil hai"); "Samajh sakta hoon." is the right line
+       there and "Koi baat nahi." would answer the smaller half of what was said.
+    2. **Abuse** outranks the don't-know so an abusive turn never receives the warm
+       "Koi baat nahi.".
+    3. **Don't-know** -> "Koi baat nahi.".
+    4. Otherwise the neutral "Theek hai.".
+
+    Detection is local and conservative (see the three predicates in ``signals``); when
+    none of them is confident the worker gets the neutral ack, which is the sheet's own
+    preference — a misfired softener is worse than no softener.
+    """
+    if signals.is_hardship(worker_message_raw):
+        return _ACK_HARDSHIP
+    if signals.is_abusive(worker_message_raw):
+        return _ACK_ABUSIVE
+    if signals.is_dont_know(worker_message_raw):
+        return _ACK_DONT_KNOW
+    return _ACK
 
 
 def _served_question(topic: Topic, ask_number: int) -> str:
@@ -600,7 +673,7 @@ def next_turn(
     # question (no ack — the greeting IS the opener). Later turns ack only.
     if st.turn_count == 1:
         return _vocative(worker_name) + question, next_topic.id, st, extraction_ready
-    return _ACK + question, next_topic.id, st, extraction_ready
+    return _acknowledgement(worker_message_raw) + question, next_topic.id, st, extraction_ready
 
 
 # COST-4 clarify bound: max CONSECUTIVE re-serves of one question. The predicate has
@@ -673,10 +746,15 @@ def clarify_turn(
     st = state.model_copy(deep=True)
     st.turn_count += 1  # progress advances; the topic itself remains re-askable
     st.clarify_count += 1  # the consecutive-streak counter (next_turn resets it)
+    # §5: a worker ASKING whether they will get a job is answered honestly FIRST, then
+    # taken back to the open question. The prefix is the only difference from a plain
+    # clarify re-serve — same bound, same state advance, ask_counts still untouched
+    # ("back to the open question" is explicitly not counted as re-asking).
+    prefix = _GUARANTEE_LINE if signals.asks_about_job_prospects(worker_message_raw) else ""
     # Re-serve the wording the worker ACTUALLY saw. ask_counts is not incremented:
     # a clarify is not a new ask, and the ask budget must stay clarify-immune.
     return (
-        _served_question(topic, _ask_count(state, last_id)),
+        prefix + _served_question(topic, _ask_count(state, last_id)),
         last_id,
         st,
         _extraction_ready(st, role_family),
