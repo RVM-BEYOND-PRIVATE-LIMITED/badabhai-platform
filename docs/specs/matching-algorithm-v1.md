@@ -316,6 +316,14 @@ flagged this as "the most consequential decision left in V1" and asked for a rul
 `skill_months = 0`, card shows **"duration not stated."** Rank Key `(1, 0, …)` — last within
 tier 1, but still **above every related-skill worker**. Never dropped.
 
+> **[repo note — amendment 2026-07-31]** The tier-floor ruling **narrows this sentence.**
+> "Above every related-skill worker" now holds only for related workers **below** the floor:
+> a 120-month related turner is promoted into tier-1 ordering and therefore sorts **above** a
+> duration-unknown exact VMC hand. That is a direct and intended consequence of ruling #1 —
+> the floor exists precisely to let long related experience overtake a thin exact claim — but
+> it is a real change to E4's printed guarantee and is asserted deliberately in
+> `worked-examples.test.ts`, including the inclusive boundary at exactly 36 months.
+
 **E5 · Multi-skill posting.** Job lists `[CNC Turner, VMC Operator]`. Worker has CNC Turner
 36 mo, VMC 12 mo. → Tier 1 (holds a posted skill). `skill_months` = **max across matched
 posted skills = 36**.
