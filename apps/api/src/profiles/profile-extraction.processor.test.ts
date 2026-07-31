@@ -91,6 +91,11 @@ function make(
             worker_profile_draft: opts.richDraft,
           }),
   };
+  // ADR-0036 moments ①/②. `rebuildQuietly` is the ONLY method the processor calls, and
+  // it is contractually never-throwing — so a stub that resolves is the honest double.
+  // The "a rebuild failure must not fail the extraction" property is asserted by its own
+  // case below with a REJECTING stub, not assumed from this one.
+  const matchSkills = { rebuildQuietly: vi.fn().mockResolvedValue(undefined) };
   const proc = new ProfileExtractionProcessor(
     profiles as never,
     aiJobs as never,
@@ -99,8 +104,9 @@ function make(
     ai as never,
     workers as never,
     pii as never,
+    matchSkills as never,
   );
-  return { proc, profiles, aiJobs, chat, events, ai, workers, pii };
+  return { proc, profiles, aiJobs, chat, events, ai, workers, pii, matchSkills };
 }
 
 describe("ProfileExtractionProcessor", () => {
@@ -383,6 +389,38 @@ describe("ProfileExtractionProcessor", () => {
     expect(aiJobs.markFailed).toHaveBeenCalledOnce();
     expect(events.emit).toHaveBeenCalledOnce();
     expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.extraction_failed");
+  });
+
+  // ── ADR-0036 moments ①/② ──────────────────────────────────────────────────────
+  it("rebuilds the worker's match skills AFTER the profile is written", async () => {
+    const { proc, matchSkills, profiles } = make();
+    await proc.process(makeJob());
+    expect(matchSkills.rebuildQuietly).toHaveBeenCalledOnce();
+    expect(matchSkills.rebuildQuietly).toHaveBeenCalledWith(
+      JOB.workerId,
+      expect.objectContaining({ correlationId: JOB.correlationId }),
+    );
+    // ORDER MATTERS: the rebuild reads the worker's LATEST worker_profiles row, so it
+    // must run after the write, not before — otherwise it derives from the previous
+    // profile and the new skills only appear on the next extraction.
+    const createOrder = profiles.create.mock.invocationCallOrder[0]!;
+    const rebuildOrder = matchSkills.rebuildQuietly.mock.invocationCallOrder[0]!;
+    expect(rebuildOrder).toBeGreaterThan(createOrder);
+  });
+
+  it("a match-rebuild failure NEVER fails the extraction", async () => {
+    // The real `rebuildQuietly` swallows + logs, so this stub deliberately violates its
+    // contract to prove the processor does not depend on that politeness: `worker_skill`
+    // / `worker_industry_tenure` / `job_reach` are rebuildable projections, and losing a
+    // worker's extracted profile to a reach-cache hiccup is the far worse trade.
+    const { proc, matchSkills, aiJobs, events } = make();
+    matchSkills.rebuildQuietly.mockRejectedValueOnce(new Error("job_reach unavailable"));
+    await expect(proc.process(makeJob())).resolves.toEqual({ profile_id: PROFILE });
+    expect(aiJobs.markCompleted).toHaveBeenCalledOnce();
+    expect(aiJobs.markFailed).not.toHaveBeenCalled();
+    const names = events.emit.mock.calls.map((c) => c[0].event_name);
+    expect(names).toContain("profile.extraction_completed");
+    expect(names).not.toContain("profile.extraction_failed");
   });
 });
 

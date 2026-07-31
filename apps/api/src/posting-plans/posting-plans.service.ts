@@ -14,6 +14,8 @@ import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { PricingService } from "../pricing/pricing.service";
+import { MatchConfigService } from "../match/match-config.service";
+import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { PostingPlansRepository } from "./posting-plans.repository";
 import type {
   BuyPlanDto,
@@ -141,6 +143,10 @@ export class PostingPlansService {
     private readonly events: EventsService,
     private readonly pricing: PricingService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // ADR-0036 §7 — the boost supply gate reads its floor from `match_config` and its
+    // reach count from `job_reach`. MatchModule is @Global, so no new import edge.
+    private readonly matchConfig: MatchConfigService,
+    private readonly matchReach: WorkerSkillsRepository,
   ) {}
 
   /**
@@ -285,6 +291,18 @@ export class PostingPlansService {
     if (quote.grants.kind !== "boost") {
       throw new BadRequestException("resolved product is not a boost");
     }
+
+    // ── ADR-0036 §7 SUPPLY GATE ────────────────────────────────────────────────
+    // Refuse the sale when the posting's matched supply is below the floor. Boost
+    // PERMUTES ORDER within what a worker already qualified for (Policy 13) — it never
+    // adds a card that failed the skill gate — so boosting a posting that reaches four
+    // workers reorders four cards. Taking ₹999 for that costs the ₹999 AND the renewal
+    // behind it. The floor is `match_config.boost_supply_floor`, never a constant here.
+    //
+    // BEFORE ANY PAYMENT EVENT, deliberately: a refusal must not leave a
+    // `payment.authorized` on the spine for money that was never taken.
+    await this.assertBoostSupply(jobPostingId, dto.payer_id, dto.tier, ctx);
+
     const realCall = areRealPaymentsEnabled(this.config);
 
     await this.emitPayment("payment.authorized", jobPostingId, dto.payer_id, quote.finalInr, realCall, ctx);
@@ -296,6 +314,16 @@ export class PostingPlansService {
       boostStartsAt: now,
       boostEndsAt: new Date(now.getTime() + quote.grants.boostDays * MS_PER_DAY),
     });
+    // ADR-0036 §7 — the SERVED entity's boost window. `posting_boosts` stays the
+    // immutable receipt (one row per purchase, never updated); `job_postings
+    // .boosted_until` is the DERIVED serving state the feed's ORDER BY reads, so the
+    // feed needs no join to `posting_boosts` on its hottest path.
+    //
+    // EXTEND, DON'T OVERWRITE: `GREATEST(now(), boosted_until) + N days`. Buying a
+    // second boost while one is still running must ADD to the window, not truncate it
+    // to N days from today — that would be selling a man time he already owns and
+    // taking some away.
+    await this.repo.extendPostingBoostWindow(jobPostingId, quote.grants.boostDays);
     await this.emitPayment("payment.captured", jobPostingId, dto.payer_id, quote.finalInr, realCall, ctx);
 
     const boosted: PayloadInputOf<"job_posting.boosted"> = {
@@ -491,6 +519,69 @@ export class PostingPlansService {
       source_tier: row?.sourceTier ?? null,
       expires_at: row?.expiresAt ? row.expiresAt.toISOString() : null,
     };
+  }
+
+  /**
+   * ADR-0036 §7 — the boost SUPPLY GATE. Throws a 400 with an honest message and emits
+   * `job_posting.boost_refused` when the posting's `job_reach` count is below
+   * `match_config.boost_supply_floor`.
+   *
+   * THE ERROR IS HONEST, not neutral: it names the actual reach and the floor. This is
+   * NOT an ownership oracle — the caller already proved ownership of the posting to get
+   * here (the payer path via `getOneForPayer`, the ops path via the service guard), and
+   * the numbers are about the platform's supply for a trade the payer themselves chose,
+   * not about another tenant. Hiding them would mean refusing a payer's money without
+   * telling them why, which is the exact failure the fence exists to prevent.
+   *
+   * FAILS OPEN ON AN UNREADABLE REACH COUNT. If `job_reach` cannot be counted the sale
+   * proceeds: a broken cache must not become an outage on the paid path, and the
+   * repair tooling (`db:materialize:reach`) plus the E12/E13 alerts already cover a
+   * genuinely empty reach set.
+   */
+  private async assertBoostSupply(
+    jobPostingId: string,
+    payerId: string,
+    tier: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const cfg = await this.matchConfig.get();
+    if (cfg.boostSupplyFloor <= 0) return; // floor disabled by config
+
+    let reachTotal: number;
+    try {
+      reachTotal = (await this.matchReach.countReachForPosting(jobPostingId)).total;
+    } catch (err) {
+      const cls = err instanceof Error ? err.name : "UnknownError";
+      this.logger.error(
+        `boost supply gate could not read job_reach for posting=${jobPostingId} (${cls}); ` +
+          `allowing the purchase rather than failing a paid path on a cache read`,
+      );
+      return;
+    }
+    if (reachTotal >= cfg.boostSupplyFloor) return;
+
+    const payload: PayloadInputOf<"job_posting.boost_refused"> = {
+      job_posting_id: jobPostingId,
+      payer_id: payerId,
+      tier,
+      reason: "supply_below_floor",
+      reach_total: reachTotal,
+      supply_floor: cfg.boostSupplyFloor,
+    };
+    await this.events.emit({
+      event_name: "job_posting.boost_refused",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "job_posting", subject_id: jobPostingId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    throw new BadRequestException(
+      `this posting currently reaches ${reachTotal} worker(s); a boost needs at least ` +
+        `${cfg.boostSupplyFloor}. Boosting reorders the workers you already reach — it ` +
+        `never adds new ones — so it would not help yet.`,
+    );
   }
 
   /** Resolve a price through the one engine, failing closed to an "unavailable" 400. */

@@ -35,6 +35,7 @@ import { ReferralAttributionModule } from "./referrals/referral-attribution.modu
 import { AdminModule } from "./admin/admin.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
+import { MatchModule } from "./match/match.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
 
 @Module({
@@ -53,6 +54,12 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     PushModule,
     RateLimitModule,
     PdfModule,
+    // Matching V1 (ADR-0036) — @Global: match config + the worker-supply/reach
+    // services are consumed by profiles (moments ①/②), job-postings (③),
+    // applications (④/⑤), payer-portal (⑥) and posting-plans (the boost supply
+    // gate). Behaviour is gated by MATCH_V1_ENABLED (default OFF); importing the
+    // module changes nothing until that flips.
+    MatchModule,
     // Feature modules:
     HealthModule,
     AuthModule,

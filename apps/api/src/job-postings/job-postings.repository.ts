@@ -26,6 +26,21 @@ interface JobPostingApi {
   verified: boolean;
   skill_phrases: string[];
   skill_ids: string[];
+  // ── Matching V1 (ADR-0036) — the matchable + worker-visible fields ──────────
+  // `match_skill_ids` is what the company asked for; `reach_skill_ids` is the RESOLVED
+  // net (posted ∪ curated related ⊖ honoured unticks). Both are returned so the payer
+  // portal can show what the posting actually reaches, and neither is ever ACCEPTED
+  // from a client on a write.
+  match_skill_ids: string[];
+  reach_skill_ids: string[];
+  city: string | null;
+  pay_min: number | null;
+  pay_max: number | null;
+  shift: string | null;
+  needed_by: string | null;
+  published_at: Date | null;
+  /** Boost window end. Null = not boosted. A time, so a boost expires with no sweep. */
+  boosted_until: Date | null;
   created_at: Date;
   updated_at: Date;
   closed_at: Date | null;
@@ -47,6 +62,15 @@ function toJobPostingApi(row: JobPosting): JobPostingApi {
     verified: row.verificationStatus === "verified",
     skill_phrases: row.skillPhrases,
     skill_ids: row.skillIds,
+    match_skill_ids: Array.isArray(row.matchSkillIds) ? row.matchSkillIds : [],
+    reach_skill_ids: Array.isArray(row.reachSkillIds) ? row.reachSkillIds : [],
+    city: row.city,
+    pay_min: row.payMin,
+    pay_max: row.payMax,
+    shift: row.shift,
+    needed_by: row.neededBy,
+    published_at: row.publishedAt,
+    boosted_until: row.boostedUntil,
     created_at: row.createdAt,
     updated_at: row.updatedAt,
     closed_at: row.closedAt,
@@ -69,6 +93,18 @@ export type JobPostingUpdate = Partial<
     // ADR-0030 / TAX-6: the posting's skill phrases + their canonicalized closed-set ids.
     | "skillPhrases"
     | "skillIds"
+    // ── Matching V1 (ADR-0036, migration 0054) ────────────────────────────────
+    // The worker-visible display fields the SERVED entity gained. `matchSkillIds` /
+    // `reachSkillIds` / `publishedAt` are DELIBERATELY ABSENT from this patch type:
+    // they are written only by `PublishReachService`, which resolves the reach set
+    // server-side. Letting a generic PATCH set them would be the exact hole Policy 10
+    // closes — a client could hand-build a reach set and widen past the curated
+    // relations without ever going through `resolveReachSet`.
+    | "city"
+    | "payMin"
+    | "payMax"
+    | "shift"
+    | "neededBy"
   >
 > & { updatedAt: Date };
 

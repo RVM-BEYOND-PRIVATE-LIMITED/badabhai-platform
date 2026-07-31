@@ -664,6 +664,25 @@ export const serverEnvSchema = z.object({
   // ratified map is wired — flipping it true without one is a no-op (the map is empty).
   PACE_ADJACENCY_ENABLED: booleanFromString,
 
+  // ── Matching V1 cutover gate (ADR-0036) ────────────────────────────────────
+  // THE ONLY env var Matching V1 adds, and deliberately so. This is a DEPLOY
+  // SWITCH, not a dial: it selects which SOURCE the worker feed / apply / payer
+  // candidate list read from (legacy `jobs` + weighted engine vs `job_reach` +
+  // `job_postings` + the lexicographic rank key). Everything TUNABLE — engine
+  // version, month bucket, max skills per posting, the tier floor, the free-tier
+  // grant, the boost supply floor — lives in the ops-editable `match_config`
+  // table, read through MatchConfigService and validated by `parseMatchConfig`.
+  // Adding a second matching env var here would put two sources of truth in play,
+  // which is exactly what ADR-0036 §8 ("configuration, never code") forbids.
+  //
+  // Default OFF: on a database that has not run the 0052–0058 train + the D1–D6
+  // data steps, `job_reach` is empty and a flipped-on feed would be empty. OFF is
+  // therefore the only safe default, and it keeps every legacy path byte-identical.
+  // booleanFromString (NOT z.coerce.boolean, whose "false"/"0" coerce to TRUE) so a
+  // falsey string stays OFF — the same fail-safe posture as AI_ENABLE_REAL_CALLS /
+  // CAPACITY_ENFORCEMENT_ENABLED / AGENCY_PAYOUTS_ENABLED.
+  MATCH_V1_ENABLED: booleanFromString,
+
   // Model routing. Bare provider model ids (no provider prefix); the AI service
   // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
   DEFAULT_CHEAP_MODEL: z.string().min(1).default("gemini-2.5-flash-lite"),
@@ -1152,6 +1171,18 @@ export function isPaceEnabled(config: ServerConfig): boolean {
  */
 export function isPaceAdjacencyEnabled(config: ServerConfig): boolean {
   return config.PACE_ADJACENCY_ENABLED;
+}
+
+/**
+ * The Matching V1 cutover gate (ADR-0036 §8). Default OFF: the worker feed, the apply
+ * snapshot and the payer candidate list keep their legacy sources until the 0052–0058
+ * migration train + the D1–D6 data steps have run against the target database.
+ *
+ * It is a DEPLOY SWITCH ONLY. Nothing tunable rides it — every number V1 reads comes
+ * from the `match_config` row via `MatchConfigService`.
+ */
+export function isMatchV1Enabled(config: ServerConfig): boolean {
+  return config.MATCH_V1_ENABLED;
 }
 
 /**

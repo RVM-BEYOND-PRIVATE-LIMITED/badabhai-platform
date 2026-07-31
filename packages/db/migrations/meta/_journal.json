@@ -414,6 +414,13 @@
       "when": 1785485161707,
       "tag": "0058_payments_and_referral_bonus",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1785485222108,
+      "tag": "0059_boost_tiers_widened",
+      "breakpoints": true
     }
   ]
 }

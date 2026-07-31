@@ -19,6 +19,16 @@ export const FeedQuerySchema = z.object({
   // TD66: Server-side feed filtering
   trade_key: z.string().optional(),
   city: z.string().optional(),
+  // ── ADR-0036 / spec Part 3 — "Filters belong to the worker" ────────────────
+  // ADDITIVE and OPTIONAL, which is the whole point: "Every default is wide or off.
+  // A ₹22,000 expectation captured at registration must never silently become a
+  // filter that hides ₹20,000 jobs. Defaults that narrow are a volume leak."
+  //
+  // So there is deliberately NO default here and NO server-side seeding of `pay_min`
+  // from the worker's profile. If it is absent from the query string the pay filter
+  // does not exist for that request. `shift` is the same.
+  shift: z.enum(["day", "night", "rotational"]).optional(),
+  pay_min: z.coerce.number().int().nonnegative().optional(),
 });
 export type FeedQueryDto = z.infer<typeof FeedQuerySchema>;
 

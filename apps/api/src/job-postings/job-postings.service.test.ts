@@ -74,6 +74,19 @@ function toApi(r: Row) {
     verified: r.verificationStatus === "verified",
     skill_phrases: r.skillPhrases,
     skill_ids: r.skillIds,
+    // ADR-0036 (migration 0054) — the matchable + worker-visible fields the served
+    // entity gained. The real mapper always populates these (both jsonb columns default
+    // to '[]', so neither is ever null); the fixture mirrors that rather than omitting
+    // them, so the service is exercised against a row shaped like a real one.
+    match_skill_ids: [],
+    reach_skill_ids: [],
+    city: null,
+    pay_min: null,
+    pay_max: null,
+    shift: null,
+    needed_by: null,
+    published_at: null,
+    boosted_until: null,
     created_at: r.createdAt,
     updated_at: r.updatedAt,
     closed_at: r.closedAt,
@@ -124,6 +137,16 @@ function make(existing?: Row) {
   const canonicalize = vi
     .fn()
     .mockResolvedValue({ status: "unresolved", skill_id: null, score: null });
+  const materializeReach = vi.fn().mockResolvedValue({
+    jobPostingId: "posting",
+    matchSkillIds: [],
+    reachSkillIds: [],
+    appliedUntickedIds: [],
+    reachTotal: 0,
+    reachTier1: 0,
+    reachTier2: 0,
+    zeroReach: true,
+  });
   const svc = new JobPostingsService(
     {
       create,
@@ -140,11 +163,16 @@ function make(existing?: Row) {
     { emit } as never,
     // TAX-6: AiService stub — canonicalize returns UNRESOLVED unless a test overrides.
     { canonicalizeSkill: canonicalize } as never,
+    // ADR-0036 moment ③. These cases exercise the ops/payer lifecycle, not reach; a
+    // resolving stub keeps `materializeIfNeeded` inert. Reach materialization has its
+    // own coverage in `apps/api/src/match/`.
+    { materialize: materializeReach, opsWiden: vi.fn() } as never,
   );
   return {
     svc,
     emit,
     canonicalize,
+    materializeReach,
     create,
     findById,
     update,

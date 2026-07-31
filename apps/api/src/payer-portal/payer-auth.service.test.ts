@@ -51,6 +51,7 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     ),
   };
   const pii = { hmac: (v: string) => `hmac<${v}>` };
+  const freeTier = { grantQuietly: vi.fn().mockResolvedValue(undefined) };
 
   const svc = new PayerAuthService(
     config,
@@ -60,8 +61,10 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     sessions as never,
     events as never,
     pii as never,
+    // ADR-0036 §8 — the free-tier grant. `grantQuietly` is contractually never-throwing.
+    freeTier as never,
   );
-  return { svc, payers, orgs, otp, sessions, events };
+  return { svc, payers, orgs, otp, sessions, events, freeTier };
 }
 
 /** Every string the raw contact PII could be — must NEVER appear in an emitted event. */

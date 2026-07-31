@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
+import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
 import type { ConsentRepository } from "../consent/consent.repository";
@@ -249,6 +250,9 @@ function makeService() {
     // §X.6 — the activation-bonus queue. Inert here: these tests exercise the payment
     // path, and a credit purchase is not the unlock grant that completes the bonus rule.
     { add: vi.fn(async () => undefined) } as unknown as Queue<ReferralBonusJobData>,
+    // ADR-0036 §7 — read only for `free_tier_credits`. A credit PURCHASE only ever raises
+    // a balance, so the exhaustion signal this feeds cannot fire on the paths under test.
+    { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
   );
   return { svc, payments, events, razorpay, pricing, ...fake };
 }
@@ -733,6 +737,7 @@ describe("PAYMENTS_ENABLE_REAL=false — the mock path is unchanged and remains 
       events as unknown as EventsService,
       MOCK_CONFIG,
       { add: vi.fn(async () => undefined) } as unknown as Queue<ReferralBonusJobData>,
+      { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
     );
     return { svc, events, razorpay, repo: fake.repo };
   }

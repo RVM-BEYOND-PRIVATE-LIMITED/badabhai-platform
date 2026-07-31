@@ -30,6 +30,7 @@ import { PayerUnlocksController } from "../payer-portal/payer-unlocks.controller
 import { PayerCapacityController } from "../payer-portal/payer-capacity.controller";
 import { PayerPricingController } from "../payer-portal/payer-pricing.controller";
 import { PayerReachController } from "../payer-portal/payer-reach.controller";
+import { MatchSkillsController } from "../match/match-skills.controller";
 import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
 import { AgencyPayoutsController } from "../agency/agency-payouts.controller";
@@ -141,7 +142,11 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "JobPostings",
     ctor: JobPostingsController,
-    routes: { create: [], list: [], getOne: [], update: [], close: [] },
+    // ADR-0036 Policy 27: `widenReach` is the ONE guarded route on this otherwise
+    // alpha-open ops controller — widening a reach set changes which workers see a job
+    // on a posting whose owner chose a narrower net, so it takes the ops service guard
+    // even though its siblings do not.
+    routes: { create: [], list: [], getOne: [], update: [], close: [], widenReach: [I] },
   },
   {
     name: "Messaging",
@@ -207,6 +212,15 @@ const CONTRACT: ControllerContract[] = [
     routes: { ownCapacity: [P], buyCapacity: [P] },
   },
   { name: "PayerReach", ctor: PayerReachController, routes: { applicants: [P] } },
+  // ADR-0036 — the Matching V1 posting-form surface. Both are PayerAuthGuard: neither
+  // takes a payer_id anywhere (the reach counter is a property of worker supply, the
+  // same for every payer), so there is no tenancy surface — the guard is there because
+  // the vocabulary + live supply counts are commercial information, not public data.
+  {
+    name: "MatchSkills",
+    ctor: MatchSkillsController,
+    routes: { listSkills: [P], reachPreview: [P] },
+  },
   // Payer-facing LIVE catalog read (D-6): read-only products projection, session-authed
   // like every other payer-web data fetch (the ops GET /pricing/catalog stays its own
   // principal above — it is slated for an admin guard and serves the FULL catalog).

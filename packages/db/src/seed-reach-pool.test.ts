@@ -192,5 +192,10 @@ describe("PROD-GUARD — the seed writer refuses to run in production before con
     }
     expect(threw).toBe(true);
     expect(output).toContain("refusing to seed synthetic fixtures in production");
-  });
+    // Vitest's 5s default is a LATENCY budget, and this test asserts an EXIT CODE. A cold
+    // `tsx` spawn takes ~0.6s idle but blows past 5s when turbo runs 25 tasks at once — so
+    // the default made a green assertion fail for being slow. Matched to execFileSync's own
+    // 60s budget: the subprocess timeout is what should decide, and it still fails fast if
+    // the guard ever stops firing (the script would exit 0 immediately).
+  }, 60_000);
 });

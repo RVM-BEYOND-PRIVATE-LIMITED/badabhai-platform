@@ -2263,13 +2263,23 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 129 event names (125 prior + the B4/X.6 attribution-chain four)", () => {
-    expect(EVENT_NAMES).toHaveLength(129);
+  it("exposes all 136 event names (125 prior + B4/X.6 four + ADR-0036 seven)", () => {
+    expect(EVENT_NAMES).toHaveLength(136);
     // B4 attribution chain + §X.6 (blocker: invite.install / worker.active were NOT FOUND).
     expect(isEventName("invite.install")).toBe(true);
     expect(isEventName("worker.active")).toBe(true);
     expect(isEventName("agency_invite.clicked")).toBe(true);
     expect(isEventName("referral.bonus_accrued")).toBe(true);
+    // ADR-0036 — Matching V1. Six new v1 events + the versioned feed.shown_v2.
+    expect(isEventName("worker.match_skills_rebuilt")).toBe(true);
+    expect(isEventName("job_posting.reach_materialized")).toBe(true);
+    expect(isEventName("job_posting.reach_alert")).toBe(true);
+    expect(isEventName("job_posting.reach_widened")).toBe(true);
+    expect(isEventName("job_posting.boost_refused")).toBe(true);
+    expect(isEventName("payer.credits_exhausted")).toBe(true);
+    expect(isEventName("feed.shown_v2")).toBe(true);
+    // …and the shipped v1 `feed.shown` is STILL registered, unmodified (invariant #8).
+    expect(isEventName("feed.shown")).toBe(true);
     expect(isEventName("job_posting_chat.session_started")).toBe(true);
     expect(isEventName("job_posting_chat.message_sent")).toBe(true);
     expect(isEventName("job_posting_chat.draft_ready")).toBe(true);
@@ -2378,10 +2388,43 @@ describe("registry", () => {
     expect(isEventName("nope")).toBe(false);
   });
 
-  it("every registry entry has version 1 in Phase 1", () => {
+  /**
+   * The versioning lock. Every payload is v1 EXCEPT the ones deliberately versioned by
+   * an ADR, which are enumerated here by name. That keeps the original guarantee — an
+   * accidental version bump fails this test — while recording each intentional bump as
+   * a reviewable line in the diff rather than deleting the lock outright.
+   *
+   * `feed.shown_v2` (ADR-0036): a SECOND registry entry, not a mutation of `feed.shown`.
+   * `validateEvent` allows exactly one version per name, so the shipped v1 payload stays
+   * live and unmodified as history (invariant #8) while V1 emits the new generation.
+   */
+  const VERSIONED_PAYLOADS: Readonly<Record<string, number>> = { "feed.shown_v2": 2 };
+
+  it("every registry entry is version 1 except the ADR-versioned payloads", () => {
     for (const name of EVENT_NAMES) {
-      expect(EVENT_REGISTRY[name].version).toBe(1);
+      expect(EVENT_REGISTRY[name].version).toBe(VERSIONED_PAYLOADS[name] ?? 1);
     }
+  });
+
+  it("keeps the shipped feed.shown v1 payload EXACTLY as it was (invariant #8)", () => {
+    const v1 = EVENT_REGISTRY["feed.shown"];
+    expect(v1.version).toBe(1);
+    // score/hot are the v1 fields ADR-0036 retires. They must still parse here, or the
+    // legacy `/feed` + ops `/reach/*` emitters break on a MATCH_V1_ENABLED=false deploy.
+    expect(
+      v1.payload.safeParse({ worker_id: UUID_A, job_id: UUID_B, rank: 1, score: 0, hot: false })
+        .success,
+    ).toBe(true);
+    // …and v2's fields are NOT accepted by v1 (the two shapes are genuinely distinct).
+    const v2Shape = v1.payload.safeParse({
+      worker_id: UUID_A,
+      job_posting_id: UUID_B,
+      rank: 1,
+      match_tier: 1,
+      boosted: false,
+      matched_skill_id: "mskill_vmc_operator",
+    });
+    expect(v2Shape.success).toBe(false);
   });
 });
 

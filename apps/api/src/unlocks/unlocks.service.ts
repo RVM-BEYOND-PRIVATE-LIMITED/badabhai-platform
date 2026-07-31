@@ -12,6 +12,7 @@ import { EventsService } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { MatchConfigService } from "../match/match-config.service";
 import {
   UnlocksRepository,
   type Tx,
@@ -111,6 +112,9 @@ export class UnlockService {
     // ReferralBonusService, so this module gains no dependency on `referrals`.
     @InjectQueue(REFERRAL_BONUS_QUEUE)
     private readonly referralBonusQueue: Queue<ReferralBonusJobData>,
+    // ADR-0036 §7 — the free-tier grant size, for the credits_exhausted signal + the
+    // signup grant. MatchModule is @Global, so no new import edge on UnlocksModule.
+    private readonly matchConfig: MatchConfigService,
   ) {}
 
   // ===========================================================================
@@ -269,6 +273,21 @@ export class UnlockService {
         // emits above, so it runs POST-COMMIT and inherits flushEvents' log-and-continue:
         // a Redis blip costs a (recoverable, idempotent) accrual, never the unlock.
         events.push(() => this.enqueueReferralBonusEvaluation(workerId));
+
+        // ── ADR-0036 §7 — THE CONVERSION SIGNAL ──────────────────────────────
+        // The balance landed on ZERO. This is the moment the whole conversion engine
+        // fires on, so it is EXACT, not approximate:
+        //  * it reads `debit.balanceAfter` — the value the ATOMIC conditional decrement
+        //    RETURNED — never a re-read, which would race a concurrent debit and could
+        //    report zero twice or miss it entirely;
+        //  * it fires only on the `>0 → 0` transition, which is structural here: the
+        //    debit updated a row only if `balance >= 1`, so `balanceAfter === 0` means
+        //    the balance was exactly 1 before;
+        //  * it is keyed on the debiting unlock, so an at-least-once replay of the
+        //    post-commit flush records it once.
+        if (debit.balanceAfter === 0) {
+          events.push(() => this.emitCreditsExhausted(payerId, granted.id, ctx));
+        }
 
         return { response: this.grantedResponse(granted.id, expiresAt), events };
       },
@@ -987,6 +1006,42 @@ export class UnlockService {
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
       ...(idempotencyKey ? { idempotencyKey } : {}),
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
+  /**
+   * ADR-0036 §7 — the payer's credit balance hit EXACTLY zero on this debit.
+   *
+   * `free_tier_credits` carries the size of the free-tier grant this payer started with
+   * (`match_config.free_unlock_credits`), because "he used up his 50 free unlocks" and
+   * "he used up a 1000-credit pack" are different conversion moments and the consumer
+   * cannot tell them apart from the balance alone.
+   *
+   * FACELESS: an opaque payer id, an opaque unlock id, one integer. No email, no org
+   * name, no worker.
+   */
+  private async emitCreditsExhausted(
+    payerId: string,
+    unlockId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const cfg = await this.matchConfig.get();
+    const payload: PayloadInputOf<"payer.credits_exhausted"> = {
+      payer_id: payerId,
+      unlock_id: unlockId,
+      free_tier_credits: cfg.freeUnlockCredits,
+    };
+    await this.events.emit({
+      event_name: "payer.credits_exhausted",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "payer", subject_id: payerId },
+      payload,
+      // Keyed on the DEBITING unlock: a post-commit flush replay re-emits at most one
+      // audit row, and a payer who tops up and drains again gets a NEW event (a
+      // different unlock id) rather than being silently deduped forever.
+      idempotencyKey: `payer.credits_exhausted:${unlockId}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });

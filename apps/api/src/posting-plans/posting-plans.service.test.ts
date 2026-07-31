@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { DEFAULT_CATALOG, parseCatalog, type Catalog } from "@badabhai/pricing";
+import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import { PostingPlansService } from "./posting-plans.service";
 
 const POSTING = "33333333-3333-4333-8333-333333333333";
@@ -23,9 +24,21 @@ function make(
     // B2 quota top-up knobs:
     activeTopupPlan?: { id: string; quotaTopupCount: number } | null; // null → no active plan (409)
     topupRaced?: boolean; // addQuotaTopup returns undefined (plan raced to expiry) → 409
+    // ADR-0036 §7 boost supply gate:
+    boostSupplyFloor?: number; // 0 (the default here) disables the gate
+    reachTotal?: number; // what `job_reach` reports for the posting
+    reachThrows?: boolean; // an unreadable reach count must FAIL OPEN (sale proceeds)
   } = {},
 ) {
   const emit = vi.fn().mockResolvedValue(undefined);
+  const countReachForPosting = vi
+    .fn()
+    .mockImplementation(async () =>
+      opts.reachThrows
+        ? Promise.reject(new Error("job_reach unavailable"))
+        : { total: opts.reachTotal ?? 0, tier1: 0 },
+    );
+  const extendPostingBoostWindow = vi.fn().mockResolvedValue(new Date());
   const postingExists = vi.fn().mockResolvedValue(opts.postingExists ?? true);
   const insertPlan = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({ id: "p-1", ...input }));
   const insertBoost = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({ id: "b-1", ...input }));
@@ -64,6 +77,7 @@ function make(
       setPlanStatus,
       findActivePlanForPostingAndPayer,
       addQuotaTopup,
+      extendPostingBoostWindow,
     } as never,
     { emit } as never,
     { getActiveCatalog } as never,
@@ -72,6 +86,16 @@ function make(
       CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: opts.capacityDefault ?? 1,
       CAPACITY_ENFORCEMENT_ENABLED: opts.enforceCapacity ?? false,
     } as never,
+    // ADR-0036 §7 boost supply gate. The floor defaults to 0 here (gate DISABLED) so
+    // the pre-existing boost cases keep testing what they were written to test; the
+    // gate's own cases set it explicitly via `opts.boostSupplyFloor`.
+    {
+      get: vi.fn().mockResolvedValue({
+        ...DEFAULT_MATCH_CONFIG,
+        boostSupplyFloor: opts.boostSupplyFloor ?? 0,
+      }),
+    } as never,
+    { countReachForPosting: countReachForPosting } as never,
   );
   const names = () => emit.mock.calls.map((c) => c[0].event_name);
   return {
@@ -80,6 +104,8 @@ function make(
     names,
     insertPlan,
     insertBoost,
+    countReachForPosting,
+    extendPostingBoostWindow,
     couponUsage,
     upsertCapacity,
     setPlanStatus,
@@ -326,6 +352,68 @@ describe("PostingPlansService.buyBoost", () => {
     const { service } = make({ activeBoost: true });
     await expect(service.buyBoost(POSTING, { payer_id: PAYER, tier: "all_candidates" }, CTX)).rejects.toBeInstanceOf(ConflictException);
   });
+
+  // ── ADR-0036 §7 — the repriced tiers + the supply gate + the served window ──
+  it("prices the new ADR-0036 tiers (₹499 / ₹999 / ₹1799) and keeps the retired SKU resolvable", async () => {
+    for (const [tier, inr, days] of [
+      ["boost_7", 499, 7],
+      ["boost_15", 999, 15],
+      ["boost_30", 1799, 30],
+      // The retired SKU stays RESOLVABLE so a historical `posting_boosts` receipt can
+      // still be priced (invariant #8). It is absent from OFFERED_BOOST_TIERS.
+      ["all_candidates", 1200, 2],
+    ] as const) {
+      const { service, extendPostingBoostWindow } = make();
+      const { quote } = await service.buyBoost(POSTING, { payer_id: PAYER, tier }, CTX);
+      expect(quote.finalInr, `${tier} price`).toBe(inr);
+      // The SERVED entity's window is extended by the tier's days — `posting_boosts`
+      // stays the immutable receipt, `job_postings.boosted_until` is what the feed reads.
+      expect(extendPostingBoostWindow).toHaveBeenCalledWith(POSTING, days);
+    }
+  });
+
+  it("REFUSES the sale below the supply floor, emits boost_refused, and takes NO payment", async () => {
+    const { service, names, insertBoost, extendPostingBoostWindow, emit } = make({
+      boostSupplyFloor: 25,
+      reachTotal: 4,
+    });
+    await expect(
+      service.buyBoost(POSTING, { payer_id: PAYER, tier: "boost_15" }, CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    // The ONLY event is the refusal — no payment.authorized for money never taken.
+    expect(names()).toEqual(["job_posting.boost_refused"]);
+    const payload = emit.mock.calls[0]![0].payload as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      job_posting_id: POSTING,
+      payer_id: PAYER,
+      reason: "supply_below_floor",
+      reach_total: 4,
+      supply_floor: 25,
+    });
+    expect(insertBoost).not.toHaveBeenCalled();
+    expect(extendPostingBoostWindow).not.toHaveBeenCalled();
+  });
+
+  it("allows the sale AT the floor (the boundary is inclusive)", async () => {
+    const { service, insertBoost } = make({ boostSupplyFloor: 25, reachTotal: 25 });
+    await service.buyBoost(POSTING, { payer_id: PAYER, tier: "boost_7" }, CTX);
+    expect(insertBoost).toHaveBeenCalledOnce();
+  });
+
+  it("FAILS OPEN when the reach count cannot be read (a cache read must not break a paid path)", async () => {
+    const { service, insertBoost, names } = make({ boostSupplyFloor: 25, reachThrows: true });
+    await service.buyBoost(POSTING, { payer_id: PAYER, tier: "boost_7" }, CTX);
+    expect(insertBoost).toHaveBeenCalledOnce();
+    expect(names()).not.toContain("job_posting.boost_refused");
+  });
+
+  it("does not consult the gate at all when the floor is 0 (config-disabled)", async () => {
+    const { service, countReachForPosting, insertBoost } = make({ boostSupplyFloor: 0, reachTotal: 0 });
+    await service.buyBoost(POSTING, { payer_id: PAYER, tier: "boost_7" }, CTX);
+    expect(countReachForPosting).not.toHaveBeenCalled();
+    expect(insertBoost).toHaveBeenCalledOnce();
+  });
 });
 
 describe("PostingPlansService payer-authed wrappers (B3/LC-1 — session payer_id stamped)", () => {
@@ -468,6 +556,9 @@ describe("PostingPlansService.getPostingStats", () => {
       { emit: vi.fn() } as never,
       { getActiveCatalog: vi.fn() } as never,
       { PAYMENTS_ENABLE_REAL: false } as never,
+      // Irrelevant to this read (it touches neither the supply gate nor reach).
+      { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
+      { countReachForPosting: vi.fn() } as never,
     );
     return { service, findActivePlanForPostingAndPayer, findActiveBoost };
   }

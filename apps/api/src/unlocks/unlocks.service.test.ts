@@ -9,6 +9,7 @@ import type { ConsentRepository } from "../consent/consent.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
+import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import { UnlockService } from "./unlocks.service";
 import type { UnlocksRepository } from "./unlocks.repository";
 import type { PricingService } from "../pricing/pricing.service";
@@ -145,6 +146,10 @@ function setup(opts: SetupOpts = {}) {
     events as unknown as EventsService,
     CAPS,
     referralBonusQueue as unknown as Queue<ReferralBonusJobData>,
+    // ADR-0036 §7 — read only for `free_tier_credits` on the credits_exhausted signal.
+    // The DEFAULTS are the shipped V1 values, so the stub returns them rather than a
+    // fabricated number.
+    { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
   );
   return { svc, repo, txMethods, consents, workers, pii, events, referralBonusQueue };
 }

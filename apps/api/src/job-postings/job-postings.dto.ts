@@ -60,6 +60,15 @@ const vacancies = z.number().int().positive();
  */
 const skillsInput = z.array(z.string().min(1).max(80)).max(10);
 
+/**
+ * A Matching V1 `mskill_*` id (ADR-0036). SHAPE only — closed-set membership is
+ * checked in `MatchSkillsService` against `@badabhai/taxonomy`, because that is where
+ * the vocabulary lives and a Zod enum here would be a second copy to keep in sync.
+ * DISTINCT from `skillsInput` above: that is ADR-0030 descriptive free text and is
+ * never matched on; these are the match inputs.
+ */
+const matchSkillId = z.string().regex(/^mskill_[a-z0-9_]+$/, "not a match skill id");
+
 export const CreateJobPostingSchema = z
   .object({
     created_by: uuidSchema,
@@ -121,6 +130,35 @@ export const UpdateJobPostingSchema = z
     skills: skillsInput.optional(),
     // Only "open" is a valid status transition via PATCH (publish a draft).
     status: z.literal("open").optional(),
+
+    // ── Matching V1 (ADR-0036) — the MATCHABLE half of a posting ──────────────
+    // `skills` above is ADR-0030's descriptive free-text tagging and is explicitly
+    // NOT a match input. These are: `match_skill_ids` are the closed-set `mskill_*`
+    // ids the company actually asks for (TIER 1 is membership of them), and
+    // `unticked_related_ids` are the curated related skills it chose to drop.
+    //
+    // THE FINAL REACH SET IS NEVER A CLIENT INPUT. There is deliberately no
+    // `reach_skill_ids` field here: the server resolves it with `resolveReachSet`,
+    // which honours an untick only when it names a SUGGESTED related skill and can
+    // never untick a POSTED one (Policy 10 — the platform never silently widens past
+    // the curated relations, and the company never accidentally excludes the trade it
+    // advertised).
+    //
+    // NO `.max()` ON THE SKILL LIST. The cap is `match_config.max_skills_per_posting`
+    // — a runtime value — and hard-coding a second copy here would disagree with the
+    // config the moment ops change it. `MatchSkillsService` enforces it and returns a
+    // 400; it never truncates.
+    match_skill_ids: z.array(matchSkillId).min(1).max(50).optional(),
+    unticked_related_ids: z.array(matchSkillId).max(200).optional(),
+
+    // The worker-visible display fields the SERVED entity gained in migration 0054.
+    // PII-free by the schema's own classification: a COARSE city bucket (never an
+    // address), an integer ₹ band (never an exact salary), two coarse enums.
+    city: z.string().trim().min(1).max(80).optional(),
+    pay_min: z.number().int().nonnegative().optional(),
+    pay_max: z.number().int().nonnegative().optional(),
+    shift: z.enum(["day", "night", "rotational"]).optional(),
+    needed_by: z.enum(["immediate", "soon", "flexible"]).optional(),
   })
   .refine((o) => Object.values(o).some((v) => v !== undefined), {
     message: "no fields to update",
@@ -128,6 +166,10 @@ export const UpdateJobPostingSchema = z
   .refine((o) => !(o.vacancy_band !== undefined && o.vacancies !== undefined), {
     message: "provide at most one of vacancy_band or vacancies",
     path: ["vacancy_band"],
+  })
+  .refine((o) => o.pay_min === undefined || o.pay_max === undefined || o.pay_max >= o.pay_min, {
+    message: "pay_max must be >= pay_min",
+    path: ["pay_max"],
   });
 export type UpdateJobPostingDto = z.infer<typeof UpdateJobPostingSchema>;
 
