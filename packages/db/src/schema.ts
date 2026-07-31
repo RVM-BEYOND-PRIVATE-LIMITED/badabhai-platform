@@ -5,6 +5,7 @@ import {
   uuid,
   text,
   integer,
+  smallint,
   doublePrecision,
   boolean,
   timestamp,
@@ -13,6 +14,7 @@ import {
   vector,
   index,
   uniqueIndex,
+  primaryKey,
   check,
 } from "drizzle-orm/pg-core";
 import type {
@@ -930,6 +932,56 @@ export const jobPostings = pgTable(
       .$type<JobPostingVerificationStatus>()
       .notNull()
       .default("unverified"),
+    // ── Matching V1 (migration 0054): job_postings becomes THE SERVED job entity ──
+    // Owner ruling (CEO ratification 2026-07-30): the worker feed serves `job_postings`;
+    // the legacy `jobs` table retires from the worker path. These columns are the fields
+    // `jobs` carried that `job_postings` did not. ALL NULLABLE / DEFAULTED and purely
+    // additive — every shipped ops/payer read is untouched, and a posting created before
+    // this migration simply has no match ids (it reaches nobody, it does not crash).
+    // `jobs` itself is NOT dropped, NOT renamed and NOT modified (invariant #8): the
+    // D4 converter COPIES open rows across and closes the originals, and existing
+    // `applications.job_id` rows keep pointing at them forever.
+    //
+    // PRIVACY: same contract as the columns above — `city` is a COARSE city bucket
+    // (never an address), pay is an integer ₹ band, `shift`/`needed_by` are coarse
+    // enums. No employer identity, ever.
+    // Industry scope (`ind_*`). Matching never crosses industries. Nullable: a legacy
+    // posting has none until an ops/payer edit or D3 sets it.
+    industryId: text("industry_id"),
+    // The 1..N (config `max_skills_per_posting`, 3 at launch) `mskill_*` ids the poster
+    // actually asked for. TIER 1 = a worker holding one of these.
+    matchSkillIds: jsonb("match_skill_ids").$type<string[]>().notNull().default(jsonArray),
+    // match_skill_ids ∪ their `skill_related` neighbours — the full set a worker can be
+    // reached through. TIER 2 = matched via a related skill only. DENORMALIZED on write
+    // so the per-worker reconciliation is one GIN probe (`reach_skill_ids ?| $workerSkills`)
+    // instead of a recursive join. Recomputed whenever match_skill_ids changes.
+    // DELIBERATELY NOT the same thing as the ADR-0030 `skill_ids` column above: that one
+    // is the vector-canonicalizer's descriptive tagging and is explicitly NOT a rank
+    // input; these two are the V1 MATCH inputs and are deterministic (invariant #4).
+    reachSkillIds: jsonb("reach_skill_ids").$type<string[]>().notNull().default(jsonArray),
+    // COARSE city bucket (e.g. "Pune") — mirrors `jobs.city`. NEVER an address.
+    // `location_label` above stays as-is (free text); `city` is the matchable field.
+    city: text("city"),
+    // Monthly pay band offered (INR, whole rupees — never paise). Mirrors `jobs`.
+    payMin: integer("pay_min"),
+    payMax: integer("pay_max"),
+    // Coarse shift enum (mirrors jobs.shift). Non-PII.
+    shift: text("shift").$type<JobShift>(),
+    // When the job needs someone (mirrors jobs.needed_by). Non-PII.
+    neededBy: text("needed_by").$type<JobNeededBy>(),
+    // When the posting became worker-visible. The feed orders by this, NOT by
+    // created_at, so a draft that sat for a week does not surface as a week-old job.
+    // NULL = never published. D3 backfills it to created_at for non-draft rows.
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    // Boost window end (ADR-0013 economics, re-expressed on the served entity). NULL =
+    // not boosted. A time, not a flag, so a boost expires without a sweep.
+    boostedUntil: timestamp("boosted_until", { withTimezone: true }),
+    // CUTOVER PROVENANCE (D4 idempotency). Set ONLY by `db:convert:seed-jobs` to the
+    // `jobs.id` this posting was converted from; NULL for every natively-created posting.
+    // The UNIQUE index below is what makes the converter a true no-op on re-run — a
+    // second attempt to convert the same legacy job conflicts instead of duplicating it.
+    // ON DELETE SET NULL: deleting a legacy job must never delete the live posting.
+    sourceJobId: uuid("source_job_id").references(() => jobs.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -939,6 +991,19 @@ export const jobPostings = pgTable(
     index("job_postings_status_created_at_idx").on(t.status, t.createdAt),
     // Backs the payer self-serve list (own postings, newest first): WHERE payer_id, status.
     index("job_postings_payer_id_idx").on(t.payerId, t.createdAt),
+    // ── Matching V1 feed + reconciliation indexes ─────────────────────────────
+    // THE FEED: WHERE status='open' ORDER BY published_at DESC. DESC in the index so the
+    // scan is forward (no backward walk, no sort node).
+    index("job_postings_feed_idx").on(t.status, t.publishedAt.desc()),
+    // THE PER-WORKER RECONCILIATION: `reach_skill_ids ?| $workerSkillIds` — "which open
+    // postings can reach this worker?" — the query that repairs a worker whose skills
+    // changed after a posting was materialized. jsonb_path_ops (not the default
+    // jsonb_ops) because we only ever ask containment/existence questions: it is ~3x
+    // smaller and faster for exactly that, at the cost of key-only lookups we never do.
+    index("job_postings_reach_gin").using("gin", t.reachSkillIds.op("jsonb_path_ops")),
+    // D4 idempotency: one posting per converted legacy job. NULLs are DISTINCT in
+    // Postgres, so the thousands of natively-created postings never collide.
+    uniqueIndex("job_postings_source_job_id_uq").on(t.sourceJobId),
     // Pin the banded vacancy to the 5 allowed values (mirrors VACANCY_BANDS).
     check(
       "job_postings_vacancy_band_chk",
@@ -951,6 +1016,25 @@ export const jobPostings = pgTable(
     check(
       "job_postings_verification_status_chk",
       sql`${t.verificationStatus} IN ('unverified', 'verified', 'rejected')`,
+    ),
+    // ── Matching V1 (0054): the pay/shift/timing sanity checks `jobs` already has ──
+    // Mirrored verbatim so the served entity cannot hold data the retiring entity
+    // would have rejected. All are NULL-tolerant (every column is nullable).
+    check(
+      "job_postings_pay_nonneg_chk",
+      sql`(${t.payMin} IS NULL OR ${t.payMin} >= 0) AND (${t.payMax} IS NULL OR ${t.payMax} >= 0)`,
+    ),
+    check(
+      "job_postings_pay_order_chk",
+      sql`${t.payMin} IS NULL OR ${t.payMax} IS NULL OR ${t.payMax} >= ${t.payMin}`,
+    ),
+    check(
+      "job_postings_shift_chk",
+      sql`${t.shift} IS NULL OR ${t.shift} IN ('day', 'night', 'rotational')`,
+    ),
+    check(
+      "job_postings_needed_by_chk",
+      sql`${t.neededBy} IS NULL OR ${t.neededBy} IN ('immediate', 'soon', 'flexible')`,
     ),
   ],
 );
@@ -1117,13 +1201,43 @@ export const jobs = pgTable(
 );
 
 // applications — the apply/skip record, PII-free. One decision per (worker, job).
+//
+// ── Matching V1 (migration 0056) — COEXIST, NEVER REPOINT ────────────────────
+// The served entity moved from `jobs` to `job_postings`, so this table now carries TWO
+// nullable job references and a CHECK that exactly one side is always present:
+//   * `job_id`         — the LEGACY reference. Every alpha application keeps it. It is
+//                        NEVER rewritten, NEVER backfilled, NEVER repointed.
+//   * `job_posting_id` — the V1 reference. EVERY NEW decision writes this one.
+// Repointing history would silently rewrite what a worker actually applied to; the ADR
+// forbids it and so does invariant #8. The cost is one nullable column and one CHECK.
+//
+// `job_id` DROPPING NOT NULL is the one shipped-column change in the whole train. It is
+// a RELAXATION (expand direction) — every existing row still satisfies it and every
+// existing reader still sees a non-null value on every existing row. But see the
+// migration header: once a single posting-only row exists, re-adding NOT NULL is no
+// longer possible without deleting real applications. That is the one-way door.
+//
+// The SNAPSHOT columns (match_tier, skill_months, industry_months, last_worked_at,
+// engine_version) are stamped AT DECISION TIME and never recomputed. They are the whole
+// point of shipping this migration early: they are the doc's "only irreversible
+// decision — history not captured on day one is gone permanently". A worker's skill
+// months change; what they were when the payer ranked this applicant cannot be
+// reconstructed later. `engine_version` makes an old row honestly readable under a
+// future rank rule instead of silently re-interpreted under it.
+//
+// PRIVACY: still PII-FREE. The snapshot is integers, a date, a smallint and a version
+// string — no name, phone, or employer.
 export const applications = pgTable(
   "applications",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    jobId: uuid("job_id")
-      .notNull()
-      .references(() => jobs.id, { onDelete: "cascade" }),
+    // LEGACY reference — nullable since 0056 (see the header note). Not deprecated:
+    // it is the permanent, correct pointer for every pre-V1 application.
+    jobId: uuid("job_id").references(() => jobs.id, { onDelete: "cascade" }),
+    // V1 reference — the served entity. Every new decision writes this.
+    jobPostingId: uuid("job_posting_id").references(() => jobPostings.id, {
+      onDelete: "cascade",
+    }),
     // The ONLY join back to identity; PII stays in `workers` (RLS-locked).
     workerId: uuid("worker_id")
       .notNull()
@@ -1135,6 +1249,18 @@ export const applications = pgTable(
     sourceSurface: text("source_surface").$type<SourceSurface>().notNull().default("feed"),
     // The seed display position the action was taken from; nullable.
     rank: integer("rank"),
+    // ── V1 RANK SNAPSHOT — stamped once, at decision time, never recomputed ──────
+    // 1 = matched a skill the poster asked for · 2 = matched via a related skill.
+    matchTier: smallint("match_tier"),
+    // The worker's bucketed months on the skill that earned the tier, AS OF this apply.
+    skillMonths: integer("skill_months"),
+    // The worker's calendar months in the posting's industry, AS OF this apply.
+    industryMonths: integer("industry_months"),
+    // Recency input for the rank rule: when the worker last worked the matched skill.
+    lastWorkedAt: date("last_worked_at"),
+    // Which rank rule produced the numbers above (match_config.engine_version, "v1.0").
+    // Without it, a v2 reader silently re-interprets v1 rows under v2 semantics.
+    engineVersion: text("engine_version"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1143,6 +1269,8 @@ export const applications = pgTable(
     // apply/skip a safe upsert — last-write-wins via ON CONFLICT (worker_id,
     // job_id) DO UPDATE (ADR-0009 §2). Also serves worker_id-leading ops lookups
     // ("decisions per worker"), so no separate worker_id index is needed.
+    // Postgres NULLS DISTINCT means the new posting-only rows (job_id IS NULL) never
+    // collide here, so this shipped constraint keeps working untouched.
     uniqueIndex("applications_worker_job_uq").on(t.workerId, t.jobId),
     // Ops read: applicants per job.
     index("applications_job_id_idx").on(t.jobId),
@@ -1150,6 +1278,51 @@ export const applications = pgTable(
     index("applications_applied_idx").on(t.workerId, t.jobId).where(sql`${t.action} = 'applied'`),
     // `reason` is only valid on a skip (NULL otherwise).
     check("applications_reason_chk", sql`${t.reason} IS NULL OR ${t.action} = 'skipped'`),
+    // ── Matching V1 (0056) ────────────────────────────────────────────────────
+    // E15: one application per (worker, posting). PARTIAL so it applies only to V1 rows
+    // and leaves the millions of legacy job_posting_id-NULL rows entirely out of the
+    // index (small) — and so it can never collide with the legacy unique above.
+    uniqueIndex("applications_worker_posting_uq")
+      .on(t.workerId, t.jobPostingId)
+      .where(sql`${t.jobPostingId} IS NOT NULL`),
+    // The V1 feed's applied-exclusion ("don't show me what I already applied to"), the
+    // job_posting_id twin of applications_applied_idx above.
+    index("applications_applied_posting_idx")
+      .on(t.workerId, t.jobPostingId)
+      .where(sql`${t.action} = 'applied' AND ${t.jobPostingId} IS NOT NULL`),
+    // THE PAYER'S APPLICANT LIST, in rank order, straight out of the index — the exact
+    // ORDER BY the rank rule specifies (tier, then skill months, then industry months,
+    // then recency, then arrival, then id as the total-order tiebreak). Partial on
+    // action='applied' because a skip is never ranked. `id` last makes the order TOTAL,
+    // so keyset pagination cannot skip or repeat a row.
+    index("applications_rank_idx")
+      .on(
+        t.jobPostingId,
+        t.matchTier,
+        t.skillMonths.desc(),
+        t.industryMonths.desc(),
+        t.lastWorkedAt.desc(),
+        t.createdAt.desc(),
+        t.id,
+      )
+      .where(sql`${t.action} = 'applied'`),
+    // Exactly one job reference must be present. This is what makes "coexist" a DB
+    // guarantee instead of a convention: a row with neither pointer cannot be written.
+    check(
+      "applications_job_ref_chk",
+      sql`(${t.jobId} IS NOT NULL) OR (${t.jobPostingId} IS NOT NULL)`,
+    ),
+    // The snapshot tier shares the closed domain of job_reach.match_tier. NULL-tolerant:
+    // every legacy row, and any V1 row written before a tier was resolvable, is NULL.
+    check(
+      "applications_match_tier_chk",
+      sql`${t.matchTier} IS NULL OR ${t.matchTier} IN (1, 2)`,
+    ),
+    // Month counts are durations; a negative one is always a bug, never data.
+    check(
+      "applications_snapshot_months_nonneg_chk",
+      sql`(${t.skillMonths} IS NULL OR ${t.skillMonths} >= 0) AND (${t.industryMonths} IS NULL OR ${t.industryMonths} >= 0)`,
+    ),
   ],
 );
 
@@ -2076,6 +2249,21 @@ export type SkillStatus = "active" | "provisional" | "deprecated";
 /** Lifecycle of an unresolved (below-floor) phrase in the growth queue. */
 export type UnresolvedPhraseStatus = "open" | "clustered" | "resolved";
 
+/**
+ * Matching V1 (migration 0052) — the TWO KINDS a `skill` row can be.
+ *
+ * `match_skill` — a MATCHABLE unit of work (the closed `mskill_*` vocabulary in
+ *   @badabhai/taxonomy `MATCH_SKILLS`). Only these ids may appear in
+ *   `job_postings.match_skill_ids` / `reach_skill_ids`, `worker_skill.skill_id`,
+ *   `job_reach.matched_skill_id`, or a `skill_related` pair.
+ * `attribute` — everything the pre-V1 vocabulary already held (controls, machines,
+ *   certifications, soft attributes). Descriptive; NEVER matched on directly.
+ *
+ * The DEFAULT is `attribute` on purpose: every already-shipped `skill` row keeps its
+ * exact meaning after the migration (an expand-only, zero-behaviour-change backfill).
+ */
+export type SkillKind = "match_skill" | "attribute";
+
 // The immutable canonical skill vocabulary. `skill_id` is a text PK, NEVER reused.
 export const skills = pgTable(
   "skill",
@@ -2097,13 +2285,32 @@ export const skills = pgTable(
     // resolves them to the terminal id and refuses cycles. Self-FK: a successor must
     // itself be a real skill row. ADDITIVE + nullable → migration 0039 is backward-safe.
     replacedBy: text("replaced_by").references((): AnyPgColumn => skills.skillId),
+    // ── Matching V1 (migration 0052) ─────────────────────────────────────────
+    // Splits the ONE vocabulary into the matchable half and the descriptive half
+    // (see SkillKind above). NOT NULL with DEFAULT 'attribute' so the ALTER is a
+    // metadata-only, zero-rewrite expand on Postgres 11+ and every shipped row keeps
+    // its meaning; `db:seed:match:vocabulary` (D1) promotes the `mskill_*` ids to
+    // 'match_skill'. Rollback = drop the column (nothing pre-V1 reads it).
+    kind: text("kind").$type<SkillKind>().notNull().default("attribute"),
+    // The industry this vocabulary entry belongs to (`ind_*`, @badabhai/taxonomy
+    // INDUSTRIES). Matching V1 is industry-scoped: a `match_skill` is only ever
+    // matched inside its own industry. NOT NULL with the launch industry as the
+    // DEFAULT — every shipped row is manufacturing today, so the backfill is exact,
+    // not a guess. `ind_quick_commerce` is the second industry V1 introduces.
+    industryId: text("industry_id").notNull().default("ind_industrial_manufacturing"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("skill_domain_id_idx").on(t.domainId),
+    // Matching V1: "give me the match-skill vocabulary for industry X" — the read the
+    // match engine + the reach materializer both start from. Small reference table, but
+    // this keeps it an index-only lookup instead of a seq scan on every posting publish.
+    index("skill_industry_kind_idx").on(t.industryId, t.kind),
     check("skill_source_chk", sql`${t.source} IN ('esco', 'onet', 'nco', 'rvm')`),
     check("skill_status_chk", sql`${t.status} IN ('active', 'provisional', 'deprecated')`),
+    // Pin the two kinds (mirrors SkillKind). Matching V1, migration 0052.
+    check("skill_kind_chk", sql`${t.kind} IN ('match_skill', 'attribute')`),
     // Crosswalk discipline: a successor pointer only ever exists on a DEPRECATED row
     // (deprecated-without-successor is legal: retired, nothing to re-tag to).
     check(
@@ -2174,8 +2381,397 @@ export const unresolvedPhrases = pgTable(
   ],
 ).enableRLS();
 
+// ---------------------------------------------------------------------------
+// skill_related — Matching V1 (migration 0052). The "related skill" adjacency the
+// TIER-2 reach set is built from: a posting's `reach_skill_ids` = its
+// `match_skill_ids` ∪ every skill related to one of them.
+//
+// SYMMETRY IS A SEEDER + TEST INVARIANT, NOT A DB TRIGGER. Both directions (A→B and
+// B→A) are stored as two rows. That is deliberate:
+//   * a trigger would make the seeder's own writes recursive and would silently
+//     "fix" a bad pair instead of failing the run;
+//   * two plain rows keep the TIER-2 lookup a single index probe in ONE direction
+//     (no OR / UNION), which is what the reach materializer actually executes.
+// `db:seed:match:vocabulary` (D1) writes both rows for every
+// MATCH_SKILL_RELATION_PAIRS entry and REFUSES to write an asymmetric, self-, or
+// attribute-kind pair; `verify-match-v1.ts` re-asserts symmetry against the live DB.
+//
+// PII: none. Two closed-vocabulary skill ids — pure reference data, exactly like
+// `skill` / `skill_alias` beside it. Invariant #4: this is DETERMINISTIC adjacency
+// data consumed by the match engine; no LLM produces or reads it.
+//
+// The FKs are ON DELETE NO ACTION (drizzle's default) on purpose: `skill_id` is an
+// immutable, never-reused id space (ADR-0030 SG-5) — a skill is DEPRECATED, never
+// deleted, so a cascade would only ever mask a mistake.
+// ---------------------------------------------------------------------------
+export const skillRelated = pgTable(
+  "skill_related",
+  {
+    skillId: text("skill_id")
+      .notNull()
+      .references(() => skills.skillId),
+    relatedSkillId: text("related_skill_id")
+      .notNull()
+      .references(() => skills.skillId),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The natural key IS the pair — makes the seeder's upsert an ON CONFLICT DO NOTHING
+    // and makes a duplicated pair impossible. Also serves the forward lookup
+    // (WHERE skill_id = ANY($posted)) that builds the reach set.
+    primaryKey({ columns: [t.skillId, t.relatedSkillId] }),
+    // The reverse lookup. Cheap, and it is what the symmetry assertion scans.
+    index("skill_related_related_skill_id_idx").on(t.relatedSkillId),
+    // A skill is never "related to" itself (that is what TIER 1 means).
+    check("skill_related_no_self_chk", sql`${t.skillId} <> ${t.relatedSkillId}`),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0052
+
+// ===========================================================================
+// Matching V1 — the SUPPLY side (migration 0053).
+// ---------------------------------------------------------------------------
+// `worker_skill` is the per-worker matchable inventory the reach materializer scans;
+// `worker_industry_tenure` is the per-industry calendar tenure the rank rule reads.
+// Both are DERIVED, rebuildable projections — never a system of record for anything a
+// worker told us (that stays in `worker_profiles`).
+//
+// PRIVACY (invariant #2): PII-FREE by construction. The ONLY columns are opaque UUIDs
+// (`worker_id` → `workers`, where PII already lives, RLS-locked), closed-vocabulary
+// skill/industry ids, integers, dates and a source enum. There is NO name, phone,
+// address, or EMPLOYER NAME column — worker history is COARSE at launch precisely so
+// that no per-job stint (and therefore no employer identity) is stored here. Nothing in
+// these tables may be copied into an event payload, `ai_jobs`, `audit_logs`, or a log.
+//
+// DPDP ERASURE (ADR-0026 Phase 5 / ADR-0031): both `worker_id` FKs are ON DELETE
+// CASCADE, so the existing single-statement hard delete
+// (`WorkersRepository.hardDelete` → DELETE FROM workers WHERE id = $1) erases these
+// rows atomically with the worker. That path enumerates NO table names, so no deletion
+// code changes — the cascade IS the coverage. Do not switch either FK to SET NULL.
+//
+// Invariant #4: these are DETERMINISTIC, rule-derived rows (the D2 coarse backfill and
+// the interview writer). No LLM ranks, scores, or decides anything here.
+// ===========================================================================
+
+/**
+ * Where a `worker_skill` row came from. The D2 backfill OWNS `derived_coarse` rows and
+ * only those — it may rewrite or delete them freely. `interview` (the worker said it)
+ * and `ops` (a human corrected it) are HUMAN-AUTHORED and the backfill must never touch
+ * them; that asymmetry is what makes the backfill safe to re-run forever.
+ */
+export type WorkerSkillSource = "derived_coarse" | "interview" | "ops";
+
+// worker_skill — one row per (worker, match skill). The reach driver.
+export const workerSkills = pgTable(
+  "worker_skill",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    // A closed-vocabulary id. In V1 this is always a `kind='match_skill'` row; the FK
+    // pins it to the real vocabulary (SG-3 discipline: never free text, never invented).
+    skillId: text("skill_id")
+      .notNull()
+      .references(() => skills.skillId),
+    // DENORMALIZED from `skill.industry_id` so the industry filter never needs a join on
+    // the hot reach path (the same denormalization `skill_alias.domain_id` uses).
+    industryId: text("industry_id").notNull(),
+    // Experience on this skill, BUCKETED (config `month_bucket`, 6 at launch). Bucketed —
+    // not exact — on purpose: coarse history cannot support month-precision, and the rank
+    // rule's tier floor is a 36-month threshold, not a fine-grained sort.
+    monthsBucketed: integer("months_bucketed").notNull().default(0),
+    // Per-skill stint window. NULL at launch (COARSE history — no per-job stints yet);
+    // the columns exist now so the later fine-grained interview writer needs no migration.
+    startedAt: date("started_at"),
+    endedAt: date("ended_at"),
+    // Does the worker WANT this kind of work? The reach set is opt-in: `WHERE wants` is
+    // part of the driver index below, so a worker who turns a skill off leaves the index.
+    wants: boolean("wants").notNull().default(true),
+    source: text("source").$type<WorkerSkillSource>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Natural key: at most one row per (worker, skill). Makes every writer — the D2
+    // backfill, the interview, an ops edit — a safe ON CONFLICT upsert.
+    uniqueIndex("worker_skill_worker_skill_uq").on(t.workerId, t.skillId),
+    // ── THE REACH DRIVER ──────────────────────────────────────────────────────
+    // Both hot paths execute exactly this shape:
+    //   (a) the ③ materialization — INSERT..SELECT ... WHERE skill_id = ANY($reach) AND wants
+    //   (b) the live "how many workers can this posting reach?" count
+    // The migration hand-appends `INCLUDE ("worker_id","months_bucketed")` so BOTH are
+    // index-only scans that never touch the heap. drizzle-kit 0.31 cannot model INCLUDE
+    // (see indexes.d.ts IndexConfig) — the same modelling gap 0037 hit with NULLS NOT
+    // DISTINCT on `unresolved_phrase_uq`, handled the same way: model what Drizzle can
+    // express, hand-append the clause it cannot, and never regenerate over it. The
+    // snapshot records the non-INCLUDE form; because name + key columns + WHERE all
+    // match, a future `db:generate` is a no-op on this index (it will not drop it).
+    index("worker_skill_reach_idx")
+      .on(t.skillId)
+      .where(sql`${t.wants}`),
+    check("worker_skill_months_nonneg_chk", sql`${t.monthsBucketed} >= 0`),
+    check(
+      "worker_skill_source_chk",
+      sql`${t.source} IN ('derived_coarse', 'interview', 'ops')`,
+    ),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0053
+
+// worker_industry_tenure — calendar months in an industry, per worker. A materialized
+// projection: (worker_id, industry_id) is the natural key AND the primary key, so the
+// D2 rebuild is a plain upsert. `calendar_months` is CALENDAR time (overlapping skills
+// are not double counted) and is clamped to at least the worker's longest skill tenure
+// (the E8 clamp) — a worker cannot have 5 years on a skill but 2 years in the industry.
+export const workerIndustryTenure = pgTable(
+  "worker_industry_tenure",
+  {
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    industryId: text("industry_id").notNull(),
+    calendarMonths: integer("calendar_months").notNull().default(0),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workerId, t.industryId] }),
+    check("worker_industry_tenure_months_nonneg_chk", sql`${t.calendarMonths} >= 0`),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0053
+
+// ---------------------------------------------------------------------------
+// job_reach — Matching V1 (migration 0055). The MATERIALIZED-ON-WRITE reach set:
+// one row per (posting, worker) the posting can reach, computed when the posting is
+// published/edited rather than at feed time.
+//
+// It is a CACHE, not a system of record: every row is reproducible from
+// `job_postings.reach_skill_ids` × `worker_skill` by re-running `db:materialize:reach`.
+// Truncating it costs a rebuild, never data.
+//
+// WHY MATERIALIZE: the feed read becomes "give me this worker's postings" — a single
+// index-only scan of `job_reach_worker_idx` — instead of a per-request GIN scan over
+// every open posting. The write side pays once per publish/edit.
+//
+// TIER (E6, best-tier-wins): 1 = the worker holds a skill the poster ACTUALLY ASKED FOR
+// (`job_postings.match_skill_ids`); 2 = reached only through a `skill_related`
+// neighbour. A worker who qualifies both ways is TIER 1 — the materializer's MIN()
+// enforces that, and `matched_skill_id` names the skill that achieved the tier.
+//
+// PRIVACY (invariant #2): PII-FREE — two opaque UUIDs, a smallint, one closed-vocabulary
+// skill id, a timestamp. `worker_id` → `workers` is the only join back to identity, the
+// same shape `applications` has had since ADR-0009.
+//
+// DPDP ERASURE: worker_id CASCADEs from `workers`, so the existing single-statement hard
+// delete removes a deleted worker from every posting's reach set atomically — no
+// deletion-service change. job_posting_id CASCADEs too, so deleting a posting takes its
+// reach set with it.
+//
+// Invariant #4: DETERMINISTIC set membership from a deterministic rule. No LLM ranks,
+// scores, or decides here — `match_tier` is a set-membership fact, not a model output.
+// ---------------------------------------------------------------------------
+export const jobReach = pgTable(
+  "job_reach",
+  {
+    jobPostingId: uuid("job_posting_id")
+      .notNull()
+      .references(() => jobPostings.id, { onDelete: "cascade" }),
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    // 1 = direct (a posted match skill) · 2 = related-skill only. smallint: the domain is
+    // two values and this table is the widest row-count in the system.
+    matchTier: smallint("match_tier").notNull(),
+    // WHICH skill earned the tier — what the "why am I seeing this?" line renders from,
+    // and what makes a reach row auditable without re-running the materializer.
+    matchedSkillId: text("matched_skill_id")
+      .notNull()
+      .references(() => skills.skillId),
+    computedAt: timestamp("computed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The natural key IS the pair: a worker appears at most once per posting. Makes the
+    // materializer a plain INSERT .. ON CONFLICT DO UPDATE (idempotent re-runs) and makes
+    // a double-count structurally impossible.
+    primaryKey({ columns: [t.jobPostingId, t.workerId] }),
+    // ── THE FEED READ ─────────────────────────────────────────────────────────
+    // "which postings can this worker see?" — WHERE worker_id = $1. The migration
+    // hand-appends INCLUDE (job_posting_id, match_tier, matched_skill_id) so the whole
+    // feed page comes out of the index with no heap fetch. (The PK is
+    // (job_posting_id, worker_id), so it CANNOT serve a worker-leading lookup — this
+    // index is not redundant with it.) drizzle-kit 0.31 cannot model INCLUDE; see the
+    // same note on worker_skill_reach_idx.
+    index("job_reach_worker_idx").on(t.workerId),
+    check("job_reach_match_tier_chk", sql`${t.matchTier} IN (1, 2)`),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0055
+
+// ---------------------------------------------------------------------------
+// match_config — Matching V1 (migration 0057). The knobs of the V1 rank rule, held as
+// ONE ACTIVE jsonb row. A DELIBERATE CLONE of the `pricing_catalog` shape (ADR-0013
+// Decision A): single active row + monotonic `revision` + partial unique on is_active +
+// opaque `updated_by` + timestamps. Prior revisions stay as history rows.
+//
+// Same discipline as pricing: the engine loads the ACTIVE row and VALIDATES it before
+// use, and FAILS CLOSED to a typed default if it does not parse. An unvalidated config
+// row must never be trusted — this table is ops-editable.
+//
+// The V1 keys (seeded by `db:seed:match:vocabulary`, NOT by this migration — the
+// migration ships structure, the seeder ships values, exactly like pricing):
+//   engine_version "v1.0" · month_bucket 6 · max_skills_per_posting 3 ·
+//   related_skills_default "on" · max_consecutive_same_company 2 ·
+//   applicant_quota "off" · tier_floor_months 36 · free_unlock_credits 50 ·
+//   boost_supply_floor 25
+//
+// PII-FREE: enum-ish strings and integers only. Invariant #4: these are DETERMINISTIC
+// rule parameters — an LLM neither writes nor reads them.
+// ---------------------------------------------------------------------------
+export const matchConfig = pgTable(
+  "match_config",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The whole V1 knob set. Loose jsonb here (like pricing_catalog.catalog); the engine
+    // owns the Zod schema and validates on load.
+    config: jsonb("config").notNull(),
+    // Monotonic revision, bumped on each ops edit.
+    revision: integer("revision").notNull().default(1),
+    // Exactly one active row (partial unique index below).
+    isActive: boolean("is_active").notNull().default(true),
+    // Opaque ops actor who wrote this revision (no PII). Mirrors pricing_catalog.updated_by.
+    updatedBy: uuid("updated_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // At most one active config row at a time (mirrors pricing_catalog_active_uq).
+    uniqueIndex("match_config_active_uq")
+      .on(t.isActive)
+      .where(sql`${t.isActive}`),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0057
+
+export type MatchConfig = typeof matchConfig.$inferSelect;
+export type NewMatchConfig = typeof matchConfig.$inferInsert;
+
+// ===========================================================================
+// Matching V1 — Workstream 3 spine (migration 0058): payment_orders +
+// referral_bonus_accruals. Authored in the SAME train so Divyanshu applies ONE ordered
+// sequence, not two.
+//
+// ⚠️ STRUCTURE ONLY. Creating `payment_orders` does NOT enable real money: real
+// payment-provider keys and spend stay a hard human-gated escalation (CLAUDE.md §7,
+// ADR-0010 §EXPLICITLY OUT, ADR-0013). The table exists so the idempotency key is a DB
+// constraint from day one rather than something bolted on after the first double-charge.
+//
+// PII-FREE (invariant #2): opaque payer/worker UUIDs, integer ₹ amounts, pack codes,
+// provider order/payment ids. ABSOLUTELY NO card number, UPI handle, VPA, bank account,
+// billing name, or address column here — the same line `credit_ledger.payment_ref` has
+// held since ADR-0010 §D5. Provider ids are OPAQUE external references, not PII.
+// ===========================================================================
+
+/** Payment order lifecycle. `created` at intent → `paid` on a verified provider callback → `failed`. */
+export type PaymentOrderStatus = "created" | "paid" | "failed";
+
+// payment_orders — one row per checkout intent against a payment provider.
+export const paymentOrders = pgTable(
+  "payment_orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Opaque payer ref — the "faceless-rails" pattern, NO FK (mirrors payer_credits /
+    // credit_ledger, which this sits in front of).
+    payerId: uuid("payer_id").notNull(),
+    // Which credit pack was bought (e.g. 'pack_10'); resolved against @badabhai/pricing.
+    packCode: text("pack_code").notNull(),
+    // Whole ₹, never paise (house convention — see credit_ledger.price_inr).
+    amountInr: integer("amount_inr").notNull(),
+    provider: text("provider").notNull().default("razorpay"),
+    // The provider's own order id. OPAQUE — never parsed, never a PII carrier.
+    providerOrderId: text("provider_order_id").notNull(),
+    status: text("status").$type<PaymentOrderStatus>().notNull().default("created"),
+    // The provider's payment reference, stamped when the order settles. Opaque.
+    providerPaymentRef: text("provider_payment_ref"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // ── THE PAYMENT IDEMPOTENCY KEY ───────────────────────────────────────────
+    // (provider, provider_order_id) is UNIQUE, and that uniqueness IS the idempotency
+    // guarantee: a webhook redelivery, a double-tapped Pay button, or an at-least-once
+    // retry all collide here and insert NO second order — so no second credit grant.
+    // It is a DB constraint, not an application check, precisely because the application
+    // check is the thing that races. `provider` is part of the key so two providers can
+    // never be assumed to have disjoint id spaces.
+    uniqueIndex("payment_orders_provider_order_uq").on(t.provider, t.providerOrderId),
+    // Ops/payer read: this payer's orders, newest first.
+    index("payment_orders_payer_created_idx").on(t.payerId, t.createdAt),
+    // A zero/negative-amount order is always a bug, never a real purchase.
+    check("payment_orders_amount_pos_chk", sql`${t.amountInr} > 0`),
+    check("payment_orders_status_chk", sql`${t.status} IN ('created', 'paid', 'failed')`),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0058
+
+// referral_bonus_accruals — one accrual per REFERRED worker, ever.
+//
+// THE FRAUD RULE HAS DB TEETH: UNIQUE(invited_worker_id). Not (inviter, invited) — that
+// would let the same referred worker be claimed once by each of N inviters. One row per
+// invited worker means a referred worker can generate exactly one bonus in the lifetime
+// of that worker id, no matter who claims it or how many times the qualifying event
+// replays.
+//
+// PII-FREE: two opaque worker UUIDs, an integer ₹ amount, a timestamp.
+//
+// DPDP ERASURE: BOTH worker FKs are ON DELETE CASCADE, so deleting EITHER party erases
+// the accrual — no orphan pointing at a deleted worker. See the migration header for the
+// two consequences that follow (a financial record is destroyed by the other party's
+// erasure; and a delete+re-register mints a new worker id, so the "ever" is scoped to the
+// id, not the person). Both are DPDP-correct and both are product-visible.
+export const referralBonusAccruals = pgTable(
+  "referral_bonus_accruals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    inviterWorkerId: uuid("inviter_worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    invitedWorkerId: uuid("invited_worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    // Whole ₹. Defaulted to the launch value but STAMPED per row, so a later change to
+    // the bonus can never retroactively rewrite what a past referral was worth.
+    amountInr: integer("amount_inr").notNull().default(20),
+    // When the referral QUALIFIED (not when the invite was sent).
+    qualifiedAt: timestamp("qualified_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The fraud rule (see header). ONE bonus per referred worker, ever.
+    uniqueIndex("referral_bonus_accruals_invited_uq").on(t.invitedWorkerId),
+    // "What has this worker earned?" — the inviter-side read, and the FK-referencing
+    // column Postgres does not auto-index (the ON DELETE cascade needs it).
+    index("referral_bonus_accruals_inviter_idx").on(t.inviterWorkerId),
+    // A zero/negative bonus is a bug.
+    check("referral_bonus_accruals_amount_pos_chk", sql`${t.amountInr} > 0`),
+    // You cannot refer yourself.
+    check(
+      "referral_bonus_accruals_no_self_chk",
+      sql`${t.inviterWorkerId} <> ${t.invitedWorkerId}`,
+    ),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0058
+
+export type PaymentOrder = typeof paymentOrders.$inferSelect;
+export type NewPaymentOrder = typeof paymentOrders.$inferInsert;
+export type ReferralBonusAccrual = typeof referralBonusAccruals.$inferSelect;
+export type NewReferralBonusAccrual = typeof referralBonusAccruals.$inferInsert;
+
+export type JobReach = typeof jobReach.$inferSelect;
+export type NewJobReach = typeof jobReach.$inferInsert;
+
+export type WorkerSkill = typeof workerSkills.$inferSelect;
+export type NewWorkerSkill = typeof workerSkills.$inferInsert;
+export type WorkerIndustryTenure = typeof workerIndustryTenure.$inferSelect;
+export type NewWorkerIndustryTenure = typeof workerIndustryTenure.$inferInsert;
+
 export type Skill = typeof skills.$inferSelect;
 export type NewSkill = typeof skills.$inferInsert;
+export type SkillRelated = typeof skillRelated.$inferSelect;
+export type NewSkillRelated = typeof skillRelated.$inferInsert;
 export type SkillAlias = typeof skillAliases.$inferSelect;
 export type NewSkillAlias = typeof skillAliases.$inferInsert;
 export type UnresolvedPhrase = typeof unresolvedPhrases.$inferSelect;
@@ -2373,6 +2969,13 @@ export const schema = {
   payerMembers,
   skills,
   skillAliases,
+  skillRelated,
+  workerSkills,
+  workerIndustryTenure,
+  jobReach,
+  matchConfig,
+  paymentOrders,
+  referralBonusAccruals,
   unresolvedPhrases,
   payerJobPostingChatSessions,
   payerJobPostingChatMessages,

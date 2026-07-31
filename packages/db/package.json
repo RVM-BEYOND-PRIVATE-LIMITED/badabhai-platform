@@ -38,6 +38,13 @@
     "db:seed:reach:large": "tsx src/seed-reach-pool.ts",
     "db:unseed:reach": "tsx src/seed-reach-pool.ts --unseed-only",
     "db:verify:reach": "tsx src/verify-reach.ts",
+    "db:seed:match:vocabulary": "tsx src/seed-match-vocabulary.ts",
+    "db:backfill:worker-skills": "tsx src/backfill-worker-skills.ts",
+    "db:backfill:job-postings": "tsx src/backfill-job-postings-v1.ts",
+    "db:convert:seed-jobs": "tsx src/convert-seed-jobs.ts",
+    "db:materialize:reach": "tsx src/materialize-job-reach.ts",
+    "db:grant:free-tier": "tsx src/grant-free-tier.ts",
+    "db:verify:match-v1": "tsx src/verify-match-v1.ts",
     "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
