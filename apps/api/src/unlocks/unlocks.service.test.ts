@@ -1,7 +1,9 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
+import type { ReferralBonusJobData } from "../queue/queue.constants";
 import type { EventsService } from "../events/events.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
@@ -120,6 +122,9 @@ function setup(opts: SetupOpts = {}) {
     pricing as unknown as PricingService,
   );
 
+  // §X.6 — leg 2 of the activation-bonus rule is enqueued after a grant commits.
+  const referralBonusQueue = { add: vi.fn(async () => undefined) };
+
   const svc = new UnlockService(
     repo as unknown as UnlocksRepository,
     consents as unknown as ConsentRepository,
@@ -128,8 +133,9 @@ function setup(opts: SetupOpts = {}) {
     payments,
     events as unknown as EventsService,
     CAPS,
+    referralBonusQueue as unknown as Queue<ReferralBonusJobData>,
   );
-  return { svc, repo, txMethods, consents, workers, pii, events };
+  return { svc, repo, txMethods, consents, workers, pii, events, referralBonusQueue };
 }
 
 function emitted(events: { emit: { mock: { calls: unknown[][] } } }): string[] {
@@ -312,6 +318,40 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
     expect(txMethods.upsertGrant).not.toHaveBeenCalled();
     // Only the entry unlock.requested event (no second grant/payment events).
     expect(emitted(events)).toEqual(["unlock.requested"]);
+  });
+
+  // ---- §X.6: a granted unlock is LEG 2 of the ₹20 activation-bonus rule ----
+
+  it("enqueues a referral-bonus evaluation on a NEW grant (worker id + trigger, no PII)", async () => {
+    const { svc, referralBonusQueue } = setup({
+      balance: 5,
+      consentPurposes: ["employer_sharing"],
+    });
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(referralBonusQueue.add).toHaveBeenCalledWith("evaluate", {
+      invitedWorkerId: WORKER,
+      trigger: "unlock_granted",
+    });
+    // The payer is NOT in the payload — the inviter is resolved server-side from `invites`,
+    // so no caller can nominate who gets paid.
+    expect(JSON.stringify(referralBonusQueue.add.mock.calls)).not.toContain(PAYER);
+  });
+
+  it("does NOT enqueue when no grant happens (insufficient credits)", async () => {
+    const { svc, referralBonusQueue } = setup({ balance: 0 });
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(referralBonusQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("a bonus-enqueue failure does NOT break the unlock (post-commit, log-and-continue)", async () => {
+    const { svc, referralBonusQueue } = setup({
+      balance: 5,
+      consentPurposes: ["employer_sharing"],
+    });
+    referralBonusQueue.add.mockRejectedValueOnce(new Error("redis down"));
+    const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    // The grant is already committed; flushEvents swallows a failed deferred thunk.
+    expect(out).toMatchObject({ ok: true, status: "granted" });
   });
 });
 

@@ -117,6 +117,24 @@ export const serverEnvSchema = z.object({
   // uncapped one lets an authed worker spam attribution reads (DB-load + a timing probe) —
   // bb-security-review LOW-MED. Same fail-closed idiom (Redis outage → 429, never uncapped).
   REFERRAL_ATTRIBUTE_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // B4 — per-IP cap / rolling UTC hour on the PUBLIC `POST /invites/:code/click`. That URL
+  // is about to be printed on QR codes at factory gates and handed to ~450 agents, which
+  // makes it the most-scanned UNAUTHENTICATED endpoint we own; uncapped, it is a free
+  // amplifier for burning DB time (each call is an indexed `invites` lookup plus, on a
+  // miss, an `agency_invites` lookup, a status UPDATE and an events INSERT).
+  //
+  // The default is deliberately MUCH higher than the other per-IP caps above, because this
+  // one is not per-human: the `/i/<code>` landing page pings this endpoint SERVER-SIDE, so
+  // every legitimate scan shares payer-web's single egress IP (`TRUST_PROXY_HOP_COUNT`
+  // defaults to 0, so `req.ip` is the socket peer). 600/hour still bounds an abuser to a
+  // trivial amount of work while comfortably clearing the projected funnel volume. To make
+  // the cap genuinely per-visitor, set TRUST_PROXY_HOP_COUNT for the real edge topology —
+  // see the note on the click handler in messaging.controller.ts.
+  //
+  // A BREACH IS NOT AN ERROR HERE: the handler sheds the work and returns the SAME neutral
+  // body (see the controller), so over-capping degrades the funnel statistic, never a
+  // worker's install page.
+  REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(600),
   // Interview-kit content version. Part of the render-once identity (tradeKey +
   // contentVersion). BUMP this whenever any kit copy changes so a fresh PDF is
   // rendered instead of serving the stale cached file. Never reuse an old value.

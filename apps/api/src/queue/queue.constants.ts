@@ -35,6 +35,22 @@ export const AI_JOBS_RETENTION_SWEEP_SCHEDULER_ID = "ai-jobs-retention-sweep";
 export const PUSH_QUEUE = "worker-push";
 
 /**
+ * §X.6 worker-referral activation-bonus evaluation queue.
+ *
+ * A QUEUE rather than a direct service call on purpose. The rule needs both of its legs —
+ * a confirmed profile AND a granted unlock — and those happen in two different modules,
+ * minutes or weeks apart. Enqueuing from each keeps the evaluation off both request paths,
+ * gives it BullMQ's retries for free (the rule is idempotent, and `UNIQUE
+ * (invited_worker_id)` is the backstop), and — the reason it is a queue and not an
+ * injected service — introduces NO module dependency edge from `profiles`/`unlocks` into
+ * `referrals`, so no import cycle and no blast radius in either producer.
+ *
+ * A LOST job is a missed accrual, not a corrupt one: the ops
+ * `POST /referrals/bonus/evaluate` re-runs the same idempotent rule.
+ */
+export const REFERRAL_BONUS_QUEUE = "referral-bonus";
+
+/**
  * Payload enqueued to deliver ONE push fan-out (ADR-0034).
  *
  * REFS ONLY — no push token, no rendered copy, no name. `deviceIds` are opaque
@@ -128,4 +144,18 @@ export interface ResumeRenderJobData {
   /** Tracing ids carried from the originating HTTP request. */
   correlationId: string;
   requestId: string;
+}
+
+/**
+ * Payload for a §X.6 activation-bonus evaluation (refs only, no PII).
+ *
+ * Carries ONLY the referred worker's opaque id — the inviter is resolved server-side from
+ * the `invites` row that attributed them, so no producer can nominate who gets paid, and
+ * no phone/name/amount ever sits in Redis. `trigger` is a non-PII enum kept for
+ * observability (which leg completed last), never for control flow: the processor
+ * re-evaluates BOTH legs from the database regardless.
+ */
+export interface ReferralBonusJobData {
+  invitedWorkerId: string;
+  trigger: "profile_confirmed" | "unlock_granted";
 }

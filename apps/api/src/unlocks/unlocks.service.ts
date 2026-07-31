@@ -1,4 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { UNLOCK_WINDOW_DAYS, type UnlockDenyReason, type RoutingChannel } from "@badabhai/db";
 import { randomUUID } from "node:crypto";
@@ -17,6 +19,7 @@ import {
   type CreditLedgerItem,
 } from "./unlocks.repository";
 import { PaymentGateway } from "./payment-gateway";
+import { REFERRAL_BONUS_QUEUE, type ReferralBonusJobData } from "../queue/queue.constants";
 import {
   neutralUnavailable,
   type NeutralUnavailableResponse,
@@ -98,6 +101,10 @@ export class UnlockService {
     private readonly payments: PaymentGateway,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // §X.6 — leg 2 of the activation-bonus rule completes here. Injected as a QUEUE, not as
+    // ReferralBonusService, so this module gains no dependency on `referrals`.
+    @InjectQueue(REFERRAL_BONUS_QUEUE)
+    private readonly referralBonusQueue: Queue<ReferralBonusJobData>,
   ) {}
 
   // ===========================================================================
@@ -251,6 +258,11 @@ export class UnlockService {
         events.push(() => this.emitPaymentAuthorized(granted.id, payerId, ctx));
         events.push(() => this.emitPaymentCaptured(granted.id, payerId, ctx));
         events.push(() => this.emitGranted(granted.id, payerId, workerId, jobId, expiresAt, ctx));
+        // §X.6 — a granted unlock is LEG 2 of the ₹20 activation-bonus rule (the leg a
+        // fraudster cannot fake, because it costs a paying party money). Deferred like the
+        // emits above, so it runs POST-COMMIT and inherits flushEvents' log-and-continue:
+        // a Redis blip costs a (recoverable, idempotent) accrual, never the unlock.
+        events.push(() => this.enqueueReferralBonusEvaluation(workerId));
 
         return { response: this.grantedResponse(granted.id, expiresAt), events };
       },
@@ -614,6 +626,23 @@ export class UnlockService {
       payload,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
+    });
+  }
+
+  /**
+   * §X.6 — ask the referral module to re-evaluate the ₹20 activation bonus for this worker,
+   * because one of its two legs (a granted unlock) just became true.
+   *
+   * A QUEUE, not a service call: `unlocks` must not gain a dependency on `referrals`, and
+   * the evaluation (up to six reads) has no business on the unlock request path. The
+   * processor re-checks BOTH legs from the database, so this is a no-op for the vast
+   * majority of workers (never referred), and `UNIQUE (invited_worker_id)` makes a
+   * duplicate delivery harmless. PII-FREE: an opaque worker id + a non-PII trigger enum.
+   */
+  private async enqueueReferralBonusEvaluation(workerId: string): Promise<void> {
+    await this.referralBonusQueue.add("evaluate", {
+      invitedWorkerId: workerId,
+      trigger: "unlock_granted",
     });
   }
 

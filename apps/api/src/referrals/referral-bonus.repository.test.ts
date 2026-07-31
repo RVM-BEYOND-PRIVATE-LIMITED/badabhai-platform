@@ -2,9 +2,8 @@ import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { getTableColumns, type SQL } from "drizzle-orm";
-import type { Database } from "@badabhai/db";
+import { referralBonusAccruals, type Database } from "@badabhai/db";
 import { ReferralBonusRepository } from "./referral-bonus.repository";
-import { referralBonusAccruals } from "./referral-bonus.table";
 
 /**
  * STRUCTURAL tests for the bonus ledger queries.
@@ -133,13 +132,32 @@ describe("ReferralBonusRepository — the UNIQUE column is the idempotency key",
   });
 });
 
-describe("ReferralBonusRepository — the table shape it is coded against", () => {
-  it("maps exactly the columns the sibling db change specifies", () => {
-    // Guards the TEMPORARY local table declaration against drifting from the migration:
-    // id, inviter_worker_id, invited_worker_id (UNIQUE), amount_inr (default 20), qualified_at.
-    const columns = Object.values(getTableColumns(referralBonusAccruals)).map((c) => c.name);
-    expect(columns.sort()).toEqual(
-      ["amount_inr", "id", "invited_worker_id", "inviter_worker_id", "qualified_at"].sort(),
-    );
+describe("ReferralBonusRepository — the SHIPPED table it is coded against", () => {
+  // Now pinned against the REAL `@badabhai/db` table (migration 0058) — the temporary local
+  // declaration is gone. This keeps drift detection: a column rename/removal in the schema
+  // fails here rather than at runtime.
+  const columns = getTableColumns(referralBonusAccruals);
+
+  it("has exactly the five columns this repository writes and reads", () => {
+    expect(
+      Object.values(columns)
+        .map((c) => c.name)
+        .sort(),
+    ).toEqual(["amount_inr", "id", "invited_worker_id", "inviter_worker_id", "qualified_at"].sort());
+  });
+
+  it("both worker ids are NOT NULL (the shipped choice, not the SET-NULL posture assumed pre-merge)", () => {
+    // Recorded deliberately: `invites`/`unlocks` use nullable + ON DELETE SET NULL so a DSAR
+    // erasure keeps a PII-free row with a nulled join. 0058 chose NOT NULL + ON DELETE
+    // CASCADE instead, so erasing EITHER party deletes the accrual outright. That is
+    // DPDP-correct and documented in the schema header — and it is what makes
+    // `phoneAlreadyEarned` unable to see a bonus earned by a since-deleted worker.
+    expect(columns.inviterWorkerId?.notNull).toBe(true);
+    expect(columns.invitedWorkerId?.notNull).toBe(true);
+  });
+
+  it("stamps the amount per row (a later bonus change cannot rewrite past referrals)", () => {
+    expect(columns.amountInr?.notNull).toBe(true);
+    expect(columns.amountInr?.hasDefault).toBe(true);
   });
 });

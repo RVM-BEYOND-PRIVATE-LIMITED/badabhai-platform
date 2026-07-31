@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
+import { BullModule } from "@nestjs/bullmq";
 import { ConsentModule } from "../consent/consent.module";
 import { PricingModule } from "../pricing/pricing.module";
+import { REFERRAL_BONUS_QUEUE } from "../queue/queue.constants";
 import { UnlocksController } from "./unlocks.controller";
 import { UnlockService } from "./unlocks.service";
 import { UnlocksRepository } from "./unlocks.repository";
@@ -23,7 +25,14 @@ import { PaymentGateway } from "./payment-gateway";
   // PricingModule (exports PricingService) — the PaymentGateway resolves credit packs
   // through the ONE pricing engine (D-6), so the price/credits CHARGED are the ones the
   // portal DISPLAYED. Same reuse shape as PostingPlansModule for plan/boost/capacity.
-  imports: [ConsentModule, PricingModule],
+  imports: [
+    ConsentModule,
+    PricingModule,
+    // §X.6 — leg 2 of the ₹20 activation-bonus rule fires on a granted unlock. PRODUCER
+    // ONLY: the processor lives in ReferralAttributionModule, so this stays a queue
+    // registration and NOT a module import (no dependency from `unlocks` into `referrals`).
+    BullModule.registerQueue({ name: REFERRAL_BONUS_QUEUE }),
+  ],
   controllers: [UnlocksController],
   providers: [UnlockService, UnlocksRepository, PaymentGateway],
   // Export ONLY the service (the fail-closed chokepoint) so the payer-portal route
