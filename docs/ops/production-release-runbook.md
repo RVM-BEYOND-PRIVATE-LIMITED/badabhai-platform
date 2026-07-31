@@ -146,9 +146,26 @@ effect at install time, so **P0-6 must be live before the release is promoted**,
 
 ## Canary smoke
 
-Run after every P2/P4 step. Uses a synthetic canary worker (a team-held real phone — Fast2SMS OTP
-is already live) and a canary payer account, both flagged in the database so analytics can exclude
-them.
+Run after every P2/P4 step.
+
+**First, the automated posture check** — `PROD_API_BASE_URL=https://… node scripts/prod-canary.mjs`.
+Read-only and write-free; safe to run as often as you like. It proves `/health` is up, that **all
+43 routes behind `InternalServiceGuard` reject an anonymous caller**, and that the DPDP consent
+gate holds. Set `PROD_CANARY_OPS_TOKEN` as well and it also proves the ops token is *accepted* —
+which is the P0-10 failure mode, since the guard fails closed and a missing or mismatched token
+presents as a total ops-console outage.
+
+> The route list was measured against Nest's own metadata, not assembled by hand. An earlier
+> version probed 6 routes while describing itself as the closure claim, so 37 guarded routes —
+> including `PUT /pricing/catalog`, `POST /unlocks/:id/reveal` and the whole job-posting
+> verify chain — were never checked. If you add a route behind `InternalServiceGuard`, add it to
+> `OPS_ROUTES` in that script; an unprobed route is exactly how the original hole survived.
+
+**Then the human steps** the script deliberately does not fake. They need a real OTP to a
+team-held handset and a real card, and `TEST_LOGIN_ENABLED` cannot be armed in production, so
+there is no honest way to automate them. Uses a synthetic canary worker (a team-held real phone —
+Fast2SMS OTP is already live) and a canary payer account, both flagged in the database so
+analytics can exclude them.
 
 1. **Worker:** OTP → consent → chat opener from the server → answers → extraction completes →
    resume ready.

@@ -43,6 +43,8 @@
 //
 //   node scripts/prod-canary.mjs
 
+import { pathToFileURL } from "node:url";
+
 const BASE_URL_RAW = process.env.PROD_API_BASE_URL;
 const OPS_TOKEN = process.env.PROD_CANARY_OPS_TOKEN;
 
@@ -50,23 +52,93 @@ const OPS_TOKEN = process.env.PROD_CANARY_OPS_TOKEN;
 const OPS_TOKEN_HEADER = "x-internal-service-token";
 
 /**
- * Every ops-internal route, as (method, path). These are the routes that were reachable
- * unauthenticated before 2026-07-31; the list is the CLOSURE CLAIM, so a route added to
- * the guard contract belongs here too.
+ * A uuid that does not exist, for routes with a path parameter.
+ *
+ * DEFENCE IN DEPTH FOR THE FAILURE CASE. These probes only matter when a guard is MISSING —
+ * that is the whole point — and in that case the request reaches the handler. A nonexistent
+ * id means the handler then 404s instead of acting on a real worker, payer, or posting.
+ * Combined with the invalid bodies below, a guard regression is discovered without touching
+ * a single production row.
+ */
+const ABSENT_ID = "00000000-0000-4000-8000-000000000000";
+
+/**
+ * EVERY route behind `InternalServiceGuard`, as (method, path[, body]).
+ *
+ * THIS LIST IS THE CLOSURE CLAIM, and it must stay complete. It was measured against Nest's
+ * own route metadata on 2026-07-31 (43 routes) rather than assembled by hand — an earlier
+ * version of this file listed 6 and still described itself as the closure claim, which meant
+ * the canary reported PASS while 37 guarded routes were never probed at all. An unprobed
+ * route is precisely how the original hole survived: nothing was watching it.
  *
  * WRITE ROUTES ARE PROBED TOO, and that is safe precisely BECAUSE the guard rejects them
- * before any handler runs — which is the property under test. If a guard were ever
- * removed, the probe would get past it, which is exactly when we want to find out. To
- * keep that discovery harmless the write bodies below are deliberately INVALID, so even
- * in that failure case the request dies in Zod validation rather than creating a row.
+ * before any handler runs — which is the property under test. If a guard were ever removed,
+ * the probe would get past it, which is exactly when we want to find out. To keep that
+ * discovery harmless every write body below is deliberately INVALID (`{}` fails the route's
+ * Zod schema, which requires real fields), so even in that failure case the request dies in
+ * validation rather than creating, mutating, or sending anything.
  */
-const OPS_ROUTES = [
+export const OPS_ROUTES = [
+  // ── audit spine + worker/AI reads (the original leak) ──
   ["GET", "/events?limit=1"],
   ["GET", "/workers?limit=1"],
+  ["GET", `/workers/${ABSENT_ID}/profile`],
+  ["PUT", `/workers/${ABSENT_ID}/name`, {}],
+  ["GET", `/workers/${ABSENT_ID}/applications`],
   ["GET", "/ai-jobs?limit=1"],
+  ["GET", `/ai-jobs/${ABSENT_ID}`],
+
+  // ── job postings: the create -> publish -> "Verified" chain ──
   ["GET", "/job-postings?limit=1"],
   ["POST", "/job-postings", {}],
+  ["GET", `/job-postings/${ABSENT_ID}`],
+  ["PATCH", `/job-postings/${ABSENT_ID}`, {}],
+  ["POST", `/job-postings/${ABSENT_ID}/verify`, {}],
+  ["POST", `/job-postings/${ABSENT_ID}/reject`, {}],
+  ["POST", `/job-postings/${ABSENT_ID}/close`, {}],
+  ["POST", `/job-postings/${ABSENT_ID}/reach/widen`, {}],
+  ["POST", `/job-postings/${ABSENT_ID}/plan`, {}],
+  ["POST", `/job-postings/${ABSENT_ID}/boost`, {}],
+
+  // ── ranking / feed reads ──
+  ["GET", `/reach/jobs/${ABSENT_ID}/applicants`],
+  ["GET", `/reach/workers/${ABSENT_ID}/feed`],
+  ["GET", `/jobs/${ABSENT_ID}/applicants`],
+
+  // ── contact unlock + disclosure (the money-and-PII surface) ──
+  ["GET", "/unlocks?limit=1"],
+  ["POST", "/unlocks", {}],
+  ["GET", `/unlocks/${ABSENT_ID}`],
+  ["POST", `/unlocks/${ABSENT_ID}/reveal`, {}],
+  ["GET", `/payers/${ABSENT_ID}/credits`],
+  ["POST", `/payers/${ABSENT_ID}/credits`, {}],
+  ["POST", `/payers/${ABSENT_ID}/capacity`, {}],
+  ["GET", "/resume-disclosures?limit=1"],
+  ["POST", "/resume-disclosures", {}],
+
+  // ── resume artifacts ──
+  ["GET", `/resume/${ABSENT_ID}`],
+  ["POST", `/resume/${ABSENT_ID}/share`, {}],
+  ["POST", `/resume/${ABSENT_ID}/regenerate`, {}],
+
+  // ── pricing (an unauthenticated PUT here repriced the whole catalog) ──
+  ["GET", "/pricing/catalog"],
+  ["PUT", "/pricing/catalog", {}],
+  ["GET", "/pricing/quote"],
+
+  // ── agency KYC ops (financial PII) ──
+  ["GET", "/ops/agency-kyc/pending"],
+  ["POST", `/ops/agency-kyc/${ABSENT_ID}/verify`, {}],
+  ["POST", `/ops/agency-kyc/${ABSENT_ID}/reject`, {}],
+
+  // ── referral bonus ledger + outbound messaging ──
+  ["GET", "/referrals/bonus/summary"],
+  ["POST", "/referrals/bonus/evaluate", {}],
+  ["POST", "/messaging/reengage", {}],
+
+  // ── raw event ingestion ──
   ["POST", "/actions", {}],
+  ["POST", "/actions/batch", {}],
 ];
 
 /** Routes that must reject an UNAUTHENTICATED caller but are not ops-token routes. */
@@ -228,11 +300,27 @@ async function main() {
   console.log("back and stop — nothing downstream is worth debugging until the loop closes.");
 }
 
-main().catch((err) => {
-  if (err instanceof CanaryFailure) {
-    console.error(`[prod-canary] FAIL: ${err.message}`);
-  } else {
-    console.error(`[prod-canary] ERROR: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  process.exitCode = 1;
-});
+/**
+ * Run ONLY when executed directly (`node scripts/prod-canary.mjs`), never on import.
+ *
+ * `OPS_ROUTES` is exported so a test can assert it still covers every route behind
+ * `InternalServiceGuard` — the drift guard that stops this list silently falling behind the
+ * API again. Without this check, importing the module to read that list would fire a live
+ * canary run against whatever `PROD_API_BASE_URL` happened to be set to.
+ */
+// pathToFileURL, NOT a hand-built `file://${argv[1]}`: on Windows argv[1] is
+// `C:\...\prod-canary.mjs`, which string-concatenates to `file://C:\...` and never equals
+// import.meta.url's `file:///C:/.../prod-canary.mjs`. That mismatch would make the canary a
+// silent no-op that exits 0 — a release-gate script reporting success without running.
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  main().catch((err) => {
+    if (err instanceof CanaryFailure) {
+      console.error(`[prod-canary] FAIL: ${err.message}`);
+    } else {
+      console.error(`[prod-canary] ERROR: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    process.exitCode = 1;
+  });
+}
