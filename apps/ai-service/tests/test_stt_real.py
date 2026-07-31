@@ -37,6 +37,13 @@ def _real_settings(**overrides) -> Settings:
     base = dict(
         ai_enable_real_calls=True,
         sarvam_api_key="k",
+        # REQUIRED SINCE THE STT GATING FIX. `SttAdapter.real_blocked_reason` now
+        # delegates to `Settings.real_calls_blocked_reason()` so the TD27 kill-switch
+        # and the per-task allowlist actually reach STT; that helper also requires the
+        # master Gemini key, which is the accepted coupling documented on the method.
+        # Without it every test below would silently take the MOCK path and pass
+        # vacuously — which is exactly the failure mode this whole change is about.
+        gemini_flash_api_key="g",
         supabase_url="https://x.supabase.co",
         supabase_service_role_key="svc",
     )

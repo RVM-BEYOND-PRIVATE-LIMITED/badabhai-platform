@@ -1,9 +1,15 @@
-"""Interview engine tests (CNC/VMC)."""
+"""Interview engine tests (CNC/VMC, plus the per-family S1 net at the bottom)."""
 
 from collections import Counter
 
 from app.profiling import interview_engine
-from app.profiling.question_bank import topic_by_id, topics_for
+from app.profiling.question_bank import (
+    _TOPICS_BY_FAMILY,
+    GENERIC_ROLE_FAMILY,
+    ROLE_FAMILIES,
+    topic_by_id,
+    topics_for,
+)
 
 
 def test_first_question_is_role_and_neutral_toned():
@@ -936,3 +942,322 @@ def test_b5_bare_amount_reply_to_expected_salary_keys_expected():
     assert "salary_expected" in st2.answered_topics
     assert "salary_current" not in st2.answered_topics
     assert st2.collected["salary_expected"] == 25000
+
+
+# ---------------------------------------------------------------------------
+# S1 — PER-FAMILY ESSENTIALS
+# ---------------------------------------------------------------------------
+# THE DEFECT. ESSENTIAL_TOPICS was ONE module-level tuple containing `machines` — an id
+# that exists ONLY in the cnc_vmc bank. For welding, plumbing, carpentry, design and
+# interior_design there is no `machines` topic, so `_next_topic` could never SERVE it and
+# `detect_answered_topics` could only mark it answered by accident. `_extraction_ready`
+# was therefore UNSATISFIABLE in five of six families: the interview drained the whole
+# bank and wrapped up because `_next_topic` ran out, and every one of those workers
+# shipped `unanswered_essentials` naming a question they were never asked.
+#
+# The tests below are the S1 regression net. They are written against the CONSTANTS and
+# the banks, never against hard-coded ids, so they track the next family that is added.
+
+ALL_FAMILIES = tuple(_TOPICS_BY_FAMILY)
+
+# One REAL answer per essential id, per family. Measured against the live detector by
+# `test_s1_every_family_essential_is_answerable_by_a_real_answer` — nothing here is
+# assumed, and a phrasing that stops resolving turns that test red.
+_FAMILY_ANSWERS: dict[str, dict[str, str]] = {
+    "cnc_vmc": {"role": "cnc turner hoon", "machines": "vmc chalata hu"},
+    "welding": {"role": "welder hoon", "equipment": "MIG welder chalata hu"},
+    "plumbing": {"role": "plumber hoon", "tools_plumbing": "threading machine chalata hu"},
+    "carpentry": {"role": "carpenter hoon", "tools_carpentry": "circular saw chalata hu"},
+    "design": {"role": "graphic designer hoon", "software_design": "AutoCAD chalata hu"},
+    "interior_design": {
+        "role": "interior designer hoon",
+        "software_interior": "SketchUp chalata hu",
+    },
+    GENERIC_ROLE_FAMILY: {"role": "cook hoon hotel me"},
+}
+# Shared essentials answer the same way in every family (literally the same Topics).
+_SHARED_ANSWERS = {
+    "experience": "4 saal ka experience hai",
+    "current_location": "pune me hu",
+}
+
+
+def _answer_for(family: str, topic_id: str) -> str:
+    return _FAMILY_ANSWERS[family].get(topic_id) or _SHARED_ANSWERS.get(topic_id, "theek hai ji")
+
+
+def _run_family_interview(family: str, reply_for, max_turns: int = 60):
+    """Drive next_turn for ``family`` until wrap-up. Returns (ask_log, state, ready)."""
+    state = None
+    ask_log: list[str] = []
+    message = "namaste"
+    ready = False
+    for _ in range(max_turns):
+        _reply, asked_id, state, ready = interview_engine.next_turn(state, message, family)
+        if asked_id is None:
+            return ask_log, state, ready
+        ask_log.append(asked_id)
+        message = reply_for(asked_id)
+    raise AssertionError(f"[{family}] interview did not terminate — ask log: {ask_log}")
+
+
+def _blind_budget(family: str) -> int:
+    """The most asks a BLIND run of ``family``'s bank can possibly need."""
+    essentials = interview_engine.essentials_for(family)
+    return sum(
+        interview_engine.MAX_ASKS_PER_TOPIC if t.id in essentials else 1
+        for t in topics_for(family)
+    )
+
+
+def test_s1_every_family_has_its_own_essentials_and_none_names_a_foreign_id():
+    """THE PIN for the bug itself: no family's essential may be a topic another family
+    owns. Mutation proof — put "machines" back in the welding tuple and this fails."""
+    for family in ALL_FAMILIES:
+        bank = {t.id for t in topics_for(family)}
+        essentials = interview_engine.essentials_for(family)
+        assert essentials, family
+        for topic_id in essentials:
+            assert topic_id in bank, (
+                f"{family}: essential {topic_id!r} is not in that family's bank — it can "
+                "never be served, so readiness can never be satisfied on purpose (S1)"
+            )
+    # cnc_vmc keeps `machines`; nobody else may claim it.
+    assert "machines" in interview_engine.essentials_for("cnc_vmc")
+    for family in ALL_FAMILIES:
+        if family != "cnc_vmc":
+            assert "machines" not in interview_engine.essentials_for(family), family
+    # ...and the generic family carries NO trade-specific essential at all: its only
+    # trade topic (`daily_tasks`) is free text the local detector cannot key, so as an
+    # essential it would burn the re-ask budget and then ship a FALSE gap.
+    assert interview_engine.essentials_for(GENERIC_ROLE_FAMILY) == (
+        "role",
+        "experience",
+        "current_location",
+    )
+    assert "daily_tasks" not in interview_engine.essentials_for(GENERIC_ROLE_FAMILY)
+
+
+def test_s1_the_cnc_tuple_is_still_the_cross_language_contract():
+    """ESSENTIAL_TOPICS must keep pointing at cnc_vmc: the golden fixture in
+    packages/ai-contracts pins it and apps/api's mock (what staging actually runs under
+    TD81) serves the CNC bank. tests/test_interview_gate_parity.py owns the comparison;
+    this owns the aliasing."""
+    assert interview_engine.ESSENTIAL_TOPICS == interview_engine.ESSENTIALS_BY_FAMILY["cnc_vmc"]
+    assert interview_engine.essentials_for("cnc_vmc") == interview_engine.ESSENTIAL_TOPICS
+    # An unknown family resolves like the bank does — to generic, never to CNC/VMC.
+    assert interview_engine.essentials_for("no_such_family") == interview_engine.essentials_for(
+        GENERIC_ROLE_FAMILY
+    )
+    assert interview_engine.essentials_for(None) == interview_engine.essentials_for(
+        GENERIC_ROLE_FAMILY
+    )
+
+
+# The ONE essential that is UNANSWERABLE by construction, and why it is still an
+# essential. `generic` is the family a worker lands in precisely BECAUSE no gazetteer
+# placed their trade, so `signals.detect_answered_topics` can never key its `role` —
+# a cook, a tailor and a driver all return {}. It stays essential deliberately:
+#   * it buys the worker the ONE bounded re-ask, in the generic wording ("apne shabdon
+#     mein bataiye"), which is their second chance to describe the work themselves;
+#   * `unanswered_essentials: ["role"]` is then HONEST rather than a false alarm — we
+#     really did fail to canonicalize their role — and that is exactly what the signal
+#     has always meant (see the INTERVIEW-1 note about a worker the finite gazetteer
+#     cannot parse). The trade still reaches extraction through the transcript.
+# Recorded as a set so it is one line to delete when a trade gazetteer widens.
+_UNANSWERABLE_BY_CONSTRUCTION = {(GENERIC_ROLE_FAMILY, "role")}
+
+
+def test_s1_every_family_essential_is_answerable_by_a_real_answer():
+    """SATISFIABLE, executed rather than argued. For every family, every essential has
+    at least one real worker phrasing that `detect_answered_topics` keys to THAT id —
+    with the single documented exception above.
+
+    This is the half of S1 that a rename alone would NOT have fixed: `equipment`,
+    `tools_plumbing`, `tools_carpentry`, `software_design` and `software_interior` were
+    all unkeyable (measured: they returned only `role`/`skills`), so swapping `machines`
+    for them would have left readiness exactly as unsatisfiable. The context-gated
+    equipment attribution in signals.detect_answered_topics is what closes it.
+    """
+    from app.profiling import signals
+
+    for family in ALL_FAMILIES:
+        for topic_id in interview_engine.essentials_for(family):
+            answer = _answer_for(family, topic_id)
+            detected = signals.detect_answered_topics(answer, topic_id)
+            if (family, topic_id) in _UNANSWERABLE_BY_CONSTRUCTION:
+                # Asserted in the NEGATIVE so the exception cannot rot into a silent
+                # skip: if a gazetteer ever does place an uncovered trade, this fails
+                # and the exception is deleted deliberately.
+                assert topic_id not in detected, (
+                    f"[{family}] {topic_id!r} now resolves ({detected}) — remove it from "
+                    "_UNANSWERABLE_BY_CONSTRUCTION"
+                )
+                continue
+            assert topic_id in detected, (
+                f"[{family}] essential {topic_id!r} cannot be answered: "
+                f"{answer!r} -> {detected}"
+            )
+
+
+def test_s1_the_equipment_attribution_is_context_gated_and_needs_a_real_signal():
+    """The safety half of that attribution. It may fire ONLY when the equipment topic is
+    the question ON SCREEN, and only on a message that actually detected something —
+    otherwise an incidental mention (or a shrug) would close a family's answer-essential
+    and the bounded re-ask would never happen."""
+    from app.profiling import signals
+
+    # Same message, WRONG question on screen -> the equipment topic is not keyed.
+    assert "equipment" not in signals.detect_answered_topics("MIG welder chalata hu", "experience")
+    assert "equipment" not in signals.detect_answered_topics("MIG welder chalata hu", None)
+    # Right question, but nothing detected -> not keyed (the re-ask still happens).
+    assert signals.detect_answered_topics("hmm theek hai", "equipment") == {}
+    assert signals.detect_answered_topics("haan ji", "tools_plumbing") == {}
+    # And the value recorded is CLOSED-SET labels, never the worker's raw text
+    # (ConversationState.collected crosses the wire — §2 #2).
+    detected = signals.detect_answered_topics("MIG welder chalata hu", "equipment")
+    assert detected["equipment"] == ["MIG welding", "welding", "machine operation"]
+    assert "chalata" not in str(detected["equipment"])
+
+
+def test_s1_every_family_reaches_wrap_up_on_ANSWERS_not_on_the_ask_ceiling():
+    """THE BEHAVIOURAL PIN. A cooperative worker in EVERY family must finish because the
+    engine ran out of questions / readiness flipped — never because MAX_ENGINE_ASKS
+    tripped. The ceiling firing is the silent failure S1 produced for five families."""
+    for family in ALL_FAMILIES:
+        ask_log, state, ready = _run_family_interview(
+            family, lambda tid, f=family: _answer_for(f, tid)
+        )
+        spent = sum(state.ask_counts.values())
+        assert spent < interview_engine.MAX_ENGINE_ASKS, (
+            f"[{family}] hit the ask ceiling ({spent}) instead of finishing on answers: {ask_log}"
+        )
+        assert state.turn_count <= interview_engine.MAX_INTERVIEW_TURNS, family
+        assert ready is True, family
+        # Every ANSWERABLE essential was answered, so the gap list is exactly the
+        # by-construction exception (empty for the six real trades; ["role"] for the
+        # uncovered-trade family, which is honest — see _UNANSWERABLE_BY_CONSTRUCTION).
+        expected_gaps = [
+            t
+            for t in interview_engine.essentials_for(family)
+            if (family, t) in _UNANSWERABLE_BY_CONSTRUCTION
+        ]
+        assert state.unanswered_essentials == expected_gaps, (
+            family,
+            state.unanswered_essentials,
+        )
+        assert interview_engine._extraction_ready(state, family) is (not expected_gaps), family
+
+
+def test_s1_a_blind_run_terminates_in_every_family_and_respects_the_ask_bound(monkeypatch):
+    """The other arm: with detection totally blind, every family still TERMINATES, no
+    topic is asked more than MAX_ASKS_PER_TOPIC, and the blind budget stays under the
+    ceiling with headroom."""
+    monkeypatch.setattr(interview_engine.signals, "detect_answered_topics", lambda *a, **k: {})
+    for family in ALL_FAMILIES:
+        budget = _blind_budget(family)
+        assert budget < interview_engine.MAX_ENGINE_ASKS, (
+            f"[{family}] blind-run budget {budget} does not fit under MAX_ENGINE_ASKS "
+            f"({interview_engine.MAX_ENGINE_ASKS}) — the backstop itself would cut the "
+            "interview short and starve the tail topics"
+        )
+        ask_log, state, ready = _run_family_interview(family, lambda _tid: _GARBAGE)
+        assert len(ask_log) == budget, (family, ask_log)
+        assert max(Counter(ask_log).values()) <= interview_engine.MAX_ASKS_PER_TOPIC, family
+        assert ready is True, family  # still handed off to extraction, gaps declared
+        assert state.unanswered_essentials == list(
+            interview_engine.essentials_for(family)
+        ), family
+
+
+def test_s1_the_ask_budget_keeps_headroom_over_the_WORST_family():
+    """MAX_ENGINE_ASKS is sized against the worst bank, not CNC/VMC's. Welding is the
+    binding case (15 topics); if a family grows past the ceiling this fails BEFORE the
+    backstop starts silently cutting interviews short."""
+    budgets = {family: _blind_budget(family) for family in ALL_FAMILIES}
+    assert budgets["cnc_vmc"] == 18
+    assert budgets["welding"] == 19  # the worst family
+    assert budgets[GENERIC_ROLE_FAMILY] == 15  # "fewer questions", falling out of the bank
+    assert max(budgets.values()) + 4 <= interview_engine.MAX_ENGINE_ASKS, budgets
+
+
+# ---------------------------------------------------------------------------
+# S2 / bank integrity
+# ---------------------------------------------------------------------------
+
+
+def test_no_family_contains_a_duplicate_topic_id():
+    """BUG S2. `_WELDING_TOPICS` declared its own `certifications` and then appended
+    `_SHARED_TOPICS`, which declares `certifications` too — one id, two entries. Nothing
+    crashed: `topic_by_id` and `_next_topic` both take the FIRST match, so the shared
+    entry was unreachable dead data that no test could see. It is now composed with
+    `_shared_topics_except("certifications")`.
+
+    Mutation proof: change welding's composition back to `+ _SHARED_TOPICS` and this
+    fails on `certifications`."""
+    for family in ALL_FAMILIES:
+        ids = [t.id for t in topics_for(family)]
+        dupes = sorted(tid for tid, n in Counter(ids).items() if n > 1)
+        assert dupes == [], f"{family} declares {dupes} twice — the second entry is dead data"
+
+
+def test_welding_kept_its_own_certifications_wording_not_the_shared_one():
+    """The exclusion must have kept the RIGHT entry: a welder is asked about 6G/AWS,
+    not NCVT/NSQF/apprenticeship."""
+    welding = topic_by_id("welding", "certifications")
+    shared = topic_by_id("cnc_vmc", "certifications")
+    assert welding is not None and shared is not None
+    assert welding.question != shared.question
+    assert "6G" in welding.question and "AWS" in welding.question
+    assert welding.options == ("6G", "6GR", "AWS", "NCVT")
+    # ...and the rest of the shared tail is still there — exactly ONE topic was excluded.
+    welding_ids = {t.id for t in topics_for("welding")}
+    shared_ids = {t.id for t in topics_for("cnc_vmc")} - {
+        "role",
+        "machines",
+        "skills",
+        "controllers",
+    }
+    assert shared_ids <= welding_ids
+
+
+def test_every_gated_id_exists_in_every_family_that_is_gated_by_it():
+    """The general form of both S1 and the #424 pin: a gated id with no bank topic can
+    never be SERVED, so readiness stalls until the ask ceiling trips — silently."""
+    for family in ALL_FAMILIES:
+        bank = {t.id for t in topics_for(family)}
+        for topic_id in interview_engine.essentials_for(family):
+            assert topic_id in bank, f"{family}: essential {topic_id!r} missing from the bank"
+        for topic_id in interview_engine.MUST_ASK_TOPICS:
+            assert topic_id in bank, f"{family}: must-ask {topic_id!r} missing from the bank"
+        # The two gates stay disjoint per family (an essential must be ANSWERED; a
+        # must-ask need only be ASKED — the #424 ruling's protective half).
+        overlap = set(interview_engine.essentials_for(family)) & set(
+            interview_engine.MUST_ASK_TOPICS
+        )
+        assert overlap == set(), (family, sorted(overlap))
+
+
+def test_every_registered_role_family_has_a_bank_and_essentials():
+    """ROLE_FAMILIES, _TOPICS_BY_FAMILY and ESSENTIALS_BY_FAMILY must not drift apart —
+    a family registered in one and missing from another silently falls back."""
+    assert set(ROLE_FAMILIES) == set(_TOPICS_BY_FAMILY)
+    assert set(ROLE_FAMILIES) == set(interview_engine.ESSENTIALS_BY_FAMILY)
+
+
+def test_the_equipment_topic_ids_signals_keys_are_exactly_the_banks_equipment_slots():
+    """signals._EQUIPMENT_TOPIC_IDS cannot import from question_bank (that would be a
+    cycle), so it is a hand-kept list. This is the pin that stops it drifting: it must
+    equal exactly the set of non-shared answer-essentials across all families, minus
+    `machines` (which has its own branch in detect_answered_topics)."""
+    from app.profiling import signals
+
+    shared_essentials = {"role", "experience", "current_location"}
+    expected: set[str] = set()
+    for family in ALL_FAMILIES:
+        expected |= set(interview_engine.essentials_for(family)) - shared_essentials
+    expected.discard("machines")
+    assert signals._EQUIPMENT_TOPIC_IDS == expected, (
+        f"signals._EQUIPMENT_TOPIC_IDS {sorted(signals._EQUIPMENT_TOPIC_IDS)} != "
+        f"the banks' equipment slots {sorted(expected)}"
+    )

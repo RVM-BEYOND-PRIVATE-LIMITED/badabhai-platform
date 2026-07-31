@@ -2797,6 +2797,23 @@ def detect_inferred_topics(text: str, last_asked_topic_id: str | None = None) ->
     return set()
 
 
+# The EQUIPMENT slot's id in each non-CNC family (question_bank._TOPICS_BY_FAMILY).
+# CNC/VMC calls it `machines` and is handled by its own branch; these five are the
+# same question ("what do you operate?") under a family-specific id. Kept as a bare
+# frozenset rather than imported from question_bank on purpose: question_bank imports
+# nothing from here and this module is imported BY it via the engine — a cross-import
+# would be a cycle. ``test_bank_integrity`` pins the two lists against each other.
+_EQUIPMENT_TOPIC_IDS: frozenset[str] = frozenset(
+    {
+        "equipment",  # welding
+        "tools_plumbing",
+        "tools_carpentry",
+        "software_design",
+        "software_interior",
+    }
+)
+
+
 def detect_answered_topics(text: str, last_asked_topic_id: str | None = None) -> dict[str, object]:
     """Map detected signals to interview topic ids -> a short collected value.
 
@@ -2856,6 +2873,39 @@ def detect_answered_topics(text: str, last_asked_topic_id: str | None = None) ->
     if sig.skills or sig.drawing_reading or sig.setting_knowledge != "unknown":
         if last_asked_topic_id == "skills" or has_first_person_claim(lower):
             answered["skills"] = sig.skills
+
+    # S1 — the EQUIPMENT slot, keyed for the five non-CNC families.
+    #
+    # ``machines`` is the CNC/VMC name for "the thing you operate". Every other family
+    # asks the same slot under its OWN id (question_bank: welding `equipment`, plumbing
+    # `tools_plumbing`, carpentry `tools_carpentry`, design `software_design`, interior
+    # `software_interior`) and NOTHING here produced those ids — measured, all five
+    # returned only `role`/`skills`. So those families' answer-essential could be ASKED
+    # but never ANSWERED, and `_extraction_ready` could not be satisfied on purpose:
+    # the interview drained the whole bank and wrapped up on the ask ceiling instead.
+    #
+    # CONTEXT-GATED, exactly like the `preferred_locations` / `salary_expected` /
+    # `availability` widenings above: this fires ONLY when that topic is the question
+    # ON SCREEN. An incidental "welding rod bhi lagta hai" while answering salary can
+    # never close a welder's equipment essential.
+    #
+    # CLOSED-SET VALUES ONLY. The value is the detected machine/skill ids — never the
+    # raw message — because ``ConversationState.collected`` crosses the wire and is
+    # persisted by apps/api, and §2 #2 says that state carries profile signals, never
+    # identity text. A reply with NO detected signal ("hmm") keys nothing, so the
+    # bounded re-ask still does its job.
+    #
+    # WHAT THIS DOES NOT FIX (measured, reported, deliberately not papered over): the
+    # underlying gazetteers are still CNC + welding only. "pipe wrench", "planer",
+    # "plasma cutter" and the bare chip labels resolve NOTHING, so they cannot satisfy
+    # the essential either. This makes the essential SATISFIABLE — there are real
+    # answers that close it ("MIG welder chalata hu", "AutoCAD chalata hu", "threading
+    # machine chalata hu") — not RELIABLE. Widening the tool vocabularies is a
+    # taxonomy job (the TAX-WELD-1 shape), not a detector patch.
+    if last_asked_topic_id in _EQUIPMENT_TOPIC_IDS:
+        equipment = list(sig.machines) + [s for s in sig.skills if s not in sig.machines]
+        if equipment:
+            answered[last_asked_topic_id] = equipment
 
     # Location (B-4): current and preferred are separate topics.
     preferred_ctx = last_asked_topic_id == "preferred_locations"

@@ -12,6 +12,25 @@ Design rules (locked):
 - Phase 1 uses deterministic heuristics (regex + small gazetteers). Real
   NER/LLM-assisted detection comes later; over-masking is the safe direction.
 
+WHAT IS PII HERE, and what is deliberately NOT (owner ruling 2026-07-31, from the
+Master Context DEAD LIST):
+
+- MASKED — the IDENTITY classes of CLAUDE.md §2 #2: phone numbers, person names,
+  employer/company names, ID-doc tokens (PAN, Aadhaar, cued roll/registration ids).
+  Money amounts are tokenised too, so digits never egress.
+- NOT MASKED — **cities and states**. The DEAD LIST is explicit: "✗ cities as PII
+  (→ a 20-point matching input; never redact)". A city identifies nobody, and it is
+  the strongest matching signal the product has; redacting it protected nothing and
+  cost the field on every model-authored surface. States followed: coarser geography
+  cannot be more identifying than the city inside it.
+- ALSO ON THE DEAD LIST: "✗ salary flagged as a phone number". Amounts are masked as
+  ``[AMOUNT_n]``, never blocked and never re-labelled as a phone (see the D-1
+  carve-out and the ORDER note at ``_MONEY_RUN_RE``).
+
+Narrowing the DEFINITION of PII is not the same as relaxing the GATE: every
+fail-closed path is unchanged, and over-masking remains the safe direction within the
+identity classes.
+
 Intentionally has NO third-party dependencies so its tests run with only pytest.
 """
 
@@ -26,6 +45,17 @@ DEFAULT_MAX_LENGTH = 20_000
 
 # Known Indian manufacturing-hub cities (lowercased). Shared with the profiling
 # signal detectors (app/profiling/signals.py) so there is one city gazetteer.
+#
+# THIS GAZETTEER IS FOR DETECTION, NOT MASKING (owner ruling 2026-07-31). The Master
+# Context DEAD LIST is authoritative:
+#
+#     "✗ cities as PII (→ a 20-point matching input; never redact)"
+#
+# A worker's city is the single strongest matching signal this product has, and it is
+# not identity: "Pune" identifies nobody. Masking it to [CITY_1] before the LLM cost us
+# the field on every model-authored surface while protecting nothing. `signals.py`
+# imports this set (and CITY_ALIASES) to READ the city off raw text locally — that use
+# is unchanged and is why the set stays here.
 KNOWN_CITIES: frozenset[str] = frozenset(
     {
         "new delhi",
@@ -67,36 +97,17 @@ KNOWN_CITIES: frozenset[str] = frozenset(
     }
 )
 
-# Indian state names (lowercased) + 2-letter uppercase abbreviations. Masked before
-# any LLM call so a state-only location answer ("bihar mai hu") never egresses raw.
-# Mirrors the detection gazetteer in signals.py (_STATE_NAMES / _STATE_ABBREVS).
-KNOWN_STATES: frozenset[str] = frozenset(
-    {
-        "bihar",
-        "uttar pradesh",
-        "madhya pradesh",
-        "andhra pradesh",
-        "himachal pradesh",
-        "arunachal pradesh",
-        "west bengal",
-        "tamil nadu",
-        "rajasthan",
-        "punjab",
-        "haryana",
-        "gujarat",
-        "maharashtra",
-        "karnataka",
-        "telangana",
-        "kerala",
-        "odisha",
-        "jharkhand",
-        "chhattisgarh",
-        "uttarakhand",
-        "assam",
-        "goa",
-    }
-)
-STATE_ABBREVS: frozenset[str] = frozenset({"UP", "MP", "AP", "HP", "WB"})
+# STATE MASKING IS GONE TOO (owner ruling 2026-07-31, same DEAD LIST entry).
+#
+# The removed comment claimed states were masked "so they never reach the LLM (TD56)".
+# A state is COARSER geography than a city — if a city is not PII, a state cannot be —
+# and the same matching argument applies with less force but the same sign. The
+# gazetteer that did the masking (KNOWN_STATES / STATE_ABBREVS / _STATE_RE /
+# _STATE_ABBREV_RE) is deleted rather than left dead: leaving a loaded state gazetteer
+# in the privacy module is an invitation to re-add the mask. DETECTION is unaffected —
+# signals.py has always carried its own `_STATE_NAMES` / `_STATE_ABBREVS` (it needs the
+# canonical display names, which this set never had) and imports nothing state-shaped
+# from here.
 
 # Hinglish / colloquial aliases + common misspellings that resolve INTO the closed
 # canonical KNOWN_CITIES set (alias -> canonical, both lowercased). This is NOT a
@@ -114,22 +125,6 @@ CITY_ALIASES: dict[str, str] = {
     "calcutta": "kolkata",
     "poona": "pune",
 }
-# Every token the city detector should RECOGNIZE = the canonical set + the alias
-# keys. Longer names first so the regex alternation prefers multi-word matches.
-_CITY_TOKENS = sorted(set(KNOWN_CITIES) | set(CITY_ALIASES), key=len, reverse=True)
-_CITIES = _CITY_TOKENS  # kept name-stable for internal references
-
-# State tokens: full names (case-insensitive) + uppercase 2-letter abbreviations
-# (case-sensitive, like signals.py — "UP" is a state, "up" is not).
-_STATE_TOKENS = sorted(KNOWN_STATES, key=len, reverse=True)
-_STATE_RE = re.compile(
-    r"\b(?:" + "|".join(re.escape(s) for s in _STATE_TOKENS) + r")\b",
-    re.IGNORECASE,
-)
-_STATE_ABBREV_RE = re.compile(
-    r"\b(?:" + "|".join(re.escape(a) for a in sorted(STATE_ABBREVS)) + r")\b"
-)
-
 # Words that look like a leading name but are greetings/fillers — do not mask.
 _NAME_STOPLIST = {
     "hello",
@@ -290,7 +285,6 @@ _NAME_CUE_RE = re.compile(
     r"\bmera naam\b|\bnaam\b)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)"
 )
 _LEADING_NAME_RE = re.compile(r"^\s*([A-Z][a-z]+)\s*,")
-_CITY_RE = re.compile(r"\b(?:" + "|".join(re.escape(c) for c in _CITIES) + r")\b", re.IGNORECASE)
 _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 
 # Credential / registration IDs, masked on their CUE rather than their shape.
@@ -494,13 +488,20 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
         # 4. Person names (cue-based, then leading-name heuristic).
         result = _NAME_CUE_RE.sub(lambda m: replace_group1(m, "PERSON"), result)
         result = _LEADING_NAME_RE.sub(lambda m: replace_group1(m, "PERSON"), result)
-        # 5. Known cities.
-        result = _CITY_RE.sub(lambda m: token_for(m.group(0), "CITY"), result)
-        # 5b. Indian states (full names + uppercase abbreviations) — coarse geography,
-        #     but the AI service already detects them (signals.py _detect_state), so
-        #     mask them here too so they never reach the LLM (TD56).
-        result = _STATE_RE.sub(lambda m: token_for(m.group(0), "STATE"), result)
-        result = _STATE_ABBREV_RE.sub(lambda m: token_for(m.group(0), "STATE"), result)
+        # 5. (removed) CITY / STATE masking — owner ruling 2026-07-31, Master Context
+        #    DEAD LIST: "✗ cities as PII (→ a 20-point matching input; never redact)".
+        #    "Pune" identifies nobody, and masking it to [CITY_1] cost the product its
+        #    strongest matching signal on every model-authored surface (the résumé's
+        #    location line, the extraction transcript, the translate leg) while
+        #    protecting nothing. States went with them: coarser geography cannot be
+        #    more identifying than the city inside it.
+        #
+        #    WHAT DID NOT MOVE, and this is the whole point of stating it here: every
+        #    IDENTITY class above and every fail-closed path below is untouched. PAN /
+        #    Aadhaar / cued credential ids, phones, employers and person names still
+        #    mask; the residual-digit net still blocks; oversize, non-string, parse
+        #    error and the bare-except still block. This ruling narrows the definition
+        #    of PII by exactly two non-identity classes — it does not relax the gate.
         # 6. D-1 money-amount carve-out (see the decision boundary above): a 7-8
         #    digit run that reads as an in-range salary is MASKED to [AMOUNT_n]
         #    so the digits never reach the LLM but the turn is not blocked.
@@ -526,11 +527,18 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
 def _is_employer_only_mask(result: PseudonymizationResult) -> bool:
     """True when the ONLY placeholders minted for a label were ``[EMPLOYER_n]``.
 
-    Deliberately narrow. A PHONE / ID / PERSON / CITY / STATE / AMOUNT mask on a skill
-    label is a genuine PII signal and must keep dropping the label; the employer
-    pattern is the only one whose vocabulary provably overlaps trade terms (its suffix
-    list contains Steel, Engineering, Tools, Precision, Tech, Fabrication,
-    Manufacturing), so it is the only one this rescue considers.
+    Deliberately narrow. A PHONE / ID / PERSON / AMOUNT mask on a skill label is a
+    genuine PII signal and must keep dropping the label; the employer pattern is the
+    only one whose vocabulary provably overlaps trade terms (its suffix list contains
+    Steel, Engineering, Tools, Precision, Tech, Fabrication, Manufacturing), so it is
+    the only one this rescue considers.
+
+    CITY / STATE are no longer in that list because the gateway no longer mints those
+    tokens at all (owner ruling 2026-07-31). One consequence is worth naming, since it
+    WIDENS what survives certification: a label like "welding in Pune" used to mask to
+    "[CITY_1]" and be DROPPED from the résumé; it now certifies clean and is kept. That
+    is the intended direction — the city was never PII, and dropping the label was the
+    same silent data loss FIX-5 documents below for "Stainless Steel".
     """
     return bool(result.placeholder_tokens) and all(
         tok.startswith("[EMPLOYER_") for tok in result.placeholder_tokens

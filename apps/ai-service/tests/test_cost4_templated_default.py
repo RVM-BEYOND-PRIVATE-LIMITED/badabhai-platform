@@ -303,7 +303,16 @@ def test_third_consecutive_clarify_falls_through_to_the_engine(monkeypatch):
         json={"session_id": "s1", "message_text": "haan ji theek hai", "conversation_state": st},
     )
     body2 = res2.json()
-    assert body2["asked_question_id"] == "machines"
+    # NOT "machines" any more, and that is the point of the persona-v3.2 handover:
+    # `role` has now been asked twice, "haan ji theek hai" placed no role family, so
+    # resolve_role_family moves this worker to the `generic` bank — whose next
+    # essential is `experience`. Nothing here was a machining worker; asking them
+    # which CNC machine they run is the faked expertise the persona sheet forbids.
+    # What this test OWNS is unchanged: the engine moved on, and role is never third.
+    assert body2["asked_question_id"] == "experience"
+    assert body2["asked_question_id"] != "role"
+    assert body2["updated_state"]["ask_counts"]["role"] == 2
+    assert body2["updated_state"]["role_family"] == "generic"
     assert body2["updated_state"]["ask_counts"]["role"] == 2
 
 

@@ -33,30 +33,43 @@ from app.cli.api_session import InterviewSession
 from app.config import Settings
 from app.profiling import interview_engine
 from app.profiling.prompts import BADA_BHAI_SYSTEM_PROMPT, build_chat_messages
-from app.profiling.question_bank import topic_by_id, topics_for
+from app.profiling.question_bank import GENERIC_ROLE_FAMILY, topic_by_id, topics_for
 
 BANK_ORDER = [t.id for t in topics_for("cnc_vmc")]
+GENERIC_BANK_ORDER = [t.id for t in topics_for(GENERIC_ROLE_FAMILY)]
 
 
 def _expected_blind_ask_order() -> list[str]:
     """The exact ask sequence a SIGNAL-FREE worker must produce, DERIVED from the
-    engine's constants + the bank (never hard-coded), so it tracks them.
+    engine's constants + the banks (never hard-coded), so it tracks them.
 
     - ``_next_topic`` serves unanswered ESSENTIAL topics first (in bank order),
       each up to ``MAX_ASKS_PER_TOPIC`` — INTERVIEW-1's bounded re-ask.
     - Then unanswered CORE topics (never asked), once each, in bank order.
     - Then unanswered OPTIONAL topics (never asked), once each, in bank order.
+
+    THE HANDOVER, which is what makes this two banks instead of one. A signal-free
+    worker places no role family, so once ``role``'s bounded re-ask budget is spent
+    ``resolve_role_family`` hands the interview to ``generic`` (persona v3.2: "no
+    faked expertise"). So this worker is asked CNC/VMC's ``role`` twice — in the
+    CNC/VMC wording, because that is the family they were still in — and everything
+    after that comes from the GENERIC bank. They are never asked ``machines``, which
+    is the whole point: nothing had placed them in a machining trade.
     """
-    topics = topics_for("cnc_vmc")
-    essentials = [t.id for t in topics if t.id in interview_engine.ESSENTIAL_TOPICS]
-    core = [t.id for t in topics if t.core and t.id not in interview_engine.ESSENTIAL_TOPICS]
-    optional = [
-        t.id for t in topics
-        if not t.core and t.id not in interview_engine.ESSENTIAL_TOPICS
-    ]
-    return [
-        topic_id for topic_id in essentials for _ in range(interview_engine.MAX_ASKS_PER_TOPIC)
-    ] + core + optional
+    role_asks = ["role"] * interview_engine.MAX_ASKS_PER_TOPIC
+
+    topics = topics_for(GENERIC_ROLE_FAMILY)
+    essentials = interview_engine.essentials_for(GENERIC_ROLE_FAMILY)
+    # `role` is excluded: its budget was already spent in the CNC/VMC family above.
+    later_essentials = [t.id for t in topics if t.id in essentials and t.id != "role"]
+    core = [t.id for t in topics if t.core and t.id not in essentials]
+    optional = [t.id for t in topics if not t.core and t.id not in essentials]
+    return (
+        role_asks
+        + [tid for tid in later_essentials for _ in range(interview_engine.MAX_ASKS_PER_TOPIC)]
+        + core
+        + optional
+    )
 
 
 # --- _startup_status banner: the up-front readiness diagnosis ----------------
@@ -282,15 +295,26 @@ def test_input_size_is_flat_across_turns(monkeypatch):
 
 
 def test_full_run_asks_every_topic_in_bank_order_with_the_bounded_re_ask(monkeypatch):
-    """COVERAGE: a worker who gives no extractable signal is asked EVERY topic in
-    the bank, in bank order, then gets the wrap-up. The four ESSENTIAL topics are
-    asked TWICE (the bounded re-ask); non-essentials exactly once."""
+    """COVERAGE: a worker who gives no extractable signal is asked EVERY topic of the
+    bank they end up in, in bank order, then gets the wrap-up. ESSENTIAL topics are
+    asked TWICE (the bounded re-ask); non-essentials exactly once.
+
+    The bank they end up in is ``generic``: nothing they said placed a role family, so
+    ``resolve_role_family`` hands them over once ``role``'s re-ask budget is spent
+    (persona v3.2 — a worker we cannot place is not asked which CNC machine they run).
+    ``role`` itself is still asked twice in the CNC/VMC family they started in."""
     run = adaptive_drive(monkeypatch, lambda _topic: "hmm theek hai")
     order = asked_order(run)
     expected = _expected_blind_ask_order()
     assert order == expected, f"{order} != {expected}"
-    assert set(order) == set(BANK_ORDER)
+    assert set(order) == set(GENERIC_BANK_ORDER)
     assert len(BANK_ORDER) == 14  # 12 + TD-EDU education_level/education_field
+    assert len(GENERIC_BANK_ORDER) == 12  # role + daily_tasks + the 10 shared topics
+    # THE HANDOVER, stated as the property that matters: the CNC-only questions are
+    # never put to a worker nothing placed in a machining trade.
+    for cnc_only in ("machines", "skills", "controllers"):
+        assert cnc_only not in order, f"{cnc_only} asked despite no role family: {order}"
+    assert "daily_tasks" in order  # ...and the generic bank's own question IS asked
     assert "resume ban raha hai" in run.printed  # the wrap-up turn ran
 
 
@@ -303,23 +327,30 @@ def test_full_run_never_asks_any_topic_a_third_time(monkeypatch):
     # detector cannot parse) and must be re-reviewed.
     assert interview_engine.MAX_ASKS_PER_TOPIC == 2
     assert max(counts.values()) <= 2, dict(counts)
-    for topic_id in BANK_ORDER:
-        expected_n = (
-            interview_engine.MAX_ASKS_PER_TOPIC
-            if topic_id in interview_engine.ESSENTIAL_TOPICS
-            else 1
-        )
+    # Essentials of the bank this worker ENDS in (generic) — see the handover note on
+    # _expected_blind_ask_order. `role` is essential in both banks, so it is asked twice
+    # either way.
+    essentials = interview_engine.essentials_for(GENERIC_ROLE_FAMILY)
+    for topic_id in GENERIC_BANK_ORDER:
+        expected_n = interview_engine.MAX_ASKS_PER_TOPIC if topic_id in essentials else 1
         assert counts[topic_id] == expected_n, (topic_id, dict(counts))
 
 
 def test_full_run_re_ask_uses_the_retry_wording_not_a_verbatim_repeat(monkeypatch):
     """The second ask of an essential must be the narrower ``retry_question`` — a
     verbatim re-serve reads as broken. Checked on what the ROUTER was handed, i.e.
-    the line the worker actually sees."""
+    the line the worker actually sees.
+
+    ``role``'s re-ask happens in CNC/VMC (before the handover) and the rest in
+    ``generic`` — the two families' shared topics are the same objects, so only the
+    role wording differs between them."""
     run = adaptive_drive(monkeypatch, lambda _topic: "hmm theek hai")
     served = [c["mock_response"] for c in run.router.chat_calls()]
-    for topic_id in interview_engine.ESSENTIAL_TOPICS:
-        topic = topic_by_id("cnc_vmc", topic_id)
+    assert topic_by_id("cnc_vmc", "role").retry_question in "\n".join(served)
+    for topic_id in interview_engine.essentials_for(GENERIC_ROLE_FAMILY):
+        if topic_id == "role":
+            continue
+        topic = topic_by_id(GENERIC_ROLE_FAMILY, topic_id)
         assert topic.retry_question is not None, topic_id
         assert any(topic.retry_question in line for line in served), (
             f"{topic_id} was re-asked without its retry wording"
@@ -429,21 +460,43 @@ def test_router_receives_the_MASKED_text_never_the_raw_answer(monkeypatch):
     worker's raw words — the REDACTION path (masked in place), not just the block
     path:
 
-        'abhi Pune mein hu'          -> 'abhi [CITY_1] mein hu'
         'Tata Motors mein kaam kiya' -> '[EMPLOYER_1] mein kaam kiya'
+        'number 9876543210 hai'      -> 'number [PHONE_1] hai'
+
+    THE CITY IS THE COUNTER-EXAMPLE, and it is asserted here on purpose. It used to be
+    the probe in this test ("abhi Pune mein hu" -> "abhi [CITY_1] mein hu"); the owner
+    ruling of 2026-07-31 (Master Context DEAD LIST — "✗ cities as PII (→ a 20-point
+    matching input; never redact)") took it out of the identity set, so it now rides
+    through in the clear. Keeping it in the SAME test is deliberate: the redaction
+    property and its exact boundary are then read together.
     """
-    raw_city, raw_employer = "Pune", "Tata Motors"
-    answer = f"abhi {raw_city} mein hu, {raw_employer} mein kaam kiya, vmc operator"
+    raw_city, raw_employer, raw_phone = "Pune", "Tata Motors", "9876543210"
+    answer = (
+        f"abhi {raw_city} mein hu, {raw_employer} mein kaam kiya, "
+        f"number {raw_phone} hai, vmc operator"
+    )
     run = drive(monkeypatch, [answer, "done"], extract=True)
 
     sent = run.router.all_message_text()
     # The masked placeholders DID cross the boundary (proving the answer was carried
     # through, not merely dropped — otherwise the raw-absence check below is vacuous).
-    assert "[CITY_1]" in sent, sent
     assert "[EMPLOYER_1]" in sent, sent
-    # ...and the raw values did NOT, in any call (chat turn or extraction).
-    assert raw_city not in sent, f"raw city reached the router: {sent}"
+    assert "[PHONE_1]" in sent, sent
+    # ...and the raw IDENTITY values did NOT, in any call (chat turn or extraction).
     assert raw_employer not in sent, f"raw employer reached the router: {sent}"
+    assert raw_phone not in sent, f"raw phone reached the router: {sent}"
+    # ...while the city, which is not identity, did.
+    assert raw_city in sent, f"the city was redacted: {sent}"
+    # No [CITY_n] token was MINTED. Scoped to the worker/user messages: the system
+    # prompt used to name "[CITY_1]" as an example placeholder and no longer does, but
+    # asserting over the whole payload would couple this test to prompt copy.
+    user_text = "\n".join(
+        m["content"]
+        for c in run.router.calls
+        for m in c["messages"]
+        if m["role"] != "system"
+    )
+    assert "[CITY_" not in user_text
     # The local heuristic still saw the RAW text, so the profile is not degraded.
     assert run.extraction.draft["current_city"] == raw_city
 

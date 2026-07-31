@@ -23,15 +23,88 @@ import re
 
 from app.ai.model_config import get_route
 from app.cli import onboarding_chat
+from app.main import _BLOCKED_REPLY
 from app.profiling import interview_engine, prompts
 from app.profiling.profile_extractor import _CLARIFY
-from app.profiling.question_bank import ONE_SHOT_OPENER, topics_for
+from app.profiling.question_bank import _TOPICS_BY_FAMILY, ONE_SHOT_OPENER, topics_for
+
+# EVERY role family, not just cnc_vmc. THE HOLE THIS CLOSES: every scan in this file
+# used to iterate `topics_for("cnc_vmc")` only, so five families' worth of questions,
+# retry wordings and chips — welding, plumbing, carpentry, design, interior_design, and
+# now generic — faced NO persona net at all. A banned vocative, a bundled two-part ask
+# or a 25-word question could have shipped in any of them and every test here stayed
+# green. Derived from the bank so the next family added is covered on the day it lands.
+ALL_FAMILIES = tuple(_TOPICS_BY_FAMILY)
+
+
+def _all_topics():
+    """Every (family, Topic) pair in the product. De-duplication is deliberate: the
+    shared topics are the SAME objects in every family, so scanning them once per
+    family is redundant but harmless, and keeping the family label makes a failure
+    message say which bank to look in."""
+    for family in ALL_FAMILIES:
+        for topic in topics_for(family):
+            yield family, topic
 
 # Banned in any worker-facing line (checked AFTER stripping the "Bada Bhai" brand).
+#
+# SOURCED FROM THE RATIFIED SHEET, docs/specs/persona-system-v3.2.md §3 "Never says":
+#
+#   waah · zabardast · shabaash · bahut acha (as praise of the person) · great ·
+#   perfect · awesome · excellent · congratulations · badhai · bhai · bhaiya · beta ·
+#   behen · yaar · tu · tum · guarantee · pakka job · interview (for this chat) ·
+#   any exclamation mark · any emoji
+#
+# The lists below are a SUPERSET of that: every sheet token is present, plus the
+# repo's own tum-form phrases. `test_the_banned_lists_cover_every_sheet_token` pins
+# the superset relation so a sheet token cannot be dropped by accident.
+#
+# ONE DELIBERATE DEPARTURE, recorded rather than silently kept: "bilkul" was in this
+# file's gush list, but §3 lists **"Bilkul."** as a PERMITTED acknowledgement. The ban
+# is retained because nothing in the product says it (measured: 0 hits across every
+# worker-facing string) and an unused permitted word is cheaper to keep banned than to
+# re-litigate — but it is a place where this test is STRICTER than the sheet, not a
+# place where the sheet was misread.
 _BANNED_VOCATIVE = ("bhai", "bhaiya", "beta", "behen", "yaar")
 _BANNED_INFORMAL = ("tu", "tum")  # whole word only
-_BANNED_GUSH = ("waah", "zabardast", "bahut acha", "bahut accha", "bilkul", "shabaash")
+_BANNED_GUSH = (
+    "waah",
+    "zabardast",
+    "bahut acha",
+    "bahut accha",
+    "bilkul",  # stricter than §3 — see the note above
+    "shabaash",
+    # §3 additions (English gush + congratulation, none of which occurred):
+    "great",
+    "perfect",
+    "awesome",
+    "excellent",
+    "congratulations",
+    "badhai",
+)
 _BANNED_TUMFORM = ("karte ho", "karoge", "karna pasand karoge")
+# §3 + §7 Honesty: a promise, and the word "interview" for THIS chat (it is a
+# profiling conversation; calling it an interview sets an expectation we cannot keep).
+_BANNED_PROMISE = ("guarantee", "pakka job", "interview")
+
+# §3 Acknowledgements — a CLOSED set, "nothing else", max 3 words.
+_SHEET_ACKNOWLEDGEMENTS = (
+    "Theek hai.",
+    "Achha.",
+    "Samajh gaya.",
+    "Note kar liya.",
+    "Chalo.",
+    "Bilkul.",
+)
+# §3 Appreciation — the only four permitted, max 2 per conversation. The engine emits
+# ZERO (owner ruling 2026-07-31: keep the neutral ack, build no appreciation engine —
+# and 0 is inside the ≤2 budget). Listed so the "zero" claim is checked against the
+# real vocabulary rather than against nothing.
+_SHEET_APPRECIATIONS = ("Bahut khoob.", "Bahut bhadiya.", "Achha, badhiya.", "Solid.")
+# §3 Softening — the two permitted lines. NEITHER is implemented (see the gap tests).
+_SHEET_SOFTENERS = ("Koi baat nahi.", "Samajh sakta hoon.")
+# §7 Memory — the deictics that break "every turn must stand alone" (Law 10).
+_SHEET_DEICTICS = ("usme", "wahan", "uske baare mein")
 
 _BRAND = re.compile(r"bada\s+bhai", re.IGNORECASE)
 
@@ -47,19 +120,28 @@ def _has_word(text: str, word: str) -> bool:
 
 
 def _worker_facing_strings() -> dict[str, str]:
-    """Every string the WORKER reads as the bot's own words."""
+    """Every string the WORKER reads as the bot's own words, ACROSS EVERY FAMILY."""
     out: dict[str, str] = {}
-    for topic in topics_for("cnc_vmc"):
-        out[f"question:{topic.id}"] = topic.question
+    for family, topic in _all_topics():
+        out[f"{family}:question:{topic.id}"] = topic.question
         # INTERVIEW-1: the bounded RE-ask wording is worker-facing too.
         if topic.retry_question is not None:
-            out[f"retry_question:{topic.id}"] = topic.retry_question
+            out[f"{family}:retry_question:{topic.id}"] = topic.retry_question
+        # A tapped chip is echoed into the transcript as the worker's own message, but
+        # it is also SHOWN as our copy — so it faces the same net.
+        for i, option in enumerate(topic.options):
+            out[f"{family}:option:{topic.id}:{i}"] = option
     out["ack"] = interview_engine._ACK
     out["wrap_up"] = interview_engine._WRAP_UP
     for i, f in enumerate(interview_engine.suggested_followups("cnc_vmc")):
         out[f"followup:{i}"] = f
     for field, q in _CLARIFY.items():
         out[f"clarify:{field}"] = q
+    # The PSEUDONYMIZATION-BLOCKED reply. Worker-facing in the strongest sense: apps/api
+    # STORES it as an outbound chat message, so it enters the transcript AND the
+    # extraction corpus. It was English ("Sorry, I couldn't process that safely...") in a
+    # Hinglish product; pinned here so it can never drift back out of persona.
+    out["blocked_reply"] = _BLOCKED_REPLY
     # The CLI's own worker-facing copy. CLI-1: the CLI no longer has a model-driven
     # path of its own — it drives THIS engine. Its only remaining own-words are the
     # intro banner: the "type anything to begin" kickoff nudge is GONE (the opener is
@@ -84,31 +166,132 @@ def test_no_worker_facing_string_contains_a_banned_token():
             assert g not in low, f"{name}: gush {g!r} in {raw!r}"
         for tf in _BANNED_TUMFORM:
             assert tf not in low, f"{name}: tum-form {tf!r} in {raw!r}"
+        for p in _BANNED_PROMISE:
+            assert not _has_word(scanned, p), f"{name}: promise/expectation {p!r} in {raw!r}"
+
+
+# --- §3 / §7, enforced against the RATIFIED SHEET ----------------------------
+# docs/specs/persona-system-v3.2.md. These exist because the sheet states rules the
+# older tests here either compressed or omitted entirely — and a persona rule that is
+# only in a document is a rule that drifts.
+
+
+def test_the_banned_lists_cover_every_sheet_token():
+    """The superset relation, asserted rather than assumed. Every token §3's "Never
+    says" row names must be banned SOMEWHERE in this file."""
+    sheet_never_says = (
+        "waah zabardast shabaash great perfect awesome excellent congratulations badhai "
+        "bhai bhaiya beta behen yaar tu tum guarantee interview"
+    ).split() + ["bahut acha", "pakka job"]
+    banned = set(
+        _BANNED_VOCATIVE + _BANNED_INFORMAL + _BANNED_GUSH + _BANNED_TUMFORM + _BANNED_PROMISE
+    )
+    missing = [t for t in sheet_never_says if t not in banned]
+    assert missing == [], f"§3 tokens not banned anywhere: {missing}"
+
+
+def test_no_worker_facing_string_carries_an_exclamation_mark_or_an_emoji():
+    """§3 bans "any exclamation mark" and "any emoji" WITHOUT qualification, and §7
+    repeats the no-exclamation rule in the pre-ship checklist.
+
+    THE ONE VIOLATION THIS CLOSES: `ONE_SHOT_OPENER` shipped as "Namaste! Main aapka
+    Bada Bhai…" — the sheet names it by file and constant. It is now "Namaste." and
+    must stay byte-identical to the Flutter twin (`kChatOpeningText`).
+    """
+    for name, raw in _worker_facing_strings().items():
+        assert "!" not in raw, f"{name}: exclamation mark in {raw!r}"
+        # Emoji/pictographs all sit far above the Latin/Devanagari ranges this product
+        # writes in; the em dash (U+2014) and the danda (U+0964) are below the cut.
+        offenders = [c for c in raw if ord(c) > 0x2190]
+        assert offenders == [], f"{name}: emoji/symbol {offenders} in {raw!r}"
+
+
+def test_the_acknowledgement_set_is_CLOSED_and_the_engine_uses_one_of_them():
+    """§3: the acknowledgements are a closed list — "nothing else" — capped at 3 words.
+    The engine emits exactly one of them, always."""
+    ack = interview_engine._ACK.strip()
+    assert ack in _SHEET_ACKNOWLEDGEMENTS, f"{ack!r} is not a §3 acknowledgement"
+    for permitted in _SHEET_ACKNOWLEDGEMENTS:
+        assert len(permitted.split()) <= 3, permitted
+
+
+def test_the_engine_emits_zero_appreciations_which_is_inside_the_two_per_chat_budget():
+    """§3 allows at most 2 appreciations, earned, work-aimed, never before turn 3.
+    OWNER RULING 2026-07-31: keep the neutral ack and build NO appreciation engine —
+    0 is inside the budget. This pins the ZERO so an appreciation cannot appear
+    without a deliberate decision, and pins it against the sheet's real vocabulary
+    rather than against an empty list.
+
+    Swept over four worker personas so it is a property of the engine, not of one path.
+    """
+    for reply_for in (
+        lambda _tid: "theek hai ji",
+        lambda _tid: "haan",
+        lambda _tid: "vmc chalata hu",
+        lambda _tid: "nahi pata",
+    ):
+        state, served = None, []
+        for _ in range(interview_engine.MAX_ENGINE_ASKS + 1):
+            reply, asked_id, state, _ready = interview_engine.next_turn(
+                state, reply_for(None), "cnc_vmc"
+            )
+            served.append(reply)
+            if asked_id is None:
+                break
+        text = "\n".join(served).lower()
+        for appreciation in _SHEET_APPRECIATIONS:
+            assert appreciation.lower() not in text, f"appreciation {appreciation!r} emitted"
+
+
+def test_no_worker_facing_string_uses_a_deictic_that_breaks_law_10():
+    """§7 Memory / Law 10 — "every turn must stand alone". No "usme", "wahan", "uske
+    baare mein": each answer is parsed WITHOUT the transcript, so a turn that points
+    back at an earlier one cannot be understood by the detector either."""
+    for name, raw in _worker_facing_strings().items():
+        for deictic in _SHEET_DEICTICS:
+            assert deictic not in raw.lower(), f"{name}: deictic {deictic!r} in {raw!r}"
+
+
+def test_the_bot_never_asks_the_worker_for_their_name():
+    """§2 Law 5 / §7 Address: "Never ask for the name. It is already on the account."
+
+    Scoped to asking for the WORKER's name — "machine ka naam bataiye" (the name of the
+    machine) is legal and common in the bank, and the blocked reply legitimately tells
+    the worker NOT to type their full name."""
+    asks_for_name = re.compile(r"(aapka|apna|aapke)\s+(poora\s+)?naam|your\s+name", re.IGNORECASE)
+    for name, raw in _worker_facing_strings().items():
+        if name == "blocked_reply":
+            continue  # tells them NOT to send it — the opposite of asking
+        assert not asks_for_name.search(raw), f"{name} asks for the worker's name: {raw!r}"
 
 
 def test_every_interview_question_is_under_20_words():
-    for topic in topics_for("cnc_vmc"):
+    for family, topic in _all_topics():
         n = len(topic.question.split())
-        assert n <= 20, f"{topic.id} question is {n} words: {topic.question!r}"
+        assert n <= 20, f"{family}:{topic.id} question is {n} words: {topic.question!r}"
 
 
 def test_every_retry_question_is_one_ask_under_20_words_and_actually_different():
     # INTERVIEW-1: the re-ask must obey B-5 (exactly one "?") and the 20-word cap,
     # and must NOT be the same string — re-serving verbatim reads as broken.
-    for topic in topics_for("cnc_vmc"):
+    for family, topic in _all_topics():
         rq = topic.retry_question
         if rq is None:
             continue
-        assert rq.count("?") == 1, f"{topic.id} retry bundles asks: {rq!r}"
-        assert len(rq.split()) <= 20, f"{topic.id} retry is {len(rq.split())} words: {rq!r}"
-        assert rq != topic.question, f"{topic.id} retry is a verbatim re-serve"
+        assert rq.count("?") == 1, f"{family}:{topic.id} retry bundles asks: {rq!r}"
+        assert len(rq.split()) <= 20, (
+            f"{family}:{topic.id} retry is {len(rq.split())} words: {rq!r}"
+        )
+        assert rq != topic.question, f"{family}:{topic.id} retry is a verbatim re-serve"
 
 
 def test_every_re_askable_essential_topic_has_a_retry_question():
-    # Only ESSENTIAL topics are ever re-asked, and each must have distinct wording.
-    for topic_id in interview_engine.ESSENTIAL_TOPICS:
-        topic = next(t for t in topics_for("cnc_vmc") if t.id == topic_id)
-        assert topic.retry_question is not None, topic_id
+    # Only ESSENTIAL topics are ever re-asked, and each must have distinct wording —
+    # in EVERY family, using that family's own essentials (S1).
+    for family in ALL_FAMILIES:
+        for topic_id in interview_engine.essentials_for(family):
+            topic = next(t for t in topics_for(family) if t.id == topic_id)
+            assert topic.retry_question is not None, f"{family}:{topic_id}"
 
 
 # --- B-5: ONE question per turn ---------------------------------------------
@@ -126,49 +309,64 @@ def _ask_count(text: str) -> int:
 
 
 def test_every_bank_question_is_exactly_one_ask():
-    for topic in topics_for("cnc_vmc"):
+    for family, topic in _all_topics():
         n = _ask_count(topic.question)
-        assert n == 1, f"{topic.id} bundles {n} asks: {topic.question!r}"
+        assert n == 1, f"{family}:{topic.id} bundles {n} asks: {topic.question!r}"
 
 
 def test_no_bank_question_conflates_current_and_preferred_location():
     # B-4's half of the same ruling, asserted on the question layer: the two
-    # location topics exist and neither asks both.
-    ids = {t.id for t in topics_for("cnc_vmc")}
-    assert {"current_location", "preferred_locations"} <= ids
-    assert "location" not in ids  # the conflated topic is gone
+    # location topics exist and neither asks both — in every family.
+    for family in ALL_FAMILIES:
+        ids = {t.id for t in topics_for(family)}
+        assert {"current_location", "preferred_locations"} <= ids, family
+        assert "location" not in ids, family  # the conflated topic is gone
+
+
+def test_no_chip_in_any_family_is_a_question():
+    """A tapped chip is sent verbatim as the worker's message, so a chip that is a
+    QUESTION puts a question in the worker's mouth. tests/test_answer_chips.py owns the
+    detector-resolution property for cnc_vmc; this owns the cheap shape check for ALL
+    families, which is the half that was never swept."""
+    for family, topic in _all_topics():
+        for option in topic.options:
+            assert "?" not in option, f"{family}:{topic.id}: {option!r} is a question"
+            assert len(option.split()) <= 6, f"{family}:{topic.id}: {option!r} is not a chip"
 
 
 def test_every_served_turn_asks_exactly_one_question():
     # The turn the WORKER actually receives (vocative/ack + question) must carry
-    # exactly one ask — this is what the register's word-count test missed.
-    _tid, opening = interview_engine.first_question("cnc_vmc")
-    assert _ask_count(opening) == 1, opening
+    # exactly one ask — this is what the register's word-count test missed. Swept over
+    # every family, since each one serves its own wording.
+    for family in ALL_FAMILIES:
+        _tid, opening = interview_engine.first_question(family)
+        assert _ask_count(opening) == 1, (family, opening)
 
-    state = None
-    seen = 0
-    # Drive the full interview with a non-answer so every topic is served in turn.
-    for _ in range(len(topics_for("cnc_vmc")) + 1):
-        reply, asked_id, state, _ready = interview_engine.next_turn(
-            state, "theek hai ji", "cnc_vmc"
-        )
-        if asked_id is None:  # wrap-up: a statement, no ask
-            assert _ask_count(reply) == 0, reply
-            break
-        assert _ask_count(reply) == 1, f"turn asked {_ask_count(reply)}: {reply!r}"
-        seen += 1
-    assert seen >= 4  # the essential topics were each served on their own turn
+        state = None
+        seen = 0
+        # Drive the interview with a non-answer so every topic is served in turn.
+        for _ in range(interview_engine.MAX_ENGINE_ASKS + 1):
+            reply, asked_id, state, _ready = interview_engine.next_turn(
+                state, "theek hai ji", family
+            )
+            if asked_id is None:  # wrap-up: a statement, no ask
+                assert _ask_count(reply) == 0, (family, reply)
+                break
+            assert _ask_count(reply) == 1, f"[{family}] turn asked {_ask_count(reply)}: {reply!r}"
+            seen += 1
+        assert seen >= len(topics_for(family)), family  # the whole bank was served
 
 
 def test_clarify_reserve_turn_also_carries_exactly_one_ask():
-    # The COST-4 clarify path re-serves the last question verbatim — still one ask.
+    # The COST-4 clarify path re-serves the last question verbatim — still one ask,
+    # in every family.
     from app.contracts import ConversationState
 
-    for topic in topics_for("cnc_vmc"):
-        st = ConversationState(asked_question_ids=[topic.id], turn_count=1)
-        out = interview_engine.clarify_turn(st, "matlab kya?", "cnc_vmc")
-        assert out is not None, topic.id
-        assert _ask_count(out[0]) == 1, f"{topic.id} re-serve: {out[0]!r}"
+    for family, topic in _all_topics():
+        st = ConversationState(role_family=family, asked_question_ids=[topic.id], turn_count=1)
+        out = interview_engine.clarify_turn(st, "matlab kya?", family)
+        assert out is not None, f"{family}:{topic.id}"
+        assert _ask_count(out[0]) == 1, f"{family}:{topic.id} re-serve: {out[0]!r}"
 
 
 def test_followups_and_clarifications_are_one_ask_each():
@@ -187,6 +385,61 @@ def test_clarify_and_followup_questions_are_under_20_words():
 
 def test_ack_is_at_most_two_words():
     assert len(interview_engine._ACK.split()) <= 2, interview_engine._ACK
+
+
+# --- the pseudonymization-BLOCKED reply --------------------------------------
+# It is stored as an outbound chat message, so it enters the worker's transcript and
+# the extraction corpus — the strongest sense of "worker-facing copy" in this service.
+# The generic net above already scans it for vocatives / gush / tum-forms (it is in
+# _worker_facing_strings); these add the shape rules that net does not cover.
+
+
+def test_the_blocked_reply_is_persona_compliant_hinglish():
+    reply = _BLOCKED_REPLY
+    assert "!" not in reply, "no exclamation mark — the bot does not shout at a worker"
+    assert all(ord(ch) < 0x2190 for ch in reply), f"emoji/symbol in {reply!r}"
+    sentences = [s for s in reply.split(".") if s.strip()]
+    assert len(sentences) <= 2, f"{len(sentences)} sentences: {reply!r}"
+    assert all(len(s.split()) <= 12 for s in sentences), reply
+    # "aap" form, and no English apology/persona break.
+    assert "aap" in reply.lower()
+    for english in ("sorry", "please", "rephrase", "process", "safely", "error"):
+        assert english not in reply.lower(), f"{english!r} in {reply!r}"
+
+
+def test_the_blocked_reply_says_what_to_do_and_never_explains_our_internals():
+    """It must be ACTIONABLE — the worker has to know what to change — without leaking
+    that a privacy gateway, a rule or a token exists."""
+    low = _BLOCKED_REPLY.lower()
+    assert "dobara" in low  # ...try again
+    assert "phone number" in low and "naam" in low  # ...without these
+    for internal in ("pseudony", "token", "gateway", "block", "system", "server", "ai", "llm"):
+        assert internal not in low, f"internal detail {internal!r} in {_BLOCKED_REPLY!r}"
+
+
+def test_the_blocked_reply_is_what_the_endpoint_actually_serves():
+    """Pinned through the ROUTE, so the constant cannot drift away from the wire."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    body = (
+        TestClient(app)
+        .post(
+            "/profiling/respond",
+            json={
+                "session_id": "11111111-1111-4111-8111-111111111111",
+                "worker_ref": "w-blocked",
+                # A 9-digit zero-led run: not phone-shaped, not an in-range amount, so
+                # it survives to the residual-digit net -> the gateway BLOCKS.
+                "message_text": "mera number 01234567 hai",
+                "role_family": "cnc_vmc",
+            },
+        )
+        .json()
+    )
+    assert body["blocked"] is True
+    assert body["reply_text"] == _BLOCKED_REPLY
 
 
 def test_system_prompts_enforce_the_neutrality_rules():
