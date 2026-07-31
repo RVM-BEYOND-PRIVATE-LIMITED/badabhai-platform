@@ -51,11 +51,57 @@ dependencies:
   # alone only sees JVM/NDK crashes, which Flutter code never produces. Init is
   # fail-closed (see core/observability/crash_reporter.dart) so a device that
   # cannot start Firebase keeps running normally. iOS SDK 11 → iOS 13 floor.
-  # crashlytics PINNED EXACT: 5.2.5's artifact is broken (imports the long-removed
-  # `FirebasePlugin` symbol → won't compile against firebase_core_platform_interface
-  # 7.1.0); 5.2.4 is the last compiling build. A caret would re-pull 5.2.5.
+  # crashlytics WAS pinned exact at 5.2.4: 5.2.5's artifact is broken (imports the
+  # long-removed `FirebasePlugin` symbol → won't compile against
+  # firebase_core_platform_interface 7.1.0), and at the time a caret would have
+  # re-pulled 5.2.5.
+  #
+  # THE PIN IS NOW A CARET AT 5.2.6, and the reason it was exact has gone away.
+  # 5.2.5 mis-declared `firebase_core_platform_interface: ^7.1.0` while its code
+  # required 8.x — that mismatch IS the breakage. 5.2.6 (published the next day)
+  # corrects the constraint to `^8.0.0`, so `^5.2.6` floors ABOVE the broken build
+  # and can never resolve back to it.
+  #
+  # The bump was FORCED, not opportunistic: firebase_remote_config 6.5.5 requires
+  # firebase_core_platform_interface ^8.0.0, which 5.2.4 (^7.1.0) excludes — B7
+  # cannot be added at all while crashlytics is held at 5.2.4.
   firebase_core: ^4.12.0
-  firebase_crashlytics: 5.2.4
+  firebase_crashlytics: ^5.2.6
+  # B7 — Remote Config + Analytics on the SAME firebase_core the crash reporter
+  # already boots (no second init, no second config file). Both declare
+  # `firebase_core: ^4.12.1`, which the caret above already admits.
+  #
+  # REMOTE CONFIG IS CLIENT-DISPLAY ONLY. It cannot gate a server rule: the caps,
+  # quotas and consent gates live in server env and are enforced server-side, so
+  # RC here only decides what this app SHOWS. Every lever has a compiled-in
+  # default equal to today's behaviour (core/config/remote_config.dart), so an RC
+  # outage, a first launch with no fetch, or a build with Firebase stripped
+  # changes nothing.
+  #
+  # ANALYTICS carries NO PII (invariant #2): screen names and funnel milestones
+  # only — never a worker id, phone, name, or free text. The Firebase
+  # app-instance id is the sole identifier, and it is Firebase's own.
+  #
+  # App Check is deliberately NOT added: it depends on Play Integrity, and a
+  # misconfigured attestation in launch week locks REAL workers out of the API.
+  firebase_remote_config: ^6.5.5
+  firebase_analytics: ^12.4.5
+  # B4 attribution — Play Install Referrer. A worker who taps an invite link,
+  # lands on the Play Store and installs arrives with NO deep link: the intent
+  # is consumed by the Store, so `SharedPrefsPendingReferralStore` stays empty
+  # and the referral is lost. This reads Google Play's referrer string once on
+  # first launch and recovers the `bb_code` that would otherwise vanish — which
+  # is the difference between an attributable commission-only agent and an
+  # unattributable one.
+  #
+  # WHICH PLUGIN: `play_install_referrer` is the actively-maintained fork of
+  # `android_play_install_referrer` (the original's last release was 2024-04 and
+  # still declares `flutter: ">=1.20.0"`). The fork floors at Flutter 3.29, which
+  # matches this repo's 3.35.7 pin, and both wrap the same
+  # `com.android.installreferrer` AAR. Android-only by nature; on iOS and in
+  # `flutter test` the call throws a MissingPluginException, which the reader
+  # swallows — attribution is best-effort and must never block first launch.
+  play_install_referrer: ^0.5.0
   # Display (Baloo 2) + body (Mukta) of the "Desi Vernacular Pop" theme.
   # Both carry Devanagari for Hinglish/regional copy. Roboto Mono (data) is
   # self-hosted below so figures render identically offline.

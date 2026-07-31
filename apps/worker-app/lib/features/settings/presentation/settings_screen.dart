@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
@@ -114,12 +115,17 @@ class _SettingsView extends StatelessWidget {
           // it promised a choice the app could not honour. The worker keeps the
           // LocaleStore default (`hi`), so `X-Locale` is unchanged. Restore this
           // row together with the splash picker.
-          BbListRow.setting(
-            icon: Icons.person_add_alt_1_outlined,
-            title: 'Dost ko invite karein',
-            subtitle: 'Referral link share karein',
-            onTap: () => context.push(Routes.invite),
-          ),
+          // B7 kill switch. Defaults to VISIBLE (today's behaviour); lets ops
+          // pause the referral funnel without shipping a build. Hiding the entry
+          // point does NOT disable attribution — a code already captured from a
+          // deep link or the install referrer is still drained after consent.
+          if (!BbRemoteConfig.instance.inviteEntryHidden)
+            BbListRow.setting(
+              icon: Icons.person_add_alt_1_outlined,
+              title: 'Dost ko invite karein',
+              subtitle: 'Referral link share karein',
+              onTap: () => context.push(Routes.invite),
+            ),
           BbListRow.setting(
             icon: Icons.chat,
             title: 'WhatsApp alerts',

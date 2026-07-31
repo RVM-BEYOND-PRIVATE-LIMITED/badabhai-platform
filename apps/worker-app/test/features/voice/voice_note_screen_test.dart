@@ -84,9 +84,8 @@ void main() {
       (WidgetTester tester) async {
     // Hold the pipeline open (a Completer, never completed — no timers) so the
     // processing state stays visible.
-    final Completer<VoiceNoteOutcome> pipeline = Completer<VoiceNoteOutcome>();
-    when(() => repo.stopRecordingAndTranscribe())
-        .thenAnswer((_) => pipeline.future);
+    final Completer<String> pipeline = Completer<String>();
+    when(() => repo.stopAndTranscribe()).thenAnswer((_) => pipeline.future);
     await pumpScreen(tester);
     await tester.tap(find.byIcon(Icons.mic_rounded));
     await tester.pump();
@@ -102,6 +101,122 @@ void main() {
     );
     // Tear the tree down while the pipeline hangs — ends the test clean.
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  // ---- The confirm turn (Persona sheet, worked conversation #05) ----------
+
+  group('confirm turn', () {
+    /// Drives idle → recording → stop, resolving the transcribe leg with
+    /// [transcript] so the screen lands on the confirm turn.
+    Future<void> reachConfirm(
+      WidgetTester tester, {
+      String transcript = 'CNC par 4 saal ka anubhav.',
+    }) async {
+      when(() => repo.stopAndTranscribe()).thenAnswer((_) async => transcript);
+      await tester.tap(find.byIcon(Icons.mic_rounded));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.text('Bhej dein'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'the transcript is SHOWN with the exact prompt and both chips, and '
+        'nothing has been sent', (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await reachConfirm(tester);
+
+      expect(find.text('CNC par 4 saal ka anubhav.'), findsOneWidget);
+      expect(find.text('Yeh theek hai?'), findsOneWidget);
+      expect(find.text('Haan'), findsOneWidget);
+      expect(find.text('Sudhaarna hai'), findsOneWidget);
+      // THE INVARIANT: the recogniser's words are not the worker's answer until
+      // they say so.
+      verifyNever(() => repo.sendConfirmedTranscript(any()));
+    });
+
+    testWidgets('the confirm chips clear the 48px tap floor',
+        (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await reachConfirm(tester);
+
+      for (final String label in <String>['Haan', 'Sudhaarna hai']) {
+        expect(tester.getSize(find.ancestor(
+              of: find.text(label),
+              matching: find.byType(ConstrainedBox),
+            ).first).height, greaterThanOrEqualTo(48),
+            reason: '$label must stay thumb-sized');
+      }
+    });
+
+    testWidgets('"Haan" sends the transcript exactly as shown',
+        (WidgetTester tester) async {
+      // Held open (never completed — no timers) so the screen stays on the send
+      // leg. Letting it succeed would pop, and this harness has no GoRouter; the
+      // pop-with-outcome path is covered in the #373 group below, on a real
+      // router stack.
+      final Completer<VoiceNoteOutcome> send = Completer<VoiceNoteOutcome>();
+      when(() => repo.sendConfirmedTranscript(any()))
+          .thenAnswer((_) => send.future);
+      await pumpScreen(tester);
+      await reachConfirm(tester);
+
+      await tester.tap(find.text('Haan'));
+      await tester.pump();
+
+      verify(() => repo.sendConfirmedTranscript('CNC par 4 saal ka anubhav.'))
+          .called(1);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets(
+        '"Sudhaarna hai" offers BOTH an inline edit and a re-record',
+        (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await reachConfirm(tester);
+
+      await tester.tap(find.text('Sudhaarna hai'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('Dobara bolein'), findsOneWidget);
+    });
+
+    testWidgets('an inline edit is what gets sent, not the recogniser output',
+        (WidgetTester tester) async {
+      // Held open for the same reason as the "Haan" test above.
+      final Completer<VoiceNoteOutcome> send = Completer<VoiceNoteOutcome>();
+      when(() => repo.sendConfirmedTranscript(any()))
+          .thenAnswer((_) => send.future);
+      await pumpScreen(tester);
+      await reachConfirm(tester);
+
+      await tester.tap(find.text('Sudhaarna hai'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'VMC operator, 4 saal.');
+      await tester.tap(find.text('Bhej dein'));
+      await tester.pump();
+
+      verify(() => repo.sendConfirmedTranscript('VMC operator, 4 saal.'))
+          .called(1);
+      verifyNever(
+          () => repo.sendConfirmedTranscript('CNC par 4 saal ka anubhav.'));
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('"Dobara bolein" returns to the idle mic and sends nothing',
+        (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await reachConfirm(tester);
+
+      await tester.tap(find.text('Sudhaarna hai'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Dobara bolein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bol kar batayein'), findsOneWidget);
+      verifyNever(() => repo.sendConfirmedTranscript(any()));
+    });
   });
 
   testWidgets(
@@ -124,7 +239,7 @@ void main() {
 
   testWidgets('pipeline failure surfaces the honest voice-unavailable copy',
       (WidgetTester tester) async {
-    when(() => repo.stopRecordingAndTranscribe())
+    when(() => repo.stopAndTranscribe())
         .thenThrow(const VoiceUnavailableFailure());
     await pumpScreen(tester);
     await tester.tap(find.byIcon(Icons.mic_rounded));
@@ -175,13 +290,12 @@ void main() {
       return popped;
     }
 
-    /// Drives idle → recording → processing with [pipeline] held open.
+    /// Drives idle → recording → the TRANSCRIBE leg, held open by [pipeline].
     Future<void> reachProcessing(
       WidgetTester tester,
-      Completer<VoiceNoteOutcome> pipeline,
+      Completer<String> pipeline,
     ) async {
-      when(() => repo.stopRecordingAndTranscribe())
-          .thenAnswer((_) => pipeline.future);
+      when(() => repo.stopAndTranscribe()).thenAnswer((_) => pipeline.future);
       await tester.tap(find.byIcon(Icons.mic_rounded));
       await tester.pump();
       await tester.pump();
@@ -193,8 +307,9 @@ void main() {
 
     testWidgets(
         'the back button does not pop mid-pipeline and says why; the outcome '
-        'still reaches chat when it lands', (WidgetTester tester) async {
-      final Completer<VoiceNoteOutcome> pipeline = Completer<VoiceNoteOutcome>();
+        'still reaches chat once the worker confirms',
+        (WidgetTester tester) async {
+      final Completer<String> pipeline = Completer<String>();
       final Future<VoiceNoteOutcome?> popped = await pushVoiceRoute(tester);
       await reachProcessing(tester, pipeline);
 
@@ -206,21 +321,26 @@ void main() {
       await tester.pump(const Duration(milliseconds: 750)); // snackbar in
 
       expect(find.text('HOME'), findsNothing,
-          reason: 'the route must not pop while the transcript is in flight');
+          reason: 'the route must not pop while the transcribe leg is running');
       expect(find.text('Aapki baat likh rahe hain… thoda intezaar karein.'),
           findsOneWidget);
       expect(find.text(kVoiceBackBlockedLabel), findsOneWidget,
           reason: 'a blocked back press must never be a silent no-op');
 
-      // Pipeline lands → the screen pops WITH the outcome, so chat can append
-      // the very bubbles the server already has.
-      pipeline.complete(
-        const VoiceNoteOutcome(transcript: 'CNC operator hoon', reply: 'Theek'),
-      );
-      await tester.pump(); // Success emitted → listener pops with the outcome
-      // Drain the pop transition AND the snackbar's auto-dismiss timer (a
-      // pending timer at teardown fails the test).
+      // The transcribe leg lands on the CONFIRM turn — still nothing sent.
+      when(() => repo.sendConfirmedTranscript(any())).thenAnswer((_) async =>
+          const VoiceNoteOutcome(
+              transcript: 'CNC operator hoon', reply: 'Theek'));
+      pipeline.complete('CNC operator hoon');
+      // Drain the snackbar's auto-dismiss timer too (a pending timer at
+      // teardown fails the test).
       await tester.pump(const Duration(seconds: 6));
+      await tester.pumpAndSettle();
+      expect(find.text('Yeh theek hai?'), findsOneWidget);
+
+      // "Haan" → the send leg → the screen pops WITH the outcome, so chat can
+      // append the very bubbles the server now has.
+      await tester.tap(find.text('Haan'));
       await tester.pumpAndSettle();
 
       expect(find.text('HOME'), findsOneWidget);
@@ -231,9 +351,65 @@ void main() {
       expect(outcome.reply, 'Theek');
     });
 
+    testWidgets(
+        'the SEND leg holds back too, with its own honest reason — this is the '
+        'leg the #373 divergence actually lives on',
+        (WidgetTester tester) async {
+      final Completer<VoiceNoteOutcome> send = Completer<VoiceNoteOutcome>();
+      when(() => repo.stopAndTranscribe())
+          .thenAnswer((_) async => 'CNC operator hoon');
+      when(() => repo.sendConfirmedTranscript(any()))
+          .thenAnswer((_) => send.future);
+      await pushVoiceRoute(tester);
+
+      await tester.tap(find.byIcon(Icons.mic_rounded));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.text('Bhej dein'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Haan'));
+      await tester.pump();
+
+      expect(find.text('Aapki baat bhej rahe hain… thoda intezaar karein.'),
+          findsOneWidget);
+
+      await tester.tap(find.byType(BackButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 750));
+
+      expect(find.text('HOME'), findsNothing);
+      expect(find.text(kVoiceBackBlockedSendingLabel), findsOneWidget);
+
+      // Tear the tree down while the send hangs — ends the test clean.
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    testWidgets('the CONFIRM turn does not hold back — it is a decision point',
+        (WidgetTester tester) async {
+      when(() => repo.stopAndTranscribe())
+          .thenAnswer((_) async => 'CNC operator hoon');
+      final Future<VoiceNoteOutcome?> popped = await pushVoiceRoute(tester);
+
+      await tester.tap(find.byIcon(Icons.mic_rounded));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.text('Bhej dein'));
+      await tester.pumpAndSettle();
+      expect(find.text('Yeh theek hai?'), findsOneWidget);
+
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+
+      // Nothing was sent, so leaving desynchronises nothing — and a worker who
+      // changes their mind must never be trapped on the confirm screen.
+      expect(find.text('HOME'), findsOneWidget);
+      expect(await popped, isNull);
+      verifyNever(() => repo.sendConfirmedTranscript(any()));
+    });
+
     testWidgets('a failed pipeline releases back immediately — never a trap',
         (WidgetTester tester) async {
-      final Completer<VoiceNoteOutcome> pipeline = Completer<VoiceNoteOutcome>();
+      final Completer<String> pipeline = Completer<String>();
       await pushVoiceRoute(tester);
       await reachProcessing(tester, pipeline);
 

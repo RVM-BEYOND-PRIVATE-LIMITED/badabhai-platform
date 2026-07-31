@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/error/failure.dart';
+import '../../../../core/observability/analytics.dart';
 import '../../domain/chat_message.dart';
 import '../../domain/chat_repository.dart';
 import '../../domain/chat_turn.dart';
@@ -188,8 +191,21 @@ class ChatState extends Equatable {
 /// and can drift from `question_bank.py`. It is now only what a DEGRADED session
 /// shows, and the server-served opener above is the live path — but the drift is
 /// not gone, so keep this aligned with the `role` topic if that copy changes.
+///
+/// BYTE-IDENTICAL CONTRACT (drift S4). This string and the ai-service's
+/// `ONE_SHOT_OPENER` (`apps/ai-service/app/profiling/question_bank.py`) are the
+/// SAME copy served from two places, so a worker sees the same first line
+/// whether `CHAT_ONE_SHOT_OPENER_ENABLED` is on or off. They must stay byte-for-
+/// byte equal — if you edit one, edit the other in the same change.
+///
+/// PENDING SERVER EDIT: the opener now reads "Namaste." here, not "Namaste!".
+/// An exclamation mark in bot copy violates the persona's Ten Laws (enforced by
+/// `test/persona_neutrality_test.dart`), so the client half is fixed. The Python
+/// constant still says "Namaste!" and needs the identical one-character edit —
+/// until it lands, a flag-ON session differs from this fallback by that one
+/// character. Tracked in the change that introduced this note.
 const String kChatOpeningText =
-    'Namaste! Main aapka Bada Bhai. Chalo, ab aapka accha sa resume banate hain. '
+    'Namaste. Main aapka Bada Bhai. Chalo, ab aapka accha sa resume banate hain. '
     'Chaliye shuru karte hain — aap kaunsa kaam karte hain?';
 
 /// The opening bada-bhai prompt as a transcript bubble.
@@ -208,6 +224,23 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }
 
   final ChatRepository _repo;
+
+  /// True once the wrap-up milestone has been logged for this session (#B7).
+  /// [ChatState.extractionReady] LATCHES, so without this the milestone would
+  /// re-fire on every turn after the interview completes and the funnel would
+  /// read as many wrap-ups per worker.
+  bool _wrapUpLogged = false;
+
+  /// Log the "interview complete" funnel milestone the first time the engine
+  /// says so. PII-free: a turn COUNT, never a message, id, or topic.
+  void _logWrapUpOnce({required bool ready}) {
+    if (!ready || _wrapUpLogged) return;
+    _wrapUpLogged = true;
+    unawaited(BbAnalytics.instance.log(BbAnalytics.chatWrapUp(
+      turnCount:
+          state.messages.where((ChatMessage m) => m.fromWorker).length,
+    )));
+  }
 
   /// How many sends are awaiting a reply right now.
   ///
@@ -374,6 +407,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         lastReplyBlocked: turn.blocked,
         lastReplyMock: turn.isMock,
       ));
+      _logWrapUpOnce(ready: turn.extractionReady);
     } on Failure catch (_) {
       _inFlightSends--;
       // Do NOT silently keep the bubble looking delivered (#343). Mark it FAILED
@@ -441,5 +475,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // same readiness decision (#421).
       extractionReady: event.extractionReady,
     ));
+    _logWrapUpOnce(ready: event.extractionReady);
   }
 }

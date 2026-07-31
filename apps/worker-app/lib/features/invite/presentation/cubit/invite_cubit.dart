@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../../core/error/failure.dart';
+import '../../../../core/observability/analytics.dart';
 import '../../domain/invite_repository.dart';
 
 /// Hands invite text to the platform share sheet. Injected so tests never touch
@@ -45,9 +48,14 @@ class InviteCubit extends Cubit<InviteState> {
   final ShareFn _share;
 
   /// The Hinglish message wrapped around the invite link when sharing.
+  ///
+  /// PERSONA: the imperatives were tum-form ('banao', 'pao', 'shuru karo').
+  /// The Ten Laws are always-aap, and this line is read by the INVITED worker —
+  /// it is the first thing BadaBhai ever says to them, so it must not be the one
+  /// place the app slips into tum. Same meaning, aap-form endings.
   String shareText(InviteLink link) =>
-      'BadaBhai par apna profile banao aur factory jobs pao — bina test, bas '
-      'baat-cheet se. Yahan se shuru karo: ${link.url}';
+      'BadaBhai par apna profile banaiye aur factory jobs paiye — bina test, bas '
+      'baat-cheet se. Yahan se shuru kariye: ${link.url}';
 
   Future<void> load() async {
     emit(const InviteState(status: InviteStatus.loading));
@@ -66,5 +74,10 @@ class InviteCubit extends Cubit<InviteState> {
     final InviteLink? link = state.link;
     if (link == null) return;
     await _share(shareText(link));
+    // B7 funnel milestone. Deliberately NO parameters: the invite code and the
+    // link are the only things this method knows, and neither may leave the
+    // device in a telemetry event. The OS also does not report which app the
+    // worker picked, so a "channel" field would be invented data.
+    unawaited(BbAnalytics.instance.log(BbAnalytics.inviteShared));
   }
 }

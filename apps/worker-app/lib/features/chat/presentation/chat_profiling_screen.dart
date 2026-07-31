@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
@@ -55,7 +56,12 @@ const String kChatBlockedNotice =
     'Aapki baat theek se nahi pahunch payi — thoda saaf karke dobara likhein.';
 
 /// Nudge-sheet heading.
-const String kChatNudgeTitle = 'Ek minute, bhai';
+///
+/// PERSONA: was 'Ek minute, bhai'. `bhai` as a VOCATIVE is banned by the Ten
+/// Laws — the persona is NAMED Bada Bhai but never calls the worker one. The
+/// client holds no worker name to address them by (see `kChatOpeningText`), so
+/// the honorific `ji` carries the warmth on its own.
+const String kChatNudgeTitle = 'Ek minute ji';
 
 /// Nudge-sheet body — honest about the cost of stopping now.
 const String kChatNudgeBody =
@@ -365,15 +371,28 @@ class _ChatViewState extends State<_ChatView> {
 
   @override
   Widget build(BuildContext context) {
+    // B7 kill switch. Defaults to VISIBLE (today's behaviour); ops can hide the
+    // mic without a release if transcription is degraded. Typing is untouched,
+    // so this narrows the flow and never blocks it.
+    //
+    // Read at BUILD time, with no listener on Remote Config: a fetch that lands
+    // mid-conversation applies from the next build, not the next frame. That is
+    // deliberate — a control must not vanish from under a worker's thumb
+    // between the moment they reach for it and the moment they tap.
+    final bool showVoice = !BbRemoteConfig.instance.voiceEntryHidden;
+    // B7 display lever: a non-empty notice is shown above the composer. Empty by
+    // default, so nothing renders unless ops set one.
+    final String maintenance = BbRemoteConfig.instance.chatMaintenanceNotice;
     return Scaffold(
       appBar: BbAppBar(
         title: 'Profiling',
         actions: <Widget>[
-          IconButton(
-            tooltip: 'Voice note bhejein',
-            icon: const Icon(Icons.mic_none, color: AppColors.brand),
-            onPressed: _openVoiceNote,
-          ),
+          if (showVoice)
+            IconButton(
+              tooltip: 'Voice note bhejein',
+              icon: const Icon(Icons.mic_none, color: AppColors.brand),
+              onPressed: _openVoiceNote,
+            ),
         ],
       ),
       body: BlocListener<ChatBloc, ChatState>(
@@ -439,6 +458,13 @@ class _ChatViewState extends State<_ChatView> {
                       icon: Icons.error_outline,
                       color: AppColors.red600,
                       text: kChatBlockedNotice,
+                    ),
+                  // B7 maintenance notice — ops copy, shown only when set.
+                  if (maintenance.isNotEmpty)
+                    _replyNotice(
+                      icon: Icons.info_outline,
+                      color: AppColors.textMuted,
+                      text: maintenance,
                     ),
                   _inputBar(),
                   _doneCta(state),
