@@ -1,26 +1,39 @@
 /**
  * Matching V1 — the `@badabhai/taxonomy` seam for the V1 match vocabulary.
  *
- * ⚠️ TEMPORARY ADAPTER, DELETE-ON-RECONCILE. The five V1 exports below are authored in
- * `packages/taxonomy` by a PARALLEL workstream and did not exist in this worktree when
- * the migration train was written. This module reads them off the taxonomy namespace by
- * their EXACT names, so:
- *   * the data scripts are written against the real API, not a local fork;
- *   * `packages/db` compiles TODAY, before that workstream lands;
- *   * the moment it lands, every script works with no edit;
- *   * until it lands, any script that needs them fails LOUDLY at startup with the exact
- *     list of missing exports — never silently, and never with a fabricated fallback.
+ * RECONCILED 2026-07-31. This module was a temporary adapter: the five V1 exports were
+ * authored in `packages/taxonomy` by a PARALLEL workstream, so it read them off the
+ * taxonomy namespace by name in order to compile before that workstream landed. It has
+ * landed. The namespace read and its `readNamespace` cast are GONE, replaced by a plain
+ * static import — a missing or renamed export is now a COMPILE error here, which is the
+ * only place it can be caught before a seeder runs against production.
  *
- * RECONCILE AT MERGE: once `@badabhai/taxonomy` exports all five, replace the namespace
- * read in `loadMatchTaxonomy` with a plain static import and delete `readNamespace`. The
- * exported TYPES below should then be replaced by the taxonomy package's own.
+ * WHAT SURVIVES, and why it is not ceremony:
+ *   * `loadMatchTaxonomy` still exists as the single entry point every script calls, so
+ *     the scripts did not have to change and the validator cannot be bypassed.
+ *   * `missingMatchTaxonomyExports` / `hasMatchTaxonomy` still exist because an export
+ *     can be present at compile time and `undefined` at RUNTIME — a stale `dist/` from a
+ *     half-finished build is the ordinary way that happens — and a seeder must fail
+ *     loudly at startup rather than write zero rows and report success.
+ *   * `validateMatchTaxonomy` is unchanged and is still the gate before every write.
  *
  * NOTHING HERE INVENTS VOCABULARY. There is no fallback corpus, no default relation set,
  * and no guessed id. If the taxonomy is absent the scripts refuse to run.
  */
-import * as taxonomyNamespace from "@badabhai/taxonomy";
+import {
+  ATTRIBUTE_TO_MATCH_SKILLS,
+  MATCH_SKILLS,
+  MATCH_SKILL_RELATION_PAIRS,
+  ROLE_TO_MATCH_SKILL,
+  TRADE_TO_MATCH_SKILL,
+} from "@badabhai/taxonomy";
 
-/** Provenance of a canonical skill (must match the DB `SkillSource`). */
+/**
+ * Provenance / lifecycle of a canonical skill (must match the DB `SkillSource` /
+ * `SkillStatus`). Kept as local aliases so `packages/db` states the DB's own contract;
+ * they are structurally identical to the taxonomy's `SkillSource` / `SkillStatus`, and
+ * the static import above is what proves the two agree.
+ */
 export type MatchSkillSource = "esco" | "onet" | "nco" | "rvm";
 /** Lifecycle (must match the DB `SkillStatus`). */
 export type MatchSkillStatus = "active" | "provisional" | "deprecated";
@@ -66,28 +79,31 @@ export interface MatchTaxonomy {
   TRADE_TO_MATCH_SKILL: Readonly<Record<string, string>>;
 }
 
-const REQUIRED_EXPORTS = [
-  "MATCH_SKILLS",
-  "MATCH_SKILL_RELATION_PAIRS",
-  "ROLE_TO_MATCH_SKILL",
-  "ATTRIBUTE_TO_MATCH_SKILLS",
-  "TRADE_TO_MATCH_SKILL",
-] as const;
+/**
+ * The five V1 exports, bound STATICALLY. A rename or a deletion in
+ * `@badabhai/taxonomy` breaks this line at compile time, which is the whole point of
+ * the reconcile: the failure lands in CI, not in a seeder halfway through a run.
+ */
+const V1_EXPORTS = {
+  MATCH_SKILLS,
+  MATCH_SKILL_RELATION_PAIRS,
+  ROLE_TO_MATCH_SKILL,
+  ATTRIBUTE_TO_MATCH_SKILLS,
+  TRADE_TO_MATCH_SKILL,
+} as const;
 
 /**
- * Read the namespace as an untyped record. The cast is the whole point of this module:
- * it is what lets `packages/db` name exports that its build-time copy of
- * `@badabhai/taxonomy` may not have yet. It is NEVER used to fabricate a value — every
- * caller goes through the presence check below.
+ * Which of the five V1 exports are missing at RUNTIME.
+ *
+ * Compiling is not the same as being loaded: a stale `packages/taxonomy/dist` (the
+ * ordinary result of a half-finished build) type-checks against the source but ships
+ * `undefined` at import time. A seeder that then writes zero rows and prints success is
+ * worse than one that refuses, so the presence check stays.
  */
-function readNamespace(): Record<string, unknown> {
-  return taxonomyNamespace as unknown as Record<string, unknown>;
-}
-
-/** Which of the five V1 exports are missing from the installed taxonomy build. */
 export function missingMatchTaxonomyExports(): string[] {
-  const ns = readNamespace();
-  return REQUIRED_EXPORTS.filter((name) => ns[name] === undefined);
+  return Object.entries(V1_EXPORTS)
+    .filter(([, value]) => value === undefined)
+    .map(([name]) => name);
 }
 
 /** True when the installed `@badabhai/taxonomy` carries the full V1 vocabulary. */
@@ -103,23 +119,16 @@ export function loadMatchTaxonomy(scriptName: string): MatchTaxonomy {
   const missing = missingMatchTaxonomyExports();
   if (missing.length > 0) {
     throw new Error(
-      `[${scriptName}] @badabhai/taxonomy is missing the Matching V1 exports: ` +
+      `[${scriptName}] @badabhai/taxonomy loaded without the Matching V1 exports: ` +
         `${missing.join(", ")}.\n` +
-        `  The V1 match vocabulary is authored in packages/taxonomy by the parallel\n` +
-        `  Matching-V1 workstream. Build it first (\`pnpm build\`) and re-run. This script\n` +
-        `  deliberately has NO fallback corpus — it will not invent skill ids.`,
+        `  These are compiled into packages/taxonomy — an absent one at runtime means a\n` +
+        `  STALE dist/. Run \`pnpm build\` and re-run. This script deliberately has NO\n` +
+        `  fallback corpus — it will not invent skill ids.`,
     );
   }
-  const ns = readNamespace();
-  return {
-    MATCH_SKILLS: ns.MATCH_SKILLS as readonly MatchSkillSeed[],
-    MATCH_SKILL_RELATION_PAIRS: ns.MATCH_SKILL_RELATION_PAIRS as readonly MatchSkillRelationPair[],
-    ROLE_TO_MATCH_SKILL: ns.ROLE_TO_MATCH_SKILL as Readonly<Record<string, string>>,
-    ATTRIBUTE_TO_MATCH_SKILLS: ns.ATTRIBUTE_TO_MATCH_SKILLS as Readonly<
-      Record<string, readonly string[]>
-    >,
-    TRADE_TO_MATCH_SKILL: ns.TRADE_TO_MATCH_SKILL as Readonly<Record<string, string>>,
-  };
+  // No casts: the taxonomy's own types satisfy these structurally. If that ever stops
+  // being true, this is a compile error rather than a runtime surprise in a seeder.
+  return V1_EXPORTS;
 }
 
 // ---------------------------------------------------------------------------

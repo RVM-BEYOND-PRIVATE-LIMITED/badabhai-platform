@@ -65,6 +65,12 @@ export const SKILL_DOMAINS = [
   { id: "fitting-assembly", name: "Fitting & Assembly" },
   { id: "maintenance", name: "Machine Maintenance" },
   { id: "general-machining", name: "General Machining (occupation anchor)" },
+  // Matching V1. MINTED, not shoehorned: `mskill_delivery_rider` needs a NOT NULL
+  // `skill.domain_id`, and every slug above names a manufacturing bench. Filing a
+  // delivery rider under one of them would corrupt the DOMAIN-SCOPED ANN search
+  // (ADR-0030) — a delivery phrase would resolve against machining skills. APPENDED,
+  // so every existing slug keeps its id and its position.
+  { id: "last-mile-delivery", name: "Last-mile Delivery" },
 ] as const;
 
 export type SkillDomainId = (typeof SKILL_DOMAINS)[number]["id"];

@@ -193,7 +193,7 @@ export function labelForTaxonomyId(id: string): string {
   // wins: `mskill_cnc_operator_general` must render "CNC Operator", not
   // "CNC Operator General".
   const matchSkill = getMatchSkill(id);
-  if (matchSkill) return matchSkill.label;
+  if (matchSkill) return matchSkill.labelEn;
   const corpus = _SKILL_CORPUS_LABEL.get(id);
   if (corpus) return corpus;
   // Only ID-SHAPED values get prettified; a plain phrase ("VMC", "cnc operating")

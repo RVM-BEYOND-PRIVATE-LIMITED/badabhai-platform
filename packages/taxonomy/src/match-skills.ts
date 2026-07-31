@@ -24,12 +24,29 @@
 
 import type { TradeKey } from "./enums";
 import type { IndustryId, RoleId } from "./index";
+import type { SkillDomainId, SkillSource, SkillStatus } from "./skill-corpus";
 
-/** One V1 match skill — a postable, role-level job title. */
-export interface MatchSkillNode {
-  id: string;
-  label: string;
+/**
+ * One V1 match skill — a postable, role-level job title, and a `skill` row with
+ * `kind='match_skill'`.
+ *
+ * SHAPE FOLLOWS `SkillSeed` (skill-corpus.ts), NOT the `{id, name}` `TaxonomyNode`
+ * convention: match skills and corpus attributes seed the SAME `skill` table, so they
+ * must speak the same field names. `domain_id` and `source` are NOT NULL there.
+ *
+ * `source` is `"rvm"` for the whole vocabulary and that is not a placeholder. The spec
+ * is explicit that this list and its relations are "curated by Akshit / RVM
+ * instructors — trade truth, not engineering judgment". Labelling it `esco`/`onet`/
+ * `nco` would claim a standards lineage it does not have.
+ */
+export interface MatchSkillSeed {
+  skillId: string;
+  labelEn: string;
+  labelHi: string | null;
   industryId: IndustryId;
+  domainId: SkillDomainId;
+  source: SkillSource;
+  status: SkillStatus;
 }
 
 /**
@@ -37,102 +54,187 @@ export interface MatchSkillNode {
  *
  * APPEND ONLY. Ordering is authoritative for nothing except readability, but the
  * ids are permanent, so entries are never removed and never re-spelled.
+ *
+ * `status` is `"active"` on all eighteen, deliberately. The corpus marks the
+ * trade-widening skills `provisional`, but that flag is about CANONICALIZATION
+ * confidence — how safely a free-text phrase resolves to the id. This is a different
+ * question: "can a company post this vacancy today?", and for all eighteen the answer
+ * is yes. Nothing reads `skill.status` on the match path today, so the risk runs one
+ * way: a future `WHERE status = 'active'` would silently hide a postable trade.
+ *
+ * `labelHi` is `null` throughout — we have no ratified Hindi labels for these yet, and
+ * the corpus records an absent label as `null` rather than an English fallback.
  */
 export const MATCH_SKILLS = [
   // ---- CNC / machining family (the launch wedge) ----
   {
-    id: "mskill_cnc_turner",
-    label: "CNC Turner",
+    skillId: "mskill_cnc_turner",
+    labelEn: "CNC Turner",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-machining",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_vmc_operator",
-    label: "VMC Operator",
+    skillId: "mskill_vmc_operator",
+    labelEn: "VMC Operator",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "vmc-machining",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_hmc_operator",
-    label: "HMC Operator",
+    // `vmc-machining` names the VERTICAL centre specifically, so filing an HMC hand
+    // there would mislabel him. `cnc-machining` is the general machining domain the
+    // corpus already uses for turning/drilling/boring — the honest home for the
+    // horizontal sibling until an `hmc-machining` slug earns its place.
+    skillId: "mskill_hmc_operator",
+    labelEn: "HMC Operator",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-machining",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_cnc_setter_operator",
-    label: "CNC Setter-Operator",
+    skillId: "mskill_cnc_setter_operator",
+    labelEn: "CNC Setter-Operator",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-machining",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_cnc_programmer",
-    label: "CNC Programmer",
+    skillId: "mskill_cnc_programmer",
+    labelEn: "CNC Programmer",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_cam_programmer",
-    label: "CAM Programmer",
+    skillId: "mskill_cam_programmer",
+    labelEn: "CAM Programmer",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_cnc_grinding_operator",
-    label: "CNC Grinding Operator",
+    skillId: "mskill_cnc_grinding_operator",
+    labelEn: "CNC Grinding Operator",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "grinding",
+    source: "rvm",
+    status: "active",
   },
   {
     // The GENERIC CNC operator — names no machine family ON PURPOSE (same rationale as
     // `role_cnc_operator`, TD94): it is the honest landing spot for a worker or a job
     // that says only "CNC operator", and it must never displace a stated specialisation.
-    id: "mskill_cnc_operator_general",
-    label: "CNC Operator",
+    // `general-machining` is the corpus's own occupation-anchor domain — an exact fit.
+    skillId: "mskill_cnc_operator_general",
+    labelEn: "CNC Operator",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "general-machining",
+    source: "rvm",
+    status: "active",
   },
 
   // ---- Welding family ----
   {
-    id: "mskill_mig_welder",
-    label: "MIG Welder",
+    skillId: "mskill_mig_welder",
+    labelEn: "MIG Welder",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "welding",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_tig_welder",
-    label: "TIG Welder",
+    skillId: "mskill_tig_welder",
+    labelEn: "TIG Welder",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "welding",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_arc_welder",
-    label: "Arc Welder",
+    skillId: "mskill_arc_welder",
+    labelEn: "Arc Welder",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "welding",
+    source: "rvm",
+    status: "active",
   },
 
   // ---- Fitting / quality ----
   {
-    id: "mskill_fitter",
-    label: "Fitter",
+    skillId: "mskill_fitter",
+    labelEn: "Fitter",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "fitting-assembly",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_quality_inspector",
-    label: "Quality Inspector",
+    skillId: "mskill_quality_inspector",
+    labelEn: "Quality Inspector",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "metrology-quality",
+    source: "rvm",
+    status: "active",
   },
 
-  // ---- Adjacent trades already carried by ROLES ----
+  // ---- Adjacent trades already carried by ROLES. Each sits in the SAME skill-domain
+  // ---- as its corpus occupation anchor (`skill_plumber_occupation` etc.), so the
+  // ---- domain-scoped search sees one consistent neighbourhood per trade.
   {
-    id: "mskill_plumber",
-    label: "Plumber",
+    skillId: "mskill_plumber",
+    labelEn: "Plumber",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "fitting-assembly",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_carpenter",
-    label: "Carpenter",
+    skillId: "mskill_carpenter",
+    labelEn: "Carpenter",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "fitting-assembly",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_designer",
-    label: "Designer",
+    skillId: "mskill_designer",
+    labelEn: "Designer",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
+    source: "rvm",
+    status: "active",
   },
   {
-    id: "mskill_interior_designer",
-    label: "Interior Designer",
+    skillId: "mskill_interior_designer",
+    labelEn: "Interior Designer",
+    labelHi: null,
     industryId: "ind_industrial_manufacturing",
+    domainId: "cnc-programming",
+    source: "rvm",
+    status: "active",
   },
 
   // ---- Quick commerce ----
@@ -141,18 +243,25 @@ export const MATCH_SKILLS = [
     // platform AND ran a CNC lathe. Without this id his delivery history has nowhere
     // to live, and the "delivery months contribute nothing to a factory job" rule is
     // untestable. It is a REAL row, not an illustration.
-    id: "mskill_delivery_rider",
-    label: "Delivery Rider",
+    //
+    // `last-mile-delivery` is MINTED for him (skill-corpus.ts) rather than borrowing a
+    // machining slug — see the note there.
+    skillId: "mskill_delivery_rider",
+    labelEn: "Delivery Rider",
+    labelHi: null,
     industryId: "ind_quick_commerce",
+    domainId: "last-mile-delivery",
+    source: "rvm",
+    status: "active",
   },
-] as const satisfies readonly MatchSkillNode[];
+] as const satisfies readonly MatchSkillSeed[];
 
-export type MatchSkillId = (typeof MATCH_SKILLS)[number]["id"];
+export type MatchSkillId = (typeof MATCH_SKILLS)[number]["skillId"];
 
-const _MATCH_SKILL_BY_ID = new Map<string, MatchSkillNode>(MATCH_SKILLS.map((s) => [s.id, s]));
+const _MATCH_SKILL_BY_ID = new Map<string, MatchSkillSeed>(MATCH_SKILLS.map((s) => [s.skillId, s]));
 
 /** Resolve a match skill by id. `undefined` for anything outside the closed set. */
-export function getMatchSkill(id: string): MatchSkillNode | undefined {
+export function getMatchSkill(id: string): MatchSkillSeed | undefined {
   return _MATCH_SKILL_BY_ID.get(id);
 }
 
@@ -166,7 +275,7 @@ export function isMatchSkillId(value: unknown): value is MatchSkillId {
  * always render something use `labelForTaxonomyId`, which falls back to prettifying.
  */
 export function matchSkillLabel(id: string): string | undefined {
-  return _MATCH_SKILL_BY_ID.get(id)?.label;
+  return _MATCH_SKILL_BY_ID.get(id)?.labelEn;
 }
 
 /** The industry a match skill belongs to (drives per-industry tenure). */
@@ -174,130 +283,95 @@ export function matchSkillIndustry(id: string): IndustryId | undefined {
   return _MATCH_SKILL_BY_ID.get(id)?.industryId;
 }
 
+/** One UNORDERED adjacency between two match skills. */
+export type MatchSkillRelationPair = readonly [MatchSkillId, MatchSkillId];
+
 /**
- * RELATED SKILLS — the flat, curated, SYMMETRIC relation.
+ * RELATED SKILLS — the flat, curated, SYMMETRIC relation. THE SOURCE OF TRUTH.
  *
  * This is trade truth, owned by the RVM instructors (Akshit's team), not a computed
- * similarity: "a man who runs a VMC can run an HMC". It is flat by design — there is
- * no hierarchy, no distance metric, no embedding. A related match is TIER 2; an exact
+ * similarity: "a man who runs a VMC can run an HMC". It is flat by design — no
+ * hierarchy, no distance metric, no embedding. A related match is TIER 2; an exact
  * match is TIER 1 (see `@badabhai/match-engine`).
  *
- * SYMMETRY IS AN INVARIANT, not a convention: if A lists B then B lists A. It is
- * authored by hand here (so an instructor can read and edit one map) and enforced by
- * `match-skills.test.ts`. No self-relations. Every id resolves.
+ * ONE EDGE, LISTED ONCE. The relation is undirected, so it is authored as unordered
+ * pairs rather than as a directed map: a symmetric map has to be written twice and can
+ * therefore be written WRONG twice. `RELATED_MATCH_SKILLS` below is DERIVED from this
+ * list, so the two cannot drift, and the `skill_related` seeder expands each pair into
+ * its two directed rows itself — it REJECTS a pair listed twice.
  *
  * Curating a relation means answering ONE question: "would a shop that posted A
- * seriously consider a man whose trade is B?" Where the honest answer is no, the
- * array is empty — an empty relation set is a legitimate curation result, never an
- * oversight (see `mskill_carpenter`, `mskill_delivery_rider`).
+ * seriously consider a man whose trade is B?" Where the honest answer is no, there is
+ * no pair. An absent relation is a legitimate curation result, never an oversight:
+ * `mskill_carpenter` has none (an interior designer specifies the work, they do not do
+ * it), and `mskill_delivery_rider` has none — that emptiness is what makes E1 true
+ * ("delivery months contribute nothing to a factory job"), so it must never be filled
+ * in to widen reach.
+ *
+ * ORDERING IS PART OF THE CONTRACT: sorted within each pair and across the list, so the
+ * export is byte-stable and a diff shows only what a curator actually changed. Enforced
+ * in `match-skills.test.ts`, not merely asserted here.
  */
-export const RELATED_MATCH_SKILLS: Record<MatchSkillId, readonly MatchSkillId[]> = {
-  // CNC family. `mskill_vmc_operator` is the doc's reference job and its relation set
-  // is exactly the three the doc prints — HMC, CNC Setter-Operator, CNC Turner.
-  mskill_cnc_turner: [
-    "mskill_vmc_operator",
-    "mskill_cnc_setter_operator",
-    "mskill_cnc_operator_general",
-    "mskill_cnc_grinding_operator",
-  ],
-  mskill_vmc_operator: [
-    "mskill_hmc_operator",
-    "mskill_cnc_setter_operator",
-    "mskill_cnc_turner",
-  ],
-  mskill_hmc_operator: [
-    "mskill_vmc_operator",
-    "mskill_cnc_setter_operator",
-    "mskill_cnc_operator_general",
-  ],
-  mskill_cnc_setter_operator: [
-    "mskill_cnc_turner",
-    "mskill_vmc_operator",
-    "mskill_hmc_operator",
-    "mskill_cnc_programmer",
-  ],
-  mskill_cnc_programmer: ["mskill_cam_programmer", "mskill_cnc_setter_operator"],
+export const MATCH_SKILL_RELATION_PAIRS: readonly MatchSkillRelationPair[] = [
+  // Welding family — MIG / TIG / Arc are mutually related (3 edges).
+  ["mskill_arc_welder", "mskill_mig_welder"],
+  ["mskill_arc_welder", "mskill_tig_welder"],
   // A CAM programmer and a (CAD) designer both work the part geometry in software;
   // shops routinely move a man between the two desks.
-  mskill_cam_programmer: ["mskill_cnc_programmer", "mskill_designer"],
-  mskill_cnc_grinding_operator: ["mskill_cnc_turner", "mskill_cnc_operator_general"],
-  mskill_cnc_operator_general: [
-    "mskill_cnc_turner",
-    "mskill_hmc_operator",
-    "mskill_cnc_grinding_operator",
-  ],
-
-  // Welding family — MIG / TIG / Arc are mutually related.
-  mskill_mig_welder: ["mskill_tig_welder", "mskill_arc_welder"],
-  mskill_tig_welder: ["mskill_mig_welder", "mskill_arc_welder"],
-  mskill_arc_welder: ["mskill_mig_welder", "mskill_tig_welder"],
-
+  ["mskill_cam_programmer", "mskill_cnc_programmer"],
+  ["mskill_cam_programmer", "mskill_designer"],
+  // CNC family.
+  ["mskill_cnc_grinding_operator", "mskill_cnc_operator_general"],
+  ["mskill_cnc_grinding_operator", "mskill_cnc_turner"],
+  ["mskill_cnc_operator_general", "mskill_cnc_turner"],
+  ["mskill_cnc_operator_general", "mskill_hmc_operator"],
+  ["mskill_cnc_programmer", "mskill_cnc_setter_operator"],
+  ["mskill_cnc_setter_operator", "mskill_cnc_turner"],
+  ["mskill_cnc_setter_operator", "mskill_hmc_operator"],
+  ["mskill_cnc_setter_operator", "mskill_vmc_operator"],
+  ["mskill_cnc_turner", "mskill_vmc_operator"],
+  // Design family.
+  ["mskill_designer", "mskill_interior_designer"],
   // Fitting / quality / plumbing. A plumber IS a pipe fitter in the Indian trade
   // vocabulary, which is why the fitter relation is real and not a stretch.
-  mskill_fitter: ["mskill_quality_inspector", "mskill_plumber"],
-  mskill_quality_inspector: ["mskill_fitter"],
-  mskill_plumber: ["mskill_fitter"],
+  ["mskill_fitter", "mskill_plumber"],
+  ["mskill_fitter", "mskill_quality_inspector"],
+  // The spec's reference job: VMC Operator -> HMC · CNC Setter-Operator · CNC Turner.
+  // Those three edges are (hmc,vmc) here, (setter,vmc) and (turner,vmc) above.
+  ["mskill_hmc_operator", "mskill_vmc_operator"],
+  ["mskill_mig_welder", "mskill_tig_welder"],
+];
 
-  // DELIBERATELY EMPTY. A carpenter is not interchangeable with any other trade in
-  // this vocabulary — an interior designer specifies the work, they do not do it.
-  mskill_carpenter: [],
-
-  // Design family.
-  mskill_designer: ["mskill_interior_designer", "mskill_cam_programmer"],
-  mskill_interior_designer: ["mskill_designer"],
-
-  // DELIBERATELY EMPTY. Quick-commerce riding shares no trade with a factory floor —
-  // this emptiness is what makes E1 true ("delivery months contribute nothing to a
-  // factory job"), so it must never be "filled in" for reach.
-  mskill_delivery_rider: [],
-};
+/**
+ * The directed adjacency the ENGINE reads — a skill to its related skills.
+ *
+ * DERIVED from `MATCH_SKILL_RELATION_PAIRS`, never hand-authored, so symmetry is a
+ * property of the CONSTRUCTION rather than a promise a curator has to keep twice.
+ * Every match skill appears as a key, including the ones with no relations at all, so
+ * a lookup never returns `undefined`. Each list is sorted, so reach expansion is
+ * byte-stable.
+ */
+export const RELATED_MATCH_SKILLS: Record<MatchSkillId, readonly MatchSkillId[]> = (() => {
+  const adjacency = new Map<MatchSkillId, Set<MatchSkillId>>();
+  for (const s of MATCH_SKILLS) adjacency.set(s.skillId, new Set<MatchSkillId>());
+  for (const [a, b] of MATCH_SKILL_RELATION_PAIRS) {
+    adjacency.get(a)?.add(b);
+    adjacency.get(b)?.add(a);
+  }
+  // The cast is safe BY CONSTRUCTION — the keys come from MATCH_SKILLS, so the record
+  // is exhaustive over `MatchSkillId`. `match-skills.test.ts` re-asserts that at
+  // runtime rather than trusting this comment.
+  const derived = {} as Record<MatchSkillId, readonly MatchSkillId[]>;
+  for (const [skillId, related] of adjacency) {
+    derived[skillId] = [...related].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  }
+  return derived;
+})();
 
 /** Related match skills for an id — `[]` for an unknown id or a curated empty set. */
 export function relatedMatchSkills(id: string): readonly MatchSkillId[] {
   return isMatchSkillId(id) ? RELATED_MATCH_SKILLS[id] : [];
 }
-
-/** One directed edge of the relation graph. */
-export interface MatchSkillRelationPair {
-  skillId: MatchSkillId;
-  relatedSkillId: MatchSkillId;
-}
-
-/**
- * The relation flattened to BOTH directions, deduped and deterministically ordered —
- * the shape a `match_skill_relations` seeder consumes (one row per directed edge, so
- * a single-direction lookup is a plain indexed read).
- *
- * Derived from `RELATED_MATCH_SKILLS`, which stays the human-edited source of truth.
- */
-export const MATCH_SKILL_RELATION_PAIRS: readonly MatchSkillRelationPair[] = (() => {
-  const seen = new Set<string>();
-  const pairs: MatchSkillRelationPair[] = [];
-  for (const [skillId, related] of Object.entries(RELATED_MATCH_SKILLS)) {
-    for (const relatedSkillId of related) {
-      for (const [a, b] of [
-        [skillId as MatchSkillId, relatedSkillId],
-        [relatedSkillId, skillId as MatchSkillId],
-      ] as const) {
-        const key = `${a} ${b}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        pairs.push({ skillId: a, relatedSkillId: b });
-      }
-    }
-  }
-  return pairs.sort((x, y) =>
-    x.skillId === y.skillId
-      ? x.relatedSkillId < y.relatedSkillId
-        ? -1
-        : x.relatedSkillId > y.relatedSkillId
-          ? 1
-          : 0
-      : x.skillId < y.skillId
-        ? -1
-        : 1,
-  );
-})();
 
 /* ------------------------------------------------------------------------- *
  * BRIDGE MAPS — today's data into the V1 vocabulary.
