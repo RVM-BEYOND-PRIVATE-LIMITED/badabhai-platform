@@ -888,6 +888,48 @@ export const agencyInviteWireSchema = z.object({
 });
 export type AgencyInvite = z.infer<typeof agencyInviteWireSchema>;
 
+/**
+ * POST /payer/agency/invites/batch — the SAME faceless mint, N codes in one call.
+ *
+ * Identical privacy shape to the singular mint: the request carries a `count` and the same
+ * optional non-PII `campaign` tag and NOTHING else (no phone/name/email/worker-id — there is
+ * nowhere to put one), and the response is a list of OPAQUE codes/links. The array length
+ * equals the requested count; the agency shares the codes, it never types a contact.
+ */
+export const agencyInviteBatchWireSchema = z.object({
+  invites: z.array(agencyInviteWireSchema),
+});
+export type AgencyInviteBatch = z.infer<typeof agencyInviteBatchWireSchema>;
+
+/**
+ * GET /payer/agency/workers — the ENGAGEMENT view of the workers THIS agency referred.
+ *
+ * FACELESS BY CONSTRUCTION (CLAUDE.md §2 #2). Every field here is either an opaque handle,
+ * a count, a boolean, or a coarse day:
+ *  - `ref` is a PER-AGENCY HMAC pseudonym (16 hex), NOT the worker uuid. Two agencies that
+ *    referred the same worker see two unrelated handles, so they cannot join their lists,
+ *    and neither handle is joinable against anything else on the platform.
+ *  - `appliedCount` / `unlockedCount` are COUNTS ONLY — never WHICH job was applied to and
+ *    never WHO unlocked him. There is no drill-down because there is nothing to drill into.
+ *  - `lastActiveOn` is a coarse UTC DAY (`YYYY-MM-DD`) or null — never a time of day.
+ *
+ * CONSENT (invariant #6): the backend selects only workers carrying an ACTIVE
+ * `agent_activity_visibility` consent. A worker without it is ABSENT — and absent
+ * identically to "never referred", so the list is not a consent oracle. Consequently an
+ * EMPTY list is the normal, correct state, not a failure.
+ */
+export const agencyWorkerWireSchema = z.object({
+  ref: z.string(),
+  profileComplete: z.boolean(),
+  appliedCount: z.number().int().nonnegative(),
+  unlockedCount: z.number().int().nonnegative(),
+  lastActiveOn: z.string().nullable(),
+});
+export const agencyWorkerListWireSchema = z.object({
+  workers: z.array(agencyWorkerWireSchema),
+});
+export type AgencyWorker = z.infer<typeof agencyWorkerWireSchema>;
+
 /* ── Agency SUPPLY money — earnings / KYC / payout (ADR-0022 Amendment 2, LIVE) ────
  *
  * The agency's OWN referral-earnings surface: mock-money rev-share accrued on contact

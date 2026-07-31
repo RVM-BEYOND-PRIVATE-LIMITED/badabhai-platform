@@ -1,7 +1,10 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { AgencyWorkersService } from "./agency-workers.service";
-import type { AgencyWorkersRepository, AgencyWorkerEngagementRow } from "./agency-workers.repository";
+import type {
+  AgencyWorkersRepository,
+  AgencyWorkerEngagementRow,
+} from "./agency-workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { createHmac } from "node:crypto";
 
@@ -87,6 +90,78 @@ describe("AgencyWorkersService — the pseudonym is PER-AGENCY", () => {
     const first = (await svc.listReferred(AGENCY_A)).workers[0]!.ref;
     const second = (await svc.listReferred(AGENCY_A)).workers[0]!.ref;
     expect(first).toBe(second);
+  });
+});
+
+/**
+ * The repository orders by `last_active_on DESC NULLS LAST, ai.invited_worker_id ASC` so the
+ * LIMIT is deterministic — but that tiebreak is a RAW WORKER UUID. Shipping that order to the
+ * client makes the row positions a function of exactly the ids `ref` exists to hide: an agency
+ * is also a payer and holds real workers.id values from the applicant/unlock surfaces, so
+ * within a tie group (in practice the whole never-active block) it could sort its known uuids
+ * and read the alignment straight off the returned order.
+ *
+ * These rows arrive in uuid-ascending order, the way the SQL hands them over.
+ */
+const CREW = [
+  "10000000-0000-4000-8000-000000000001",
+  "20000000-0000-4000-8000-000000000002",
+  "30000000-0000-4000-8000-000000000003",
+  "40000000-0000-4000-8000-000000000004",
+  "50000000-0000-4000-8000-000000000005",
+  "60000000-0000-4000-8000-000000000006",
+];
+
+const refFor = (agency: string, worker: string) =>
+  createHmac("sha256", "test-pepper")
+    .update(`agency_worker:${agency}:${worker}`)
+    .digest("hex")
+    .slice(0, 16);
+
+/** Recover which worker each returned `ref` stands for, so orders are comparable ACROSS agencies. */
+const orderOf = (out: { workers: { ref: string }[] }, agency: string): string[] =>
+  out.workers.map((w) => CREW.find((id) => refFor(agency, id) === w.ref) ?? `unknown:${w.ref}`);
+
+const crewRows = (lastActiveOn: string | null = null): AgencyWorkerEngagementRow[] =>
+  CREW.map((workerId) => ({ ...ROW, workerId, lastActiveOn }));
+
+describe("AgencyWorkersService — the RESPONSE ORDER carries no worker-uuid signal", () => {
+  it("gives two agencies the SAME workers in DIFFERENT orders (order is not a shared function of the uuids)", async () => {
+    const { svc } = setup(crewRows());
+    const a = orderOf(await svc.listReferred(AGENCY_A), AGENCY_A);
+    const b = orderOf(await svc.listReferred(AGENCY_B), AGENCY_B);
+
+    // Same underlying men, both times — nothing was dropped or invented by the re-sort.
+    expect(new Set(a)).toEqual(new Set(CREW));
+    expect(new Set(b)).toEqual(new Set(CREW));
+    // If the response kept the repository's uuid-derived order these would be IDENTICAL, and
+    // that shared order is what lets a colluding/knowing agency align rows to known uuids.
+    expect(a).not.toEqual(b);
+  });
+
+  it("does NOT hand back the repository's uuid-ascending order", async () => {
+    const { svc } = setup(crewRows());
+    expect(orderOf(await svc.listReferred(AGENCY_A), AGENCY_A)).not.toEqual(CREW);
+  });
+
+  it("orders a tie group by the per-agency pseudonym (deterministic, and stable per agency)", async () => {
+    const { svc } = setup(crewRows());
+    const refs = (await svc.listReferred(AGENCY_A)).workers.map((w) => w.ref);
+    expect(refs).toEqual([...refs].sort());
+    // Stable: a second identical request returns the same order (the list stays usable).
+    expect((await svc.listReferred(AGENCY_A)).workers.map((w) => w.ref)).toEqual(refs);
+  });
+
+  it("still returns most-recently-active first, with never-active LAST (the product order is unchanged)", async () => {
+    const { svc } = setup([
+      { ...ROW, workerId: CREW[0]!, lastActiveOn: null },
+      { ...ROW, workerId: CREW[1]!, lastActiveOn: "2026-07-20" },
+      { ...ROW, workerId: CREW[2]!, lastActiveOn: "2026-07-29" },
+      { ...ROW, workerId: CREW[3]!, lastActiveOn: null },
+      { ...ROW, workerId: CREW[4]!, lastActiveOn: "2026-07-25" },
+    ]);
+    const days = (await svc.listReferred(AGENCY_A)).workers.map((w) => w.lastActiveOn);
+    expect(days).toEqual(["2026-07-29", "2026-07-25", "2026-07-20", null, null]);
   });
 });
 

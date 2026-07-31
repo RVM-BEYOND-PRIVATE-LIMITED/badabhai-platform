@@ -28,6 +28,7 @@ Nothing in P4 may proceed past the item that depends on it.
 | 9 | **Production database backup/snapshot taken and its restore verified** | P1. A rehearsed restore, not an assumed one. | ☐ |
 | 10 | **`INTERNAL_SERVICE_TOKEN` set — to the SAME value — on both the API and the ops console (`apps/web`)** | **The entire ops API.** See the note below; this one is new and it is load-bearing. | ☐ |
 | 11 | **Ops API not publicly routable** (private network / VPN / IP allowlist in front of `apps/api`'s ops routes) | Defence in depth for the same surface. Owner ruling 2026-07-31: guard in code **and** infra, so a single misconfiguration on either side is not fatal. | ☐ |
+| 12 | **Physically print and scan the agency invite QR sheet** (B5, batch invite minting) | The overflow + blank-print-sheet fixes are reasoned from box-model/`:has()` CSS logic, not observed — nobody running this build can open a browser or print a page. Confirm on a real phone camera against a real printed sheet before treating the QR flow as launch-ready. | ☐ |
 
 ### P0-10 — why this is suddenly load-bearing
 

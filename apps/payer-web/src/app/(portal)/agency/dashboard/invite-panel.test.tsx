@@ -46,6 +46,7 @@ const { AgencyInvitePanel } = await import("./invite-panel");
 interface Collected {
   forms: Array<{ onSubmit?: (e: { preventDefault: () => void }) => void }>;
   ariaLiveCount: number;
+  props: Array<Record<string, unknown>>;
 }
 
 function walk(node: ReactNode, acc: Collected): void {
@@ -61,12 +62,13 @@ function walk(node: ReactNode, acc: Collected): void {
       onSubmit: el.props.onSubmit as ((e: { preventDefault: () => void }) => void) | undefined,
     });
   }
+  acc.props.push(el.props);
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount++;
   if ("children" in el.props) walk(el.props.children, acc);
 }
 
 function collect(tree: ReactNode): Collected {
-  const acc: Collected = { forms: [], ariaLiveCount: 0 };
+  const acc: Collected = { forms: [], ariaLiveCount: 0, props: [] };
   walk(tree, acc);
   return acc;
 }
@@ -109,6 +111,19 @@ describe("AgencyInvitePanel — INLINE PII screen rejects a phone/email tag befo
   it("an empty tag is allowed (optional) and proceeds with campaign: undefined", () => {
     submit(render(""));
     expect(createInviteAction).toHaveBeenCalledWith({ campaign: undefined });
+  });
+});
+
+describe("AgencyInvitePanel — an invalid tag is EXPLAINED, not silently blocked", () => {
+  it("keeps the submit reachable so `handleCreate` can set the reason under the field", () => {
+    // Disabling the submit while `tagError(campaign) !== null` also suppressed Enter, so
+    // handleCreate never ran, `campaignError` was never set, and the message under the field
+    // — the only thing that says WHY — was unreachable. The button just greyed out.
+    const submitBtn = collect(render("call +91 98123 45678")).props.find(
+      (p) => p.type === "submit",
+    );
+    expect(submitBtn).toBeDefined();
+    expect(submitBtn!.disabled).toBeFalsy();
   });
 });
 

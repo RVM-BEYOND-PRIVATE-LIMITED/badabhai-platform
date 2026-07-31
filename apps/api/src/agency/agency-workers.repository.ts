@@ -119,6 +119,27 @@ export class AgencyWorkersRepository {
               WHERE wc2.worker_id = ai.invited_worker_id
             )
         )
+      -- THIS ORDER IS FOR THE *LIMIT*, NOT FOR THE CLIENT. The tiebreak is a raw worker
+      -- uuid, and a client-visible row order derived from raw uuids would undo the
+      -- per-agency pseudonym (ref): an agency is also a payer and holds real workers.id
+      -- values from the applicant/unlock surfaces, so within any tie group (notably the
+      -- whole null-last_active_on block) it could sort its known uuids and align them
+      -- against the returned positions to de-pseudonymise rows. The SERVICE therefore
+      -- RE-SORTS the result by (day, ref) before returning it -- see
+      -- AgencyWorkersService.listReferred. Do not "simplify" by trusting this order.
+      --
+      -- RESIDUAL, deliberate: which rows survive the LIMIT inside a tie group is still a
+      -- function of the worker uuids. That is MEMBERSHIP, not ORDER -- with the response
+      -- re-sorted, position no longer aligns with anything, so the attack degrades to
+      -- "is my known worker among my own top-N referrals", and the agency already knows
+      -- it referred him. Accepted at this bound (LIMIT 200, one tenant's own referrals)
+      -- rather than papered over. Swapping the tiebreak to ai.id does NOT improve it: an
+      -- agency knows its own invite ids AND which person it handed each code to, so that
+      -- correlate is strictly stronger than the uuid one. A real fix means ordering by
+      -- the keyed HMAC, which would need the pepper inside SQL.
+      --
+      -- NB: no backtick may appear anywhere in this block -- it lives inside a tagged
+      -- template literal, so one would terminate the string mid-query.
       ORDER BY last_active_on DESC NULLS LAST, ai.invited_worker_id ASC
       LIMIT ${limit}
     `);

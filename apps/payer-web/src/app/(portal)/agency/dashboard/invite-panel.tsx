@@ -109,7 +109,10 @@ export function AgencyInvitePanel() {
         />
 
         <div className="agency-invite__actions">
-          <Button type="submit" disabled={pending || tagError(campaign) !== null} loading={pending}>
+          {/* Enabled while the tag is invalid ON PURPOSE: disabling the submit also blocked
+              Enter, so `handleCreate` never ran and `campaignError` — the only thing that
+              renders the reason — was never set. The button just greyed out silently. */}
+          <Button type="submit" disabled={pending} loading={pending}>
             {pending ? "Creating…" : "Create invite link"}
           </Button>
           <Badge tone="success" upper>

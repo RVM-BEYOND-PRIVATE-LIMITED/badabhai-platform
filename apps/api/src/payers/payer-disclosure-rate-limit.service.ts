@@ -5,9 +5,21 @@ import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 
+/**
+ * ONE message for BOTH 429 causes — cap reached AND Redis unavailable.
+ *
+ * ADR-0022 Amendment 3, condition C6: distinguishing "you are out of budget" from "the
+ * counter store is down" hands an abuser a probe for infrastructure state (and, for the
+ * batch mint, a way to tell a rejected reservation from an outage). Both are the same
+ * fail-closed refusal from the caller's point of view, so they are byte-identical: same
+ * status, same body. The DIAGNOSTIC difference stays where it belongs — in the server log.
+ */
+const NEUTRAL_THROTTLE_MESSAGE = "Too many requests; please try again later";
+
 /** Minimal typed view of the raw Redis commands we need (BullMQ → ioredis). */
 interface RedisCounter {
   incr(key: string): Promise<number>;
+  incrby(key: string, increment: number): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
 }
 
@@ -42,21 +54,53 @@ export class PayerDisclosureRateLimit {
    * the grant path. The payer-self REACH read (ADR-0019 R22 / PR2) passes
    * `{scope:"payer_reach", cap: PAYER_REACH_MAX_PER_HOUR}` to bound scraping on its own
    * bucket. Each `(scope, payer, hour)` is an independent counter; both fail closed.
+   *
+   * `amount` (default 1) is the number of UNITS this one request consumes — the BATCH
+   * knob (ADR-0022 Amendment 3, agency invite batch mint, condition C1). A request that
+   * performs N chargeable actions must reserve N units in ONE atomic op, ATOMICALLY and
+   * UP-FRONT, before any row is written:
+   *
+   *  - WHY NOT a loop of N `assertWithinHourlyCap` calls: a mid-loop Redis failure would
+   *    leave a PARTIALLY reserved counter next to a partially written batch, and a
+   *    catch-and-continue would silently uncap. One INCRBY is all-or-nothing.
+   *  - WHY NOT charging 1 unit per batch: that turns an N-item endpoint into an N× bypass
+   *    of the cap (60/hour → 60·N/hour) and inflates live-invite-code density in the code
+   *    space by N×. A batch of N and N single calls MUST be indistinguishable to the
+   *    counter — otherwise an attacker just alternates between the two paths.
+   *  - WHY a REJECTED batch still consumes its reservation (no refund/decrement): failing
+   *    CLOSED means over-counting is the safe direction — we may deny a legitimate request
+   *    but never allow an extra one. It also denies a cap-probing binary search: an
+   *    attacker cannot free-roll rejected requests to locate the exact remaining budget,
+   *    because every attempt costs what it asked for.
+   *
+   * `amount === 1` keeps the exact single `INCR` every pre-existing caller has always
+   * issued — byte-identical semantics for the disclosure/reach/single-mint paths.
    */
   async assertWithinHourlyCap(
     payerId: string,
-    opts?: { scope?: string; cap?: number },
+    opts?: { scope?: string; cap?: number; amount?: number },
   ): Promise<void> {
     const scope = opts?.scope ?? "payer_disclosure";
     const cap = opts?.cap ?? this.config.PAYER_DISCLOSURE_MAX_PER_HOUR;
+    const amount = opts?.amount ?? 1;
     const hour = PayerDisclosureRateLimit.utcHourStamp();
     const key = `ratelimit:${scope}:${payerId}:${hour}`;
     const ttl = PayerDisclosureRateLimit.secondsUntilEndOfUtcHour();
 
+    // `amount` is always server-derived (a validated, bounded DTO field), never raw input.
+    // A non-positive / non-integer value would be a programming error that could UNCAP the
+    // bucket, so treat it as the fail-closed case rather than normalizing it.
+    if (!Number.isInteger(amount) || amount < 1) {
+      this.logger.error(
+        `rate-limit called with a non-positive amount scope=${scope} payer=${payerId.slice(0, 8)}…; failing closed`,
+      );
+      throw new HttpException(NEUTRAL_THROTTLE_MESSAGE, HttpStatus.TOO_MANY_REQUESTS);
+    }
+
     let count: number;
     try {
       const redis = (await this.queue.client) as unknown as RedisCounter;
-      count = await redis.incr(key);
+      count = amount === 1 ? await redis.incr(key) : await redis.incrby(key, amount);
       // Re-assert TTL on every hit (idempotent + cheap) so a crash between INCR and
       // EXPIRE can't leave a TTL-less key blocking the payer for the rest of the hour.
       await redis.expire(key, ttl);
@@ -67,17 +111,11 @@ export class PayerDisclosureRateLimit {
           err instanceof Error ? err.message : String(err)
         })`,
       );
-      throw new HttpException(
-        "This is temporarily unavailable; please retry shortly",
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      throw new HttpException(NEUTRAL_THROTTLE_MESSAGE, HttpStatus.TOO_MANY_REQUESTS);
     }
 
     if (count > cap) {
-      throw new HttpException(
-        "Too many requests; please try again later",
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      throw new HttpException(NEUTRAL_THROTTLE_MESSAGE, HttpStatus.TOO_MANY_REQUESTS);
     }
   }
 

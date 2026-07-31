@@ -254,7 +254,15 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "AgencyInvites",
     ctor: AgencyInvitesController,
-    routes: { createInvite: [P, R], recordClick: [P, R], referralsSummary: [P, R] },
+    // `createInviteBatch` (ADR-0022 Amendment 3) is a NEW POST on this class — the classic
+    // place a guard is forgotten. It writes N rows, so any tenancy slip is amplified N×;
+    // it must resolve the SAME agent-only pair as the singular mint.
+    routes: {
+      createInvite: [P, R],
+      createInviteBatch: [P, R],
+      recordClick: [P, R],
+      referralsSummary: [P, R],
+    },
   },
   // B5 — the referred-worker ENGAGEMENT view. Agent-only, like every sibling. The
   // DPDP consent gate is NOT a guard: it lives in the repository's SQL, because a

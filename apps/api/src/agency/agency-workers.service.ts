@@ -59,23 +59,47 @@ export class AgencyWorkersService {
 
   async listReferred(payerId: string): Promise<{ workers: AgencyWorkerView[] }> {
     const rows = await this.repo.listReferredWithConsent(payerId, AgencyWorkersService.MAX_ROWS);
-    return {
-      workers: rows.map((r) => ({
-        // Keyed HMAC over (agency, worker). Including the PAYER id in the input is
-        // what makes the pseudonym per-agency rather than global — without it, two
-        // agencies would derive the SAME handle for a shared referral and could
-        // join their lists. Truncated to 16 hex chars: enough that a collision is
-        // not a practical concern at this scale, short enough to render.
-        ref: this.pii.hmac(`agency_worker:${payerId}:${r.workerId}`).slice(0, 16),
-        profileComplete: r.profileComplete,
-        appliedCount: r.appliedCount,
-        unlockedCount: r.unlockedCount,
-        // Passed straight through. The repository formats the UTC day IN SQL
-        // precisely so nothing here can shift it: an earlier version returned a
-        // timestamptz and did `.toISOString().slice(0, 10)`, which on an IST server
-        // rendered the PREVIOUS day (measured against a real Postgres, not guessed).
-        lastActiveOn: r.lastActiveOn,
-      })),
-    };
+    const workers = rows.map((r) => ({
+      // Keyed HMAC over (agency, worker). Including the PAYER id in the input is
+      // what makes the pseudonym per-agency rather than global — without it, two
+      // agencies would derive the SAME handle for a shared referral and could
+      // join their lists. Truncated to 16 hex chars: enough that a collision is
+      // not a practical concern at this scale, short enough to render.
+      ref: this.pii.hmac(`agency_worker:${payerId}:${r.workerId}`).slice(0, 16),
+      profileComplete: r.profileComplete,
+      appliedCount: r.appliedCount,
+      unlockedCount: r.unlockedCount,
+      // Passed straight through. The repository formats the UTC day IN SQL
+      // precisely so nothing here can shift it: an earlier version returned a
+      // timestamptz and did `.toISOString().slice(0, 10)`, which on an IST server
+      // rendered the PREVIOUS day (measured against a real Postgres, not guessed).
+      lastActiveOn: r.lastActiveOn,
+    }));
+
+    // THE ORDER THE CLIENT SEES IS RE-DERIVED FROM THE PSEUDONYM, NOT FROM THE UUID.
+    //
+    // The repository's tiebreak is `ai.invited_worker_id ASC` because the LIMIT needs a
+    // deterministic total order — but shipping that order out would hand back a function of
+    // the very uuids `ref` exists to hide. An agency is also a payer and holds real
+    // workers.id values from the applicant/unlock surfaces; inside a tie group (in practice
+    // the entire null-`lastActiveOn` block) it could sort its known uuids and read the
+    // alignment straight off the row positions. Re-sorting on `ref` — a per-agency keyed
+    // HMAC — means the order carries no uuid signal at all, and two agencies who referred
+    // the SAME men see them in DIFFERENT orders (the property the test asserts).
+    //
+    // The product ordering is unchanged: most-recently-active day first, never-active last.
+    // Only the WITHIN-DAY order changes, from uuid-derived to pseudonym-derived.
+    workers.sort((a, b) => {
+      if (a.lastActiveOn !== b.lastActiveOn) {
+        if (a.lastActiveOn === null) return 1;
+        if (b.lastActiveOn === null) return -1;
+        // `YYYY-MM-DD` sorts correctly as a string, which is why the repository formats the
+        // day in SQL rather than handing back a timestamp.
+        return a.lastActiveOn < b.lastActiveOn ? 1 : -1;
+      }
+      return a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0;
+    });
+
+    return { workers };
   }
 }

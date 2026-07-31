@@ -1,6 +1,8 @@
 import "server-only";
+import { z } from "zod";
 import {
   agencyEarningsWireSchema,
+  agencyInviteBatchWireSchema,
   agencyInviteWireSchema,
   agencyJobListWireSchema,
   agencyJobWireSchema,
@@ -8,6 +10,8 @@ import {
   agencyPayoutListWireSchema,
   agencyPayoutRequestWireSchema,
   agencyReferralsSummaryWireSchema,
+  agencyWorkerListWireSchema,
+  agencyWorkerWireSchema,
   applicantFeedSchema,
   buyCapacityWireSchema,
   buyPackResultWireSchema,
@@ -48,6 +52,7 @@ import {
   type AgencyPayout,
   type AgencyPayoutRequestWire,
   type AgencyReferralsSummary,
+  type AgencyWorker,
   type ApplicantFeed,
   type Capacity,
   type CreatePostingInput,
@@ -673,6 +678,90 @@ export async function createAgencyInvite(input: {
     if (e instanceof Error && /returned 429/.test(e.message)) return { ok: false };
     throw e;
   }
+}
+
+/** The seam result of a BATCH mint — N opaque codes on success, or a NEUTRAL failure. */
+export type CreateAgencyInviteBatchResult =
+  | { ok: true; invites: { code: string; link: string }[] }
+  | { ok: false };
+
+/**
+ * POST /payer/agency/invites/batch — mint N OWNED opaque invite codes in one call.
+ *
+ * The privacy shape is IDENTICAL to the singular {@link createAgencyInvite}: the body carries
+ * only `count` plus the same optional non-PII `campaign` tag — no phone/name/email/worker-id,
+ * and no payer_id (XB-A: the session token is the identity). The response is opaque codes/links
+ * only, which still cross {@link assertNoAgencyPII} (defence-in-depth).
+ *
+ * The per-payer mint cap AND a Redis outage BOTH return the SAME backend 429 (fail-closed, no
+ * leaked reason) → one NEUTRAL `{ ok: false }`, never a fake success and never a partial list
+ * presented as complete. Other transient failures propagate to the caller's action, which
+ * neutralizes them the same way the singular mint's action does.
+ */
+export async function createAgencyInviteBatch(input: {
+  count: number;
+  campaign?: string;
+}): Promise<CreateAgencyInviteBatchResult> {
+  const body: Record<string, unknown> = { count: input.count };
+  if (input.campaign) body.campaign = input.campaign;
+  try {
+    const wire = assertNoAgencyPII(
+      await payerFetch("/payer/agency/invites/batch", {
+        method: "POST",
+        body,
+        schema: agencyInviteBatchWireSchema,
+      }),
+      "payer/agency/invites/batch",
+    );
+    return { ok: true, invites: wire.invites.map((i) => ({ code: i.code, link: i.link })) };
+  } catch (e) {
+    // 429 = mint cap reached OR Redis fail-closed (identical 429, no leaked reason).
+    if (e instanceof Error && /returned 429/.test(e.message)) return { ok: false };
+    throw e;
+  }
+}
+
+/**
+ * TRANSPORT schema for the referred-worker list — the contract shape, but LENIENT.
+ *
+ * A plain `z.object` STRIPS unknown keys, which would silently swallow a regressed backend
+ * payload carrying a worker name before {@link assertNoAgencyPII} ever saw it — the guard
+ * would be decorative on this route. Parsing loosely here means a forbidden key SURVIVES to
+ * the guard, which THROWS in dev/test (a loud CI failure) and strips + warns in prod. The
+ * strict {@link agencyWorkerListWireSchema} is then re-applied below as the final projection,
+ * so only the five contract fields can ever reach the page.
+ */
+const agencyWorkerListTransportSchema = z
+  .object({ workers: z.array(agencyWorkerWireSchema.passthrough()) })
+  .passthrough();
+
+/**
+ * GET /payer/agency/workers — the ENGAGEMENT view of the workers THIS agency referred
+ * (LIVE, agent-role-gated + payer-authed; the `inviter_payer_id` is the SESSION and appears
+ * in no route/query/body — XB-A, there is no parameterised variant to abuse).
+ *
+ * FACELESS: opaque per-agency `ref` handles, booleans, counts and a coarse UTC day only —
+ * never a name/phone/employer, never WHICH job or WHO unlocked. Do not add a client-side
+ * join, lookup or drill-down on `ref`: it is a pseudonym precisely so nothing can be
+ * reconstructed from it.
+ *
+ * CONSENT (invariant #6): the backend selects ONLY workers carrying an active
+ * `agent_activity_visibility` consent, and a non-consenting worker is absent identically to
+ * a never-referred one (no consent oracle). An EMPTY array is therefore the normal answer —
+ * today it is the ONLY answer, because no client requests that consent purpose yet. The page
+ * must treat empty as a first-class state, never as an error.
+ *
+ * SCRAPE BOUND: this read rides the payer hourly reach cap server-side, so it can answer 429.
+ * That is a transport error like any other and propagates — the page degrades to its neutral
+ * retry card rather than rendering a half-list or a fabricated one.
+ */
+export async function listAgencyWorkers(): Promise<AgencyWorker[]> {
+  const wire = await payerFetch("/payer/agency/workers", {
+    schema: agencyWorkerListTransportSchema,
+  });
+  const safe = assertNoAgencyPII(wire, "payer/agency/workers");
+  // Final strict projection: exactly the five contract fields reach the UI, nothing else.
+  return agencyWorkerListWireSchema.parse(safe).workers;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

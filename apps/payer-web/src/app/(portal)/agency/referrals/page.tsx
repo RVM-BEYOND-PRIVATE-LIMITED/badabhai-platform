@@ -16,6 +16,7 @@ import type {
 } from "../../../../lib/contracts";
 import { Badge, Card, ProgressBar, StatTile } from "../../../../components/ds";
 import { RetryButton } from "../../../../components/retry-button";
+import { AgencyBatchInvitePanel } from "../dashboard/batch-invite-panel";
 import { AgencyInvitePanel } from "../dashboard/invite-panel";
 import { EarningsPanel } from "./earnings-panel";
 import { KycPanel } from "./kyc-panel";
@@ -103,6 +104,19 @@ export default async function AgencyReferralsPage() {
 
       {/* a) REFERRAL LINK — LIVE faceless mint (opaque code/link + copy; consent-first). */}
       <AgencyInvitePanel />
+
+      {/*
+        a2) BATCH MINT — the same faceless mint, N at a time (≤50) for a gate drive or a
+        print run. Cardinality-shaped: the ONLY inputs are a count and one shared non-PII
+        tag. This is NOT the parked "Bulk Invite Upload" (dead by design — it ingests worker
+        contacts); nothing here accepts, stores or sends a worker identity.
+
+        `id` is the in-page anchor target for the dashboard's "Batch invites" tile
+        (/agency/referrals#batch-invites) — the batch mint's entry point from "Invite tools".
+      */}
+      <div id="batch-invites">
+        <AgencyBatchInvitePanel />
+      </div>
 
       {/* b) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). */}
       <section className="agency-section">
