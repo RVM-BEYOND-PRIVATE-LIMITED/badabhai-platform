@@ -51,8 +51,14 @@ function findAllByTag(node: ReactNode, tag: string, acc: ReactElement[] = []): R
 const render = (code: string) =>
   InviteLandingPage({ params: Promise.resolve({ code }) }) as Promise<ReactElement>;
 
-const hrefOf = (tree: ReactElement): string =>
-  (findAllByTag(tree, "a")[0]?.props as { href: string }).href;
+const hrefOf = (tree: ReactElement): string => {
+  // Not `[0]?.props` — optional-chaining into a dereference means "no anchor rendered"
+  // surfaces as a TypeError about `undefined`, which is a worse failure message than the
+  // thing that actually went wrong. Assert the anchor exists, then read it.
+  const anchor = findAllByTag(tree, "a")[0];
+  if (anchor === undefined) throw new Error("no <a> rendered — the install CTA is missing");
+  return (anchor.props as { href: string }).href;
+};
 
 beforeEach(() => pingInviteClick.mockClear());
 
