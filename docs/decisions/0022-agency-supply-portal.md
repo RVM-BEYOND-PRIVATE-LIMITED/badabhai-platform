@@ -402,9 +402,35 @@ Four conditions carry the boundary above and are treated as blocking, not adviso
    does not have: derived codes would make all N recoverable from one scanned code.
 
 Also required: N consumes **N** units of the same `agency_invite_mint` hourly bucket reserved
-atomically up-front (a batch that would cross the cap mints zero and emits zero); exactly N
-`agency_invite.created` v1 events, one per row, payload unchanged; Redis failure rejects the
-whole batch; guards and session-derived tenancy (XB-A) unchanged; codes never logged.
+atomically up-front (a batch that would cross the cap mints zero and emits zero); one
+`agency_invite.created` v1 event per invite row, payload unchanged, N distinct idempotency
+keys — never one aggregate event per batch, which would leave N−1 invites unauditable; Redis
+failure rejects the whole batch; guards and session-derived tenancy (XB-A) unchanged; codes
+never logged.
+
+**The failure path, stated explicitly — it is NOT strict all-or-nothing.** This sentence
+exists because the happy-path guarantee above ("one event per row") was once read as covering
+the failure path too, and it does not. What the code actually does when the event emit fails
+after the row is already durably written:
+
+1. The row insert and the event emit are **separately guarded**. The code-collision retry
+   wraps the row insert **only**, so a 23505 raised by the events idempotency-key index can
+   no longer be misread as a code collision and re-run the insert (which produced a duplicate
+   row holding a live bearer code charged to nobody's cap).
+2. The emit **retries, bounded**. It is keyed `agency_invite.created:<invite_id>`, so a retry
+   is a no-op if the previous attempt actually landed.
+3. If every attempt fails, it logs an **orphan reconciliation marker naming the invite id**
+   (an opaque uuid — never the code, which is a bearer token), then throws neutrally. So the
+   code is returned to **nobody**, and `invites.length` equals the number of rows that are
+   genuinely on the spine.
+
+**The invariant that holds is therefore "no code is ever returned without its event", not
+"no row ever exists without its event".** The row survives, uncollectable: the repository
+exposes no delete/void and `agency_invites.status` has no non-live value, so the service
+cannot compensate. That residual is real and tracked as
+**[R35](../registers/risks-register.md)**; the genuine close is the transaction seam
+`EmitParams.tx` already provides, which is a repository-signature change and is escalated
+rather than assumed inside a bug fix.
 
 ### Engagement view — `GET /payer/agency/workers` (consent-gated)
 
