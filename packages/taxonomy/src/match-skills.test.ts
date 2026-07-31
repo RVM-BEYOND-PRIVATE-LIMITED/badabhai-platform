@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { INDUSTRIES, ROLES, getIndustry, labelForTaxonomyId } from "./index";
 import {
@@ -17,30 +19,81 @@ import {
   relatedMatchSkills,
   type MatchSkillId,
 } from "./match-skills";
-import { SKILL_CORPUS } from "./skill-corpus";
+import { SKILL_CORPUS, SKILL_DOMAINS } from "./skill-corpus";
 import { TRADE_KEYS } from "./enums";
 
-const MATCH_SKILL_IDS = new Set<string>(MATCH_SKILLS.map((s) => s.id));
+const MATCH_SKILL_IDS = new Set<string>(MATCH_SKILLS.map((s) => s.skillId));
+
+/**
+ * Everything below 0x20 except tab / LF / CR. Built from an escaped STRING rather than
+ * written as a regex literal, so this file cannot itself contain the bytes it hunts for.
+ */
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHAR_RE = new RegExp("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]");
 
 describe("Matching V1 — the mskill_* vocabulary", () => {
   it("mints a NEW id space that collides with nothing existing", () => {
     for (const s of MATCH_SKILLS) {
-      expect(s.id.startsWith("mskill_")).toBe(true);
+      expect(s.skillId.startsWith("mskill_")).toBe(true);
     }
     // No `mskill_*` id may collide with a role / corpus-skill id.
     const existing = new Set<string>([
       ...ROLES.map((r) => r.id),
       ...SKILL_CORPUS.map((s) => s.skillId),
     ]);
-    for (const s of MATCH_SKILLS) expect(existing.has(s.id)).toBe(false);
+    for (const s of MATCH_SKILLS) expect(existing.has(s.skillId)).toBe(false);
   });
 
   it("ids are unique and every skill sits in a known industry", () => {
     expect(MATCH_SKILL_IDS.size).toBe(MATCH_SKILLS.length);
     for (const s of MATCH_SKILLS) {
-      expect(getIndustry(s.industryId), s.id).toBeDefined();
-      expect(s.label.trim()).not.toBe("");
+      expect(getIndustry(s.industryId), s.skillId).toBeDefined();
+      expect(s.labelEn.trim()).not.toBe("");
     }
+  });
+
+  it("speaks the SkillSeed field names — it seeds the same `skill` table", () => {
+    // The db seeder (packages/db/src/seed-match-vocabulary.ts) reads exactly these.
+    for (const s of MATCH_SKILLS) {
+      expect(Object.keys(s).sort(), s.skillId).toEqual([
+        "domainId",
+        "industryId",
+        "labelEn",
+        "labelHi",
+        "skillId",
+        "source",
+        "status",
+      ]);
+    }
+  });
+
+  it("every domainId is a real SKILL_DOMAINS slug", () => {
+    const domains = new Set<string>(SKILL_DOMAINS.map((d) => d.id));
+    for (const s of MATCH_SKILLS) {
+      expect(domains.has(s.domainId), `${s.skillId} -> ${s.domainId}`).toBe(true);
+    }
+    // The rider got his OWN domain rather than borrowing a machining bench — filing him
+    // under one would poison the domain-scoped ANN search (ADR-0030).
+    expect(getMatchSkill("mskill_delivery_rider")?.domainId).toBe("last-mile-delivery");
+    expect(getMatchSkill("mskill_cnc_operator_general")?.domainId).toBe("general-machining");
+  });
+
+  it("is sourced 'rvm' throughout — it claims no standards lineage it does not have", () => {
+    // The spec: "curated by Akshit / RVM instructors. It is trade truth, not
+    // engineering judgment." Labelling any of it esco/onet/nco would be a false claim.
+    for (const s of MATCH_SKILLS) {
+      expect(s.source, s.skillId).toBe("rvm");
+      expect(s.status, s.skillId).toBe("active");
+      expect(s.labelHi, s.skillId).toBeNull();
+    }
+  });
+
+  it("the source file carries no invisible control characters", () => {
+    // A stray NUL in a data file makes ripgrep skip the whole file as "binary", so a
+    // reviewer's grep silently misses it. One slipped into a template literal here and
+    // survived a commit; this is the cheap guard that stops the next one.
+    const src = readFileSync(join(__dirname, "match-skills.ts"), "utf8");
+    expect(src).not.toMatch(CONTROL_CHAR_RE);
   });
 
   it("keeps ind_industrial_manufacturing at position 0 and adds quick commerce", () => {
@@ -68,22 +121,62 @@ describe("Matching V1 — the mskill_* vocabulary", () => {
   });
 });
 
-describe("RELATED_MATCH_SKILLS — the curated symmetric relation", () => {
-  it("covers every match skill exactly once", () => {
+describe("MATCH_SKILL_RELATION_PAIRS — the authored source of truth", () => {
+  it("lists each UNDIRECTED pair exactly ONCE (the seeder rejects a duplicate)", () => {
+    const unordered = MATCH_SKILL_RELATION_PAIRS.map(([a, b]) => (a < b ? `${a}|${b}` : `${b}|${a}`));
+    expect(new Set(unordered).size).toBe(MATCH_SKILL_RELATION_PAIRS.length);
+    expect(MATCH_SKILL_RELATION_PAIRS).toHaveLength(18);
+  });
+
+  it("is a TUPLE list, not an object list — the db seeder destructures [a, b]", () => {
+    for (const pair of MATCH_SKILL_RELATION_PAIRS) {
+      expect(Array.isArray(pair)).toBe(true);
+      expect(pair).toHaveLength(2);
+    }
+  });
+
+  it("has no self-relations and every id resolves", () => {
+    for (const [a, b] of MATCH_SKILL_RELATION_PAIRS) {
+      expect(a).not.toBe(b);
+      expect(MATCH_SKILL_IDS.has(a), a).toBe(true);
+      expect(MATCH_SKILL_IDS.has(b), b).toBe(true);
+    }
+  });
+
+  it("is SORTED within each pair and across the list — the export is byte-stable", () => {
+    for (const [a, b] of MATCH_SKILL_RELATION_PAIRS) {
+      expect(a < b, `pair (${a}, ${b}) is not sorted within itself`).toBe(true);
+    }
+    const keys = MATCH_SKILL_RELATION_PAIRS.map(([a, b]) => `${a}|${b}`);
+    expect(keys).toEqual([...keys].sort());
+  });
+});
+
+describe("RELATED_MATCH_SKILLS — DERIVED from the pair list", () => {
+  it("covers every match skill exactly once, including the empty ones", () => {
     expect(Object.keys(RELATED_MATCH_SKILLS).sort()).toEqual(
-      MATCH_SKILLS.map((s) => s.id).sort(),
+      MATCH_SKILLS.map((s) => s.skillId).sort(),
     );
   });
 
-  it("IS SYMMETRIC — if A lists B then B lists A", () => {
+  it("IS SYMMETRIC — now a test of the DERIVATION, not of a curator's discipline", () => {
     for (const [skillId, related] of Object.entries(RELATED_MATCH_SKILLS)) {
       for (const other of related) {
-        expect(
-          RELATED_MATCH_SKILLS[other],
-          `${other} must list ${skillId} back`,
-        ).toContain(skillId);
+        expect(RELATED_MATCH_SKILLS[other], `${other} must list ${skillId} back`).toContain(skillId);
       }
     }
+  });
+
+  it("reproduces EXACTLY the pair list — no edge invented, none dropped", () => {
+    // Fold the derived map back to unordered pairs; it must equal the authored list.
+    const foldedBack = new Set<string>();
+    for (const [skillId, related] of Object.entries(RELATED_MATCH_SKILLS)) {
+      for (const other of related) {
+        foldedBack.add(skillId < other ? `${skillId}|${other}` : `${other}|${skillId}`);
+      }
+    }
+    const authored = new Set(MATCH_SKILL_RELATION_PAIRS.map(([a, b]) => `${a}|${b}`));
+    expect([...foldedBack].sort()).toEqual([...authored].sort());
   });
 
   it("has no self-relations and no duplicates, and every id resolves", () => {
@@ -97,52 +190,50 @@ describe("RELATED_MATCH_SKILLS — the curated symmetric relation", () => {
     }
   });
 
-  it("reproduces the doc's reference relation for the VMC Operator job", () => {
+  it("every derived list is SORTED — reach expansion is byte-stable", () => {
+    for (const [skillId, related] of Object.entries(RELATED_MATCH_SKILLS)) {
+      expect(related, skillId).toEqual([...related].sort());
+    }
+  });
+
+  it("reproduces the spec's reference relation for the VMC Operator job", () => {
+    // The spec prints HMC · CNC Setter-Operator · CNC Turner; the derived list is the
+    // same SET, sorted (the engine sorts the reach set anyway, so order is not meaning).
     expect(RELATED_MATCH_SKILLS.mskill_vmc_operator).toEqual([
-      "mskill_hmc_operator",
       "mskill_cnc_setter_operator",
       "mskill_cnc_turner",
+      "mskill_hmc_operator",
     ]);
   });
 
-  it("leaves the delivery rider with NO relations (E1 depends on it)", () => {
-    expect(RELATED_MATCH_SKILLS.mskill_delivery_rider).toEqual([]);
+  it("leaves the delivery rider AND the carpenter with NO relations", () => {
+    expect(RELATED_MATCH_SKILLS.mskill_delivery_rider).toEqual([]); // E1 depends on it
+    expect(RELATED_MATCH_SKILLS.mskill_carpenter).toEqual([]);
     expect(relatedMatchSkills("mskill_delivery_rider")).toEqual([]);
     expect(relatedMatchSkills("mskill_nope")).toEqual([]);
   });
 
   it("welding is a mutually related family", () => {
-    expect([...RELATED_MATCH_SKILLS.mskill_mig_welder].sort()).toEqual([
+    expect(RELATED_MATCH_SKILLS.mskill_mig_welder).toEqual([
       "mskill_arc_welder",
       "mskill_tig_welder",
     ]);
-    expect([...RELATED_MATCH_SKILLS.mskill_tig_welder].sort()).toEqual([
+    expect(RELATED_MATCH_SKILLS.mskill_tig_welder).toEqual([
       "mskill_arc_welder",
       "mskill_mig_welder",
     ]);
-    expect([...RELATED_MATCH_SKILLS.mskill_arc_welder].sort()).toEqual([
+    expect(RELATED_MATCH_SKILLS.mskill_arc_welder).toEqual([
       "mskill_mig_welder",
       "mskill_tig_welder",
     ]);
   });
 
-  it("flattens to both directions, deduped, deterministically ordered", () => {
-    const directed = Object.entries(RELATED_MATCH_SKILLS).flatMap(([id, rel]) =>
-      rel.map((r) => `${id} ${r}`),
-    );
-    // Author-side edges are already symmetric, so both-directions == the same count.
-    expect(MATCH_SKILL_RELATION_PAIRS).toHaveLength(directed.length);
-    expect(new Set(MATCH_SKILL_RELATION_PAIRS.map((p) => `${p.skillId} ${p.relatedSkillId}`)).size)
-      .toBe(MATCH_SKILL_RELATION_PAIRS.length);
-
-    for (const pair of MATCH_SKILL_RELATION_PAIRS) {
-      expect(MATCH_SKILL_IDS.has(pair.skillId)).toBe(true);
-      expect(MATCH_SKILL_IDS.has(pair.relatedSkillId)).toBe(true);
-      expect(RELATED_MATCH_SKILLS[pair.skillId]).toContain(pair.relatedSkillId);
+  it("carries 2-4 relations per related skill (the spec's curation shape)", () => {
+    for (const [skillId, related] of Object.entries(RELATED_MATCH_SKILLS)) {
+      if (related.length === 0) continue; // a curated empty set is legitimate
+      expect(related.length, skillId).toBeGreaterThanOrEqual(1);
+      expect(related.length, skillId).toBeLessThanOrEqual(4);
     }
-
-    const keys = MATCH_SKILL_RELATION_PAIRS.map((p) => `${p.skillId} ${p.relatedSkillId}`);
-    expect(keys).toEqual([...keys].sort());
   });
 });
 
