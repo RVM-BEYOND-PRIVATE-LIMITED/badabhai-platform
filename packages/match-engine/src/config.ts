@@ -1,10 +1,18 @@
 /**
- * Matching V1 — the whole config surface.
+ * Matching V1 — the whole config surface. Spec Part 5.
  *
- * "Six lines. Ships as Remote Config. Never hard-coded." Nine values in practice,
- * because the money dials (free unlock credits, the boost supply floor) ride the same
- * surface. Everything an operator can turn is HERE; nothing else in this package
- * reads a tunable.
+ * "Six lines. Never hard-coded." Nine values in practice: the spec's six plus the
+ * three added by owner ruling (`tierFloorMonths`, `freeUnlockCredits`,
+ * `boostSupplyFloor`). Everything an operator can turn is HERE; nothing else in this
+ * package reads a tunable.
+ *
+ * Ships from the `match_config` TABLE (the `pricing_catalog` pattern), not Firebase
+ * Remote Config: these values are read server-side and RC cannot gate server
+ * behaviour. `parseMatchConfig` is the boundary that row passes through.
+ *
+ * Four of the nine are read by NO code in this package — `maxSkillsPerPosting`,
+ * `applicantQuota`, `freeUnlockCredits` and `boostSupplyFloor` are API/product gates
+ * that ride the same row. They are declared here so there is ONE config shape, not two.
  *
  * There are NO SCORING DIALS in this object — no factor multipliers, no ledger, no
  * knobs that change the ORDER of the comparator. V1 ranks by a fixed lexicographic
@@ -28,7 +36,11 @@ export const MatchConfigSchema = z.object({
   engineVersion: z.string().min(1).default("v1.0"),
   /** Months bucket to 6. No false precision on a number a man estimated. */
   monthBucket: z.number().int().positive().default(6),
-  /** A posting names at most this many skills. */
+  /**
+   * How many skills the COMPANY TYPES on the form. Related expansion is NOT capped by
+   * it (spec Part 5) — that breadth is bounded by the curated relation list and
+   * controlled by the live reach counter.
+   */
   maxSkillsPerPosting: z.number().int().positive().default(3),
   /** Related skills arrive pre-ticked; the payer may untick them. */
   relatedSkillsDefault: z.enum(["on", "off"]).default("on"),

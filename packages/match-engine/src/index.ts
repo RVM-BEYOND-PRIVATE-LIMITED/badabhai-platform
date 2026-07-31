@@ -1,6 +1,9 @@
 /**
  * @badabhai/match-engine — Matching V1 (CEO-ratified 2026-07-30).
  *
+ * SOURCE SPEC: `docs/specs/matching-algorithm-v1.md`. Every symbol here is named to be
+ * diffable against it, and `worked-examples.test.ts` executes its Part 8 case by case.
+ *
  * The PURE match core. Given a posting's skills and a worker's skill rows it answers
  * three questions and nothing else:
  *

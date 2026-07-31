@@ -1,4 +1,4 @@
-import type { IndustryId, MatchSkillId } from "@badabhai/taxonomy";
+import { matchSkillLabel, type IndustryId, type MatchSkillId } from "@badabhai/taxonomy";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MATCH_CONFIG } from "./config";
 import { calendarMonthsOf, computeIndustryTenure, mergeIntervals, tenureFor } from "./tenure";
@@ -7,24 +7,27 @@ import { effectiveTier, interleaveMaxPerCompany, rankKeyCompare, skillMonthsFor 
 import type { FeedRow, RankInputs, WorkerSkillRow } from "./types";
 
 /**
- * MATCHING V1 RELEASE GATE — the eighteen worked examples, E1..E18.
+ * MATCHING V1 RELEASE GATE — Part 8 of `docs/specs/matching-algorithm-v1.md`,
+ * executed. One table row per printed case, E1..E18, each named for its spec id.
  *
- * The ratified document argues the algorithm through eighteen worked cases. This file
- * is those cases, executable, one table row each. If a case here fails, V1 does not
- * ship — the document and the code have diverged and one of them is wrong.
+ * If a case here fails, V1 does not ship: the spec and the code have diverged and one
+ * of them is wrong.
  *
- * The reference job throughout is the document's own: a VMC OPERATOR vacancy, whose
- * curated related skills are HMC Operator, CNC Setter-Operator and CNC Turner.
+ * EVERY NUMBER IS DERIVED, NOT DECLARED. `industryMonths` in particular is produced by
+ * calling `computeIndustryTenure` on the case's rows — never hand-written into the
+ * `RankInputs`. The first build of this package hand-wrote it, which is exactly how a
+ * wrong tenure function passed a green suite: the comparator got tested twice and the
+ * tenure function never.
  *
- * ONE DELIBERATE DIVERGENCE, E3. The document illustrates STRICT tier ordering, where
- * a six-month exact match beats a ten-year related one. The owner ruled on 2026-07-31
- * that V1 ships TIER-WITH-FLOOR at 36 months, which inverts that specific
- * illustration. E3 below asserts the RULED behaviour, not the printed one, and says
- * so at the case.
+ * Reference job throughout (spec Part 8 header): VMC OPERATOR · Manufacturing, related
+ * HMC Operator · CNC Setter-Operator · CNC Turner.
  *
- * Cases that are really about the database or an endpoint (E13, E15, E16) assert the
- * ENGINE-LEVEL contract that makes the endpoint behaviour possible, and carry an
- * `// integration:` note naming what apps/api still has to assert.
+ * ONE DELIBERATE DIVERGENCE FROM THE PRINTED TEXT, E3 — the 2026-07-31 owner ruling
+ * (Part 9 #1, option b). The case says so at the assertion.
+ *
+ * Cases about the database or an endpoint (E12, E13, E15, E16, E17) assert the
+ * ENGINE-LEVEL contract that makes the endpoint behaviour possible and carry an
+ * `// integration:` note naming what apps/api still has to do.
  */
 
 const cfg = DEFAULT_MATCH_CONFIG;
@@ -33,16 +36,25 @@ const VMC: MatchSkillId = "mskill_vmc_operator";
 const HMC: MatchSkillId = "mskill_hmc_operator";
 const SETTER: MatchSkillId = "mskill_cnc_setter_operator";
 const TURNER: MatchSkillId = "mskill_cnc_turner";
-const PROGRAMMER: MatchSkillId = "mskill_cnc_programmer";
+const GENERAL: MatchSkillId = "mskill_cnc_operator_general";
+const FITTER: MatchSkillId = "mskill_fitter";
 const RIDER: MatchSkillId = "mskill_delivery_rider";
 const CARPENTER: MatchSkillId = "mskill_carpenter";
 
 const MFG: IndustryId = "ind_industrial_manufacturing";
-const QCOM: IndustryId = "ind_quick_commerce";
+/**
+ * The spec's second industry is QUICK-COMMERCE (E1) and CONSTRUCTION (E7). The V1
+ * `INDUSTRIES` vocabulary carries Manufacturing and Quick-commerce today, so
+ * `ind_quick_commerce` also stands in for Construction in E7. What is under test is the
+ * ARITHMETIC — skill months cross industries, industry months do not — and that is
+ * identical whichever two industry ids are used. Minting Construction is a taxonomy
+ * decision, not a test fixture.
+ */
+const OTHER: IndustryId = "ind_quick_commerce";
 
-const CREATED = "2026-07-01T00:00:00.000Z";
+const ACTIVE_AT = "2026-07-01T00:00:00.000Z";
 
-/** A worker skill row. Defaults match the coarse launch shape (wants, no stint dates). */
+/** An UNDATED skill row — the coarse launch shape (`derive.ts` produces exactly this). */
 function row(
   skillId: MatchSkillId,
   monthsBucketed: number,
@@ -59,13 +71,27 @@ function row(
   };
 }
 
+/**
+ * A DATED skill row. `end` is exclusive, so 2023-01-01..2025-01-01 is the spec's
+ * "Jan 2023 – Dec 2024" = 24 months.
+ */
+function stint(
+  skillId: MatchSkillId,
+  start: string,
+  end: string | null,
+  monthsBucketed: number,
+  over: Partial<WorkerSkillRow> = {},
+): WorkerSkillRow {
+  return { ...row(skillId, monthsBucketed, over), startedAt: start, endedAt: end };
+}
+
 function rank(over: Partial<RankInputs> & { id: string }): RankInputs {
   return {
     matchTier: 1,
     skillMonths: 0,
     industryMonths: 0,
     lastWorkedAt: null,
-    createdAt: CREATED,
+    lastActiveAt: ACTIVE_AT,
     ...over,
   };
 }
@@ -74,8 +100,8 @@ function order(rows: readonly RankInputs[]): string[] {
   return [...rows].sort((a, b) => rankKeyCompare(a, b, cfg)).map((r) => r.id);
 }
 
-/** The document's printed key: (matchTier, skillMonths, industryMonths). */
-function docKey(r: RankInputs): [number, number, number] {
+/** The spec's printed key: (match_tier, skill_months, industry_months). */
+function rankKey(r: RankInputs): [number, number, number] {
   return [r.matchTier, r.skillMonths, r.industryMonths];
 }
 
@@ -90,10 +116,13 @@ interface CandidateInput {
 }
 
 /**
- * The pipeline apps/api will run per candidate, assembled from the engine's own
- * exports and nothing else. `null` means "not visible for this job" — no reach.
+ * The pipeline apps/api will run per candidate (spec moments ③ and ⑤), assembled from
+ * the engine's own exports and nothing else. `null` means "not visible" — no reach.
  *
- * integration: apps/api owns the DB query that produces `rows` and the reach set, and
+ * `industryMonths` comes out of `computeIndustryTenure`. Nothing in this file writes
+ * that number by hand.
+ *
+ * integration: apps/api owns the SQL that produces `worker_skill` and `job_reach`, and
  * must not re-implement any of the arithmetic below.
  */
 function candidate(input: CandidateInput): RankInputs | null {
@@ -123,398 +152,12 @@ function candidate(input: CandidateInput): RankInputs | null {
   });
 }
 
-interface WorkedExample {
-  id: string;
-  title: string;
-  check: () => void;
+/** `candidate` where the case guarantees visibility — keeps the assertions readable. */
+function visible(input: CandidateInput): RankInputs {
+  const result = candidate(input);
+  expect(result, `${input.id} must be visible`).not.toBeNull();
+  return result as RankInputs;
 }
-
-const EXAMPLES: WorkedExample[] = [
-  {
-    id: "E1",
-    title: "the founder's case — a Zomato rider who also ran a CNC lathe",
-    check: () => {
-      // 24 months riding for a quick-commerce platform AND 24 months on a CNC lathe.
-      const rows = [row(RIDER, 24, { industryId: QCOM }), row(TURNER, 24)];
-
-      // On the VMC job: CNC Turner is a RELATED skill, so he is visible at tier 2.
-      const visible = candidate({ id: "founder", rows, postedSkillIds: [VMC], jobIndustryId: MFG, totalYears: 2 });
-      expect(visible).not.toBeNull();
-      expect(docKey(visible as RankInputs)).toEqual([2, 24, 24]);
-
-      // The delivery months contribute NOTHING to a factory job: they belong to a
-      // different skill in a different industry, and neither column can see them.
-      expect((visible as RankInputs).skillMonths).toBe(24); // not 48
-      expect((visible as RankInputs).industryMonths).toBe(24); // MFG only, not 48
-
-      // UNTICKED by the payer: CNC Turner leaves the reach set, and with it, him.
-      expect(
-        candidate({ id: "founder", rows, postedSkillIds: [VMC], jobIndustryId: MFG, totalYears: 2, untickedIds: [TURNER] }),
-      ).toBeNull();
-
-      // UNTICKED by the worker (`wants: false`) — same outcome, different reason.
-      const notWanted = [row(RIDER, 24, { industryId: QCOM }), row(TURNER, 24, { wants: false })];
-      expect(
-        candidate({ id: "founder", rows: notWanted, postedSkillIds: [VMC], jobIndustryId: MFG, totalYears: 2 }),
-      ).toBeNull();
-
-      // On a CNC TURNER job he is an exact match: (1, 24, 24).
-      const exact = candidate({ id: "founder", rows, postedSkillIds: [TURNER], jobIndustryId: MFG, totalYears: 2 });
-      expect(docKey(exact as RankInputs)).toEqual([1, 24, 24]);
-
-      // And on a quick-commerce job his factory months are equally invisible.
-      const riderJob = candidate({ id: "founder", rows, postedSkillIds: [RIDER], jobIndustryId: QCOM, totalYears: 2 });
-      expect(docKey(riderJob as RankInputs)).toEqual([1, 24, 24]);
-    },
-  },
-  {
-    id: "E2",
-    title: "the base ordering — X(1,48,48) < Y(1,24,48) < Z(1,24,24) < R(2,24,24)",
-    check: () => {
-      const X = rank({ id: "X", matchTier: 1, skillMonths: 48, industryMonths: 48 });
-      const Y = rank({ id: "Y", matchTier: 1, skillMonths: 24, industryMonths: 48 });
-      const Z = rank({ id: "Z", matchTier: 1, skillMonths: 24, industryMonths: 24 });
-      const R = rank({ id: "R", matchTier: 2, skillMonths: 24, industryMonths: 24 });
-      // R stays in tier 2: 24 months is below the 36-month floor.
-      expect(effectiveTier(R.matchTier, R.skillMonths, cfg.tierFloorMonths)).toBe(2);
-      expect(order([R, Z, Y, X])).toEqual(["X", "Y", "Z", "R"]);
-      expect(order([X, Y, Z, R])).toEqual(["X", "Y", "Z", "R"]);
-    },
-  },
-  {
-    id: "E3",
-    title: "six months exact vs ten years related — RULED: the floor promotes the veteran",
-    check: () => {
-      // THE DOCUMENT prints strict tier ordering here: B (6 months on the exact skill)
-      // above C (120 months on a related one). The owner ruled on 2026-07-31 that V1
-      // ships TIER-WITH-FLOOR at 36 months, which DELIBERATELY INVERTS this case: no
-      // supervisor would put a six-month VMC hand above a ten-year turner.
-      const B = rank({ id: "B", matchTier: 1, skillMonths: 6, industryMonths: 6 });
-      const C = rank({ id: "C", matchTier: 2, skillMonths: 120, industryMonths: 120 });
-
-      expect(effectiveTier(C.matchTier, C.skillMonths, cfg.tierFloorMonths)).toBe(1);
-      expect(order([B, C])).toEqual(["C", "B"]);
-
-      // The badge does not lie about it: he is still a TIER-2 (related) match.
-      expect(C.matchTier).toBe(2);
-
-      // Under the document's strict-tier reading (floor unreachable) B would win —
-      // recorded so the divergence is measurable, not just asserted in prose.
-      const strictTier = { ...cfg, tierFloorMonths: Number.MAX_SAFE_INTEGER };
-      expect(rankKeyCompare(B, C, strictTier)).toBeLessThan(0);
-    },
-  },
-  {
-    id: "E4",
-    title: "duration unknown — 0 months, last within tier 1, still above every below-floor tier 2",
-    check: () => {
-      const known = rank({ id: "known", matchTier: 1, skillMonths: 24, industryMonths: 24 });
-      const unknown = rank({ id: "unknown", matchTier: 1, skillMonths: 0, industryMonths: 0 });
-      const relatedBelowFloor = rank({ id: "related", matchTier: 2, skillMonths: 30, industryMonths: 30 });
-      const relatedAtFloor = rank({ id: "veteran", matchTier: 2, skillMonths: 36, industryMonths: 36 });
-
-      // Last within tier 1...
-      expect(order([unknown, known])).toEqual(["known", "unknown"]);
-      // ...but still above a related worker who has not cleared the floor.
-      expect(order([relatedBelowFloor, unknown])).toEqual(["unknown", "related"]);
-      // A promoted veteran does outrank him — that is the ruling, not a bug.
-      expect(order([unknown, relatedAtFloor])).toEqual(["veteran", "unknown"]);
-
-      // "Unknown" is 0 months, never a guess: a null total years never invents time.
-      const derivedUnknown = candidate({
-        id: "unknown", rows: [row(VMC, 0)], postedSkillIds: [VMC], jobIndustryId: MFG, totalYears: null,
-      });
-      expect(docKey(derivedUnknown as RankInputs)).toEqual([1, 0, 0]);
-    },
-  },
-  {
-    id: "E5",
-    title: "multi-skill posting — months are the MAX across the posted skills he holds",
-    check: () => {
-      const rows = [row(VMC, 12), row(PROGRAMMER, 30)];
-      const result = candidate({
-        id: "multi", rows, postedSkillIds: [VMC, PROGRAMMER], jobIndustryId: MFG, totalYears: null,
-      });
-      // MAX, not SUM: he will be hired to do ONE of them.
-      expect(docKey(result as RankInputs)).toEqual([1, 30, 30]);
-      expect((result as RankInputs).skillMonths).not.toBe(42);
-    },
-  },
-  {
-    id: "E6",
-    title: "exact AND related — best tier wins, and the months are the EXACT skill's",
-    check: () => {
-      const rows = [row(VMC, 12), row(TURNER, 60)];
-      const result = candidate({ id: "both", rows, postedSkillIds: [VMC], jobIndustryId: MFG, totalYears: null });
-
-      // Tier 1 on the strength of the exact skill...
-      expect((result as RankInputs).matchTier).toBe(1);
-      // ...and 12 months, NOT the related skill's 60. Counting those would sell the
-      // payer five years on a machine this vacancy is not for.
-      expect((result as RankInputs).skillMonths).toBe(12);
-      expect(matchTierFor([VMC, TURNER], [VMC])).toBe(1);
-      expect(matchTierFor([TURNER], [VMC])).toBe(2);
-    },
-  },
-  {
-    id: "E7",
-    title: "same skill, two industries — skill months SUM to 42, industry months stay 24",
-    check: () => {
-      // The V1 INDUSTRIES vocabulary has two entries today, so the second industry is
-      // `ind_quick_commerce` standing in for the second manufacturing vertical the
-      // document describes (auto components vs pumps). What is under test is the
-      // ARITHMETIC — skill months cross industries, industry months do not — and that
-      // is identical whichever two industry ids are used.
-      const rows = [row(TURNER, 24), row(TURNER, 18, { industryId: QCOM })];
-
-      expect(skillMonthsFor({ workerRows: rows, postedSkillIds: [TURNER], matchedTier: 1 })).toBe(42);
-
-      const tenure = computeIndustryTenure(rows, null, cfg.monthBucket);
-      expect(tenureFor(tenure, MFG)).toBe(24);
-      expect(tenureFor(tenure, QCOM)).toBe(18);
-
-      const result = candidate({ id: "two-industries", rows, postedSkillIds: [TURNER], jobIndustryId: MFG });
-      expect(docKey(result as RankInputs)).toEqual([1, 42, 24]);
-    },
-  },
-  {
-    id: "E8",
-    title: "the clamp — industry months can never be less than skill months in that industry",
-    check: () => {
-      // He says "two years total" but the row says 36 months on the VMC. The clamp
-      // takes the larger: a man cannot have less time in an industry than on a machine
-      // that only exists in it.
-      const rows = [row(VMC, 36)];
-      const tenure = computeIndustryTenure(rows, 2, cfg.monthBucket);
-      expect(tenureFor(tenure, MFG)).toBe(36);
-
-      const result = candidate({ id: "clamped", rows, postedSkillIds: [VMC], jobIndustryId: MFG, totalYears: 2 });
-      expect(docKey(result as RankInputs)).toEqual([1, 36, 36]);
-      expect((result as RankInputs).industryMonths).toBeGreaterThanOrEqual(
-        (result as RankInputs).skillMonths,
-      );
-    },
-  },
-  {
-    id: "E9",
-    title: "overlapping stints merge to 24 months, not 48",
-    check: () => {
-      // Two employers, the same 24-month window (a double-counted record, or a man on
-      // two payrolls). Summing gives 48 and would be a lie.
-      const stints = [
-        { start: "2020-01-01", end: "2022-01-01" },
-        { start: "2020-01-01", end: "2022-01-01" },
-      ];
-      expect(calendarMonthsOf(stints)).toBe(24);
-      expect(mergeIntervals(stints)).toEqual([{ start: "2020-01-01", end: "2022-01-01" }]);
-
-      // Partial overlap merges to the union, not the sum.
-      const partial = [
-        { start: "2020-01-01", end: "2021-07-01" }, // 18
-        { start: "2021-01-01", end: "2022-01-01" }, // 12  -> sum 30, union 24
-      ];
-      expect(calendarMonthsOf(partial)).toBe(24);
-
-      // Genuinely separate stints still add up.
-      const disjoint = [
-        { start: "2018-01-01", end: "2019-01-01" },
-        { start: "2021-01-01", end: "2022-01-01" },
-      ];
-      expect(calendarMonthsOf(disjoint)).toBe(24);
-      expect(mergeIntervals(disjoint)).toHaveLength(2);
-    },
-  },
-  {
-    id: "E10",
-    title: "job-hopper and long-stayer with the same total produce identical keys",
-    check: () => {
-      // Six four-month stints, back to back, vs one 24-month stint.
-      const hopper = [
-        { start: "2020-01-01", end: "2020-05-01" },
-        { start: "2020-05-01", end: "2020-09-01" },
-        { start: "2020-09-01", end: "2021-01-01" },
-        { start: "2021-01-01", end: "2021-05-01" },
-        { start: "2021-05-01", end: "2021-09-01" },
-        { start: "2021-09-01", end: "2022-01-01" },
-      ];
-      const stayer = [{ start: "2020-01-01", end: "2022-01-01" }];
-      expect(calendarMonthsOf(hopper)).toBe(24);
-      expect(calendarMonthsOf(stayer)).toBe(24);
-
-      // Same months in, same key out. V1 does not punish a man for changing employer;
-      // there is no "stability" column to punish him with.
-      const a = candidate({ id: "hopper", rows: [row(VMC, 24)], postedSkillIds: [VMC], jobIndustryId: MFG });
-      const b = candidate({ id: "stayer", rows: [row(VMC, 24)], postedSkillIds: [VMC], jobIndustryId: MFG });
-      expect(docKey(a as RankInputs)).toEqual(docKey(b as RankInputs));
-      // Identical on every key column; only the id separates them.
-      expect(rankKeyCompare({ ...(a as RankInputs), id: "same" }, { ...(b as RankInputs), id: "same" }, cfg)).toBe(0);
-      expect(order([b as RankInputs, a as RankInputs])).toEqual(["hopper", "stayer"]);
-    },
-  },
-  {
-    id: "E11",
-    title: "a complete tie falls to the stable id tiebreak, never to chance",
-    check: () => {
-      const tied = ["delta", "alpha", "charlie", "bravo"].map((id) =>
-        rank({ id, matchTier: 1, skillMonths: 24, industryMonths: 24, lastWorkedAt: "2026-01-01" }),
-      );
-      const expected = ["alpha", "bravo", "charlie", "delta"];
-      expect(order(tied)).toEqual(expected);
-      expect(order([...tied].reverse())).toEqual(expected);
-      // Run it again: the same answer, because there is nothing else to consult.
-      expect(order(tied)).toEqual(expected);
-    },
-  },
-  {
-    id: "E12",
-    title: "nobody wants the posted skill — reach falls to related, then to zero",
-    check: () => {
-      const posted = [VMC];
-
-      // Step 1: a man who HAS the VMC row but does not want that work is not supply.
-      const unwilling = [row(VMC, 48, { wants: false })];
-      expect(wantedSkillIds(unwilling)).toEqual([]);
-      expect(matchTierFor(wantedSkillIds(unwilling), posted)).toBeNull();
-      expect(candidate({ id: "unwilling", rows: unwilling, postedSkillIds: posted, jobIndustryId: MFG })).toBeNull();
-
-      // Step 2: reach falls to the RELATED skills — a turner who wants the work.
-      const turner = [row(TURNER, 24)];
-      expect(matchTierFor(wantedSkillIds(turner), posted)).toBe(2);
-      expect(candidate({ id: "turner", rows: turner, postedSkillIds: posted, jobIndustryId: MFG })).not.toBeNull();
-
-      // Step 3: then zero. A carpenter is neither exact nor related.
-      const carpenter = [row(CARPENTER, 120)];
-      expect(matchTierFor(wantedSkillIds(carpenter), posted)).toBeNull();
-      expect(candidate({ id: "carpenter", rows: carpenter, postedSkillIds: posted, jobIndustryId: MFG })).toBeNull();
-    },
-  },
-  {
-    id: "E13",
-    title: "zero reach — the reach set exists, the supply does not",
-    check: () => {
-      const reach = resolveReachSet({ postedSkillIds: [CARPENTER], relatedDefault: cfg.relatedSkillsDefault });
-      // The posting is well-formed: it has a reach set. Carpenter has no curated
-      // relations, so the reach set is the posted skill alone.
-      expect(reach.reachSkillIds).toEqual([CARPENTER]);
-      expect(reach.suggestedRelatedIds).toEqual([]);
-
-      // Nobody in this fleet can qualify, and the engine says so rather than padding.
-      const fleet = [[row(VMC, 60)], [row(TURNER, 120)], [row(RIDER, 24, { industryId: QCOM })]];
-      const candidates = fleet
-        .map((rows, i) => candidate({ id: `w${i}`, rows, postedSkillIds: [CARPENTER], jobIndustryId: MFG }))
-        .filter((c): c is RankInputs => c !== null);
-      expect(candidates).toEqual([]);
-
-      // integration: apps/api must return an EMPTY applicant list and tell the payer
-      // plainly ("no one yet"), never widen the reach set to fill the page, and never
-      // charge a boost against it (see `boostSupplyFloor`).
-    },
-  },
-  {
-    id: "E14",
-    title: "the feed shows at most two consecutive cards from one company",
-    check: () => {
-      const feed: FeedRow[] = [
-        { jobId: "a1", payerKey: "acme", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
-        { jobId: "a2", payerKey: "acme", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
-        { jobId: "a3", payerKey: "acme", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
-        { jobId: "b1", payerKey: "bharat", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
-        { jobId: "a4", payerKey: "acme", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
-        { jobId: "c1", payerKey: "chirag", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
-      ];
-      const out = interleaveMaxPerCompany(feed, cfg.maxConsecutiveSameCompany);
-      expect(out.map((r) => r.jobId)).toEqual(["a1", "a2", "b1", "a3", "a4", "c1"]);
-      expect(longestRun(out)).toBeLessThanOrEqual(cfg.maxConsecutiveSameCompany);
-      // Nothing was dropped to achieve it.
-      expect(out.map((r) => r.jobId).sort()).toEqual(feed.map((r) => r.jobId).sort());
-
-      // DEGRADES HONESTLY: when one company owns the whole page the run is
-      // unavoidable. The rule cannot conjure a second employer, so it emits the rows
-      // in their original order rather than hiding any of them.
-      const monopoly: FeedRow[] = ["m1", "m2", "m3", "m4"].map((jobId) => ({
-        jobId, payerKey: "acme", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z",
-      }));
-      const degraded = interleaveMaxPerCompany(monopoly, cfg.maxConsecutiveSameCompany);
-      expect(degraded.map((r) => r.jobId)).toEqual(["m1", "m2", "m3", "m4"]);
-      expect(longestRun(degraded)).toBe(4);
-    },
-  },
-  {
-    id: "E15",
-    title: "one application per (worker, job) — the engine cannot break a duplicate tie",
-    check: () => {
-      const a = rank({ id: "application-1", matchTier: 1, skillMonths: 24, industryMonths: 24 });
-      const duplicate = { ...a };
-      // Two rows carrying the same id are INDISTINGUISHABLE to the comparator: it
-      // returns 0 and the order between them is undefined. That is the engine-level
-      // statement of the rule — uniqueness cannot be established here.
-      expect(rankKeyCompare(a, duplicate, cfg)).toBe(0);
-      // A different id always resolves, so a genuinely distinct application never ties.
-      expect(rankKeyCompare(a, { ...a, id: "application-2" }, cfg)).toBeLessThan(0);
-
-      // integration: packages/db must carry UNIQUE(worker_id, job_posting_id) on
-      // applications and apps/api must return the EXISTING application (idempotent)
-      // rather than inserting a second one.
-    },
-  },
-  {
-    id: "E16",
-    title: "inputs are frozen — the comparator reads the snapshot and nothing live",
-    check: () => {
-      const a = Object.freeze(rank({ id: "a", matchTier: 1, skillMonths: 24, industryMonths: 24, lastWorkedAt: "2024-01-01" }));
-      const b = Object.freeze(rank({ id: "b", matchTier: 2, skillMonths: 48, industryMonths: 48, lastWorkedAt: "2019-01-01" }));
-
-      // Frozen inputs: any attempt to mutate would throw in module strict mode.
-      const first = rankKeyCompare(a, b, cfg);
-      const second = rankKeyCompare(a, b, cfg);
-      expect(second).toBe(first);
-      expect([...[a, b].sort((x, y) => rankKeyCompare(x, y, cfg))].map((r) => r.id)).toEqual(["b", "a"]);
-      expect(a).toEqual({ matchTier: 1, skillMonths: 24, industryMonths: 24, lastWorkedAt: "2024-01-01", createdAt: CREATED, id: "a" });
-
-      // Time enters as DATA. An open-ended stint contributes 0 without an explicit
-      // `asOf`; the package has no clock to fall back on.
-      const ongoing = [{ start: "2020-01-01", end: null }];
-      expect(calendarMonthsOf(ongoing)).toBe(0);
-      expect(calendarMonthsOf(ongoing, "2022-01-01")).toBe(24);
-
-      // integration: apps/api must SNAPSHOT months, tier and lastWorkedAt onto the
-      // application row at apply time, so a payer's list cannot re-order under him
-      // between two page loads.
-    },
-  },
-  {
-    id: "E17",
-    title: "a one-tag worker is still reached, through the curated relation",
-    check: () => {
-      const reach = resolveReachSet({ postedSkillIds: [VMC], relatedDefault: cfg.relatedSkillsDefault });
-      expect(reach.suggestedRelatedIds.sort()).toEqual([HMC, SETTER, TURNER].sort());
-      expect(reach.reachSkillIds).toContain(TURNER);
-
-      // He has exactly ONE tag and it is not the posted skill. Without relations his
-      // feed would be empty; with them he is a tier-2 candidate.
-      const oneTag = [row(TURNER, 24)];
-      const result = candidate({ id: "one-tag", rows: oneTag, postedSkillIds: [VMC], jobIndustryId: MFG });
-      expect(docKey(result as RankInputs)).toEqual([2, 24, 24]);
-    },
-  },
-  {
-    id: "E18",
-    title: "the related badge survives promotion — matchTier and effectiveTier are distinct",
-    check: () => {
-      const veteran = rank({ id: "veteran", matchTier: 2, skillMonths: 48, industryMonths: 48 });
-      // Promoted for ORDERING...
-      expect(effectiveTier(veteran.matchTier, veteran.skillMonths, cfg.tierFloorMonths)).toBe(1);
-      // ...but the row still says what he actually is, so the card can read
-      // "related skill: CNC Turner" instead of claiming he runs a VMC.
-      expect(veteran.matchTier).toBe(2);
-
-      const exact = rank({ id: "exact", matchTier: 1, skillMonths: 48, industryMonths: 48 });
-      // Same effective tier, same months: they tie down to the id. The badge is a
-      // LABEL, never a penalty — and never a promotion either.
-      expect(rankKeyCompare({ ...veteran, id: "x" }, { ...exact, id: "x" }, cfg)).toBe(0);
-    },
-  },
-];
 
 function longestRun(rows: readonly { payerKey: string }[]): number {
   let best = 0;
@@ -531,14 +174,617 @@ function longestRun(rows: readonly { payerKey: string }[]): number {
   return best;
 }
 
-describe("Matching V1 — the eighteen worked examples", () => {
+interface WorkedExample {
+  id: string;
+  title: string;
+  check: () => void;
+}
+
+const EXAMPLES: WorkedExample[] = [
+  {
+    id: "E1",
+    title: "the founder's case — Zomato + CNC. Rider 24 mo · CNC Turner 24 mo",
+    check: () => {
+      // Dated rows in two industries, so the TENURE FUNCTION has to keep them apart
+      // rather than the fixture doing it for it.
+      const rows = [
+        stint(RIDER, "2021-01-01", "2023-01-01", 24, { industryId: OTHER }),
+        stint(TURNER, "2023-01-01", "2025-01-01", 24),
+      ];
+      const tenure = computeIndustryTenure(rows, null, cfg.monthBucket);
+      expect(tenureFor(tenure, MFG)).toBe(24);
+      expect(tenureFor(tenure, OTHER)).toBe(24);
+
+      // Row 1 — VMC Operator, CNC Turner TICKED -> Visible, (2, 24, 24).
+      const ticked = visible({ id: "ramesh", rows, postedSkillIds: [VMC], jobIndustryId: MFG });
+      expect(rankKey(ticked)).toEqual([2, 24, 24]);
+
+      // "His delivery months contribute nothing to a factory job either way": the 24
+      // quick-commerce months appear in neither column.
+      expect(ticked.skillMonths).toBe(24); // not 48
+      expect(ticked.industryMonths).toBe(24); // not 48
+
+      // Row 2 — CNC Turner UNTICKED by the company -> Not visible.
+      expect(
+        candidate({ id: "ramesh", rows, postedSkillIds: [VMC], jobIndustryId: MFG, untickedIds: [TURNER] }),
+      ).toBeNull();
+
+      // Same outcome through the OTHER Part 2 condition: he does not want that work.
+      const notWanted = [rows[0] as WorkerSkillRow, { ...(rows[1] as WorkerSkillRow), wants: false }];
+      expect(candidate({ id: "ramesh", rows: notWanted, postedSkillIds: [VMC], jobIndustryId: MFG })).toBeNull();
+
+      // Row 3 — a CNC Turner job -> Visible, (1, 24, 24).
+      expect(rankKey(visible({ id: "ramesh", rows, postedSkillIds: [TURNER], jobIndustryId: MFG }))).toEqual([1, 24, 24]);
+
+      // ...and symmetrically his factory months are invisible on a delivery job.
+      expect(rankKey(visible({ id: "ramesh", rows, postedSkillIds: [RIDER], jobIndustryId: OTHER }))).toEqual([1, 24, 24]);
+    },
+  },
+  {
+    id: "E2",
+    title: "full ordering on one job — X(1,48,48) · Y(1,24,48) · Z(1,24,24) · R(2,24,24)",
+    check: () => {
+      // X · 48 mo VMC.
+      const X = visible({
+        id: "X", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(VMC, "2021-01-01", "2025-01-01", 48)],
+      });
+      // Y · 24 mo VMC + 24 mo CNC Turner, BOTH Manufacturing, consecutive stints.
+      // industry_months = 24 + 24 = 48 — a SUM of merged stints. This is the number the
+      // first implementation got wrong by returning a max over rows.
+      const Y = visible({
+        id: "Y", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [
+          stint(VMC, "2023-01-01", "2025-01-01", 24),
+          stint(TURNER, "2021-01-01", "2023-01-01", 24),
+        ],
+      });
+      // Z · 24 mo VMC.
+      const Z = visible({
+        id: "Z", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(VMC, "2023-01-01", "2025-01-01", 24)],
+      });
+      // R · 24 mo CNC Turner, no VMC -> related.
+      const R = visible({
+        id: "R", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(TURNER, "2023-01-01", "2025-01-01", 24)],
+      });
+
+      expect(rankKey(X)).toEqual([1, 48, 48]);
+      expect(rankKey(Y)).toEqual([1, 24, 48]);
+      expect(rankKey(Z)).toEqual([1, 24, 24]);
+      expect(rankKey(R)).toEqual([2, 24, 24]);
+
+      // R stays TIER 2 under the ruling: 24 months is below the 36-month floor.
+      expect(effectiveTier(R.matchTier, R.skillMonths, cfg.tierFloorMonths)).toBe(2);
+
+      expect(order([R, Z, Y, X])).toEqual(["X", "Y", "Z", "R"]);
+      expect(order([X, Y, Z, R])).toEqual(["X", "Y", "Z", "R"]);
+
+      // "Y beats Z on his CNC years — because their VMC months are level." Invariant B
+      // in one line: industry months spoke only after skill months tied.
+      expect(Y.skillMonths).toBe(Z.skillMonths);
+      expect(Y.industryMonths).toBeGreaterThan(Z.industryMonths);
+    },
+  },
+  {
+    id: "E3",
+    title: "the sharp edge — RULED 2026-07-31: the floor promotes the veteran",
+    check: () => {
+      // B · 6 mo VMC, nothing else.
+      const B = visible({
+        id: "B", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(VMC, "2024-07-01", "2025-01-01", 6)],
+      });
+      // C · 120 mo CNC Turner.
+      const C = visible({
+        id: "C", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(TURNER, "2015-01-01", "2025-01-01", 120)],
+      });
+      expect(rankKey(B)).toEqual([1, 6, 6]);
+      expect(rankKey(C)).toEqual([2, 120, 120]);
+
+      // THE SPEC PRINTS B ABOVE C. That printed order is the STRICT-TIER behaviour the
+      // owner REJECTED on 2026-07-31 (Part 9 ruling #1, option b — tier-with-floor at
+      // 36). Under the ruling C's effective tier becomes 1 and C ranks ABOVE B.
+      //
+      // DO NOT "FIX" THIS BACK TO THE PRINTED ORDER. If a future ruling restores strict
+      // tier, it must change `tierFloorMonths` and edit this case in the same diff.
+      expect(effectiveTier(C.matchTier, C.skillMonths, cfg.tierFloorMonths)).toBe(1);
+      expect(order([B, C])).toEqual(["C", "B"]);
+
+      // The badge does not lie about it: he is still a tier-2 (related) match.
+      expect(C.matchTier).toBe(2);
+
+      // The rejected behaviour, MEASURED rather than described: with the floor out of
+      // reach the comparator reproduces the spec's printed order exactly.
+      const strictTier = { ...cfg, tierFloorMonths: Number.MAX_SAFE_INTEGER };
+      expect(rankKeyCompare(B, C, strictTier)).toBeLessThan(0);
+    },
+  },
+  {
+    id: "E4",
+    title: "duration unknown — (1, 0, …) last within tier 1, never dropped",
+    check: () => {
+      // "Maine VMC chalaya hai" — he cannot say how long. No months, no dates.
+      const unknown = visible({
+        id: "unknown", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [row(VMC, 0)], totalYears: null,
+      });
+      expect(rankKey(unknown)).toEqual([1, 0, 0]);
+
+      const known = visible({
+        id: "known", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(VMC, "2023-01-01", "2025-01-01", 24)],
+      });
+      const relatedBelowFloor = visible({
+        id: "related", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(TURNER, "2022-07-01", "2025-01-01", 30)],
+      });
+
+      // Last within tier 1...
+      expect(order([unknown, known])).toEqual(["known", "unknown"]);
+      // ...but above a related-skill worker, and NEVER dropped.
+      expect(order([relatedBelowFloor, unknown])).toEqual(["unknown", "related"]);
+
+      // THE RULING NARROWS THE SPEC SENTENCE. E4 as printed says "still above EVERY
+      // related-skill worker". Under tier-with-floor that holds only for related workers
+      // BELOW the floor: a 120-month floored turner now sorts ABOVE a 0-month exact VMC
+      // hand. That is a genuine consequence of ruling #1, asserted deliberately here so
+      // nobody meets it for the first time in production.
+      const flooredVeteran = visible({
+        id: "veteran", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(TURNER, "2015-01-01", "2025-01-01", 120)],
+      });
+      expect(order([unknown, flooredVeteran])).toEqual(["veteran", "unknown"]);
+      // 36 is the boundary and it is INCLUSIVE — exactly at the floor, the same result.
+      const atFloor = visible({
+        id: "atfloor", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(TURNER, "2022-01-01", "2025-01-01", 36)],
+      });
+      expect(order([unknown, atFloor])).toEqual(["atfloor", "unknown"]);
+    },
+  },
+  {
+    id: "E5",
+    title: "multi-skill posting [CNC Turner, VMC Operator] — skill_months = max = 36",
+    check: () => {
+      // Worker has CNC Turner 36 mo, VMC 12 mo. BOTH are posted.
+      const rows = [
+        stint(TURNER, "2021-01-01", "2024-01-01", 36),
+        stint(VMC, "2024-01-01", "2025-01-01", 12),
+      ];
+      const result = visible({ id: "multi", rows, postedSkillIds: [TURNER, VMC], jobIndustryId: MFG });
+
+      expect(result.matchTier).toBe(1); // holds a posted skill
+      expect(result.skillMonths).toBe(36); // MAX across matched posted skills
+      expect(result.skillMonths).not.toBe(48); // never a sum: he is hired for ONE of them
+
+      // The spec does not print E5's third column; it follows from moment ②
+      // (36 + 12 consecutive months in Manufacturing).
+      expect(result.industryMonths).toBe(48);
+    },
+  },
+  {
+    id: "E6",
+    title: "exact AND related — best tier wins, months are the exact skill's: (1, 12, 72)",
+    check: () => {
+      // VMC 12 mo + CNC Turner 60 mo, on a VMC job.
+      const rows = [
+        stint(TURNER, "2019-01-01", "2024-01-01", 60),
+        stint(VMC, "2024-01-01", "2025-01-01", 12),
+      ];
+      const result = visible({ id: "both", rows, postedSkillIds: [VMC], jobIndustryId: MFG });
+
+      // Best tier wins.
+      expect(result.matchTier).toBe(1);
+      // 12 — the EXACT skill — NOT 60. Counting the related months would sell the payer
+      // five years on a machine this vacancy is not for.
+      expect(result.skillMonths).toBe(12);
+      // "His CNC years still lift him via industry_months": 72 = 12 + 60, DERIVED.
+      expect(result.industryMonths).toBe(72);
+      expect(rankKey(result)).toEqual([1, 12, 72]);
+
+      expect(matchTierFor([VMC, TURNER], [VMC])).toBe(1);
+      expect(matchTierFor([TURNER], [VMC])).toBe(2);
+    },
+  },
+  {
+    id: "E7",
+    title: "same skill, two industries — skill_months 42, industry_months 24",
+    check: () => {
+      // A Fitter with 24 mo in Manufacturing and 18 mo in Construction, on a
+      // Manufacturing Fitter job. (Construction stands in as `OTHER` — see the header.)
+      const rows = [
+        stint(FITTER, "2021-01-01", "2023-01-01", 24),
+        stint(FITTER, "2023-01-01", "2024-07-01", 18, { industryId: OTHER }),
+      ];
+
+      // "A fitter is a fitter, wherever he fitted" (ruling #3): the SKILL sums.
+      expect(skillMonthsFor({ workerRows: rows, postedSkillIds: [FITTER], matchedTier: 1 })).toBe(42);
+
+      // Industry governs industry_months only — Manufacturing sees 24 of the 42.
+      const tenure = computeIndustryTenure(rows, null, cfg.monthBucket);
+      expect(tenureFor(tenure, MFG)).toBe(24);
+      expect(tenureFor(tenure, OTHER)).toBe(18);
+
+      const result = visible({ id: "fitter", rows, postedSkillIds: [FITTER], jobIndustryId: MFG });
+      expect(rankKey(result)).toEqual([1, 42, 24]);
+
+      // THE E7/E8 INTERACTION, asserted: skill_months (42) legitimately EXCEEDS
+      // industry_months (24) because the skill spans two industries. The E8 clamp is
+      // therefore per-industry and must never compare a skill against a cross-industry
+      // sum — doing so would force Manufacturing to 42 and break this case.
+      expect(result.skillMonths).toBeGreaterThan(result.industryMonths);
+    },
+  },
+  {
+    id: "E8",
+    title: "data integrity — clamp industry_months = MAX(industry_months, skill_months)",
+    check: () => {
+      // Common in voice-extracted data: he said "three years on the VMC", but the only
+      // dates we captured cover twelve months. The dated sum alone would read 12.
+      const rows = [stint(VMC, "2024-01-01", "2025-01-01", 36)];
+      const tenure = computeIndustryTenure(rows, null, cfg.monthBucket);
+      expect(tenureFor(tenure, MFG)).toBe(36);
+
+      // ...and with no dates at all, the coarse total is the floor and the clamp still
+      // lifts the industry to the skill.
+      const undated = computeIndustryTenure([row(VMC, 36)], 2, cfg.monthBucket);
+      expect(tenureFor(undated, MFG)).toBe(36);
+
+      const result = visible({ id: "clamped", rows, postedSkillIds: [VMC], jobIndustryId: MFG });
+      expect(rankKey(result)).toEqual([1, 36, 36]);
+      // Impossible in reality, so never rendered: WITHIN one industry the skill can
+      // never exceed the tenure.
+      expect(result.industryMonths).toBeGreaterThanOrEqual(result.skillMonths);
+    },
+  },
+  {
+    id: "E9",
+    title: "overlapping stints — VMC and tool-setting in the SAME job is 24, not 48",
+    check: () => {
+      // VMC Operator Jan 2023 – Dec 2024, and setting tools in the same job. Two skill
+      // rows, one span of the man's life.
+      const rows = [
+        stint(VMC, "2023-01-01", "2025-01-01", 24),
+        stint(SETTER, "2023-01-01", "2025-01-01", 24),
+      ];
+      const tenure = computeIndustryTenure(rows, null, cfg.monthBucket);
+      expect(tenureFor(tenure, MFG)).toBe(24); // NOT 48
+
+      const result = visible({ id: "same-job", rows, postedSkillIds: [VMC], jobIndustryId: MFG });
+      expect(rankKey(result)).toEqual([1, 24, 24]);
+
+      // The merge itself, at the interval level.
+      expect(mergeIntervals(rows.map((r) => ({ start: r.startedAt as string, end: r.endedAt })))).toEqual([
+        { start: "2023-01-01", end: "2025-01-01" },
+      ]);
+      // A partial overlap merges to the union, not the sum; genuinely disjoint stints
+      // still add up (that is E2·Y).
+      expect(calendarMonthsOf([
+        { start: "2020-01-01", end: "2021-07-01" },
+        { start: "2021-01-01", end: "2022-01-01" },
+      ])).toBe(24);
+      expect(calendarMonthsOf([
+        { start: "2018-01-01", end: "2019-01-01" },
+        { start: "2021-01-01", end: "2022-01-01" },
+      ])).toBe(24);
+    },
+  },
+  {
+    id: "E10",
+    title: "job-hopper vs long-stayer — 24 mo VMC either way, IDENTICAL rank key",
+    check: () => {
+      // One 24-month stint...
+      const stayerRows = [stint(VMC, "2023-01-01", "2025-01-01", 24)];
+      // ...versus four six-month jobs, back to back.
+      const hopperRows = [
+        stint(VMC, "2023-01-01", "2023-07-01", 6),
+        stint(VMC, "2023-07-01", "2024-01-01", 6),
+        stint(VMC, "2024-01-01", "2024-07-01", 6),
+        stint(VMC, "2024-07-01", "2025-01-01", 6),
+      ];
+      expect(tenureFor(computeIndustryTenure(stayerRows, null, cfg.monthBucket), MFG)).toBe(24);
+      expect(tenureFor(computeIndustryTenure(hopperRows, null, cfg.monthBucket), MFG)).toBe(24);
+
+      const stayer = visible({ id: "stayer", rows: stayerRows, postedSkillIds: [VMC], jobIndustryId: MFG });
+      const hopper = visible({ id: "hopper", rows: hopperRows, postedSkillIds: [VMC], jobIndustryId: MFG });
+
+      // "Identical Rank Key." Job-hopping is not scored — there is no column for it.
+      expect(rankKey(hopper)).toEqual(rankKey(stayer));
+      expect(rankKeyCompare({ ...hopper, id: "same" }, { ...stayer, id: "same" }, cfg)).toBe(0);
+      // Only the stable hash separates them.
+      expect(order([stayer, hopper])).toEqual(["hopper", "stayer"]);
+
+      // integration: the number of employers is an ATTRIBUTE on the card (policy A-5)
+      // and must never reach the rank inputs.
+    },
+  },
+  {
+    id: "E11",
+    title: "complete tie — last_active_at, then stable_hash. Never random at read time",
+    check: () => {
+      // last_active_at speaks first...
+      const recent = rank({ id: "zzz", matchTier: 1, skillMonths: 24, industryMonths: 24, lastActiveAt: "2026-07-29T00:00:00.000Z" });
+      const stale = rank({ id: "aaa", matchTier: 1, skillMonths: 24, industryMonths: 24, lastActiveAt: "2026-07-01T00:00:00.000Z" });
+      expect(order([stale, recent])).toEqual(["zzz", "aaa"]);
+
+      // ...and on a COMPLETE tie the stable hash decides. Same answer every time.
+      const tied = ["delta", "alpha", "charlie", "bravo"].map((id) =>
+        rank({ id, matchTier: 1, skillMonths: 24, industryMonths: 24, lastWorkedAt: "2026-01-01" }),
+      );
+      const expected = ["alpha", "bravo", "charlie", "delta"];
+      expect(order(tied)).toEqual(expected);
+      expect(order([...tied].reverse())).toEqual(expected);
+      expect(order(tied)).toEqual(expected);
+      // A list that reorders between page loads looks broken to a man who just paid.
+    },
+  },
+  {
+    id: "E12",
+    title: "nobody wants the skill — reach falls to related, then to zero (ops alert)",
+    check: () => {
+      const posted = [VMC];
+
+      // Ten men hold it, none has wants = true. They are history, not supply.
+      const unwilling = [row(VMC, 48, { wants: false })];
+      expect(wantedSkillIds(unwilling)).toEqual([]);
+      expect(matchTierFor(wantedSkillIds(unwilling), posted)).toBeNull();
+      expect(candidate({ id: "unwilling", rows: unwilling, postedSkillIds: posted, jobIndustryId: MFG })).toBeNull();
+
+      // Reach falls to the RELATED skills — a turner who does want the work.
+      const turner = [stint(TURNER, "2023-01-01", "2025-01-01", 24)];
+      expect(matchTierFor(wantedSkillIds(turner), posted)).toBe(2);
+      expect(candidate({ id: "turner", rows: turner, postedSkillIds: posted, jobIndustryId: MFG })).not.toBeNull();
+
+      // If that is also zero: nobody. Men are never force-fed a job.
+      const carpenter = [row(CARPENTER, 120)];
+      expect(matchTierFor(wantedSkillIds(carpenter), posted)).toBeNull();
+      expect(candidate({ id: "carpenter", rows: carpenter, postedSkillIds: posted, jobIndustryId: MFG })).toBeNull();
+
+      // integration: when related reach is ALSO zero, apps/api must raise the OPS ALERT
+      // (the ADR-0021 PACE pattern) and must not widen the reach set on its own —
+      // policy B-10, "never silently widens beyond the curated relations".
+    },
+  },
+  {
+    id: "E13",
+    title: "zero reach at posting — tell the company on the form, before they pay",
+    check: () => {
+      // The posting is well-formed and has a reach set; a carpenter has no curated
+      // relations, so the reach set is the posted skill alone.
+      const reach = resolveReachSet({ postedSkillIds: [CARPENTER], relatedDefault: cfg.relatedSkillsDefault });
+      expect(reach.reachSkillIds).toEqual([CARPENTER]);
+      expect(reach.suggestedRelatedIds).toEqual([]);
+
+      // The REACH COUNTER counts WORKERS, and here it reads 0.
+      const fleet = [
+        [stint(VMC, "2020-01-01", "2025-01-01", 60)],
+        [stint(TURNER, "2015-01-01", "2025-01-01", 120)],
+        [stint(RIDER, "2023-01-01", "2025-01-01", 24, { industryId: OTHER })],
+      ];
+      const reachCount = fleet
+        .map((rows, i) => candidate({ id: `w${i}`, rows, postedSkillIds: [CARPENTER], jobIndustryId: MFG }))
+        .filter((c): c is RankInputs => c !== null).length;
+      expect(reachCount).toBe(0);
+
+      // integration: apps/api must surface that 0 ON THE FORM, before payment, and
+      // refuse the charge — "never take money for a posting into a void". It must never
+      // pad the page with off-trade workers; `boostSupplyFloor` guards the same failure
+      // on the boost path.
+    },
+  },
+  {
+    id: "E14",
+    title: "one company floods the feed — maximum 2 consecutive cards from one company",
+    check: () => {
+      const feed: FeedRow[] = [
+        { jobId: "a1", payerKey: "acme", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
+        { jobId: "a2", payerKey: "acme", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
+        { jobId: "a3", payerKey: "acme", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
+        { jobId: "b1", payerKey: "bharat", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
+        { jobId: "a4", payerKey: "acme", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
+        { jobId: "c1", payerKey: "chirag", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z" },
+      ];
+      const out = interleaveMaxPerCompany(feed, cfg.maxConsecutiveSameCompany);
+      expect(out.map((r) => r.jobId)).toEqual(["a1", "a2", "b1", "a3", "a4", "c1"]);
+      expect(longestRun(out)).toBeLessThanOrEqual(cfg.maxConsecutiveSameCompany);
+      expect(out.map((r) => r.jobId).sort()).toEqual(feed.map((r) => r.jobId).sort());
+
+      // DEGRADES HONESTLY: when one company owns the whole page the run is unavoidable.
+      // The rule cannot conjure a second employer, so it emits the rows in their
+      // original order rather than hiding any of them.
+      const monopoly: FeedRow[] = ["m1", "m2", "m3", "m4"].map((jobId) => ({
+        jobId, payerKey: "acme", boosted: false, publishedAt: "2026-07-01T00:00:00.000Z",
+      }));
+      const degraded = interleaveMaxPerCompany(monopoly, cfg.maxConsecutiveSameCompany);
+      expect(degraded.map((r) => r.jobId)).toEqual(["m1", "m2", "m3", "m4"]);
+      expect(longestRun(degraded)).toBe(4);
+
+      // integration: moment ④ orders the feed `boosted DESC, published_at DESC` BEFORE
+      // this rule is applied; boost reorders, it never ADDS a job (policy B-13).
+    },
+  },
+  {
+    id: "E15",
+    title: "worker matches on two skills of one job — ONE application, best tier, highest months",
+    check: () => {
+      // The job posts BOTH skills and he holds both. This is exactly the case E6 is
+      // not: there, CNC Turner was merely RELATED and contributed no skill months.
+      const rows = [
+        stint(TURNER, "2019-01-01", "2024-01-01", 60),
+        stint(VMC, "2024-01-01", "2025-01-01", 12),
+      ];
+      const result = visible({ id: "app-1", rows, postedSkillIds: [VMC, TURNER], jobIndustryId: MFG });
+      expect(result.matchTier).toBe(1); // best tier
+      expect(result.skillMonths).toBe(60); // highest skill_months across the matched posted skills
+
+      // ONE application: two rows carrying the same id are INDISTINGUISHABLE to the
+      // comparator, which returns 0. The engine cannot establish uniqueness — that has
+      // to be a constraint.
+      expect(rankKeyCompare(result, { ...result }, cfg)).toBe(0);
+      expect(rankKeyCompare(result, { ...result, id: "app-2" }, cfg)).toBeLessThan(0);
+
+      // integration: packages/db must carry UNIQUE(worker_id, job_id) on `application`
+      // and apps/api must return the EXISTING application rather than inserting a second.
+    },
+  },
+  {
+    id: "E16",
+    title: "worker updates his profile after applying — the company's list does not move",
+    check: () => {
+      const a = Object.freeze(rank({ id: "a", matchTier: 1, skillMonths: 24, industryMonths: 24, lastWorkedAt: "2024-01-01" }));
+      const b = Object.freeze(rank({ id: "b", matchTier: 2, skillMonths: 48, industryMonths: 48, lastWorkedAt: "2019-01-01" }));
+
+      // The comparator reads the frozen snapshot and only the frozen snapshot.
+      const first = rankKeyCompare(a, b, cfg);
+      expect(rankKeyCompare(a, b, cfg)).toBe(first);
+      expect([a, b].sort((x, y) => rankKeyCompare(x, y, cfg)).map((r) => r.id)).toEqual(["b", "a"]);
+      expect(a).toEqual({
+        matchTier: 1, skillMonths: 24, industryMonths: 24,
+        lastWorkedAt: "2024-01-01", lastActiveAt: ACTIVE_AT, id: "a",
+      });
+
+      // Time enters as DATA. An ongoing stint contributes 0 without an explicit `asOf`;
+      // the package has no clock to quietly count up to "now" with.
+      const ongoing = [stint(VMC, "2020-01-01", null, 0)];
+      expect(tenureFor(computeIndustryTenure(ongoing, null, cfg.monthBucket), MFG)).toBe(0);
+      expect(tenureFor(computeIndustryTenure(ongoing, null, cfg.monthBucket, "2022-01-01"), MFG)).toBe(24);
+
+      // integration: moment ⑤ — apps/api must SNAPSHOT match_tier, skill_months,
+      // industry_months, last_worked_at and engine_version onto the application row at
+      // apply time. Re-deriving them at read time is what makes a paid list move.
+    },
+  },
+  {
+    id: "E17",
+    title: "the one-tag worker — Related Skills rescue him",
+    check: () => {
+      // A man leaves the conversation with a single skill tag, and it is not the posted
+      // one. Without relations his feed is empty.
+      const oneTag = [stint(TURNER, "2023-01-01", "2025-01-01", 24)];
+      const reach = resolveReachSet({ postedSkillIds: [VMC], relatedDefault: cfg.relatedSkillsDefault });
+      expect([...reach.suggestedRelatedIds].sort()).toEqual([HMC, SETTER, TURNER].sort());
+      expect(reach.reachSkillIds).toContain(TURNER);
+      expect(rankKey(visible({ id: "one-tag", rows: oneTag, postedSkillIds: [VMC], jobIndustryId: MFG }))).toEqual([2, 24, 24]);
+
+      // "One tag reaches roughly three to four times as many jobs as before" — the
+      // multiplier IS the curated relation, measured rather than claimed: every posted
+      // skill in the vocabulary that reaches a CNC-Turner-only worker.
+      const reachingPostings = ([VMC, HMC, SETTER, TURNER, GENERAL, FITTER, RIDER, CARPENTER] as const).filter(
+        (posted) => matchTierFor([TURNER], [posted]) !== null,
+      );
+      expect(reachingPostings).toContain(TURNER); // the exact one he would have had alone
+      expect(reachingPostings).toEqual([VMC, SETTER, TURNER, GENERAL]);
+      expect(reachingPostings.length).toBeGreaterThanOrEqual(3); // the doc's "three to four times"
+
+      // integration: apps/api must still flag `low_tag_worker`, queue a re-profiling
+      // nudge, and track `avg_skill_tags_per_worker` — below 2, the CONVERSATION is the
+      // bug, not the algorithm.
+    },
+  },
+  {
+    id: "E18",
+    title: "related-skill workers on the card — badge it, never promote it silently",
+    check: () => {
+      const veteran = visible({
+        id: "veteran", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(TURNER, "2021-01-01", "2025-01-01", 48)],
+      });
+      // Promoted for ORDERING by the floor...
+      expect(effectiveTier(veteran.matchTier, veteran.skillMonths, cfg.tierFloorMonths)).toBe(1);
+      // ...but `matchTier` still says what he actually is, so the card can be honest
+      // before the company spends ₹40.
+      expect(veteran.matchTier).toBe(2);
+
+      // The badge text is derivable from the vocabulary alone.
+      expect(`${matchSkillLabel(TURNER)} — related to ${matchSkillLabel(VMC)}`).toBe(
+        "CNC Turner — related to VMC Operator",
+      );
+
+      // The badge is a LABEL, never a penalty and never a promotion: an exact match with
+      // the same months ties with him all the way down to the stable hash.
+      const exact = visible({
+        id: "exact", jobIndustryId: MFG, postedSkillIds: [VMC],
+        rows: [stint(VMC, "2021-01-01", "2025-01-01", 48)],
+      });
+      expect(rankKeyCompare({ ...veteran, id: "x" }, { ...exact, id: "x" }, cfg)).toBe(0);
+
+      // integration: `job_reach.matched_skill_id` (moment ③) must ride onto the
+      // application row so the card knows WHICH related skill to name. It is display
+      // only and must never enter `RankInputs`.
+    },
+  },
+];
+
+describe("Matching V1 — Part 8 worked examples", () => {
   it("covers E1..E18 exactly once", () => {
-    expect(EXAMPLES.map((e) => e.id)).toEqual(
-      Array.from({ length: 18 }, (_, i) => `E${i + 1}`),
-    );
+    expect(EXAMPLES.map((e) => e.id)).toEqual(Array.from({ length: 18 }, (_, i) => `E${i + 1}`));
   });
 
   it.each(EXAMPLES)("$id — $title", ({ check }) => {
     check();
+  });
+});
+
+describe("Matching V1 — Part 4 proof against the three required cases", () => {
+  it("① industry breaks ties but never crosses", () => {
+    const X = visible({
+      id: "X", jobIndustryId: MFG, postedSkillIds: [VMC],
+      rows: [stint(VMC, "2021-01-01", "2025-01-01", 48)],
+    });
+    const Y = visible({
+      id: "Y", jobIndustryId: MFG, postedSkillIds: [VMC],
+      rows: [
+        stint(VMC, "2023-01-01", "2025-01-01", 24),
+        stint(TURNER, "2021-01-01", "2023-01-01", 24),
+      ],
+    });
+    const Z = visible({
+      id: "Z", jobIndustryId: MFG, postedSkillIds: [VMC],
+      rows: [stint(VMC, "2023-01-01", "2025-01-01", 24)],
+    });
+    expect([rankKey(X), rankKey(Y), rankKey(Z)]).toEqual([
+      [1, 48, 48],
+      [1, 24, 48],
+      [1, 24, 24],
+    ]);
+    expect(order([Z, Y, X])).toEqual(["X", "Y", "Z"]);
+  });
+
+  it("② six months never crosses two years", () => {
+    // A · 24 mo VMC, nothing else -> (1, 24, 24)
+    const A = visible({
+      id: "A", jobIndustryId: MFG, postedSkillIds: [VMC],
+      rows: [stint(VMC, "2023-01-01", "2025-01-01", 24)],
+    });
+    // B · 6 mo VMC + 240 mo factory work -> (1, 6, 246). industry_months = 6 + 240.
+    const B = visible({
+      id: "B", jobIndustryId: MFG, postedSkillIds: [VMC],
+      rows: [
+        stint(GENERAL, "2004-07-01", "2024-07-01", 240),
+        stint(VMC, "2024-07-01", "2025-01-01", 6),
+      ],
+    });
+    expect(rankKey(A)).toEqual([1, 24, 24]);
+    expect(rankKey(B)).toEqual([1, 6, 246]);
+    // "Twenty years cannot buy eighteen months on the machine." Invariant B, in the
+    // spec's own numbers.
+    expect(order([B, A])).toEqual(["A", "B"]);
+  });
+
+  it("③ related skills are reached, and ranked below", () => {
+    const Z = visible({
+      id: "Z", jobIndustryId: MFG, postedSkillIds: [VMC],
+      rows: [stint(VMC, "2023-01-01", "2025-01-01", 24)],
+    });
+    const R = visible({
+      id: "R", jobIndustryId: MFG, postedSkillIds: [VMC],
+      rows: [stint(TURNER, "2023-01-01", "2025-01-01", 24)],
+    });
+    expect(rankKey(Z)).toEqual([1, 24, 24]);
+    expect(rankKey(R)).toEqual([2, 24, 24]);
+    expect(order([R, Z])).toEqual(["Z", "R"]);
   });
 });

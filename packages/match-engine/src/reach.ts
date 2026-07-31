@@ -45,9 +45,11 @@ export interface ReachSet {
  * suggestions are still returned so the UI can offer them. V1 ships with the default
  * "on", so the untick path is the live one.
  *
- * integration: apps/api must reject a posting with more than
- * `cfg.maxSkillsPerPosting` skills. This function deliberately does not truncate —
- * silently dropping a skill a payer paid to post is worse than a 400.
+ * integration: apps/api must reject a posting whose TYPED skill list exceeds
+ * `cfg.maxSkillsPerPosting`. This function deliberately does not truncate — silently
+ * dropping a skill a payer paid to post is worse than a 400. The RELATED expansion is
+ * deliberately uncapped (spec Part 5): breadth is bounded by the curated list and
+ * controlled by the live reach counter on the form, not by that dial.
  */
 export function resolveReachSet(input: ResolveReachSetInput): ReachSet {
   const posted = sortedUnique(input.postedSkillIds.filter(isMatchSkillId));

@@ -9,8 +9,12 @@
  *   2. skillMonths        DESC  time on the matched skill
  *   3. industryMonths     DESC  time in the job's industry
  *   4. lastWorkedAt       DESC  recency, NULLS LAST
- *   5. createdAt          DESC  newer application first
- *   6. id                 ASC   the stable tiebreak — a total order, always
+ *   5. lastActiveAt       DESC  the spec's `last_active_at`
+ *   6. id                 ASC   the spec's `stable_hash` — a total order, always
+ *
+ * Field for field the spec's tuple (Part 4 / moment ⑥):
+ *   ( match_tier ASC, skill_months DESC, industry_months DESC,
+ *     last_worked_at DESC, last_active_at DESC, stable_hash ASC )
  *
  * A lexicographic key is the point, not a simplification. It is explainable to a
  * payer in one sentence ("he has the skill and more months on it"), it cannot be
@@ -78,8 +82,8 @@ export function rankKeyCompare(a: RankInputs, b: RankInputs, cfg: MatchConfig): 
     if (recency !== 0) return recency;
   }
 
-  const created = textAsc(b.createdAt, a.createdAt);
-  if (created !== 0) return created;
+  const active = textAsc(b.lastActiveAt, a.lastActiveAt);
+  if (active !== 0) return active;
 
   return textAsc(a.id, b.id);
 }

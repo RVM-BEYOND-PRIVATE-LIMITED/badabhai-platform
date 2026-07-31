@@ -6,7 +6,7 @@
  * opaque key (CLAUDE.md §2 #2).
  *
  * TIME ENTERS AS DATA. Dates are ISO-8601 strings supplied by the caller and are
- * never resolved against a clock inside this package. `lastWorkedAt` and `createdAt`
+ * never resolved against a clock inside this package. `lastWorkedAt` and `lastActiveAt`
  * are SNAPSHOT values, frozen when the row was written (E16).
  */
 import type { IndustryId, MatchSkillId } from "@badabhai/taxonomy";
@@ -64,9 +64,22 @@ export interface RankInputs {
   industryMonths: number;
   /** ISO-8601 date of the worker's last known work, or `null` if never/unknown. */
   lastWorkedAt: string | null;
-  /** ISO-8601 timestamp the candidate row was created — the recency tiebreak. */
-  createdAt: string;
-  /** Opaque, stable id (application id / worker id). The final total-order tiebreak. */
+  /**
+   * The spec's `last_active_at` slot — the recency tiebreak (E11).
+   *
+   * AT LAUNCH the API populates this from `application.created_at`: the instant the
+   * man swiped apply IS his activity instant for that job, and it is already frozen on
+   * the row (moment ⑤), so it cannot move the company's list under them. If a richer
+   * "last seen in the app" signal is ever wired, it fills this field and the comparator
+   * does not change.
+   */
+  lastActiveAt: string;
+  /**
+   * The spec's `stable_hash` slot — an opaque, stable id (application id, or
+   * `stable_hash(worker_id, job_id)`). The final total-order tiebreak: never random at
+   * read time, because a list that reorders between page loads looks broken to a man
+   * who just paid.
+   */
   id: string;
 }
 

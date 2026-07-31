@@ -27,7 +27,7 @@ function rank(over: Partial<RankInputs> & { id: string }): RankInputs {
     skillMonths: 0,
     industryMonths: 0,
     lastWorkedAt: null,
-    createdAt: "2026-07-01T00:00:00.000Z",
+    lastActiveAt: "2026-07-01T00:00:00.000Z",
     ...over,
   };
 }
@@ -85,9 +85,9 @@ describe("rankKeyCompare — column by column", () => {
     expect(rankKeyCompare(rank({ id: "x" }), rank({ id: "y" }), cfg)).toBeLessThan(0);
   });
 
-  it("5. createdAt descending — the newer application first", () => {
-    const newer = rank({ id: "z", createdAt: "2026-07-29T00:00:00.000Z" });
-    const older = rank({ id: "a", createdAt: "2026-07-01T00:00:00.000Z" });
+  it("5. lastActiveAt descending — the newer application first", () => {
+    const newer = rank({ id: "z", lastActiveAt: "2026-07-29T00:00:00.000Z" });
+    const older = rank({ id: "a", lastActiveAt: "2026-07-01T00:00:00.000Z" });
     expect(rankKeyCompare(newer, older, cfg)).toBeLessThan(0);
   });
 

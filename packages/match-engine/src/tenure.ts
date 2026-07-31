@@ -1,19 +1,39 @@
 /**
- * Matching V1 — industry tenure, and the interval merge that will replace it.
+ * Matching V1 — industry tenure. Spec: `docs/specs/matching-algorithm-v1.md`.
  *
- * TWO THINGS LIVE HERE, one live and one waiting:
+ * MOMENT ② IS THE WHOLE FILE: "Merge overlapping date ranges per industry, SUM the
+ * merged length." `industry_months` is a SUM, never a max over rows. The spec pins it
+ * numerically three times:
  *
- *  1. `computeIndustryTenure` — the LAUNCH rule. Coarse history means the honest
- *     per-industry number is `max(bucketed total experience, the longest skill row in
- *     that industry)`. The E8 clamp ("industry_months = MAX(industry_months,
- *     skill_months)") therefore holds BY CONSTRUCTION rather than as a fix-up: a
- *     worker can never show more months on a skill than in the industry that skill
- *     belongs to, because the industry number is defined as the max of the two.
+ *   E2·Y   24 mo VMC + 24 mo CNC Turner, both Manufacturing  -> 48   (24 + 24)
+ *   E6     12 mo VMC + 60 mo CNC Turner                      -> 72   (12 + 60)
+ *   Part 4 ②·B  6 mo VMC + 240 mo factory work               -> 246  (6 + 240)
  *
- *  2. `mergeIntervals` / `calendarMonthsOf` — the CORRECT per-job-history maths (E9:
- *     two overlapping stints are 24 calendar months, not 48). Unused at launch and
- *     fully tested, so that turning on per-job history is a data change rather than a
- *     rewrite of the ranking maths under a deadline.
+ * ...and bounds it once, which is why it is a merge and not a plain sum:
+ *
+ *   E9     VMC Jan-2023..Dec-2024 AND tool-setting in the SAME job -> 24, NOT 48
+ *
+ * THE COARSE LAUNCH REALITY. Today `worker_skill` rows carry no stint dates, and every
+ * row derived for a worker carries the SAME bucketed total (see `derive.ts`). Summing
+ * those would multiply his career by his skill count — three skills at 60 months would
+ * read as 180. So:
+ *
+ *   dated rows      -> merge the intervals in that industry, sum the merged length
+ *   undated rows    -> fall back to the worker's bucketed TOTAL for that industry
+ *   mixed           -> the max of the two, so an undated row can never REDUCE a number
+ *                      the dates already justify
+ *
+ * Then the E8 clamp, PER INDUSTRY: `industry_months = MAX(industry_months,
+ * skill_months)` for the skill rows in that same industry. Per-industry is not a
+ * detail — E7 has a Fitter with 42 skill months (24 Manufacturing + 18 Construction)
+ * against 24 industry months, and that is CORRECT. Clamping against a cross-industry
+ * skill sum would force his Manufacturing tenure to 42 and break E7. The clamp only
+ * ever compares a skill against tenure in that skill's OWN industry.
+ *
+ * BUCKETING. The coarse fallback is bucketed (it is an estimate a man gave in
+ * conversation — policy D-20). A dated sum is NOT bucketed: those are real calendar
+ * months off real stints, the column is literally named `calendar_months`, and rounding
+ * them down would delete a month he actually worked.
  *
  * NO CLOCK. An open-ended stint needs an `asOf` date from the caller; without one it
  * contributes zero rather than silently counting up to "now" (E16 — inputs frozen).
@@ -23,11 +43,14 @@ import { bucketMonths } from "./months";
 import type { WorkerSkillRow } from "./types";
 
 /**
- * Per-industry calendar months, keyed by industry. Only industries the worker
- * actually has rows in appear — an absent industry is 0, not a guess.
+ * Per-industry calendar months, keyed by industry. Only industries the worker actually
+ * has rows in appear — an absent industry is 0, not a guess.
  *
- * `totalYears` is the worker's estimated total; `null`/unknown contributes 0, so the
- * result falls back to the skill rows alone (the shape per-job history will use).
+ * `totalYears` is the worker's estimated total experience; `null`/unknown contributes
+ * 0, leaving the dated stints to speak for themselves.
+ *
+ * `asOf` closes any ongoing stint. Omit it and an ongoing stint contributes 0 to the
+ * dated sum (the coarse fallback and the clamp still apply) — this package has no clock.
  *
  * Counts ALL rows, including `wants: false` ones: tenure is history. Whether a worker
  * WANTS that work is a reach question (`reach.ts`), not a tenure question.
@@ -36,16 +59,41 @@ export function computeIndustryTenure(
   rows: readonly WorkerSkillRow[],
   totalYears: number | null | undefined,
   bucket: number,
+  asOf?: string | null,
 ): Map<IndustryId, number> {
-  const floorMonths = bucketMonths(totalYears, bucket);
-  const tenure = new Map<IndustryId, number>();
+  // The coarse fallback: what we can honestly say when a row carries no dates.
+  const coarseMonths = bucketMonths(totalYears, bucket);
+
+  const byIndustry = new Map<IndustryId, WorkerSkillRow[]>();
   for (const row of rows) {
-    const rowMonths = Number.isFinite(row.monthsBucketed)
-      ? Math.max(0, row.monthsBucketed)
-      : 0;
-    const current = tenure.get(row.industryId);
-    // The E8 clamp, by construction.
-    tenure.set(row.industryId, Math.max(current ?? floorMonths, rowMonths));
+    const bucketRows = byIndustry.get(row.industryId);
+    if (bucketRows === undefined) byIndustry.set(row.industryId, [row]);
+    else bucketRows.push(row);
+  }
+
+  const tenure = new Map<IndustryId, number>();
+  // Sorted so the map's iteration order is a function of the DATA, not of row order.
+  const industryIds = [...byIndustry.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
+  for (const industryId of industryIds) {
+    const industryRows = byIndustry.get(industryId) ?? [];
+
+    // Moment ②: merge the dated stints in THIS industry and sum the merged length.
+    const dated = industryRows
+      .filter((r): r is WorkerSkillRow & { startedAt: string } => typeof r.startedAt === "string")
+      .map((r) => ({ start: r.startedAt, end: r.endedAt }));
+    const datedMonths = dated.length > 0 ? calendarMonthsOf(dated, asOf) : 0;
+
+    // Mixed: dates win where they exist, the coarse total is a floor, never a ceiling.
+    let months = Math.max(datedMonths, coarseMonths);
+
+    // E8 clamp, per industry.
+    for (const r of industryRows) {
+      const rowMonths = Number.isFinite(r.monthsBucketed) ? Math.max(0, r.monthsBucketed) : 0;
+      if (rowMonths > months) months = rowMonths;
+    }
+
+    tenure.set(industryId, months);
   }
   return tenure;
 }

@@ -22,15 +22,111 @@ function row(skillId: string, monthsBucketed: number, industryId = MFG): WorkerS
   };
 }
 
-describe("computeIndustryTenure", () => {
-  it("uses the bucketed total when it is the larger number", () => {
-    const tenure = computeIndustryTenure([row("mskill_vmc_operator", 12)], 5, 6);
+function stint(
+  skillId: string,
+  start: string,
+  end: string | null,
+  monthsBucketed: number,
+  industryId = MFG,
+): WorkerSkillRow {
+  return { ...row(skillId, monthsBucketed, industryId), startedAt: start, endedAt: end };
+}
+
+describe("computeIndustryTenure — DATED rows (spec moment ②: merge, then SUM)", () => {
+  it("SUMS two disjoint stints in the same industry (E2·Y: 24 + 24 = 48)", () => {
+    const tenure = computeIndustryTenure(
+      [
+        stint("mskill_vmc_operator", "2023-01-01", "2025-01-01", 24),
+        stint("mskill_cnc_turner", "2021-01-01", "2023-01-01", 24),
+      ],
+      null,
+      6,
+    );
+    expect(tenureFor(tenure, MFG)).toBe(48);
+  });
+
+  it("SUMS unequal disjoint stints (E6: 12 + 60 = 72)", () => {
+    const tenure = computeIndustryTenure(
+      [
+        stint("mskill_cnc_turner", "2019-01-01", "2024-01-01", 60),
+        stint("mskill_vmc_operator", "2024-01-01", "2025-01-01", 12),
+      ],
+      null,
+      6,
+    );
+    expect(tenureFor(tenure, MFG)).toBe(72);
+  });
+
+  it("MERGES overlapping stints instead of summing them (E9: 24, not 48)", () => {
+    const tenure = computeIndustryTenure(
+      [
+        stint("mskill_vmc_operator", "2023-01-01", "2025-01-01", 24),
+        stint("mskill_cnc_setter_operator", "2023-01-01", "2025-01-01", 24),
+      ],
+      null,
+      6,
+    );
+    expect(tenureFor(tenure, MFG)).toBe(24);
+  });
+
+  it("merges a PARTIAL overlap to the union", () => {
+    const tenure = computeIndustryTenure(
+      [
+        stint("mskill_vmc_operator", "2020-01-01", "2021-07-01", 18),
+        stint("mskill_cnc_turner", "2021-01-01", "2022-01-01", 12),
+      ],
+      null,
+      6,
+    );
+    expect(tenureFor(tenure, MFG)).toBe(24); // union, not 30
+  });
+
+  it("keeps dated industries separate — stints never cross an industry boundary", () => {
+    const tenure = computeIndustryTenure(
+      [
+        stint("mskill_fitter", "2021-01-01", "2023-01-01", 24),
+        stint("mskill_fitter", "2023-01-01", "2024-07-01", 18, QCOM),
+      ],
+      null,
+      6,
+    );
+    expect(tenureFor(tenure, MFG)).toBe(24); // E7 — not 42
+    expect(tenureFor(tenure, QCOM)).toBe(18);
+  });
+
+  it("an ONGOING stint needs an asOf; without one the dated sum is 0", () => {
+    const rows = [stint("mskill_vmc_operator", "2020-01-01", null, 0)];
+    expect(tenureFor(computeIndustryTenure(rows, null, 6), MFG)).toBe(0);
+    expect(tenureFor(computeIndustryTenure(rows, null, 6, "2022-01-01"), MFG)).toBe(24);
+  });
+
+  it("does NOT bucket a dated sum — those are real calendar months, not an estimate", () => {
+    const tenure = computeIndustryTenure(
+      [stint("mskill_vmc_operator", "2020-01-01", "2020-12-01", 6)],
+      null,
+      6,
+    );
+    expect(tenureFor(tenure, MFG)).toBe(11);
+  });
+});
+
+describe("computeIndustryTenure — UNDATED rows (the coarse launch fallback)", () => {
+  it("falls back to the bucketed TOTAL, and never multiplies it by the skill count", () => {
+    // Three derived rows all carrying the same coarse total. Summing would read 180.
+    const tenure = computeIndustryTenure(
+      [
+        row("mskill_vmc_operator", 60),
+        row("mskill_cnc_turner", 60),
+        row("mskill_cnc_setter_operator", 60),
+      ],
+      5,
+      6,
+    );
     expect(tenureFor(tenure, MFG)).toBe(60);
   });
 
-  it("CLAMPS UP to the longest skill row in that industry (E8, by construction)", () => {
-    const tenure = computeIndustryTenure([row("mskill_vmc_operator", 36)], 2, 6);
-    expect(tenureFor(tenure, MFG)).toBe(36);
+  it("uses the bucketed total when it is the larger number", () => {
+    expect(tenureFor(computeIndustryTenure([row("mskill_vmc_operator", 12)], 5, 6), MFG)).toBe(60);
   });
 
   it("keeps industries separate", () => {
@@ -42,14 +138,54 @@ describe("computeIndustryTenure", () => {
     expect(tenureFor(tenure, MFG)).toBe(24);
     expect(tenureFor(tenure, QCOM)).toBe(18);
   });
+});
 
-  it("takes the MAX across rows within one industry, never the sum", () => {
+describe("computeIndustryTenure — the E8 clamp and the edges", () => {
+  it("CLAMPS UP to the longest skill row in that industry (E8)", () => {
+    expect(tenureFor(computeIndustryTenure([row("mskill_vmc_operator", 36)], 2, 6), MFG)).toBe(36);
+    // ...and over a DATED base too: he said 36 months, the dates only cover 12.
+    const dated = computeIndustryTenure(
+      [stint("mskill_vmc_operator", "2024-01-01", "2025-01-01", 36)],
+      null,
+      6,
+    );
+    expect(tenureFor(dated, MFG)).toBe(36);
+  });
+
+  it("the clamp is PER INDUSTRY — never against a cross-industry skill sum (E7)", () => {
+    // A fitter with 24 Manufacturing + 18 elsewhere has 42 SKILL months. Clamping
+    // Manufacturing against that sum would force 42 and break E7.
     const tenure = computeIndustryTenure(
-      [row("mskill_cnc_turner", 24), row("mskill_vmc_operator", 18)],
+      [
+        stint("mskill_fitter", "2021-01-01", "2023-01-01", 24),
+        stint("mskill_fitter", "2023-01-01", "2024-07-01", 18, QCOM),
+      ],
       null,
       6,
     );
     expect(tenureFor(tenure, MFG)).toBe(24);
+    expect(tenureFor(tenure, MFG)).not.toBe(42);
+  });
+
+  it("MIXED rows — an undated row can never REDUCE what the dates justify", () => {
+    const tenure = computeIndustryTenure(
+      [
+        stint("mskill_vmc_operator", "2021-01-01", "2025-01-01", 48),
+        row("mskill_cnc_turner", 6),
+      ],
+      0.5, // a 6-month coarse total, far below the dated 48
+      6,
+    );
+    expect(tenureFor(tenure, MFG)).toBe(48);
+  });
+
+  it("MIXED rows — the coarse total is a floor when it is the larger number", () => {
+    const tenure = computeIndustryTenure(
+      [stint("mskill_vmc_operator", "2024-01-01", "2025-01-01", 12), row("mskill_cnc_turner", 12)],
+      10, // 120 coarse months
+      6,
+    );
+    expect(tenureFor(tenure, MFG)).toBe(120);
   });
 
   it("an industry with no rows is 0, not a guess", () => {
@@ -76,8 +212,28 @@ describe("computeIndustryTenure", () => {
     expect(tenureFor(tenure, MFG)).toBe(0);
   });
 
+  it("ignores an unparseable stint date instead of throwing", () => {
+    const tenure = computeIndustryTenure(
+      [stint("mskill_vmc_operator", "someday", "2025-01-01", 12)],
+      null,
+      6,
+    );
+    expect(tenureFor(tenure, MFG)).toBe(12); // clamp only
+  });
+
   it("no rows means no industries", () => {
     expect(computeIndustryTenure([], 5, 6).size).toBe(0);
+  });
+
+  it("is order-independent — the same rows shuffled give the same tenure", () => {
+    const rows = [
+      stint("mskill_vmc_operator", "2023-01-01", "2025-01-01", 24),
+      stint("mskill_cnc_turner", "2021-01-01", "2023-01-01", 24),
+      stint("mskill_delivery_rider", "2019-01-01", "2021-01-01", 24, QCOM),
+    ];
+    const forward = computeIndustryTenure(rows, null, 6);
+    const backward = computeIndustryTenure([...rows].reverse(), null, 6);
+    expect([...backward.entries()]).toEqual([...forward.entries()]);
   });
 });
 

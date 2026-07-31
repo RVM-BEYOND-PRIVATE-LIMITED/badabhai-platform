@@ -39,7 +39,7 @@ function pick<T>(rand: () => number, values: readonly T[]): T {
 /** Bucketed months a worker could plausibly carry, including 0 ("unknown"). */
 const MONTHS = [0, 6, 12, 18, 24, 30, 36, 42, 48, 60, 84, 120] as const;
 const DATES = [null, "2019-04-01", "2022-11-01", "2024-01-01", "2026-06-01"] as const;
-const CREATED = [
+const ACTIVE_AT = [
   "2026-07-01T00:00:00.000Z",
   "2026-07-15T00:00:00.000Z",
   "2026-07-29T00:00:00.000Z",
@@ -51,7 +51,7 @@ function randomRow(rand: () => number, id: string, over: Partial<RankInputs> = {
     skillMonths: pick(rand, MONTHS),
     industryMonths: pick(rand, MONTHS),
     lastWorkedAt: pick(rand, DATES),
-    createdAt: pick(rand, CREATED),
+    lastActiveAt: pick(rand, ACTIVE_AT),
     id,
     ...over,
   };
@@ -99,7 +99,7 @@ describe("INVARIANT A — a posted-skill worker outranks a related-only worker, 
   it("the floor is the ONLY thing that promotes: at floor-1 month the exact match is back on top", () => {
     const exact: RankInputs = {
       matchTier: 1, skillMonths: 0, industryMonths: 0,
-      lastWorkedAt: null, createdAt: "2026-07-01T00:00:00.000Z", id: "exact",
+      lastWorkedAt: null, lastActiveAt: "2026-07-01T00:00:00.000Z", id: "exact",
     };
     const justBelow: RankInputs = { ...exact, matchTier: 2, skillMonths: FLOOR - 1, id: "related" };
     const justAt: RankInputs = { ...justBelow, skillMonths: FLOOR };
@@ -111,7 +111,7 @@ describe("INVARIANT A — a posted-skill worker outranks a related-only worker, 
     const strict = parseMatchConfig({ ...cfg, tierFloorMonths: 240 });
     const exact: RankInputs = {
       matchTier: 1, skillMonths: 6, industryMonths: 6,
-      lastWorkedAt: null, createdAt: "2026-07-01T00:00:00.000Z", id: "exact",
+      lastWorkedAt: null, lastActiveAt: "2026-07-01T00:00:00.000Z", id: "exact",
     };
     const veteran: RankInputs = { ...exact, matchTier: 2, skillMonths: 120, id: "related" };
     expect(rankKeyCompare(exact, veteran, cfg)).toBeGreaterThan(0); // default floor 36
@@ -135,12 +135,12 @@ describe("INVARIANT B — industry months can never overtake strictly more skill
         // The weaker candidate gets the BEST industry months available; the stronger
         // one gets the worst. If industry months could overtake, this is where.
         industryMonths: 0,
-        lastWorkedAt: null, createdAt: "2026-01-01T00:00:00.000Z", id: "zzz-strong",
+        lastWorkedAt: null, lastActiveAt: "2026-01-01T00:00:00.000Z", id: "zzz-strong",
       };
       const weak: RankInputs = {
         matchTier: tier, skillMonths: less,
         industryMonths: 120,
-        lastWorkedAt: "2026-07-01", createdAt: "2026-07-29T00:00:00.000Z", id: "aaa-weak",
+        lastWorkedAt: "2026-07-01", lastActiveAt: "2026-07-29T00:00:00.000Z", id: "aaa-weak",
       };
       expect(effectiveTier(strong.matchTier, strong.skillMonths, FLOOR)).toBe(
         effectiveTier(weak.matchTier, weak.skillMonths, FLOOR),
@@ -152,7 +152,7 @@ describe("INVARIANT B — industry months can never overtake strictly more skill
   it("industry months only ever break a skill-months TIE", () => {
     const base: RankInputs = {
       matchTier: 1, skillMonths: 24, industryMonths: 24,
-      lastWorkedAt: null, createdAt: "2026-07-01T00:00:00.000Z", id: "a",
+      lastWorkedAt: null, lastActiveAt: "2026-07-01T00:00:00.000Z", id: "a",
     };
     const deeperIndustry: RankInputs = { ...base, industryMonths: 96, id: "b" };
     expect(rankKeyCompare(deeperIndustry, base, cfg)).toBeLessThan(0);
@@ -188,7 +188,7 @@ describe("STABILITY — the same set always produces the same order", () => {
   it("id ASC is the stable tiebreak — completely tied rows still have ONE order", () => {
     const tied = ["m", "a", "z", "b"].map((id) => ({
       matchTier: 1 as const, skillMonths: 24, industryMonths: 24,
-      lastWorkedAt: "2026-01-01", createdAt: "2026-07-01T00:00:00.000Z", id,
+      lastWorkedAt: "2026-01-01", lastActiveAt: "2026-07-01T00:00:00.000Z", id,
     }));
     expect(sorted(tied).map((r) => r.id)).toEqual(["a", "b", "m", "z"]);
     expect(sorted([...tied].reverse()).map((r) => r.id)).toEqual(["a", "b", "m", "z"]);
