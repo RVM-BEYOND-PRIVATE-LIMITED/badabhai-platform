@@ -39,6 +39,8 @@ import { AdminActionsController } from "../admin/admin-actions.controller";
 import { AdminPiiRevealController } from "../admin/admin-pii-reveal.controller";
 import { NotificationsController } from "../notifications/notifications.controller";
 import { SkillsController } from "../skills/skills.controller";
+import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
+import { ReferralBonusController } from "../referrals/referral-bonus.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -343,6 +345,23 @@ const CONTRACT: ControllerContract[] = [
     name: "Skills",
     ctor: SkillsController,
     routes: { nearestAliases: [SI], recordUnresolved: [SI] },
+  },
+  // Referral attribution (ADR-0020/0022): the invited_worker_id is the SESSION worker, so
+  // a caller can only ever attribute THEMSELVES to a code (XB-A). B4 added an OPTIONAL
+  // `source` to the body — the guard, the IP cap and the neutral response are unchanged.
+  {
+    name: "ReferralAttribution",
+    ctor: ReferralAttributionController,
+    routes: { attribute: [W] },
+  },
+  // MOCK ₹20 activation-bonus ledger (§X.6). OPS-INTERNAL only (InternalServiceGuard, the
+  // shared-secret principal — fail-closed when unconfigured), deliberately NOT worker-facing:
+  // this release accrues and disburses NOTHING, and showing a worker "₹20 earned" would be a
+  // payment promise the platform cannot keep.
+  {
+    name: "ReferralBonus",
+    ctor: ReferralBonusController,
+    routes: { evaluate: [I], summary: [I] },
   },
 ];
 

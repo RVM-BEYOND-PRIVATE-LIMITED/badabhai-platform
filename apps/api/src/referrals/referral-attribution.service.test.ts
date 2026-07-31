@@ -57,7 +57,7 @@ describe("ReferralAttributionService — namespace dispatch (worker first, agenc
     h.workerInvites.recordAccept.mockResolvedValue({ ok: true });
     const out = await h.svc.attribute(CODE, WORKER);
     expect(out).toEqual({ attributed: true, kind: "worker" });
-    expect(h.workerInvites.recordAccept).toHaveBeenCalledWith(CODE, WORKER);
+    expect(h.workerInvites.recordAccept).toHaveBeenCalledWith(CODE, WORKER, "unknown");
     expect(h.agency.attributeWorkerToInvite).not.toHaveBeenCalled();
   });
 
@@ -66,7 +66,22 @@ describe("ReferralAttributionService — namespace dispatch (worker first, agenc
     h.agency.attributeWorkerToInvite.mockResolvedValue({ ok: true });
     const out = await h.svc.attribute(CODE, WORKER);
     expect(out).toEqual({ attributed: true, kind: "agency" });
-    expect(h.agency.attributeWorkerToInvite).toHaveBeenCalledWith(CODE, WORKER);
+    expect(h.agency.attributeWorkerToInvite).toHaveBeenCalledWith(CODE, WORKER, "unknown");
+  });
+
+  // ---- B4: the install `source` reaches whichever seam attributes ----
+
+  it("threads the source to the WORKER seam", async () => {
+    h.workerInvites.recordAccept.mockResolvedValue({ ok: true });
+    await h.svc.attribute(CODE, WORKER, "app_link");
+    expect(h.workerInvites.recordAccept).toHaveBeenCalledWith(CODE, WORKER, "app_link");
+  });
+
+  it("threads the source to the AGENCY seam on fall-through", async () => {
+    h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "unknown_code" });
+    h.agency.attributeWorkerToInvite.mockResolvedValue({ ok: true });
+    await h.svc.attribute(CODE, WORKER, "custom_scheme");
+    expect(h.agency.attributeWorkerToInvite).toHaveBeenCalledWith(CODE, WORKER, "custom_scheme");
   });
 
   it("KNOWN worker invite that can't attribute (self_invite) is TERMINAL — agency NOT tried", async () => {

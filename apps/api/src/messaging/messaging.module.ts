@@ -4,12 +4,14 @@ import { areRealMessagesEnabled } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { ConsentModule } from "../consent/consent.module";
 import { AuthModule } from "../auth/auth.module";
+import { AgencyModule } from "../agency/agency.module";
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from "./whatsapp.provider";
 import { MockWhatsAppProvider } from "./mock-whatsapp.provider";
 import { MetaWhatsAppProvider } from "./meta-whatsapp.provider";
 import { MessagingConsentService } from "./messaging-consent.service";
 import { ReengagementService } from "./reengagement.service";
 import { InviteService } from "./invite.service";
+import { InviteClickService } from "./invite-click.service";
 import { InviteRepository } from "./invite.repository";
 import { MessagingController } from "./messaging.controller";
 
@@ -20,12 +22,16 @@ import { MessagingController } from "./messaging.controller";
  * `areRealMessagesEnabled` (MESSAGING_ENABLE_REAL + keys) — a human gate, and even then
  * the real impl fails closed (unimplemented) until Phase 3.
  *
- * Imports ConsentModule (ConsentRepository — the whatsapp_messaging gate read) and
- * AuthModule (WorkerAuthGuard for invite create). EventsService, PiiCryptoService, the
- * Drizzle DATABASE, and SERVER_CONFIG are @Global.
+ * Imports ConsentModule (ConsentRepository — the whatsapp_messaging gate read),
+ * AuthModule (WorkerAuthGuard for invite create), and AgencyModule (AgencyService — the
+ * agency code-space fall-through on the PUBLIC click path, TD113). EventsService,
+ * PiiCryptoService, the Drizzle DATABASE, and SERVER_CONFIG are @Global.
+ *
+ * ACYCLIC: AgencyModule imports PayersModule + ConsentModule and nothing here, so this
+ * edge adds no cycle (ReferralAttributionModule already imports both of these).
  */
 @Module({
-  imports: [ConsentModule, AuthModule],
+  imports: [ConsentModule, AuthModule, AgencyModule],
   controllers: [MessagingController],
   providers: [
     MockWhatsAppProvider,
@@ -42,6 +48,7 @@ import { MessagingController } from "./messaging.controller";
     MessagingConsentService,
     ReengagementService,
     InviteService,
+    InviteClickService,
     InviteRepository,
   ],
   // Exported so ReferralAttributionModule can call the consent-gated worker→worker

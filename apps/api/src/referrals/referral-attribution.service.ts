@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { InviteInstallSource } from "@badabhai/event-schema";
 import { ConsentRepository } from "../consent/consent.repository";
 import { InviteService } from "../messaging/invite.service";
 import { AgencyService } from "../agency/agency.service";
@@ -49,7 +50,17 @@ export class ReferralAttributionService {
    * Attribute the (already-onboarding) worker to the invite `code` that brought them in.
    * Idempotent + neutral: safe to call more than once and on any/unknown code.
    */
-  async attribute(code: string, workerId: string): Promise<AttributionOutcome> {
+  async attribute(
+    code: string,
+    workerId: string,
+    /**
+     * B4 — which leg of the post-Dynamic-Links chain delivered the code (app_link /
+     * install_referrer / custom_scheme). Threaded into the `invite.install` event emitted by
+     * whichever seam attributes. Defaults to "unknown" so pre-B4 clients (which send no
+     * `source`) and every existing caller keep working unchanged.
+     */
+    source: InviteInstallSource = "unknown",
+  ): Promise<AttributionOutcome> {
     try {
       // 1) DPDP gate (invariant #6): require ACTIVE consent before ANY attribution.
       const latest = await this.consent.findLatestByWorker(workerId);
@@ -59,14 +70,14 @@ export class ReferralAttributionService {
 
       // 2) Worker→worker first (ADR-0020). Only `unknown_code` falls through to agency; a
       //    KNOWN worker invite that can't attribute (self / already) is terminal here.
-      const w = await this.workerInvites.recordAccept(code, workerId);
+      const w = await this.workerInvites.recordAccept(code, workerId, source);
       if (w.ok) return { attributed: true, kind: "worker" };
       if (w.reason !== "unknown_code") {
         return { attributed: false, kind: "worker", reason: w.reason };
       }
 
       // 3) Agency→worker (ADR-0022). Its own consent re-check is harmless (already active).
-      const a = await this.agency.attributeWorkerToInvite(code, workerId);
+      const a = await this.agency.attributeWorkerToInvite(code, workerId, source);
       if (a.ok) return { attributed: true, kind: "agency" };
       return { attributed: false, kind: "none", reason: a.reason };
     } catch (err) {
