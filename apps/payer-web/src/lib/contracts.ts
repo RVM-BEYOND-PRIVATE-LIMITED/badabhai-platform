@@ -520,6 +520,44 @@ export const buyPackResultWireSchema = z.object({
 });
 
 /**
+ * POST /payer/credits/order — create a REAL Razorpay order (LIVE only when
+ * `PAYMENTS_ENABLE_REAL` is on; a neutral 404 otherwise).
+ *
+ * The request body carries ONLY the pack CODE — no payer_id, no amount, no currency. The
+ * ₹ comes back from the server, resolved from the same pricing catalog the page rendered.
+ *
+ * `key_id` is the `rzp_*` KEY ID, which is PUBLIC by design (checkout.js needs it in the
+ * browser). The key SECRET and the webhook secret exist only on the API server and appear
+ * in no response, no bundle, and no NEXT_PUBLIC_* value.
+ */
+export const creditOrderWireSchema = z.object({
+  order_id: z.string().min(1),
+  key_id: z.string().min(1),
+  /** Amount in PAISE — what Razorpay Checkout expects. */
+  amount: z.number().int().positive(),
+  /** The same amount in whole ₹ — what we display. */
+  amount_inr: z.number().int().positive(),
+  currency: z.string().min(1),
+  pack_code: z.string().min(1),
+  credits: z.number().int().positive(),
+});
+export type CreditOrder = z.infer<typeof creditOrderWireSchema>;
+
+/**
+ * POST /payer/credits/verify — the browser-side confirmation fallback. Returns the payer's
+ * post-purchase balance. `credits` is 0 when the webhook already granted (the purchase
+ * still SUCCEEDED — the balance is authoritative), so the UI must key its success copy on
+ * the balance, never on `credits > 0`.
+ */
+export const verifyPaymentWireSchema = z.object({
+  payer_id: z.string().uuid(),
+  balance: z.number().int().nonnegative(),
+  credits: z.number().int().nonnegative(),
+  pack_code: z.string(),
+});
+export type VerifiedPayment = z.infer<typeof verifyPaymentWireSchema>;
+
+/**
  * GET /payer/capacity — the caller's OWN hiring-capacity allowance (LIVE, Bearer only).
  * Mirrors {@link import("../../api/src/posting-plans/posting-plans.service").CapacityView}:
  * `{ payer_id, max_active_vacancies, active_plan_count, source_tier, expires_at }`.

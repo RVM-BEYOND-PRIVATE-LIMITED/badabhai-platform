@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ne, sql } from "drizzle-orm";
 import {
   type Database,
   type Unlock,
@@ -17,6 +17,12 @@ import {
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
+import {
+  paymentOrders,
+  RAZORPAY_PROVIDER,
+  type PaymentOrder,
+  type PaymentOrderStatus,
+} from "./payment-orders.table";
 
 /**
  * A Drizzle transaction handle. The chokepoint ({@link UnlockService}) opens ONE
@@ -402,28 +408,179 @@ export class UnlocksRepository {
      * movements with no amount.
      */
     priceInr?: number | null;
+    /**
+     * EXACTLY-ONCE key for the ledger insert (the `credit_ledger_idempotency_key_uq` partial
+     * unique index). Optional: movements with no natural dedup key leave it null and never
+     * collide (NULLS DISTINCT). The real-payment path passes a key derived from the order row.
+     */
+    idempotencyKey?: string | null;
   }): Promise<number> {
-    return this.db.transaction(async (tx) => {
-      const updated = await tx
-        .insert(payerCredits)
-        .values({ payerId: input.payerId, balance: input.credits })
-        .onConflictDoUpdate({
-          target: payerCredits.payerId,
-          set: { balance: sql`${payerCredits.balance} + ${input.credits}`, updatedAt: sql`now()` },
-        })
-        .returning({ balance: payerCredits.balance });
-      await tx.insert(creditLedger).values({
-        payerId: input.payerId,
-        delta: input.credits,
-        reason: input.reason,
-        packCode: input.packCode,
-        paymentRef: input.paymentRef,
-        priceInr: input.priceInr ?? null,
-      });
-      const balance = updated[0]?.balance;
-      if (balance === undefined) throw new Error("Failed to credit pack");
-      return balance;
+    return this.db.transaction((tx) => this.creditPackWithinTx(tx, input));
+  }
+
+  /**
+   * The tx-scoped half of {@link creditPack} — grant + ledger append inside the CALLER's
+   * transaction (the same F-6 atomicity shape as {@link tryDebit}).
+   *
+   * WHY IT MUST BE TX-SCOPED FOR REAL PAYMENTS: the grant has to commit in the SAME
+   * transaction as the `payment_orders` 'created' → 'paid' flip. If they were separate
+   * transactions, a crash between them leaves either a paid order with no credits (the
+   * payer paid and got nothing) or credits with an unpaid order (a free grant that a
+   * retried webhook would repeat). One transaction makes both impossible.
+   */
+  async creditPackWithinTx(
+    tx: Tx,
+    input: {
+      payerId: string;
+      credits: number;
+      reason: CreditReason;
+      packCode: string | null;
+      paymentRef: string | null;
+      priceInr?: number | null;
+      idempotencyKey?: string | null;
+    },
+  ): Promise<number> {
+    const updated = await tx
+      .insert(payerCredits)
+      .values({ payerId: input.payerId, balance: input.credits })
+      .onConflictDoUpdate({
+        target: payerCredits.payerId,
+        set: { balance: sql`${payerCredits.balance} + ${input.credits}`, updatedAt: sql`now()` },
+      })
+      .returning({ balance: payerCredits.balance });
+    await tx.insert(creditLedger).values({
+      payerId: input.payerId,
+      delta: input.credits,
+      reason: input.reason,
+      packCode: input.packCode,
+      paymentRef: input.paymentRef,
+      priceInr: input.priceInr ?? null,
+      idempotencyKey: input.idempotencyKey ?? null,
     });
+    const balance = updated[0]?.balance;
+    if (balance === undefined) throw new Error("Failed to credit pack");
+    return balance;
+  }
+
+  // ===========================================================================
+  // payment_orders — REAL-money order rows (Razorpay). The UNIQUE
+  // (provider, provider_order_id) index is THE payment idempotency key.
+  // ===========================================================================
+
+  /**
+   * Persist a freshly-created provider order. The amount is the ₹ the pricing catalog
+   * resolved at creation time — this row is the receipt, so a later ops price edit can
+   * never change what this purchase cost.
+   */
+  async createPaymentOrder(input: {
+    payerId: string;
+    packCode: string;
+    amountInr: number;
+    providerOrderId: string;
+    provider?: string;
+  }): Promise<PaymentOrder> {
+    const rows = await this.db
+      .insert(paymentOrders)
+      .values({
+        payerId: input.payerId,
+        packCode: input.packCode,
+        amountInr: input.amountInr,
+        provider: input.provider ?? RAZORPAY_PROVIDER,
+        providerOrderId: input.providerOrderId,
+        status: "created",
+      })
+      .returning();
+    const row = rows[0];
+    if (row === undefined) throw new Error("Failed to persist payment order");
+    return row;
+  }
+
+  /** Look up an order by its provider id (the unique key). PII-free row. */
+  async findPaymentOrder(
+    providerOrderId: string,
+    provider: string = RAZORPAY_PROVIDER,
+  ): Promise<PaymentOrder | undefined> {
+    const rows = await this.db
+      .select()
+      .from(paymentOrders)
+      .where(
+        and(
+          eq(paymentOrders.provider, provider),
+          eq(paymentOrders.providerOrderId, providerOrderId),
+        ),
+      )
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * THE RACE CLOSURE — an atomic compare-and-set from any non-paid state to 'paid'.
+   *
+   * Returns the claimed row to EXACTLY ONE caller and `undefined` to every other, whether
+   * the loser is a Razorpay webhook retry, a second webhook delivery, the browser verify
+   * call, or all three arriving concurrently.
+   *
+   * WHY THIS IS SAFE UNDER CONCURRENCY (READ COMMITTED, the Postgres default): two
+   * transactions issue this UPDATE against the same row. The first takes the row lock and
+   * sets status='paid'. The second BLOCKS on that lock; when the first commits, Postgres
+   * re-evaluates the second's WHERE clause against the NEW row version (EvalPlanQual) —
+   * `status <> 'paid'` is now false, so it updates 0 rows and returns undefined. There is
+   * no read-then-write window for a racer to slip through, because the read and the write
+   * are the same statement.
+   *
+   * The caller performs the credit grant in the SAME transaction as this call, so "claimed
+   * the order" and "granted the credits" commit or roll back together.
+   */
+  async claimPaymentOrderPaidWithinTx(
+    tx: Tx,
+    input: { providerOrderId: string; providerPaymentRef: string; provider?: string },
+  ): Promise<PaymentOrder | undefined> {
+    const rows = await tx
+      .update(paymentOrders)
+      .set({
+        status: "paid",
+        providerPaymentRef: input.providerPaymentRef,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(paymentOrders.provider, input.provider ?? RAZORPAY_PROVIDER),
+          eq(paymentOrders.providerOrderId, input.providerOrderId),
+          // The compare half of the compare-and-set. A row already 'paid' matches nothing.
+          ne(paymentOrders.status, "paid"),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
+
+  /**
+   * Mark an order failed — but ONLY from a non-terminal state. `status <> 'paid'` is the
+   * same compare-and-set discipline as the grant: a late/out-of-order `payment.failed`
+   * delivery must never be able to walk back an order whose capture already granted
+   * credits (Razorpay does not guarantee webhook ordering).
+   */
+  async markPaymentOrderFailed(
+    providerOrderId: string,
+    provider: string = RAZORPAY_PROVIDER,
+  ): Promise<PaymentOrder | undefined> {
+    const rows = await this.db
+      .update(paymentOrders)
+      .set({ status: "failed", updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(paymentOrders.provider, provider),
+          eq(paymentOrders.providerOrderId, providerOrderId),
+          ne(paymentOrders.status, "paid"),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
+
+  /** Re-export for callers that narrow on the lifecycle without importing the table module. */
+  static isPaid(status: PaymentOrderStatus): boolean {
+    return status === "paid";
   }
 
   /** PII-free list of a payer's unlocks (ops read). NO routing token resolved. */

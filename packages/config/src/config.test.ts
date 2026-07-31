@@ -6,6 +6,8 @@ import {
   realPaymentsBlockedReason,
   areRealPaymentsEnabled,
   assertPaymentsConfig,
+  getRazorpayCredentials,
+  type ServerConfig,
   realMessagingBlockedReason,
   areRealMessagesEnabled,
   assertMessagingConfig,
@@ -185,14 +187,102 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(() => assertPaymentsConfig(config)).toThrow(/PAYMENTS_PROVIDER_KEY/);
   });
 
-  it("real payments are allowed only with both the flag AND a key", () => {
+  it("real payments require the flag AND the FULL Razorpay credential set", () => {
     const config = loadServerConfig({
       PAYMENTS_ENABLE_REAL: "true",
       PAYMENTS_PROVIDER_KEY: "rzp_test_xxx",
+      PAYMENTS_PROVIDER_SECRET: "sec_xxx",
+      RAZORPAY_WEBHOOK_SECRET: "whsec_xxx",
     });
     expect(realPaymentsBlockedReason(config)).toBeNull();
     expect(areRealPaymentsEnabled(config)).toBe(true);
     expect(() => assertPaymentsConfig(config)).not.toThrow();
+  });
+});
+
+/**
+ * REAL RAZORPAY BOOT GATE — money code, so the fail-closed posture is asserted per-secret
+ * and per-failure-mode rather than once. Three secrets are required and each is load-bearing:
+ * without the webhook secret every webhook verification fails, so a captured payment would
+ * only ever be credited through the browser fallback — a payer on a dropped mobile connection
+ * would pay and never receive credits. "Flag + key id" is therefore NOT live.
+ */
+describe("real Razorpay payments — fail-closed boot gate (all three secrets)", () => {
+  const FULL = {
+    PAYMENTS_ENABLE_REAL: "true",
+    PAYMENTS_PROVIDER_KEY: "rzp_test_keyid",
+    PAYMENTS_PROVIDER_SECRET: "rzp_key_secret",
+    RAZORPAY_WEBHOOK_SECRET: "rzp_webhook_secret",
+  };
+  const SECRET_NAMES = [
+    "PAYMENTS_PROVIDER_KEY",
+    "PAYMENTS_PROVIDER_SECRET",
+    "RAZORPAY_WEBHOOK_SECRET",
+  ] as const;
+
+  for (const name of SECRET_NAMES) {
+    it(`refuses to boot when ${name} is MISSING`, () => {
+      const env = { ...FULL };
+      delete (env as Record<string, string | undefined>)[name];
+      const config = loadServerConfig(env);
+      expect(realPaymentsBlockedReason(config)).toBe(`${name} is not set`);
+      expect(areRealPaymentsEnabled(config)).toBe(false);
+      expect(() => assertPaymentsConfig(config)).toThrow(new RegExp(name));
+    });
+
+    it(`refuses to boot when ${name} is an EMPTY STRING (never arms vacuously — TD67)`, () => {
+      // A blank is rejected at PARSE time by z.string().min(1) — the earliest possible
+      // failure. The process dies at loadServerConfig, long before any money path exists.
+      expect(() => loadServerConfig({ ...FULL, [name]: "" })).toThrow(new RegExp(name));
+
+      // …and if a ServerConfig is built by any OTHER means (fixture / partial object), the
+      // gate still treats blank + whitespace-only as NOT configured (structural backstop).
+      for (const blank of ["", "   ", "\t\n"]) {
+        const config = { ...loadServerConfig(FULL), [name]: blank } as ServerConfig;
+        expect(realPaymentsBlockedReason(config)).toBe(`${name} is not set`);
+        expect(areRealPaymentsEnabled(config)).toBe(false);
+        expect(getRazorpayCredentials(config)).toBeNull();
+        expect(() => assertPaymentsConfig(config)).toThrow(new RegExp(name));
+      }
+    });
+  }
+
+  it("the boot error names the missing VARS and never echoes a secret VALUE", () => {
+    const config = { ...loadServerConfig(FULL), PAYMENTS_PROVIDER_SECRET: "" } as ServerConfig;
+    let message = "";
+    try {
+      assertPaymentsConfig(config);
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toContain("PAYMENTS_PROVIDER_SECRET");
+    // None of the configured values may appear in the message.
+    expect(message).not.toContain(FULL.PAYMENTS_PROVIDER_KEY);
+    expect(message).not.toContain(FULL.RAZORPAY_WEBHOOK_SECRET);
+    expect(message).not.toContain("rzp_key_secret");
+  });
+
+  it("reports EVERY missing var at once (one boot, one complete fix list)", () => {
+    const config = loadServerConfig({ PAYMENTS_ENABLE_REAL: "true" });
+    expect(() => assertPaymentsConfig(config)).toThrow(/PAYMENTS_PROVIDER_KEY/);
+    expect(() => assertPaymentsConfig(config)).toThrow(/PAYMENTS_PROVIDER_SECRET/);
+    expect(() => assertPaymentsConfig(config)).toThrow(/RAZORPAY_WEBHOOK_SECRET/);
+  });
+
+  it("getRazorpayCredentials is null unless real payments are FULLY enabled", () => {
+    expect(getRazorpayCredentials(loadServerConfig({}))).toBeNull(); // mock default
+    expect(
+      getRazorpayCredentials(
+        loadServerConfig({ PAYMENTS_ENABLE_REAL: "true", PAYMENTS_PROVIDER_KEY: "rzp_test_x" }),
+      ),
+    ).toBeNull(); // flag + key id only — not live
+    // Credentials present but the master flag OFF ⇒ still null (the flag is the master gate).
+    expect(getRazorpayCredentials(loadServerConfig({ ...FULL, PAYMENTS_ENABLE_REAL: "false" }))).toBeNull();
+    expect(getRazorpayCredentials(loadServerConfig(FULL))).toEqual({
+      keyId: "rzp_test_keyid",
+      keySecret: "rzp_key_secret",
+      webhookSecret: "rzp_webhook_secret",
+    });
   });
 });
 

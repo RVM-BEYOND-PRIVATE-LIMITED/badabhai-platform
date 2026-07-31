@@ -26,7 +26,10 @@ const getCreditTopUps = vi.fn();
 vi.mock("../../../lib/payer-api", () => ({
   getDashboard: () => getDashboard(),
   getCreditTopUps: () => getCreditTopUps(),
-  topUp: vi.fn(), // transitively imported by ./credits-panel → ./actions; never called here.
+  // Transitively imported by ./credits-panel → ./actions; never called from a render test.
+  topUp: vi.fn(),
+  createCreditOrder: vi.fn(),
+  verifyCreditPayment: vi.fn(),
 }));
 // Billing/wallet is an OWNER-only surface (org-RBAC). The page calls requireOwner() FIRST; mock
 // it through a referenced spy so the render tests ADMIT (default) and a dedicated test can make
@@ -38,6 +41,10 @@ vi.mock("../../../lib/auth/org-roles", () => ({ requireOwner: () => requireOwner
 // dedicated tests re-point it at an ops-EDITED catalog (live) or the fallback (live:false).
 const getLiveCatalog = vi.fn();
 vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
+// The SERVER-side payment-mode flag (real Razorpay vs mock top-up). Mocked because the real
+// module memoizes its parse, so per-test env mutation would not take effect.
+const payerServerConfig = vi.fn();
+vi.mock("../../../lib/server-config", () => ({ payerServerConfig: () => payerServerConfig() }));
 
 const { default: CreditsPage } = await import("./page");
 
@@ -74,8 +81,13 @@ function setData(opts: { balance: number; unlocks?: UnlockHistoryItem[]; topUps?
 interface Collected {
   text: string[];
   panelPacks: unknown;
+  /** The `real` flag the server page hands the client panel. */
+  panelReal: unknown;
 }
-function collect(node: ReactNode, acc: Collected = { text: [], panelPacks: undefined }): Collected {
+function collect(
+  node: ReactNode,
+  acc: Collected = { text: [], panelPacks: undefined, panelReal: undefined },
+): Collected {
   if (node === null || node === undefined || typeof node === "boolean") return acc;
   if (typeof node === "string" || typeof node === "number") {
     acc.text.push(String(node));
@@ -89,6 +101,7 @@ function collect(node: ReactNode, acc: Collected = { text: [], panelPacks: undef
   // The CreditsPanel child receives the config packs as a prop (we never hook-render it).
   if (el.props && "packs" in el.props && acc.panelPacks === undefined) {
     acc.panelPacks = el.props.packs;
+    acc.panelReal = el.props.real;
   }
   // Expand a FUNCTION component one level (the DS primitives + CachedPricingNote are
   // hookless/presentational — the capacity-page walker pattern) so text rendered INSIDE a
@@ -112,7 +125,7 @@ async function render(opts: { balance: number; unlocks?: UnlockHistoryItem[]; to
   setData(opts);
   const tree = (await CreditsPage()) as ReactElement;
   const c = collect(tree);
-  return { joined: c.text.join(" "), panelPacks: c.panelPacks };
+  return { joined: c.text.join(" "), panelPacks: c.panelPacks, panelReal: c.panelReal };
 }
 
 beforeEach(() => {
@@ -125,6 +138,12 @@ beforeEach(() => {
     payerId: "11111111-1111-4111-8111-111111111111",
     displayLabel: "Acme",
     role: "employer",
+  });
+  // Default: MOCK payments (the launch-gate default). Real mode is opted into per-test.
+  payerServerConfig.mockReset().mockReturnValue({
+    apiBaseUrl: "http://localhost:3001",
+    paymentsEnableReal: false,
+    agencySupplyEnabled: false,
   });
 });
 afterEach(() => {
@@ -242,6 +261,54 @@ describe("credits page — (e) packs + unit price resolve from the live catalog 
     const { joined } = await render({ balance: 50 });
     expect(joined).toMatch(/Mock payments only/i);
     expect(joined).toMatch(/no real payment is taken/i);
+  });
+});
+
+/**
+ * PAYMENT MODE — the page must never advertise a mode it is not in. The flag is resolved
+ * SERVER-side and handed to the panel; the client cannot pick its own mode.
+ */
+describe("credits page — real vs mock payment mode (server-decided)", () => {
+  it("DEFAULTS to mock: real=false on the panel and the mock copy is rendered", async () => {
+    const { joined, panelReal } = await render({ balance: 50 });
+    expect(panelReal).toBe(false);
+    expect(joined).toMatch(/Mock payments only/i);
+    expect(joined).toMatch(/no real payment is taken/i);
+    // The word "Razorpay" DOES appear in mock mode — as the note that real checkout is a
+    // separate rollout. What must not appear is any claim that it is LIVE here.
+    expect(joined).not.toMatch(/Pay securely via Razorpay/i);
+    expect(joined).not.toMatch(/Payments by Razorpay/i);
+  });
+
+  it("REAL mode passes real=true and swaps the copy — no 'no real payment is taken' lie", async () => {
+    payerServerConfig.mockReturnValue({
+      apiBaseUrl: "http://localhost:3001",
+      paymentsEnableReal: true,
+      agencySupplyEnabled: false,
+    });
+    const { joined, panelReal } = await render({ balance: 50 });
+    expect(panelReal).toBe(true);
+    // The mock disclaimers must be GONE — rendering them beside a live charge is the
+    // specific dishonesty this assertion exists to prevent.
+    expect(joined).not.toMatch(/Mock payments only/i);
+    expect(joined).not.toMatch(/no real payment is taken/i);
+    expect(joined).not.toMatch(/no money moves/i);
+    expect(joined).toMatch(/Pay securely via Razorpay/i);
+    expect(joined).toMatch(/Payments by Razorpay/i);
+  });
+
+  it("never leaks a key/secret into the rendered page in EITHER mode", async () => {
+    for (const paymentsEnableReal of [false, true]) {
+      payerServerConfig.mockReturnValue({
+        apiBaseUrl: "http://localhost:3001",
+        paymentsEnableReal,
+        agencySupplyEnabled: false,
+      });
+      const { joined } = await render({ balance: 50 });
+      // The key id arrives at runtime on the ORDER response, never from this page.
+      expect(joined).not.toMatch(/rzp_(test|live)_/);
+      expect(joined).not.toMatch(/key_secret|whsec|PAYMENTS_PROVIDER_SECRET/i);
+    }
   });
 });
 

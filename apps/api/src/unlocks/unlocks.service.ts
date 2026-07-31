@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { ServerConfig } from "@badabhai/config";
+import { getRazorpayCredentials, type ServerConfig } from "@badabhai/config";
 import { UNLOCK_WINDOW_DAYS, type UnlockDenyReason, type RoutingChannel } from "@badabhai/db";
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -16,7 +16,13 @@ import {
   type UnlockProjection,
   type CreditLedgerItem,
 } from "./unlocks.repository";
-import { PaymentGateway } from "./payment-gateway";
+import { PaymentGateway, type RealOrderHandoff, type SettleResult } from "./payment-gateway";
+import { verifyCheckoutSignature } from "./razorpay-signature";
+import {
+  RAZORPAY_CAPTURE_EVENTS,
+  RAZORPAY_FAILURE_EVENTS,
+  type RazorpayPaymentEvent,
+} from "./razorpay-webhook.dto";
 import {
   neutralUnavailable,
   type NeutralUnavailableResponse,
@@ -495,6 +501,206 @@ export class UnlockService {
     return { payer_id: payerId, balance: result.balanceAfter, credits: pack.credits, pack_code: pack.code };
   }
 
+  // ===========================================================================
+  // REAL Razorpay credit purchase (behind PAYMENTS_ENABLE_REAL + the full
+  // credential set). Order → checkout → capture, where the webhook is the source
+  // of truth and the browser verify is a convergent fallback.
+  // ===========================================================================
+
+  /** True when a REAL gateway is fully wired. The controller gates the real routes on this. */
+  get realPaymentsLive(): boolean {
+    return this.payments.realCall;
+  }
+
+  /**
+   * Create a REAL provider order for a credit pack (`POST /payer/credits/order`).
+   *
+   * Returns null for an unknown pack (→ the caller's 404 — a pack code is a public catalog
+   * item, not a per-tenant resource, so a 404 leaks nothing).
+   *
+   * PRICE AUTHORITY: {@link PaymentGateway.resolvePack} — the same live-catalog path the
+   * portal renders from (D-6). The advertised price and the charged price are the same
+   * lookup, and the client never supplies an amount at any point in this chain.
+   *
+   * EVENT (§1): exactly one `payment.authorized`, keyed on our order row so a retried
+   * request that produced a second provider order still produces one event per order.
+   * `real_call` is the honest `true` here — this event means money is genuinely in flight.
+   */
+  async createCreditOrder(
+    payerId: string,
+    packCode: string,
+    ctx: RequestContext,
+  ): Promise<RealOrderHandoff | null> {
+    const pack = await this.payments.resolvePack(packCode);
+    if (!pack) return null;
+
+    const order = await this.payments.createRealOrder(payerId, pack);
+
+    await this.emitPaymentAuthorized(null, payerId, ctx, {
+      packCode: order.packCode,
+      amountInr: order.amountInr,
+      amountCredits: order.credits,
+      // One authorization per ORDER ROW (not per request): a client that retries the call
+      // creates a distinct order and gets a distinct event; a duplicate emit cannot happen.
+      idempotencyKey: `payment.authorized:order:${order.orderRowId}`,
+    });
+    return order;
+  }
+
+  /**
+   * Verify a browser-returned checkout result and settle (`POST /payer/credits/verify`).
+   *
+   * WHY THIS EXISTS: on a flaky Indian mobile network the browser sees Razorpay's success
+   * callback seconds before the webhook reaches our server. Without this path the payer
+   * would be shown "payment failed" for a payment that actually succeeded. It converges on
+   * the SAME order row and the SAME idempotent settle as the webhook, so the two can race
+   * freely — whichever lands first grants, the other reports the already-settled state.
+   *
+   * TRUST: the `razorpay_signature` is HMAC(order_id|payment_id, KEY SECRET), compared
+   * constant-time. A payer cannot mint credits by POSTing ids they invented, because they
+   * cannot produce that HMAC. Ownership is additionally bound to the SESSION payer.
+   *
+   * NO-ORACLE: an invalid signature, an unknown order, and another tenant's order all
+   * return the same `{ verified: false }` shape — the caller learns nothing about which.
+   */
+  async verifyCheckoutPayment(
+    payerId: string,
+    input: { orderId: string; paymentId: string; signature: string },
+    ctx: RequestContext,
+  ): Promise<
+    | { verified: true; payer_id: string; balance: number; credits: number; pack_code: string }
+    | { verified: false }
+  > {
+    const creds = getRazorpayCredentials(this.config);
+    if (!creds) return { verified: false }; // real payments not live ⇒ nothing to verify
+
+    if (!verifyCheckoutSignature(input, creds.keySecret)) {
+      // Log the FACT only — no ids, no signature, nothing an attacker could confirm.
+      this.logger.warn("razorpay checkout signature verification failed");
+      return { verified: false };
+    }
+
+    const result = await this.settleAndEmit(
+      {
+        providerOrderId: input.orderId,
+        providerPaymentRef: input.paymentId,
+        // Ownership is enforced INSIDE settle: a mismatch is indistinguishable from
+        // "no such order", so this endpoint is not an order-id oracle for other tenants.
+        expectedPayerId: payerId,
+      },
+      ctx,
+    );
+
+    switch (result.outcome) {
+      case "granted":
+        return {
+          verified: true,
+          payer_id: payerId,
+          balance: result.balanceAfter,
+          credits: result.credits,
+          pack_code: result.order.packCode,
+        };
+      case "already_settled": {
+        // The webhook won the race. This is a SUCCESS for the payer — report the real
+        // balance, never a failure, or a paying customer is told their purchase failed.
+        const credits = await this.getCredits(payerId);
+        return {
+          verified: true,
+          payer_id: payerId,
+          balance: credits.balance,
+          credits: 0, // already credited by the winning channel; nothing added here
+          pack_code: result.order.packCode,
+        };
+      }
+      case "unresolvable_pack":
+      case "unknown_order":
+        return { verified: false };
+    }
+  }
+
+  /**
+   * Handle ONE verified Razorpay webhook delivery (`POST /payments/razorpay/webhook`).
+   *
+   * The signature is already verified over the raw bytes by {@link RazorpayWebhookGuard} —
+   * by the time this runs, the delivery is authentic.
+   *
+   * RETRY SEMANTICS (Razorpay retries non-2xx for hours):
+   *  - a duplicate/replayed capture → `no_op`, HTTP 200. Not a 500 (which would spam
+   *    retries) and not a second grant (which would be free credits).
+   *  - an unknown event type → `no_op`, HTTP 200. Silence, not an error.
+   *  - an internal failure (e.g. the pack no longer resolves) → `retry`, so the controller
+   *    answers non-2xx and Razorpay tries again once the problem is fixed. Money that was
+   *    captured is never dropped on the floor.
+   */
+  async handleRazorpayEvent(
+    event: RazorpayPaymentEvent,
+    ctx: RequestContext,
+  ): Promise<{ result: "granted" | "failed_recorded" | "no_op" | "retry" }> {
+    const isCapture = (RAZORPAY_CAPTURE_EVENTS as readonly string[]).includes(event.eventName);
+    const isFailure = (RAZORPAY_FAILURE_EVENTS as readonly string[]).includes(event.eventName);
+    if (!isCapture && !isFailure) return { result: "no_op" }; // unknown type → 200 no-op
+    if (event.orderId === null) return { result: "no_op" }; // no order to act on → 200 no-op
+
+    if (isFailure) {
+      const order = await this.payments.failOrder(event.orderId);
+      if (!order) return { result: "no_op" }; // unknown, or already paid (never walk that back)
+      await this.emitPaymentFailed(null, order.payerId, "gateway_error", ctx, {
+        idempotencyKey: `payment.failed:order:${order.id}`,
+      });
+      return { result: "failed_recorded" };
+    }
+
+    const settled = await this.settleAndEmit(
+      {
+        providerOrderId: event.orderId,
+        // A capture without a payment id is malformed; record the order id so the ledger
+        // still carries an opaque reference rather than null.
+        providerPaymentRef: event.paymentId ?? event.orderId,
+        // NO expectedPayerId: the webhook is Razorpay speaking, not a tenant — the order
+        // row itself names the payer to credit.
+      },
+      ctx,
+    );
+
+    switch (settled.outcome) {
+      case "granted":
+        return { result: "granted" };
+      case "already_settled":
+      case "unknown_order":
+        // Replay of a delivery we already processed, or an order we never created (a
+        // payment made against a different environment's account). Both are 200 no-ops:
+        // there is nothing to do and retrying will not change that.
+        return { result: "no_op" };
+      case "unresolvable_pack":
+        // Money captured, grant size unknown. Ask for a retry — never silently swallow it.
+        return { result: "retry" };
+    }
+  }
+
+  /**
+   * The ONE settle+emit path both channels share. Emits `payment.captured` if and ONLY if
+   * this call is the one that granted, so the event spine has exactly one capture per
+   * order — matching the money exactly (§1: no important state change without an event,
+   * and no event without a state change).
+   */
+  private async settleAndEmit(
+    input: { providerOrderId: string; providerPaymentRef: string; expectedPayerId?: string },
+    ctx: RequestContext,
+  ): Promise<SettleResult> {
+    const result = await this.payments.settleOrder(input);
+    if (result.outcome === "granted") {
+      await this.emitPaymentCaptured(null, result.order.payerId, ctx, {
+        packCode: result.order.packCode,
+        amountInr: result.priceInr,
+        amountCredits: result.credits,
+        // Keyed on the ORDER ROW: even if both channels somehow reached the emit, the
+        // events table would still hold exactly one capture for this order.
+        idempotencyKey: `payment.captured:order:${result.order.id}`,
+      });
+    }
+    return result;
+  }
+
   // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------
@@ -725,7 +931,17 @@ export class UnlockService {
     unlockId: string | null,
     payerId: string,
     ctx: RequestContext,
-    extra?: { packCode?: string; amountInr?: number; amountCredits?: number },
+    extra?: {
+      packCode?: string;
+      amountInr?: number;
+      amountCredits?: number;
+      /**
+       * Explicit dedup key for money movements that have NO unlock (a credit-pack
+       * purchase). The real-payment path keys on the `payment_orders` row so the spine
+       * inherits the money path's exactly-once property.
+       */
+      idempotencyKey?: string;
+    },
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.authorized"> = {
       unlock_id: unlockId,
@@ -733,14 +949,16 @@ export class UnlockService {
       pack_code: extra?.packCode ?? null,
       amount_inr: extra?.amountInr ?? null,
       amount_credits: extra?.amountCredits ?? 1,
-      real_call: this.payments.realCall, // honest mock flag (false in alpha)
+      real_call: this.payments.realCall, // honest flag: false on the mock path, true when live
     };
+    const idempotencyKey =
+      extra?.idempotencyKey ?? (unlockId ? `payment.authorized:${unlockId}` : undefined);
     await this.events.emit({
       event_name: "payment.authorized",
       actor: { actor_type: "payer", actor_id: payerId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
-      ...(unlockId ? { idempotencyKey: `payment.authorized:${unlockId}` } : {}),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -750,7 +968,12 @@ export class UnlockService {
     unlockId: string | null,
     payerId: string,
     ctx: RequestContext,
-    extra?: { packCode?: string; amountInr?: number; amountCredits?: number },
+    extra?: {
+      packCode?: string;
+      amountInr?: number;
+      amountCredits?: number;
+      idempotencyKey?: string;
+    },
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.captured"> = {
       unlock_id: unlockId,
@@ -760,12 +983,14 @@ export class UnlockService {
       amount_credits: extra?.amountCredits ?? 1,
       real_call: this.payments.realCall,
     };
+    const idempotencyKey =
+      extra?.idempotencyKey ?? (unlockId ? `payment.captured:${unlockId}` : undefined);
     await this.events.emit({
       event_name: "payment.captured",
       actor: { actor_type: "payer", actor_id: payerId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
-      ...(unlockId ? { idempotencyKey: `payment.captured:${unlockId}` } : {}),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -776,6 +1001,7 @@ export class UnlockService {
     payerId: string,
     reason: "insufficient_credits" | "gateway_error",
     ctx: RequestContext,
+    extra?: { idempotencyKey?: string },
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.failed"> = {
       unlock_id: unlockId,
@@ -788,6 +1014,7 @@ export class UnlockService {
       actor: { actor_type: "payer", actor_id: payerId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
+      ...(extra?.idempotencyKey ? { idempotencyKey: extra.idempotencyKey } : {}),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });

@@ -26,6 +26,26 @@ function makeCtrl() {
       credits: 50,
       pack_code: "starter",
     })),
+    // Real-payments seam. `realPaymentsLive` is a getter on the service; it is overridden
+    // per-test where the LIVE posture is under test.
+    realPaymentsLive: false,
+    createCreditOrder: vi.fn(async () => ({
+      orderRowId: "11111111-2222-4333-8444-555555555555",
+      providerOrderId: "order_TEST1",
+      keyId: "rzp_test_keyid",
+      amountInr: 2000,
+      amountPaise: 200000,
+      currency: "INR",
+      packCode: "pack_50",
+      credits: 50,
+    })),
+    verifyCheckoutPayment: vi.fn(async () => ({
+      verified: true as const,
+      payer_id: PAYER_A.id,
+      balance: 50,
+      credits: 50,
+      pack_code: "pack_50",
+    })),
   };
   const disclosureRate = { assertWithinHourlyCap: vi.fn(async () => undefined) };
   const ctrl = new PayerUnlocksController(unlocks as never, disclosureRate as never);
@@ -98,5 +118,112 @@ describe("PayerUnlocksController — identity from the session, never the body (
     await expect(d.ctrl.buyPack({ pack_code: "nope" }, PAYER_A, CTX)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+/**
+ * REAL-PAYMENT routes (Razorpay). Two properties matter at this boundary and nowhere else:
+ * the payer is the SESSION payer (XB-A), and the routes are INERT until the launch gate is
+ * flipped — a neutral 404, indistinguishable from a route that does not exist.
+ */
+describe("PayerUnlocksController — real-payment routes (order + verify)", () => {
+  let d: ReturnType<typeof makeCtrl>;
+  beforeEach(() => {
+    d = makeCtrl();
+  });
+
+  it("createOrder + verifyPayment are a NEUTRAL 404 while PAYMENTS_ENABLE_REAL is off (the default)", async () => {
+    // The service is never reached: no provider call, no order row, nothing observable.
+    await expect(
+      d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      d.ctrl.verifyPayment(
+        { razorpay_order_id: "order_1", razorpay_payment_id: "pay_1", razorpay_signature: "sig" },
+        PAYER_A,
+        CTX,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(d.unlocks.createCreditOrder).not.toHaveBeenCalled();
+    expect(d.unlocks.verifyCheckoutPayment).not.toHaveBeenCalled();
+  });
+
+  describe("with real payments LIVE", () => {
+    beforeEach(() => {
+      d.unlocks.realPaymentsLive = true;
+    });
+
+    it("createOrder binds to the SESSION payer and forwards only the pack CODE (XB-A/XT5)", async () => {
+      await d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, CTX);
+      expect(d.unlocks.createCreditOrder).toHaveBeenCalledWith(PAYER_A.id, "pack_50", CTX);
+    });
+
+    it("createOrder returns the public key ID + amounts, and NEVER a secret", async () => {
+      const out = await d.ctrl.createOrder({ pack_code: "pack_50" }, PAYER_A, CTX);
+      expect(out).toEqual({
+        order_id: "order_TEST1",
+        key_id: "rzp_test_keyid",
+        amount: 200000, // paise, for checkout.js
+        amount_inr: 2000, // ₹, for the UI
+        currency: "INR",
+        pack_code: "pack_50",
+        credits: 50,
+      });
+      // Nothing in the response resembles a secret, and no internal row id leaks either.
+      expect(JSON.stringify(out)).not.toMatch(/secret|whsec|11111111-2222/i);
+    });
+
+    it("createOrder on an UNKNOWN pack is a 404 (a public catalog item, not a tenant oracle)", async () => {
+      d.unlocks.createCreditOrder.mockResolvedValueOnce(null as never);
+      await expect(
+        d.ctrl.createOrder({ pack_code: "nope" }, PAYER_A, CTX),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("verifyPayment binds to the SESSION payer and forwards the provider's three values", async () => {
+      const out = await d.ctrl.verifyPayment(
+        {
+          razorpay_order_id: "order_1",
+          razorpay_payment_id: "pay_1",
+          razorpay_signature: "sig_1",
+        },
+        PAYER_A,
+        CTX,
+      );
+      expect(d.unlocks.verifyCheckoutPayment).toHaveBeenCalledWith(
+        PAYER_A.id, // never a body value
+        { orderId: "order_1", paymentId: "pay_1", signature: "sig_1" },
+        CTX,
+      );
+      expect(out).toEqual({
+        payer_id: PAYER_A.id,
+        balance: 50,
+        credits: 50,
+        pack_code: "pack_50",
+      });
+    });
+
+    it("an UNVERIFIED result is a bare 404 — the same answer for a forged signature, an unknown order, and someone else's order", async () => {
+      d.unlocks.verifyCheckoutPayment.mockResolvedValue({ verified: false } as never);
+      const errs: unknown[] = [];
+      for (const orderId of ["order_forged", "order_unknown", "order_other_tenant"]) {
+        errs.push(
+          await d.ctrl
+            .verifyPayment(
+              {
+                razorpay_order_id: orderId,
+                razorpay_payment_id: "pay_1",
+                razorpay_signature: "sig",
+              },
+              PAYER_A,
+              CTX,
+            )
+            .catch((e: unknown) => e),
+        );
+      }
+      const messages = new Set(errs.map((e) => (e as Error).message));
+      expect(errs.every((e) => e instanceof NotFoundException)).toBe(true);
+      expect(messages.size).toBe(1); // byte-identical refusal — no oracle
+    });
   });
 });
