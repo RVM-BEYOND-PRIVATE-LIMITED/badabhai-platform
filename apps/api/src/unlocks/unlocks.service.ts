@@ -624,7 +624,6 @@ export class UnlockService {
           pack_code: result.order.packCode,
         };
       }
-      case "unresolvable_pack":
       case "unknown_order":
         return { verified: false };
     }
@@ -640,14 +639,17 @@ export class UnlockService {
    *  - a duplicate/replayed capture → `no_op`, HTTP 200. Not a 500 (which would spam
    *    retries) and not a second grant (which would be free credits).
    *  - an unknown event type → `no_op`, HTTP 200. Silence, not an error.
-   *  - an internal failure (e.g. the pack no longer resolves) → `retry`, so the controller
-   *    answers non-2xx and Razorpay tries again once the problem is fixed. Money that was
-   *    captured is never dropped on the floor.
+   *  - a genuine INFRASTRUCTURE failure (DB down, the layer-3 unique index firing) is NOT
+   *    caught here: it throws, the exceptions filter answers 5xx, and Razorpay redelivers.
+   *    A redelivery after the problem clears finds the order already `paid` and no-ops, so
+   *    captured money is never dropped and never double-granted. There is deliberately no
+   *    "retry" return value: since the grant size is stamped on the order row, no business
+   *    condition can leave a captured payment un-grantable.
    */
   async handleRazorpayEvent(
     event: RazorpayPaymentEvent,
     ctx: RequestContext,
-  ): Promise<{ result: "granted" | "failed_recorded" | "no_op" | "retry" }> {
+  ): Promise<{ result: "granted" | "failed_recorded" | "no_op" }> {
     const isCapture = (RAZORPAY_CAPTURE_EVENTS as readonly string[]).includes(event.eventName);
     const isFailure = (RAZORPAY_FAILURE_EVENTS as readonly string[]).includes(event.eventName);
     if (!isCapture && !isFailure) return { result: "no_op" }; // unknown type → 200 no-op
@@ -683,9 +685,6 @@ export class UnlockService {
         // payment made against a different environment's account). Both are 200 no-ops:
         // there is nothing to do and retrying will not change that.
         return { result: "no_op" };
-      case "unresolvable_pack":
-        // Money captured, grant size unknown. Ask for a retry — never silently swallow it.
-        return { result: "retry" };
     }
   }
 

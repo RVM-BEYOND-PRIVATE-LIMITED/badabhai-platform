@@ -97,9 +97,9 @@ describe("raw-body middleware against a REAL Nest app + REAL body parsers", () =
 
     expect(out.hasRawBody).toBe(true);
     expect(out.rawBody).toBe(wire); // byte-for-byte
-    expect(verifyWebhookSignature(Buffer.from(out.rawBody, "utf8"), signature, WEBHOOK_SECRET)).toBe(
-      true,
-    );
+    expect(
+      verifyWebhookSignature(Buffer.from(out.rawBody, "utf8"), signature, WEBHOOK_SECRET),
+    ).toBe(true);
     // The convenience parse is still available to the controller.
     expect(out.parsed).toEqual({ event: "payment.captured", payload: { z: 1, a: 2 } });
   });

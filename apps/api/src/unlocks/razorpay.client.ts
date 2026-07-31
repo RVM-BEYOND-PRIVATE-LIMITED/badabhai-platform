@@ -2,7 +2,6 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import Razorpay from "razorpay";
 import { type ServerConfig, getRazorpayCredentials } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
-import { RAZORPAY_PROVIDER } from "./payment-orders.table";
 
 /**
  * The Razorpay PROVIDER seam — the only place the SDK is constructed or called.
@@ -98,8 +97,9 @@ export class RazorpayClient implements RazorpayOrderClient {
     } catch (err) {
       // CLASS + pack code only. A provider error body can echo the request (amount, notes)
       // and, on some error paths, buyer contact details — none of that may reach a log.
+      // The logger context is already `RazorpayClient`, so the provider name adds nothing.
       this.logger.error(
-        `razorpay order creation failed provider=${RAZORPAY_PROVIDER} pack=${input.notes.pack_code} error_class=${
+        `order creation failed pack=${input.notes.pack_code} error_class=${
           err instanceof Error ? err.constructor.name : typeof err
         }`,
       );

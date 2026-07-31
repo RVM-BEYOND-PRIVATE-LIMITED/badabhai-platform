@@ -12,7 +12,7 @@ import { UnlockService } from "./unlocks.service";
 import type { UnlocksRepository, Tx } from "./unlocks.repository";
 import { PaymentGateway } from "./payment-gateway";
 import type { RazorpayClient } from "./razorpay.client";
-import type { PaymentOrder, PaymentOrderStatus } from "./payment-orders.table";
+import type { PaymentOrder, PaymentOrderStatus } from "@badabhai/db";
 import {
   CreateCreditOrderSchema,
   toPaymentEvent,
@@ -29,6 +29,7 @@ import type { ReferralBonusJobData } from "../queue/queue.constants";
  * The fake repository below is not a convenience mock: it models the exact DB guarantees
  * the production code leans on, so a change that quietly drops one of them fails here.
  *  - UNIQUE (provider, provider_order_id) on payment_orders;
+ *  - `credits_granted` NOT NULL, stamped at creation and read back at settle;
  *  - the conditional `status <> 'paid' → 'paid'` UPDATE as an ATOMIC compare-and-set;
  *  - the partial UNIQUE index on credit_ledger.idempotency_key;
  *  - one transaction wrapping the claim + the grant.
@@ -87,6 +88,7 @@ function makeFakeRepo() {
       payerId: PAYER,
       packCode: "pack_50",
       amountInr: 2000,
+      creditsGranted: 50, // stamped at creation — the settle path reads THIS, not the catalog
       provider: "razorpay",
       providerOrderId: PROVIDER_ORDER,
       status: "created" as PaymentOrderStatus,
@@ -108,6 +110,7 @@ function makeFakeRepo() {
         payerId: string;
         packCode: string;
         amountInr: number;
+        creditsGranted: number;
         providerOrderId: string;
         provider?: string;
       }): Promise<PaymentOrder> => {
@@ -116,11 +119,17 @@ function makeFakeRepo() {
         if (orders.has(key(provider, input.providerOrderId))) {
           throw new Error("duplicate key value violates unique constraint");
         }
+        // CHECK (credits_granted > 0) + NOT NULL — an order that buys nothing is a bug the
+        // DB refuses, so the fake refuses it too.
+        if (!Number.isInteger(input.creditsGranted) || input.creditsGranted <= 0) {
+          throw new Error('new row violates check constraint "payment_orders_credits_pos_chk"');
+        }
         const row: PaymentOrder = {
           id: ORDER_ROW,
           payerId: input.payerId,
           packCode: input.packCode,
           amountInr: input.amountInr,
+          creditsGranted: input.creditsGranted,
           provider,
           providerOrderId: input.providerOrderId,
           status: "created",
@@ -277,10 +286,18 @@ describe("POST /payer/credits/order — the charged amount is the CATALOG price"
     expect(d.razorpay.createOrder).toHaveBeenCalledWith(
       expect.objectContaining({ amountInr: 2000 }),
     );
-    // …and the persisted receipt carries it, not a second constant.
+    // …and the persisted receipt carries BOTH SIDES of the transaction — the ₹ AND the
+    // credits — from that one catalog read. A receipt with only the amount is the gap that
+    // let a mid-flight pack edit change what an existing order was worth.
     expect(d.repo.createPaymentOrder).toHaveBeenCalledWith(
-      expect.objectContaining({ payerId: PAYER, packCode: "pack_50", amountInr: 2000 }),
+      expect.objectContaining({
+        payerId: PAYER,
+        packCode: "pack_50",
+        amountInr: 2000,
+        creditsGranted: 50,
+      }),
     );
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.creditsGranted).toBe(50);
   });
 
   it("follows an OPS PRICE EDIT — advertised and charged stay the same lookup (D-6)", async () => {
@@ -301,6 +318,10 @@ describe("POST /payer/credits/order — the charged amount is the CATALOG price"
     expect(order?.credits).toBe(60);
     expect(d.razorpay.createOrder).toHaveBeenCalledWith(
       expect.objectContaining({ amountInr: 1500 }),
+    );
+    // Both edited values are stamped together, so the order is self-describing from here on.
+    expect(d.repo.createPaymentOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ amountInr: 1500, creditsGranted: 60 }),
     );
   });
 
@@ -444,18 +465,70 @@ describe("webhook capture — grants once, replays are no-ops", () => {
     expect(emitted(d.events)).toEqual(["payment.captured"]); // no spurious failure event
   });
 
-  it("a pack that no longer resolves asks for a RETRY rather than inventing a grant", async () => {
+  it("grants the STAMPED credits, not the catalog's — a mid-flight pack edit cannot touch an open order", async () => {
+    // THE BUG THIS CLOSES. An order is created for pack_50 (₹2,000 / 50 credits). While the
+    // buyer is on Razorpay's page, ops re-sizes pack_50 to 10 credits. Before `credits_granted`
+    // existed the buyer paid ₹2,000 and received 10 credits, because the amount came off the
+    // order row and the credits came off the live catalog. The window is unbounded: a tab left
+    // open across a pricing change is enough.
+    d.seedOrder(); // ₹2,000 / 50 credits, stamped
+    d.pricing.getActiveCatalog.mockResolvedValue({
+      catalog: {
+        ...DEFAULT_CATALOG,
+        products: DEFAULT_CATALOG.products.map((p) =>
+          p.kind === "credit_pack" && p.code === "contact_unlock"
+            ? { ...p, tiers: [{ code: "pack_50", priceInr: 300, credits: 10, windowDays: 14 }] }
+            : p,
+        ),
+      } as typeof DEFAULT_CATALOG,
+      revision: 9,
+      source: "db" as const,
+    });
+
+    const out = await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+
+    expect(out).toEqual({ result: "granted" });
+    expect(d.balances.get(PAYER)).toBe(50); // the STAMPED grant — NOT the catalog's 10
+    expect(d.ledger[0]).toMatchObject({ delta: 50, priceInr: 2000 }); // both sides agree
+    // The capture event reports what the buyer actually bought, so the spine reconciles too.
+    const payload = (d.events.emit.mock.calls[0]?.[0] as { payload: Record<string, unknown> })
+      .payload;
+    expect(payload).toMatchObject({ amount_inr: 2000, amount_credits: 50 });
+  });
+
+  it("a pack DELETED from the catalog mid-flight still grants (it can no longer strand a payment)", async () => {
+    // Previously this returned `unresolvable_pack` and left a captured payment ungranted
+    // until a human intervened. The grant no longer depends on the catalog at all.
     d.seedOrder({ packCode: "pack_vanished" });
     d.pricing.getActiveCatalog.mockResolvedValue({
-      catalog: DEFAULT_CATALOG,
+      catalog: DEFAULT_CATALOG, // no such tier
       revision: 3,
       source: "db" as const,
     });
     const out = await d.svc.handleRazorpayEvent(captureEvent(), CTX);
-    expect(out).toEqual({ result: "retry" });
-    expect(d.ledger).toHaveLength(0);
-    // The order stays 'created' so a redelivery can still settle it — money is not dropped.
-    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("created");
+    expect(out).toEqual({ result: "granted" });
+    expect(d.ledger).toHaveLength(1);
+    expect(d.balances.get(PAYER)).toBe(50);
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("paid");
+  });
+
+  it("a CATALOG OUTAGE at capture time cannot block a grant (the drift check is a signal, not a gate)", async () => {
+    d.seedOrder();
+    d.pricing.getActiveCatalog.mockRejectedValue(new Error("catalog unavailable"));
+    const out = await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+    expect(out).toEqual({ result: "granted" });
+    expect(d.balances.get(PAYER)).toBe(50);
+  });
+
+  it("the settle path NEVER reads the catalog for the grant amount", async () => {
+    // Structural: the only catalog read left on this path is the ops drift WARNING, which
+    // cannot influence the result. Proven by making the catalog return an absurd tier and
+    // asserting the grant is unmoved (above), and here by pinning that a settle with the
+    // catalog stubbed to a wildly different pack still produces the stamped numbers.
+    d.seedOrder({ creditsGranted: 7, amountInr: 999 });
+    await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+    expect(d.ledger[0]).toMatchObject({ delta: 7, priceInr: 999 });
+    expect(d.balances.get(PAYER)).toBe(7);
   });
 });
 

@@ -2682,6 +2682,18 @@ export const paymentOrders = pgTable(
     packCode: text("pack_code").notNull(),
     // Whole ₹, never paise (house convention — see credit_ledger.price_inr).
     amountInr: integer("amount_inr").notNull(),
+    // How many credits this order buys, RESOLVED FROM THE CATALOG ONCE AT ORDER CREATION
+    // and never re-read afterwards.
+    //
+    // WHY IT IS STORED RATHER THAN LOOKED UP AT CAPTURE: the order row is the receipt, and
+    // a receipt with only half the transaction on it is not a receipt. `amount_inr` was
+    // already stamped here, but the credits were not — so if ops re-priced or re-sized a
+    // pack between order creation and capture, the buyer paid the STAMPED amount and was
+    // granted the pack's THEN-CURRENT credits. Two sources of truth for one transaction,
+    // over an unbounded window (a browser tab left open across a pricing change is enough),
+    // producing an unreconcilable ledger. Stamping both makes a mid-flight catalog change
+    // structurally unable to touch an order that already exists.
+    creditsGranted: integer("credits_granted").notNull(),
     provider: text("provider").notNull().default("razorpay"),
     // The provider's own order id. OPAQUE — never parsed, never a PII carrier.
     providerOrderId: text("provider_order_id").notNull(),
@@ -2704,6 +2716,9 @@ export const paymentOrders = pgTable(
     index("payment_orders_payer_created_idx").on(t.payerId, t.createdAt),
     // A zero/negative-amount order is always a bug, never a real purchase.
     check("payment_orders_amount_pos_chk", sql`${t.amountInr} > 0`),
+    // Same reasoning for the grant side: an order that buys zero (or negative) credits is
+    // a resolver bug, and a DB constraint is the only place it cannot be forgotten.
+    check("payment_orders_credits_pos_chk", sql`${t.creditsGranted} > 0`),
     check("payment_orders_status_chk", sql`${t.status} IN ('created', 'paid', 'failed')`),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0058

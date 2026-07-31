@@ -1,11 +1,4 @@
-import {
-  Controller,
-  HttpCode,
-  Post,
-  Req,
-  ServiceUnavailableException,
-  UseGuards,
-} from "@nestjs/common";
+import { Controller, HttpCode, Post, Req, UseGuards } from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { UnlockService } from "./unlocks.service";
 import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
@@ -21,10 +14,11 @@ import type { RawBodyRequest } from "./razorpay-raw-body.middleware";
  *
  * ALWAYS 200 FOR ANYTHING WE CAN RESOLVE. Razorpay retries non-2xx deliveries for hours, so
  * the status code is a control signal, not decoration:
- *  - handled, duplicate, replayed, unknown event type, malformed body → 200 (stop retrying;
- *    a replay must be a no-op, never a second grant and never a 500);
- *  - a genuine internal failure where money may have moved → 503 (please retry), so a
- *    captured payment is never silently dropped.
+ *  - handled, duplicate, replayed, unknown event type, unknown order, malformed body → 200
+ *    (stop retrying; a replay must be a no-op, never a second grant and never a 500);
+ *  - an INFRASTRUCTURE failure (DB down, the ledger's unique index firing) throws and
+ *    surfaces as a 5xx, so Razorpay redelivers and the capture is never dropped. A
+ *    redelivery once the problem clears finds the order already `paid` and no-ops.
  *
  * NOTHING FROM THE PAYLOAD IS LOGGED OR RETURNED. Razorpay's payment entity carries buyer
  * email / contact / card metadata; none of it is parsed into our DTO, none reaches a log,
@@ -48,13 +42,12 @@ export class RazorpayWebhookController {
     const parsed = RazorpayWebhookSchema.safeParse(req.body);
     if (!parsed.success) return { received: true };
 
-    const outcome = await this.unlocks.handleRazorpayEvent(toPaymentEvent(parsed.data), ctx);
-    if (outcome.result === "retry") {
-      // Money may have been captured but we could not complete the grant. Ask Razorpay to
-      // redeliver. Generic message — the provider does not need our internal reason and
-      // neither does anyone reading an access log.
-      throw new ServiceUnavailableException("temporarily unable to process");
-    }
+    // Every BUSINESS outcome (granted / failure recorded / duplicate / unknown order /
+    // unknown event) is a 200. An INFRASTRUCTURE failure deliberately propagates: it throws
+    // out of here, the global exceptions filter answers 5xx, and Razorpay redelivers. There
+    // is no try/catch, because swallowing a DB failure into a 200 would tell Razorpay we
+    // handled a capture we did not.
+    await this.unlocks.handleRazorpayEvent(toPaymentEvent(parsed.data), ctx);
     return { received: true };
   }
 }
