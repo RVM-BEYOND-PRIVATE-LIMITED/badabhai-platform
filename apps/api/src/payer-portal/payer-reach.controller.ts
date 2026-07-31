@@ -1,5 +1,5 @@
-import { Controller, Get, Inject, Param, UseGuards } from "@nestjs/common";
-import type { ServerConfig } from "@badabhai/config";
+import { Controller, Get, Inject, NotFoundException, Param, UseGuards } from "@nestjs/common";
+import { isMatchV1Enabled, type ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
@@ -7,6 +7,8 @@ import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers
 import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
 import { ReachService } from "../reach/reach.service";
 import { JobIdParamSchema } from "../reach/reach.dto";
+import { MatchCandidatesService } from "../match/match-candidates.service";
+import { JobPostingsService } from "../job-postings/job-postings.service";
 
 /**
  * Payer-SELF reach view (ADR-0019 Decision C/E — closes R22 for the payer surface).
@@ -37,12 +39,26 @@ export class PayerReachController {
     private readonly reach: ReachService,
     private readonly rateLimit: PayerDisclosureRateLimit,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // ADR-0036 moment ⑥ — the V1 source. Selected by MATCH_V1_ENABLED only.
+    private readonly matchCandidates: MatchCandidatesService,
+    private readonly jobPostings: JobPostingsService,
   ) {}
 
   /**
    * The faceless ranked candidate list for a job the caller OWNS. The `payer_id` is the
    * SESSION payer (XB-A) — never a route/body value. Bounded by the per-payer reach cap.
    * Returns the SAME neutral 404 for an unknown job and another payer's job (no-oracle).
+   *
+   * ADR-0036 moment ⑥: the ROUTE, the guard, the ownership check and the hourly cap are
+   * unchanged; behind `MATCH_V1_ENABLED` the SOURCE becomes the posting's ACTUAL
+   * APPLICANTS, ordered by the frozen rank snapshot, instead of the whole worker pool
+   * scored by the weighted engine.
+   *
+   * NO `feed.shown` ON THE V1 PATH. The legacy implementation emits one impression per
+   * ranked row, which made sense when the list WAS a feed of un-applied workers; a
+   * company looking at people who already applied to it is not a feed impression, and
+   * recording it as one would pollute the very corpus the LEARN layer reads. The read is
+   * still audited — the hourly cap counts it — and the money event is the unlock.
    */
   @Get("jobs/:jobId/applicants")
   async applicants(
@@ -54,6 +70,17 @@ export class PayerReachController {
       scope: "payer_reach",
       cap: this.config.PAYER_REACH_MAX_PER_HOUR,
     });
+
+    if (isMatchV1Enabled(this.config)) {
+      // The SAME no-oracle ownership read the rest of the payer surface uses: an
+      // unknown id and another payer's id both resolve to the identical neutral 404.
+      const owned = await this.jobPostings
+        .getOneForPayer(params.jobId, payer.id)
+        .catch(() => undefined);
+      if (!owned) throw new NotFoundException("Job not found");
+      return this.matchCandidates.listForPosting(params.jobId);
+    }
+
     return this.reach.applicantsForOwnedJob(params.jobId, payer.id, ctx);
   }
 }

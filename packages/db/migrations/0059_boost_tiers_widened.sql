@@ -1,0 +1,39 @@
+-- Matching V1 — boost tier widening (ADR-0036 §7).
+--
+-- EXPAND-ONLY, and the only DB change the Matching V1 API wiring needs beyond the
+-- 0052–0058 train. Boost is repriced to boost_7 ₹499 / boost_15 ₹999 / boost_30 ₹1799
+-- (packages/pricing/src/defaults.ts), so `posting_boosts.tier` must be able to hold the
+-- three new codes.
+--
+-- ADDITIVE, NOT A REPLACEMENT. `all_candidates` STAYS in the allowed set:
+--   * every existing `posting_boosts` row carries it, and a narrowing CHECK would fail
+--     validation against those rows (the migration would not even apply);
+--   * the tier is the receipt. `resolvePrice` still resolves `all_candidates` from the
+--     catalog so a historical boost stays priceable (CLAUDE.md §2 invariant 8).
+-- It is retired from what the portal OFFERS (`OFFERED_BOOST_TIERS`), never from history.
+-- This is the same shape as the `posting_plans.status` widening that added 'paused'.
+--
+-- The DEFAULT is deliberately NOT changed. `tier` is supplied on every write by the
+-- purchase path, and repointing the column default would silently re-label any future
+-- insert that omitted it.
+--
+-- PII-FREE: a tier CODE. No amounts, no identities.
+--
+-- LOCKS: one DROP CONSTRAINT + one ADD CONSTRAINT on `posting_boosts`. The ADD takes a
+-- brief ACCESS EXCLUSIVE and validates against every row (`posting_boosts` is
+-- reference-sized at alpha volume — sub-second). At 100x volume, split it:
+--   ALTER TABLE "posting_boosts" ADD CONSTRAINT ... NOT VALID;
+--   ALTER TABLE "posting_boosts" VALIDATE CONSTRAINT "posting_boosts_tier_chk";
+-- The NOT VALID form takes the exclusive lock only for the catalog write.
+--
+-- SAFE TO RE-RUN: no (plain ADD CONSTRAINT). Apply once; the journal is the record.
+--
+-- ROLLBACK (fully reversible ONLY while no row uses a new tier — check first with
+-- `SELECT count(*) FROM posting_boosts WHERE tier <> 'all_candidates';`, which must be
+-- 0, otherwise the narrowed CHECK will refuse to validate):
+--   ALTER TABLE "posting_boosts" DROP CONSTRAINT "posting_boosts_tier_chk";
+--   ALTER TABLE "posting_boosts" ADD CONSTRAINT "posting_boosts_tier_chk"
+--     CHECK ("tier" IN ('all_candidates'));
+ALTER TABLE "posting_boosts" DROP CONSTRAINT "posting_boosts_tier_chk";--> statement-breakpoint
+ALTER TABLE "posting_boosts" ADD CONSTRAINT "posting_boosts_tier_chk"
+  CHECK ("tier" IN ('all_candidates', 'boost_7', 'boost_15', 'boost_30'));

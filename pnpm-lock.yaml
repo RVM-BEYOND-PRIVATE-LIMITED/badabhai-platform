@@ -64,6 +64,9 @@ importers:
       '@badabhai/event-schema':
         specifier: workspace:*
         version: link:../../packages/event-schema
+      '@badabhai/match-engine':
+        specifier: workspace:*
+        version: link:../../packages/match-engine
       '@badabhai/pricing':
         specifier: workspace:*
         version: link:../../packages/pricing

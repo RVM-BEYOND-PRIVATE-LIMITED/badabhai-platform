@@ -17,6 +17,7 @@ import { PayersRepository } from "../payers/payers.repository";
 import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
 import { PayerOtpService, type PayerOtpIssued } from "../payers/payer-otp.service";
+import { FreeTierService } from "../match/free-tier.service";
 import type {
   PayerSignupDto,
   PayerLoginRequestDto,
@@ -55,6 +56,8 @@ export class PayerAuthService {
     private readonly sessions: PayerSessionService,
     private readonly events: EventsService,
     private readonly pii: PiiCryptoService,
+    // ADR-0036 §8 — the free-tier credit grant. MatchModule is @Global.
+    private readonly freeTier: FreeTierService,
   ) {}
 
   private get method(): PayerLoginMethodEnum {
@@ -85,6 +88,17 @@ export class PayerAuthService {
       // own `org.created` audit event ships with the member lifecycle in B5.3; today the org is a
       // deterministic 1:1 consequence of `payer.created` (which is evented above).
       await this.orgs.ensureSoloOrg(id);
+      // ADR-0036 §8 — the FREE TIER. A new payer starts with
+      // `match_config.free_unlock_credits` unlock credits, so they can see whether the
+      // supply is real before being asked for money.
+      //
+      // Only on the `created` path, and idempotent regardless: the grant is keyed
+      // `free_tier_grant:<payerId>` and the existing `credit_ledger_idempotency_key_uq`
+      // makes it exactly-once, so a retried signup and the D6 backfill converge on one
+      // grant. `grantQuietly` swallows + logs — a payer whose ACCOUNT was created must
+      // not get a 500 because a credit grant hiccuped, and the grant is repairable by
+      // re-running `db:grant:free-tier` while the signup is not.
+      await this.freeTier.grantQuietly(id);
     }
 
     // Issue a code to the canonical stored contact (uniform for new + existing — no

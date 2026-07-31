@@ -1546,8 +1546,13 @@ export type PostingPlanTier = "standard" | "pro";
  * the prior three values stay valid (backward-compatible, CLAUDE.md §2 #8 / ADR-0014).
  */
 export type PostingPlanStatus = "draft" | "active" | "expired" | "paused";
-/** Booster tier (single tier today; extensible via the catalog). */
-export type BoostTier = "all_candidates";
+/**
+ * Booster tier. ADDITIVE enum-widening (ADR-0036 §7, migration 0059) — the prior
+ * `all_candidates` value stays VALID so every shipped `posting_boosts` row remains
+ * readable and its receipt remains priceable (CLAUDE.md §2 #8). It is retired from the
+ * OFFERED catalog (`OFFERED_BOOST_TIERS` in @badabhai/pricing), never from history.
+ */
+export type BoostTier = "all_candidates" | "boost_7" | "boost_15" | "boost_30";
 /** Booster lifecycle. */
 export type BoostStatus = "active" | "expired";
 /** Resume-disclosure lifecycle (ADR-0013 C.3). Resume download is FREE — no payment state. */
@@ -1641,7 +1646,12 @@ export const postingBoosts = pgTable(
   (t) => [
     index("posting_boosts_job_posting_id_idx").on(t.jobPostingId),
     index("posting_boosts_payer_id_idx").on(t.payerId),
-    check("posting_boosts_tier_chk", sql`${t.tier} IN ('all_candidates')`),
+    // ADR-0036 §7 — widened ADDITIVELY (migration 0059). `all_candidates` is retained
+    // so existing rows still satisfy the CHECK; a narrowing would have failed on them.
+    check(
+      "posting_boosts_tier_chk",
+      sql`${t.tier} IN ('all_candidates', 'boost_7', 'boost_15', 'boost_30')`,
+    ),
     check("posting_boosts_status_chk", sql`${t.status} IN ('active', 'expired')`),
   ],
 );

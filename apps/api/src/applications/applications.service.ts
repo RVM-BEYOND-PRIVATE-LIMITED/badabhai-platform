@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import { isMatchV1Enabled, type ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
+import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService, type EmitParams } from "../events/events.service";
+import { MatchFeedService, type MatchFeedItem } from "../match/match-feed.service";
+import { MatchApplyService } from "../match/match-apply.service";
 import { ApplicationsRepository, type FeedJob } from "./applications.repository";
 import type { ApplyJobDto, SkipJobDto } from "./applications.dto";
 
@@ -52,6 +56,12 @@ export class ApplicationsService {
   constructor(
     private readonly repo: ApplicationsRepository,
     private readonly events: EventsService,
+    // ADR-0036 — the V1 source, selected by MATCH_V1_ENABLED. Both are injected
+    // unconditionally (they are cheap, stateless, and @Global via MatchModule); only
+    // the FLAG decides which path runs, so a mis-wired DI cannot silently half-cut-over.
+    private readonly matchFeed: MatchFeedService,
+    private readonly matchApply: MatchApplyService,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
   /**
@@ -61,7 +71,27 @@ export class ApplicationsService {
    * impressions, so the emits are intentionally UNKEYED (always insert), batched
    * into a single DB round-trip via `emitMany`.
    */
-  async getFeed(workerId: string, limit: number, filters: { tradeKey?: string; city?: string }, ctx: RequestContext): Promise<{ jobs: FeedItem[] }> {
+  async getFeed(workerId: string, limit: number, filters: { tradeKey?: string; city?: string; shift?: string; payMin?: number }, ctx: RequestContext): Promise<{ jobs: FeedItem[] | MatchFeedItem[] }> {
+    // ── ADR-0036 MOMENT ④ ─────────────────────────────────────────────────────
+    // The route, the guards, the `{ jobs: [...] }` envelope and the Flutter client are
+    // UNCHANGED. Only the SOURCE moves: `job_reach ⋈ job_postings` instead of the
+    // legacy `jobs` scan. The V1 card is a superset of the legacy one (see
+    // `MatchFeedItem`), so a client that has not been updated keeps working.
+    //
+    // NOTE the `trade_key` filter is deliberately NOT forwarded to the V1 path: V1 has
+    // no trade dimension (the matchable unit is the `mskill_*` id, and reach ALREADY
+    // restricts the feed to skills the worker holds and wants). Passing a legacy trade
+    // slug through would be a second, weaker skill filter layered on top of the real
+    // gate — and Part 3 is explicit that a filter must never narrow by default.
+    if (isMatchV1Enabled(this.config)) {
+      return this.matchFeed.getFeed(
+        workerId,
+        limit,
+        { city: filters.city, shift: filters.shift, payMin: filters.payMin },
+        ctx,
+      );
+    }
+
     const openJobs = await this.repo.findOpenJobs(workerId, limit, filters);
     const items: FeedItem[] = openJobs.map((job: FeedJob, index) => ({
       job_id: job.id,
@@ -117,6 +147,7 @@ export class ApplicationsService {
    * unknown (no existence oracle).
    */
   async apply(workerId: string, jobId: string, dto: ApplyJobDto, ctx: RequestContext) {
+    if (isMatchV1Enabled(this.config)) return this.applyV1(workerId, jobId, dto, ctx);
     await this.assertJobExists(jobId);
 
     // TD38: read the existing decision BEFORE upsert to detect skip→apply flips.
@@ -165,6 +196,7 @@ export class ApplicationsService {
    * unknown.
    */
   async skip(workerId: string, jobId: string, dto: SkipJobDto, ctx: RequestContext) {
+    if (isMatchV1Enabled(this.config)) return this.skipV1(workerId, jobId, dto, ctx);
     await this.assertJobExists(jobId);
 
     // TD73: prevent applied->skipped downgrade (e.g. from >500 decisions upsert-overwrite)
@@ -242,5 +274,119 @@ export class ApplicationsService {
   private async assertJobExists(jobId: string): Promise<void> {
     const job = await this.repo.findJobById(jobId);
     if (!job) throw new NotFoundException("Job not found");
+  }
+
+  // ── ADR-0036 MOMENT ⑤ — apply/skip against the SERVED entity ─────────────────
+
+  /**
+   * V1 apply. `jobId` is a `job_postings.id` here (the feed serves postings).
+   *
+   * THE REACH ROW IS THE GATE AND THE ORACLE IS CLOSED: `buildSnapshot` 404s with the
+   * identical neutral body when the worker has no `job_reach` row — he can only apply
+   * to what the gate showed him, and a missing row is indistinguishable from a missing
+   * posting. That is stronger than the legacy path's existence check, deliberately.
+   *
+   * The snapshot is written on insert and on a skip→apply flip only. E16.
+   */
+  private async applyV1(
+    workerId: string,
+    jobPostingId: string,
+    dto: ApplyJobDto,
+    ctx: RequestContext,
+  ) {
+    // Freeze the rank inputs FIRST — it is also the 404 gate, so an ungated apply never
+    // reaches the write.
+    const snapshot = await this.matchApply.buildSnapshot(workerId, jobPostingId);
+    const existing = await this.matchApply.findDecision(workerId, jobPostingId);
+
+    const saved = await this.matchApply.upsertDecision({
+      workerId,
+      jobPostingId,
+      action: "applied",
+      reason: null,
+      sourceSurface: dto.source_surface,
+      rank: dto.rank,
+      snapshot,
+      previousAction: existing?.action ?? null,
+    });
+
+    // NOTE: there is no `applicants_received` counter to bump on `job_postings` — that
+    // denormalized column lives on the legacy `jobs` table only. The count is derivable
+    // from `applications` (and IS, by the candidate list). Adding the column here would
+    // be a migration, which is out of this change's boundary.
+    const payload: PayloadInputOf<"application.submitted"> = {
+      worker_id: workerId,
+      // The shipped v1 payload field. It carries a `job_postings.id` on this path, and
+      // the ENVELOPE disambiguates which id space it is: `subject_type` is
+      // "job_posting" here vs "job" on the legacy path. That is why this does NOT need
+      // a v2 payload the way `feed.shown` did — no field changed meaning inside the
+      // payload's own frame of reference, and the envelope already names the entity.
+      job_id: jobPostingId,
+      rank: dto.rank,
+      source_surface: dto.source_surface,
+    };
+    await this.events.emit({
+      event_name: "application.submitted",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "job_posting", subject_id: jobPostingId },
+      payload,
+      idempotencyKey: `application.submitted:${workerId}:${jobPostingId}`,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    return { ok: true as const, application_id: saved.applicationId, action: "applied" as const };
+  }
+
+  /**
+   * V1 skip. Same reach gate as apply — a worker cannot skip a posting he was never
+   * shown, and answering differently for one he was not would be an existence oracle.
+   *
+   * NO SNAPSHOT IS WRITTEN ON A SKIP. A skip is never ranked (the rank index is partial
+   * on `action='applied'`), so freezing rank inputs for one would store numbers no
+   * reader consumes — and would then have to be protected from rewrite on the flip to
+   * apply, which is precisely the moment the real snapshot must be taken.
+   */
+  private async skipV1(
+    workerId: string,
+    jobPostingId: string,
+    dto: SkipJobDto,
+    ctx: RequestContext,
+  ) {
+    await this.matchApply.buildSnapshot(workerId, jobPostingId); // the 404 gate only
+
+    // TD73 (carried forward): never downgrade an applied row to skipped.
+    const existing = await this.matchApply.findDecision(workerId, jobPostingId);
+    if (existing?.action === "applied") {
+      return { ok: true as const, application_id: existing.id, action: "applied" as const };
+    }
+
+    const saved = await this.matchApply.upsertDecision({
+      workerId,
+      jobPostingId,
+      action: "skipped",
+      reason: dto.reason,
+      sourceSurface: "feed",
+      rank: null,
+      snapshot: null,
+      previousAction: existing?.action ?? null,
+    });
+
+    const payload: PayloadInputOf<"application.skipped"> = {
+      worker_id: workerId,
+      job_id: jobPostingId,
+      reason: dto.reason,
+    };
+    await this.events.emit({
+      event_name: "application.skipped",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "job_posting", subject_id: jobPostingId },
+      payload,
+      idempotencyKey: `application.skipped:${workerId}:${jobPostingId}`,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    return { ok: true as const, application_id: saved.applicationId, action: "skipped" as const };
   }
 }

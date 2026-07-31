@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
@@ -11,6 +12,7 @@ import type { JobPostingVerificationStatus } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
+import { PublishReachService } from "../match/publish-reach.service";
 import { JobPostingsRepository, type JobPostingApi, type JobPostingUpdate } from "./job-postings.repository";
 import type {
   CreateJobPostingDto,
@@ -65,10 +67,15 @@ interface PreparedUpdate {
  */
 @Injectable()
 export class JobPostingsService {
+  private readonly logger = new Logger(JobPostingsService.name);
+
   constructor(
     private readonly repo: JobPostingsRepository,
     private readonly events: EventsService,
     private readonly ai: AiService,
+    // ADR-0036 moment ③ — resolves the reach set server-side and materializes it.
+    // MatchModule is @Global, so no new import edge on JobPostingsModule.
+    private readonly publishReach: PublishReachService,
   ) {}
 
   /**
@@ -149,6 +156,13 @@ export class JobPostingsService {
       updated,
       { actor_type: "ops", actor_id: updated.created_by },
       prepared,
+      ctx,
+    );
+    await this.materializeIfNeeded(
+      current,
+      updated,
+      dto,
+      { actor_type: "ops", actor_id: updated.created_by },
       ctx,
     );
     return updated;
@@ -267,6 +281,13 @@ export class JobPostingsService {
     if (!updated) throw new NotFoundException("Job posting not found");
 
     await this.emitUpdated(updated, { actor_type: "payer", actor_id: payerId }, prepared, ctx);
+    await this.materializeIfNeeded(
+      current,
+      updated,
+      dto,
+      { actor_type: "payer", actor_id: payerId },
+      ctx,
+    );
     return updated;
   }
 
@@ -319,10 +340,123 @@ export class JobPostingsService {
       status: "open",
     };
     await this.events.emit(this.emitParams("job_posting.resumed", resumed.id, actor, payload, ctx));
+
+    // ADR-0036 MOMENT ③ ON UNPAUSE. A pause does NOT clear `job_reach` (a pause is
+    // reversible and re-materializing a big reach set on every pause/resume cycle would
+    // churn the widest table in the system), so the rows are still there — but the
+    // SUPPLY has moved while the posting slept: workers profiled during the pause have
+    // no row, and workers who turned a skill off still do. Re-materializing on resume is
+    // what makes "a paused job stops feeding the worker app" (Policy 18) reversible
+    // WITHOUT the posting coming back stale.
+    //
+    // `published_at` is NOT restamped (the trigger is "unpause", and
+    // `PublishReachService` only stamps on first open) — a posting must not be able to
+    // pause/resume its way back to the top of a newest-first feed.
+    await this.materializeReach(resumed, "unpause", actor, ctx);
     return resumed;
   }
 
   // ----- shared internals (one chokepoint for both surfaces) -----------------
+
+  /**
+   * ADR-0036 MOMENT ③ — decide whether this edit needs the reach set rebuilt, and do it.
+   *
+   * Two triggers, both required:
+   *  - PUBLISH (draft → open). The whole reach set is written for the first time.
+   *  - EDIT that changed `match_skill_ids` or the unticks on an ALREADY-OPEN posting.
+   *    Skipping this would leave the posting serving the workers its OLD skills reached
+   *    while displaying the new ones — the reach set would quietly lie.
+   *
+   * A posting with no `match_skill_ids` reaches nobody and is NOT materialized here: the
+   * D3 backfill leaves those empty on purpose and prints them to an ops worklist, and
+   * inventing skills for them would be exactly the guessing that runner refuses to do.
+   */
+  private async materializeIfNeeded(
+    before: JobPostingApi,
+    after: JobPostingApi,
+    dto: UpdateJobPostingDto,
+    actor: JobPostingActor,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const publishing = before.status === "draft" && after.status === "open";
+    const skillsChanged = dto.match_skill_ids !== undefined;
+    if (!publishing && !skillsChanged) return;
+    if (!publishing && after.status !== "open") return;
+
+    // The skills to resolve from: the edit's, else what the posting already carries.
+    const matchSkillIds = dto.match_skill_ids ?? after.match_skill_ids;
+    if (matchSkillIds.length === 0) {
+      // Reaches nobody. Not a crash and not a guess — the E13 alert is the right
+      // channel for it, and `materialize` emits it once the (empty) set is written.
+      // Only do that on a PUBLISH; an unrelated edit should not raise a fresh alert.
+      if (!publishing) return;
+    }
+
+    await this.materializeReach(
+      after,
+      publishing ? "publish" : "edit",
+      actor,
+      ctx,
+      matchSkillIds,
+      dto.unticked_related_ids,
+    );
+  }
+
+  /**
+   * Resolve + materialize, never failing the write that triggered it.
+   *
+   * The posting IS published — the status transition and its `job_posting.updated` /
+   * `job_posting.resumed` event have already committed. If the reach materialization
+   * then fails, the honest outcome is a live posting with a stale/empty reach set plus a
+   * loud log, NOT a 500 that tells the payer their publish failed when it did not.
+   * `job_reach` is a rebuildable cache (`db:materialize:reach` is the repair tool and is
+   * safe to re-run), and `db:verify:match-v1` fails the deploy gate on an unmaterialized
+   * open posting — so the gap is detected, not silent.
+   */
+  private async materializeReach(
+    posting: JobPostingApi,
+    trigger: "publish" | "unpause" | "edit",
+    actor: JobPostingActor,
+    ctx: RequestContext,
+    matchSkillIds?: readonly string[],
+    untickedIds?: readonly string[],
+  ): Promise<void> {
+    const skills = matchSkillIds ?? posting.match_skill_ids;
+    if (skills.length === 0 && trigger !== "publish") return;
+    try {
+      await this.publishReach.materialize(
+        posting.id,
+        {
+          matchSkillIds: skills,
+          untickedIds: untickedIds ?? [],
+          trigger,
+          actor,
+        },
+        ctx,
+      );
+    } catch (err) {
+      const cls = err instanceof Error ? err.name : "UnknownError";
+      const msg = err instanceof Error ? err.message : "unknown";
+      this.logger.error(
+        `reach materialization FAILED for posting=${posting.id} trigger=${trigger} ` +
+          `(${cls}: ${msg}); the posting IS live — re-run db:materialize:reach ` +
+          `--job-posting-id=${posting.id}`,
+      );
+    }
+  }
+
+  /**
+   * POLICY 27 — the audited ops widen. Appends to `reach_skill_ids`, re-materializes,
+   * and emits `job_posting.reach_widened`. Never narrows (the DTO cannot express it).
+   */
+  opsWidenReach(
+    id: string,
+    addSkillIds: readonly string[],
+    opsActorId: string,
+    ctx: RequestContext,
+  ) {
+    return this.publishReach.opsWiden(id, addSkillIds, opsActorId, ctx);
+  }
 
   /** Insert a posting (always status=draft) and emit the created event for the actor. */
   private async insertAndEmit(
@@ -419,6 +553,38 @@ export class JobPostingsService {
     ) {
       patch.skillPhrases = dto.skills;
       changedFields.push("skills");
+    }
+
+    // ── Matching V1 (ADR-0036) display fields ────────────────────────────────
+    // `match_skill_ids` / `unticked_related_ids` are DELIBERATELY not patched here:
+    // they go through `PublishReachService`, which resolves the reach set server-side.
+    // Their presence is only RECORDED on the changed-field list.
+    if (dto.city !== undefined && dto.city !== current.city) {
+      patch.city = dto.city;
+      changedFields.push("city");
+    }
+    if (
+      (dto.pay_min !== undefined && dto.pay_min !== current.pay_min) ||
+      (dto.pay_max !== undefined && dto.pay_max !== current.pay_max)
+    ) {
+      if (dto.pay_min !== undefined) patch.payMin = dto.pay_min;
+      if (dto.pay_max !== undefined) patch.payMax = dto.pay_max;
+      changedFields.push("pay_band");
+    }
+    if (dto.shift !== undefined && dto.shift !== current.shift) {
+      patch.shift = dto.shift;
+      changedFields.push("shift");
+    }
+    if (dto.needed_by !== undefined && dto.needed_by !== current.needed_by) {
+      patch.neededBy = dto.needed_by;
+      changedFields.push("needed_by");
+    }
+    if (
+      dto.match_skill_ids !== undefined &&
+      JSON.stringify([...dto.match_skill_ids].sort()) !==
+        JSON.stringify([...current.match_skill_ids].sort())
+    ) {
+      changedFields.push("match_skills");
     }
 
     if (dto.status === "open" && current.status !== "open") {
