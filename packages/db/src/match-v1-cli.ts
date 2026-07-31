@@ -120,11 +120,21 @@ export function printFooter(scriptName: string, opts: CommonCliOptions, planned:
   );
 }
 
-/** Round DOWN to a bucket boundary (the V1 `month_bucket` rule). Never negative. */
-export function bucketMonths(months: number, bucket: number): number {
+/**
+ * Round a value ALREADY IN MONTHS down to a bucket boundary (the V1 `month_bucket`
+ * rule). Never negative.
+ *
+ * NAMED TO MATCH `@badabhai/match-engine`'s `bucketMonthValue`, deliberately. This was
+ * called `bucketMonths` — the name the engine gives its *years*-taking function, which
+ * multiplies by 12 first. Two same-named functions with different units, both reachable
+ * from `packages/db`, meant one careless auto-import would have silently multiplied the
+ * D2 backfill's months by 12 and produced a whole population ranked on fabricated
+ * tenure. Same name now means the same units everywhere.
+ */
+export function bucketMonthValue(months: number, bucket: number): number {
   if (!Number.isFinite(months) || months <= 0) return 0;
   if (!Number.isInteger(bucket) || bucket < 1) {
-    throw new Error(`bucketMonths: bucket must be a positive integer (got ${bucket})`);
+    throw new Error(`bucketMonthValue: bucket must be a positive integer (got ${bucket})`);
   }
   return Math.floor(months / bucket) * bucket;
 }

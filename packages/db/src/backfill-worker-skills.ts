@@ -48,7 +48,7 @@ import { loadMatchTaxonomy, validateMatchTaxonomy, DEFAULT_INDUSTRY_ID } from ".
 import {
   asObject,
   asStringArray,
-  bucketMonths,
+  bucketMonthValue,
   finiteOrNull,
   parseCommonCli,
   printCounts,
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
         // ── The coarse derivation ────────────────────────────────────────────
         const exp = asObject(profile.experience);
         const totalYears = exp ? (finiteOrNull(exp.total_years) ?? 0) : 0;
-        const months = bucketMonths(totalYears * 12, monthBucket);
+        const months = bucketMonthValue(totalYears * 12, monthBucket);
 
         const derivedIds = new Set<string>();
         // Role bridge — at most one match skill.
