@@ -31,6 +31,8 @@ const calls: string[] = [];
 
 const requireOwner = vi.fn();
 const topUp = vi.fn();
+const createCreditOrder = vi.fn();
+const verifyCreditPayment = vi.fn();
 
 vi.mock("../../../lib/auth/org-roles", () => ({
   requireOwner: () => {
@@ -43,9 +45,17 @@ vi.mock("../../../lib/payer-api", () => ({
     calls.push("topUp");
     return topUp(i);
   },
+  createCreditOrder: (i: { packCode: string }) => {
+    calls.push("createCreditOrder");
+    return createCreditOrder(i);
+  },
+  verifyCreditPayment: (i: unknown) => {
+    calls.push("verifyCreditPayment");
+    return verifyCreditPayment(i);
+  },
 }));
 
-const { topUpAction } = await import("./actions");
+const { topUpAction, createOrderAction, verifyPaymentAction } = await import("./actions");
 
 const OWNER = { payerId: "p1", role: "employer" as const, displayLabel: "Acme" };
 
@@ -58,6 +68,21 @@ beforeEach(() => {
     creditsAdded: 50,
     packCode: "pack_50",
     realCall: false,
+  });
+  createCreditOrder.mockReset().mockResolvedValue({
+    order_id: "order_1",
+    key_id: "rzp_test_keyid",
+    amount: 200000,
+    amount_inr: 2000,
+    currency: "INR",
+    pack_code: "pack_50",
+    credits: 50,
+  });
+  verifyCreditPayment.mockReset().mockResolvedValue({
+    payer_id: "p1",
+    balance: 60,
+    credits: 50,
+    pack_code: "pack_50",
   });
 });
 
@@ -139,5 +164,130 @@ describe("topUpAction — Owner path unchanged (XT5/XB-A: pack CODE only)", () =
       expect(res.error).toBe("Top-up failed (service unavailable). Please retry.");
       expect(res.error).not.toMatch(/payer_id|forbidden|owner|recruiter|\d{4}/i);
     }
+  });
+});
+
+/**
+ * REAL-CHECKOUT Server Actions. Both start (or confirm) real money moving, so both carry
+ * the SAME gate-first discipline as the mock action — a Server Action is an independently
+ * invocable POST endpoint, not a child of the page that renders the button.
+ */
+describe("createOrderAction — gate FIRST, pack CODE only, no secret in the result", () => {
+  it("calls requireOwner() BEFORE the seam (order, not just presence)", async () => {
+    await createOrderAction({ packCode: "pack_50" });
+    expect(calls).toEqual(["requireOwner", "createCreditOrder"]);
+  });
+
+  it("a non-Owner is refused and NO order is created (no money starts moving)", async () => {
+    requireOwner.mockRejectedValueOnce(NOT_FOUND);
+    await expect(createOrderAction({ packCode: "pack_50" })).rejects.toBe(NOT_FOUND);
+    expect(createCreditOrder).not.toHaveBeenCalled();
+    expect(calls).toEqual(["requireOwner"]);
+  });
+
+  it("forwards ONLY the pack code — never a payer_id, price, or currency (XB-A/XT5)", async () => {
+    await createOrderAction({ packCode: "pack_50" });
+    expect(createCreditOrder).toHaveBeenCalledWith({ packCode: "pack_50" });
+  });
+
+  it("returns the PUBLIC key id + the server-resolved amount, and no secret", async () => {
+    const res = await createOrderAction({ packCode: "pack_50" });
+    expect(res).toEqual({
+      ok: true,
+      orderId: "order_1",
+      keyId: "rzp_test_keyid",
+      amount: 200000,
+      currency: "INR",
+      packCode: "pack_50",
+    });
+    expect(JSON.stringify(res)).not.toMatch(/secret|whsec/i);
+  });
+
+  it("a 404 (unknown pack OR payments off) is ONE generic message — it never guesses which", async () => {
+    createCreditOrder.mockResolvedValueOnce(null);
+    expect(await createOrderAction({ packCode: "pack_ghost" })).toEqual({
+      ok: false,
+      error: "Checkout is unavailable right now.",
+    });
+  });
+
+  it("rejects a blank / oversized pack code without touching the seam (gate still ran first)", async () => {
+    expect(await createOrderAction({ packCode: "" })).toEqual({
+      ok: false,
+      error: "Choose a pack to continue.",
+    });
+    expect(await createOrderAction({ packCode: "x".repeat(65) })).toEqual({
+      ok: false,
+      error: "Choose a pack to continue.",
+    });
+    expect(createCreditOrder).not.toHaveBeenCalled();
+    expect(calls).toEqual(["requireOwner", "requireOwner"]);
+  });
+
+  it("a seam throw collapses to one retryable line with no reason or PII", async () => {
+    createCreditOrder.mockRejectedValueOnce(new Error("payer_id p1 at 98765 43210 unauthorized"));
+    const res = await createOrderAction({ packCode: "pack_50" });
+    expect(res).toEqual({ ok: false, error: "Couldn't start checkout. Please retry." });
+  });
+});
+
+describe("verifyPaymentAction — gate FIRST, and NEVER a fabricated success", () => {
+  const INPUT = { orderId: "order_1", paymentId: "pay_1", signature: "sig_1" };
+
+  it("calls requireOwner() BEFORE the seam", async () => {
+    await verifyPaymentAction(INPUT);
+    expect(calls).toEqual(["requireOwner", "verifyCreditPayment"]);
+  });
+
+  it("a non-Owner is refused and the verify seam is never reached", async () => {
+    requireOwner.mockRejectedValueOnce(NOT_FOUND);
+    await expect(verifyPaymentAction(INPUT)).rejects.toBe(NOT_FOUND);
+    expect(verifyCreditPayment).not.toHaveBeenCalled();
+  });
+
+  it("returns the SERVER balance on success (never an optimistic client number)", async () => {
+    expect(await verifyPaymentAction(INPUT)).toEqual({ ok: true, balance: 60, creditsAdded: 50 });
+    expect(verifyCreditPayment).toHaveBeenCalledWith(INPUT);
+  });
+
+  it("creditsAdded 0 is still a SUCCESS — the webhook granted first, the balance is truth", async () => {
+    // The regression this pins: treating a 0 delta as failure would tell a payer whose
+    // webhook landed first that their successful purchase failed.
+    verifyCreditPayment.mockResolvedValueOnce({
+      payer_id: "p1",
+      balance: 60,
+      credits: 0,
+      pack_code: "pack_50",
+    });
+    expect(await verifyPaymentAction(INPUT)).toEqual({ ok: true, balance: 60, creditsAdded: 0 });
+  });
+
+  it("an UNVERIFIED payment is an honest failure that points at support, never a fake success", async () => {
+    verifyCreditPayment.mockResolvedValueOnce(null);
+    const res = await verifyPaymentAction(INPUT);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toMatch(/couldn't confirm/i);
+      expect(res.error).toMatch(/credited automatically/i); // never tells a payer they lost money
+      expect(res.error).not.toMatch(/signature|forged|payer_id/i); // no oracle
+    }
+  });
+
+  it("a transport failure says the balance will update — NOT that the payment failed", async () => {
+    verifyCreditPayment.mockRejectedValueOnce(new Error("network"));
+    const res = await verifyPaymentAction(INPUT);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toMatch(/Payment received/i);
+      expect(res.error).not.toMatch(/failed/i); // the webhook settles independently
+    }
+  });
+
+  it("rejects malformed ids without touching the seam", async () => {
+    expect(await verifyPaymentAction({ orderId: "", paymentId: "pay_1", signature: "s" })).toEqual({
+      ok: false,
+      error: "We couldn't confirm that payment. Please contact support.",
+    });
+    expect(verifyCreditPayment).not.toHaveBeenCalled();
   });
 });

@@ -22,6 +22,7 @@ import { ProfilesController } from "../profiles/profiles.controller";
 import { ReachController } from "../reach/reach.controller";
 import { ResumeController } from "../resume/resume.controller";
 import { UnlocksController } from "../unlocks/unlocks.controller";
+import { RazorpayWebhookController } from "../unlocks/razorpay-webhook.controller";
 import { VoiceController } from "../voice/voice.controller";
 import { WorkersController } from "../workers/workers.controller";
 import { PayerAuthController } from "../payer-portal/payer-auth.controller";
@@ -88,6 +89,7 @@ const CNR = "ConsentNotRevokedGuard";
 const SI = "SkillsInternalGuard";
 const TL = "TestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
+const RZ = "RazorpayWebhookGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [], recordBatch: [] } },
@@ -171,6 +173,11 @@ const CONTRACT: ControllerContract[] = [
     routes: { signup: [], requestLogin: [], verifyLogin: [], refresh: [P], logout: [P] },
   },
   {
+    // `createOrder` + `verifyPayment` are the REAL-payments routes (Razorpay). Same
+    // PayerAuthGuard posture and same XB-A rule as their mock sibling `buyPack`: the
+    // payer_id is the SESSION payer, the body carries only a pack code / the provider's
+    // own ids, and never an amount. They additionally 404 NEUTRALLY while
+    // PAYMENTS_ENABLE_REAL is off (the default) — a launch gate, not an auth gate.
     name: "PayerUnlocks",
     ctor: PayerUnlocksController,
     routes: {
@@ -180,7 +187,18 @@ const CONTRACT: ControllerContract[] = [
       ownCredits: [P],
       creditsLedger: [P],
       buyPack: [P],
+      createOrder: [P],
+      verifyPayment: [P],
     },
+  },
+  // PUBLIC Razorpay capture webhook. It CANNOT carry a session guard — Razorpay's servers
+  // call it — so its one credential is the HMAC signature over the raw request bytes,
+  // enforced by RazorpayWebhookGuard. Listing it here makes "this route is public except
+  // for an HMAC" a recorded decision a reviewer sees in the diff, not an oversight.
+  {
+    name: "RazorpayWebhook",
+    ctor: RazorpayWebhookController,
+    routes: { webhook: [RZ] },
   },
   // Payer-self capacity view/buy (ADR-0019 + ADR-0016): session-bound, NO :payerId param.
   {

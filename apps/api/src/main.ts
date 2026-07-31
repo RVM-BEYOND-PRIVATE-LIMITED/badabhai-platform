@@ -20,6 +20,10 @@ import { AppModule } from "./app.module";
 import { StructuredLogger } from "./common/logging/structured-logger";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 import { loadRootEnv } from "./config/root-env";
+import {
+  RAZORPAY_WEBHOOK_PATH,
+  razorpayRawBodyMiddleware,
+} from "./unlocks/razorpay-raw-body.middleware";
 
 async function bootstrap(): Promise<void> {
   const rootEnv = loadRootEnv();
@@ -54,6 +58,24 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, {
     logger: new StructuredLogger("api"),
   });
+
+  // ── Razorpay webhook RAW BODY (real-payments stream) ──────────────────────────────
+  // The webhook signature is an HMAC over the EXACT bytes Razorpay sent, so those bytes
+  // must be captured BEFORE the JSON parser turns them into an object (a re-serialized
+  // body is a different byte sequence and would never verify).
+  //
+  // SCOPED TO ONE PATH, by construction:
+  //  - `app.use(path, mw)` means Express only invokes it for `/payments/razorpay/webhook`.
+  //    Every other route reaches Nest's parsers exactly as before — no global parser option
+  //    is changed, and no other route's bytes are duplicated in memory.
+  //  - Registering here (before `listen()`) puts it AHEAD of Nest's body parsers, which are
+  //    installed inside `NestApplication.init()` — so it reads the stream first and then
+  //    marks the body already-read for the downstream parser.
+  //
+  // The deliberately-not-taken alternative is `NestFactory.create(…, { rawBody: true })`,
+  // which would retain a raw copy of EVERY request body — including the OTP / PIN /
+  // worker-answer routes, whose bodies are PII (CLAUDE.md §2 #2).
+  app.use(RAZORPAY_WEBHOOK_PATH, razorpayRawBodyMiddleware);
 
   // TD25 — trust exactly the configured number of reverse-proxy hops when deriving
   // req.ip from X-Forwarded-For (feeds every per-IP rate cap). A hop COUNT, never a

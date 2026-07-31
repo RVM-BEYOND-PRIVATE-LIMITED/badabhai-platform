@@ -16,6 +16,12 @@ import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers
 import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
 import { UnlockService } from "../unlocks/unlocks.service";
 import {
+  CreateCreditOrderSchema,
+  type CreateCreditOrderDto,
+  VerifyCreditPaymentSchema,
+  type VerifyCreditPaymentDto,
+} from "../unlocks/razorpay-webhook.dto";
+import {
   PayerBuyPackSchema,
   type PayerBuyPackDto,
   PayerRequestUnlockSchema,
@@ -130,5 +136,83 @@ export class PayerUnlocksController {
     const result = await this.unlocks.purchaseCredits(payer.id, dto.pack_code, ctx);
     if (!result) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
     return result;
+  }
+
+  /**
+   * Create a REAL Razorpay order for a credit pack (real-payments stream).
+   *
+   * XB-A: the payer is the SESSION payer — never a body value. XT5: the body carries ONLY
+   * the pack code. There is no `amount`, no `credits`, no `currency` field anywhere on this
+   * route, so a client cannot name its own price; the ₹ comes from the same catalog path
+   * (`resolvePack`) the portal advertised (D-6).
+   *
+   * LAUNCH GATE: with `PAYMENTS_ENABLE_REAL` off (the default) this route answers a NEUTRAL
+   * 404 — identical to a route that does not exist. It is not a 501/503, because "real
+   * payments exist but are switched off here" is configuration state a caller has no need
+   * to learn. The MOCK path (`POST /payer/credits`) is untouched and remains the default.
+   *
+   * The response carries the `rzp_*` KEY ID, which is public by design (checkout.js needs
+   * it in the browser). The key SECRET and the webhook secret never appear in any response.
+   */
+  @Post("credits/order")
+  @HttpCode(201)
+  async createOrder(
+    @Body(new ZodValidationPipe(CreateCreditOrderSchema)) dto: CreateCreditOrderDto,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    if (!this.unlocks.realPaymentsLive) throw new NotFoundException();
+    const order = await this.unlocks.createCreditOrder(payer.id, dto.pack_code, ctx);
+    // Unknown pack → a real 404 (a public catalog item, not a per-tenant resource).
+    if (!order) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
+    return {
+      order_id: order.providerOrderId,
+      key_id: order.keyId,
+      amount: order.amountPaise, // paise — what checkout.js expects
+      amount_inr: order.amountInr, // whole ₹ — what the UI displays
+      currency: order.currency,
+      pack_code: order.packCode,
+      credits: order.credits,
+    };
+  }
+
+  /**
+   * Verify a browser-returned Razorpay checkout result and credit the pack.
+   *
+   * THE CLIENT-SIDE FALLBACK, not the source of truth — the webhook is. It exists because a
+   * real buyer on a flaky Indian mobile network sees checkout succeed seconds before the
+   * webhook reaches us, and must not be told their purchase failed. It settles through the
+   * SAME idempotent order row as the webhook, so the two converge and can race safely.
+   *
+   * XB-A: the payer is the SESSION payer; the order must belong to them. A bad signature, an
+   * unknown order, and another tenant's order all return the SAME neutral 404 — this route
+   * is not an order-id oracle. HTTP 200 only on a genuinely verified payment.
+   */
+  @Post("credits/verify")
+  @HttpCode(200)
+  async verifyPayment(
+    @Body(new ZodValidationPipe(VerifyCreditPaymentSchema)) dto: VerifyCreditPaymentDto,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    if (!this.unlocks.realPaymentsLive) throw new NotFoundException();
+    const result = await this.unlocks.verifyCheckoutPayment(
+      payer.id,
+      {
+        orderId: dto.razorpay_order_id,
+        paymentId: dto.razorpay_payment_id,
+        signature: dto.razorpay_signature,
+      },
+      ctx,
+    );
+    // Byte-identical refusal for every failure mode (forged signature / unknown order /
+    // someone else's order): the caller learns only "not verified".
+    if (!result.verified) throw new NotFoundException();
+    return {
+      payer_id: result.payer_id,
+      balance: result.balance,
+      credits: result.credits,
+      pack_code: result.pack_code,
+    };
   }
 }

@@ -11,6 +11,7 @@ import { UnlockService } from "./unlocks.service";
 import type { UnlocksRepository } from "./unlocks.repository";
 import type { PricingService } from "../pricing/pricing.service";
 import { PaymentGateway } from "./payment-gateway";
+import type { RazorpayClient } from "./razorpay.client";
 import { neutralUnavailable } from "./unlock-response";
 
 const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
@@ -114,10 +115,20 @@ function setup(opts: SetupOpts = {}) {
       source: "db" as const,
     })),
   };
+  // Real payments are OFF in this suite (CAPS carries PAYMENTS_ENABLE_REAL:false), so the
+  // provider client is a NOT-live stub whose createOrder throws if anything ever reaches it.
+  const razorpay = {
+    isLive: false,
+    keyId: null,
+    createOrder: vi.fn(async () => {
+      throw new Error("createOrder must never run while real payments are off");
+    }),
+  };
   const payments = new PaymentGateway(
     repo as unknown as UnlocksRepository,
     CAPS,
     pricing as unknown as PricingService,
+    razorpay as unknown as RazorpayClient,
   );
 
   const svc = new UnlockService(

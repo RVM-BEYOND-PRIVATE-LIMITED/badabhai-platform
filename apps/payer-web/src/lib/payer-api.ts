@@ -13,8 +13,10 @@ import {
   buyPackResultWireSchema,
   capacitySchema,
   creditLedgerWireSchema,
+  creditOrderWireSchema,
   creditsWireSchema,
   creditTopUpSchema,
+  verifyPaymentWireSchema,
   jobPostingChatPublishWireSchema,
   jobPostingChatSessionListWireSchema,
   jobPostingChatTranscriptWireSchema,
@@ -48,8 +50,10 @@ import {
   type Capacity,
   type CreatePostingInput,
   type CreditBalance,
+  type CreditOrder,
   type CreditTopUp,
   type Dashboard,
+  type VerifiedPayment,
   type FacelessApplicant,
   type JobPostingChatPublishResult,
   type JobPostingChatSessionSummary,
@@ -286,6 +290,66 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
     packCode: wire.pack_code,
     realCall: false, // MOCK money — the backend mock-purchases; there is NO Razorpay.
   });
+}
+
+/**
+ * POST /payer/credits/order — create a REAL Razorpay order (real-payments stream).
+ *
+ * The body carries ONLY `{ pack_code }` (XB-A/XT5: no payer_id, no amount, no currency) —
+ * the server resolves the ₹ from the same pricing catalog the page advertised, so a
+ * tampered client cannot name its own price.
+ *
+ * The response's `key_id` is the PUBLIC `rzp_*` key id; it comes from the API on this
+ * response rather than from a `NEXT_PUBLIC_*` build value, which keeps the key rotatable
+ * without a rebuild and keeps the key SECRET out of this app entirely.
+ *
+ * Returns null when the route 404s: either an unknown pack, or real payments are OFF (the
+ * launch gate answers a NEUTRAL 404 — indistinguishable by design). The caller shows a
+ * generic "cannot start checkout" rather than guessing which.
+ */
+export async function createCreditOrder(input: { packCode: string }): Promise<CreditOrder | null> {
+  try {
+    return await payerFetch("/payer/credits/order", {
+      method: "POST",
+      body: { pack_code: input.packCode }, // pack CODE ONLY — never an amount
+      schema: creditOrderWireSchema,
+    });
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/**
+ * POST /payer/credits/verify — confirm a completed checkout and read back the balance.
+ *
+ * The three values are exactly what Razorpay Checkout handed the browser. They are
+ * UNTRUSTED: the API verifies the signature against the key secret and binds the order to
+ * the session payer. Returns null on a 404, which the API uses for every refusal (forged
+ * signature / unknown order / another tenant's order) — one neutral answer, no oracle.
+ *
+ * A `credits: 0` result is still a SUCCESS: it means the webhook already granted, and
+ * `balance` is authoritative. The UI must never read `credits === 0` as a failure.
+ */
+export async function verifyCreditPayment(input: {
+  orderId: string;
+  paymentId: string;
+  signature: string;
+}): Promise<VerifiedPayment | null> {
+  try {
+    return await payerFetch("/payer/credits/verify", {
+      method: "POST",
+      body: {
+        razorpay_order_id: input.orderId,
+        razorpay_payment_id: input.paymentId,
+        razorpay_signature: input.signature,
+      },
+      schema: verifyPaymentWireSchema,
+    });
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
 }
 
 /**

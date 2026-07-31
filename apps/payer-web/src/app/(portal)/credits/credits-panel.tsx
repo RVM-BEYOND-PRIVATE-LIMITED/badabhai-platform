@@ -5,21 +5,32 @@ import { useRouter } from "next/navigation";
 import type { CreditPack } from "../../../lib/contracts";
 import { Badge, Button, Card, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
-import { topUpAction } from "./actions";
+import { createOrderAction, topUpAction, verifyPaymentAction } from "./actions";
+import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
 
 /**
- * Client credit-pack picker (DS1.4 re-skin) — pack tiles as DS Cards. Packs come from
- * CONFIG (passed in as props from the server page) — never hardcoded here. The per-credit
- * "best value" pack is derived from the config prices (not a literal). Top-up calls the
- * (mock-money) Server Action; there is no payment form, no card field, no real money
- * (XT5 / E-R2). The backend mock-purchases (real_call:false) — there is NO Razorpay.
+ * Client credit-pack picker. Packs come from CONFIG (passed in as props from the server
+ * page) — never hardcoded here, and never an amount this component chooses.
  *
- * HARDENING (C6): a confirm step precedes the buy, and the result region is aria-live.
+ * TWO MODES, chosen by a SERVER-provided flag:
+ *  - `real={false}` (the default): today's MOCK top-up Server Action. Unchanged.
+ *  - `real={true}`: create an order server-side → open Razorpay Checkout with it → POST
+ *    the result to /verify → refresh the balance.
+ *
+ * NO SECRET REACHES THIS BUNDLE. The only Razorpay value here is the `rzp_*` KEY ID, and
+ * it arrives at runtime on the order response — it is not a `NEXT_PUBLIC_*` build value,
+ * not a constant, and not derivable from anything shipped to the browser.
+ *
+ * HONEST COPY IS A REQUIREMENT, NOT POLISH. A dismissed modal says "cancelled", a failed
+ * payment says "failed", and an unconfirmed verification says "if money left your account
+ * it will be credited automatically". Nothing in this file can render a success message
+ * without a server-confirmed balance behind it.
  */
-export function CreditsPanel({ packs }: { packs: CreditPack[] }) {
+export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; real?: boolean }) {
   const router = useRouter();
   const [pendingCode, setPendingCode] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -30,15 +41,20 @@ export function CreditsPanel({ packs }: { packs: CreditPack[] }) {
       ? packs.reduce((a, b) => (a.priceInr / a.credits <= b.priceInr / b.credits ? a : b)).code
       : null;
 
-  function onBuy(pack: CreditPack) {
-    // Confirm step (C6). Money is MOCK — the copy says so; no real payment is taken.
+  function resetBanners(): void {
+    setError(null);
+    setMessage(null);
+    setNotice(null);
+  }
+
+  /** MOCK mode — unchanged behaviour (PAYMENTS_ENABLE_REAL off, the default). */
+  function onBuyMock(pack: CreditPack): void {
     const ok = window.confirm(
       `Add ${pack.credits} credits for ${formatInr(pack.priceInr)}? ` +
         "This is a mock top-up — no real payment is taken.",
     );
     if (!ok) return;
-    setError(null);
-    setMessage(null);
+    resetBanners();
     setPendingCode(pack.code);
     startTransition(async () => {
       const res = await topUpAction({ packCode: pack.code });
@@ -51,6 +67,76 @@ export function CreditsPanel({ packs }: { packs: CreditPack[] }) {
       }
     });
   }
+
+  /** REAL mode — order → Razorpay Checkout → server verify → refresh. */
+  function onBuyReal(pack: CreditPack): void {
+    resetBanners();
+    setPendingCode(pack.code);
+    startTransition(async () => {
+      try {
+        // 1. The SERVER creates the order and resolves the price. The client never names
+        //    an amount; it only says which pack.
+        const order = await createOrderAction({ packCode: pack.code });
+        if (!order.ok) {
+          setError(order.error);
+          return;
+        }
+
+        // 2. Load + open checkout. A script that will not load is a failure, never a
+        //    silent no-op that leaves the payer staring at a spinner.
+        if (!(await loadCheckoutScript())) {
+          setError("Couldn't open the payment window. Check your connection and retry.");
+          return;
+        }
+        const result = await openCheckout({
+          orderId: order.orderId,
+          keyId: order.keyId,
+          amount: order.amount,
+          currency: order.currency,
+          name: "BadaBhai",
+          description: `${pack.credits} unlock credits`,
+        });
+
+        if (result.outcome === "dismissed") {
+          // Closing the modal is not a failure and not a success — say exactly that.
+          setNotice("Payment cancelled. You haven't been charged.");
+          return;
+        }
+        if (result.outcome === "failed") {
+          setError("Payment failed. No credits were added — you can try again.");
+          return;
+        }
+
+        // 3. Confirm SERVER-side. The webhook may have already granted; either way the
+        //    balance we render comes from the server, never from optimism here.
+        const verified = await verifyPaymentAction({
+          orderId: result.orderId,
+          paymentId: result.paymentId,
+          signature: result.signature,
+        });
+        if (!verified.ok) {
+          setError(verified.error);
+          return;
+        }
+        setMessage(
+          verified.creditsAdded > 0
+            ? `Payment successful. Added ${verified.creditsAdded} credits. New balance: ${verified.balance}.`
+            : `Payment successful. Your balance is ${verified.balance} credits.`,
+        );
+        router.refresh();
+      } catch {
+        // An unexpected client-side throw must not read as a failed purchase: the webhook
+        // settles independently of this browser.
+        setError(
+          "Something went wrong after payment. If money left your account, your credits will appear shortly.",
+        );
+      } finally {
+        setPendingCode(null);
+      }
+    });
+  }
+
+  const onBuy = real ? onBuyReal : onBuyMock;
 
   return (
     <>
@@ -81,7 +167,7 @@ export function CreditsPanel({ packs }: { packs: CreditPack[] }) {
                 loading={pendingCode === p.code}
                 onClick={() => onBuy(p)}
               >
-                {pendingCode === p.code ? "Adding…" : "Buy (mock)"}
+                {pendingCode === p.code ? (real ? "Opening…" : "Adding…") : real ? "Buy" : "Buy (mock)"}
               </Button>
             </Card>
           ))}
@@ -90,6 +176,7 @@ export function CreditsPanel({ packs }: { packs: CreditPack[] }) {
 
       <div aria-live="polite" className="credits-result">
         {message ? <Toast tone="success">{message}</Toast> : null}
+        {notice ? <Toast tone="neutral">{notice}</Toast> : null}
         {error ? <Toast tone="danger">{error}</Toast> : null}
       </div>
     </>
