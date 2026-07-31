@@ -1664,6 +1664,13 @@ textarea.input {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+/* ADR-0036 — the coarse tenure that replaces the score on the Matching V1 path. Same
+   weight as the score it stands in for: it is a supporting figure beside the tier badge,
+   not the headline. */
+.applicant__months {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
 .applicant__signals {
   display: flex;
   flex-wrap: wrap;

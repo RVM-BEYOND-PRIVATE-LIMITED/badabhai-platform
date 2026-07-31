@@ -166,6 +166,72 @@ describe("POST /payer/match/reach-preview — the live counter", () => {
   });
 });
 
+describe("GET /payer/reach/jobs/:id/applicants — BOTH server shapes parse (moment ⑥)", () => {
+  /**
+   * REGRESSION. `MATCH_V1_ENABLED` is a SERVER flag, so this client cannot know which
+   * implementation is answering. Before the union, the V1 row (no `score`, no `hot`, no
+   * `pushEligible`, no `components`) failed the wire schema and the applicants page threw
+   * a ZodError the instant the flag went on — and again on rollback, in reverse.
+   */
+  const V1_ROW = {
+    workerId: "44444444-4444-4444-8444-444444444444",
+    applicationId: "55555555-5555-4555-8555-555555555555",
+    rank: 1,
+    matchTier: 2,
+    effectiveTier: 1,
+    skillMonths: 48,
+    industryMonths: 72,
+    lastWorkedAt: null,
+    matchedSkillLabel: "VMC operating",
+    engineVersion: "v1.0",
+  };
+  const LEGACY_ROW = {
+    workerId: "44444444-4444-4444-8444-444444444444",
+    rank: 1,
+    score: 0.91,
+    hot: true,
+    pushEligible: false,
+    components: [{ reason: "on-trade" }],
+    experienceBand: "6-10 yrs",
+    tradeLabel: "VMC Operator",
+    cityLabel: "pune",
+  };
+
+  it("parses the MATCHING V1 row and carries the tier + months through", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ jobId: POSTING_ID, applicants: [V1_ROW] }));
+    const { getApplicantFeed } = await import("./payer-api");
+    const feed = await getApplicantFeed(POSTING_ID);
+    const a = feed!.applicants[0]!;
+    // E18 — the RAW tier survives, so a floor-promoted worker is still badged "related".
+    expect(a.matchTier).toBe(2);
+    expect(a.effectiveTier).toBe(1);
+    expect(a.matchedSkillLabel).toBe("VMC operating");
+    expect(a.skillMonths).toBe(48);
+    // V1 has no score and no hot flag. They are STRUCTURAL placeholders, pinned so the
+    // card cannot render a fabricated number as if it meant something.
+    expect(a.score).toBe(0);
+    expect(a.hot).toBe(false);
+    expect(a.signals).toEqual([]);
+  });
+
+  it("still parses the LEGACY weighted row (the flag is reversible at any moment)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ jobId: POSTING_ID, applicants: [LEGACY_ROW] }));
+    const { getApplicantFeed } = await import("./payer-api");
+    const a = (await getApplicantFeed(POSTING_ID))!.applicants[0]!;
+    expect(a.score).toBe(0.91);
+    expect(a.hot).toBe(true);
+    expect(a.signals).toEqual(["on-trade"]);
+    // The V1 fields stay ABSENT, so the card renders the score branch, not an empty badge.
+    expect(a.matchTier).toBeUndefined();
+  });
+
+  it("maps the neutral 404 to null on both paths", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "Not Found" }, 404));
+    const { getApplicantFeed } = await import("./payer-api");
+    await expect(getApplicantFeed(POSTING_ID)).resolves.toBeNull();
+  });
+});
+
 describe("PATCH /payer/job-postings/:id — attach match skills and publish (moment ③)", () => {
   it("sends match_skill_ids + unticks + status:open, and NEVER a reach_skill_ids", async () => {
     fetchMock.mockResolvedValue(jsonResponse(POSTING_WIRE));

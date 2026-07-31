@@ -290,6 +290,21 @@ export const facelessApplicantSchema = z.object({
   tradeLabel: z.string().optional(),
   cityLabel: z.string().optional(),
   skills: z.array(z.string()).max(8).optional(),
+
+  /**
+   * Matching V1 (ADR-0036 moment ⑥). All OPTIONAL — the legacy weighted projection has
+   * none of them, and the flag that switches between the two is server-side.
+   *
+   * Still faceless: a tier is set membership, the months are the worker's own bucketed
+   * (6-month) estimate, and the skill label is a closed-set value. Nothing here narrows
+   * to a person — identity is still bought through `/payer/unlocks`.
+   */
+  matchTier: z.number().int().optional(),
+  effectiveTier: z.number().int().optional(),
+  /** E18's badge: the label of the skill he actually matched on. */
+  matchedSkillLabel: z.string().optional(),
+  skillMonths: z.number().int().optional(),
+  industryMonths: z.number().int().optional(),
 });
 export type FacelessApplicant = z.infer<typeof facelessApplicantSchema>;
 
@@ -693,10 +708,49 @@ export const reachApplicantWireSchema = z.object({
   tradeLabel: z.string().nullable().optional(),
   cityLabel: z.string().nullable().optional(),
 });
+
+/**
+ * The SAME route under Matching V1 (ADR-0036 moment ⑥). A STRUCTURALLY DIFFERENT ROW:
+ * there is no `score`, no `hot` and no `components`, because V1 has no weights and no
+ * model output — the order is a fixed lexicographic rank key and the row carries the
+ * frozen inputs that produced it.
+ *
+ * `match_tier` is the RAW tier (E18): 2 means "he holds a related skill, not the one
+ * you posted", and the card must say so even when the 36-month floor promoted him into
+ * tier-1 ordering. `effectiveTier` is what he was ORDERED by, so the list's order is
+ * explainable from the row rather than only reproducible by re-running the rule.
+ */
+export const matchCandidateWireSchema = z.object({
+  workerId: z.string().uuid(),
+  applicationId: z.string().uuid(),
+  rank: z.number().int(),
+  matchTier: z.number().int().nullable(),
+  effectiveTier: z.number().int().nullable(),
+  skillMonths: z.number().int().nullable(),
+  industryMonths: z.number().int().nullable(),
+  lastWorkedAt: z.string().nullable(),
+  matchedSkillLabel: z.string().nullable(),
+  engineVersion: z.string().nullable(),
+});
+
+/**
+ * The applicants read parses EITHER shape.
+ *
+ * `MATCH_V1_ENABLED` is a SERVER flag: the portal cannot know which implementation is
+ * serving, and the flip is meant to be reversible at any moment. A single-shape schema
+ * made the page throw a ZodError the instant the flag went on — measured, not assumed
+ * (the V1 row is missing `score`/`hot`/`pushEligible`/`components`). A union means the
+ * flip, and its rollback, are both invisible to this client.
+ *
+ * `z.union` (not `discriminatedUnion`): the two shapes have no shared literal tag, they
+ * are told apart by which keys exist at all.
+ */
 export const reachApplicantListWireSchema = z.object({
   jobId: z.string().uuid(),
-  applicants: z.array(reachApplicantWireSchema),
+  applicants: z.array(z.union([reachApplicantWireSchema, matchCandidateWireSchema])),
 });
+export type MatchCandidateWire = z.infer<typeof matchCandidateWireSchema>;
+export type ReachApplicantWire = z.infer<typeof reachApplicantWireSchema>;
 
 /**
  * GET/POST/PATCH /payer/job-postings(/:id) — the EMPLOYER self-serve posting row, exactly

@@ -62,8 +62,10 @@ import {
   type JobPostingChatTranscript,
   type JobPostingChatTurn,
   type MaskedResumeResult,
+  type MatchCandidateWire,
   type MatchSelectionInput,
   type MatchSkillWire,
+  type ReachApplicantWire,
   type PostingSummary,
   type ReachPreview,
   type RevealResult,
@@ -168,14 +170,67 @@ export async function getDashboard(): Promise<Dashboard> {
   return { credits, unlocks, postings };
 }
 
+/** LEGACY (weighted reach engine): score/hot/components → faceless relevance chips. */
+function toWeightedApplicant(a: ReachApplicantWire): FacelessApplicant {
+  return {
+    workerId: a.workerId,
+    rank: a.rank,
+    score: a.score,
+    hot: a.hot,
+    // Score-component reasons as faceless relevance chips (PII-free). The reach DTO's
+    // components are explainable signal reasons; surface only their `reason` strings.
+    signals: a.components
+      .map((c) =>
+        typeof c === "object" && c && "reason" in c ? String((c as { reason: unknown }).reason) : "",
+      )
+      .filter((s): s is string => s.length > 0)
+      .slice(0, 8),
+    // Coarse faceless taxonomy bands (PII-free). Backend may send `null` (no signal);
+    // map to `undefined` so the optional UI fields stay clean.
+    experienceBand: a.experienceBand ?? undefined,
+    tradeLabel: a.tradeLabel ?? undefined,
+    cityLabel: a.cityLabel ?? undefined,
+  };
+}
+
+/**
+ * MATCHING V1 (ADR-0036 moment ⑥) → the same faceless row.
+ *
+ * `score: 0` and `hot: false` are STRUCTURAL PLACEHOLDERS, not values: V1 has no score
+ * and no hot flag, and the shared `FacelessApplicant` still requires both. They are
+ * pinned to constants precisely so nothing can render them as a meaningful number — the
+ * UI reads `matchTier`/`skillMonths` on this path, and a fabricated score would be the
+ * one number on the page that means nothing while looking like it means something.
+ *
+ * `signals` is left EMPTY rather than back-filled with invented reasons. V1's
+ * explanation is the tier badge plus the months, which the card renders directly.
+ */
+function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
+  return {
+    workerId: a.workerId,
+    rank: a.rank,
+    score: 0,
+    hot: false,
+    signals: [],
+    matchTier: a.matchTier ?? undefined,
+    effectiveTier: a.effectiveTier ?? undefined,
+    matchedSkillLabel: a.matchedSkillLabel ?? undefined,
+    skillMonths: a.skillMonths ?? undefined,
+    industryMonths: a.industryMonths ?? undefined,
+  };
+}
+
 /**
  * GET /payer/reach/jobs/:jobId/applicants — the FACELESS ranked candidate list for a
  * job the caller OWNS (LIVE). A job that isn't the payer's returns the SAME neutral
  * 404 as an unknown one (no-oracle) → we map that to `null` and the page renders a
- * neutral not-found. The payer-authed reach projection returns RANKING signals
- * (rank/score/hot/components) PLUS coarse, PII-free banded taxonomy chips
- * (experience/trade/city) which we surface as faceless relevance labels. `skills` is
- * not in the projection yet (stays unset). PII-free either way (XB-C).
+ * neutral not-found.
+ *
+ * TWO SERVER IMPLEMENTATIONS, ONE CLIENT. Behind `MATCH_V1_ENABLED` the route returns
+ * the posting's ACTUAL APPLICANTS ordered by the frozen ADR-0036 rank snapshot; with the
+ * flag off it returns the weighted reach engine's scored pool. The wire schema is a
+ * union of both and the mapper branches on shape, so flipping the flag — and rolling it
+ * back — is invisible here. PII-free either way (XB-C).
  */
 export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | null> {
   let wire: ReturnType<typeof reachApplicantListWireSchema.parse>;
@@ -189,27 +244,9 @@ export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | n
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
     throw e;
   }
-  const applicants: FacelessApplicant[] = wire.applicants.map((a) => ({
-    workerId: a.workerId,
-    rank: a.rank,
-    score: a.score,
-    hot: a.hot,
-    // Score-component reasons as faceless relevance chips (PII-free). The reach DTO's
-    // components are explainable signal reasons; surface only their `reason` strings.
-    signals: a.components
-      .map((c) =>
-        typeof c === "object" && c && "reason" in c
-          ? String((c as { reason: unknown }).reason)
-          : "",
-      )
-      .filter((s): s is string => s.length > 0)
-      .slice(0, 8),
-    // Coarse faceless taxonomy bands (PII-free). Backend may send `null` (no signal);
-    // map to `undefined` so the optional UI fields stay clean.
-    experienceBand: a.experienceBand ?? undefined,
-    tradeLabel: a.tradeLabel ?? undefined,
-    cityLabel: a.cityLabel ?? undefined,
-  }));
+  const applicants: FacelessApplicant[] = wire.applicants.map((a) =>
+    "matchTier" in a ? toMatchCandidate(a) : toWeightedApplicant(a),
+  );
   return applicantFeedSchema.parse({
     postingId: wire.jobId,
     // The reach endpoint does not return a role title; the page falls back to a label.
