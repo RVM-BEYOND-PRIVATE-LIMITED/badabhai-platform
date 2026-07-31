@@ -58,20 +58,47 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Referral deep link (A3 — worker→worker ADR-0020 + agency ADR-0022
-                 invites share the `/i/<code>` shape). CUSTOM SCHEME on purpose:
-                 verified App Links (https://<share-domain>/i/<code>) need a real
-                 share domain serving /.well-known/assetlinks.json — a deploy/infra
-                 step — so wiring the https `android:autoVerify` intent-filter +
-                 the share domain is a FOLLOW-UP (see kInviteLinkBase in
-                 core/config/app_config.dart). The opaque 12-hex code is captured
-                 by go_router and attributed post-consent, best-effort. iOS is out
-                 of scope (Android-first). -->
+            <!-- Referral deep link, LEGACY FALLBACK (A3 — worker→worker ADR-0020
+                 + agency ADR-0022 invites share the `/i/<code>` shape). Kept
+                 alongside the verified App Link below: it is the only shape that
+                 still resolves if App-Link verification fails (no network on
+                 first boot, a mis-published assetlinks.json, an OEM launcher that
+                 does not verify), and links shared before this build exist in the
+                 wild. The opaque 12-hex code is captured by go_router and
+                 attributed post-consent, best-effort. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="badabhai" android:host="i"/>
+            </intent-filter>
+            <!-- B4 ATTRIBUTION — verified App Link for the REAL shared link.
+                 `kInviteLinkBase` (core/config/app_config.dart) composes
+                 https://app.badabhai.in/i/<code>, so until now EVERY shared
+                 invite opened a browser instead of the app: the custom scheme
+                 above matched nothing a share sheet ever produced, which is what
+                 makes commission-only agents unattributable.
+
+                 VERIFICATION IS AN INFRA DEPENDENCY, NOT A CODE ONE. Android
+                 only honours `autoVerify` if https://app.badabhai.in/.well-known/
+                 assetlinks.json is served (200, `application/json`, no redirect)
+                 and lists this app's package name + the **Play App Signing**
+                 SHA-256 cert fingerprint (the upload key's fingerprint is the
+                 usual wrong answer — Play re-signs). Hosting that file is owned
+                 outside this app. Until it lands the filter is harmless: the link
+                 opens the Android disambiguation dialog / browser exactly as it
+                 does today, and the custom scheme above is untouched.
+
+                 Path-scoped to `/i/` on purpose — the app must not claim the
+                 marketing site. iOS is out of scope (Android-first); the
+                 equivalent there is an apple-app-site-association file. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"
+                      android:host="app.badabhai.in"
+                      android:pathPrefix="/i/"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

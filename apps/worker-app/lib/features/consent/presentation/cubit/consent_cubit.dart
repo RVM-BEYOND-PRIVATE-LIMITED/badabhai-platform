@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
+import '../../../../core/observability/analytics.dart';
 import '../../../auth/domain/auth_session_manager.dart';
 import '../../domain/consent_repository.dart';
 
@@ -58,6 +61,10 @@ class ConsentCubit extends Cubit<ConsentState> {
       if (locator.isRegistered<AuthSessionManager>()) {
         locator<AuthSessionManager>().markConsentAccepted();
       }
+      // B7 funnel milestone, mirroring the server's `consent.accepted` event.
+      // The COUNT of purposes only — never the worker, never the purposes.
+      unawaited(BbAnalytics.instance
+          .log(BbAnalytics.consentDone(purposeCount: _purposes.length)));
       emit(state.copyWith(status: ConsentStatus.success));
     } on Failure catch (failure) {
       if (isClosed) return;

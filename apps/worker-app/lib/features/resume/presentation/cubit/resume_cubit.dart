@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/error/failure.dart';
+import '../../../../core/observability/analytics.dart';
 import '../../domain/resume_edit_repository.dart';
 import '../../domain/resume_repository.dart';
 import '../../domain/resume_safe_fields.dart';
@@ -36,6 +39,9 @@ class ResumeCubit extends Cubit<ResumeState> {
   /// concurrent load would double the network work and race its emits.
   bool _loading = false;
 
+  /// True once the B7 "resume ready" milestone has been logged for this cubit.
+  bool _resumeReadyLogged = false;
+
   /// Loads the resume — reusing the existing one unless [force].
   ///
   /// [force] is for a deliberate rebuild after the worker edits their NAME (it
@@ -62,6 +68,14 @@ class ResumeCubit extends Cubit<ResumeState> {
         resumeText: text,
         nightShiftReady: state.nightShiftReady,
       ));
+      // B7 funnel milestone — the worker reached a generated resume. Fired from
+      // generate() only (never refresh(), which is a tab-focus re-read of an
+      // existing resume) and once per cubit, so it counts workers who got there
+      // rather than screen visits. No parameters: the resume is PII end to end.
+      if (!_resumeReadyLogged) {
+        _resumeReadyLogged = true;
+        unawaited(BbAnalytics.instance.log(BbAnalytics.resumeReady));
+      }
       final bool nightShiftReady = await _loadNightShiftReady();
       if (isClosed) return;
       emit(ResumeState(

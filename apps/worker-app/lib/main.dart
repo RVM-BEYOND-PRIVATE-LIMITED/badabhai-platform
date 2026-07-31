@@ -1,8 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show SchedulerBinding;
 
 import 'app.dart';
+import 'core/config/remote_config.dart';
 import 'core/di/locator.dart';
 import 'core/observability/crash_reporter.dart';
+import 'core/referral/install_referrer_reader.dart';
+import 'core/referral/pending_referral_store.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 
 Future<void> main() async {
@@ -38,4 +44,36 @@ Future<void> main() async {
     appName: 'worker-app',
     ownPackage: 'badabhai_worker_app',
   );
+
+  _bootstrapAfterFirstFrame();
+}
+
+/// Everything that must NOT gate the first frame (#379's rule, applied to the
+/// two things added since): Remote Config's fetch and the Play install-referrer
+/// read. Both are unawaited, both are time-boxed or best-effort internally, and
+/// both are no-ops on a device where Firebase / Play Services are unavailable.
+///
+/// Scheduled after the first frame rather than from the splash WIDGET on
+/// purpose: `SplashScreen` is deliberately DI-free and bloc-free (it is the
+/// initial route, so a widget test must be able to pump it with no locator), and
+/// hanging plugin work off its build would take that property away. This runs at
+/// the same moment for the worker — the splash is what is on screen — without
+/// coupling the screen to either plugin.
+void _bootstrapAfterFirstFrame() {
+  SchedulerBinding.instance.addPostFrameCallback((_) {
+    // Display-only levers. A miss leaves the compiled-in defaults, which ARE
+    // today's behaviour, so nothing waits on this.
+    unawaited(BbRemoteConfig.instance.init());
+
+    // B4: recover a referral the Play Store swallowed at install time. Writes
+    // into the SAME PendingReferralStore the `/i/<code>` deep link uses, which
+    // consent already drains into POST /referrals/attribute — so no new API
+    // call, just codes that used to be lost. One-shot and silent on every
+    // failure path.
+    unawaited(
+      InstallReferrerReader(
+        store: const SharedPrefsPendingReferralStore(),
+      ).consumeOnce(),
+    );
+  });
 }

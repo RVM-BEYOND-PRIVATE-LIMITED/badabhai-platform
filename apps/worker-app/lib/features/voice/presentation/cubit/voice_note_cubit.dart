@@ -8,6 +8,13 @@ import '../../../../core/error/failure_mapper.dart';
 import '../../domain/voice_models.dart';
 import '../../domain/voice_note_repository.dart';
 
+/// Shown when transcription returned nothing usable (silence, a mis-tap, a
+/// recogniser miss). Honest and actionable — never an empty confirm bubble the
+/// worker is asked to approve. Persona-checked copy: aap-form, no vocative, no
+/// exclamation mark.
+const String kVoiceEmptyTranscript =
+    'Aapki awaaz saaf sunai nahi di. Dobara bolein ya type karke bhejein.';
+
 // ---------------- States ----------------
 
 sealed class VoiceNoteState extends Equatable {
@@ -32,9 +39,43 @@ class VoiceNoteRecording extends VoiceNoteState {
   List<Object?> get props => <Object?>[elapsedSeconds];
 }
 
-/// Clip captured — upload → transcribe → merge is running.
+/// Work is in flight. Two distinct legs share this state so the screen shows one
+/// consistent spinner, and [sending] picks the honest caption for each:
+///  - `sending == false` — clip captured, upload → transcribe is running.
+///  - `sending == true`  — the CONFIRMED transcript is being merged into chat.
+///
+/// The default is the transcribe leg, so `const VoiceNoteProcessing()` still
+/// means exactly what it always meant.
 class VoiceNoteProcessing extends VoiceNoteState {
-  const VoiceNoteProcessing();
+  const VoiceNoteProcessing({this.sending = false});
+
+  /// True only on the post-confirmation leg (the answer is on its way to chat).
+  final bool sending;
+
+  @override
+  List<Object?> get props => <Object?>[sending];
+}
+
+/// The transcript came back and is WAITING FOR THE WORKER'S CONFIRMATION
+/// (Persona sheet, worked conversation #05: "the transcript is shown for
+/// confirmation, never guessed at").
+///
+/// Nothing has been sent to the chat session in this state — the recogniser's
+/// output is not yet the worker's answer of record. Three ways out:
+/// [VoiceNoteCubit.confirm] (send it), [VoiceNoteCubit.edit] (fix the words
+/// first), [VoiceNoteCubit.reRecord] (throw it away and speak again).
+///
+/// The mic is ALREADY RELEASED by the time this is emitted — the repository
+/// stops the recorder on the first line of `stopAndTranscribe`.
+class VoiceNoteTranscriptReady extends VoiceNoteState {
+  const VoiceNoteTranscriptReady(this.transcript);
+
+  /// What the worker is being shown and asked to approve. Worker-authored
+  /// content — held transiently to display, never logged or persisted.
+  final String transcript;
+
+  @override
+  List<Object?> get props => <Object?>[transcript];
 }
 
 /// Pipeline done: the screen pops back to chat with [outcome].
@@ -60,7 +101,13 @@ class VoiceNoteError extends VoiceNoteState {
 // ---------------- Cubit ----------------
 
 /// Drives the voice-note capture screen: idle → recording (1s ticks, HARD stop
-/// at [maxSeconds]) → processing → success | error.
+/// at [maxSeconds]) → processing → **transcriptReady (confirm turn)** →
+/// processing(sending) → success | error.
+///
+/// The confirm turn is not optional and not skippable: the ONLY call that
+/// reaches the chat session is [confirm], and it can only be made from
+/// [VoiceNoteTranscriptReady]. The hard-cap auto-stop lands there too — running
+/// out of time must never auto-publish words the worker has not seen.
 ///
 /// [tick] and [maxSeconds] are test seams; production uses the defaults (1s /
 /// 120s — the API contract's duration cap, doubly enforced by the recorder's
@@ -129,28 +176,77 @@ class VoiceNoteCubit extends Cubit<VoiceNoteState> {
     }
     final int next = current.elapsedSeconds + 1;
     if (next >= maxSeconds) {
-      // Hard cap: show the full counter, then auto-stop & send. The recorder
-      // has its own 120s auto-stop, so the clip itself can never run longer.
+      // Hard cap: show the full counter, then auto-stop and TRANSCRIBE. The
+      // recorder has its own 120s auto-stop, so the clip itself can never run
+      // longer. It deliberately does NOT auto-send: hitting the time limit is
+      // not consent, so this lands on the confirm turn like every other stop.
       emit(VoiceNoteRecording(maxSeconds));
-      unawaited(stopAndSend());
+      unawaited(stopAndTranscribe());
     } else {
       emit(VoiceNoteRecording(next));
     }
   }
 
-  /// Stops the mic and runs the full pipeline (upload → transcribe → merge).
-  Future<void> stopAndSend() async {
+  /// Stops the mic and resolves the transcript (upload → transcribe). Lands on
+  /// [VoiceNoteTranscriptReady] — NOT on success, and nothing has been sent.
+  ///
+  /// A blank transcript is treated as a failure rather than shown: there is
+  /// nothing for the worker to confirm, and an empty chat message would read to
+  /// the engine as a non-answer.
+  Future<void> stopAndTranscribe() async {
     if (state is! VoiceNoteRecording) return;
     _stopTicker();
     emit(const VoiceNoteProcessing());
     try {
-      final VoiceNoteOutcome outcome = await _repo.stopRecordingAndTranscribe();
+      final String transcript = await _repo.stopAndTranscribe();
+      if (isClosed) return;
+      if (transcript.trim().isEmpty) {
+        emit(const VoiceNoteError(VoiceUnavailableFailure(kVoiceEmptyTranscript)));
+        return;
+      }
+      emit(VoiceNoteTranscriptReady(transcript.trim()));
+    } on Failure catch (failure) {
+      if (!isClosed) emit(VoiceNoteError(failure));
+    } catch (error) {
+      if (!isClosed) emit(VoiceNoteError(mapError(error)));
+    }
+  }
+
+  /// The worker answered "Haan" — send the transcript they approved.
+  ///
+  /// Reads the text off the CURRENT [VoiceNoteTranscriptReady], so an [edit]
+  /// applied first is what actually goes to the server.
+  Future<void> confirm() async {
+    final VoiceNoteState current = state;
+    if (current is! VoiceNoteTranscriptReady) return;
+    final String text = current.transcript.trim();
+    if (text.isEmpty) return;
+    emit(const VoiceNoteProcessing(sending: true));
+    try {
+      final VoiceNoteOutcome outcome = await _repo.sendConfirmedTranscript(text);
       if (!isClosed) emit(VoiceNoteSuccess(outcome));
     } on Failure catch (failure) {
       if (!isClosed) emit(VoiceNoteError(failure));
     } catch (error) {
       if (!isClosed) emit(VoiceNoteError(mapError(error)));
     }
+  }
+
+  /// The worker chose to fix the words before sending. Stays on the confirm
+  /// turn with the corrected [newText]; a blank edit is ignored rather than
+  /// leaving them with an unsendable empty bubble.
+  void edit(String newText) {
+    if (state is! VoiceNoteTranscriptReady) return;
+    final String trimmed = newText.trim();
+    if (trimmed.isEmpty) return;
+    emit(VoiceNoteTranscriptReady(trimmed));
+  }
+
+  /// The worker chose to say it again. Discards the transcript — it was never
+  /// sent, so there is nothing server-side to undo — and returns to idle.
+  void reRecord() {
+    if (state is! VoiceNoteTranscriptReady) return;
+    emit(const VoiceNoteIdle());
   }
 
   /// Discards the in-progress recording (best-effort) and returns to idle.

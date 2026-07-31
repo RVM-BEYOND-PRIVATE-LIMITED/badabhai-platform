@@ -11,9 +11,11 @@ import 'package:badabhai_worker_app/features/voice/presentation/cubit/voice_note
 
 class MockVoiceNoteRepository extends Mock implements VoiceNoteRepository {}
 
+const String _transcript = 'CNC par 4 saal ka anubhav.';
+
 const VoiceNoteOutcome _outcome = VoiceNoteOutcome(
-  transcript: 'CNC par 4 saal ka anubhav.',
-  reply: 'Badhiya! Kaunsa control chalate ho?',
+  transcript: _transcript,
+  reply: 'Theek hai. Kaunsa control chalate hain?',
 );
 
 void main() {
@@ -24,8 +26,12 @@ void main() {
     when(() => repo.ensureMicPermission()).thenAnswer((_) async => true);
     when(() => repo.startRecording()).thenAnswer((_) async {});
     when(() => repo.cancelRecording()).thenAnswer((_) async {});
-    when(() => repo.stopRecordingAndTranscribe())
-        .thenAnswer((_) async => _outcome);
+    when(() => repo.stopAndTranscribe()).thenAnswer((_) async => _transcript);
+    when(() => repo.sendConfirmedTranscript(any()))
+        .thenAnswer((Invocation i) async => VoiceNoteOutcome(
+              transcript: i.positionalArguments.first as String,
+              reply: _outcome.reply,
+            ));
   });
 
   blocTest<VoiceNoteCubit, VoiceNoteState>(
@@ -67,27 +73,117 @@ void main() {
             greaterThanOrEqualTo(2)),
   );
 
+  // ---- The confirm turn (Persona sheet, worked conversation #05) ----------
+  // "The transcript is shown for confirmation, never guessed at." The pipeline
+  // must STOP at TranscriptReady, and only an explicit confirm() may send.
+
   blocTest<VoiceNoteCubit, VoiceNoteState>(
-    'stopAndSend: Recording → Processing → Success(outcome)',
+    'stopAndTranscribe: Recording → Processing → TranscriptReady — and NOTHING '
+    'is sent',
     build: () => VoiceNoteCubit(repo),
     seed: () => const VoiceNoteRecording(5),
-    act: (VoiceNoteCubit c) => c.stopAndSend(),
+    act: (VoiceNoteCubit c) => c.stopAndTranscribe(),
     expect: () => const <VoiceNoteState>[
       VoiceNoteProcessing(),
-      VoiceNoteSuccess(_outcome),
+      VoiceNoteTranscriptReady(_transcript),
     ],
-    verify: (_) => verify(() => repo.stopRecordingAndTranscribe()).called(1),
+    verify: (_) {
+      verify(() => repo.stopAndTranscribe()).called(1);
+      verifyNever(() => repo.sendConfirmedTranscript(any()));
+    },
   );
 
   blocTest<VoiceNoteCubit, VoiceNoteState>(
-    'stopAndSend failure surfaces the honest Failure (e.g. 503 → unavailable)',
+    'confirm ("Haan"): TranscriptReady → Processing(sending) → Success',
+    build: () => VoiceNoteCubit(repo),
+    seed: () => const VoiceNoteTranscriptReady(_transcript),
+    act: (VoiceNoteCubit c) => c.confirm(),
+    expect: () => const <VoiceNoteState>[
+      VoiceNoteProcessing(sending: true),
+      VoiceNoteSuccess(_outcome),
+    ],
+    verify: (_) =>
+        verify(() => repo.sendConfirmedTranscript(_transcript)).called(1),
+  );
+
+  blocTest<VoiceNoteCubit, VoiceNoteState>(
+    'edit then confirm sends the CORRECTED text, never the recogniser output',
+    build: () => VoiceNoteCubit(repo),
+    seed: () => const VoiceNoteTranscriptReady(_transcript),
+    act: (VoiceNoteCubit c) async {
+      c.edit('VMC operator, 4 saal.');
+      await c.confirm();
+    },
+    expect: () => const <VoiceNoteState>[
+      VoiceNoteTranscriptReady('VMC operator, 4 saal.'),
+      VoiceNoteProcessing(sending: true),
+      VoiceNoteSuccess(VoiceNoteOutcome(
+        transcript: 'VMC operator, 4 saal.',
+        reply: 'Theek hai. Kaunsa control chalate hain?',
+      )),
+    ],
+    verify: (_) {
+      verify(() => repo.sendConfirmedTranscript('VMC operator, 4 saal.'))
+          .called(1);
+      verifyNever(() => repo.sendConfirmedTranscript(_transcript));
+    },
+  );
+
+  blocTest<VoiceNoteCubit, VoiceNoteState>(
+    'a blank edit is ignored — the worker is never left with nothing to send',
+    build: () => VoiceNoteCubit(repo),
+    seed: () => const VoiceNoteTranscriptReady(_transcript),
+    act: (VoiceNoteCubit c) => c.edit('   '),
+    expect: () => const <VoiceNoteState>[],
+  );
+
+  blocTest<VoiceNoteCubit, VoiceNoteState>(
+    'reRecord ("Sudhaarna hai" → dobara bolein) returns to idle and sends '
+    'nothing',
+    build: () => VoiceNoteCubit(repo),
+    seed: () => const VoiceNoteTranscriptReady(_transcript),
+    act: (VoiceNoteCubit c) => c.reRecord(),
+    expect: () => const <VoiceNoteState>[VoiceNoteIdle()],
+    verify: (_) => verifyNever(() => repo.sendConfirmedTranscript(any())),
+  );
+
+  blocTest<VoiceNoteCubit, VoiceNoteState>(
+    'confirm / edit / reRecord are no-ops outside the confirm turn',
+    build: () => VoiceNoteCubit(repo),
+    seed: () => const VoiceNoteRecording(3),
+    act: (VoiceNoteCubit c) async {
+      await c.confirm();
+      c.edit('kuch bhi');
+      c.reRecord();
+    },
+    expect: () => const <VoiceNoteState>[],
+    verify: (_) => verifyNever(() => repo.sendConfirmedTranscript(any())),
+  );
+
+  blocTest<VoiceNoteCubit, VoiceNoteState>(
+    'a blank transcript never becomes a confirm bubble — honest error instead',
     build: () {
-      when(() => repo.stopRecordingAndTranscribe())
+      when(() => repo.stopAndTranscribe()).thenAnswer((_) async => '   ');
+      return VoiceNoteCubit(repo);
+    },
+    seed: () => const VoiceNoteRecording(5),
+    act: (VoiceNoteCubit c) => c.stopAndTranscribe(),
+    expect: () => const <VoiceNoteState>[
+      VoiceNoteProcessing(),
+      VoiceNoteError(VoiceUnavailableFailure(kVoiceEmptyTranscript)),
+    ],
+  );
+
+  blocTest<VoiceNoteCubit, VoiceNoteState>(
+    'stopAndTranscribe failure surfaces the honest Failure (e.g. 503 → '
+    'unavailable)',
+    build: () {
+      when(() => repo.stopAndTranscribe())
           .thenThrow(const VoiceUnavailableFailure());
       return VoiceNoteCubit(repo);
     },
     seed: () => const VoiceNoteRecording(5),
-    act: (VoiceNoteCubit c) => c.stopAndSend(),
+    act: (VoiceNoteCubit c) => c.stopAndTranscribe(),
     expect: () => const <VoiceNoteState>[
       VoiceNoteProcessing(),
       VoiceNoteError(VoiceUnavailableFailure()),
@@ -95,16 +191,32 @@ void main() {
   );
 
   blocTest<VoiceNoteCubit, VoiceNoteState>(
-    'stopAndSend is a no-op when not recording',
-    build: () => VoiceNoteCubit(repo),
-    act: (VoiceNoteCubit c) => c.stopAndSend(),
-    expect: () => const <VoiceNoteState>[],
-    verify: (_) => verifyNever(() => repo.stopRecordingAndTranscribe()),
+    'a failed confirm-send surfaces the Failure (the answer is not silently '
+    'lost)',
+    build: () {
+      when(() => repo.sendConfirmedTranscript(any()))
+          .thenThrow(const NetworkFailure());
+      return VoiceNoteCubit(repo);
+    },
+    seed: () => const VoiceNoteTranscriptReady(_transcript),
+    act: (VoiceNoteCubit c) => c.confirm(),
+    expect: () => const <VoiceNoteState>[
+      VoiceNoteProcessing(sending: true),
+      VoiceNoteError(NetworkFailure()),
+    ],
   );
 
   blocTest<VoiceNoteCubit, VoiceNoteState>(
-    'hits the hard cap → auto stop-and-send (Recording(max) → Processing → '
-    'Success)',
+    'stopAndTranscribe is a no-op when not recording',
+    build: () => VoiceNoteCubit(repo),
+    act: (VoiceNoteCubit c) => c.stopAndTranscribe(),
+    expect: () => const <VoiceNoteState>[],
+    verify: (_) => verifyNever(() => repo.stopAndTranscribe()),
+  );
+
+  blocTest<VoiceNoteCubit, VoiceNoteState>(
+    'REGRESSION: the hard cap lands on the CONFIRM turn, it does NOT auto-send '
+    '— running out of time is not consent',
     build: () => VoiceNoteCubit(
       repo,
       tick: const Duration(milliseconds: 5),
@@ -117,9 +229,12 @@ void main() {
       VoiceNoteRecording(1),
       VoiceNoteRecording(2),
       VoiceNoteProcessing(),
-      VoiceNoteSuccess(_outcome),
+      VoiceNoteTranscriptReady(_transcript),
     ],
-    verify: (_) => verify(() => repo.stopRecordingAndTranscribe()).called(1),
+    verify: (_) {
+      verify(() => repo.stopAndTranscribe()).called(1);
+      verifyNever(() => repo.sendConfirmedTranscript(any()));
+    },
   );
 
   blocTest<VoiceNoteCubit, VoiceNoteState>(
