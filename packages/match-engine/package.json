@@ -1,0 +1,27 @@
+{
+  "name": "@badabhai/match-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Matching V1 (CEO-ratified 2026-07-30) — the PURE match core: skill derivation, reach set, tenure, and the single lexicographic rank comparator. No weights, no scores, no model, no clock, no I/O.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@badabhai/taxonomy": "workspace:*",
+    "zod": "^3.24.1"
+  }
+}
