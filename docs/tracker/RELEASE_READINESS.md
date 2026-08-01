@@ -20,7 +20,7 @@ Release Readiness %: **25%** — **NOT re-scored on 2026-08-01.** This pass corr
 | Host deployed | persistent API up | ✅ | **manual deploy 2026-07-18**, outside `staging-cd.yml` (owner-confirmed 2026-08-01). D1 closed by the deploy; the pipeline gap is TD123 |
 | `staging` GitHub Environment + secrets | all present | ❌ | still not created — the manual deploy bypassed it, so `staging-cd.yml` would still no-op. **TD123** |
 | `/health` 200 (DB+Redis up) | yes | ⚠️ | attested live per [PROJECT_STATUS](PROJECT_STATUS.md); **no captured artifact** (`docs/qa/evidence/staging/` empty) |
-| Migrations applied to staging DB | through `0043` | ⚠️ | `0042`+`0043` applied 2026-07-18. **The Matching V1 train (`0052`–`0057`) is authored, NOT applied** — Divyanshu runs it per the ordered runbook (owner ruling: agents never run migrations) |
+| Migrations applied to staging DB | through `0043` | ⚠️ | `0042`+`0043` applied 2026-07-18. **The Matching V1 train (`0052`–`0059`) is authored, NOT applied** — Divyanshu runs it per the ordered runbook (owner ruling: agents never run migrations) |
 | Real OTP activation (OTP-7) | capped, synthetic | ✅ | real OTP via Fast2SMS live per [PROJECT_STATUS](PROJECT_STATUS.md) (D2 closed) |
 | Smoke test green | `pnpm staging:smoke` | ❌ | no evidence it has been run against the deployed host — unchanged by the deploy correction |
 | Branch green (lint/typecheck/test/build) | yes | ✅ | `ci-required` pass on `f28279f` (#526 merge, 2026-08-01). The ADMIN-3b lint/typecheck red noted here was stale |
