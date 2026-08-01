@@ -120,24 +120,20 @@ export function printFooter(scriptName: string, opts: CommonCliOptions, planned:
   );
 }
 
-/**
- * Round a value ALREADY IN MONTHS down to a bucket boundary (the V1 `month_bucket`
- * rule). Never negative.
+/*
+ * `bucketMonthValue` USED TO LIVE HERE and was deleted with TD120 (2026-08-01).
  *
- * NAMED TO MATCH `@badabhai/match-engine`'s `bucketMonthValue`, deliberately. This was
- * called `bucketMonths` — the name the engine gives its *years*-taking function, which
- * multiplies by 12 first. Two same-named functions with different units, both reachable
- * from `packages/db`, meant one careless auto-import would have silently multiplied the
- * D2 backfill's months by 12 and produced a whole population ranked on fabricated
- * tenure. Same name now means the same units everywhere.
+ * It was a second implementation of `@badabhai/match-engine`'s function of the same name,
+ * kept because `packages/db` did not depend on the engine. It does now, so the copy had no
+ * remaining caller and no reason to exist: import `bucketMonths` (takes YEARS) or
+ * `bucketMonthValue` (takes MONTHS) from `@badabhai/match-engine` instead.
+ *
+ * The unit-collision hazard its old docstring warned about is now structurally gone rather
+ * than managed by naming discipline: there is exactly one `bucketMonths` and one
+ * `bucketMonthValue` reachable from this package, and they are the engine's. A careless
+ * auto-import can no longer pick a same-named function with different units and silently
+ * multiply the D2 backfill's months by 12.
  */
-export function bucketMonthValue(months: number, bucket: number): number {
-  if (!Number.isFinite(months) || months <= 0) return 0;
-  if (!Number.isInteger(bucket) || bucket < 1) {
-    throw new Error(`bucketMonthValue: bucket must be a positive integer (got ${bucket})`);
-  }
-  return Math.floor(months / bucket) * bucket;
-}
 
 /** A finite number, or null. */
 export function finiteOrNull(v: unknown): number | null {

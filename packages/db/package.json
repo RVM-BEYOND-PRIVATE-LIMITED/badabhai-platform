@@ -48,6 +48,7 @@
     "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
+    "@badabhai/match-engine": "workspace:*",
     "@badabhai/reach-engine": "workspace:*",
     "@badabhai/taxonomy": "workspace:*",
     "@badabhai/types": "workspace:*",
