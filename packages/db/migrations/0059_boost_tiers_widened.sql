@@ -1,5 +1,11 @@
 -- Matching V1 — boost tier widening (ADR-0036 §7).
 --
+-- NUMBERING: this file is an ADDENDUM, deliberately outside the "step N of 7" numbering
+-- the 0052–0058 files carry in their first lines. It landed after that train, so 0058
+-- still reads "step 7 of 7" while the runbook counts EIGHT migrations. Nothing is
+-- missing; do not go looking for a lost step. See the note at the top of §1 of
+-- docs/ops/matching-v1-migration-runbook.md.
+--
 -- EXPAND-ONLY, and the only DB change the Matching V1 API wiring needs beyond the
 -- 0052–0058 train. Boost is repriced to boost_7 ₹499 / boost_15 ₹999 / boost_30 ₹1799
 -- (packages/pricing/src/defaults.ts), so `posting_boosts.tier` must be able to hold the

@@ -28,6 +28,7 @@ re-run** or **one-way**.
 | 0.6 | No deploy in flight | — | The API is **not** mid-deploy. Migrations land first, code second (§0.7). |
 | 0.7 | **Deploy order understood** | — | **Apply 0052–0059 BEFORE deploying the Matching V1 API.** Every new column is nullable/defaulted, so the *current* API keeps working against the migrated DB — but the *new* API will not work against an unmigrated one, and a boost purchase 500s without 0059. |
 | 0.8 | Maintenance window | — | Not required at current volume (see the durations below), but do it in a low-traffic hour anyway: steps 0052/0054/0056 take brief `ACCESS EXCLUSIVE` locks. |
+| 0.9 | **Baseline row counts captured** | `psql "$DATABASE_URL" -c "select count(*) as legacy_apps from applications where job_id is not null;"` — **write the number down** next to the 0.1 timestamp. | A number you have recorded. [D4](#d4--cutover-convert-legacy-jobs--job_postings) compares against it; without it D4's `legacy_apps_intact` check has nothing to compare to and cannot be evaluated. |
 
 ### STOP if any of these is true
 
@@ -60,16 +61,36 @@ split to use instead.
 
 ## 1. The migrations (0052 → 0059)
 
+> **Eight steps here, but the file headers say "step N of 7" — both are right.** The
+> original train was 0052–0058, and each of those files self-describes as *"step N of 7"* in
+> its first line. **0059 landed later** (commit `324e0c7`) as the one further DB change the
+> API wiring needed, and carries no step number of its own. So `0058` reads *"step 7 of 7"*
+> while this runbook and [§5](#5-order-of-operations-at-a-glance) count it as step 7 of
+> **eight**. Nothing is missing and nothing is out of order — **0059 is an addendum outside
+> the original numbering**, and it is required. Cross-check the file headers against §5 with
+> that in mind rather than hunting for a missing step mid-rehearsal.
+
 ### 1.1 Confirm the current head
 
 ```bash
-psql "$DATABASE_URL" -c "select count(*) as applied from drizzle.__drizzle_migrations;"
+psql "$DATABASE_URL" -c "select id, created_at from drizzle.__drizzle_migrations order by created_at desc limit 1;"
 ```
+
+**Expected: `created_at = 1785312915314`**, which is `0051_mighty_jigsaw` — the head this
+train starts from (map the value with the table in [§1.2](#12-how-to-apply--pick-one-path-and-stick-to-it),
+which now carries 0051 for exactly this lookup).
 
 Drizzle records applied migrations in `drizzle.__drizzle_migrations(id, hash, created_at)`,
 where `hash = sha256(<the migration file's exact bytes>)` and `created_at` is the `when`
-value from `packages/db/migrations/meta/_journal.json`. **Expected before you start: 52
-rows** (0000 … 0051).
+value from `packages/db/migrations/meta/_journal.json`. There is **no `tag` column**, so the
+`created_at` value *is* the identifier — hence the mapping table.
+
+> **Why not `count(*)`?** A count cannot tell you the head. "52 rows" is equally consistent
+> with a correct `0000 … 0051` chain and with a chain that skipped one migration and applied
+> an unrelated extra — which then fails mid-train on a missing dependency, at whichever step
+> first references the object that was never created. Check the head, not the total.
+> As a secondary sanity check the count should also be 52:
+> `select count(*) as applied from drizzle.__drizzle_migrations;`
 
 ### 1.2 How to apply — pick ONE path and stick to it
 
@@ -103,6 +124,7 @@ psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f migrations/0052_match_vocabulary.sql
 >
 > | migration | `created_at` |
 > |---|---|
+> | `0051_mighty_jigsaw` *(not applied by this train — the expected §1.1 head)* | `1785312915314` |
 > | `0052_match_vocabulary` | `1785484721110` |
 > | `0053_worker_skills_and_tenure` | `1785484805203` |
 > | `0054_job_postings_served_entity` | `1785484889292` |
@@ -196,11 +218,48 @@ WHERE contype='f' AND confrelid='public.workers'::regclass
 **Expected:** 2 rows, `confdeltype = 'c'` (CASCADE) on both.
 
 **Re-run:** not idempotent (`CREATE TABLE`). Apply once.
-**Rollback:** fully reversible; the data is 100 % re-derivable by re-running D2 —
+
+**Rollback: CONDITIONAL — check before you drop.** `worker_skill.source` admits
+`derived_coarse | interview | ops` (the `worker_skill_source_chk` CHECK in `0053_worker_skills_and_tenure.sql`),
+and **D2 owns and can rebuild only `derived_coarse`** — it scopes its upsert and its prune
+with `setWhere source = 'derived_coarse'` precisely so it can never overwrite a row a human
+authored. So `DROP TABLE "worker_skill"` is re-derivable *only* while every row is
+`derived_coarse`. Check first:
+
 ```sql
-DROP TABLE "worker_skill";
-DROP TABLE "worker_industry_tenure";
+SELECT count(*) AS must_be_zero FROM worker_skill WHERE source <> 'derived_coarse';
 ```
+
+- **`= 0` (the situation today) → fully reversible.** Every row is D2 output and D2 rebuilds
+  it exactly. Drop freely:
+  ```sql
+  DROP TABLE "worker_skill";
+  DROP TABLE "worker_industry_tenure";
+  ```
+- **`> 0` → the unscoped `DROP TABLE` DESTROYS DATA NOTHING CAN REBUILD.** Interview- and
+  ops-authored rows are the worker's own answers and an ops correction; no script
+  regenerates them. Do **not** drop. If you must undo D2's contribution while keeping the
+  table, delete only what D2 owns — this is the scoped-safe form:
+  ```sql
+  DELETE FROM worker_skill WHERE source = 'derived_coarse';
+  TRUNCATE worker_industry_tenure;   -- fully derived, no human-authored rows, D2 rebuilds it
+  ```
+  That leaves the 0053 DDL in place. **Reversing the DDL itself is not available at that
+  point** without exporting the non-`derived_coarse` rows first (`\copy (SELECT * FROM
+  worker_skill WHERE source <> 'derived_coarse') TO 'worker_skill_human.csv' CSV HEADER`)
+  and accepting that restoring them later is a hand-written job, not a re-run of D2.
+
+> **Why this is `0` today, and what changes it.** Nothing in the shipped code writes
+> `interview` or `ops`: the only intended writer, `WorkerSkillsService.setWants`
+> ([`worker-skills.service.ts:142`](../../apps/api/src/match/worker-skills.service.ts)), is
+> an unwired seam that **throws** — the wants-toggle endpoint is deliberately out of scope
+> for the ADR-0036 wiring change. The moment that endpoint ships, this rollback stops being
+> free, and the check above becomes load-bearing rather than a formality. See
+> [§7](#7-the-one-way-doors) item 5.
+
+`worker_industry_tenure` has no `source` column and is 100 % derived, so it is rebuildable
+unconditionally by re-running D2.
+
 **Duration:** < 1 s (no lock on any live table).
 
 ---
@@ -427,8 +486,32 @@ SELECT pg_get_constraintdef(oid) AS tier_check
 FROM pg_constraint WHERE conname = 'posting_boosts_tier_chk';
 ```
 
-**Expected:** the definition lists all four codes —
-`CHECK ((tier IN ('all_candidates','boost_7','boost_15','boost_30')))`.
+**Expected — read this carefully, the obvious expectation is WRONG.** The migration is
+written as `CHECK ("tier" IN (...))`, but Postgres does **not** store or echo it that way.
+`tier` is `text`, so the parser rewrites the `IN` list into a `ScalarArrayOpExpr` and
+`pg_get_constraintdef` deparses it as `= ANY (ARRAY[...])`, with each element explicitly
+cast. The literal string you will get back is:
+
+```
+CHECK ((tier = ANY (ARRAY['all_candidates'::text, 'boost_7'::text, 'boost_15'::text, 'boost_30'::text])))
+```
+
+There is no deparse path in Postgres that re-emits `IN`, so **a correctly-applied 0059
+never prints `IN (...)`** — if you are matching on that, you will reject a migration that
+worked. Do not eyeball the punctuation either; assert on content instead:
+
+```sql
+SELECT
+  pg_get_constraintdef(oid) LIKE '%all_candidates%'
+  AND pg_get_constraintdef(oid) LIKE '%boost_7%'
+  AND pg_get_constraintdef(oid) LIKE '%boost_15%'
+  AND pg_get_constraintdef(oid) LIKE '%boost_30%'  AS all_four_codes_present
+FROM pg_constraint WHERE conname = 'posting_boosts_tier_chk';
+```
+
+**Expected:** exactly one row, `all_four_codes_present = t`. This is also asserted
+automatically by `db:verify:match-v1` (§4, check `I.boost_tier_chk`), so 0059 is no longer
+the one step whose verification exists only as an eyeball comparison in this document.
 
 **Re-run:** not idempotent (plain `DROP`/`ADD CONSTRAINT`). Apply once.
 **Rollback:** reversible **only while no row uses a new tier** — first confirm
@@ -623,9 +706,73 @@ silent failure.
 
 **Safe to re-run:** ✅ yes. It only touches postings that are still empty (guarded by an
 optimistic `jsonb_array_length(...) = 0` in the `WHERE`, so a concurrent ops edit wins).
-**Rollback:** `UPDATE job_postings SET published_at = NULL WHERE ...;` and
-`UPDATE job_postings SET match_skill_ids='[]', reach_skill_ids='[]' WHERE ...;` — scope
-carefully, this also clears human edits if you are not selective.
+
+**Rollback: LOSSY — it discards human work, and no re-run brings that back.** D3 only
+*proposes*; everything it could not resolve went to the ops worklist for a person to fill in
+by hand. Those hand-resolved `match_skill_ids` are **not** D3 output and re-running D3 will
+not recreate them (its `WHERE` skips any posting that is already non-empty — the same guard
+that makes it safe to re-run is what makes it unable to restore). Rolling back therefore
+costs the ops hours, permanently, even though the mechanical half is reproducible.
+
+Before rolling back, find out what you would be destroying:
+
+```sql
+-- Postings whose match skills exist but did NOT come from a conversion — i.e. D3's
+-- proposals plus every human resolution, which are indistinguishable at the row level.
+SELECT count(*) AS at_risk FROM job_postings
+ WHERE jsonb_array_length(match_skill_ids) > 0 AND source_job_id IS NULL;
+```
+
+If you still must roll back, **scope it to the run window and exclude anything edited
+since**, rather than clearing the column wholesale. D3 stamps `updated_at` on every row it
+writes, which is what makes a time discriminator work at all:
+
+```sql
+UPDATE job_postings SET published_at = NULL
+ WHERE published_at IS NOT NULL AND updated_at <= '<T_after_D3>' AND ...;
+UPDATE job_postings SET match_skill_ids = '[]', reach_skill_ids = '[]'
+ WHERE updated_at <= '<T_after_D3>' AND ...;    -- anything touched later is human work
+```
+
+> ⚠️ **`<T_after_D3>` is the wall-clock time taken immediately AFTER the `--apply` run
+> finished — not when you started it.** Record it the moment the script exits, the same way
+> you recorded 0.1 and 0.9. A start-of-run timestamp risks excluding D3's own rows and the
+> rollback then silently matches nothing.
+>
+> **There is a sharper discriminator, and it is available because of how D3 actually
+> stamps.** D3 does **not** call `now()` per row: it captures ONE JavaScript timestamp
+> before any write (`const now = new Date()`,
+> [`backfill-job-postings-v1.ts:92`](../../packages/db/src/backfill-job-postings-v1.ts))
+> and binds that identical value to every row it touches (`:107`, `:159`). So **every row
+> D3 wrote shares a single, identical `updated_at`** — read it once and match it exactly:
+>
+> ```sql
+> -- the candidate stamps, largest groups first
+> SELECT updated_at, count(*) FROM job_postings
+>  WHERE published_at IS NOT NULL GROUP BY updated_at ORDER BY 2 DESC LIMIT 5;
+> ```
+>
+> ⚠️ **Two of those groups will look alike, and picking the wrong one is destructive.**
+> [D4](#d4--cutover-convert-legacy-jobs--job_postings) stamps the same way — one shared
+> `now` across every posting it *inserts* — and it runs **after** D3, so a bare
+> `published_at IS NOT NULL` returns both D3's edited rows and D4's converted catalogue.
+> Un-publishing D4's group takes the entire converted catalogue dark. **Discriminate on
+> provenance, not on the timestamp alone:** D4's rows are exactly the ones carrying
+> `source_job_id`, and D3 never touches those.
+>
+> ```sql
+> -- D3's rows ONLY: converted postings (D4's) are excluded by source_job_id.
+> UPDATE job_postings SET published_at = NULL
+>  WHERE updated_at = '<that exact stamp>' AND source_job_id IS NULL;
+> ```
+>
+> Exact equality is strictly better than `<= T_after_D3`, which also sweeps in **any ops
+> edit made before or during the run** — rows D3 never touched. Use `<=` only if the stamp
+> was not captured, and keep the `source_job_id IS NULL` guard either way.
+
+The unqualified form (`SET match_skill_ids='[]'` with no time bound) is the one that
+silently deletes the worklist resolutions. See [§7](#7-the-one-way-doors) item 6.
+
 **Duration:** seconds to a minute.
 
 ---
@@ -666,6 +813,20 @@ A re-run conflicts and does nothing.
 **Existing `applications` rows are NOT repointed.** They keep pointing at the now-closed
 `jobs` rows, forever.
 
+> **Capture the baseline first if you have not already.** D4's `legacy_apps_intact` check is
+> a *comparison*, and there is nothing to compare against unless the number was recorded.
+> [Pre-flight 0.9](#0-pre-flight--do-not-skip) captures it; if you skipped that, run it now,
+> **before** `--apply`:
+>
+> ```sql
+> SELECT count(*) AS legacy_apps_baseline FROM applications WHERE job_id IS NOT NULL;
+> ```
+>
+> Write the number down. (This runbook keeps cross-step state the same way it keeps the 0.1
+> restore-point timestamp and the 0056 rollback window — on paper, held by the operator.
+> There is deliberately no scratch table: persisting it in the database would be a schema
+> change, i.e. another migration, for a value that lives for one maintenance window.)
+
 **Verify**
 
 ```sql
@@ -676,13 +837,22 @@ SELECT
    WHERE j.status <> 'closed')                                                   AS converted_but_open,
   (SELECT count(*) FROM job_postings WHERE source_job_id IS NOT NULL
      AND jsonb_array_length(match_skill_ids) = 0)                                AS converted_no_match,
-  (SELECT count(*) FROM applications WHERE job_id IS NOT NULL)                   AS legacy_apps_intact;
+  (SELECT count(*) FROM applications WHERE job_id IS NOT NULL)                   AS legacy_apps_intact,
+  (SELECT count(*) FROM applications
+     WHERE job_id IS NOT NULL AND job_posting_id IS NOT NULL)                    AS repointed_rows;
 ```
 
 **Expected:** `jobs_still_open = 0`; `converted` = the number of jobs that were open;
 `converted_but_open = 0`; `converted_no_match = 0` (if not, a `trade_key` has no bridge —
-the script names them; fix the taxonomy and re-run); `legacy_apps_intact` = unchanged from
-before D4.
+the script names them; fix the taxonomy and re-run); **`legacy_apps_intact` = the
+`legacy_apps_baseline` you wrote down in pre-flight 0.9 — byte for byte, not "about the
+same"**; `repointed_rows = 0`.
+
+`repointed_rows` is the same guarantee stated without bookkeeping: D4 must never attach a
+`job_posting_id` to a row that already had a `job_id` ("coexist, never repoint"). It needs
+no baseline, so it still works if the pre-flight capture was missed — but it is a weaker
+check than the count comparison, because it catches repointing while a deletion would slip
+past it. Run both.
 
 **Safe to re-run:** ✅ yes — a second run is a no-op.
 **Rollback (data-level undo — do this BEFORE rolling back 0054):**
@@ -770,16 +940,47 @@ SELECT
   (SELECT count(*) FROM credit_ledger WHERE idempotency_key LIKE 'free_tier_grant:%') AS grants,
   (SELECT count(*) FROM credit_ledger WHERE idempotency_key LIKE 'free_tier_grant:%'
      AND delta <> 50)                                                                 AS wrong_amount,
+  (SELECT COALESCE(sum(delta),0)::int FROM credit_ledger
+     WHERE idempotency_key LIKE 'free_tier_grant:%')                                  AS granted_total,
+  (SELECT count(*) * 50 FROM payers)                                                  AS granted_total_expected,
+  (SELECT count(*) FROM payers p WHERE NOT EXISTS (
+      SELECT 1 FROM credit_ledger cl
+       WHERE cl.idempotency_key = 'free_tier_grant:'||p.id))                          AS payers_without_grant,
   (SELECT count(*) FROM payer_credits pc
    WHERE pc.balance <> COALESCE((SELECT sum(cl.delta)::int FROM credit_ledger cl
                                  WHERE cl.payer_id = pc.payer_id), 0))                AS balance_divergence;
 ```
 
 **Expected:** `grants = payers` (one per payer, no more); `wrong_amount = 0`;
-`balance_divergence = 0`.
+**`granted_total = granted_total_expected`** (the total credit value actually written equals
+50 × payers — a count alone would not catch a wrong-but-uniform `delta`);
+**`payers_without_grant = 0`** (`grants = payers` can be satisfied by two grants to one payer
+and none to another; this pins it per-payer); `balance_divergence = 0` (every
+`payer_credits.balance` equals the sum of that payer's ledger, so the balance top-up and the
+ledger row agree).
+
+Substitute the real `free_unlock_credits` for `50` in both places if D1 seeded a different
+value — read it with
+`SELECT config->>'free_unlock_credits' FROM match_config WHERE is_active;`
 
 **Safe to re-run:** ✅ yes — the idempotency key guarantees no double credit.
-**Rollback:** ⚠️ **this one moves money-equivalent state.** To undo:
+
+**Rollback:** ⚠️ **CONDITIONAL, and this one moves money-equivalent state — see
+[§7](#7-the-one-way-doors) item 9** ("D6's free-tier grants, once any granted credit is
+spent"). It is reversible only while **no granted credit has
+been spent**. Once a payer has spent any of it, the subtraction below drives the balance
+below what remains and trips `payer_credits_balance_nonneg_chk`; there is no partial-undo
+that is correct, because you cannot un-sell an unlock the payer already received. Check
+first:
+
+```sql
+SELECT count(*) AS must_be_zero FROM credit_ledger
+ WHERE reason = 'unlock_debit' AND created_at > '<the D6 run time>';
+```
+
+If that is `> 0`, **do not roll D6 back** — reconcile forward instead (leave the grants in
+place and adjust the catalogue/pricing decision that motivated the undo). To undo while it
+is still `0`:
 ```sql
 BEGIN;
 UPDATE payer_credits pc SET balance = pc.balance - cl.delta
@@ -788,9 +989,6 @@ UPDATE payer_credits pc SET balance = pc.balance - cl.delta
 DELETE FROM credit_ledger WHERE idempotency_key LIKE 'free_tier_grant:%';
 COMMIT;
 ```
-Do **not** run this if any payer has already spent the granted credits — the balance would
-go negative and hit `payer_credits_balance_nonneg_chk`. Check first:
-`SELECT count(*) FROM credit_ledger WHERE reason='unlock_debit' AND created_at > '<D6 run time>';`
 **Duration:** seconds.
 
 ---
@@ -858,8 +1056,8 @@ run any time after 0057 + D1.
 |---|---|---|
 | 0052–0059 | ❌ **No** | `ADD COLUMN` / `CREATE TABLE` / `ADD CONSTRAINT` without `IF NOT EXISTS`. Apply each once; the journal is the record. |
 | D1 `seed:match:vocabulary` | ✅ Always | Row-level idempotent; self-repairing. |
-| D2 `backfill:worker-skills` | ✅ Always | Re-derives + prunes; never touches human-authored rows. |
-| D3 `backfill:job-postings` | ✅ Always | Only fills still-empty postings; a concurrent ops edit wins. |
+| D2 `backfill:worker-skills` | ✅ Always | Re-derives + prunes; never touches human-authored rows. **Re-runnable ≠ its output is the whole table:** D2 owns only `source='derived_coarse'`, so it can rebuild only those rows — see §7 item 5. |
+| D3 `backfill:job-postings` | ✅ Always | Only fills still-empty postings; a concurrent ops edit wins. **Re-running does not restore a rollback:** the same guard that makes it safe makes it skip anything already non-empty, so hand-resolved worklist entries are not recreated — see §7 item 6. |
 | D4 `convert:seed-jobs` | ✅ Always | `source_job_id` UNIQUE makes a second run a no-op. |
 | D5 `materialize:reach` | ✅ Always | A pure rebuild. Run it whenever reach looks wrong. |
 | D6 `grant:free-tier` | ✅ Always | The ledger idempotency key guarantees exactly-once. |
@@ -869,27 +1067,106 @@ run any time after 0057 + D1.
 
 ## 7. The one-way doors
 
-There are exactly **three** irreversible things in this train. Everything else is a
-rebuildable projection.
+**Most of this train is a rebuildable projection — but not "exactly three" things, and
+several of the doors are CONDITIONAL: open today, shut the moment a particular kind of row
+appears.** That distinction is the whole point of this section: a door you can still walk
+back through is worth knowing about *before* it closes, because the check that tells you
+which side you are on takes one second and the recovery does not exist.
 
-1. **`applications.job_id` losing `NOT NULL` (step 0056).** Restoring it requires
-   `count(*) WHERE job_id IS NULL = 0`. From the first V1 application onward, that is only
-   achievable by **deleting real worker applications**. Treat the constraint as gone the
-   moment the API ships.
+Each item below names the mechanism, not just the risk.
+
+**Unconditional — already shut once the API ships**
+
+1. **`applications.job_id` losing `NOT NULL` (step 0056).** The `ALTER` itself is trivially
+   reversible at the instant you apply it: every existing row still has a non-null `job_id`,
+   so `SET NOT NULL` would re-take immediately. What shuts the door is the V1 API that ships
+   *after* it — it writes applications against `job_postings`, so those rows carry
+   `job_id IS NULL`, and Postgres refuses `SET NOT NULL` while one NULL exists.
+   **And you cannot escape by backfilling `job_id` instead of deleting**, for two structural
+   reasons worth knowing before you try it at 2am: a posting created natively by a payer or
+   by ops has **no `jobs` row at all** (only D4-converted postings carry `source_job_id`), so
+   there is no legal FK value to write; and even where `source_job_id` exists, backfilling
+   pushes rows into the pre-existing `applications_worker_job_uq` unique index and collides
+   wherever a worker applied both before and after cutover. So "restoring the constraint
+   means deleting real worker applications" is literal, not rhetorical. Treat the constraint
+   as gone the moment the API ships.
 
 2. **The applications snapshot itself (step 0056).** `match_tier`, `skill_months`,
    `industry_months`, `last_worked_at`, `engine_version` are captured at decision time and
-   the inputs move afterwards. **History not captured on day one is gone permanently.**
-   This is *why* 0056 ships before the first V1 application, not after.
+   every one of their sources moves afterwards: D2 re-derives `worker_skill` from the
+   worker's *latest* profile and prunes what no longer applies, `worker_industry_tenure` is
+   rebuilt wholesale, and `job_reach` is an explicitly disposable cache that D5 deletes and
+   rewrites. **There is no table from which a missed snapshot could be reconstructed.**
+   This is *why* 0056 ships before the first V1 application, not after — and note the
+   direction of the hazard: this door opens by **delaying** 0056, not by applying it.
+   ⚠️ It also means 0056's own rollback is not free — see item 3.
 
-3. **D4's `jobs` → `closed` transition, in practice.** It is technically undoable (the SQL
-   is above), but only until a V1 application lands on a converted posting. After that,
-   undoing D4 deletes those applications.
+3. **Dropping the snapshot columns, after the API has shipped (step 0056's rollback).**
+   Structurally those `DROP COLUMN`s succeed at any time, which is exactly the trap: they
+   succeed *and* destroy the history item 2 says is irreplaceable. The guard belongs on the
+   whole rollback sequence, not just its last line — the migration header now states it that
+   way. Run `SELECT count(*) FROM applications WHERE job_id IS NULL;` **before the first
+   statement**; if it is non-zero, the rollback is a data-loss operation, not a rollback.
 
-Everything else — `worker_skill`, `worker_industry_tenure`, `job_reach`, `skill_related`,
-`match_config`, `skill.kind` / `skill.industry_id`, `job_postings.match_skill_ids` /
-`reach_skill_ids` — is fully rebuildable from the taxonomy + `worker_profiles` by re-running
-D1/D2/D3/D5.
+4. **`ON DELETE CASCADE` from `job_postings` to `applications` (created by 0056).** This is a
+   **live-operations** hazard, not only a migration-rollback one, which is why it gets its
+   own entry: deleting **any** `job_posting` — an ordinary ops "remove this posting" action,
+   long after the migration train is finished — silently deletes every V1 application
+   attached to it, and `job_reach` rows with it (0055 carries the same cascade). There is no
+   confirmation prompt and no event; the rows are simply gone. **Close a posting
+   (`status='closed'`), never delete it.** Before any `DELETE FROM job_postings`, run:
+   `SELECT count(*) FROM applications WHERE job_posting_id = '<id>';`
+
+**Conditional — open now, shut when the named row appears**
+
+5. **`worker_skill` is only rebuildable for the rows D2 owns (step 0053).** D2 owns
+   `source='derived_coarse'` and scopes both its upsert and its prune to it, precisely so it
+   can never overwrite a human-authored row. `interview` and `ops` rows are therefore
+   **not** rebuildable by any script, and the documented `DROP TABLE "worker_skill"` rollback
+   destroys them. **Today the count is zero** — nothing writes those values yet; the only
+   intended writer, `WorkerSkillsService.setWants`, is an unwired seam that throws — so the
+   rollback is currently free. It stops being free the day the wants-toggle endpoint ships.
+   Check: `SELECT count(*) FROM worker_skill WHERE source <> 'derived_coarse';`
+   (`worker_industry_tenure` has no `source` and is unconditionally rebuildable.)
+
+6. **D3's human-resolved match skills are lossy on rollback.** D3 *proposes*; everything it
+   could not resolve went to an ops worklist for a person to fill in by hand. Re-running D3
+   does **not** restore those — its `WHERE` skips any posting that is already non-empty, so
+   the very guard that makes it safe to re-run makes it unable to repair. This is a different
+   category from items 1–5: nothing referenced is destroyed, no constraint is lost, the data
+   is *reproducible in principle* — but only by a human doing the work again. Scope the
+   rollback by `updated_at <= '<T_after_D3>'` (see [D3](#d3--backfill-job_postings-published_at--proposed-match-skills)).
+
+7. **0059's boost-tier widening, while no row uses a new tier.** Re-narrowing the CHECK to
+   `('all_candidates')` requires every existing row to satisfy it, so the first
+   `boost_7`/`boost_15`/`boost_30` purchase closes this. After that the rollback does not
+   fail safely — it refuses to validate, and forcing it means deleting paid boost rows.
+   Check: `SELECT count(*) FROM posting_boosts WHERE tier <> 'all_candidates';`
+
+8. **0058's payment tables, once real orders or accruals exist.** `payment_orders` and
+   `referral_bonus_accruals` are the **payment audit trail**. Dropping them after a single
+   real order is not a rollback, it is destroying financial history — and unlike a projection
+   there is no upstream to rebuild it from.
+   Check: `SELECT (SELECT count(*) FROM payment_orders), (SELECT count(*) FROM referral_bonus_accruals);`
+
+9. **D6's free-tier grants, once any granted credit is spent.** D6 moves money-equivalent
+   state. The undo subtracts the granted delta from `payer_credits.balance`; if the payer has
+   already spent part of it, that subtraction drives the balance below what remains and trips
+   `payer_credits_balance_nonneg_chk`. There is no correct partial undo, because you cannot
+   un-sell an unlock the payer already received — reconcile forward instead.
+   Check: `SELECT count(*) FROM credit_ledger WHERE reason='unlock_debit' AND created_at > '<D6 run time>';`
+
+10. **D4's `jobs` → `closed` transition, in practice.** Technically undoable (the SQL is in
+    [D4](#d4--cutover-convert-legacy-jobs--job_postings)), but only until a V1 application
+    lands on a converted posting — at which point the `DELETE FROM job_postings` in that undo
+    hits the item-4 cascade and takes real applications with it.
+
+**Genuinely rebuildable** — `worker_industry_tenure`, `job_reach`, `skill_related`,
+`match_config`, `skill.kind` / `skill.industry_id`, and the *mechanically proposed* portion
+of `job_postings.match_skill_ids` / `reach_skill_ids`, all from the taxonomy +
+`worker_profiles` by re-running D1/D2/D3/D5. Note what is **no longer** on this list
+relative to earlier versions of this section: `worker_skill` (item 5) and the
+human-resolved portion of `match_skill_ids` (item 6).
 
 ---
 

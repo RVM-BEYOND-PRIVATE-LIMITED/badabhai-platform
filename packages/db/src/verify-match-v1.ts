@@ -32,6 +32,7 @@
  *
  *   pnpm db:verify:match-v1
  */
+import { parseMatchConfig } from "@badabhai/match-engine";
 import { createDbClient } from "./client";
 import { parseCommonCli } from "./match-v1-cli";
 
@@ -280,6 +281,43 @@ async function main(): Promise<void> {
           "G.active_row",
           `engine_version=${String(c.engine_version)} month_bucket=${String(c.month_bucket)} tier_floor_months=${String(c.tier_floor_months)}`,
         );
+
+      // THE ROW MUST ACTUALLY REACH THE ENGINE — key presence is not enough.
+      //
+      // Every field in `MatchConfigSchema` carries a `.default(...)`, and zod ignores
+      // unrecognized keys. So a row whose keys the schema does not recognize parses
+      // SUCCESSFULLY into a whole object of defaults: `safeParse` returns success, the
+      // service reports `source: "db"`, the log is silent, and every value the ops team
+      // set is discarded. The check above cannot see that — it reads the row's own keys,
+      // so it is satisfied by exactly the shape that fails.
+      //
+      // Parse the row and compare against a parse of `{}` (pure defaults). Identical
+      // output from a NON-EMPTY row means nothing in it survived — "config, never code"
+      // (ADR-0036 §8) is inert and no ops edit can move the ranking.
+      // ⚠️ A WARNING, NOT A FAILURE — DELIBERATELY, AND ONLY FOR NOW (TD128).
+      // The condition below is REAL and currently TRUE on every database: D1 seeds
+      // snake_case keys and the schema reads camelCase, so the row is inert today.
+      // Making it `fail()` would turn this gate red on its very first CI run for a
+      // pre-existing defect that is out of scope to fix here (correcting it changes what
+      // the ranking engine reads — an owner call, not a hygiene pass). So it is loud and
+      // visible on every run instead. PROMOTE IT TO fail() the moment TD128 is fixed —
+      // otherwise this becomes another gate that reports a problem nobody acts on.
+      const asStored = parseMatchConfig(c);
+      const pureDefaults = parseMatchConfig({});
+      if (Object.keys(c).length > 0 && JSON.stringify(asStored) === JSON.stringify(pureDefaults)) {
+        warn(
+          "G.config_reaches_engine",
+          `the active match_config row parses to the typed DEFAULTS, byte for byte — NOTHING ` +
+            `stored in it reaches the engine. Its keys are not the ones MatchConfigSchema ` +
+            `reads (it stores e.g. "tier_floor_months"; the schema reads "tierFloorMonths"), ` +
+            `and because every field carries a default this parses "successfully" instead of ` +
+            `failing closed — so the service reports source:"db" while serving defaults, and ` +
+            `every ops edit is silently discarded (TD128). Stored keys: ` +
+            `${Object.keys(c).sort().join(", ")}`,
+        );
+      } else if (Object.keys(c).length > 0) {
+        pass("G.config_reaches_engine", "stored values survive parsing (not silently defaulted)");
+      }
     }
 
     // ── H. QUERY PLANS ──────────────────────────────────────────────────────
@@ -337,11 +375,29 @@ async function main(): Promise<void> {
       );
 
     // Prove the covering payload actually shipped (the hand-appended INCLUDE clauses).
+    //
+    // EXISTENCE IS ASSERTED SEPARATELY, AND THAT IS THE POINT. This check used to be ONLY
+    // the loop below, which iterates over whatever `pg_indexes` returned — so an index that
+    // was MISSING ENTIRELY produced zero rows, zero iterations, and zero failures. The one
+    // state it could not detect was the worst one. A dropped `worker_skill_reach_idx` turns
+    // the reach driver into a seq scan over every worker on every publish; that must fail
+    // here, not surface as a production incident.
+    const REQUIRED_IDX = ["worker_skill_reach_idx", "job_reach_worker_idx"] as const;
     const includes = await sql<{ indexname: string; indexdef: string }[]>`
       SELECT indexname, indexdef FROM pg_indexes
       WHERE schemaname = 'public'
         AND indexname IN ('worker_skill_reach_idx', 'job_reach_worker_idx')
     `;
+    const foundIdx = new Set(includes.map((i) => i.indexname));
+    for (const name of REQUIRED_IDX) {
+      if (!foundIdx.has(name)) {
+        fail(
+          "H.index_exists",
+          `index "${name}" does NOT EXIST — the reach/feed reads fall back to a sequential ` +
+            `scan. Recreate it from 0053/0055 (with its INCLUDE payload).`,
+        );
+      }
+    }
     for (const idx of includes) {
       if (idx.indexdef.toUpperCase().includes("INCLUDE")) {
         pass("H.include", `${idx.indexname} carries its INCLUDE payload`);
@@ -351,6 +407,49 @@ async function main(): Promise<void> {
           `${idx.indexname} has NO INCLUDE payload — the hand-appended clause was lost ` +
             `(most likely by regenerating over the migration). Recreate it: see 0053/0055.`,
         );
+      }
+    }
+
+    // ── I. BOOST TIER CHECK (0059) ──────────────────────────────────────────
+    // 0059 is the migration this runbook flags "REQUIRED by the API wiring": without it
+    // the CHECK still permits only 'all_candidates', so EVERY boost purchase fails with a
+    // constraint violation the moment MATCH_V1_ENABLED is on. It was the one step in the
+    // train with no automated verification anywhere.
+    //
+    // ASSERT ON CONTENT, NOT ON THE LITERAL TEXT. The migration is written as
+    // `CHECK ("tier" IN (...))`, but `tier` is text, so the parser rewrites the IN list
+    // into a ScalarArrayOpExpr and pg_get_constraintdef deparses it as
+    // `= ANY (ARRAY['all_candidates'::text, ...])`. There is no deparse path that re-emits
+    // `IN`, so matching on "IN (" would reject a perfectly good migration.
+    console.log("\nI. boost tier CHECK (migration 0059)");
+    const tierChk = await sql<{ def: string }[]>`
+      SELECT pg_get_constraintdef(oid) AS def
+      FROM pg_constraint
+      WHERE conname = 'posting_boosts_tier_chk'
+        AND conrelid = 'public.posting_boosts'::regclass
+    `;
+    if (tierChk.length === 0) {
+      fail(
+        "I.boost_tier_chk",
+        `constraint "posting_boosts_tier_chk" is MISSING from public.posting_boosts — ` +
+          `0059 has not been applied (or was rolled back). Every boost purchase will fail ` +
+          `once MATCH_V1_ENABLED is on.`,
+      );
+    } else {
+      const def = tierChk[0]!.def;
+      const REQUIRED_TIERS = ["all_candidates", "boost_7", "boost_15", "boost_30"] as const;
+      const missingTiers = REQUIRED_TIERS.filter((t) => !def.includes(`'${t}'`));
+      if (missingTiers.length > 0) {
+        fail(
+          "I.boost_tier_chk",
+          `CHECK does not admit ${missingTiers.join(", ")} — this is the pre-0059 (narrow) ` +
+            `constraint, so a boost purchase writing one of those tiers will violate it. ` +
+            `Apply 0059. Definition found: ${def}`,
+        );
+      } else {
+        // 'all_candidates' must SURVIVE the widening: it is the receipt on every boost row
+        // that already shipped, and resolvePrice still prices it (CLAUDE.md §2 invariant 8).
+        pass("I.boost_tier_chk", `admits all 4 tier codes (historical all_candidates retained)`);
       }
     }
 

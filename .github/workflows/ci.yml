@@ -245,6 +245,30 @@ jobs:
       # (GET /resume/:id, …). Job-level so the API process AND the e2e test both see it;
       # the test sends it as x-internal-service-token.
       INTERNAL_SERVICE_TOKEN: e2e-internal-service-token
+      # ---- D-3 test-login seam ----
+      # OTP is real-only: SMS_PROVIDER is a z.literal("fast2sms") and no dev_otp echo
+      # exists at any boundary, so an e2e run CANNOT obtain a code with the dummy key
+      # above. `POST /auth/test-login` is the seam built for exactly that, and it WORKS —
+      # measured on run 30699229574, where contact-unlock minted sessions and F-3 passed
+      # end to end before that suite was re-gated for an unrelated reason (TD129: the API
+      # cannot read the locked `workers`/`events` tables in this job).
+      #
+      # Kept armed although no suite currently consumes it: it is the only way any future
+      # e2e can authenticate a worker, and the seam is inert unless a test sends the
+      # header, so arming it costs nothing and re-deriving this block later is rework.
+      #
+      # Safe to arm HERE and nowhere else: assertAuthConfig refuses to boot when this is
+      # enabled outside development/test/staging (NODE_ENV is `test` above), and refuses
+      # again if the token is under 32 chars. The value below is a throwaway CI literal —
+      # it grants nothing beyond this ephemeral job's own database.
+      TEST_LOGIN_ENABLED: "true"
+      TEST_LOGIN_TOKEN: e2e-test-login-token-not-a-secret-32ch
+      # Set EXPLICITLY rather than inherited. The default is 200/day and it is a GLOBAL,
+      # IP-INDEPENDENT counter — unlike OTP_MAX_SENDS_PER_HOUR above, raising the per-IP
+      # cap does not cover it. A fresh Redis per job makes 200 probably sufficient today,
+      # but "probably sufficient" is how a suite starts failing on the run that adds the
+      # test which crosses it.
+      TEST_LOGIN_MAX_PER_DAY: "1000"
       # OTP is REAL-ONLY (Fast2SMS for worker SMS, ZeptoMail for payer email). The API now
       # calls assertAuthConfig (Fast2SMS creds REQUIRED in every env) + assertPayerAuthConfig
       # (default email_otp + zeptomail → email creds REQUIRED) at boot, so it FAILS CLOSED
@@ -296,8 +320,41 @@ jobs:
       - name: Seed alpha jobs
         run: pnpm --filter @badabhai/db db:seed:jobs
 
+      # D1 — the Matching V1 match vocabulary. Needed here for TWO reasons, and the second
+      # is the load-bearing one:
+      #   1. It is reference data only — `MATCH_SKILLS` + the symmetric `skill_related`
+      #      pairs from @badabhai/taxonomy. No worker data, no PII, deterministic,
+      #      checked-in (invariant #4). Re-running is a row-level no-op.
+      #   2. It writes THE SINGLE ACTIVE `match_config` ROW. Migration 0057 ships the
+      #      table STRUCTURE and deliberately seeds no values, and no migration anywhere
+      #      INSERTs into `match_config` — D1 is the only writer. Without it the verifier
+      #      below fails check G ("expected exactly 1 active match_config row, found 0")
+      #      and exits 1. Measured by reading every check in verify-match-v1.ts, not
+      #      assumed: on a migrated-but-unseeded database G is the ONLY failure.
+      # `--apply` is required — every script in this family is dry-run by default.
+      - name: Seed Matching V1 vocabulary (D1)
+        run: pnpm --filter @badabhai/db db:seed:match:vocabulary --apply
+
+      # The Matching V1 go/no-go verifier, which until now ran NOWHERE in CI — it was a
+      # script the runbook tells a human to run by hand after the migration train, and
+      # nothing checked that it still passes against the schema we actually ship.
+      #
+      # STRICTLY READ-ONLY (SELECTs + EXPLAINs; there is no --apply). It asserts the
+      # things a unit test structurally cannot: skill_related symmetry (the table has NO
+      # symmetry trigger, so this is one of only two places that guarantee holds), closed-
+      # vocabulary integrity, tier truthfulness, the E8 tenure clamp, that the covering
+      # indexes EXIST and kept their hand-appended INCLUDE payloads, and that 0059's
+      # widened boost-tier CHECK admits all four codes.
+      #
+      # It runs BEFORE the test suites below on purpose: those seed and delete their own
+      # fixtures, and a verifier that ran afterwards would be reading whatever a failed
+      # cleanup left behind. Here its input is exactly "the migration train + D1", which
+      # is the state the runbook actually gates on.
+      - name: Verify Matching V1 schema + vocabulary (db:verify:match-v1)
+        run: pnpm --filter @badabhai/db db:verify:match-v1
+
       # ---- Matching V1 DB-backed release gates (ADR-0036) ----
-      # Two suites exist, are correct, and until now NEVER RAN in CI: both are
+      # These suites exist, are correct, and until #538 NEVER RAN in CI: each is
       # `describe.skipIf(process.env.RUN_DB_TESTS !== "1")`, and RUN_DB_TESTS was set
       # nowhere under .github/ (TD122). A skipped gate is a disclosed gap, not a pass.
       #   * rank-parity  — pins the `ORDER BY` in MatchFeedRepository.listCandidates to
@@ -309,6 +366,14 @@ jobs:
       #                    gate, permutes order only, never touches the company's
       #                    candidate list). All three are properties of the SQL, so they
       #                    are unprovable without a real database.
+      #   * apply-freeze — E16, "worker edits his profile after applying → the company's
+      #                    list does not move". The freeze is the `ON CONFLICT DO UPDATE`
+      #                    CASE in MatchApplyService.upsertDecision; the unit suite can
+      #                    only assert that CASE text is PRESENT against a fake db. That
+      #                    it EVALUATES as claimed — keeps on a re-apply, writes on a
+      #                    skip→apply flip, and cannot tear under two racing applies — is
+      #                    a property of Postgres. It uses two connection pools on purpose
+      #                    (postgres.js pipelines one pool, which would fake the race).
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (0000–0059, journal-driven)
@@ -318,10 +383,10 @@ jobs:
       # running here, before the API boots.
       #
       # RUN_DB_TESTS is scoped to THIS STEP. The `node` job runs the same apps/api suite
-      # with no database and must keep skipping these two files.
+      # with no database and must keep skipping these three files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
-      # `node` job, and a two-file run cannot meet them.
-      - name: Matching V1 DB gates (rank parity + boost fences)
+      # `node` job, and a three-file run cannot meet them.
+      - name: Matching V1 DB gates (rank parity + boost fences + apply freeze)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -330,14 +395,14 @@ jobs:
           # `test -- rank-parity` runs `vitest run -- rank-parity`, where vitest
           # ignores the filter and reruns the whole 2820-test suite. Measured, not
           # assumed — that is what the first push of this branch actually did.
-          pnpm --filter @badabhai/api run test rank-parity boost-fences 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
-          #     exit 0 reporting "9 skipped" — precisely how these gates sat green for
+          #     exit 0 reporting "16 skipped" — precisely how these gates sat green for
           #     their whole life while proving nothing. Assert per FILE, because a
           #     suite-wide "some test passed" check is satisfied by unrelated tests.
-          for f in rank-parity boost-fences; do
+          for f in rank-parity boost-fences apply-freeze; do
             line=$(grep -E "src/match/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
@@ -355,8 +420,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +2 passed \(2\)' db-gates.log; then
-            echo "::error::Expected exactly the 2 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +3 passed \(3\)' db-gates.log; then
+            echo "::error::Expected exactly the 3 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi

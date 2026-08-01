@@ -36,6 +36,9 @@ import { randomUUID } from "node:crypto";
 const RUN = process.env.RUN_E2E === "1";
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
 const OPS_TOKEN = process.env.INTERNAL_SERVICE_TOKEN ?? "";
+/** D-3 test-login gate secret. Without it the seam answers a NEUTRAL 404 and no worker
+ *  session can be minted — see `loginWorker` for why OTP is not an option here. */
+const TEST_LOGIN_TOKEN = process.env.TEST_LOGIN_TOKEN ?? "";
 const DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   process.env.DATABASE_URL ??
@@ -47,11 +50,12 @@ const PII_KEYS = ["full_name", "name", "phone", "phone_e164", "employer", "addre
 async function req(
   method: string,
   path: string,
-  opts: { body?: unknown; token?: string; ops?: boolean } = {},
+  opts: { body?: unknown; token?: string; ops?: boolean; testLogin?: boolean } = {},
 ): Promise<{ status: number; json: any }> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (opts.token) headers["authorization"] = `Bearer ${opts.token}`;
   if (opts.ops) headers["x-internal-service-token"] = OPS_TOKEN;
+  if (opts.testLogin) headers["x-test-login-token"] = TEST_LOGIN_TOKEN;
   const res = await fetch(`${API_URL}${path}`, {
     method,
     headers,
@@ -61,14 +65,55 @@ async function req(
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-/** Login a fresh worker (mock OTP); returns its id + the sentinel phone used. */
+/**
+ * A phone in the ONLY range the D-3 mint will serve: `SYNTHETIC_TEST_PHONE_PATTERN`
+ * (`/^\+910{5}\d{5}$/`, i.e. `+9100000` + 5 digits) — the reserved, unassignable block.
+ * `AuthService.testLogin` refuses anything else BEFORE finding or creating a worker, so
+ * an ordinary-looking `+9196…` number 404s no matter how the seam is configured.
+ *
+ * COUNTER, NOT `Date.now()`. The obvious `+91…${Date.now()}` construction does not work
+ * here: only 5 digits of entropy fit, and a timestamp's low digits collide across the
+ * fast sequential calls this suite makes — two workers sharing a phone would silently
+ * make F-1's "two different workers" comparison test one worker against itself. A
+ * counter from a random start is unique within a run by construction; the CI job builds
+ * a fresh database each time, so cross-run reuse cannot collide either.
+ */
+let phoneSeq = Math.floor(Math.random() * 90_000);
+function syntheticPhone(): string {
+  phoneSeq = (phoneSeq + 1) % 100_000;
+  return `+9100000${String(phoneSeq).padStart(5, "0")}`;
+}
+
+/**
+ * Mint a fresh worker session via the D-3 test-login seam; returns its id + the sentinel
+ * phone used.
+ *
+ * WHY NOT OTP — this is what kept the whole suite skipped. The old helper POSTed
+ * `/auth/otp/request` and read `dev_otp` off the response. That echo does not exist at
+ * any boundary any more: OTP is REAL-ONLY (`SMS_PROVIDER` is a `z.literal("fast2sms")`,
+ * so no mock/console value even parses), and `OtpRequestResponse` carries
+ * `{ success, channel, resend_in_seconds }` and nothing else. Against CI's dummy
+ * Fast2SMS key the request leg fails before a code is ever issued, so the OTP route
+ * cannot authenticate a test worker in CI at all — the blocker was never the database.
+ *
+ * `POST /auth/test-login` is the seam built for exactly this case (staging smoke / e2e
+ * only). It is NOT a resurrected dev bypass: it is invisible (a neutral 404) unless
+ * `TEST_LOGIN_ENABLED` is on, it requires the `x-test-login-token` server secret, and
+ * `assertAuthConfig` makes it structurally impossible to arm in production — enabled
+ * outside development/test/staging, or enabled without a >=32-char token, and the API
+ * refuses to boot.
+ */
 async function loginWorker(): Promise<{ workerId: string; token: string; phone: string }> {
-  const phone = `+9196${String(Date.now()).slice(-8)}${Math.floor(Math.random() * 10)}`.slice(0, 13);
-  const r1 = await req("POST", "/auth/otp/request", { body: { phone } });
-  expect(r1.status).toBe(200);
-  const r2 = await req("POST", "/auth/otp/verify", { body: { phone, otp: r1.json.dev_otp } });
-  expect(r2.status).toBe(200);
-  return { workerId: r2.json.worker_id as string, token: r2.json.access_token as string, phone };
+  const phone = syntheticPhone();
+  const r = await req("POST", "/auth/test-login", { body: { phone }, testLogin: true });
+  // 404 = seam disabled; 401 = wrong/missing token. Both are configuration, not product
+  // failures — name them here instead of failing later on an undefined access_token.
+  expect(
+    r.status,
+    "POST /auth/test-login must be armed for this suite: set TEST_LOGIN_ENABLED=true and a " +
+      ">=32-char TEST_LOGIN_TOKEN on BOTH the API process and this test runner",
+  ).toBe(200);
+  return { workerId: r.json.worker_id as string, token: r.json.access_token as string, phone };
 }
 
 async function consent(token: string, purposes: string[]): Promise<void> {
@@ -81,16 +126,45 @@ async function consent(token: string, purposes: string[]): Promise<void> {
   expect(r.status).toBe(201);
 }
 
-// REAL-ONLY: this suite mints authenticated worker/payer sessions via OTP login, which now
-// requires a real Fast2SMS/ZeptoMail code (no dev echo) — it cannot run in automated CI. The
-// end-to-end proof is the manual OTP-7 staging check (docs/ops/otp-real-send-staging-runbook.md).
-void RUN;
-describe.skip("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
+// ── WHY THIS IS STILL GATED, AND WHAT CHANGED ────────────────────────────────
+// The OLD blocker is GONE. This file used to be a bare `describe.skip` explained as
+// "mints sessions via OTP login, which needs a real Fast2SMS code — cannot run in CI".
+// That was true, and `loginWorker` above now routes around it via the D-3 seam. MEASURED
+// on CI run 30699229574: the suite executed, sessions minted, and F-3 PASSED end to end.
+// Authentication is solved.
+//
+// A DIFFERENT blocker was underneath it, and un-skipping is what exposed it. 6 of 8 tests
+// failed with `POST /consent/accept -> 500`, and the Postgres log gives the cause:
+//     ERROR: permission denied for table workers
+//     ERROR: permission denied for table events
+// `workers` and `events` are deliberately locked — FORCE RLS + `REVOKE ALL ... FROM
+// PUBLIC, anon, authenticated, service_role` (migration 0004, ADR-0004) — and the API as
+// the e2e job runs it cannot read them. This is NOT a defect in this suite: it is the
+// e2e environment's database role, and it is pre-existing.
+//
+// It was invisible until now because NOTHING in CI had ever exercised a worker-touching
+// flow: the one test that does (`phase1-onboarding.e2e.test.ts:141`, "logs in → consents
+// → chats → …") is itself `it.skip`. The OTP skip was masking an environment gap, so
+// fixing the OTP half revealed rather than removed the obstacle.
+//
+// So the gate is now EXPLICIT and narrow rather than a blanket skip: set
+// `E2E_UNLOCK_SUITE=1` (with RUN_E2E=1) to run it. Deliberately NOT armed in CI — the
+// remaining work is granting the e2e API role read access to the locked PII spine, which
+// is a security-boundary decision (ADR-0004 / TD4), not a test change. Arming it before
+// that lands would only re-create the red. See the tech-debt register.
+const RUN_UNLOCK = RUN && process.env.E2E_UNLOCK_SUITE === "1";
+describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
   let client!: DbClient;
 
   beforeAll(() => {
     client = createDbClient(DATABASE_URL);
     expect(OPS_TOKEN, "set INTERNAL_SERVICE_TOKEN for the unlock routes").not.toBe("");
+    // Same chokepoint, same reason: fail here with the fix in the message, rather than
+    // eight tests later on a neutral 404/401 from the deliberately-oracle-free seam.
+    expect(
+      TEST_LOGIN_TOKEN,
+      "set TEST_LOGIN_TOKEN (>=32 chars) — every test here mints a worker via POST /auth/test-login",
+    ).not.toBe("");
   });
 
   afterAll(async () => {
