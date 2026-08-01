@@ -20,6 +20,7 @@ import { PricingController } from "../pricing/pricing.controller";
 import { AiJobsController } from "../profiles/ai-jobs.controller";
 import { ProfilesController } from "../profiles/profiles.controller";
 import { ReachController } from "../reach/reach.controller";
+import { PaceController } from "../pace/pace.controller";
 import { ResumeController } from "../resume/resume.controller";
 import { UnlocksController } from "../unlocks/unlocks.controller";
 import { RazorpayWebhookController } from "../unlocks/razorpay-webhook.controller";
@@ -179,6 +180,11 @@ const CONTRACT: ControllerContract[] = [
   // P0 fix (PR #91).
   { name: "Profiles", ctor: ProfilesController, routes: { extract: [C, W], confirm: [C, W] } },
   { name: "Reach", ctor: ReachController, routes: { applicants: [I], feed: [I] } },
+  // PACE (ADR-0021) — ops-internal, guarded 2026-08-01. These were the LAST two
+  // unauthenticated non-auth routes in the API: `alerts` served live supply intelligence
+  // (it is not covered by `PACE_ENABLED` — `listOpsAlerts` never checks the flag), and
+  // `start` is a reach-widening WRITE that would have armed on the flag flip.
+  { name: "Pace", ctor: PaceController, routes: { start: [I], alerts: [I] } },
   // Self-serve PAYER surface (ADR-0019). signup/login are PUBLIC (external boundary);
   // refresh/logout + every unlock/reach route bind to the payer session (PayerAuthGuard).
   // The ops `/reach/*` + `/unlocks*` rows above stay their own principal (one per route).
