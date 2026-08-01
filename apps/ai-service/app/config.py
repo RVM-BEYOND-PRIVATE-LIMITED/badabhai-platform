@@ -64,8 +64,9 @@ class Settings(BaseSettings):
     ai_enable_real_calls: bool = False
     # Per-task allowlist for real calls (comma-separated TaskTypes, e.g.
     # "profile_extraction"). Lets real calls be enabled for ONE role/task while
-    # every other task stays on the mock path. EMPTY = all tasks (backward
-    # compatible). The master flag + key are still required regardless.
+    # every other task stays on the mock path. EMPTY = NO tasks (fail-closed,
+    # owner-ruled 2026-08-01): a real call requires the task to be explicitly
+    # listed. The master flag + key are still required regardless.
     ai_real_call_tasks: str = ""
 
     # COST-4: the profiling chat turn returns the deterministic question_bank
@@ -338,17 +339,18 @@ class Settings(BaseSettings):
 
     @property
     def real_call_task_allowlist(self) -> frozenset[str]:
-        """Parsed AI_REAL_CALL_TASKS. Empty = no per-task restriction (all tasks)."""
+        """Parsed AI_REAL_CALL_TASKS. Empty = NO tasks may go real (fail-closed)."""
         return frozenset(t.strip() for t in self.ai_real_call_tasks.split(",") if t.strip())
 
     def real_call_enabled_for(self, task_type: str) -> bool:
         """Whether a REAL call is permitted for this specific task. Requires the
-        master flag + key (``real_calls_enabled``); then, if an allowlist is set,
-        the task must be in it. An empty allowlist means all tasks (back-compat)."""
+        master flag + key (``real_calls_enabled``) AND the task explicitly listed
+        in AI_REAL_CALL_TASKS. An EMPTY allowlist blocks every task (fail-closed,
+        owner-ruled 2026-08-01; no wildcard) — real calls in any env require an
+        explicit task list."""
         if not self.real_calls_enabled:
             return False
-        allow = self.real_call_task_allowlist
-        return (not allow) or (task_type in allow)
+        return task_type in self.real_call_task_allowlist
 
     def has_credential_for(self, provider: str) -> bool:
         """Whether the API credential for a provider label (as returned by

@@ -22,6 +22,8 @@ What it is / is NOT:
   defaults to true). Pass ``--no-translate`` to transcribe only.
 
 Gating is the SAME as production: a real call needs AI_ENABLE_REAL_CALLS=true AND
+GEMINI_FLASH_API_KEY (the real-calls master key) AND ``stt_transcription`` in
+AI_REAL_CALL_TASKS (an empty allowlist blocks every task — fail-closed) AND
 SARVAM_API_KEY; otherwise (or with ``--mock``) the mock transcript is returned.
 The adapter still FAILS CLOSED — any provider/storage/over-cap failure yields an
 EMPTY transcript with ``error_code=stt_call_failed``, never a fabricated one.
@@ -60,7 +62,8 @@ def _stt_status(settings: Settings, adapter: SttAdapter) -> str:
         lines.append("REAL Sarvam STT: ON")
     else:
         lines.append(f"REAL Sarvam STT: OFF ({reason})")
-        lines.append("  -> set AI_ENABLE_REAL_CALLS=true and SARVAM_API_KEY for a real call,")
+        lines.append("  -> a real call needs AI_ENABLE_REAL_CALLS=true, GEMINI_FLASH_API_KEY,")
+        lines.append("     'stt_transcription' in AI_REAL_CALL_TASKS, and SARVAM_API_KEY —")
         lines.append("     or pass --mock to see the deterministic mock transcript.")
     lines.append(f"model:   {settings.sarvam_stt_model}")
     lines.append(

@@ -42,16 +42,17 @@ real_calls_enabled = AI_ENABLE_REAL_CALLS == true
 (`ANTHROPIC_API_KEY` is optional — its presence only ADDS the Claude Haiku
 fallback candidate; it is never a master gate.)
 
-**Per-task gate (enable ONE role at a time).** `AI_REAL_CALL_TASKS` is an
-optional comma-separated allowlist; a real call also requires the task to be
+**Per-task gate (enable ONE role at a time).** `AI_REAL_CALL_TASKS` is a
+comma-separated allowlist; a real call also requires the task to be
 allowlisted:
 
 ```
 real(task) = real_calls_enabled
-             AND (AI_REAL_CALL_TASKS is empty OR task in AI_REAL_CALL_TASKS)
+             AND task in AI_REAL_CALL_TASKS
 ```
 
-Empty = all tasks (backward compatible). Set
+Empty = **no tasks** (fail-closed, owner-ruled 2026-08-01; there is no
+wildcard — real calls require an explicit list). Set
 `AI_REAL_CALL_TASKS=profile_extraction` to make only canonicalization real while
 chat/resume stay mock — see the staging rollout in
 [enable-real-llm-extraction.md](enable-real-llm-extraction.md).

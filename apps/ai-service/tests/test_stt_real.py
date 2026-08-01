@@ -44,6 +44,8 @@ def _real_settings(**overrides) -> Settings:
         # Without it every test below would silently take the MOCK path and pass
         # vacuously — which is exactly the failure mode this whole change is about.
         gemini_flash_api_key="g",
+        # Fail-closed allowlist (empty = NO tasks): real STT must be explicitly listed.
+        ai_real_call_tasks="stt_transcription",
         supabase_url="https://x.supabase.co",
         supabase_service_role_key="svc",
     )

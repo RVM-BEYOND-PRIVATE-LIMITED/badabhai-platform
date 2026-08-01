@@ -85,17 +85,15 @@ launch (P0-4 done by the accept branch) and the DPA gate (P0-2) consciously waiv
 consequences of *how* the flag works that are separate from that risk acceptance, and were not
 part of it:
 
-**1. An empty `AI_REAL_CALL_TASKS` means ALL tasks, not none.**
+**1. An empty `AI_REAL_CALL_TASKS` — hardened to FAIL-CLOSED in code on 2026-08-01
+(owner ruling), but the DEPLOYED build still runs the old semantics until the next
+ai-service deploy.**
 
-```python
-ai_real_call_tasks: str = ""
-# "Parsed AI_REAL_CALL_TASKS. Empty = no per-task restriction (all tasks)."
-```
+The shipped behavior at the time of the flip: empty = **no per-task restriction (ALL
+tasks)**. Measured at runtime on 2026-08-01 with `ai_enable_real_calls=True`, a Gemini key
+set and `ai_real_call_tasks=''` — `Settings.real_call_enabled_for(task)`:
 
-Measured at runtime on 2026-08-01 with `ai_enable_real_calls=True`, a Gemini key set and
-`ai_real_call_tasks=''` — `Settings.real_call_enabled_for(task)`:
-
-| task | empty allowlist | `AI_REAL_CALL_TASKS=profile_extraction` |
+| task | empty allowlist (OLD, deployed) | `AI_REAL_CALL_TASKS=profile_extraction` |
 | --- | --- | --- |
 | `profile_extraction` | **True** | True |
 | `resume_generation` | **True** | False |
@@ -108,11 +106,31 @@ then widen one task at a time with a canary between each — is skipped entirely
 `AI_REAL_CALL_TASKS` is set. To restore it: `AI_REAL_CALL_TASKS=profile_extraction`.
 
 **Note `stt_transcription` in that first column.** Real speech-to-text is gated by **P0-1 (Sarvam
-DPA + written terms — a hard legal gate)**, and at the config layer that gate is currently open:
-the only thing preventing real worker audio leaving the platform is that no Sarvam credential is
-set, not the allowlist. Setting a Sarvam key while the allowlist is empty would flip STT live
-with no further decision. `profiling_chat_turn` is likewise permitted here even though the design
-intent is that it stays templated.
+DPA + written terms — a hard legal gate)**, and on the deployed build that gate is currently open
+at the config layer: the only thing preventing real worker audio leaving the platform is that no
+Sarvam credential is set, not the allowlist. Setting a Sarvam key while the allowlist is empty
+would flip STT live with no further decision. `profiling_chat_turn` is likewise permitted even
+though the design intent is that it stays templated.
+
+**The hardening (owner-ruled 2026-08-01, same day):** `real_call_enabled_for` now requires the
+task to be **explicitly listed** — an empty allowlist blocks every task, with no wildcard
+(`apps/ai-service/app/config.py`, pinned by `test_empty_allowlist_blocks_all_tasks_fail_closed`
+and `test_an_empty_allowlist_blocks_stt_fail_closed`). The security review of that change found
+**transcript translation** (the second Sarvam leg of `/voice/transcribe`) still reading the raw
+flag + Sarvam key — bypassing both the allowlist **and** the kill switch, exactly the pre-fix STT
+pattern. Closed in the same PR: translation now rides the `stt_transcription` allowlist key
+(pinned by `test_empty_allowlist_blocks_translate_fail_closed` and
+`test_kill_switch_blocks_translate`), so P4 #9 arms/disarms the whole voice→English leg as one
+flip. Two operational consequences:
+
+- **Until the ai-service deploy carrying it,** everything above remains live behavior — set
+  `AI_REAL_CALL_TASKS=profile_extraction` in the prod env NOW rather than waiting for the deploy.
+- **The deploy carrying it is itself a flip:** if it lands while `AI_REAL_CALL_TASKS` is still
+  empty, real calls stop (everything returns to mock) until the env var is set. That is the
+  intended fail-closed direction — set the env var first and the deploy is a no-op. This also
+  makes the rollback lever long documented in `enable-real-llm-extraction.md` ("clear
+  `AI_REAL_CALL_TASKS` → back to mock") true for the first time; under the old semantics,
+  clearing it *armed* every task.
 
 **2. Spend caps are PER-PROCESS unless `AI_SPEND_REDIS_URL` is set.**
 

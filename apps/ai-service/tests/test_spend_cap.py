@@ -58,7 +58,13 @@ def _stub(monkeypatch, action):
 
 
 def _real_settings(**overrides):
-    base = dict(ai_enable_real_calls=True, gemini_flash_api_key="k")
+    # Both tasks these tests route are allowlisted explicitly (an empty
+    # AI_REAL_CALL_TASKS is fail-closed: it blocks every task).
+    base = dict(
+        ai_enable_real_calls=True,
+        gemini_flash_api_key="k",
+        ai_real_call_tasks="profile_extraction,resume_generation",
+    )
     base.update(overrides)
     return Settings(**base)
 

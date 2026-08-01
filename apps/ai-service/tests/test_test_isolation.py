@@ -47,11 +47,16 @@ def test_real_mode_settings_still_do_not_enable_canonicalization():
     """The exact shape that broke: a test builds REAL-mode settings on purpose
     (spying on the LLM transport). Every field it does NOT name must still come
     back inert — otherwise an unrelated flag rides along and calls a provider."""
-    settings = Settings(ai_enable_real_calls=True, gemini_flash_api_key="test-key")
+    settings = Settings(
+        ai_enable_real_calls=True,
+        gemini_flash_api_key="test-key",
+        ai_real_call_tasks="skill_embedding",
+    )
     assert settings.skill_canonicalize_enabled is False
-    # Note WHY this mattered: with real mode on, the embedding TASK is enabled —
-    # so the canonicalize flag was the only thing standing between pytest and a
-    # live provider call, and a dotenv could flip it. Hence layer 2.
+    # Note WHY this mattered: with real mode on + the task allowlisted, the
+    # embedding TASK is enabled — so the canonicalize flag was the only thing
+    # standing between pytest and a live provider call, and a dotenv could flip
+    # it. Hence layer 2.
     assert settings.real_call_enabled_for("skill_embedding") is True
 
 

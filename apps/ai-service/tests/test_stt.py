@@ -43,15 +43,27 @@ def _armed(**overrides) -> Settings:
     """Settings with the real STT path FULLY armed. `gemini_flash_api_key` is required
     since the gating fix — `real_blocked_reason` delegates to
     `Settings.real_calls_blocked_reason()` so the kill-switch and the per-task allowlist
-    reach STT, and that helper also demands the master key."""
-    base = dict(ai_enable_real_calls=True, sarvam_api_key="k", gemini_flash_api_key="g")
+    reach STT, and that helper also demands the master key. `stt_transcription` must be
+    explicitly allowlisted since the fail-closed ruling (empty = NO tasks)."""
+    base = dict(
+        ai_enable_real_calls=True,
+        sarvam_api_key="k",
+        gemini_flash_api_key="g",
+        ai_real_call_tasks=STT_TASK_TYPE,
+    )
     base.update(overrides)
     return Settings(**base)
 
 
 def test_real_requires_flag_and_key():
-    # Flag on but no Sarvam key -> still blocked (fail closed) -> mock.
-    adapter = SttAdapter(Settings(ai_enable_real_calls=True, gemini_flash_api_key="g"))
+    # Flag on + task allowlisted but no Sarvam key -> still blocked (fail closed) -> mock.
+    adapter = SttAdapter(
+        Settings(
+            ai_enable_real_calls=True,
+            gemini_flash_api_key="g",
+            ai_real_call_tasks=STT_TASK_TYPE,
+        )
+    )
     assert adapter.real_enabled is False
     assert "SARVAM_API_KEY" in (adapter.real_blocked_reason() or "")
     result = _run(adapter.transcribe(storage_path="x"))
@@ -119,13 +131,19 @@ def test_an_allowlist_naming_stt_permits_it():
     assert adapter.real_enabled is True
 
 
-def test_an_empty_allowlist_permits_stt_for_back_compat():
-    """EMPTY = all tasks. This is the pre-existing semantics and must not move — a
-    deployment that never set AI_REAL_CALL_TASKS behaves exactly as before."""
+def test_an_empty_allowlist_blocks_stt_fail_closed():
+    """EMPTY = NO tasks (owner-ruled 2026-08-01). A deployment that never set
+    AI_REAL_CALL_TASKS gets NO real calls — real STT requires `stt_transcription`
+    to be explicitly listed. This is exactly the stray-SARVAM_API_KEY-in-prod
+    hole: flag+key alone must never arm real audio egress."""
     assert Settings(ai_real_call_tasks="").real_call_task_allowlist == frozenset()
     adapter = SttAdapter(_armed(ai_real_call_tasks=""))
-    assert adapter.real_blocked_reason() is None
-    assert adapter.real_enabled is True
+    assert adapter.real_enabled is False
+    assert STT_TASK_TYPE in (adapter.real_blocked_reason() or "")
+    result = _run(adapter.transcribe(storage_path="x"))
+    assert result.is_mock is True
+    assert result.transcript_text == MOCK_TRANSCRIPT
+    assert result.error_code is None
 
 
 def test_the_master_flag_still_governs_and_the_reason_names_it():

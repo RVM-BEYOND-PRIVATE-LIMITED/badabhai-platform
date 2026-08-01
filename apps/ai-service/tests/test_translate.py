@@ -23,6 +23,7 @@ import pytest
 
 from app import translate as translate_module
 from app.config import Settings
+from app.stt import STT_TASK_TYPE
 from app.translate import MOCK_ENGLISH, TranslateAdapter, _is_english, _to_translate_source
 
 
@@ -31,7 +32,16 @@ def _run(coro):
 
 
 def _real_settings(**overrides) -> Settings:
-    base = dict(ai_enable_real_calls=True, sarvam_api_key="k")
+    """FULLY armed real-translate settings. Since the fail-closed gating fix,
+    translation delegates to ``real_call_enabled_for(STT_TASK_TYPE)`` — so the
+    Gemini master key AND `stt_transcription` in the allowlist are required, the
+    same as real STT (translation is the same Sarvam pipeline's second leg)."""
+    base = dict(
+        ai_enable_real_calls=True,
+        sarvam_api_key="k",
+        gemini_flash_api_key="g",
+        ai_real_call_tasks=STT_TASK_TYPE,
+    )
     base.update(overrides)
     return Settings(**base)
 
@@ -111,6 +121,40 @@ def test_mock_by_default_when_gate_off(monkeypatch):
     assert result.is_mock is True
     assert result.english_text == MOCK_ENGLISH
     assert _StubAsyncClient.called is False  # no provider call on the mock path
+
+
+def test_empty_allowlist_blocks_translate_fail_closed(monkeypatch):
+    """EMPTY allowlist = NO tasks (owner-ruled 2026-08-01) — and it reaches
+    TRANSLATION, which previously read the raw flag + Sarvam key and bypassed
+    the allowlist entirely. Flag + both keys set, allowlist empty -> mock, no
+    provider call: the stray-SARVAM_API_KEY hole is closed on both Sarvam legs."""
+    monkeypatch.setattr(translate_module.httpx, "AsyncClient", _StubAsyncClient)
+    _reset_client({"translated_text": "should-not-be-used"})
+
+    adapter = TranslateAdapter(_real_settings(ai_real_call_tasks=""))
+    assert adapter.real_enabled is False
+    assert STT_TASK_TYPE in (adapter.real_blocked_reason() or "")
+    result = _run(adapter.translate(text="main vmc operator hoon", source_language_code="hi"))
+
+    assert result.is_mock is True
+    assert result.english_text == MOCK_ENGLISH
+    assert _StubAsyncClient.called is False  # no Sarvam egress
+
+
+def test_kill_switch_blocks_translate(monkeypatch):
+    """AI_REAL_CALLS_KILL_SWITCH must stop translation too — before the fix the
+    adapter never consulted it, so the incident lever silenced every LLM + STT
+    call but left real translate traffic flowing."""
+    monkeypatch.setattr(translate_module.httpx, "AsyncClient", _StubAsyncClient)
+    _reset_client({"translated_text": "should-not-be-used"})
+
+    adapter = TranslateAdapter(_real_settings(ai_real_calls_kill_switch=True))
+    assert adapter.real_enabled is False
+    result = _run(adapter.translate(text="main vmc operator hoon", source_language_code="hi"))
+
+    assert result.is_mock is True
+    assert result.english_text == MOCK_ENGLISH
+    assert _StubAsyncClient.called is False  # the kill switch reaches Sarvam translate
 
 
 # --- real success -----------------------------------------------------------

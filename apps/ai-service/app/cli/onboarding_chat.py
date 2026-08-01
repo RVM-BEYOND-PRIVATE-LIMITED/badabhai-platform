@@ -284,7 +284,8 @@ def _startup_status(settings) -> str:
     if not settings.real_call_enabled_for("profiling_chat_turn"):
         lines.append(
             "        WARNING: 'profiling_chat_turn' is NOT in AI_REAL_CALL_TASKS, so CHAT\n"
-            "        turns stay MOCK. Add it (or blank AI_REAL_CALL_TASKS) for a real chat."
+            "        turns stay MOCK. Add 'profiling_chat_turn' to AI_REAL_CALL_TASKS\n"
+            "        for a real chat (an empty allowlist blocks every task)."
         )
     if not settings.ai_profiling_rephrase_enabled:
         # NOT a warning — this is the intended COST-4 default. The engine chooses AND

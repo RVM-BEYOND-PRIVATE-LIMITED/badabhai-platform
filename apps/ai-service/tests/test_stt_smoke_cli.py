@@ -41,6 +41,8 @@ def _real_settings(**overrides) -> Settings:
         # `Settings.real_calls_blocked_reason()` (kill-switch + allowlist), which also
         # requires the master Gemini key.
         gemini_flash_api_key="g",
+        # Fail-closed allowlist (empty = NO tasks): real STT must be explicitly listed.
+        ai_real_call_tasks="stt_transcription",
         supabase_url="https://x.supabase.co",
         supabase_service_role_key="svc",
     )

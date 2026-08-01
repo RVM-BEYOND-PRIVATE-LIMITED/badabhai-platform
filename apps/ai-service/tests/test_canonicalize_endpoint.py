@@ -112,7 +112,10 @@ def test_real_embed_ledger_block_returns_unresolved_without_embedding(monkeypatc
     from app.ai import embeddings
 
     enabled = Settings(
-        skill_canonicalize_enabled=True, ai_enable_real_calls=True, gemini_flash_api_key="k"
+        skill_canonicalize_enabled=True,
+        ai_enable_real_calls=True,
+        gemini_flash_api_key="k",
+        ai_real_call_tasks="skill_embedding",
     )
     monkeypatch.setattr(app_main, "get_settings", lambda: enabled)
     monkeypatch.setattr(app_main, "get_skill_store", lambda s: OneHitStore())

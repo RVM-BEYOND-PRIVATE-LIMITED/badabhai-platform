@@ -23,7 +23,8 @@
 3. **Confirm FORK-B-1 is deployed** (request-path store + verified runner).
 4. **Set the staging ai-service env** — the §7 gate. Staging service env, NOT a committed
    file: `AI_ENABLE_REAL_CALLS=true`, `GEMINI_FLASH_API_KEY=<staging key>`, and
-   `AI_REAL_CALL_TASKS` **empty or containing `skill_embedding`**.
+   `AI_REAL_CALL_TASKS` **containing `skill_embedding`** (an empty allowlist
+   blocks every task — fail-closed since 2026-08-01).
    ⚠️ The staging default pin `AI_REAL_CALL_TASKS=profile_extraction` makes an embed run
    **silently MOCK** — and those hash vectors persist (recovery = step 2's reset).
 5. **Throwaway 768/model check.** One gated `embedContent` call (single-row batch:

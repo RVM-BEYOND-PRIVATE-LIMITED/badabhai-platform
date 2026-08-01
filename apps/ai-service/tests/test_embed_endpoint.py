@@ -124,7 +124,11 @@ def _force_real(monkeypatch):
     from app import main as app_main
     from app.config import Settings
 
-    real = Settings(ai_enable_real_calls=True, gemini_flash_api_key="test-key")
+    real = Settings(
+        ai_enable_real_calls=True,
+        gemini_flash_api_key="test-key",
+        ai_real_call_tasks="skill_embedding",
+    )
     monkeypatch.setattr(app_main, "get_settings", lambda: real)
     return real
 

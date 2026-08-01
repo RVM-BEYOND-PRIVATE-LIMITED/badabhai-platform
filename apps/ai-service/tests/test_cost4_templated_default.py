@@ -56,10 +56,12 @@ def test_needs_rephrase_true_for_clarifying_messages(msg):
 
 # --- adapter spy: what actually reaches the LLM transport ------------------
 def _real_settings(*, rephrase: bool) -> Settings:
-    # Real calls fully enabled so the ONLY thing gating a chat LLM call is COST-4.
+    # Real calls fully enabled (chat + extraction explicitly allowlisted — empty
+    # means NO tasks) so the ONLY thing gating a chat LLM call is COST-4.
     return Settings(
         ai_enable_real_calls=True,
         gemini_flash_api_key="test-key",
+        ai_real_call_tasks="profiling_chat_turn,profile_extraction",
         ai_profiling_rephrase_enabled=rephrase,
     )
 

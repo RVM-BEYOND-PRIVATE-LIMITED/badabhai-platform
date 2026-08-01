@@ -521,6 +521,7 @@ def _block_router(monkeypatch, reason: str):
         _env_file=None,
         ai_enable_real_calls=True,
         gemini_flash_api_key="k",
+        ai_real_call_tasks="profile_extraction",
         anthropic_api_key=None,
     )
     router = AIRouter(settings)
