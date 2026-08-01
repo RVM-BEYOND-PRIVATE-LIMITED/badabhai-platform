@@ -296,7 +296,7 @@ describe("WorkersRepository.createOrGetByPhoneHash — TD23 atomic insert-or-fet
     const out = await new WorkersRepository(db).createOrGetByPhoneHash(input);
     expect(captured.insertTable).toBe(workers);
     expect(captured.conflict).toEqual({ target: workers.phoneHash });
-    expect(out).toEqual({ worker: workerRow(WORKER_ID), created: false || true });
+    expect(out).toEqual({ worker: workerRow(WORKER_ID), created: true });
     expect(out.created).toBe(true);
   });
 
