@@ -245,11 +245,17 @@ jobs:
       # (GET /resume/:id, …). Job-level so the API process AND the e2e test both see it;
       # the test sends it as x-internal-service-token.
       INTERNAL_SERVICE_TOKEN: e2e-internal-service-token
-      # ---- D-3 test-login seam (arms contact-unlock.e2e.test.ts) ----
+      # ---- D-3 test-login seam ----
       # OTP is real-only: SMS_PROVIDER is a z.literal("fast2sms") and no dev_otp echo
       # exists at any boundary, so an e2e run CANNOT obtain a code with the dummy key
-      # above. `POST /auth/test-login` is the seam built for this; without it armed the
-      # contact-unlock suite has no way to mint a worker session and stays skipped.
+      # above. `POST /auth/test-login` is the seam built for exactly that, and it WORKS —
+      # measured on run 30699229574, where contact-unlock minted sessions and F-3 passed
+      # end to end before that suite was re-gated for an unrelated reason (TD129: the API
+      # cannot read the locked `workers`/`events` tables in this job).
+      #
+      # Kept armed although no suite currently consumes it: it is the only way any future
+      # e2e can authenticate a worker, and the seam is inert unless a test sends the
+      # header, so arming it costs nothing and re-deriving this block later is rework.
       #
       # Safe to arm HERE and nowhere else: assertAuthConfig refuses to boot when this is
       # enabled outside development/test/staging (NODE_ENV is `test` above), and refuses

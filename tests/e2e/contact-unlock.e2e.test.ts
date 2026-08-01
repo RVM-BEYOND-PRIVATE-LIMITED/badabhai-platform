@@ -126,19 +126,34 @@ async function consent(token: string, purposes: string[]): Promise<void> {
   expect(r.status).toBe(201);
 }
 
-// WAS `describe.skip`, ARMED 2026-08-01. The old comment here read "this suite mints
-// authenticated worker sessions via OTP login, which now requires a real Fast2SMS code
-// (no dev echo) — it cannot run in automated CI". That diagnosis was right and the
-// conclusion has since stopped being true: the D-3 seam (`POST /auth/test-login`) exists
-// precisely so an e2e run can mint a worker session without an SMS, and `loginWorker`
-// above now uses it. The blocker was AUTHENTICATION, never the database.
+// ── WHY THIS IS STILL GATED, AND WHAT CHANGED ────────────────────────────────
+// The OLD blocker is GONE. This file used to be a bare `describe.skip` explained as
+// "mints sessions via OTP login, which needs a real Fast2SMS code — cannot run in CI".
+// That was true, and `loginWorker` above now routes around it via the D-3 seam. MEASURED
+// on CI run 30699229574: the suite executed, sessions minted, and F-3 PASSED end to end.
+// Authentication is solved.
 //
-// It is `skipIf(!RUN)` rather than unconditional because this suite needs a LIVE API +
-// migrated Postgres, exactly like its swipe-to-apply sibling. RUN_E2E=1 is set on the CI
-// e2e job, so it executes there; a bare `pnpm test` still skips it. The old `void RUN;`
-// existed only to silence an unused-variable lint once `RUN` stopped gating anything —
-// `RUN` is load-bearing again, so it is gone.
-describe.skipIf(!RUN)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
+// A DIFFERENT blocker was underneath it, and un-skipping is what exposed it. 6 of 8 tests
+// failed with `POST /consent/accept -> 500`, and the Postgres log gives the cause:
+//     ERROR: permission denied for table workers
+//     ERROR: permission denied for table events
+// `workers` and `events` are deliberately locked — FORCE RLS + `REVOKE ALL ... FROM
+// PUBLIC, anon, authenticated, service_role` (migration 0004, ADR-0004) — and the API as
+// the e2e job runs it cannot read them. This is NOT a defect in this suite: it is the
+// e2e environment's database role, and it is pre-existing.
+//
+// It was invisible until now because NOTHING in CI had ever exercised a worker-touching
+// flow: the one test that does (`phase1-onboarding.e2e.test.ts:141`, "logs in → consents
+// → chats → …") is itself `it.skip`. The OTP skip was masking an environment gap, so
+// fixing the OTP half revealed rather than removed the obstacle.
+//
+// So the gate is now EXPLICIT and narrow rather than a blanket skip: set
+// `E2E_UNLOCK_SUITE=1` (with RUN_E2E=1) to run it. Deliberately NOT armed in CI — the
+// remaining work is granting the e2e API role read access to the locked PII spine, which
+// is a security-boundary decision (ADR-0004 / TD4), not a test change. Arming it before
+// that lands would only re-create the red. See the tech-debt register.
+const RUN_UNLOCK = RUN && process.env.E2E_UNLOCK_SUITE === "1";
+describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
   let client!: DbClient;
 
   beforeAll(() => {
