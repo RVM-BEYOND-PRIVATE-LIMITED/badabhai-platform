@@ -73,7 +73,7 @@ landed in #528.
 gap (automation exists, never exercised) is tracked as TD123, separately from the contradiction
 itself.
 
-**P1 (migration train) has not started.** The Matching V1 train (`0052`–`0057`) is authored,
+**P1 (migration train) has not started.** The Matching V1 train (`0052`–`0059`) is authored,
 not applied. Rehearsal against a restored snapshot is mandatory per this file's own P1 section,
 and item 9 (backup/restore verified) is unconfirmed — so P1 cannot honestly start until item 9
 is closed, even though nothing code-side blocks it.
