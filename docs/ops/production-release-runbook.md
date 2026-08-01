@@ -18,9 +18,9 @@ Nothing in P4 may proceed past the item that depends on it.
 | # | Action | Gates | Status |
 | - | ------ | ----- | ------ |
 | 1 | **Sarvam DPA + written terms signed** | The `stt_transcription` flip. Audio cannot be pseudonymized before the provider hears it — this is the compliance condition for real worker voice leaving the platform. **Hard legal gate.** | ☐ |
-| 2 | **Google (Gemini) + Anthropic DPAs in place** | `AI_ENABLE_REAL_CALLS`. Pseudonymized text is still worker data. **Hard legal gate.** | ☐ |
+| 2 | **Google (Gemini) + Anthropic DPAs in place** | `AI_ENABLE_REAL_CALLS`. Pseudonymized text is still worker data. **Hard legal gate.** | **WAIVED, NOT MET (owner, Prakash, 2026-08-01)** — the flag was set true without the DPAs signed. This box stays UNCHECKED on purpose: the owner accepted the exposure, which is a decision, not a satisfied gate. Still to sign. |
 | 3 | **Grievance Officer NAMED and published** | Public launch. Legally required under DPDP. **Hard legal gate.** | ☐ |
-| 4 | **R32 decision recorded** — accept-at-launch in the risks register, or harden first | `AI_ENABLE_REAL_CALLS`. R32 (an un-cued third-party name reaching LLM input) is NARROWED, not closed; the gazetteer approach was measured dead and reverted. Someone must own the residual in writing. | ☐ |
+| 4 | **R32 decision recorded** — accept-at-launch in the risks register, or harden first | `AI_ENABLE_REAL_CALLS`. R32 (an un-cued name reaching LLM input) is NARROWED, not closed; the gazetteer approach was measured dead and reverted. Someone must own the residual in writing. | ☑ **DONE 2026-08-01** — owner ruling: **accept at launch**, recorded against R32 (and R30) in the risks register. The decision is owned; the leak is not fixed. |
 | 5 | **Razorpay**: account, KYC, live key id + key secret, webhook secret, webhook URL registered | `PAYMENTS_ENABLE_REAL`. | ☐ |
 | 6 | **`app.badabhai.in` DNS + TLS serving payer-web**, and the **Play App Signing SHA-256** exported from Play Console into `assetlinks.json` | App Links verification, therefore the whole attribution chain. Until this is real, shared links open a browser and fresh installs lose the referral code. | ☐ |
 | 7 | **Play Console**: store listing, App Links domain verification, staged-rollout track ready | P5 client release. | ☐ |
@@ -77,6 +77,55 @@ itself.
 not applied. Rehearsal against a restored snapshot is mandatory per this file's own P1 section,
 and item 9 (backup/restore verified) is unconfirmed — so P1 cannot honestly start until item 9
 is closed, even though nothing code-side blocks it.
+
+### AI real calls went LIVE 2026-08-01 — what is actually armed
+
+`AI_ENABLE_REAL_CALLS=true` was set by the owner on 2026-08-01, with R32 and R30 accepted at
+launch (P0-4 done by the accept branch) and the DPA gate (P0-2) consciously waived. Two
+consequences of *how* the flag works that are separate from that risk acceptance, and were not
+part of it:
+
+**1. An empty `AI_REAL_CALL_TASKS` means ALL tasks, not none.**
+
+```python
+ai_real_call_tasks: str = ""
+# "Parsed AI_REAL_CALL_TASKS. Empty = no per-task restriction (all tasks)."
+```
+
+Measured at runtime on 2026-08-01 with `ai_enable_real_calls=True`, a Gemini key set and
+`ai_real_call_tasks=''` — `Settings.real_call_enabled_for(task)`:
+
+| task | empty allowlist | `AI_REAL_CALL_TASKS=profile_extraction` |
+| --- | --- | --- |
+| `profile_extraction` | **True** | True |
+| `resume_generation` | **True** | False |
+| `skill_embedding` | **True** | False |
+| `stt_transcription` | **True** | False |
+| `profiling_chat_turn` | **True** | False |
+
+The staged sequence this runbook and the release plan both specify — `profile_extraction` first,
+then widen one task at a time with a canary between each — is skipped entirely unless
+`AI_REAL_CALL_TASKS` is set. To restore it: `AI_REAL_CALL_TASKS=profile_extraction`.
+
+**Note `stt_transcription` in that first column.** Real speech-to-text is gated by **P0-1 (Sarvam
+DPA + written terms — a hard legal gate)**, and at the config layer that gate is currently open:
+the only thing preventing real worker audio leaving the platform is that no Sarvam credential is
+set, not the allowlist. Setting a Sarvam key while the allowlist is empty would flip STT live
+with no further decision. `profiling_chat_turn` is likewise permitted here even though the design
+intent is that it stays templated.
+
+**2. Spend caps are PER-PROCESS unless `AI_SPEND_REDIS_URL` is set.**
+
+`CostTracker` falls back to `InProcessSpendBackend` when that env var is absent, so the daily and
+cumulative rupee caps apply per replica: N replicas means N x the intended ceiling. With Redis
+configured the ledger is shared and, if Redis is unreachable, `would_exceed_spend` returns
+`spend_store_unavailable` and fails CLOSED. Set `AI_SPEND_REDIS_URL` to make the caps mean what
+they say.
+
+**Abort lever, for both.** `AI_REAL_CALLS_KILL_SWITCH=true` is evaluated FIRST in
+`real_calls_blocked_reason()` — before `AI_ENABLE_REAL_CALLS` (TD27) — so it hard-disables real
+calls without touching the enable flag. That is the lever to pull if a name or phone leak is
+observed in the wild, since R30 and R32 are both live-and-accepted rather than fixed.
 
 ### P0-10 — why this is suddenly load-bearing
 
