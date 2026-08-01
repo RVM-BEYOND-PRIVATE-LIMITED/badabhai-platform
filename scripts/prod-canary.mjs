@@ -105,6 +105,11 @@ export const OPS_ROUTES = [
   ["GET", `/reach/workers/${ABSENT_ID}/feed`],
   ["GET", `/jobs/${ABSENT_ID}/applicants`],
 
+  // ── PACE supply-widening (ADR-0021), guarded 2026-08-01 ──
+  // `alerts` is the one that was live-and-open: it is NOT covered by `PACE_ENABLED`.
+  ["GET", "/pace/alerts"],
+  ["POST", `/pace/jobs/${ABSENT_ID}/start`, {}],
+
   // ── contact unlock + disclosure (the money-and-PII surface) ──
   ["GET", "/unlocks?limit=1"],
   ["POST", "/unlocks", {}],
