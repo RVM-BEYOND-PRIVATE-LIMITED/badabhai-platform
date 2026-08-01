@@ -4,7 +4,7 @@
 **Author:** database-architect. **Ratified:** "Matching Algorithm V1", CEO, 2026-07-30.
 
 This runbook is the operational contract for landing Matching V1 on the single shared
-Supabase Postgres. It covers **7 migrations (0052 → 0058)**, then **6 data steps
+Supabase Postgres. It covers **8 migrations (0052 → 0059)**, then **6 data steps
 (D1 → D6)**, then **one verifier**.
 
 Every step below states: the exact command · a **verify SQL query with its expected
@@ -26,7 +26,7 @@ re-run** or **one-way**.
 | 0.4 | Migration head is 0051 | see [§1.1](#11-confirm-the-current-head) | `0051_mighty_jigsaw` is the last applied. |
 | 0.5 | Code is built | `pnpm install && pnpm build` | Green. `@badabhai/taxonomy` must carry the V1 exports (see [§8](#8-known-blockers--cross-package-dependencies)). |
 | 0.6 | No deploy in flight | — | The API is **not** mid-deploy. Migrations land first, code second (§0.7). |
-| 0.7 | **Deploy order understood** | — | **Apply 0052–0058 BEFORE deploying the Matching V1 API.** Every new column is nullable/defaulted, so the *current* API keeps working against the migrated DB — but the *new* API will not work against an unmigrated one. |
+| 0.7 | **Deploy order understood** | — | **Apply 0052–0059 BEFORE deploying the Matching V1 API.** Every new column is nullable/defaulted, so the *current* API keeps working against the migrated DB — but the *new* API will not work against an unmigrated one, and a boost purchase 500s without 0059. |
 | 0.8 | Maintenance window | — | Not required at current volume (see the durations below), but do it in a low-traffic hour anyway: steps 0052/0054/0056 take brief `ACCESS EXCLUSIVE` locks. |
 
 ### STOP if any of these is true
@@ -58,7 +58,7 @@ split to use instead.
 
 ---
 
-## 1. The migrations (0052 → 0058)
+## 1. The migrations (0052 → 0059)
 
 ### 1.1 Confirm the current head
 
@@ -110,6 +110,7 @@ psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f migrations/0052_match_vocabulary.sql
 > | `0056_applications_v1_snapshot` | `1785485029597` |
 > | `0057_match_config` | `1785485088201` |
 > | `0058_payments_and_referral_bonus` | `1785485161707` |
+> | `0059_boost_tiers_widened` | `1785485222108` |
 >
 > The hash must be computed from the **committed file bytes**. If you edit a migration
 > file, the hash changes and the bookkeeping row is wrong.
@@ -394,6 +395,47 @@ SELECT
 `DROP TABLE "payment_orders"; DROP TABLE "referral_bonus_accruals";`. Once real orders or
 accruals exist, **do not drop** — those rows are the payment audit trail.
 **Duration:** < 1 s.
+
+---
+
+### Step 0059 — boost tier widening ⚠️ **REQUIRED by the API wiring**
+
+`packages/db/migrations/0059_boost_tiers_widened.sql`
+
+**What it does:** widens the `posting_boosts.tier` CHECK constraint to accept the three
+repriced boost codes — `boost_7` (₹499 / 7d), `boost_15` (₹999 / 15d), `boost_30`
+(₹1799 / 30d), ADR-0036 §7 — alongside the historical `all_candidates`, which **stays**
+(additive; every existing boost row carries it and the amounts live in
+`packages/pricing/src/defaults.ts`, not the DB). No data step.
+
+> **Do not skip this.** It landed AFTER the 0052–0058 train (commit `324e0c7`) and is,
+> per its own header, *"the only DB change the Matching V1 API wiring needs beyond the
+> 0052–0058 train."* The boost purchase path writes `tier='boost_7'|'boost_15'|'boost_30'`.
+> Without 0059 the old constraint only permits `'all_candidates'`, so **every boost
+> purchase fails with a CHECK violation the moment `MATCH_V1_ENABLED` is on.**
+
+**Command**
+
+```bash
+psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f packages/db/migrations/0059_boost_tiers_widened.sql
+```
+
+**Verify**
+
+```sql
+SELECT pg_get_constraintdef(oid) AS tier_check
+FROM pg_constraint WHERE conname = 'posting_boosts_tier_chk';
+```
+
+**Expected:** the definition lists all four codes —
+`CHECK ((tier IN ('all_candidates','boost_7','boost_15','boost_30')))`.
+
+**Re-run:** not idempotent (plain `DROP`/`ADD CONSTRAINT`). Apply once.
+**Rollback:** reversible **only while no row uses a new tier** — first confirm
+`SELECT count(*) FROM posting_boosts WHERE tier <> 'all_candidates';` returns `0`, then
+re-narrow the CHECK to `('all_candidates')` (full statement in the migration header).
+**Duration:** < 1 s (brief `ACCESS EXCLUSIVE`; at 100× volume use the `NOT VALID` +
+`VALIDATE CONSTRAINT` split described in the migration).
 
 ---
 
@@ -793,15 +835,16 @@ locked list equals the live schema **and** the Drizzle model (53 = 53 = 53).
 5.  0056  applications snapshot        ← ⚠️ ONE-WAY DOOR
 6.  0057  match_config
 7.  0058  payments + referral bonus
+8.  0059  boost tier widening          ← REQUIRED by the API wiring (boost purchase 500s without it)
     §2  post-migration gate (RLS + REVOKE + table count)
-8.  D1    db:seed:match:vocabulary     --apply
-9.  D2    db:backfill:worker-skills    --apply
-10. D3    db:backfill:job-postings     --apply   → read the ops worklist
-11. D4    db:convert:seed-jobs         --apply   ← feed continuity
-12. D5    db:materialize:reach         --apply
-13. D6    db:grant:free-tier           --apply
-14.       db:verify:match-v1                     ← must exit 0
-15.       deploy the Matching V1 API
+9.  D1    db:seed:match:vocabulary     --apply
+10. D2    db:backfill:worker-skills    --apply
+11. D3    db:backfill:job-postings     --apply   → read the ops worklist
+12. D4    db:convert:seed-jobs         --apply   ← feed continuity
+13. D5    db:materialize:reach         --apply
+14. D6    db:grant:free-tier           --apply
+15.       db:verify:match-v1                     ← must exit 0
+16.       deploy the Matching V1 API
 ```
 
 D1 must precede D2/D3/D4/D5. D2/D3/D4 must precede D5. D6 is independent of D2–D5 and can
@@ -813,7 +856,7 @@ run any time after 0057 + D1.
 
 | Step | Safe to re-run? | Notes |
 |---|---|---|
-| 0052–0058 | ❌ **No** | `ADD COLUMN` / `CREATE TABLE` without `IF NOT EXISTS`. Apply each once; the journal is the record. |
+| 0052–0059 | ❌ **No** | `ADD COLUMN` / `CREATE TABLE` / `ADD CONSTRAINT` without `IF NOT EXISTS`. Apply each once; the journal is the record. |
 | D1 `seed:match:vocabulary` | ✅ Always | Row-level idempotent; self-repairing. |
 | D2 `backfill:worker-skills` | ✅ Always | Re-derives + prunes; never touches human-authored rows. |
 | D3 `backfill:job-postings` | ✅ Always | Only fills still-empty postings; a concurrent ops edit wins. |
