@@ -33,6 +33,11 @@ jobs:
               - 'pnpm-workspace.yaml'
               - 'turbo.json'
               - 'apps/ai-service/**'
+              # The job's own definition. Without this, a change to the e2e job — its
+              # service containers, its migration steps, or the Matching V1 DB gates
+              # below — skips the very job it edits, so the edit ships unvalidated.
+              # A workflow file can obviously affect the workflow.
+              - '.github/workflows/ci.yml'
 
   # ---- TypeScript monorepo: lint, typecheck, test, build ----
   node:
@@ -290,6 +295,71 @@ jobs:
       # seeded job source. Idempotent; PII-free; safe to run before every e2e.
       - name: Seed alpha jobs
         run: pnpm --filter @badabhai/db db:seed:jobs
+
+      # ---- Matching V1 DB-backed release gates (ADR-0036) ----
+      # Two suites exist, are correct, and until now NEVER RAN in CI: both are
+      # `describe.skipIf(process.env.RUN_DB_TESTS !== "1")`, and RUN_DB_TESTS was set
+      # nowhere under .github/ (TD122). A skipped gate is a disclosed gap, not a pass.
+      #   * rank-parity  — pins the `ORDER BY` in MatchFeedRepository.listCandidates to
+      #                    `rankKeyCompare` in @badabhai/match-engine. The V1 rank tuple
+      #                    lives in exactly those two places and a database cannot call a
+      #                    TypeScript comparator, so the duplication is unavoidable; this
+      #                    is the only thing that catches the two drifting apart.
+      #   * boost-fences — the three ADR-0036 §7 fences (boost never passes the skill
+      #                    gate, permutes order only, never touches the company's
+      #                    candidate list). All three are properties of the SQL, so they
+      #                    are unprovable without a real database.
+      #
+      # They need nothing but a MIGRATED Postgres, which the steps above already built:
+      # this job's service container gets the whole chain (0000–0059, journal-driven)
+      # applied from scratch on every run, so these gates are independent of which
+      # migrations any deployed database has seen. Each suite seeds its own PII-free
+      # fixtures and deletes them in afterAll, and neither needs the API process — hence
+      # running here, before the API boots.
+      #
+      # RUN_DB_TESTS is scoped to THIS STEP. The `node` job runs the same apps/api suite
+      # with no database and must keep skipping these two files.
+      # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
+      # `node` job, and a two-file run cannot meet them.
+      - name: Matching V1 DB gates (rank parity + boost fences)
+        env:
+          RUN_DB_TESTS: "1"
+        run: |
+          set -eo pipefail
+          # NO `--` before the filters: pnpm forwards it to the script verbatim, so
+          # `test -- rank-parity` runs `vitest run -- rank-parity`, where vitest
+          # ignores the filter and reruns the whole 2820-test suite. Measured, not
+          # assumed — that is what the first push of this branch actually did.
+          pnpm --filter @badabhai/api run test rank-parity boost-fences 2>&1 | tee db-gates-raw.log
+          sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
+
+          # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
+          #     exit 0 reporting "9 skipped" — precisely how these gates sat green for
+          #     their whole life while proving nothing. Assert per FILE, because a
+          #     suite-wide "some test passed" check is satisfied by unrelated tests.
+          for f in rank-parity boost-fences; do
+            line=$(grep -E "src/match/${f}\.test\.ts" db-gates.log | head -1 || true)
+            if [ -z "$line" ]; then
+              echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
+              exit 1
+            fi
+            case "$line" in
+              *skipped*)
+                echo "::error::${f}.test.ts SKIPPED — RUN_DB_TESTS is not reaching vitest, so this gate would have passed vacuously."
+                exit 1
+                ;;
+            esac
+          done
+
+          # (2) …AND ONLY THE GATES. Guards the arg-forwarding bug above: if the filter
+          #     stops reaching vitest, this step silently becomes a slow duplicate of the
+          #     `node` job (and check (1) starts passing on unrelated tests). Update the
+          #     expected count when adding a gate file to the command above.
+          if ! grep -qE 'Test Files +2 passed \(2\)' db-gates.log; then
+            echo "::error::Expected exactly the 2 gate files to run — the vitest file filter is not reaching vitest."
+            grep -E 'Test Files|      Tests ' db-gates.log || true
+            exit 1
+          fi
 
       - name: Start API and run the Phase 1 E2E suite
         run: |
