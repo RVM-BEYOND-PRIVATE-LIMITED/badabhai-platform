@@ -291,6 +291,48 @@ jobs:
       - name: Seed alpha jobs
         run: pnpm --filter @badabhai/db db:seed:jobs
 
+      # ---- Matching V1 DB-backed release gates (ADR-0036) ----
+      # Two suites exist, are correct, and until now NEVER RAN in CI: both are
+      # `describe.skipIf(process.env.RUN_DB_TESTS !== "1")`, and RUN_DB_TESTS was set
+      # nowhere under .github/ (TD122). A skipped gate is a disclosed gap, not a pass.
+      #   * rank-parity  — pins the `ORDER BY` in MatchFeedRepository.listCandidates to
+      #                    `rankKeyCompare` in @badabhai/match-engine. The V1 rank tuple
+      #                    lives in exactly those two places and a database cannot call a
+      #                    TypeScript comparator, so the duplication is unavoidable; this
+      #                    is the only thing that catches the two drifting apart.
+      #   * boost-fences — the three ADR-0036 §7 fences (boost never passes the skill
+      #                    gate, permutes order only, never touches the company's
+      #                    candidate list). All three are properties of the SQL, so they
+      #                    are unprovable without a real database.
+      #
+      # They need nothing but a MIGRATED Postgres, which the steps above already built:
+      # this job's service container gets the whole chain (0000–0059, journal-driven)
+      # applied from scratch on every run, so these gates are independent of which
+      # migrations any deployed database has seen. Each suite seeds its own PII-free
+      # fixtures and deletes them in afterAll, and neither needs the API process — hence
+      # running here, before the API boots.
+      #
+      # RUN_DB_TESTS is scoped to THIS STEP. The `node` job runs the same apps/api suite
+      # with no database and must keep skipping these two files.
+      # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
+      # `node` job, and a two-file run cannot meet them.
+      - name: Matching V1 DB gates (rank parity + boost fences)
+        env:
+          RUN_DB_TESTS: "1"
+        run: |
+          set -eo pipefail
+          pnpm --filter @badabhai/api test -- rank-parity boost-fences 2>&1 | tee db-gates.log
+
+          # NON-VACUITY GUARD. `describe.skipIf` makes an unarmed run exit 0 with
+          # "Tests 9 skipped (9)" — which is exactly how these gates sat green while
+          # proving nothing. Require that at least one test actually executed and
+          # passed, so losing RUN_DB_TESTS fails loudly instead of silently reverting
+          # to the status quo. (Tolerant of a future individual `it.skip`.)
+          if ! grep -qE 'Tests.*passed' db-gates.log; then
+            echo "::error::Matching V1 DB gates did not EXECUTE (no test reported as passed). RUN_DB_TESTS is not reaching vitest — this step would have passed vacuously."
+            exit 1
+          fi
+
       - name: Start API and run the Phase 1 E2E suite
         run: |
           node apps/api/dist/main.js > api.log 2>&1 &
