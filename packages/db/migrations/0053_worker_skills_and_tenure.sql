@@ -18,9 +18,32 @@
 --
 -- LOCKS: CREATE TABLE only — no lock on any live table.
 --
--- ROLLBACK (fully reversible — the data is 100% re-derivable by re-running D2):
---   DROP TABLE "worker_skill";
---   DROP TABLE "worker_industry_tenure";
+-- ROLLBACK — CONDITIONAL. CHECK BEFORE YOU DROP:
+--   SELECT count(*) AS must_be_zero FROM worker_skill WHERE source <> 'derived_coarse';
+--
+-- `source` admits 'derived_coarse' | 'interview' | 'ops' (the CHECK below), and the D2
+-- backfill owns ONLY 'derived_coarse' — it scopes both its upsert and its prune with
+-- `setWhere source = 'derived_coarse'` so it can never overwrite a human-authored row.
+-- So "re-derivable by re-running D2" is true of derived_coarse rows and FALSE of the
+-- other two.
+--
+--   * count = 0 (the situation today — nothing writes 'interview'/'ops' yet; the only
+--     intended writer, WorkerSkillsService.setWants, is an unwired seam that throws):
+--     fully reversible, the data is 100% re-derivable by re-running D2 —
+--       DROP TABLE "worker_skill";
+--       DROP TABLE "worker_industry_tenure";
+--
+--   * count > 0: the unscoped DROP TABLE DESTROYS DATA NOTHING CAN REBUILD. Interview-
+--     and ops-authored rows are a worker's own answers / an ops correction; no script
+--     regenerates them. Do NOT drop. Undo only what D2 owns, keeping the table:
+--       DELETE FROM worker_skill WHERE source = 'derived_coarse';
+--       TRUNCATE worker_industry_tenure;   -- fully derived, D2 rebuilds it
+--     Reversing this migration's DDL at that point requires exporting the surviving rows
+--     first and accepting that restoring them is hand work, not a D2 re-run.
+--
+-- worker_industry_tenure has no `source` column and is 100% derived, so it is
+-- rebuildable unconditionally.
+--
 -- Safe at any time before job_reach (0055) is populated; after that, drop job_reach
 -- first (it has no FK to these, but a stale reach set would outlive its driver).
 CREATE TABLE "worker_industry_tenure" (

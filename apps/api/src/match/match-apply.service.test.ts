@@ -365,9 +365,14 @@ describe("upsertDecision — one statement, no read-then-write (the E16 race gua
     });
 
     // SHAPE GUARD, not a semantic one: what the CASE actually DOES on conflict can only
-    // be proven against Postgres (rank-parity.test.ts owns that). What this catches is a
-    // column quietly losing its guard — after which a re-apply would overwrite a frozen
-    // snapshot, which is exactly what E16 forbids.
+    // be proven against Postgres, which `apply-freeze.test.ts` owns (DB-gated, run in the
+    // `e2e` job). NOT `rank-parity.test.ts` — an earlier version of this comment named it,
+    // wrongly: that file seeds `applications` rows with plain INSERTs and asserts the
+    // candidate-list ORDER BY against `rankKeyCompare`. It never calls `upsertDecision`, so
+    // it never exercises an ON CONFLICT DO UPDATE on `applications` (its only ON CONFLICT is
+    // a DO NOTHING on the `workers` seed) — it proved nothing about this statement.
+    // What THIS test catches is a column quietly losing its guard — after which a
+    // re-apply would overwrite a frozen snapshot, which is exactly what E16 forbids.
     const { text } = statementOf(db);
     for (const col of [
       "match_tier",

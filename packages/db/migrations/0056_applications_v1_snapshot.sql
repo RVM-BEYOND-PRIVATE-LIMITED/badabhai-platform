@@ -23,10 +23,28 @@
 -- 🔒 THE IRREVERSIBLE PART, stated plainly for the applier:
 --   Re-adding `NOT NULL` to `applications.job_id` is possible ONLY while zero rows have
 --   `job_id IS NULL`. The moment the first V1 application is written, that door is shut
---   — undoing it would mean DELETING real worker applications. Everything else in this
---   migration (the columns, the indexes, the checks) drops cleanly at any time.
+--   — undoing it would mean DELETING real worker applications.
 --   Verify before rolling back:
 --     SELECT count(*) FROM applications WHERE job_id IS NULL;   -- must be 0
+--
+--   ⚠️ THAT CHECK GATES THE **WHOLE** ROLLBACK, NOT JUST ITS LAST LINE. An earlier version
+--   of this header said the columns/indexes/checks "drop cleanly at any time". That is
+--   true STRUCTURALLY and FALSE about the data: once V1 applications exist, DROP COLUMN
+--   "match_tier" (and the four beside it) permanently destroys the rank snapshot — the
+--   history this migration exists to capture and which NOTHING can reconstruct, because
+--   worker_skill is re-derived, worker_industry_tenure is rebuilt and job_reach is a
+--   disposable cache. Those DROPs SUCCEED at any time; that is exactly the trap. Working
+--   top-to-bottom through the list below without checking first destroys the snapshot
+--   ~10 statements BEFORE reaching the one line that would have refused.
+--   So: run the count FIRST. If it is not 0, STOP — this is a data-loss operation, not a
+--   rollback. Every statement below is annotated with the same gate.
+--
+--   ON DELETE CASCADE — A LIVE-OPERATIONS HAZARD, NOT ONLY A ROLLBACK ONE:
+--   the FK added below is ON DELETE cascade, so deleting ANY job_postings row — an
+--   ordinary ops action, long after this train is finished — silently deletes every V1
+--   application attached to it (and its job_reach rows, same cascade in 0055). No prompt,
+--   no event. CLOSE a posting (status='closed'); never DELETE it. Before any delete:
+--     SELECT count(*) FROM applications WHERE job_posting_id = '<id>';   -- must be 0
 --
 -- NEW COLUMNS: job_posting_id, match_tier, skill_months, industry_months,
 --   last_worked_at, engine_version.
@@ -44,7 +62,12 @@
 -- scan it. Small today. On a large table use CREATE INDEX CONCURRENTLY out of band and
 -- ADD CONSTRAINT ... NOT VALID + VALIDATE CONSTRAINT instead.
 --
--- ROLLBACK (structural — safe ONLY while `job_id IS NULL` count is 0, see above):
+-- ROLLBACK — GATE 0 FIRST. THE GATE APPLIES TO EVERY STATEMENT IN THIS LIST.
+--   Run this and STOP if it is not 0. Do not start the list "to see how far it gets":
+--   the destructive statements are the ones that SUCCEED.
+--     SELECT count(*) FROM applications WHERE job_id IS NULL;   -- MUST be 0
+--
+--   -- Indexes + constraints: structurally reversible, no data lost. Recreate from this file.
 --   DROP INDEX IF EXISTS "applications_rank_idx";
 --   DROP INDEX IF EXISTS "applications_applied_posting_idx";
 --   DROP INDEX IF EXISTS "applications_worker_posting_uq";
@@ -52,12 +75,20 @@
 --   ALTER TABLE "applications" DROP CONSTRAINT IF EXISTS "applications_match_tier_chk";
 --   ALTER TABLE "applications" DROP CONSTRAINT IF EXISTS "applications_job_ref_chk";
 --   ALTER TABLE "applications" DROP CONSTRAINT IF EXISTS "applications_job_posting_id_job_postings_id_fk";
+--
+--   -- ⚠️ GATE 0 APPLIES: the next 5 DROPs DESTROY THE RANK SNAPSHOT IRRECOVERABLY if any
+--   -- V1 application exists. They will not error. Nothing rebuilds this data.
 --   ALTER TABLE "applications" DROP COLUMN IF EXISTS "engine_version";
 --   ALTER TABLE "applications" DROP COLUMN IF EXISTS "last_worked_at";
 --   ALTER TABLE "applications" DROP COLUMN IF EXISTS "industry_months";
 --   ALTER TABLE "applications" DROP COLUMN IF EXISTS "skill_months";
 --   ALTER TABLE "applications" DROP COLUMN IF EXISTS "match_tier";
+--
+--   -- ⚠️ GATE 0 APPLIES: this drops the POINTER to the posting a V1 worker applied to.
 --   ALTER TABLE "applications" DROP COLUMN IF EXISTS "job_posting_id";
+--
+--   -- ⚠️ GATE 0 APPLIES: the only statement that FAILS LOUDLY on its own if the gate was
+--   -- skipped — by which point everything above has already been destroyed.
 --   ALTER TABLE "applications" ALTER COLUMN "job_id" SET NOT NULL;   -- ONLY if 0 nulls
 ALTER TABLE "applications" ALTER COLUMN "job_id" DROP NOT NULL;--> statement-breakpoint
 ALTER TABLE "applications" ADD COLUMN "job_posting_id" uuid;--> statement-breakpoint
