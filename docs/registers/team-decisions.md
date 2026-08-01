@@ -275,3 +275,15 @@ ordered runbook with a verify query and rollback note per step — the locked co
 visible on the worker feed card; whether R32 (un-cued name reaching LLM input) is
 owner-accepted-at-launch or hardened first; PACE retirement acknowledgement; and the
 "Namaste!" exclamation in the opener.
+
+### 2026-08-01 — `AI_REAL_CALL_TASKS` empty allowlist is FAIL-CLOSED (empty = NO tasks)
+Owner ruling (Prakash). The shipped semantics — empty allowlist = no per-task
+restriction, ALL tasks real — meant the master-flag flip armed `stt_transcription`
+and `profiling_chat_turn` alongside extraction, and a stray `SARVAM_API_KEY` alone
+would have flipped real worker audio live across the unsigned Sarvam DPA (P0-1).
+`real_call_enabled_for` now requires the task to be **explicitly listed**; there is
+no wildcard. Rejected alternative: a `*` escape hatch (kept the footgun). Deploy
+consequence, accepted: an env still running an empty allowlist drops to mock until
+`AI_REAL_CALL_TASKS` is set — set `AI_REAL_CALL_TASKS=profile_extraction` in prod
+**before** the deploy carrying this change. See the production release runbook
+("AI real calls went LIVE") for the deployed-vs-repo split.

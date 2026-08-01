@@ -38,11 +38,13 @@ logged (pseudonymized, but still content) — counts/status only.
 ```
 real(task) = AI_ENABLE_REAL_CALLS               # master flag
              AND GEMINI_FLASH_API_KEY is set     # direct Gemini key
-             AND (AI_REAL_CALL_TASKS is empty OR task in AI_REAL_CALL_TASKS)
+             AND task in AI_REAL_CALL_TASKS      # explicit allowlist, no wildcard
 ```
 
-So `AI_REAL_CALL_TASKS=profile_extraction` makes **only** extraction real; an
-empty allowlist keeps the previous "all tasks" behavior (backward compatible).
+So `AI_REAL_CALL_TASKS=profile_extraction` makes **only** extraction real. An
+**empty allowlist blocks every task** (fail-closed, owner-ruled 2026-08-01 —
+previously empty meant "all tasks", which armed STT/chat the moment the master
+flag went true). Real calls in any environment require an explicit task list.
 
 ## Staging rollout steps
 

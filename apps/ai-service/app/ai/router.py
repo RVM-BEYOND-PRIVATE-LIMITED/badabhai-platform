@@ -111,7 +111,8 @@ class AIRouter:
         route = get_route(task_type)
         primary_model = resolve_model(task_type, self._settings)
         # Per-task gating: real only if the master flag + key are set AND this
-        # task is allowlisted (empty allowlist = all tasks). Lets ONE role go real.
+        # task is allowlisted (empty allowlist = NO tasks; fail-closed). Lets
+        # ONE role go real.
         real = self._settings.real_call_enabled_for(task_type) and real_call_allowed
         input_text = "\n".join(m.get("content", "") for m in messages)
         start = time.perf_counter()

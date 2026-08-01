@@ -50,7 +50,12 @@ def _mock_settings() -> Settings:
 
 
 def _real_settings() -> Settings:
-    return Settings(ai_enable_real_calls=True, gemini_flash_api_key="test-key")
+    # The embedding task must be explicitly allowlisted (empty = NO tasks, fail-closed).
+    return Settings(
+        ai_enable_real_calls=True,
+        gemini_flash_api_key="test-key",
+        ai_real_call_tasks="skill_embedding",
+    )
 
 
 # --- (4) mock vector dimension == schema vector(768) + determinism -----------

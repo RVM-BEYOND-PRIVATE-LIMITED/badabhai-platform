@@ -226,8 +226,9 @@ class SttAdapter:
 
         ``real_call_enabled_for`` gives BOTH in one call: it requires
         ``real_calls_blocked_reason() is None`` (kill-switch, master flag, Gemini key)
-        and then the allowlist, where EMPTY means all tasks — so the allowlist half is
-        back-compatible by construction.
+        and then the allowlist, where EMPTY means NO tasks (fail-closed, owner-ruled
+        2026-08-01) — so real STT requires ``stt_transcription`` to be explicitly
+        listed in ``AI_REAL_CALL_TASKS``.
 
         ACCEPTED COUPLING, stated because it is not obvious: ``real_calls_blocked_reason``
         also requires ``GEMINI_FLASH_API_KEY``, so real STT now needs the LLM master

@@ -61,6 +61,7 @@ def test_real_mode_call_failure_falls_back_to_mock_safely():
     settings = Settings(
         ai_enable_real_calls=True,
         gemini_flash_api_key="test-key",
+        ai_real_call_tasks="profile_extraction",
     )
     assert settings.real_calls_enabled is True
     router = AIRouter(settings)
@@ -86,8 +87,13 @@ def test_cost_metadata_is_returned_with_model_and_provider():
 
 
 def test_real_call_can_be_disabled_per_request():
-    # Even with real mode enabled globally, a request can opt out.
-    settings = Settings(ai_enable_real_calls=True, gemini_flash_api_key="k")
+    # Even with real mode enabled globally (and the task allowlisted), a request
+    # can opt out.
+    settings = Settings(
+        ai_enable_real_calls=True,
+        gemini_flash_api_key="k",
+        ai_real_call_tasks="profiling_chat_turn",
+    )
     router = AIRouter(settings)
     _content, meta = _run(
         router.run(
@@ -133,6 +139,7 @@ def test_hard_cost_ceiling_refuses_expensive_real_call():
     settings = Settings(
         ai_enable_real_calls=True,
         gemini_flash_api_key="k",
+        ai_real_call_tasks="profile_extraction",
         ai_max_call_cost_inr=0.00001,
     )
     router = AIRouter(settings)
@@ -148,7 +155,10 @@ def test_high_ceiling_allows_real_attempt():
     # With a generous ceiling, the real path is attempted (and falls back to mock
     # only because the forced call raises) — proving the ceiling didn't block it.
     settings = Settings(
-        ai_enable_real_calls=True, gemini_flash_api_key="k", ai_max_call_cost_inr=10.0
+        ai_enable_real_calls=True,
+        gemini_flash_api_key="k",
+        ai_real_call_tasks="profiling_chat_turn",
+        ai_max_call_cost_inr=10.0,
     )
     router = AIRouter(settings)
     _content, meta = _run(router.run("profiling_chat_turn", messages=_MESSAGES, mock_response="m"))
@@ -174,11 +184,24 @@ def test_per_task_allowlist_enables_only_the_listed_task():
     assert chat.real_call is False  # stayed mock (not allowlisted)
 
 
-def test_empty_allowlist_enables_all_tasks_backcompat():
-    # No allowlist => master flag governs all tasks (existing behavior preserved).
+def test_empty_allowlist_blocks_all_tasks_fail_closed():
+    # Owner ruling (2026-08-01): an EMPTY allowlist means NO tasks may go real —
+    # the master flag + key alone are no longer sufficient. There is no wildcard;
+    # real calls in any env require an explicit AI_REAL_CALL_TASKS list.
     settings = Settings(ai_enable_real_calls=True, gemini_flash_api_key="k", ai_real_call_tasks="")
-    assert settings.real_call_enabled_for("profiling_chat_turn") is True
-    assert settings.real_call_enabled_for("profile_extraction") is True
+    assert settings.real_calls_enabled is True  # flag + key alone still "enabled"...
+    assert settings.real_call_enabled_for("profiling_chat_turn") is False
+    assert settings.real_call_enabled_for("profile_extraction") is False
+
+    # ...and the ROUTER honors it: the run takes the mock path, never a real attempt.
+    router = AIRouter(settings)
+    content, meta = _run(
+        router.run("profile_extraction", messages=_MESSAGES, mock_response="EMPTY_ALLOWLIST_MOCK")
+    )
+    assert content == "EMPTY_ALLOWLIST_MOCK"
+    assert meta.real_call is False
+    assert meta.success is True
+    assert meta.error_code is None
 
 
 def test_allowlist_ignored_when_master_flag_off():
@@ -227,6 +250,7 @@ def _fallback_settings(**overrides):
         default_cheap_model="gemini-flash-lite",
         default_capable_model="gemini-2.5-flash",
         default_fallback_model="claude-haiku-4-5",
+        ai_real_call_tasks="profile_extraction",
     )
     base.update(overrides)
     return Settings(**base)
