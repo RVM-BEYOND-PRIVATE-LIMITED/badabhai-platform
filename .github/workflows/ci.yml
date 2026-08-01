@@ -33,6 +33,11 @@ jobs:
               - 'pnpm-workspace.yaml'
               - 'turbo.json'
               - 'apps/ai-service/**'
+              # The job's own definition. Without this, a change to the e2e job — its
+              # service containers, its migration steps, or the Matching V1 DB gates
+              # below — skips the very job it edits, so the edit ships unvalidated.
+              # A workflow file can obviously affect the workflow.
+              - '.github/workflows/ci.yml'
 
   # ---- TypeScript monorepo: lint, typecheck, test, build ----
   node:
