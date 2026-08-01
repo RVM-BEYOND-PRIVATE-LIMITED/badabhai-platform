@@ -167,7 +167,7 @@ jobs:
       - name: Install pnpm
         # No `version:` — `packageManager: pnpm@11.5.2` in package.json is the
         # single source of truth (same convention as ci.yml's node job).
-        uses: pnpm/action-setup@b0f76dfb45f55f8421693e4803ac7bb65143bd34 # v6
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
