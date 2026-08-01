@@ -1,13 +1,17 @@
 # BadaBhai Project Progress
 
-**Last updated:** 2026-07-25 — **B1 worker capstone verified (Divyanshu)** · **swipe handset verified (Prakash)** · payer company/agency **IN_PROGRESS** (OTP working)
-**Updated by:** Divyanshu Pant (verification sign-off) + tracker sync
-**Branch:** `origin/main` (HEAD: `ddc0acf`, 2026-07-25)
+**Last updated:** 2026-08-01 — **PR #526 merged** (Matching V1 / ADR-0036 + B5 agency slice + canary closure). Prior verification state unchanged: **B1 worker capstone verified (Divyanshu)** · **swipe handset verified (Prakash)** · payer company/agency **IN_PROGRESS** (OTP working)
+**Updated by:** Divyanshu Pant (verification sign-off, 2026-07-25) + tracker sync (2026-08-01, #526 merge)
+**Branch:** `origin/main` (HEAD: `f28279f`, 2026-08-01) — branch protection ENABLED 2026-08-01 (`ci-required` + 1 review, force-push/deletion blocked, `enforce_admins` off)
 **Environment:** **Staging LIVE since 2026-07-18** (`0042`+`0043` applied, R27 triaged, **real OTP via Fast2SMS**). Worker B1 + swipe verified 2026-07-25 per [QA_EVIDENCE](QA_EVIDENCE.md). ⚠️ **`docs/qa/evidence/staging/` still empty** — team attestation, not captured files (P2, [BLOCKERS.md](BLOCKERS.md)).
 
 > **Numbers are evidence-based and conservative.** Cap rule: **no area exceeds 85%** until staging + handset proof exists. Phase weights = CLAUDE.md/owner defaults.
 >
-> **The percentages below are as of the 2026-07-10 re-score and were NOT re-scored on 2026-07-18.**
+> **The percentages below are as of the 2026-07-10 re-score and were NOT re-scored on 2026-07-18,
+> nor on 2026-08-01.** The 2026-08-01 pass updated the header, the branch HEAD and the #526 merge
+> facts ONLY. Nothing in #526 was verified on a deployed environment — it is CI and local
+> measurement — so under this file's own cap rule it moves no percentage. Read the numbers as
+> three weeks stale, not as of the date at the top.
 > This pass reconciled **blocker state only** (B1/P0), because that is what had gone
 > actively wrong: this file was still printing "NO-GO on B1" eight days after B1 closed.
 > A real re-score is owed once the staging gates actually run — see the note under
