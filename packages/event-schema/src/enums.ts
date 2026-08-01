@@ -226,6 +226,16 @@ export const SUBJECT_TYPES = [
   // accrual is the LEDGER ROW, and using `worker` would make one worker's ledger entry
   // indistinguishable from their account events on the spine. MOCK — nothing disburses.
   "referral_bonus",
+  // A shareable referral LINK — the B4 resolver primitive. The subject_id is the opaque
+  // `referral_links.id`, NEVER the `code` (a bearer token: anyone holding it can claim the
+  // referral, which is why `invite.clicked` omits its code too). The subject of
+  // `referral.link_created` / `.link_clicked` / `.install_claimed`.
+  //
+  // DISTINCT from `invite` / `agency_invite` on purpose: those subjects are an INVITE (a
+  // who-invited-whom relationship in one of two funnels), while this is the SHARING artifact
+  // that sits in front of both and can also be a campaign or QR link owned by nobody.
+  // Collapsing them would make a campaign click indistinguishable from a worker referral.
+  "referral_link",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

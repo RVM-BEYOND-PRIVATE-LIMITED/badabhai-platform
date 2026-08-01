@@ -1,5 +1,11 @@
 import type { Metadata } from "next";
-import { pingInviteClick, playStoreUrl } from "../../../lib/invite-landing";
+import { QRCodeSVG } from "qrcode.react";
+import {
+  intentUrl,
+  pingInviteClick,
+  playStoreUrl,
+  shortLinkUrl,
+} from "../../../lib/invite-landing";
 
 /**
  * PUBLIC referral landing page — `https://app.badabhai.in/i/<code>` (blocker B4).

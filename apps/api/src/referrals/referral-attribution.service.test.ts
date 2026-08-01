@@ -4,6 +4,7 @@ import { ReferralAttributionService } from "./referral-attribution.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { InviteService } from "../messaging/invite.service";
 import type { AgencyService } from "../agency/agency.service";
+import type { ReferralLinkService } from "./referral-link.service";
 
 const WORKER = "44444444-4444-4444-8444-444444444444";
 const CODE = "abcdef012345";
@@ -16,12 +17,17 @@ function make() {
   const consent = { findLatestByWorker: vi.fn() };
   const workerInvites = { recordAccept: vi.fn() };
   const agency = { attributeWorkerToInvite: vi.fn() };
+  // B4: the first-touch claim. Defaults to "nothing to claim" (no click row), which is
+  // exactly the LEGACY situation — every invite shared before the resolver existed. The
+  // assertions below therefore also pin that B4 did not change legacy attribution.
+  const referralLinks = { claimInstall: vi.fn().mockResolvedValue({ claimed: false }) };
   const svc = new ReferralAttributionService(
     consent as unknown as ConsentRepository,
     workerInvites as unknown as InviteService,
     agency as unknown as AgencyService,
+    referralLinks as unknown as ReferralLinkService,
   );
-  return { svc, consent, workerInvites, agency };
+  return { svc, consent, workerInvites, agency, referralLinks };
 }
 
 describe("ReferralAttributionService — consent gate (invariant #6, fail-closed)", () => {
@@ -56,7 +62,7 @@ describe("ReferralAttributionService — namespace dispatch (worker first, agenc
   it("worker invite attributes → kind:worker, agency NEVER tried", async () => {
     h.workerInvites.recordAccept.mockResolvedValue({ ok: true });
     const out = await h.svc.attribute(CODE, WORKER);
-    expect(out).toEqual({ attributed: true, kind: "worker" });
+    expect(out).toEqual({ attributed: true, kind: "worker", claimed: false });
     expect(h.workerInvites.recordAccept).toHaveBeenCalledWith(CODE, WORKER, "unknown");
     expect(h.agency.attributeWorkerToInvite).not.toHaveBeenCalled();
   });
@@ -65,7 +71,7 @@ describe("ReferralAttributionService — namespace dispatch (worker first, agenc
     h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "unknown_code" });
     h.agency.attributeWorkerToInvite.mockResolvedValue({ ok: true });
     const out = await h.svc.attribute(CODE, WORKER);
-    expect(out).toEqual({ attributed: true, kind: "agency" });
+    expect(out).toEqual({ attributed: true, kind: "agency", claimed: false });
     expect(h.agency.attributeWorkerToInvite).toHaveBeenCalledWith(CODE, WORKER, "unknown");
   });
 
@@ -87,7 +93,7 @@ describe("ReferralAttributionService — namespace dispatch (worker first, agenc
   it("KNOWN worker invite that can't attribute (self_invite) is TERMINAL — agency NOT tried", async () => {
     h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "self_invite" });
     const out = await h.svc.attribute(CODE, WORKER);
-    expect(out).toEqual({ attributed: false, kind: "worker", reason: "self_invite" });
+    expect(out).toEqual({ attributed: false, kind: "worker", reason: "self_invite", claimed: false });
     expect(h.agency.attributeWorkerToInvite).not.toHaveBeenCalled();
   });
 
@@ -103,7 +109,7 @@ describe("ReferralAttributionService — namespace dispatch (worker first, agenc
     h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "unknown_code" });
     h.agency.attributeWorkerToInvite.mockResolvedValue({ ok: false, reason: "unknown_code" });
     const out = await h.svc.attribute(CODE, WORKER);
-    expect(out).toEqual({ attributed: false, kind: "none", reason: "unknown_code" });
+    expect(out).toEqual({ attributed: false, kind: "none", reason: "unknown_code", claimed: false });
   });
 
   it("agency declines on no_consent (its own re-check) → neutral no-op", async () => {

@@ -3,6 +3,7 @@ import type { InviteInstallSource } from "@badabhai/event-schema";
 import { ConsentRepository } from "../consent/consent.repository";
 import { InviteService } from "../messaging/invite.service";
 import { AgencyService } from "../agency/agency.service";
+import { ReferralLinkService } from "./referral-link.service";
 
 /** INTERNAL outcome kinds — the HTTP surface returns a neutral body regardless. */
 export type AttributionKind = "worker" | "agency" | "none";
@@ -12,6 +13,13 @@ export interface AttributionOutcome {
   kind: AttributionKind;
   /** Internal reason for a no-op (logging + tests only; NEVER returned to the client). */
   reason?: string;
+  /**
+   * B4 — whether the click→install MATCH WINDOW admitted a first-touch claim for this
+   * worker. Independent of `attributed`: the legacy funnels (`invites` / `agency_invites`)
+   * have no click log, so a code shared before the resolver existed still attributes with
+   * no claim. Tests + logs only; never returned to the client.
+   */
+  claimed?: boolean;
 }
 
 /**
@@ -44,6 +52,7 @@ export class ReferralAttributionService {
     private readonly consent: ConsentRepository,
     private readonly workerInvites: InviteService,
     private readonly agency: AgencyService,
+    private readonly referralLinks: ReferralLinkService,
   ) {}
 
   /**
@@ -68,18 +77,31 @@ export class ReferralAttributionService {
         return { attributed: false, kind: "none", reason: "no_consent" };
       }
 
-      // 2) Worker→worker first (ADR-0020). Only `unknown_code` falls through to agency; a
+      // 2) B4 FIRST-TOUCH CLAIM against the match window. Runs BEFORE the two funnel seams
+      //    and is INDEPENDENT of them: it resolves at most one click per worker ever (the
+      //    partial unique index on `referral_clicks.claimed_by_worker_id`), which is what
+      //    makes a concurrent duplicate post idempotent.
+      //
+      //    NON-BREAKING BY CONSTRUCTION: a `none`/`unknown_code` claim does NOT block
+      //    attribution below. Codes shared before the resolver existed have no click row at
+      //    all, so gating the legacy funnels on a claim would retroactively break every
+      //    invite already in the wild. The window therefore governs CLAIMS (what a
+      //    commission is computed from), while the funnel seams keep their existing
+      //    behaviour. That split is deliberate — see the B4 report.
+      const claim = await this.referralLinks.claimInstall({ code, workerId, source });
+
+      // 3) Worker→worker (ADR-0020). Only `unknown_code` falls through to agency; a
       //    KNOWN worker invite that can't attribute (self / already) is terminal here.
       const w = await this.workerInvites.recordAccept(code, workerId, source);
-      if (w.ok) return { attributed: true, kind: "worker" };
+      if (w.ok) return { attributed: true, kind: "worker", claimed: claim.claimed };
       if (w.reason !== "unknown_code") {
-        return { attributed: false, kind: "worker", reason: w.reason };
+        return { attributed: false, kind: "worker", reason: w.reason, claimed: claim.claimed };
       }
 
-      // 3) Agency→worker (ADR-0022). Its own consent re-check is harmless (already active).
+      // 4) Agency→worker (ADR-0022). Its own consent re-check is harmless (already active).
       const a = await this.agency.attributeWorkerToInvite(code, workerId, source);
-      if (a.ok) return { attributed: true, kind: "agency" };
-      return { attributed: false, kind: "none", reason: a.reason };
+      if (a.ok) return { attributed: true, kind: "agency", claimed: claim.claimed };
+      return { attributed: false, kind: "none", reason: a.reason, claimed: claim.claimed };
     } catch (err) {
       // FAIL-SAFE: attribution is a side-signal — never surface or propagate to onboarding.
       // Log the error CLASS (name) + an opaque worker-id prefix only — never a driver

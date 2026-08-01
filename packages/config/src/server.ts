@@ -135,6 +135,34 @@ export const serverEnvSchema = z.object({
   // body (see the controller), so over-capping degrades the funnel statistic, never a
   // worker's install page.
   REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(600),
+  // B4 MATCH WINDOWS — how long a recorded click stays eligible to attribute an install.
+  // CONFIG, NOT LITERALS, because these are exactly the numbers that get tuned once real
+  // funnel data exists; a literal would mean a code change + a deploy to move them.
+  //
+  // TWO windows, chosen by the LINK's `medium` (snapshotted onto each click, so a later
+  // re-tag cannot re-judge a past click):
+  //  - ORGANIC (default 168h = 7 days). A share forwarded on WhatsApp travels slowly —
+  //    it sits in a group, gets forwarded again, and is tapped days later. A short window
+  //    here silently discards real referrals, which is the failure mode that makes the
+  //    commission channel unmeasurable in the first place.
+  //  - PAID (default 24h). Ad networks bill on last-touch; a long window would let a
+  //    stale paid click steal credit for an install an organic share actually produced.
+  //
+  // DISTINCT FROM `AGENCY_PAYOUT_WINDOW_DAYS` (90d) — that is the PAYOUT attribution
+  // window (how long an attributed worker keeps earning an agency commission, ADR-0022
+  // Amdt 2). This pair is the CLICK→INSTALL match window, a strictly earlier stage. They
+  // are independent knobs and must not be collapsed.
+  REFERRAL_MATCH_WINDOW_ORGANIC_HOURS: z.coerce.number().int().positive().default(168),
+  REFERRAL_MATCH_WINDOW_PAID_HOURS: z.coerce.number().int().positive().default(24),
+  // The branded base the `/r/<code>` resolver builds its App-Link redirect against.
+  // Defaults to the domain the worker app's manifest already claims, so B4 introduces no
+  // new DNS dependency — pointing this at a real short domain is a P0-6 (App Links domain
+  // verification) deploy action, NOT a code change. Must be an absolute https origin.
+  REFERRAL_SHORT_LINK_BASE: z
+    .string()
+    .url()
+    .refine((u) => u.startsWith("https://"), "must be an https origin")
+    .default("https://app.badabhai.in"),
   // Interview-kit content version. Part of the render-once identity (tradeKey +
   // contentVersion). BUMP this whenever any kit copy changes so a fresh PDF is
   // rendered instead of serving the stale cached file. Never reuse an old value.
