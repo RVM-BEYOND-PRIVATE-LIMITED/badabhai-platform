@@ -42,13 +42,14 @@
  */
 import { and, asc, eq, gt, notInArray, sql as dsql } from "drizzle-orm";
 
+import { bucketMonths, deriveWorkerSkills, DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
+
 import { createDbClient, type Database } from "./client";
 import { matchConfig, workerIndustryTenure, workerProfiles, workerSkills, workers } from "./schema";
-import { loadMatchTaxonomy, validateMatchTaxonomy, DEFAULT_INDUSTRY_ID } from "./match-taxonomy";
+import { loadMatchTaxonomy, validateMatchTaxonomy } from "./match-taxonomy";
 import {
   asObject,
   asStringArray,
-  bucketMonthValue,
   finiteOrNull,
   parseCommonCli,
   printCounts,
@@ -101,10 +102,11 @@ async function main(): Promise<void> {
   try {
     const monthBucket = await readMonthBucket(db);
 
-    // The industry of each match skill — so a derived worker_skill carries the right
-    // industry_id without a per-row join on the hot path.
-    const industryBySkill = new Map(taxonomy.MATCH_SKILLS.map((s) => [s.skillId, s.industryId]));
-
+    // NOTE: the per-skill industry lookup that used to live here is gone — `deriveWorkerSkills`
+    // resolves `industry_id` itself, from the same `MATCH_SKILLS` table, so the row still
+    // carries its industry without a per-row join on the hot path. `taxonomy` above is still
+    // loaded and validated on purpose: `validateMatchTaxonomy` is the fail-closed integrity
+    // check on the bridges this script depends on, and it must run before any write.
     let cursor = opts.startAfter;
     let lastId: string | undefined = cursor;
     let workersSeen = 0;
@@ -146,27 +148,32 @@ async function main(): Promise<void> {
         // ── The coarse derivation ────────────────────────────────────────────
         const exp = asObject(profile.experience);
         const totalYears = exp ? (finiteOrNull(exp.total_years) ?? 0) : 0;
-        const months = bucketMonthValue(totalYears * 12, monthBucket);
 
-        const derivedIds = new Set<string>();
-        // Role bridge — at most one match skill.
-        const roleId = profile.canonicalRoleId;
-        if (roleId) {
-          const viaRole = taxonomy.ROLE_TO_MATCH_SKILL[roleId];
-          if (viaRole) derivedIds.add(viaRole);
-        }
-        // Attribute bridge — each attribute-kind id the profile carries implies 0..N.
-        for (const attrId of asStringArray(profile.skills)) {
-          for (const mskill of taxonomy.ATTRIBUTE_TO_MATCH_SKILLS[attrId] ?? []) {
-            derivedIds.add(mskill);
-          }
-        }
-
-        const derived: DerivedSkill[] = [...derivedIds].map((skillId) => ({
-          skillId,
-          industryId: industryBySkill.get(skillId) ?? DEFAULT_INDUSTRY_ID,
-          monthsBucketed: months,
+        // TD120 (paid 2026-08-01): the coarse rule lives in `@badabhai/match-engine` and
+        // NOWHERE ELSE. This block used to be a hand-rolled second implementation that
+        // agreed with the engine only by coincidence — nothing held them equal, so a future
+        // edit to a bridge or a bucket would land in one and not the other, the backfill
+        // would write one set of months and the worker's next chat turn would re-derive a
+        // different set through moment ①, and a man's rank would change for a reason no ops
+        // person could explain. Parity at the swap was measured, not assumed: 7,854 cases
+        // (14 roles x 51 attribute sets x 11 experience values), 0 mismatches.
+        const derived: DerivedSkill[] = deriveWorkerSkills(
+          {
+            canonicalRoleId: profile.canonicalRoleId,
+            profileSkills: asStringArray(profile.skills),
+            totalYears,
+          },
+          { ...DEFAULT_MATCH_CONFIG, monthBucket },
+        ).map((r) => ({
+          skillId: r.skillId,
+          industryId: r.industryId,
+          monthsBucketed: r.monthsBucketed,
         }));
+
+        // The worker's own experience in months — the OTHER half of the E8 clamp below.
+        // Sourced from the engine's `bucketMonths` so the backfill has exactly one bucketing
+        // implementation, the same one moment ① uses.
+        const months = bucketMonths(totalYears, monthBucket);
         if (derived.length === 0) workersWithNoDerivedSkills += 1;
 
         if (opts.apply) {
