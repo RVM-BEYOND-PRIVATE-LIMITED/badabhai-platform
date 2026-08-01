@@ -654,3 +654,92 @@ describe("UnlockService — ADR-0031 pending-deletion freeze (byte-identical neu
     expect(emitted(t.events)).not.toContain("contact.revealed");
   });
 });
+
+/**
+ * ADR-0036 §7 — `payer.credits_exhausted`, the metered-free-tier conversion signal.
+ *
+ * This is the event the telecaller/PQL follow-up funnel fires on, so the property that
+ * matters is not "it happens" but "it happens EXACTLY ONCE, on the >0 → 0 edge". Both
+ * failure modes are business-visible: a missed edge loses the conversion moment, and a
+ * repeated one would call the same payer on every subsequent exhausted attempt.
+ *
+ * The edge is structural rather than re-read: the debit updates a row only when
+ * `balance >= 1`, so a returned `balanceAfter === 0` means the balance was exactly 1
+ * before it — which is why these tests drive it through `tryDebit`'s RETURN value
+ * instead of stubbing a balance read.
+ */
+describe("UnlockService — ADR-0036 §7 credits_exhausted (the conversion signal)", () => {
+  const grantFixture = { payerId: PAYER, workerId: WORKER, jobId: null };
+
+  function exhaustionEvents(events: { emit: { mock: { calls: unknown[][] } } }) {
+    return events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown>; idempotencyKey?: string })
+      .filter((e) => e.event_name === "payer.credits_exhausted");
+  }
+
+  it("fires EXACTLY ONCE on the >0 → 0 edge (last free credit spent)", async () => {
+    // balance 1 ⇒ tryDebit returns 0 ⇒ this debit is the one that drained the account.
+    const t = setup({ balance: 1 });
+    await t.svc.requestUnlock(grantFixture, CTX);
+
+    const fired = exhaustionEvents(t.events);
+    expect(fired).toHaveLength(1);
+    // Ordering: the signal follows the grant it was caused by, never precedes it.
+    const names = emitted(t.events);
+    expect(names.indexOf("payer.credits_exhausted")).toBeGreaterThan(names.indexOf("unlock.granted"));
+  });
+
+  it("does NOT fire while credits remain (balance lands above zero)", async () => {
+    const t = setup({ balance: 5 }); // tryDebit → 4
+    await t.svc.requestUnlock(grantFixture, CTX);
+
+    expect(exhaustionEvents(t.events)).toHaveLength(0);
+    expect(emitted(t.events)).toContain("unlock.granted"); // the unlock itself still succeeded
+  });
+
+  it("does NOT re-fire on a SUBSEQUENT already-exhausted attempt", async () => {
+    // The already-drained payer: the F-1 precondition denies BEFORE any debit runs, so
+    // there is no >0 → 0 edge to report and the telecaller is not re-notified.
+    const t = setup({ balance: 0 });
+    await t.svc.requestUnlock(grantFixture, CTX);
+
+    expect(exhaustionEvents(t.events)).toHaveLength(0);
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    // The attempt is still audited — as a payment failure, not a fresh exhaustion.
+    expect(emitted(t.events)).toContain("payment.failed");
+  });
+
+  it("is keyed on the DEBITING unlock and is faceless (opaque ids + one integer)", async () => {
+    const t = setup({ balance: 1 });
+    await t.svc.requestUnlock(grantFixture, CTX);
+
+    const fired = exhaustionEvents(t.events);
+    expect(fired).toHaveLength(1);
+    const signal = fired[0];
+    if (!signal) throw new Error("expected exactly one payer.credits_exhausted signal");
+    // Keyed on the unlock that caused it: a post-commit flush replay dedups, but a payer
+    // who tops up and drains again gets a NEW event rather than being silenced forever.
+    expect(signal.idempotencyKey).toBe("payer.credits_exhausted:unlock-1");
+    expect(signal.payload).toEqual({
+      payer_id: PAYER,
+      unlock_id: "unlock-1",
+      // The free-tier grant SIZE, so a consumer can tell "burned 50 free unlocks" apart
+      // from "burned a purchased pack" — read from match_config, not hard-coded here.
+      free_tier_credits: DEFAULT_MATCH_CONFIG.freeUnlockCredits,
+    });
+    // §2: no phone/name/email anywhere in the signal.
+    expect(JSON.stringify(signal)).not.toContain(SENTINEL_PHONE);
+  });
+
+  it("reports the CONFIGURED free-tier size, not a hard-coded 50", async () => {
+    // Re-point the config stub the way an ops edit to `match_config` would.
+    const t = setup({ balance: 1 });
+    (t.svc as unknown as { matchConfig: { get: () => Promise<unknown> } }).matchConfig.get = vi
+      .fn()
+      .mockResolvedValue({ ...DEFAULT_MATCH_CONFIG, freeUnlockCredits: 25 });
+
+    await t.svc.requestUnlock(grantFixture, CTX);
+
+    expect(exhaustionEvents(t.events)[0]?.payload.free_tier_credits).toBe(25);
+  });
+});
