@@ -1,17 +1,22 @@
 """Transcript translation (Sarvam) adapter — gated, mock-by-default.
 
 Mirrors the STT gating discipline (see ``app/stt.py``): a REAL provider call is
-attempted ONLY when ``AI_ENABLE_REAL_CALLS`` is true AND a Sarvam key is
-configured. Otherwise a deterministic, PII-free mock English gloss is returned so
-local dev and tests need no provider or key.
+attempted ONLY when ``Settings.real_call_enabled_for(STT_TASK_TYPE)`` allows it
+(kill-switch, master flag, Gemini master key, and ``stt_transcription`` explicitly
+in the ``AI_REAL_CALL_TASKS`` allowlist) AND a Sarvam key is configured. Otherwise
+a deterministic, PII-free mock English gloss is returned so local dev and tests
+need no provider or key. Translation deliberately rides the SAME allowlist key as
+STT: it is the second leg of the one Sarvam voice pipeline, the same provider,
+the same DPA (P0-1) — one flip arms or disarms the whole voice→English leg.
 
 PRIVACY / SECURITY:
 - On the mock path NO transcript and NO data leaves this service.
 - The real ``/translate`` call sends the RAW transcript (which may contain PII) to
   Sarvam — the SAME exposure class as the STT call that produced it (you cannot
   pseudonymize before translation without losing the spoken-language fidelity).
-  That is why this real call is gated identically behind ``AI_ENABLE_REAL_CALLS``
-  + a Sarvam key. The downstream pipeline still pseudonymizes before any LLM.
+  That is why this real call is gated identically to STT — through
+  ``real_call_enabled_for(STT_TASK_TYPE)`` + a Sarvam key. The downstream
+  pipeline still pseudonymizes before any LLM.
 - FAIL CLOSED: ``_translate_real`` RAISES on any failure (missing key, oversized
   input, transport error, provider non-2xx, malformed response). The ``translate``
   wrapper catches that and returns an EMPTY English string (never a fabricated
@@ -34,6 +39,7 @@ import httpx
 
 from .config import Settings
 from .logging_config import get_logger
+from .stt import STT_TASK_TYPE
 
 logger = get_logger("translate")
 
@@ -91,10 +97,22 @@ class TranslateAdapter:
         self._settings = settings
 
     def real_blocked_reason(self) -> str | None:
-        """Why the real translate path is disabled, or None if allowed. Fails
-        closed: requires the master flag AND a Sarvam key."""
-        if not self._settings.ai_enable_real_calls:
-            return "AI_ENABLE_REAL_CALLS is false"
+        """Why the real translate path is disabled, or None if allowed. Fails closed.
+
+        Mirrors ``SttAdapter.real_blocked_reason`` exactly. Until 2026-08-01 this
+        read ``ai_enable_real_calls`` + ``sarvam_api_key`` directly — the very
+        bypass the STT fix closed (see the stt.py docstring): neither the
+        kill-switch nor the per-task allowlist reached translation, so a stray
+        Sarvam key with the master flag on fired real Sarvam calls that
+        ``AI_REAL_CALLS_KILL_SWITCH`` could not stop. Found and closed in the
+        fail-closed allowlist review. Translation shares ``STT_TASK_TYPE``
+        (``stt_transcription``) rather than adding its own key: same provider,
+        same DPA gate (P0-1), same pipeline — one deliberate flip for the leg."""
+        reason = self._settings.real_calls_blocked_reason()
+        if reason is not None:
+            return reason
+        if not self._settings.real_call_enabled_for(STT_TASK_TYPE):
+            return f"{STT_TASK_TYPE} is not in AI_REAL_CALL_TASKS"
         if not self._settings.sarvam_api_key:
             return "SARVAM_API_KEY is not set"
         return None

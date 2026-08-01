@@ -282,7 +282,12 @@ restriction, ALL tasks real — meant the master-flag flip armed `stt_transcript
 and `profiling_chat_turn` alongside extraction, and a stray `SARVAM_API_KEY` alone
 would have flipped real worker audio live across the unsigned Sarvam DPA (P0-1).
 `real_call_enabled_for` now requires the task to be **explicitly listed**; there is
-no wildcard. Rejected alternative: a `*` escape hatch (kept the footgun). Deploy
+no wildcard. Rejected alternative: a `*` escape hatch (kept the footgun). The
+security review of this change found the same bypass pattern live in **transcript
+translation** (`translate.py` read the raw flag + Sarvam key, so neither the
+allowlist nor `AI_REAL_CALLS_KILL_SWITCH` reached it) — closed in the same PR;
+translation rides the `stt_transcription` allowlist key (one flip per Sarvam leg,
+same DPA gate). Deploy
 consequence, accepted: an env still running an empty allowlist drops to mock until
 `AI_REAL_CALL_TASKS` is set — set `AI_REAL_CALL_TASKS=profile_extraction` in prod
 **before** the deploy carrying this change. See the production release runbook

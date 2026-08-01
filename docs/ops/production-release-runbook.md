@@ -115,7 +115,13 @@ though the design intent is that it stays templated.
 **The hardening (owner-ruled 2026-08-01, same day):** `real_call_enabled_for` now requires the
 task to be **explicitly listed** — an empty allowlist blocks every task, with no wildcard
 (`apps/ai-service/app/config.py`, pinned by `test_empty_allowlist_blocks_all_tasks_fail_closed`
-and `test_an_empty_allowlist_blocks_stt_fail_closed`). Two operational consequences:
+and `test_an_empty_allowlist_blocks_stt_fail_closed`). The security review of that change found
+**transcript translation** (the second Sarvam leg of `/voice/transcribe`) still reading the raw
+flag + Sarvam key — bypassing both the allowlist **and** the kill switch, exactly the pre-fix STT
+pattern. Closed in the same PR: translation now rides the `stt_transcription` allowlist key
+(pinned by `test_empty_allowlist_blocks_translate_fail_closed` and
+`test_kill_switch_blocks_translate`), so P4 #9 arms/disarms the whole voice→English leg as one
+flip. Two operational consequences:
 
 - **Until the ai-service deploy carrying it,** everything above remains live behavior — set
   `AI_REAL_CALL_TASKS=profile_extraction` in the prod env NOW rather than waiting for the deploy.
