@@ -30,6 +30,41 @@ Nothing in P4 may proceed past the item that depends on it.
 | 11 | **Ops API not publicly routable** (private network / VPN / IP allowlist in front of `apps/api`'s ops routes) | Defence in depth for the same surface. Owner ruling 2026-07-31: guard in code **and** infra, so a single misconfiguration on either side is not fatal. | ☐ |
 | 12 | **Physically print and scan the agency invite QR sheet** (B5, batch invite minting) | The overflow + blank-print-sheet fixes are reasoned from box-model/`:has()` CSS logic, not observed — nobody running this build can open a browser or print a page. Confirm on a real phone camera against a real printed sheet before treating the QR flow as launch-ready. | ☐ |
 
+### Status as of 2026-08-01
+
+**Merged to `main` (`f28279f`):** the whole Matching V1 + B5 release — ranked feed on
+`job_postings`, agency engagement view, batch invite minting (mutation-verified, 14 security
+conditions closed, ADR-0022 Amendment 3), the ops-API closure (R28, `InternalServiceGuard` on
+all 43 routes), and the prod-canary rewritten to probe all 43 routes with a drift test pinning
+coverage. Branch protection is now live on `main` (`ci-required` + 1 review required).
+`feat/matching-v1` deleted post-merge (true merge commit, nothing lost).
+
+**Item 4 (R32) is now DONE** — #528 merged (`5028692`) with the owner ruling recorded in
+`team-decisions.md` and the risk register. This is the only P0 item that has moved.
+
+**Still open, blocking P1 onward:** items 1/2/3/5/6/7 (legal DPAs, Razorpay, DNS/Play Console —
+all owner-only, untouched), item 9 (backup/restore rehearsal — no evidence found it has run,
+and P1 cannot start without it), item 10 (`INTERNAL_SERVICE_TOKEN` — status still unconfirmed),
+item 11 (ops API network restriction — infra, not done), item 12 (QR print/scan — added this
+session, unchecked).
+
+PR #525 (an earlier attempt at recording the R28 fix + owner rulings) was **closed**, superseded
+by #528 (merged) — #525's code changes were redundant with what `main` already shipped, but its
+docs content (the 8 owner rulings, and the fact that `risks-register.md`/`BLOCKERS.md`/
+`.claude/project-memory.md` still read R28 as OPEN despite the fix being live) was real and
+landed in #528.
+
+**Staging contradiction — resolved, fix merged in #527** (`b467464`): `RELEASE_READINESS.md`'s
+"NOT READY (not deployed)" was stale. Staging was deployed manually (owner-confirmed
+2026-08-01), just never through `staging-cd.yml`, which has zero recorded runs — that pipeline
+gap (automation exists, never exercised) is tracked as TD123, separately from the contradiction
+itself.
+
+**P1 (migration train) has not started.** The Matching V1 train (`0052`–`0057`) is authored,
+not applied. Rehearsal against a restored snapshot is mandatory per this file's own P1 section,
+and item 9 (backup/restore verified) is unconfirmed — so P1 cannot honestly start until item 9
+is closed, even though nothing code-side blocks it.
+
 ### P0-10 — why this is suddenly load-bearing
 
 Until 2026-07-31 the ops-internal API had **no guard at all**, and the ops console sent **no
