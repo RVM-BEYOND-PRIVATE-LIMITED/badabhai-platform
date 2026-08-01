@@ -133,11 +133,12 @@ describe.skip("Phase 1 worker-profiling flow (e2e) — real OTP provider require
     expect(token).toBeTruthy();
 
     // 2. consent
-    const consent = await post("/consent/accept", {
-      worker_id: ids.workerId,
-      consent_version: CONSENT_VERSION,
-      purposes: ["profiling", "resume_generation"],
-    });
+    // WORKER-AUTHED (invariant #6): the subject is the session worker, not a body id.
+    const consent = await post(
+      "/consent/accept",
+      { consent_version: CONSENT_VERSION, purposes: ["profiling", "resume_generation"] },
+      token,
+    );
     expect(consent.consent_id).toBeTruthy();
 
     // 3. chat session + multi-turn interview until it flips extraction_ready.
@@ -275,14 +276,15 @@ describe.skip("Phase 1 worker-profiling flow (e2e) — real OTP provider require
     const phone = `+9197${String(Date.now()).slice(-8)}`;
     const reqOtp = await post("/auth/otp/request", { phone });
     const verify = await post("/auth/otp/verify", { phone, otp: reqOtp.dev_otp });
-    const workerId = verify.worker_id as string;
+    // The worker id is no longer needed here: every call below identifies the
+    // worker by the session bearer, consent included.
     const token = verify.access_token as string;
     // Consent is the gate (invariant 6): chat is blocked until it is accepted.
-    await post("/consent/accept", {
-      worker_id: workerId,
-      consent_version: CONSENT_VERSION,
-      purposes: ["profiling", "resume_generation"],
-    });
+    await post(
+      "/consent/accept",
+      { consent_version: CONSENT_VERSION, purposes: ["profiling", "resume_generation"] },
+      token,
+    );
     const session = await post("/chat/session", {}, token);
     const sessionId = session.session_id as string;
 

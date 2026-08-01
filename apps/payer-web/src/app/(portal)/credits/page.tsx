@@ -8,6 +8,7 @@ import {
 } from "../../../lib/pricing-config";
 import { buildTransactionHistory, creditExpirySchedule } from "../../../lib/credit-history";
 import { getLiveCatalog } from "../../../lib/live-catalog";
+import { payerServerConfig } from "../../../lib/server-config";
 import { formatInr } from "../../../lib/format";
 import { opaqueId } from "../../../lib/masking";
 import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
@@ -32,9 +33,14 @@ function day(ts: string): string {
  * `getLiveCatalog` → GET /payer/pricing/catalog via pricing-config), never hardcoded —
  * an ops price edit shows here without a rebuild. On a catalog fetch failure the page
  * degrades to the compile-time defaults with the subtle cached-pricing note (fail-open
- * is safe: the server re-resolves the real price at purchase, XT5). There is no
- * Razorpay / card path; a real-payment path is a HARD human gate (Decision D / §7).
+ * is safe: the server re-resolves the real price at purchase, XT5).
  * All ₹ / counts render in mono tabular.
+ *
+ * MOCK vs REAL is decided SERVER-SIDE by `payerServerConfig().paymentsEnableReal` and
+ * passed down as one boolean. The client cannot choose its own mode, and the browser only
+ * ever learns the PUBLIC `rzp_*` key id — which arrives on the order response, not from
+ * this page and not from any `NEXT_PUBLIC_*` value. The copy below follows the flag, so
+ * the page never claims "no real payment is taken" while a real charge is live.
  *
  * PII-free (ids/amounts only — never a worker name/phone). ORG-RBAC: billing/wallet is an
  * OWNER-only surface — `requireOwner()` gates it SERVER-SIDE (a Recruiter gets a neutral 404).
@@ -42,6 +48,8 @@ function day(ts: string): string {
 export default async function CreditsPage() {
   await requireOwner(); // Owner-only billing/wallet — Recruiter ⇒ neutral 404 (no-oracle).
 
+  // Server-resolved payment mode. Fail-closed: anything but an explicit "true" is MOCK.
+  const realPayments = payerServerConfig().paymentsEnableReal;
   const { products, live } = await getLiveCatalog();
   const packs = offeredCreditPacks(products);
   const unit = unlockUnitPriceInr(products);
@@ -76,8 +84,10 @@ export default async function CreditsPage() {
     <>
       <h1 className="dash-title">Credits</h1>
       <p className="dash-sub">
-        1 credit = 1 contact unlock{unit !== null ? ` (${formatInr(unit)} per unlock)` : ""}. Mock top-up —
-        no real payment is taken in this staging preview.
+        1 credit = 1 contact unlock{unit !== null ? ` (${formatInr(unit)} per unlock)` : ""}.{" "}
+        {realPayments
+          ? "Pay securely via Razorpay — credits are added as soon as the payment is confirmed."
+          : "Mock top-up — no real payment is taken in this staging preview."}
       </p>
 
       {!live ? <CachedPricingNote /> : null}
@@ -122,7 +132,7 @@ export default async function CreditsPage() {
               deltaDir="flat"
             />
           </div>
-          <CreditsPanel packs={packs} />
+          <CreditsPanel packs={packs} real={realPayments} />
         </>
       ) : null}
 
@@ -200,10 +210,18 @@ export default async function CreditsPage() {
       ) : null}
 
       <div className="credits-nudge">
-        <Toast tone="neutral">
-          <strong>Mock payments only.</strong> No card details are collected and no money moves.
-          Real checkout (Razorpay) is a separate, human-gated rollout (ADR-0019 Decision D).
-        </Toast>
+        {realPayments ? (
+          <Toast tone="neutral">
+            <strong>Payments by Razorpay.</strong> Card and UPI details are entered on
+            Razorpay&rsquo;s secure form — BadaBhai never sees or stores them. Credits are added
+            once the payment is confirmed.
+          </Toast>
+        ) : (
+          <Toast tone="neutral">
+            <strong>Mock payments only.</strong> No card details are collected and no money moves.
+            Real checkout (Razorpay) is a separate, human-gated rollout (ADR-0019 Decision D).
+          </Toast>
+        )}
       </div>
     </>
   );

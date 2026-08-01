@@ -46,6 +46,53 @@ if(s){var mt=document.querySelector('meta[name="theme-color"]');if(mt){mt.setAtt
 }catch(e){}})();`;
 
 /**
+ * The CROSS-ORIGIN stylesheets the shell wants but must not BLOCK first paint on:
+ * Google Fonts (Baloo 2 + Mukta) and the three Phosphor icon sheets.
+ *
+ * Measured on the public `/i/<code>` install page (`next start`, production build): these
+ * four sheets were 4 of 6 render-blocking stylesheets, 250,748 B of CSS from two extra
+ * origins — on a page that uses ZERO icons. Every one of them cost a DNS + TLS + request
+ * round trip before a worker on a congested 3G tower saw anything. That page exists to
+ * convert an agent's QR scan into an install, so a blocking third-party round trip is the
+ * single most expensive thing on it.
+ *
+ * WHY NOT A SECOND ROOT LAYOUT (the better fix): giving the public route its own root
+ * layout means moving every portal route under a route group — measured at 101 files and
+ * 244 relative imports rewritten, on a shared integration branch. Recorded, not attempted.
+ */
+export const ASYNC_STYLESHEETS: readonly string[] = [
+  "https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Mukta:wght@300;400;500;600;700;800&display=swap",
+  "https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css",
+  "https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css",
+  "https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css",
+];
+
+/**
+ * Load {@link ASYNC_STYLESHEETS} WITHOUT blocking first paint.
+ *
+ * Injected as an inline `<head>` script exactly like {@link THEME_NO_FOUC_SCRIPT} above —
+ * this layout already establishes that pattern, so it needs no client component and no
+ * hydration. It appends each `<link rel=stylesheet>` at runtime, which by definition cannot
+ * block the initial render. The `<noscript>` twins in the layout keep the sheets working
+ * with JS disabled.
+ *
+ * The typography degrades gracefully in the gap: the Google Fonts URL already carries
+ * `display=swap`, so text paints immediately in the fallback face and upgrades. Icons
+ * (`ph ph-*`) appear a beat later on portal screens — the DS pairs every icon with a text
+ * label precisely so the label carries the meaning, so nothing is unreadable meanwhile.
+ *
+ * Plain string literal, no external dependency, no hex/px tokens — survives the adherence
+ * lint and a nonce/hash CSP, same as the no-FOUC script.
+ */
+export const ASYNC_CSS_SCRIPT = `(function(){try{
+var u=${JSON.stringify(ASYNC_STYLESHEETS)};
+for(var i=0;i<u.length;i++){
+var l=document.createElement("link");l.rel="stylesheet";l.href=u[i];l.crossOrigin="anonymous";
+document.head.appendChild(l);
+}
+}catch(e){}})();`;
+
+/**
  * Read the persisted theme preference from `document.cookie` (client only). Returns the raw
  * preference (`paper`/`ink`/`system`) or `undefined` when unset/unknown. SSR-safe: returns
  * `undefined` when there is no `document`.

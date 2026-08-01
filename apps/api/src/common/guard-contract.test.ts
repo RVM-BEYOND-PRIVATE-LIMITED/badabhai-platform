@@ -22,6 +22,7 @@ import { ProfilesController } from "../profiles/profiles.controller";
 import { ReachController } from "../reach/reach.controller";
 import { ResumeController } from "../resume/resume.controller";
 import { UnlocksController } from "../unlocks/unlocks.controller";
+import { RazorpayWebhookController } from "../unlocks/razorpay-webhook.controller";
 import { VoiceController } from "../voice/voice.controller";
 import { WorkersController } from "../workers/workers.controller";
 import { PayerAuthController } from "../payer-portal/payer-auth.controller";
@@ -29,8 +30,10 @@ import { PayerUnlocksController } from "../payer-portal/payer-unlocks.controller
 import { PayerCapacityController } from "../payer-portal/payer-capacity.controller";
 import { PayerPricingController } from "../payer-portal/payer-pricing.controller";
 import { PayerReachController } from "../payer-portal/payer-reach.controller";
+import { MatchSkillsController } from "../match/match-skills.controller";
 import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
+import { AgencyWorkersController } from "../agency/agency-workers.controller";
 import { AgencyPayoutsController } from "../agency/agency-payouts.controller";
 import { AgencyKycOpsController } from "../agency/agency-kyc-ops.controller";
 import { AdminAuthController } from "../admin/admin-auth.controller";
@@ -39,6 +42,8 @@ import { AdminActionsController } from "../admin/admin-actions.controller";
 import { AdminPiiRevealController } from "../admin/admin-pii-reveal.controller";
 import { NotificationsController } from "../notifications/notifications.controller";
 import { SkillsController } from "../skills/skills.controller";
+import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
+import { ReferralBonusController } from "../referrals/referral-bonus.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -86,9 +91,10 @@ const CNR = "ConsentNotRevokedGuard";
 const SI = "SkillsInternalGuard";
 const TL = "TestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
+const RZ = "RazorpayWebhookGuard";
 
 const CONTRACT: ControllerContract[] = [
-  { name: "Actions", ctor: ActionsController, routes: { record: [], recordBatch: [] } },
+  { name: "Actions", ctor: ActionsController, routes: { record: [I], recordBatch: [I] } },
   {
     name: "Applications",
     ctor: ApplicationsController,
@@ -126,8 +132,8 @@ const CONTRACT: ControllerContract[] = [
   },
   // P0 fix (PR #91): worker AI routes are worker-authed + consent-gated.
   { name: "Chat", ctor: ChatController, routes: { startSession: [C, W], postMessage: [C, W] } },
-  { name: "Consent", ctor: ConsentController, routes: { accept: [] } },
-  { name: "Events", ctor: EventsController, routes: { list: [] } },
+  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W] } },
+  { name: "Events", ctor: EventsController, routes: { list: [I] } },
   { name: "Health", ctor: HealthController, routes: { check: [] } },
   { name: "InterviewKit", ctor: InterviewKitController, routes: { download: [] } },
   // Worker-scoped job detail (ADR-0024 final addendum): GET /jobs/:jobId is
@@ -137,7 +143,20 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "JobPostings",
     ctor: JobPostingsController,
-    routes: { create: [], list: [], getOne: [], update: [], close: [] },
+    // ADR-0036 Policy 27: `widenReach` is the ONE guarded route on this otherwise
+    // alpha-open ops controller — widening a reach set changes which workers see a job
+    // on a posting whose owner chose a narrower net, so it takes the ops service guard
+    // even though its siblings do not.
+    routes: {
+      create: [I],
+      list: [I],
+      getOne: [I],
+      update: [I],
+      close: [I],
+      verify: [I],
+      reject: [I],
+      widenReach: [I],
+    },
   },
   {
     name: "Messaging",
@@ -156,10 +175,10 @@ const CONTRACT: ControllerContract[] = [
     ctor: PricingController,
     routes: { getCatalog: [I], updateCatalog: [I], quote: [I] },
   },
-  { name: "AiJobs", ctor: AiJobsController, routes: { list: [], get: [] } },
+  { name: "AiJobs", ctor: AiJobsController, routes: { list: [I], get: [I] } },
   // P0 fix (PR #91).
   { name: "Profiles", ctor: ProfilesController, routes: { extract: [C, W], confirm: [C, W] } },
-  { name: "Reach", ctor: ReachController, routes: { applicants: [], feed: [] } },
+  { name: "Reach", ctor: ReachController, routes: { applicants: [I], feed: [I] } },
   // Self-serve PAYER surface (ADR-0019). signup/login are PUBLIC (external boundary);
   // refresh/logout + every unlock/reach route bind to the payer session (PayerAuthGuard).
   // The ops `/reach/*` + `/unlocks*` rows above stay their own principal (one per route).
@@ -169,6 +188,11 @@ const CONTRACT: ControllerContract[] = [
     routes: { signup: [], requestLogin: [], verifyLogin: [], refresh: [P], logout: [P] },
   },
   {
+    // `createOrder` + `verifyPayment` are the REAL-payments routes (Razorpay). Same
+    // PayerAuthGuard posture and same XB-A rule as their mock sibling `buyPack`: the
+    // payer_id is the SESSION payer, the body carries only a pack code / the provider's
+    // own ids, and never an amount. They additionally 404 NEUTRALLY while
+    // PAYMENTS_ENABLE_REAL is off (the default) — a launch gate, not an auth gate.
     name: "PayerUnlocks",
     ctor: PayerUnlocksController,
     routes: {
@@ -178,7 +202,18 @@ const CONTRACT: ControllerContract[] = [
       ownCredits: [P],
       creditsLedger: [P],
       buyPack: [P],
+      createOrder: [P],
+      verifyPayment: [P],
     },
+  },
+  // PUBLIC Razorpay capture webhook. It CANNOT carry a session guard — Razorpay's servers
+  // call it — so its one credential is the HMAC signature over the raw request bytes,
+  // enforced by RazorpayWebhookGuard. Listing it here makes "this route is public except
+  // for an HMAC" a recorded decision a reviewer sees in the diff, not an oversight.
+  {
+    name: "RazorpayWebhook",
+    ctor: RazorpayWebhookController,
+    routes: { webhook: [RZ] },
   },
   // Payer-self capacity view/buy (ADR-0019 + ADR-0016): session-bound, NO :payerId param.
   {
@@ -187,6 +222,15 @@ const CONTRACT: ControllerContract[] = [
     routes: { ownCapacity: [P], buyCapacity: [P] },
   },
   { name: "PayerReach", ctor: PayerReachController, routes: { applicants: [P] } },
+  // ADR-0036 — the Matching V1 posting-form surface. Both are PayerAuthGuard: neither
+  // takes a payer_id anywhere (the reach counter is a property of worker supply, the
+  // same for every payer), so there is no tenancy surface — the guard is there because
+  // the vocabulary + live supply counts are commercial information, not public data.
+  {
+    name: "MatchSkills",
+    ctor: MatchSkillsController,
+    routes: { listSkills: [P], reachPreview: [P] },
+  },
   // Payer-facing LIVE catalog read (D-6): read-only products projection, session-authed
   // like every other payer-web data fetch (the ops GET /pricing/catalog stays its own
   // principal above — it is slated for an admin guard and serves the FULL catalog).
@@ -210,7 +254,24 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "AgencyInvites",
     ctor: AgencyInvitesController,
-    routes: { createInvite: [P, R], recordClick: [P, R], referralsSummary: [P, R] },
+    // `createInviteBatch` (ADR-0022 Amendment 3) is a NEW POST on this class — the classic
+    // place a guard is forgotten. It writes N rows, so any tenancy slip is amplified N×;
+    // it must resolve the SAME agent-only pair as the singular mint.
+    routes: {
+      createInvite: [P, R],
+      createInviteBatch: [P, R],
+      recordClick: [P, R],
+      referralsSummary: [P, R],
+    },
+  },
+  // B5 — the referred-worker ENGAGEMENT view. Agent-only, like every sibling. The
+  // DPDP consent gate is NOT a guard: it lives in the repository's SQL, because a
+  // worker who did not consent must be ABSENT from the result set rather than
+  // produce a 403 (a 403 would be a consent oracle).
+  {
+    name: "AgencyWorkers",
+    ctor: AgencyWorkersController,
+    routes: { listReferred: [P, R] },
   },
   // Agency supply-money surface (ADR-0022 Amendment 2): agent-only [PayerAuthGuard,
   // PayerRoleGuard] PLUS the AgencyPayoutsEnabledGuard launch gate (neutral 404 while
@@ -275,7 +336,7 @@ const CONTRACT: ControllerContract[] = [
     name: "Workers",
     ctor: WorkersController,
     routes: {
-      list: [],
+      list: [I],
       getProfile: [I],
       setName: [I],
       setMyName: [C, W],
@@ -343,6 +404,23 @@ const CONTRACT: ControllerContract[] = [
     name: "Skills",
     ctor: SkillsController,
     routes: { nearestAliases: [SI], recordUnresolved: [SI] },
+  },
+  // Referral attribution (ADR-0020/0022): the invited_worker_id is the SESSION worker, so
+  // a caller can only ever attribute THEMSELVES to a code (XB-A). B4 added an OPTIONAL
+  // `source` to the body — the guard, the IP cap and the neutral response are unchanged.
+  {
+    name: "ReferralAttribution",
+    ctor: ReferralAttributionController,
+    routes: { attribute: [W] },
+  },
+  // MOCK ₹20 activation-bonus ledger (§X.6). OPS-INTERNAL only (InternalServiceGuard, the
+  // shared-secret principal — fail-closed when unconfigured), deliberately NOT worker-facing:
+  // this release accrues and disburses NOTHING, and showing a worker "₹20 earned" would be a
+  // payment promise the platform cannot keep.
+  {
+    name: "ReferralBonus",
+    ctor: ReferralBonusController,
+    routes: { evaluate: [I], summary: [I] },
   },
 ];
 

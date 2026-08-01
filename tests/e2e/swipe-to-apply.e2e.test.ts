@@ -60,13 +60,15 @@ async function login(): Promise<{ workerId: string; token: string }> {
   return { workerId: r2.json.worker_id as string, token: r2.json.access_token as string };
 }
 
-async function acceptConsent(workerId: string): Promise<void> {
+async function acceptConsent(token: string): Promise<void> {
+  // `POST /consent/accept` is WORKER-AUTHED: the subject is the SESSION worker,
+  // never a body id. Sending `worker_id` would be silently stripped by the DTO.
   const r = await req("POST", "/consent/accept", {
     body: {
-      worker_id: workerId,
       consent_version: CONSENT_VERSION,
       purposes: ["profiling", "resume_generation"],
     },
+    token,
   });
   expect(r.status).toBe(201);
 }
@@ -85,7 +87,7 @@ describe.skip("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
     const jobRows = await client.db.select().from(jobs);
     expect(jobRows.length, "run `db:seed:jobs` before the e2e").toBeGreaterThan(0);
     worker = await login();
-    await acceptConsent(worker.workerId);
+    await acceptConsent(worker.token);
   });
 
   afterAll(async () => {

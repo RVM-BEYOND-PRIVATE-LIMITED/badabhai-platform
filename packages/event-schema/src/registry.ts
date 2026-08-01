@@ -378,6 +378,12 @@ export const EVENT_REGISTRY = {
   "invite.created": { version: 1, domain: "invite", payload: p.InviteCreatedPayload },
   "invite.clicked": { version: 1, domain: "invite", payload: p.InviteClickedPayload },
   "invite.accepted": { version: 1, domain: "invite", payload: p.InviteAcceptedPayload },
+  // B4 — the install ACTUALLY attributed, plus WHICH leg of the post-Dynamic-Links chain
+  // delivered it (app_link | install_referrer | custom_scheme | unknown). Emitted alongside
+  // `*.accepted` on a SUCCESSFUL attribution only; ONE event serves both funnels
+  // (`invite_kind` + the matching subject_type keep them distinguishable). PII-FREE: the
+  // opaque ROW id — never the shareable code — plus two closed enums. v1.
+  "invite.install": { version: 1, domain: "invite", payload: p.InviteInstallPayload },
   "messaging.requested": { version: 1, domain: "messaging", payload: p.MessagingRequestedPayload },
   "messaging.sent": { version: 1, domain: "messaging", payload: p.MessagingSentPayload },
   "messaging.suppressed": { version: 1, domain: "messaging", payload: p.MessagingSuppressedPayload },
@@ -436,6 +442,15 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "agency_invite",
     payload: p.AgencyInviteCreatedPayload,
+  },
+  // TD113 — the agency funnel's MIDDLE stage finally has an event. Emitted from the PUBLIC
+  // click path (the invited worker is the only party who can click); NEUTRAL on an unknown
+  // code (nothing is emitted), so it is not an existence oracle. PII-FREE and worker-handle
+  // FREE: a click precedes consent, so no worker identity may be recorded (invariant #6). v1.
+  "agency_invite.clicked": {
+    version: 1,
+    domain: "agency_invite",
+    payload: p.AgencyInviteClickedPayload,
   },
   "agency_invite.accepted": {
     version: 1,
@@ -524,6 +539,84 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "worker",
     payload: p.WorkerPushTokenClaimedPayload,
+  },
+
+  // §X.6 — the RETENTION signal. At most ONE per worker per UTC day (the producer keys the
+  // events-table idempotency key on `worker.active:<worker_id>:<day>`), so this is a coarse
+  // daily-active FACT, not a request log: no route, no session, no ip_hash, no user-agent,
+  // no sub-day timestamp. PII-FREE: opaque worker id + a `YYYY-MM-DD` bucket. v1.
+  "worker.active": { version: 1, domain: "worker", payload: p.WorkerActivePayload },
+
+  // §X.6 — the ₹20 worker-referral ACTIVATION BONUS, accrued only when the referred worker
+  // completed a profile AND was unlocked (the fraud rule). MOCK ledger, NO disbursement —
+  // and deliberately NO `referral.bonus_paid` sibling, because an event name is a promise
+  // and no payout rail exists (real outbound money is the §7 gate). Emitted exactly once per
+  // referred worker, gated by the UNIQUE constraint on `invited_worker_id`. PII-FREE. v1.
+  "referral.bonus_accrued": {
+    version: 1,
+    domain: "referral",
+    payload: p.ReferralBonusAccruedPayload,
+  },
+
+  // ── Matching V1 (ADR-0036) ────────────────────────────────────────────────
+  // All PII-FREE: opaque uuids, closed-set `mskill_*` ids, integer counts, small
+  // enums. Invariant #4: none of these is a model output — `match_tier` is set
+  // membership and the ordering they describe is the fixed lexicographic rank key.
+
+  // MOMENT ①/② — a worker's matchable supply was re-derived and his `job_reach`
+  // rows reconciled. Emitted even when the rebuild derives ZERO skills (that is the
+  // E17 low-tag signal, and it is invisible if we only emit on success-with-rows). v1.
+  "worker.match_skills_rebuilt": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerMatchSkillsRebuiltPayload,
+  },
+  // MOMENT ③ — a posting's reach set was materialized (publish / unpause / edit /
+  // ops widen). Counts only, never the worker list. v1.
+  "job_posting.reach_materialized": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingReachMaterializedPayload,
+  },
+  // E12/E13 — the posting reaches nobody, or reaches nobody who holds the POSTED
+  // skill. The ops alert that replaces PACE's auto-widen (which V1 forbids). v1.
+  "job_posting.reach_alert": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingReachAlertPayload,
+  },
+  // POLICY 27 — an ops human WIDENED a reach set. Narrowing is structurally
+  // impossible on that path (the service appends, never removes). v1.
+  "job_posting.reach_widened": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingReachWidenedPayload,
+  },
+  // ADR-0036 §7 — a boost purchase refused because matched supply is below
+  // `match_config.boost_supply_floor`. v1.
+  "job_posting.boost_refused": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingBoostRefusedPayload,
+  },
+  // The conversion signal: a payer's credit balance hit EXACTLY zero on a debit.
+  // Emitted from the debit's RETURNING balance (never a re-read) and keyed on the
+  // debiting unlock, so it is exact and idempotent rather than approximate. v1.
+  "payer.credits_exhausted": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerCreditsExhaustedPayload,
+  },
+  // MOMENT ④ — `feed.shown` VERSION 2. `feed.shown` above KEEPS its v1 entry,
+  // unmodified, as history (invariant #8): `validateEvent` allows exactly one version
+  // per NAME, so a bump in place would invalidate every shipped emitter the moment it
+  // deployed — including on a database still running with MATCH_V1_ENABLED=false. The
+  // registry `version: 2` records the payload GENERATION; `score`/`hot` are gone and
+  // `match_tier`/`boosted`/`job_posting_id` replace them.
+  "feed.shown_v2": {
+    version: 2,
+    domain: "feed",
+    payload: p.FeedShownV2Payload,
   },
 } as const satisfies Record<string, EventDefinition>;
 

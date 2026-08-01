@@ -53,7 +53,14 @@ export class WorkersController {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
-  /** List workers (newest first) with latest-profile summary. No PII. */
+  /**
+   * List workers (newest first) with latest-profile summary. No PII.
+   *
+   * R28 — guarded because an unauthenticated list is a WORKER ENUMERATION oracle
+   * regardless of how faceless each row is: the count, the ids and the join dates
+   * are themselves the supply intelligence a competitor would pay for.
+   */
+  @UseGuards(InternalServiceGuard)
   @Get()
   async list(@Query("limit") limit?: string) {
     return { workers: await this.workers.list(clampLimit(limit)) };

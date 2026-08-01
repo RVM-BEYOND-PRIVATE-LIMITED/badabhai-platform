@@ -37,9 +37,43 @@ export const CONSENT_PURPOSES = [
   // (fail-closed `MessagingConsentService`; recorded as `messaging.suppressed`).
   // Production WhatsApp opt-in / DPDP copy remains a human/legal launch gate.
   "whatsapp_messaging",
+  // B5 — the referring AGENT/agency may see this worker's ACTIVITY (ADR-0022 portal).
+  // A SEPARATE, explicit DPDP basis, and the narrowest one here: it authorises an
+  // ENGAGEMENT view only — profile completeness, how many jobs he applied to, how many
+  // times he was unlocked, when he was last active. It never authorises a name, a
+  // phone, WHICH job, or WHICH employer, and it is DISTINCT from `employer_sharing`
+  // (that discloses routed CONTACT to a paying party; this discloses nothing
+  // contactable to anyone).
+  //
+  // WHY IT IS ITS OWN PURPOSE. The agent who referred a worker is not the worker's
+  // employer and has no disclosure relationship with him — he was invited, often by
+  // someone he knows. "Somebody who sent you a link can watch what you do on the app"
+  // is exactly the kind of thing a person would want to be asked about separately, so
+  // it is asked separately. The projection FAILS CLOSED on consents that do not carry
+  // this string, which is why a version bump accompanies it: workers who consented
+  // under 2026-06-01 never saw this sentence and are therefore never included.
+  "agent_activity_visibility",
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
+/**
+ * The consent NOTICE version a client presents.
+ *
+ * DELIBERATELY NOT BUMPED for B5's `agent_activity_visibility` purpose (2026-07-31).
+ * A version identifies the NOTICE TEXT a worker was actually shown, and that text has
+ * not changed: the worker app still renders the 2026-06-01 screen, and the real DPDP
+ * notice copy is outstanding owner/legal work. Bumping the version while the app shows
+ * the old words would record, on every consent row, a claim about what the worker read
+ * that is simply false — which is worse than the gap it would paper over.
+ *
+ * What makes B5 safe is the PURPOSE, not the version: the agency projection fails
+ * closed on consents that do not carry `agent_activity_visibility`, and no client
+ * requests that purpose yet. So the projection is empty until the notice ships and
+ * workers actually opt in — the same posture `employer_sharing` and
+ * `whatsapp_messaging` already hold.
+ *
+ * Bump this when the NOTICE COPY changes, together with the client that renders it.
+ */
 export const CURRENT_CONSENT_VERSION = "2026-06-01" as const;
 
 // ---- Chat ----

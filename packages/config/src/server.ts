@@ -117,6 +117,24 @@ export const serverEnvSchema = z.object({
   // uncapped one lets an authed worker spam attribution reads (DB-load + a timing probe) —
   // bb-security-review LOW-MED. Same fail-closed idiom (Redis outage → 429, never uncapped).
   REFERRAL_ATTRIBUTE_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // B4 — per-IP cap / rolling UTC hour on the PUBLIC `POST /invites/:code/click`. That URL
+  // is about to be printed on QR codes at factory gates and handed to ~450 agents, which
+  // makes it the most-scanned UNAUTHENTICATED endpoint we own; uncapped, it is a free
+  // amplifier for burning DB time (each call is an indexed `invites` lookup plus, on a
+  // miss, an `agency_invites` lookup, a status UPDATE and an events INSERT).
+  //
+  // The default is deliberately MUCH higher than the other per-IP caps above, because this
+  // one is not per-human: the `/i/<code>` landing page pings this endpoint SERVER-SIDE, so
+  // every legitimate scan shares payer-web's single egress IP (`TRUST_PROXY_HOP_COUNT`
+  // defaults to 0, so `req.ip` is the socket peer). 600/hour still bounds an abuser to a
+  // trivial amount of work while comfortably clearing the projected funnel volume. To make
+  // the cap genuinely per-visitor, set TRUST_PROXY_HOP_COUNT for the real edge topology —
+  // see the note on the click handler in messaging.controller.ts.
+  //
+  // A BREACH IS NOT AN ERROR HERE: the handler sheds the work and returns the SAME neutral
+  // body (see the controller), so over-capping degrades the funnel statistic, never a
+  // worker's install page.
+  REFERRAL_CLICK_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(600),
   // Interview-kit content version. Part of the render-once identity (tradeKey +
   // contentVersion). BUMP this whenever any kit copy changes so a fresh PDF is
   // rendered instead of serving the stale cached file. Never reuse an old value.
@@ -499,9 +517,21 @@ export const serverEnvSchema = z.object({
   // real gateway key AND is human-gated + staging-first (CLAUDE.md §7). A real-enabled
   // flag without the key fails CLOSED at boot via assertPaymentsConfig.
   PAYMENTS_ENABLE_REAL: booleanFromString,
-  // OPAQUE real-gateway key (e.g. Razorpay). NEVER committed; only ever supplied in
-  // staging-first behind PAYMENTS_ENABLE_REAL. Unused in alpha (mock ledger).
+  // Razorpay KEY ID (`rzp_test_*` / `rzp_live_*`). PUBLIC BY DESIGN — it is handed to the
+  // browser checkout in the order response; it is an identifier, not a credential. NEVER
+  // committed; supplied staging-first behind PAYMENTS_ENABLE_REAL. `.min(1)` means a BLANK
+  // value is a boot-time parse failure, never a vacuously-armed gate (TD67 lesson).
   PAYMENTS_PROVIDER_KEY: z.string().min(1).optional(),
+  // Razorpay KEY SECRET — the server-side half of the API credential. It signs the
+  // server-to-server order call AND is the HMAC key for the browser-returned
+  // `razorpay_signature` (checkout verify). It MUST NEVER leave the server: not in a
+  // response body, not in a log line, not in an event payload, never a NEXT_PUBLIC_* var.
+  PAYMENTS_PROVIDER_SECRET: z.string().min(1).optional(),
+  // Razorpay WEBHOOK secret — a SEPARATE secret from the key secret (configured per-webhook
+  // in the Razorpay dashboard) and the HMAC key for `x-razorpay-signature` over the RAW
+  // webhook bytes. Deliberately distinct so rotating the webhook secret never invalidates
+  // the API credential (and vice versa). Same never-leaves-the-server rule.
+  RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
 
   // Worker push notifications (ADR-0034 — FCM). SECURITY ALERTS ONLY in this phase
   // (new-device login + logged-out-everywhere); resume/profile/voice pushes are
@@ -633,6 +663,25 @@ export const serverEnvSchema = z.object({
   // exists (ADR-0021; no ratified ADJACENT_ROLES map today). MUST stay false until a
   // ratified map is wired — flipping it true without one is a no-op (the map is empty).
   PACE_ADJACENCY_ENABLED: booleanFromString,
+
+  // ── Matching V1 cutover gate (ADR-0036) ────────────────────────────────────
+  // THE ONLY env var Matching V1 adds, and deliberately so. This is a DEPLOY
+  // SWITCH, not a dial: it selects which SOURCE the worker feed / apply / payer
+  // candidate list read from (legacy `jobs` + weighted engine vs `job_reach` +
+  // `job_postings` + the lexicographic rank key). Everything TUNABLE — engine
+  // version, month bucket, max skills per posting, the tier floor, the free-tier
+  // grant, the boost supply floor — lives in the ops-editable `match_config`
+  // table, read through MatchConfigService and validated by `parseMatchConfig`.
+  // Adding a second matching env var here would put two sources of truth in play,
+  // which is exactly what ADR-0036 §8 ("configuration, never code") forbids.
+  //
+  // Default OFF: on a database that has not run the 0052–0058 train + the D1–D6
+  // data steps, `job_reach` is empty and a flipped-on feed would be empty. OFF is
+  // therefore the only safe default, and it keeps every legacy path byte-identical.
+  // booleanFromString (NOT z.coerce.boolean, whose "false"/"0" coerce to TRUE) so a
+  // falsey string stays OFF — the same fail-safe posture as AI_ENABLE_REAL_CALLS /
+  // CAPACITY_ENFORCEMENT_ENABLED / AGENCY_PAYOUTS_ENABLED.
+  MATCH_V1_ENABLED: booleanFromString,
 
   // Model routing. Bare provider model ids (no provider prefix); the AI service
   // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
@@ -957,20 +1006,81 @@ export function isUsingDevJwtDefault(config: ServerConfig): boolean {
 }
 
 /**
+ * A secret/identifier is CONFIGURED only when it is present AND non-blank.
+ *
+ * TD67 lesson, applied to money: an empty (or whitespace-only) env value must NEVER count
+ * as "configured". `z.string().min(1)` already rejects `FOO=""` at parse time, so a blank
+ * cannot reach here through `loadServerConfig` — this is the second, structural line of
+ * defence for any `ServerConfig` built by other means (a test fixture, a partial object,
+ * a future loader). A gate that arms vacuously on a blank secret is the bug this closes.
+ */
+function isConfigured(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
  * Guard for the "real payments" path (ADR-0010 §D5 / Phase-0 F-6) — the direct
  * analogue of `realAiCallsBlockedReason`. The system fails CLOSED: real charges are
- * only permitted when explicitly enabled AND a provider key exists. Returns the
- * reason real payments are disabled, or null when they are allowed. In alpha this
- * always returns a reason (mock credits only).
+ * only permitted when explicitly enabled AND the FULL Razorpay credential set exists.
+ * Returns the reason real payments are disabled, or null when they are allowed.
+ *
+ * ALL THREE are required, and each for a distinct reason — a partial set is a broken
+ * money path, not a degraded one:
+ *  - `PAYMENTS_PROVIDER_KEY`     the `rzp_*` key id (identifies the account; goes to the browser)
+ *  - `PAYMENTS_PROVIDER_SECRET`  signs the order call + verifies the checkout signature
+ *  - `RAZORPAY_WEBHOOK_SECRET`   verifies the webhook, which is the SOURCE OF TRUTH for capture
+ *
+ * Without the webhook secret every webhook would fail verification, so captures would only
+ * ever land through the browser fallback — a payer on a dropped connection would pay and
+ * never be credited. That is why "flag + key id" is NOT enough to call payments live.
  */
 export function realPaymentsBlockedReason(config: ServerConfig): string | null {
   if (!config.PAYMENTS_ENABLE_REAL) return "PAYMENTS_ENABLE_REAL is false";
-  if (!config.PAYMENTS_PROVIDER_KEY) return "PAYMENTS_PROVIDER_KEY is not set";
+  for (const name of REQUIRED_PAYMENT_SECRETS) {
+    if (!isConfigured(config[name])) return `${name} is not set`;
+  }
   return null;
 }
 
+/**
+ * The env var names real payments require, in the order they are reported. Names ONLY —
+ * this list is what the boot error and the kill-switch `detail` echo, so a misconfiguration
+ * is loud without ever printing a secret's value.
+ */
+const REQUIRED_PAYMENT_SECRETS = [
+  "PAYMENTS_PROVIDER_KEY",
+  "PAYMENTS_PROVIDER_SECRET",
+  "RAZORPAY_WEBHOOK_SECRET",
+] as const;
+
 export function areRealPaymentsEnabled(config: ServerConfig): boolean {
   return realPaymentsBlockedReason(config) === null;
+}
+
+/** The resolved Razorpay credential set. Only ever produced when real payments are LIVE. */
+export interface RazorpayCredentials {
+  /** `rzp_*` key id — public by design (handed to the browser checkout). */
+  keyId: string;
+  /** API key secret — SERVER-ONLY. Signs orders + verifies the checkout signature. */
+  keySecret: string;
+  /** Webhook signing secret — SERVER-ONLY. Verifies `x-razorpay-signature`. */
+  webhookSecret: string;
+}
+
+/**
+ * The ONE accessor for the Razorpay credential set — fail-closed by construction.
+ *
+ * Returns `null` unless real payments are fully enabled, so a caller cannot half-read the
+ * credentials (e.g. pick up a key id while the webhook secret is missing) and cannot reach
+ * a raw config field by habit. Callers treat `null` as "no real gateway; use the mock path".
+ */
+export function getRazorpayCredentials(config: ServerConfig): RazorpayCredentials | null {
+  if (!areRealPaymentsEnabled(config)) return null;
+  return {
+    keyId: (config.PAYMENTS_PROVIDER_KEY ?? "").trim(),
+    keySecret: (config.PAYMENTS_PROVIDER_SECRET ?? "").trim(),
+    webhookSecret: (config.RAZORPAY_WEBHOOK_SECRET ?? "").trim(),
+  };
 }
 
 /**
@@ -1064,17 +1174,38 @@ export function isPaceAdjacencyEnabled(config: ServerConfig): boolean {
 }
 
 /**
+ * The Matching V1 cutover gate (ADR-0036 §8). Default OFF: the worker feed, the apply
+ * snapshot and the payer candidate list keep their legacy sources until the 0052–0058
+ * migration train + the D1–D6 data steps have run against the target database.
+ *
+ * It is a DEPLOY SWITCH ONLY. Nothing tunable rides it — every number V1 reads comes
+ * from the `match_config` row via `MatchConfigService`.
+ */
+export function isMatchV1Enabled(config: ServerConfig): boolean {
+  return config.MATCH_V1_ENABLED;
+}
+
+/**
  * Fail-closed boot guard for the payments config (ADR-0010 Phase-0 F-6; mirrors
- * `assertPiiCryptoConfig`). If real payments are ENABLED but no provider key is set,
- * a half-configured gateway must NOT run silently as mock — throw at boot so the
- * mis-configuration is loud. (Alpha default: PAYMENTS_ENABLE_REAL=false → no-op.)
+ * `assertPiiCryptoConfig`). If real payments are ENABLED but the Razorpay credential set
+ * is incomplete, a half-configured gateway must NOT run silently as mock — throw at boot
+ * so the mis-configuration is loud. (Alpha default: PAYMENTS_ENABLE_REAL=false → no-op.)
  * Real payments are additionally a HUMAN-GATED, staging-first escalation (CLAUDE.md
  * §7) — this guard only enforces the config invariant, not the human approval.
+ *
+ * NO SECRET IN THE MESSAGE: the error lists the missing VAR NAMES only. A boot error is
+ * the single most-copied string in an incident (logs, chat, tickets), so it must never be
+ * able to carry a key. BLANK COUNTS AS MISSING (TD67): `FOO=""` fails here as loudly as an
+ * unset var — an empty secret can never arm the gate.
  */
 export function assertPaymentsConfig(config: ServerConfig): void {
-  if (config.PAYMENTS_ENABLE_REAL && !config.PAYMENTS_PROVIDER_KEY) {
+  if (!config.PAYMENTS_ENABLE_REAL) return;
+  const missing = REQUIRED_PAYMENT_SECRETS.filter((name) => !isConfigured(config[name]));
+  if (missing.length > 0) {
     throw new Error(
-      "PAYMENTS_ENABLE_REAL is true but PAYMENTS_PROVIDER_KEY is not set — refusing to boot a half-configured real payments gateway (ADR-0010 F-6, fail closed)",
+      `PAYMENTS_ENABLE_REAL is true but ${missing.join(", ")} ${
+        missing.length === 1 ? "is" : "are"
+      } not set (empty counts as not set) — refusing to boot a half-configured real payments gateway (ADR-0010 F-6, fail closed)`,
     );
   }
 }

@@ -17,13 +17,27 @@ export class ConsentService {
     private readonly sessions: SessionService,
   ) {}
 
-  async accept(dto: AcceptConsentDto, ip: string | undefined, userAgent: string | undefined, ctx: RequestContext) {
-    const worker = await this.workers.findById(dto.worker_id);
-    if (!worker) throw new NotFoundException(`Worker ${dto.worker_id} not found`);
+  /**
+   * Record consent for `workerId` — which the CONTROLLER takes from the verified
+   * session, never from the request body (XB-A). The signature makes that
+   * structural: there is no worker id on `dto` to reach for by mistake.
+   */
+  async accept(
+    workerId: string,
+    dto: AcceptConsentDto,
+    ip: string | undefined,
+    userAgent: string | undefined,
+    ctx: RequestContext,
+  ) {
+    const worker = await this.workers.findById(workerId);
+    // Unreachable via the guarded route (a session cannot outlive its worker's
+    // row — deletion revokes sessions), but kept: the alternative is writing a
+    // consent row against a worker that no longer exists.
+    if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
     const acceptedAt = new Date();
     const consent = await this.consents.create({
-      workerId: dto.worker_id,
+      workerId,
       consentVersion: dto.consent_version,
       purposes: dto.purposes,
       acceptedAt,
@@ -33,10 +47,10 @@ export class ConsentService {
 
     await this.events.emit({
       event_name: "consent.accepted",
-      actor: { actor_type: "worker", actor_id: dto.worker_id },
+      actor: { actor_type: "worker", actor_id: workerId },
       subject: { subject_type: "consent", subject_id: consent.id },
       payload: {
-        worker_id: dto.worker_id,
+        worker_id: workerId,
         consent_id: consent.id,
         consent_version: dto.consent_version,
         purposes: dto.purposes,

@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { requireOwner } from "../../../lib/auth/org-roles";
-import { topUp } from "../../../lib/payer-api";
+import { createCreditOrder, topUp, verifyCreditPayment } from "../../../lib/payer-api";
 
 /**
  * MOCK credit top-up Server Action (XT5 / E-R2 — MOCK ledger only).
@@ -52,5 +52,107 @@ export async function topUpAction(input: { packCode: string }): Promise<TopUpAct
     // Every non-404 failure collapses to ONE retryable line — the caller never learns whether
     // the pack, the org, or the backend was the reason (no-oracle, same posture as the gate).
     return { ok: false, error: "Top-up failed (service unavailable). Please retry." };
+  }
+}
+
+/* ── REAL Razorpay checkout (only reachable when PAYMENTS_ENABLE_REAL is on) ──────── */
+
+export type CreateOrderActionResult =
+  | {
+      ok: true;
+      orderId: string;
+      /** PUBLIC `rzp_*` key id, supplied by the API on this response. Never a secret. */
+      keyId: string;
+      /** Paise — what Razorpay Checkout expects. */
+      amount: number;
+      currency: string;
+      packCode: string;
+    }
+  | { ok: false; error: string };
+
+export type VerifyPaymentActionResult =
+  | { ok: true; balance: number; creditsAdded: number }
+  | { ok: false; error: string };
+
+/**
+ * Create a REAL Razorpay order for a pack.
+ *
+ * SAME GATE AS THE MOCK ACTION (#463 / TD79): a Server Action is an independently
+ * invocable POST endpoint, so `requireOwner()` runs FIRST — before validation and before
+ * the seam. A page gate is not an action gate, and this action starts real money moving.
+ *
+ * The response deliberately carries no secret: the API returns only the key ID, which
+ * Razorpay Checkout requires in the browser and which is public by design.
+ */
+export async function createOrderAction(input: {
+  packCode: string;
+}): Promise<CreateOrderActionResult> {
+  await requireOwner(); // GATE FIRST — authorization precedes validation and the seam.
+
+  if (!packCodeSchema.safeParse(input.packCode).success) {
+    return { ok: false, error: "Choose a pack to continue." };
+  }
+  try {
+    const order = await createCreditOrder({ packCode: input.packCode });
+    // null = a 404: an unknown pack OR real payments switched off. The API answers both
+    // identically on purpose, so this message must not guess which.
+    if (!order) return { ok: false, error: "Checkout is unavailable right now." };
+    return {
+      ok: true,
+      orderId: order.order_id,
+      keyId: order.key_id,
+      amount: order.amount,
+      currency: order.currency,
+      packCode: order.pack_code,
+    };
+  } catch {
+    return { ok: false, error: "Couldn't start checkout. Please retry." };
+  }
+}
+
+/**
+ * Confirm a completed checkout with the server and read back the balance.
+ *
+ * HONEST OUTCOMES ONLY. If verification does not succeed this returns an error that says
+ * the payment could not be confirmed — never a fabricated success. And a `creditsAdded: 0`
+ * result is a genuine SUCCESS (the webhook granted first); the balance is authoritative,
+ * so the UI keys its message on the balance, not on the delta.
+ */
+export async function verifyPaymentAction(input: {
+  orderId: string;
+  paymentId: string;
+  signature: string;
+}): Promise<VerifyPaymentActionResult> {
+  await requireOwner(); // GATE FIRST — same reasoning as above.
+
+  const ids = z.object({
+    orderId: z.string().min(1).max(128),
+    paymentId: z.string().min(1).max(128),
+    signature: z.string().min(1).max(256),
+  });
+  if (!ids.safeParse(input).success) {
+    return { ok: false, error: "We couldn't confirm that payment. Please contact support." };
+  }
+  try {
+    const verified = await verifyCreditPayment(input);
+    if (!verified) {
+      // The API refuses a forged signature, an unknown order, and another tenant's order
+      // with the SAME 404 — so this copy stays generic and points at a human, because the
+      // payer may genuinely have been charged and needs a person, not a retry loop.
+      return {
+        ok: false,
+        error:
+          "We couldn't confirm that payment yet. If money left your account, it will be credited automatically — contact support if it isn't.",
+      };
+    }
+    return { ok: true, balance: verified.balance, creditsAdded: verified.credits };
+  } catch {
+    // A transport failure here does NOT mean the purchase failed — the webhook is the
+    // source of truth and settles independently. The copy says exactly that.
+    return {
+      ok: false,
+      error:
+        "Payment received, but we couldn't refresh your balance. It will update shortly — refresh in a moment.",
+    };
   }
 }

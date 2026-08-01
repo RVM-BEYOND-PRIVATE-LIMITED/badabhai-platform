@@ -73,3 +73,29 @@ export function maskLast4(last4: string | null | undefined): string {
 export function bandLabel(parts: ReadonlyArray<string | null | undefined>): string {
   return parts.filter((p): p is string => Boolean(p)).join(" · ");
 }
+
+/**
+ * Matching V1's bucketed month count as a COARSE human label (ADR-0036).
+ *
+ * The stored number is already rounded down to a 6-month bucket — "months bucket to 6,
+ * no false precision on a number a man estimated". Rendering "47 months" would put back
+ * exactly the precision the bucketing removed, so this reads out in whole years with a
+ * "6 mo" half-step and never claims more than the bucket supports.
+ *
+ * ALWAYS ROUNDS DOWN, matching the storage rule: a worker's own estimate is never
+ * inflated on a screen a company pays to act on.
+ *
+ *   monthsLabel(48) === "4 yrs"
+ *   monthsLabel(54) === "4.5 yrs"
+ *   monthsLabel(6)  === "6 mo"
+ *   monthsLabel(12) === "1 yr"
+ *   monthsLabel(0)  === ""
+ */
+export function monthsLabel(months: number | null | undefined): string {
+  if (typeof months !== "number" || !Number.isFinite(months) || months <= 0) return "";
+  if (months < 12) return `${Math.floor(months)} mo`;
+  const years = Math.floor(months / 12);
+  const half = months % 12 >= 6;
+  if (!half) return years === 1 ? "1 yr" : `${years} yrs`;
+  return `${years}.5 yrs`;
+}

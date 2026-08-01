@@ -13,8 +13,18 @@ function makeCtrl() {
   const reach = { applicantsForOwnedJob: vi.fn(async () => ({ jobId: JOB, applicants: [] })) };
   const rateLimit = { assertWithinHourlyCap: vi.fn(async () => undefined) };
   const config = { PAYER_REACH_MAX_PER_HOUR: 60 } as unknown as ServerConfig;
-  const ctrl = new PayerReachController(reach as never, rateLimit as never, config);
-  return { ctrl, reach, rateLimit };
+  // ADR-0036 moment ⑥. Every case here runs with MATCH_V1_ENABLED FALSE (the config
+  // above omits it), so these must never be reached — asserted below.
+  const matchCandidates = { listForPosting: vi.fn(async () => ({ jobId: JOB, applicants: [] })) };
+  const jobPostings = { getOneForPayer: vi.fn() };
+  const ctrl = new PayerReachController(
+    reach as never,
+    rateLimit as never,
+    config,
+    matchCandidates as never,
+    jobPostings as never,
+  );
+  return { ctrl, reach, rateLimit, matchCandidates, jobPostings };
 }
 
 /**
@@ -46,5 +56,12 @@ describe("PayerReachController — identity from the session, rate-limited (ADR-
     d.rateLimit.assertWithinHourlyCap.mockRejectedValueOnce(new Error("429"));
     await expect(d.ctrl.applicants({ jobId: JOB }, PAYER_A, CTX)).rejects.toThrow();
     expect(d.reach.applicantsForOwnedJob).not.toHaveBeenCalled();
+  });
+
+  it("MATCH_V1_ENABLED=false keeps the legacy source (ADR-0036 cutover gate)", async () => {
+    await d.ctrl.applicants({ jobId: JOB }, PAYER_A, CTX);
+    expect(d.reach.applicantsForOwnedJob).toHaveBeenCalledOnce();
+    expect(d.matchCandidates.listForPosting).not.toHaveBeenCalled();
+    expect(d.jobPostings.getOneForPayer).not.toHaveBeenCalled();
   });
 });

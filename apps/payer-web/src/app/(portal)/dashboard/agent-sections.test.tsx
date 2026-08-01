@@ -227,6 +227,44 @@ describe("agent sections — NEGATIVE: no section-level inputs, no payout/KYC te
   });
 });
 
+describe("Invite tools · truthful about module 2, discoverable batch mint (ADR-0022 Amdt 3)", () => {
+  it("does NOT advertise bulk upload as coming soon — it names the module + its reason", async () => {
+    const tree = await AgentSections();
+    const { text } = collect(tree);
+    const joined = text.join(" ");
+
+    // Module 2 is DEAD with NO gate ("no gate ever revives bulk raw-phone ingest/export"):
+    // promising it is a promise the product must never keep.
+    expect(joined).not.toMatch(/coming soon/i);
+    expect(joined).not.toMatch(/upload multiple invites/i);
+    expect(joined).not.toMatch(/\bat scale\b/i);
+
+    // …and the tile states the reason, consistent with parked-modules.tsx.
+    const bulk = findAll(tree, Card).find((c) => labelOf(c) === "Bulk Upload")!;
+    expect(bulk).toBeDefined();
+    const bulkText = collect(bulk).text.join(" ");
+    expect(bulkText).toMatch(/not available/i);
+    expect(bulkText).toMatch(/consent violation/i);
+    // The route is kept (an explanation page), so the tile never 404s.
+    expect(prop(bulk).href).toBe("/agency/bulk-upload");
+  });
+
+  it("surfaces the LIVE batch mint from Invite tools, pointing at the referrals batch panel", async () => {
+    const tree = await AgentSections();
+    const batch = findAll(tree, Card).find((c) => labelOf(c) === "Batch invites")!;
+    expect(batch).toBeDefined();
+    expect(prop(batch).href).toBe("/agency/referrals#batch-invites");
+    expect(String(prop(batch).ariaLabel ?? "")).toMatch(/batch invite links/i);
+
+    // The Amdt-3 distinction must survive in the copy: batch mint GENERATES anonymous links
+    // (arity over nothing); it is not a softened "bulk feature".
+    const batchText = collect(batch).text.join(" ");
+    expect(batchText).toMatch(/anonymous/i);
+    expect(batchText).toMatch(/Live/);
+    expect(batchText).not.toMatch(/upload/i);
+  });
+});
+
 describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (faceless)", () => {
   it("wires identity → /account and total-vacancies → the SAME-PAGE /dashboard #-anchor", async () => {
     const tree = await AgentSections();
@@ -236,6 +274,11 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
     expect(prop(byLabel("Account")!).href).toBe("/account");
     // MERGE-1: the demand tile now anchors WITHIN /dashboard (not /agency/dashboard).
     expect(prop(byLabel("Total vacancies")!).href).toBe("/dashboard#agency-vacancies");
+    // B5: the faceless engagement view — a STATIC route, and no count is rendered on the
+    // tile (a count would itself signal how many referrals consented).
+    const activity = byLabel("Worker activity")!;
+    expect(prop(activity).href).toBe("/agency/workers");
+    expect(String(prop(activity).ariaLabel ?? "")).toContain("Worker activity");
 
     // every LINKED tile carries a non-empty accessible name
     for (const c of cards) {
@@ -258,7 +301,7 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
       expect(h).not.toMatch(/\+91/);
       // every tile href is a static app route (no interpolated id at all)
       expect(h).toMatch(
-        /^\/(account|dashboard#agency-vacancies|agency\/(revenue|qr|bulk-upload))$/,
+        /^\/(account|dashboard#agency-vacancies|agency\/(revenue|qr|bulk-upload|workers|referrals#batch-invites))$/,
       );
     }
   });

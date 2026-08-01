@@ -2263,8 +2263,23 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 125 event names (122 prior + the ADR-0035 job_posting_chat domain)", () => {
-    expect(EVENT_NAMES).toHaveLength(125);
+  it("exposes all 136 event names (125 prior + B4/X.6 four + ADR-0036 seven)", () => {
+    expect(EVENT_NAMES).toHaveLength(136);
+    // B4 attribution chain + §X.6 (blocker: invite.install / worker.active were NOT FOUND).
+    expect(isEventName("invite.install")).toBe(true);
+    expect(isEventName("worker.active")).toBe(true);
+    expect(isEventName("agency_invite.clicked")).toBe(true);
+    expect(isEventName("referral.bonus_accrued")).toBe(true);
+    // ADR-0036 — Matching V1. Six new v1 events + the versioned feed.shown_v2.
+    expect(isEventName("worker.match_skills_rebuilt")).toBe(true);
+    expect(isEventName("job_posting.reach_materialized")).toBe(true);
+    expect(isEventName("job_posting.reach_alert")).toBe(true);
+    expect(isEventName("job_posting.reach_widened")).toBe(true);
+    expect(isEventName("job_posting.boost_refused")).toBe(true);
+    expect(isEventName("payer.credits_exhausted")).toBe(true);
+    expect(isEventName("feed.shown_v2")).toBe(true);
+    // …and the shipped v1 `feed.shown` is STILL registered, unmodified (invariant #8).
+    expect(isEventName("feed.shown")).toBe(true);
     expect(isEventName("job_posting_chat.session_started")).toBe(true);
     expect(isEventName("job_posting_chat.message_sent")).toBe(true);
     expect(isEventName("job_posting_chat.draft_ready")).toBe(true);
@@ -2373,10 +2388,197 @@ describe("registry", () => {
     expect(isEventName("nope")).toBe(false);
   });
 
-  it("every registry entry has version 1 in Phase 1", () => {
+  /**
+   * The versioning lock. Every payload is v1 EXCEPT the ones deliberately versioned by
+   * an ADR, which are enumerated here by name. That keeps the original guarantee — an
+   * accidental version bump fails this test — while recording each intentional bump as
+   * a reviewable line in the diff rather than deleting the lock outright.
+   *
+   * `feed.shown_v2` (ADR-0036): a SECOND registry entry, not a mutation of `feed.shown`.
+   * `validateEvent` allows exactly one version per name, so the shipped v1 payload stays
+   * live and unmodified as history (invariant #8) while V1 emits the new generation.
+   */
+  const VERSIONED_PAYLOADS: Readonly<Record<string, number>> = { "feed.shown_v2": 2 };
+
+  it("every registry entry is version 1 except the ADR-versioned payloads", () => {
     for (const name of EVENT_NAMES) {
-      expect(EVENT_REGISTRY[name].version).toBe(1);
+      expect(EVENT_REGISTRY[name].version).toBe(VERSIONED_PAYLOADS[name] ?? 1);
     }
+  });
+
+  it("keeps the shipped feed.shown v1 payload EXACTLY as it was (invariant #8)", () => {
+    const v1 = EVENT_REGISTRY["feed.shown"];
+    expect(v1.version).toBe(1);
+    // score/hot are the v1 fields ADR-0036 retires. They must still parse here, or the
+    // legacy `/feed` + ops `/reach/*` emitters break on a MATCH_V1_ENABLED=false deploy.
+    expect(
+      v1.payload.safeParse({ worker_id: UUID_A, job_id: UUID_B, rank: 1, score: 0, hot: false })
+        .success,
+    ).toBe(true);
+    // …and v2's fields are NOT accepted by v1 (the two shapes are genuinely distinct).
+    const v2Shape = v1.payload.safeParse({
+      worker_id: UUID_A,
+      job_posting_id: UUID_B,
+      rank: 1,
+      match_tier: 1,
+      boosted: false,
+      matched_skill_id: "mskill_vmc_operator",
+    });
+    expect(v2Shape.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B4 attribution chain + §X.6 — invite.install / worker.active /
+// agency_invite.clicked / referral.bonus_accrued.
+//
+// Every one is `.strict()`, so the "no raw PII" rule is STRUCTURAL, not a convention:
+// a phone, a name, a phone_hash, or the shareable invite CODE cannot ride onto the
+// spine even if a future caller tries to pass it.
+// ---------------------------------------------------------------------------
+describe("invite.install payload (B4) — opaque row id + closed enums, strict", () => {
+  const base = { invite_id: UUID_A, invite_kind: "worker", source: "install_referrer" };
+  const make = (payload: object, subject: "invite" | "agency_invite" = "invite") =>
+    createEvent({
+      event_name: "invite.install",
+      actor: { actor_type: "system" },
+      subject: { subject_type: subject, subject_id: UUID_A },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: payload as never,
+    });
+
+  it("accepts every install SOURCE of the post-Dynamic-Links chain", () => {
+    for (const source of ["app_link", "install_referrer", "custom_scheme", "unknown"]) {
+      expect(validateEvent(make({ ...base, source })).success).toBe(true);
+    }
+  });
+
+  it("carries BOTH funnels via invite_kind + the matching subject_type", () => {
+    expect(validateEvent(make({ ...base, invite_kind: "worker" }, "invite")).success).toBe(true);
+    expect(
+      validateEvent(make({ ...base, invite_kind: "agency" }, "agency_invite")).success,
+    ).toBe(true);
+  });
+
+  it("REJECTS the shareable code, a phone, or any extra key (.strict — a code is a bearer token)", () => {
+    expect(() => make({ ...base, code: "abcdef012345" })).toThrow(EventValidationException);
+    expect(() => make({ ...base, phone_e164: "+919876543210" })).toThrow(EventValidationException);
+    expect(() => make({ ...base, invited_worker_id: UUID_B })).toThrow(EventValidationException);
+  });
+
+  it("REJECTS an unknown/free-text source (closed enum — no client string reaches the spine)", () => {
+    expect(() => make({ ...base, source: "whatsapp_forward" })).toThrow(EventValidationException);
+    expect(() => make({ ...base, source: "" })).toThrow(EventValidationException);
+  });
+
+  it("REQUIRES source (the API defaults it to 'unknown' BEFORE emitting, never omits it)", () => {
+    expect(() => make({ invite_id: UUID_A, invite_kind: "worker" })).toThrow(
+      EventValidationException,
+    );
+  });
+});
+
+describe("worker.active payload (X.6) — coarse day bucket, never a trace, strict", () => {
+  const base = { worker_id: UUID_A, day: "2026-07-30" };
+  const make = (payload: object) =>
+    createEvent({
+      event_name: "worker.active",
+      actor: { actor_type: "worker", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_A },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: payload as never,
+    });
+
+  it("accepts the worker_id + UTC day bucket", () => {
+    expect(validateEvent(make(base)).success).toBe(true);
+  });
+
+  it("REJECTS a finer-grained timestamp in `day` (a per-request trace, not a daily fact)", () => {
+    expect(() => make({ ...base, day: "2026-07-30T11:22:33.000Z" })).toThrow(
+      EventValidationException,
+    );
+    expect(() => make({ ...base, day: "20260730" })).toThrow(EventValidationException);
+  });
+
+  it("REJECTS route/session/ip/user-agent keys (.strict — this must never become a request log)", () => {
+    expect(() => make({ ...base, route: "/chat/message" })).toThrow(EventValidationException);
+    expect(() => make({ ...base, session_id: UUID_B })).toThrow(EventValidationException);
+    expect(() => make({ ...base, ip_hash: "deadbeef" })).toThrow(EventValidationException);
+    expect(() => make({ ...base, phone_hash: "deadbeef" })).toThrow(EventValidationException);
+  });
+});
+
+describe("agency_invite.clicked payload (TD113) — no worker handle before consent, strict", () => {
+  const base = { agency_invite_id: UUID_A, inviter_payer_id: UUID_B, channel: "whatsapp" };
+  const make = (payload: object) =>
+    createEvent({
+      event_name: "agency_invite.clicked",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "agency_invite", subject_id: UUID_A },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: payload as never,
+    });
+
+  it("accepts the opaque row + owning agency + channel", () => {
+    expect(validateEvent(make(base)).success).toBe(true);
+  });
+
+  it("REJECTS a worker handle — a click precedes the DPDP consent gate (invariant #6)", () => {
+    expect(() => make({ ...base, invited_worker_id: UUID_C })).toThrow(EventValidationException);
+  });
+
+  it("REJECTS the shareable code and any extra key (.strict)", () => {
+    expect(() => make({ ...base, code: "abcdef012345" })).toThrow(EventValidationException);
+    expect(() => make({ ...base, ip: "203.0.113.7" })).toThrow(EventValidationException);
+  });
+});
+
+describe("referral.bonus_accrued payload (X.6) — ₹ + opaque ids only, strict", () => {
+  const base = {
+    accrual_id: UUID_A,
+    inviter_worker_id: UUID_B,
+    invited_worker_id: UUID_C,
+    amount_inr: 20,
+  };
+  const make = (payload: object) =>
+    createEvent({
+      event_name: "referral.bonus_accrued",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "referral_bonus", subject_id: UUID_A },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: payload as never,
+    });
+
+  it("accepts the ₹20 accrual shape", () => {
+    expect(validateEvent(make(base)).success).toBe(true);
+  });
+
+  it("REJECTS a phone_hash — two worker ids + a shared hash would be a re-identification join", () => {
+    expect(() => make({ ...base, phone_hash: "a".repeat(64) })).toThrow(EventValidationException);
+  });
+
+  it("REJECTS a disqualify reason / free text riding along (.strict)", () => {
+    expect(() => make({ ...base, reason: "duplicate_phone" })).toThrow(EventValidationException);
+    expect(() => make({ ...base, note: "paid via UPI to 9876543210" })).toThrow(
+      EventValidationException,
+    );
+  });
+
+  it("REJECTS paise / fractional or non-positive rupees (whole rupees, like agency_payout.*)", () => {
+    expect(() => make({ ...base, amount_inr: 20.5 })).toThrow(EventValidationException);
+    expect(() => make({ ...base, amount_inr: 0 })).toThrow(EventValidationException);
+    expect(() => make({ ...base, amount_inr: -20 })).toThrow(EventValidationException);
+  });
+
+  it("has NO paid sibling — no payout rail exists, and an event name is a promise", () => {
+    expect(isEventName("referral.bonus_paid")).toBe(false);
+    expect(EVENT_NAMES.filter((n) => n.startsWith("referral."))).toEqual([
+      "referral.bonus_accrued",
+    ]);
   });
 });
 

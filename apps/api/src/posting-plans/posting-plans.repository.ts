@@ -172,6 +172,36 @@ export class PostingPlansRepository {
     return row;
   }
 
+  /**
+   * ADR-0036 §7 — push out the SERVED entity's boost window by `boostDays`.
+   *
+   * `job_postings.boosted_until` is the DERIVED serving state the feed's ORDER BY reads
+   * (`(boosted_until > now()) DESC`), so the hottest read in the system needs no join to
+   * `posting_boosts`. `posting_boosts` remains the immutable RECEIPT — one row per
+   * purchase, never updated by this.
+   *
+   * `GREATEST(now(), boosted_until) + N days` — EXTEND, never overwrite. Buying a second
+   * boost while one is running must ADD to the window; setting it to N days from today
+   * would sell a payer time they already own and take some away. `GREATEST` also handles
+   * an EXPIRED previous window correctly (it falls through to `now()`), and `COALESCE`
+   * handles a posting that has never been boosted.
+   *
+   * ONE STATEMENT, computed in SQL against the database's own clock: a read-modify-write
+   * in application code would race two concurrent purchases and lose one of the windows.
+   */
+  async extendPostingBoostWindow(jobPostingId: string, boostDays: number): Promise<Date | null> {
+    const rows = await this.db
+      .update(jobPostings)
+      .set({
+        boostedUntil: sql`GREATEST(now(), COALESCE(${jobPostings.boostedUntil}, now()))
+                          + make_interval(days => ${boostDays})`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(jobPostings.id, jobPostingId))
+      .returning({ boostedUntil: jobPostings.boostedUntil });
+    return rows[0]?.boostedUntil ?? null;
+  }
+
   /** An active, unexpired boost on a posting (B-R3: reject overlapping boosts). */
   async findActiveBoost(jobPostingId: string, now: Date): Promise<PostingBoost | undefined> {
     const rows = await this.db

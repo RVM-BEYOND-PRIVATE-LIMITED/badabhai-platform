@@ -38,7 +38,28 @@ describe("ReferralAttributionController — no-oracle + session-scoped id", () =
   it("dispatches the SESSION worker id (not any body id) + the code to the service", async () => {
     const { ctrl, service } = make({ attributed: true, kind: "agency" });
     await ctrl.attribute(WORKER, { code: CODE }, IP);
-    expect(service.attribute).toHaveBeenCalledWith(CODE, WORKER.id);
+    expect(service.attribute).toHaveBeenCalledWith(CODE, WORKER.id, "unknown");
+  });
+
+  // ---- B4: the OPTIONAL install `source` ----
+
+  it("threads a supplied source through to the service", async () => {
+    const { ctrl, service } = make({ attributed: true, kind: "worker" });
+    await ctrl.attribute(WORKER, { code: CODE, source: "install_referrer" }, IP);
+    expect(service.attribute).toHaveBeenCalledWith(CODE, WORKER.id, "install_referrer");
+  });
+
+  it("defaults a MISSING source to 'unknown' — a pre-B4 client posting {code} still works", async () => {
+    const { ctrl, service } = make({ attributed: true, kind: "worker" });
+    await expect(ctrl.attribute(WORKER, { code: CODE }, IP)).resolves.toEqual({ ok: true });
+    expect(service.attribute).toHaveBeenCalledWith(CODE, WORKER.id, "unknown");
+  });
+
+  it("returns the SAME neutral body whatever the source (no oracle on the new field)", async () => {
+    const { ctrl } = make({ attributed: false, kind: "none" });
+    await expect(
+      ctrl.attribute(WORKER, { code: CODE, source: "app_link" }, IP),
+    ).resolves.toEqual({ ok: true });
   });
 
   it("enforces the per-IP hourly cap BEFORE dispatching (fail-closed backstop)", async () => {

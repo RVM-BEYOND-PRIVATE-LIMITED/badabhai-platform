@@ -104,9 +104,13 @@ void main() {
       );
 
       // No bearer was sent: a 401 is a real answer, not a stale token.
+      //
+      // Uses the PUBLIC interview-kit download. This used to use acceptConsent,
+      // which stopped being a valid example the moment consent became worker-
+      // authed — it now sends a bearer like every other worker-scoped call, so
+      // it would have been asserting the opposite of what this test is about.
       await expectLater(
-          api.acceptConsent(workerId: 'w1', purposes: <String>['profiling']),
-          throwsA(isA<ApiException>()));
+          api.downloadInterviewKit('cnc_operator'), throwsA(isA<ApiException>()));
       expect(renewCalls, 0);
     });
 

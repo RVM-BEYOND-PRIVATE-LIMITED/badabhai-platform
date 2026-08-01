@@ -1664,6 +1664,13 @@ textarea.input {
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+/* ADR-0036 — the coarse tenure that replaces the score on the Matching V1 path. Same
+   weight as the score it stands in for: it is a supporting figure beside the tier badge,
+   not the headline. */
+.applicant__months {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
 .applicant__signals {
   display: flex;
   flex-wrap: wrap;
@@ -1806,6 +1813,88 @@ textarea.input {
   color: var(--danger);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+}
+
+/* ------------------------------------------------------------------
+ * MATCH SKILL PICKER (ADR-0036) — the posting form's MATCHABLE half.
+ *
+ * The reach counter is the most important number on the page: it is the only place a
+ * company sees, before paying, how many workers its choice actually reaches. So it gets
+ * the visual weight (its own bordered strip), and the zero-reach panel gets the warning
+ * treatment — E13 says never take money for a posting into a void, and a line of muted
+ * body text would not carry that.
+ *
+ * Chips are the DS primitive; only layout is added here. Every value is a token.
+ * ------------------------------------------------------------------ */
+.match-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.match-picker__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-1);
+}
+.match-picker__hint,
+.match-picker__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.match-picker__vocab,
+.match-picker__related [role="group"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.match-picker__related {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.match-picker__related-label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.match-picker__reach {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.match-picker__reach:empty {
+  display: none;
+}
+.match-picker__tier1,
+.match-picker__loading {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.match-picker__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+.match-picker__zero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+.match-picker__zero p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
 }
 
 /* ------------------------------------------------------------------
@@ -2361,6 +2450,565 @@ textarea.input {
   margin-top: var(--space-4);
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+/* ==================================================================
+ * AGENCY SUPPLY — WORKER ENGAGEMENT · BATCH INVITE MINT · PRINTABLE QR (B5)
+ * ------------------------------------------------------------------
+ * Three new agency surfaces, styled in the SAME visual language as the agency dashboard
+ * above (display-font section titles, muted sub-copy on --reading-max, DS Card surfaces,
+ * mono-tabular data). Tokens only — no raw hex, no raw px; every rule flips under
+ * [data-theme="ink"] except the QR paper, which is deliberately pinned to light (see below).
+ *
+ * FACELESS BOUNDARY (CLAUDE.md §2 #2): these surfaces render ONLY opaque handles, counts,
+ * status enums and coarse days. There is deliberately NO styling here for a name, a phone,
+ * an employer, a job title or an "unlocked by" — the CSS gives such a cell nowhere to live.
+ * The 16-hex ref is styled AS an opaque token (a sunken mono chip), not as an identity.
+ * ================================================================== */
+
+/* ---- 1. /agency/workers — worker activity ------------------------------------
+ * `.agency-workers` is the page/section wrapper; `.agency-workers__table` goes ON the
+ * <table> element itself (its cells are __ref / __metric / __last). */
+.agency-workers {
+  display: grid;
+  gap: var(--block-gap);
+  min-width: 0;
+}
+/* The grid gap owns the vertical rhythm — shared section bits drop their own margins so the
+   spacing does not double up. */
+.agency-workers > .agency-section__title,
+.agency-workers > .agency-section__sub,
+.agency-batch > .agency-section__title,
+.agency-batch > .agency-section__sub,
+.agency-qr > .agency-section__title,
+.agency-qr > .agency-section__sub,
+.agency-qr > .agency-invite__form,
+.agency-batch > .agency-invite__form,
+/* `.agency-invite__note` ships its own `margin: var(--space-3) 0` for the older flow-layout
+   invite panels; inside these grids that margin ADDS to --block-gap and doubles the rhythm. */
+.agency-qr > .agency-invite__note,
+.agency-batch > .agency-invite__note,
+.agency-workers > .agency-invite__note {
+  margin: 0;
+}
+.agency-workers__intro {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  max-width: var(--reading-max);
+}
+
+/* The list. Up to 200 rows, so: hairline dividers (no heavy chrome), a quiet sunken header,
+   and a hover row tint — density without noise. */
+.agency-workers__table {
+  width: 100%;
+  /* Columns size to their content and the table never squashes the 16-char ref onto two
+     lines; on a narrow viewport the TABLE itself becomes the scroll region (see the media
+     query), the page body never does. */
+  min-width: max-content;
+  border-collapse: collapse;
+  margin: 0;
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  /* No `overflow: hidden` here — the corners are rounded per corner-cell instead, so the
+     card silhouette survives without clipping a cell's focus ring. */
+  font-size: var(--text-sm);
+}
+.agency-workers__table thead th:first-child {
+  border-start-start-radius: var(--radius-lg);
+}
+.agency-workers__table thead th:last-child {
+  border-start-end-radius: var(--radius-lg);
+}
+.agency-workers__table tbody tr:last-child > :first-child {
+  border-end-start-radius: var(--radius-lg);
+}
+.agency-workers__table tbody tr:last-child > :last-child {
+  border-end-end-radius: var(--radius-lg);
+}
+.agency-workers__table th,
+.agency-workers__table td {
+  text-align: left;
+  vertical-align: middle;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-hairline) solid var(--border-subtle);
+  white-space: nowrap;
+}
+/* COLUMN headers only. A `<th scope="row">` (the ref cell) is a body cell and must keep body
+   styling — hence `thead th`, never a bare `th`. */
+/* NOT STICKY, deliberately. A sticky `top: 0` header pins itself UNDER `.portal-top`, which is
+   itself sticky at top:0 with an OPAQUE --surface-card background and a far higher --z-nav (200
+   vs --z-raised 10) — so the column headers were permanently invisible: they scrolled up, parked behind
+   the portal bar and never came back. Offsetting by the bar's height is not available either:
+   `.portal-top` wraps (brand + actions, then the nav on its own row ≤768px), so its height is
+   content-dependent and there is no --header-height token to offset against. A plainly scrolling
+   header that the user can actually see beats a pinned one they cannot. */
+.agency-workers__table thead th {
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  /* The header divider is now just the shared `th, td` hairline (the inset-shadow workaround
+     existed only because a STICKY cell loses its collapsed border while it is pinned). */
+}
+.agency-workers__table tbody th {
+  font-weight: var(--weight-regular);
+}
+.agency-workers__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.agency-workers__table tbody tr {
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.agency-workers__table tbody tr:hover {
+  background: var(--surface-sunken);
+}
+
+/* The per-agency pseudonym. It reads as an opaque HANDLE, never as a person: tabular mono,
+   selectable in one gesture, visually inert.
+   The class sits directly on the row header cell (`<th scope="row" class="agency-workers__ref">`),
+   so the treatment is applied to THAT cell. A cell cannot host an inline chip box from CSS alone
+   (there is no inner element to pad), so the "sunken chip" becomes a sunken HANDLE COLUMN — the
+   same sunken/mono/inert reading, expressed at cell scale. --surface-inset (not --surface-sunken)
+   keeps the column distinct from the row-hover tint, which is --surface-sunken. */
+.agency-workers__ref,
+.agency-workers__table tbody th.agency-workers__ref {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-primary);
+  background: var(--surface-inset);
+  word-break: normal;
+  /* One gesture selects the whole handle — the agency copies it, never retypes it. */
+  user-select: all;
+}
+
+/* Counts — mono tabular so 200 rows of digits form a readable column. */
+.agency-workers__metric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+/* Coarse last-active DAY (never a time of day) — muted, mono, one line. */
+.agency-workers__last {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* Narrow viewports: ONLY THE TABLE scrolls sideways.
+   The scroll container must not be the <section>: the section also holds the <h2>, the intro
+   prose and the trailing sub-copy, and a `min-width: max-content` table (~660px) inflates the
+   section's grid TRACK, so on a 360px phone every paragraph is laid out ~660px wide and every
+   line runs off screen. Two changes keep the prose on the phone rail:
+     1. `grid-template-columns: minmax(0, 1fr)` — the single auto track no longer takes its base
+        size from the table's max-content contribution, so the track is the phone rail and the
+        prose (and its --reading-max) wrap inside it;
+     2. the table becomes its OWN scroll region (`display: block; overflow-x: auto`), with
+        `min-width` released — a `min-width: max-content` on the scroll BOX would push the box
+        itself to 660px again and there would be nothing left to scroll. The rows are re-wrapped
+        in an anonymous table box that keeps sizing to its content, which is what scrolls. */
+@media (max-width: 900px) {
+  .agency-workers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .agency-workers__table {
+    display: block;
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-width: 0;
+    /* room for the scrollbar so it never sits on the last row */
+    padding-bottom: var(--space-2);
+  }
+  .agency-workers__table th,
+  .agency-workers__table td {
+    padding: var(--space-3);
+  }
+}
+
+/* THE EMPTY STATE IS THE STATE THIS SHIPS IN — no worker can grant the visibility consent yet,
+   so this is the page, not a fallback. Which is exactly why it is QUIET: the same centred,
+   muted register as every other portal empty (.postings-empty / .agency-jobs__empty), on the DS
+   Card the markup already renders (`<Card variant="flat">` owns the surface, hairline border,
+   radius and padding — this block adds only the internal rhythm). A dashed-green hero frame
+   would celebrate the absence of data on the page an agency sees every single day.
+   It must never read as an accusation of the agency, and it must never become a consent
+   oracle: the copy (frontend-owned) says what the page will show, never who withheld what. */
+.agency-workers__empty {
+  display: grid;
+  gap: var(--space-2);
+  margin-inline: auto;
+  max-width: var(--reading-max);
+  text-align: center;
+}
+.agency-workers__empty-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  color: var(--text-primary);
+}
+.agency-workers__empty-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  text-wrap: pretty;
+}
+
+/* ---- 2. Batch invite mint ----------------------------------------------------
+ * A compact form (count 1..50 + optional campaign tag) and up to 50 opaque code/link pairs.
+ * 50 rows of mono text is a lot of visual noise, so the list is NUMBERED, dense, striped and
+ * the (long, uninteresting) link is truncated — the copy-all button is the real transport. */
+.agency-batch {
+  display: grid;
+  gap: var(--block-gap);
+}
+/* COMPACT by construction: the two fields share one row (labels top-aligned), and the action
+   row + live status always take the full width beneath them. */
+.agency-batch__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-4) var(--space-5);
+  max-width: var(--reading-max);
+}
+.agency-batch__form > .bb-field {
+  /* 14rem is a deliberate FIELD RAIL (an optical basis, not a spacing value): it is the width
+     at which the two fields sit side by side on a tablet and wrap to one per row on a phone. */
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.agency-batch__form > .agency-invite__actions,
+.agency-batch__form > .agency-invite__status {
+  flex: 1 0 100%;
+}
+/* The count is a 1..50 integer — a hand-sized rail (12rem is a deliberate optical basis: two
+   digits plus the stepper, never a full-width input). */
+.agency-batch__count {
+  flex: 0 1 12rem;
+  min-width: var(--space-13);
+}
+.agency-batch__count .bb-input {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+/* The result block is a DS Card — it keeps the Card surface; only the internal rhythm is set
+   here so the copy, the list and the copy-all button read as one unit. */
+.agency-batch__result {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+}
+.agency-batch__list {
+  counter-reset: agency-batch-row;
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.agency-batch__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: var(--control-sm);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-hairline) solid var(--border-subtle);
+  font-size: var(--text-sm);
+}
+.agency-batch__item:last-child {
+  border-bottom: 0;
+}
+/* Zebra — the cheapest way to keep 50 near-identical mono rows trackable by eye. */
+.agency-batch__item:nth-child(even) {
+  background: var(--surface-sunken);
+}
+/* Decorative row index (CSS-generated, carries no data). */
+.agency-batch__item::before {
+  counter-increment: agency-batch-row;
+  content: counter(agency-batch-row);
+  flex: 0 0 auto;
+  min-width: var(--space-6);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  text-align: right;
+}
+/* The opaque invite code — the thing worth reading. */
+.agency-batch__code {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-primary);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  user-select: all;
+}
+/* The link in a row is context, not content — truncate it rather than let 50 wrapped URLs
+   bury the codes. The full link travels via the copy-all button (and is still selectable). */
+.agency-batch__item a,
+.agency-batch__item > span:last-child:not(.agency-batch__code) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* ---- 3. /agency/qr — the PRINTABLE invite sheet ------------------------------
+ * This page ends up taped to a workshop wall or a chai stall, printed BLACK AND WHITE on
+ * cheap paper, and scanned by a scratched 7k-rupee camera. So:
+ *   · the QR sits on real paper-white with a physical quiet zone (padding), never on a
+ *     brand tint — a tinted QR does not scan;
+ *   · the QR block is pinned to the LIGHT ramp (--paper-0 / --ink-950) and never follows
+ *     [data-theme="ink"], because an inverted QR on paper is an unscannable black square;
+ *   · @media print below drops the portal chrome and prints the sheet big.
+ * The QR module colours themselves come from the component (frontend): they must be near
+ * black on white — this CSS guarantees the surround, not the modules. */
+.agency-qr {
+  /* Local sizing rail for the code: comfortable on screen, poster-sized on paper.
+     17rem (272px) is a DELIBERATE optical size, not a scale value — it is the largest code that
+     still leaves the caption and the typed link room to breathe on the 28rem sheet. It is the
+     CEILING of a clamp, because 272px does not fit a phone: on a 360px viewport the rail is
+     360 − 2×--gutter(20) − 2×--space-6(24) − 2×--space-5(20) − 4 hairlines = 228px, so a fixed
+     272px code forces the sheet to overflow the page. `calc(100vw - 8.25rem)` is exactly that
+     chrome budget (132px = 8.25rem) expressed in a VIEWPORT unit — deliberately not a
+     percentage, because a percentage max-width is ignored while an ancestor's intrinsic
+     (min-content / fit-content) size is being computed, which is precisely how the overflow
+     happened. The 9rem floor keeps the preview legible down to a 276px viewport; the PRINTED
+     size, which is the one that must actually scan, is --qr-size-print below and is untouched. */
+  --qr-size-screen: clamp(9rem, calc(100vw - 8.25rem), 17rem);
+  --qr-size-print: 92mm;
+  --qr-quiet-screen: var(--space-5);
+  --qr-quiet-print: 8mm;
+  /* The poster's own paper margin. It is applied as PADDING on the printed sheet rather than as
+     a global `@page { margin }`, because @page cannot be scoped to a route — see the print
+     block below. */
+  --qr-paper-margin-print: 6mm;
+  display: grid;
+  gap: var(--block-gap);
+}
+/* The sheet — what actually gets printed. On screen it is a DS Card; on paper it IS the page.
+   It is centred and rail-limited so the on-screen preview reads as a physical sheet. */
+.agency-qr__sheet {
+  width: 100%;
+  /* 28rem is a deliberate optical rail (roughly A5-at-96dpi), not a scale value: it is what
+     makes the on-screen preview read as a physical sheet rather than a full-width panel. */
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-6);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  break-inside: avoid;
+}
+/* The stack INSIDE the sheet: code → one line of instruction → the typed link. Centred,
+   generously spaced, nothing else competing for attention.
+   `grid-template-columns: minmax(0, 1fr)` is load-bearing, not decoration: with the default
+   single `auto` track, the track's BASE size is the min-content contribution of its widest item
+   (the code frame), a track never shrinks below its base size, and so the frame dragged the
+   whole sheet past the viewport on a phone. A `minmax(0, 1fr)` track has a zero minimum, so it
+   is always exactly the sheet's content width — a DEFINITE size the frame's `max-width: 100%`
+   can then resolve against. */
+.agency-qr__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-content: start;
+  gap: var(--space-4);
+  min-width: 0;
+  text-align: center;
+}
+/* The frame around the code — this padding IS the QR quiet zone, so the code stays scannable
+   even if the component is rendered without its own margin. Always paper-white.
+   `max-width: 100%` is the hard stop: `justify-items: center` sizes the frame fit-content, i.e.
+   from its own min-content width (quiet zone + code), which can exceed the phone rail; the
+   percentage clamps that used width back to the (now definite) grid area, and the code's own
+   `max-width: 100%` then shrinks it inside the frame. Belt (the clamp above) AND braces (here). */
+.agency-qr__frame {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  padding: var(--qr-quiet-screen);
+  background: var(--paper-0);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  /* keep the white behind the code when the browser is in "economy"/no-background mode */
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+/* The code itself. The class may sit on the rendered <svg>/<canvas>/<img> or on a host
+   element wrapping it — both resolve to the same physical size on screen and on paper.
+   `pixelated` keeps a RASTER qr's module edges hard when it is scaled up; blurry module
+   edges are exactly what makes a cheap camera give up. */
+.agency-qr__code,
+.agency-qr__code > svg,
+.agency-qr__code > canvas,
+.agency-qr__code > img {
+  display: block;
+  width: var(--qr-size-screen);
+  max-width: 100%;
+  height: auto;
+  background: var(--paper-0);
+}
+.agency-qr__code > svg,
+.agency-qr__code > canvas,
+.agency-qr__code > img {
+  width: 100%;
+}
+canvas.agency-qr__code,
+img.agency-qr__code,
+.agency-qr__code > canvas,
+.agency-qr__code > img {
+  image-rendering: pixelated;
+}
+.agency-qr__caption {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-snug);
+  color: var(--text-primary);
+}
+/* The human-readable fallback: someone whose camera will not focus types this. It must stay
+   large, mono, unambiguous and never below --text-base. */
+.agency-qr__link {
+  margin: 0;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-primary);
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.agency-qr__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+/* INK: the sheet chrome flips, the code does not (a white QR patch on a dark page is exactly
+   what a physical sheet looks like, and it is the only thing that scans). */
+[data-theme="ink"] .agency-qr__frame {
+  border-color: var(--border-strong);
+}
+
+/* ---- PRINT — the wall poster -------------------------------------------------
+ * GATED ON A MINTED SHEET, not on the page. `.agency-qr` renders on every visit, so scoping the
+ * chrome-stripping to `body:has(.agency-qr)` armed it before there was anything to print: the
+ * rules hid the portal chrome, the headings AND `.agency-qr > *:not(.agency-qr__sheet)` — i.e.
+ * every element on the page, since the sheet does not exist until the agency clicks "Create a QR
+ * invite" — so Ctrl-P on a fresh /agency/qr produced a BLANK page. Every selector below is
+ * therefore keyed on `.agency-qr__sheet`, which exists only once a code has actually been minted;
+ * before that, printing falls through to the ordinary page (chrome and all), which is honest.
+ * If :has() is unsupported nothing here applies and the sheet prints with the chrome above it.
+ *
+ * NO GLOBAL `@page` RULE. @page cannot be selector- or route-scoped (it has no subject), so the
+ * old `@page { margin: 14mm }` silently rewrote the paper margins of EVERY payer-portal route —
+ * a credits statement, an applicant list. The browser/print-dialog margin is left alone, and the
+ * poster's own paper margin is expressed as PADDING on the printed sheet
+ * (--qr-paper-margin-print), which IS scopable. That is the only route-scoped mechanism the
+ * platform offers; a named page (`page: qr-poster`) is scopable but not portable enough to be
+ * the only thing standing between the QR and the edge of the paper. */
+@media print {
+  /* Portal chrome, nav, back-links, page headings and toasts are screen furniture — off the
+     paper. Everything inside the section except the sheet goes too (the explainer card, the
+     mint form, the Print button), so the poster carries the code and nothing else. */
+  body:has(.agency-qr__sheet) .portal-top,
+  body:has(.agency-qr__sheet) .portal-nav,
+  body:has(.agency-qr__sheet) .chrome-footer,
+  body:has(.agency-qr__sheet) .unlock-toast-region,
+  body:has(.agency-qr__sheet) .capacity-back,
+  body:has(.agency-qr__sheet) .agency-back,
+  body:has(.agency-qr__sheet) .page-back,
+  body:has(.agency-qr__sheet) .dash-title,
+  body:has(.agency-qr__sheet) .dash-sub,
+  .agency-qr:has(.agency-qr__sheet) > *:not(.agency-qr__sheet),
+  .agency-qr:has(.agency-qr__sheet) .agency-qr__actions {
+    display: none !important;
+  }
+  /* Neutralise the shell so the sheet owns the page. */
+  body:has(.agency-qr__sheet),
+  body:has(.agency-qr__sheet) .portal-shell,
+  body:has(.agency-qr__sheet) .portal-main {
+    background: var(--paper-0) !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    animation: none !important;
+    box-shadow: none !important;
+  }
+  .agency-qr:has(.agency-qr__sheet) {
+    display: block !important;
+    margin: 0 !important;
+  }
+  /* The sheet prints as PLAIN INK ON PAPER regardless of the active theme — the ink theme
+     must never reach the printer, and a card shadow only muddies a laser print. The padding is
+     the poster's paper margin (see the @page note above). */
+  .agency-qr__sheet {
+    margin: 0 auto !important;
+    padding: var(--qr-paper-margin-print) !important;
+    max-width: none !important;
+    background: var(--paper-0) !important;
+    color: var(--ink-950) !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+  /* The printed stack rhythm deliberately equals the quiet zone — one rail, one value, so
+     widening the quiet zone can never leave the caption crowding the code. */
+  .agency-qr__layout {
+    gap: var(--qr-quiet-print) !important;
+  }
+  .agency-qr__frame {
+    padding: var(--qr-quiet-print) !important;
+    background: var(--paper-0) !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Big enough to scan from arm's length across a noisy workshop floor. */
+  .agency-qr__code {
+    width: var(--qr-size-print) !important;
+    max-width: 100% !important;
+    background: var(--paper-0) !important;
+  }
+  .agency-qr__caption {
+    font-size: var(--text-2xl) !important;
+    color: var(--ink-950) !important;
+  }
+  .agency-qr__link {
+    font-size: var(--text-md) !important;
+    color: var(--ink-950) !important;
+  }
 }
 
 /* Transient unlock-RESULT toast region (DS1.5) — fixed bottom-right; faceless, no-oracle copy. */
@@ -3321,4 +3969,97 @@ textarea.input {
   color: var(--text-muted);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+}
+
+/* ------------------------------------------------------------------
+ * PUBLIC REFERRAL LANDING (`/i/<code>`, blocker B4) — the ONLY worker-facing surface in
+ * this app. Mobile-first and deliberately tiny: a ₹7k phone on 3G renders it with zero
+ * client JS, no images and no extra round-trips, so it is pure token-driven CSS on top of
+ * the DS button. `--app-max` is the worker mobile canvas, which is exactly the right measure.
+ * ------------------------------------------------------------------ */
+.invite-landing {
+  flex: 1 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5) var(--space-4);
+  background: var(--surface-page);
+}
+.invite-landing__card {
+  width: 100%;
+  max-width: var(--app-max);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-6) var(--space-5);
+}
+.invite-landing__eyebrow {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--brand-press);
+}
+.invite-landing__title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-3);
+}
+.invite-landing__sub {
+  margin: 0 0 var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+/* The CTA is the ONE job of this page — full-bleed and thumb-reachable on a small screen. */
+.invite-landing__cta {
+  margin-bottom: var(--space-5);
+  text-align: center;
+}
+.invite-landing__steps {
+  list-style: none;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.invite-landing__step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+.invite-landing__step-num {
+  flex: 0 0 auto;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-round);
+  background: var(--brand-tint-2);
+  color: var(--brand-press);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
+}
+.invite-landing__note {
+  margin: 0 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.invite-landing__note--muted {
+  margin-bottom: 0;
+  color: var(--text-faint);
+}
+/* The root layout's footer says "BadaBhai for Employers" — true everywhere else in this app,
+   wrong on its one worker-facing page. There is a single root layout (a second one would mean
+   restructuring every existing route), so the footer is hidden from here instead. `:has()`
+   degrades to "the footer stays visible" on an old browser, which is purely cosmetic. */
+body:has(.invite-landing) .chrome-footer {
+  display: none;
 }

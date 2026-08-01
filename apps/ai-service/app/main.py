@@ -63,7 +63,7 @@ from .extraction import build_resume, resolve_taxonomy_ids
 from .job_posting_chat import answers as job_posting_answers
 from .job_posting_chat import interview_engine as job_posting_engine
 from .logging_config import configure_logging, get_logger
-from .profiling import interview_engine, profile_extractor
+from .profiling import interview_engine, profile_extractor, signals
 from .profiling.canonical_roles import (
     ROLE_TRADE,
     canonicalization_instruction,
@@ -75,7 +75,7 @@ from .profiling.prompts import (
     build_chat_messages,
     extraction_system_prompt,
 )
-from .profiling.signals import detect_role_family, has_first_person_claim, label_for_id
+from .profiling.signals import has_first_person_claim, label_for_id
 from .pseudonymize import (
     PseudonymizationResult,
     certified_clean_skill_labels,
@@ -157,9 +157,41 @@ async def service_auth(request, call_next):  # type: ignore[no-untyped-def]
     return await call_next(request)
 
 
+# The WORKER-facing pseudonymization-blocked reply.
+#
+# WHY THE COPY MATTERS MORE THAN A NORMAL ERROR STRING: apps/api STORES this as an
+# outbound chat message, so it lands in the worker's transcript and therefore in the
+# EXTRACTION CORPUS — it is not a toast that disappears. It was English ("Sorry, I
+# couldn't process that safely. Please rephrase without sharing personal details like
+# your phone number, full name, or company name.") in a Hinglish, chat-first product,
+# from a bot that speaks Hinglish on every other turn.
+#
+# The persona rules it now satisfies, each pinned by test_persona_neutrality
+# (_worker_facing_strings carries this string, so the whole banned-token net applies):
+#   * "aap" form, never "tu"/"tum";
+#   * NO vocative — never bhai / bhaiya / beta / behen / yaar;
+#   * no exclamation mark, no emoji, two short sentences;
+#   * it tells the worker WHAT TO DO DIFFERENTLY and says nothing about our internals
+#     (no "safely", no "processing", no mention of a gateway or a rule).
+#
+# Aligned in tone with the Flutter sibling `kChatBlockedNotice`
+# ("Aapki baat theek se nahi pahunch payi — thoda saaf karke dobara likhein.") — the
+# two are DELIBERATELY not byte-identical: the client string is a generic
+# transport/parse notice, this one is served when the privacy gateway blocked the turn,
+# so it names the two things that most often cause it. It never says WHY in our terms.
 _BLOCKED_REPLY = (
+    "Aapki baat theek se nahi pahunch payi. "
+    "Phone number ya poora naam likhe bina dobara bhejiye."
+)
+
+# The PAYER-facing equivalent (ADR-0035 job-posting chat). Deliberately a separate
+# constant and deliberately still English: the job-posting engine speaks English to
+# payers on every turn, so handing them the worker persona's Hinglish here would be a
+# tone break on a different product surface — and nothing above applies (the payer
+# transcript is not a worker profiling corpus). Same fail-closed semantics.
+_JOB_POSTING_BLOCKED_REPLY = (
     "Sorry, I couldn't process that safely. Please rephrase without sharing "
-    "personal details like your phone number, full name, or company name."
+    "contact details like a phone number, a person's name, or a company name."
 )
 
 
@@ -535,9 +567,14 @@ async def profiling_opening(body: ProfilingOpeningInput) -> ProfilingOpeningOutp
 
 @app.post("/profiling/respond", response_model=ProfilingTurnOutput)
 async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
-    # 0. Detect role family from the raw message (local gazetteer, no network,
-    #    before pseudonymization). Falls back to the caller-provided family.
-    role_family = detect_role_family(body.message_text) or body.role_family
+    # 0. Resolve the role family for this turn (local gazetteer, no network, before
+    #    pseudonymization). Detection wins; a role answer we cannot place resolves to
+    #    the `generic` bank; otherwise the persisted/caller family stands. See
+    #    interview_engine.resolve_role_family — the old `detect(...) or body.role_family`
+    #    could never reach `generic`, so every uncovered trade got the CNC/VMC bank.
+    role_family = interview_engine.resolve_role_family(
+        body.conversation_state, body.message_text, body.role_family
+    )
 
     # 1. Pseudonymize FIRST — gate for any external LLM call.
     result = pseudonymize(body.message_text)
@@ -562,10 +599,17 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     #    message carries an extractable ANSWER (answer-trumps-clarify: the predicate
     #    has false-positive classes like "Fanuc?" / "2 saal?" that must never eat an
     #    answer, #238 HIGH), or when the consecutive clarify budget (2) is spent.
+    #    PERSONA v3.2 §5: a worker ASKING whether they will get a job takes the SAME
+    #    re-serve path — the sheet requires answering them honestly and then going back
+    #    to the open question, not advancing past it. It is routed separately from
+    #    `is_clarify` on purpose: `is_clarify` also gates the optional LLM rephrase
+    #    below, and the guarantee line is a FIXED string with nothing to rephrase.
     is_clarify = interview_engine.needs_rephrase(body.message_text)
+    asks_about_job = signals.asks_about_job_prospects(body.message_text)
+    wants_reserve = is_clarify or asks_about_job
     turn = (
         interview_engine.clarify_turn(body.conversation_state, body.message_text, role_family)
-        if is_clarify
+        if wants_reserve
         else None
     )
     if turn is None:
@@ -586,7 +630,15 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     #    COST-3: the chat turn is STATELESS — prior history is NOT sent to the model
     #    (build_chat_messages ignores it); only the current (already-pseudonymized)
     #    message + the engine's question reach the LLM if a rephrase call does fire.
-    wants_rephrase = settings.ai_profiling_rephrase_enabled and is_clarify
+    #    ...EXCEPT on a job-prospect turn, which is excluded outright. `needs_rephrase`
+    #    is TRUE for the short forms of that question ("job milegi kya?" is 3 words and
+    #    ends in "?"), so without `not asks_about_job` the reply handed to the model
+    #    would be the §5 guarantee line — a sanctioned, verbatim commitment string
+    #    ("Guarantee nahi de sakta — profile poora hoga toh companies dekhengi.") that a
+    #    rephrase could soften into the promise §2 Law 9 forbids. Inert today
+    #    (AI_PROFILING_REPHRASE_ENABLED is off by default) and closed here so flipping
+    #    that flag cannot reword it.
+    wants_rephrase = settings.ai_profiling_rephrase_enabled and is_clarify and not asks_about_job
     messages = build_chat_messages([], mock_reply, result.text, role_family=role_family)
     reply_text, meta = await router.run(
         "profiling_chat_turn",
@@ -651,7 +703,7 @@ async def job_posting_chat_respond(body: JobPostingChatTurnInput) -> JobPostingC
             "job posting chat blocked", extra={"extra": {"reason": result.blocked_reason}}
         )
         return JobPostingChatTurnOutput(
-            reply_text=_BLOCKED_REPLY,
+            reply_text=_JOB_POSTING_BLOCKED_REPLY,
             blocked=True,
             blocked_reason=result.blocked_reason,
             is_mock=True,

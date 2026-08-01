@@ -37,6 +37,10 @@ def _real_settings(**overrides) -> Settings:
     base = dict(
         ai_enable_real_calls=True,
         sarvam_api_key="k",
+        # See the note in tests/test_stt_real.py: real STT now goes through
+        # `Settings.real_calls_blocked_reason()` (kill-switch + allowlist), which also
+        # requires the master Gemini key.
+        gemini_flash_api_key="g",
         supabase_url="https://x.supabase.co",
         supabase_service_role_key="svc",
     )

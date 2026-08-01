@@ -4,6 +4,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { DEFAULT_CATALOG, type Catalog } from "@badabhai/pricing";
 import { PaymentGateway } from "./payment-gateway";
 import type { UnlocksRepository } from "./unlocks.repository";
+import type { RazorpayClient } from "./razorpay.client";
 import type { PricingService } from "../pricing/pricing.service";
 
 /**
@@ -34,6 +35,17 @@ function catalogWithUnlockTiers(
   } as Catalog;
 }
 
+/** A provider client that is NOT live — the mock-mode default this suite exercises. */
+function offlineRazorpay() {
+  return {
+    isLive: false,
+    keyId: null,
+    createOrder: vi.fn(async () => {
+      throw new Error("createOrder must never be called while real payments are off");
+    }),
+  } as unknown as RazorpayClient;
+}
+
 function makeGateway(catalog: Catalog = DEFAULT_CATALOG) {
   const repo = { creditPack: vi.fn(async () => 60) };
   const pricing = {
@@ -43,6 +55,7 @@ function makeGateway(catalog: Catalog = DEFAULT_CATALOG) {
     repo as unknown as UnlocksRepository,
     CONFIG,
     pricing as unknown as PricingService,
+    offlineRazorpay(),
   );
   return { gw, repo, pricing };
 }
@@ -123,6 +136,7 @@ describe("PaymentGateway.resolvePack — LIVE catalog first (D-6 display==charge
       repo as unknown as UnlocksRepository,
       CONFIG,
       pricing as unknown as PricingService,
+      offlineRazorpay(),
     );
     await expect(gw.resolvePack("pack_50")).rejects.toThrow("catalog unavailable");
     expect(repo.creditPack).not.toHaveBeenCalled();

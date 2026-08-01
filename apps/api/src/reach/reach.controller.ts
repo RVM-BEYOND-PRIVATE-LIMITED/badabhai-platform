@@ -1,4 +1,5 @@
-import { Controller, Get, Param } from "@nestjs/common";
+import { Controller, Get, Param, UseGuards } from "@nestjs/common";
+import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { ReachService } from "./reach.service";
@@ -11,6 +12,7 @@ import { JobIdParamSchema, WorkerIdParamSchema } from "./reach.dto";
  * service). No auth on the alpha ops surface; no PII anywhere.
  */
 @Controller("reach")
+@UseGuards(InternalServiceGuard)
 export class ReachController {
   constructor(private readonly reach: ReachService) {}
 

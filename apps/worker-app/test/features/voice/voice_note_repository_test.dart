@@ -100,25 +100,33 @@ void main() {
         ));
   });
 
+  VoiceNoteRepositoryImpl buildRepo({
+    required VoiceStorageUploader uploader,
+    required VoiceTranscriptResolver resolver,
+    RecordedClip? clip =
+        const RecordedClip(path: '/tmp/clip.m4a', durationSeconds: 12),
+    SessionRepository? session,
+  }) =>
+      VoiceNoteRepositoryImpl(
+        recorder: _FakeRecorder(clip),
+        uploader: uploader,
+        resolver: resolver,
+        api: api,
+        chat: chat,
+        session: session ?? _session(),
+      );
+
   test(
-      'pipeline: upload → transcribe → poll → resolve → merge into chat, '
-      'bearer-scoped and PII-free', () async {
+      'stopAndTranscribe: upload → transcribe → poll → resolve, bearer-scoped '
+      'and PII-free — and SENDS NOTHING', () async {
     final _FakeUploader uploader = _FakeUploader();
     final _FakeResolver resolver = _FakeResolver();
-    final VoiceNoteRepositoryImpl repo = VoiceNoteRepositoryImpl(
-      recorder: _FakeRecorder(
-          const RecordedClip(path: '/tmp/clip.m4a', durationSeconds: 12)),
-      uploader: uploader,
-      resolver: resolver,
-      api: api,
-      chat: chat,
-      session: _session(),
-    );
+    final VoiceNoteRepositoryImpl repo =
+        buildRepo(uploader: uploader, resolver: resolver);
 
-    final VoiceNoteOutcome outcome = await repo.stopRecordingAndTranscribe();
+    final String transcript = await repo.stopAndTranscribe();
 
-    expect(outcome.reply, 'bhai reply');
-    expect(outcome.transcript, 'CNC machine par 4 saal ka anubhav.');
+    expect(transcript, 'CNC machine par 4 saal ka anubhav.');
     // Bearer + session id are token-derived, never widget-supplied — and the
     // SAME bearer rides through both route-less legs.
     expect(uploader.seenAuthToken, 'tok');
@@ -131,10 +139,59 @@ void main() {
         )).called(1);
     verify(() => api.transcribeVoiceNote(authToken: 'tok', voiceNoteId: 'vn1'))
         .called(1);
-    // The transcript is merged in exactly like a typed chat message — the only
-    // text on the wire is the transcript, no raw phone/name.
+    // THE POINT OF THE SPLIT (Persona sheet #05): the transcript is returned for
+    // the worker to confirm, and nothing has become their answer yet. A
+    // sendMessage here is the exact bug the confirm turn exists to prevent.
+    verifyNever(() => chat.sendMessage(any()));
+  });
+
+  test(
+      'sendConfirmedTranscript merges the CONFIRMED text into chat like a typed '
+      'message', () async {
+    final VoiceNoteRepositoryImpl repo = buildRepo(
+      uploader: _FakeUploader(),
+      resolver: _FakeResolver(),
+    );
+
+    final VoiceNoteOutcome outcome =
+        await repo.sendConfirmedTranscript('CNC machine par 4 saal ka anubhav.');
+
+    expect(outcome.transcript, 'CNC machine par 4 saal ka anubhav.');
+    expect(outcome.reply, 'bhai reply');
+    // The only text on the wire is the transcript — no raw phone/name.
     verify(() => chat.sendMessage('CNC machine par 4 saal ka anubhav.'))
         .called(1);
+  });
+
+  test(
+      'sendConfirmedTranscript sends the EDITED text, not the recogniser output '
+      '— the "Sudhaarna hai" path', () async {
+    final VoiceNoteRepositoryImpl repo = buildRepo(
+      uploader: _FakeUploader(),
+      resolver: _FakeResolver(),
+    );
+
+    final VoiceNoteOutcome outcome =
+        await repo.sendConfirmedTranscript('VMC operator, 4 saal.');
+
+    expect(outcome.transcript, 'VMC operator, 4 saal.');
+    verify(() => chat.sendMessage('VMC operator, 4 saal.')).called(1);
+    // The resolver's string never reached the server — the worker corrected it.
+    verifyNever(
+        () => chat.sendMessage('CNC machine par 4 saal ka anubhav.'));
+  });
+
+  test('sendConfirmedTranscript maps a transport error to a Failure', () async {
+    when(() => chat.sendMessage(any())).thenThrow(const NetworkFailure());
+    final VoiceNoteRepositoryImpl repo = buildRepo(
+      uploader: _FakeUploader(),
+      resolver: _FakeResolver(),
+    );
+
+    await expectLater(
+      repo.sendConfirmedTranscript('kuch bhi'),
+      throwsA(isA<NetworkFailure>()),
+    );
   });
 
   test(
@@ -159,7 +216,7 @@ void main() {
     );
 
     await expectLater(
-      repo.stopRecordingAndTranscribe(),
+      repo.stopAndTranscribe(),
       throwsA(isA<VoiceUnavailableFailure>()),
     );
     // Nothing was registered / transcribed / merged.
@@ -198,7 +255,7 @@ void main() {
     );
 
     await expectLater(
-      repo.stopRecordingAndTranscribe(),
+      repo.stopAndTranscribe(),
       throwsA(isA<NetworkFailure>()),
     );
     // The mic was released even though the session leg failed…
@@ -219,7 +276,7 @@ void main() {
     );
 
     await expectLater(
-      repo.stopRecordingAndTranscribe(),
+      repo.stopAndTranscribe(),
       throwsA(isA<UnauthorizedFailure>()),
     );
   });
@@ -235,7 +292,7 @@ void main() {
     );
 
     await expectLater(
-      repo.stopRecordingAndTranscribe(),
+      repo.stopAndTranscribe(),
       throwsA(isA<VoiceUnavailableFailure>()),
     );
     verifyNever(() => chat.sendMessage(any()));

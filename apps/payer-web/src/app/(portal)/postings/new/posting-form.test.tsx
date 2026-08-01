@@ -150,20 +150,75 @@ vi.mock("../../../../components/ds/select-menu", () => ({
   }),
 }));
 
+// The picker fires the reach-preview Server Action from an effect. `useEffect` is a no-op
+// in this DOM-less tree-walking harness, but the module is mocked so an accidental call
+// can never reach the network — and so a future change that DOES invoke it fails loudly
+// here rather than hanging.
+vi.mock("./match-actions", () => ({ previewReachAction: vi.fn(async () => ({ ok: false, error: "x" })) }));
+// `MatchSkillPicker` is the interactive, hook-using half (useState/useEffect/useRef for
+// the live reach counter). The walker below RENDERS every function component one level
+// deep to reach its native hosts, which would call those hooks outside a renderer — the
+// same reason `SelectMenu` is mocked above. Replaced with a hookless stand-in that still
+// renders the vocabulary it was HANDED, so "the form passes the server list down" stays a
+// real assertion rather than one about a stub's own hardcoded text. The picker's own
+// behaviour (debounced preview, tick state, cap) is covered by its own suite.
+vi.mock("./match-skill-picker", () => ({
+  MatchSkillPicker: ({ vocabulary }: { vocabulary: Array<{ skill_id: string; label: string }> }) => ({
+    type: "div",
+    props: {
+      className: "match-picker",
+      children: vocabulary.map((v) => ({
+        type: "span",
+        props: { id: v.skill_id, children: v.label },
+      })),
+    },
+  }),
+}));
+
 const { PostingForm } = await import("./posting-form");
 
-// useState call order in the source: fields, fieldErrors, error, navigating (then useTransition).
-// `quotaStep` is the D-6 prop: the SERVER page resolves it from the LIVE catalog and passes it
-// down (this client form never fetches the catalog), so tests inject it like any other prop.
+/** One entry of the closed ADR-0036 vocabulary, shaped exactly like the wire row. */
+const MSKILL = {
+  skill_id: "mskill_cnc_turning",
+  label: "CNC turning",
+  industry_id: "ind_manufacturing",
+  related_skill_ids: ["mskill_vmc_operating"],
+};
+
+/**
+ * useState call order in the source: fields, fieldErrors, error, navigating, selection,
+ * preview (then useTransition). The ADR-0036 match state is declared LAST on purpose so
+ * this positional seeding keeps working — a mid-list insert would hand `selection` the
+ * value meant for `navigating`.
+ *
+ * `quotaStep` is the D-6 prop: the SERVER page resolves it from the LIVE catalog and
+ * passes it down (this client form never fetches the catalog). `matchSkills` is the
+ * ADR-0036 sibling — the closed match vocabulary, also server-fetched. Both are injected
+ * like any other prop.
+ */
 function render(seed: {
   fields: Record<string, string>;
   fieldErrors: Record<string, unknown>;
   navigating?: boolean;
   quotaStep?: number | null;
+  /** The ADR-0036 selection. Defaults to one picked skill — i.e. a postable form. */
+  selection?: { matchSkillIds: string[]; untickedRelatedIds: string[] };
+  preview?: unknown;
+  matchSkills?: Array<Record<string, unknown>>;
 }) {
-  stateQueue = [seed.fields, seed.fieldErrors, null, seed.navigating ?? false];
+  stateQueue = [
+    seed.fields,
+    seed.fieldErrors,
+    null,
+    seed.navigating ?? false,
+    seed.selection ?? { matchSkillIds: [MSKILL.skill_id], untickedRelatedIds: [] },
+    seed.preview ?? null,
+  ];
   stateCursor = 0;
-  return PostingForm({ quotaStep: seed.quotaStep ?? null }) as ReactElement;
+  return PostingForm({
+    quotaStep: seed.quotaStep ?? null,
+    matchSkills: (seed.matchSkills ?? [MSKILL]) as never,
+  }) as ReactElement;
 }
 
 interface Collected {
@@ -300,6 +355,25 @@ describe("PostingForm render — disable-submit-until-valid", () => {
     expect(submit!.disabled).toBe(true);
     expect(submit!.text).toBe("Posting…");
   });
+
+  /**
+   * ADR-0036 — the demand fields alone are NOT a postable job any more.
+   *
+   * A posting with no match skill publishes fine and reaches NOBODY, and on the postings
+   * list it is indistinguishable from one reaching hundreds. So "valid" now includes a
+   * skill, and the button is the place a payer finds that out — not the empty feed a week
+   * later.
+   */
+  it("a form with every demand field set but NO match skill keeps submit DISABLED", () => {
+    const { buttons } = collect(
+      render({
+        fields: VALID_FIELDS,
+        fieldErrors: {},
+        selection: { matchSkillIds: [], untickedRelatedIds: [] },
+      }),
+    );
+    expect(buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+  });
 });
 
 describe("PostingForm render — D-6: the applicant-quota badge follows the SERVER-passed live step", () => {
@@ -343,5 +417,52 @@ describe("PostingForm render — DS error on an invalid field (aria-invalid + vi
     const { aria } = collect(render({ fields: VALID_FIELDS, fieldErrors: {} }));
     const vacancies = aria.find((a) => a.id === "vacancies");
     expect(vacancies!.ariaInvalid).toBeUndefined();
+  });
+});
+
+describe("PostingForm render — ADR-0036 match surface", () => {
+  const joined = (seed: Parameters<typeof render>[0]) =>
+    collect(render(seed)).texts.join("").replace(/\s+/g, " ");
+
+  it("renders the vocabulary the SERVER passed, never a hardcoded skill list", () => {
+    // The label comes from the injected wire row: a compile-time list in the client would
+    // drift from `GET /payer/match/skills` the moment ops seed a new skill.
+    expect(joined({ fields: VALID_FIELDS, fieldErrors: {} })).toContain("CNC turning");
+  });
+
+  it("an EMPTY vocabulary (the fetch failed) shows a reload prompt and blocks submit", () => {
+    // Fail-closed: an empty picker would read as "there are no skills" rather than "we
+    // could not load them", and a payer would post a job that reaches nobody.
+    const seed = {
+      fields: VALID_FIELDS,
+      fieldErrors: {},
+      matchSkills: [],
+      selection: { matchSkillIds: [], untickedRelatedIds: [] },
+    };
+    expect(joined(seed)).toContain("Could not load the skill list");
+    expect(collect(render(seed)).buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+  });
+
+  it("E13: a zero-reach preview relabels the submit button so nobody posts into a void unknowingly", () => {
+    // It does NOT disable — the payer may know supply is coming, and refusing outright
+    // would override their judgement. It removes the SURPRISE.
+    const { buttons } = collect(
+      render({
+        fields: VALID_FIELDS,
+        fieldErrors: {},
+        preview: {
+          skills: [],
+          reach_skill_ids: [],
+          reach_total: 0,
+          reach_tier1: 0,
+          zero_reach: true,
+          applied_unticked_ids: [],
+          max_skills_per_posting: 3,
+        },
+      }),
+    );
+    const submit = buttons.find((b) => b.type === "submit")!;
+    expect(submit.text).toBe("Post anyway — reaches nobody yet");
+    expect(submit.disabled).toBe(false);
   });
 });

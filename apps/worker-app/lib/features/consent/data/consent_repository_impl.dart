@@ -19,11 +19,15 @@ class ConsentRepositoryImpl implements ConsentRepository {
 
   @override
   Future<void> acceptConsent({required List<String> purposes}) async {
-    final String? workerId = _session.workerId;
-    // Should never happen after login; fail closed rather than call with no id.
-    if (workerId == null) throw const UnauthorizedFailure();
+    // `POST /consent/accept` is now WORKER-AUTHED and takes the subject from the
+    // session, never from the body — consent is the DPDP gate (invariant #6) and
+    // a body worker_id on an unguarded route made it forgeable for any worker.
+    // So the BEARER is what this call needs; there is no id to send.
+    final String? token = _session.sessionToken;
+    // Should never happen after login; fail closed rather than call unauthed.
+    if (token == null || token.isEmpty) throw const UnauthorizedFailure();
     try {
-      await _api.acceptConsent(workerId: workerId, purposes: purposes);
+      await _api.acceptConsent(authToken: token, purposes: purposes);
     } catch (error) {
       throw mapError(error);
     }

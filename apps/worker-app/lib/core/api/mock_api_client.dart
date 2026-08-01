@@ -29,7 +29,7 @@ class MockApiClient extends ApiClient {
 
   @override
   Future<void> acceptConsent({
-    required String workerId,
+    required String authToken,
     required List<String> purposes,
     String consentVersion = kConsentVersion,
   }) async {

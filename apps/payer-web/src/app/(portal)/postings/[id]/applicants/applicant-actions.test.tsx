@@ -687,3 +687,55 @@ describe("ApplicantActions — masked-resume threads the POSTING context (disclo
     });
   });
 });
+
+describe("ApplicantActions — Matching V1 tier badge (ADR-0036 moment ⑥ / E18)", () => {
+  /** A V1 row: no meaningful score/hot (the seam pins them), tier + months instead. */
+  const v1 = (over: Partial<FacelessApplicant>): FacelessApplicant => ({
+    workerId: WORKER,
+    rank: 1,
+    score: 0,
+    hot: false,
+    signals: [],
+    matchTier: 1,
+    effectiveTier: 1,
+    skillMonths: 48,
+    ...over,
+  });
+
+  it("badges a tier-1 candidate as having the posted skill, with coarse months", () => {
+    const text = gatherText(render({ applicants: [v1({})] }));
+    expect(text).toContain("Has the skill");
+    // Coarse: the stored months are bucketed to 6, so the label reads back in years.
+    expect(text).toContain("4 yrs");
+    expect(text).not.toContain("48");
+  });
+
+  it("E18: a tier-2 candidate PROMOTED by the floor is STILL badged 'Related'", () => {
+    // The whole point of surfacing the RAW tier. effectiveTier 1 means he was ORDERED
+    // among the exact-skill workers (36+ months on a related skill), but he does not
+    // have the skill the company posted — and it is about to spend ₹40 to unlock him.
+    const text = gatherText(
+      render({
+        applicants: [
+          v1({ matchTier: 2, effectiveTier: 1, skillMonths: 48, matchedSkillLabel: "VMC operating" }),
+        ],
+      }),
+    );
+    expect(text).toContain("Related · VMC operating");
+    expect(text).not.toContain("Has the skill");
+  });
+
+  it("renders NO score and NO hot badge on the V1 path (they are placeholders, not values)", () => {
+    const tree = render({ applicants: [v1({ hot: false, score: 0 })] });
+    expect(hotBadgeCount(tree)).toBe(0);
+    // A "0.00" on screen would be the one number on the card that means nothing while
+    // looking like it means something.
+    expect(gatherText(tree)).not.toContain("0.00");
+  });
+
+  it("still renders the LEGACY score + hot branch when no tier is present (flag off)", () => {
+    const tree = render({ applicants: [APPLICANT] });
+    expect(hotBadgeCount(tree)).toBe(1);
+    expect(gatherText(tree)).toContain("0.90");
+  });
+});

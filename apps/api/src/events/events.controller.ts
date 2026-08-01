@@ -1,4 +1,5 @@
-import { Controller, Get, Query } from "@nestjs/common";
+import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { clampLimit } from "../common/pagination";
 import { EventsRepository } from "./events.repository";
 
@@ -7,6 +8,7 @@ import { EventsRepository } from "./events.repository";
  * only (never raw PII) by construction — see the event-schema registry.
  */
 @Controller("events")
+@UseGuards(InternalServiceGuard)
 export class EventsController {
   constructor(private readonly events: EventsRepository) {}
 

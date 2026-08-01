@@ -14,8 +14,10 @@ import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import {
   PROFILE_EXTRACTION_QUEUE,
+  REFERRAL_BONUS_QUEUE,
   RESUME_GENERATE_QUEUE,
   type ProfileExtractionJobData,
+  type ReferralBonusJobData,
   type ResumeGenerateJobData,
 } from "../queue/queue.constants";
 import type { ExtractProfileInput, ConfirmProfileInput } from "./profiles.dto";
@@ -55,6 +57,10 @@ export class ProfilesService {
     private readonly extractionQueue: Queue<ProfileExtractionJobData>,
     @InjectQueue(RESUME_GENERATE_QUEUE)
     private readonly resumeGenerateQueue: Queue<ResumeGenerateJobData>,
+    // §X.6 — leg 1 of the activation-bonus rule completes here. Injected as a QUEUE, not as
+    // ReferralBonusService, so this module gains no dependency on `referrals`.
+    @InjectQueue(REFERRAL_BONUS_QUEUE)
+    private readonly referralBonusQueue: Queue<ReferralBonusJobData>,
   ) {}
 
   /**
@@ -230,6 +236,25 @@ export class ProfilesService {
     } catch (err) {
       this.logger.warn(
         `could not enqueue resume generation for profile ${input.profile_id} (reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+    }
+
+    // §X.6 — a confirmed profile is LEG 1 of the ₹20 activation-bonus rule. Enqueue an
+    // evaluation; the processor re-checks BOTH legs (the worker also needs a granted
+    // unlock), so this is usually a no-op and never accrues on its own. Same posture as
+    // the resume enqueue above: off the request path, and a queue failure is logged and
+    // swallowed — a missed accrual is recoverable (the rule is idempotent and the ops
+    // re-evaluate endpoint exists), a broken confirmation is not.
+    try {
+      await this.referralBonusQueue.add("evaluate", {
+        invitedWorkerId: input.worker_id,
+        trigger: "profile_confirmed",
+      });
+    } catch (err) {
+      this.logger.warn(
+        `could not enqueue referral-bonus evaluation (reason: ${
           err instanceof Error ? err.message : String(err)
         })`,
       );

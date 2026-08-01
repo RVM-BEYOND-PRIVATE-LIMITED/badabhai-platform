@@ -367,25 +367,53 @@ def test_findings_this_rerun_exposed() -> None:
 def test_denials_are_absorbed_not_fabricated() -> None:
     """The corpus's `reject` fixtures, post-#426: ZERO fabrications.
 
-    Pre-#426 two of them recorded a VALUE the worker had denied. Now the only
-    `reject` fixtures the parser marks answered are the education and certification
-    denials, and every one records nothing — which is #426's designed behaviour for
-    the topics where a "no" is itself a complete answer. "Koi certificate nahi hai"
-    joined that set on 2026-07-22 with the certifications topic: a worker who holds
-    none has fully answered the question, and must not be asked again.
+    Pre-#426 two of them recorded a VALUE the worker had denied. Now the `reject`
+    fixtures the parser marks answered fall into exactly two designed classes, and
+    every one of them records NOTHING:
+
+    1. **Denials** on the three topics where a "no" is itself a complete answer
+       (#426; "koi certificate nahi hai" joined on 2026-07-22 — a worker who holds
+       none has fully answered, and must not be asked again).
+    2. **Explicit don't-knows** (persona v3.2 Law 8, owner ruling 2026-07-31), which
+       close ANY topic. These fixtures are labelled `reject` because the corpus
+       predates the ruling: nothing is RECORDED, which is what `reject` judged, but
+       the ASK is now satisfied — "'Nahi pata' is a complete answer. Accept it, move
+       on, never re-ask."
+
+    The two are asserted separately so the Law 8 change is visible as data rather than
+    absorbed into an existing list.
     """
     rows = measure_all()
     assert [m.fixture.text for m in rows if m.is_fabrication] == []
-    assert sorted(m.fixture.text for m in rows if m.is_denial_absorbed) == [
+
+    denials = sorted(
+        m.fixture.text for m in rows if m.is_denial_absorbed and not m.is_dont_know_absorbed
+    )
+    assert denials == [
         "certificate nahi liya, kaam se seekha",
         "diploma nahi hai",
         "iti nahi kiya, kaam se hi seekha",
         "koi certificate nahi hai",
     ]
+    dont_knows = sorted(m.fixture.text for m in rows if m.is_dont_know_absorbed)
+    assert dont_knows == [
+        "controller ka naam nahi pata",
+        "pata nahi konsa hai",
+        "pata nahi naam kya hai",
+    ]
+
     for m in rows:
         if m.is_denial_absorbed:
-            assert m.detected[m.fixture.topic] is None
-            assert m.fixture.topic in signals._NEGATION_ANSWERS_TOPICS
+            assert m.detected[m.fixture.topic] is None  # closed, never fabricated
+            if not m.is_dont_know_absorbed:
+                # A DENIAL still only closes the three topics where a "no" answers.
+                assert m.fixture.topic in signals._NEGATION_ANSWERS_TOPICS
+    # ...and a don't-know is deliberately NOT restricted to those three: two of the
+    # three fixtures above are `controllers`, one is `machines` — an ESSENTIAL.
+    assert {m.fixture.topic for m in rows if m.is_dont_know_absorbed} == {
+        "controllers",
+        "machines",
+    }
 
 
 def test_overall_acceptance_is_pinned() -> None:

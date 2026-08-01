@@ -134,16 +134,28 @@ class ApiClient {
   /// one and 401 again.
   final String? Function()? currentAuthToken;
 
+  /// Accepts consent for the SESSION worker. Worker-scoped — requires
+  /// [authToken]; the subject is taken from the token by `WorkerAuthGuard`,
+  /// never from the body.
+  ///
+  /// There is deliberately no `workerId` parameter. Consent is the DPDP gate
+  /// (invariant #6), and while this route was unauthenticated with a body
+  /// `worker_id` it could be forged for any worker by anyone. Removing the
+  /// parameter makes that unexpressible from the client, rather than merely
+  /// discouraged.
   Future<void> acceptConsent({
-    required String workerId,
+    required String authToken,
     required List<String> purposes,
     String consentVersion = kConsentVersion,
   }) async {
-    await _post('/consent/accept', <String, dynamic>{
-      'worker_id': workerId,
-      'consent_version': consentVersion,
-      'purposes': purposes,
-    });
+    await _post(
+      '/consent/accept',
+      <String, dynamic>{
+        'consent_version': consentVersion,
+        'purposes': purposes,
+      },
+      authToken: authToken,
+    );
   }
 
   /// Starts a chat session. Worker-scoped — requires [authToken]; the worker is

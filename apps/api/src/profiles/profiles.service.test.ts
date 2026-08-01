@@ -8,7 +8,11 @@ import type { AiJobsRepository } from "./ai-jobs.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { ChatRepository } from "../chat/chat.repository";
 import type { EventsService } from "../events/events.service";
-import type { ProfileExtractionJobData, ResumeGenerateJobData } from "../queue/queue.constants";
+import type {
+  ProfileExtractionJobData,
+  ReferralBonusJobData,
+  ResumeGenerateJobData,
+} from "../queue/queue.constants";
 import type { RequestContext } from "../common/request-context";
 
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
@@ -110,6 +114,8 @@ function setup() {
   };
   const extractionQueue = { add: vi.fn(async () => undefined) };
   const resumeGenerateQueue = { add: vi.fn(async () => undefined) };
+  // §X.6 — leg 1 of the activation-bonus rule is enqueued on confirm.
+  const referralBonusQueue = { add: vi.fn(async () => undefined) };
   const svc = new ProfilesService(
     profiles as unknown as ProfilesRepository,
     aiJobs as unknown as AiJobsRepository,
@@ -118,8 +124,19 @@ function setup() {
     events as unknown as EventsService,
     extractionQueue as unknown as Queue<ProfileExtractionJobData>,
     resumeGenerateQueue as unknown as Queue<ResumeGenerateJobData>,
+    referralBonusQueue as unknown as Queue<ReferralBonusJobData>,
   );
-  return { svc, profiles, aiJobs, workers, chat, events, extractionQueue, resumeGenerateQueue };
+  return {
+    svc,
+    profiles,
+    aiJobs,
+    workers,
+    chat,
+    events,
+    extractionQueue,
+    resumeGenerateQueue,
+    referralBonusQueue,
+  };
 }
 
 describe("ProfilesService.extract", () => {
@@ -596,5 +613,34 @@ describe("ProfilesService.confirm — ownership (IDOR) + event", () => {
     resumeGenerateQueue.add.mockRejectedValueOnce(new Error("redis down"));
     const res = await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
     expect(res.profile_status).toBe("confirmed"); // confirmation still succeeds
+  });
+
+  // ---- §X.6: confirm is LEG 1 of the ₹20 activation-bonus rule ----
+
+  it("enqueues a referral-bonus evaluation with the worker id + trigger (no PII)", async () => {
+    const { svc, profiles, referralBonusQueue } = setup();
+    profiles.findById.mockResolvedValueOnce({ id: PROFILE, workerId: WORKER });
+    await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
+    expect(referralBonusQueue.add).toHaveBeenCalledWith("evaluate", {
+      invitedWorkerId: WORKER,
+      trigger: "profile_confirmed",
+    });
+  });
+
+  it("does NOT enqueue when confirmation is refused (not the owner)", async () => {
+    const { svc, profiles, referralBonusQueue } = setup();
+    profiles.findById.mockResolvedValueOnce({ id: PROFILE, workerId: OTHER });
+    await expect(
+      svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(referralBonusQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("a bonus-enqueue failure does NOT fail confirmation (a missed accrual is recoverable)", async () => {
+    const { svc, profiles, referralBonusQueue } = setup();
+    profiles.findById.mockResolvedValueOnce({ id: PROFILE, workerId: WORKER });
+    referralBonusQueue.add.mockRejectedValueOnce(new Error("redis down"));
+    const res = await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
+    expect(res.profile_status).toBe("confirmed");
   });
 });

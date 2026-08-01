@@ -1,16 +1,20 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
+import type { ReferralBonusJobData } from "../queue/queue.constants";
 import type { EventsService } from "../events/events.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
+import { DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 import { UnlockService } from "./unlocks.service";
 import type { UnlocksRepository } from "./unlocks.repository";
 import type { PricingService } from "../pricing/pricing.service";
 import { PaymentGateway } from "./payment-gateway";
+import type { RazorpayClient } from "./razorpay.client";
 import { neutralUnavailable } from "./unlock-response";
 
 const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
@@ -114,11 +118,24 @@ function setup(opts: SetupOpts = {}) {
       source: "db" as const,
     })),
   };
+  // Real payments are OFF in this suite (CAPS carries PAYMENTS_ENABLE_REAL:false), so the
+  // provider client is a NOT-live stub whose createOrder throws if anything ever reaches it.
+  const razorpay = {
+    isLive: false,
+    keyId: null,
+    createOrder: vi.fn(async () => {
+      throw new Error("createOrder must never run while real payments are off");
+    }),
+  };
   const payments = new PaymentGateway(
     repo as unknown as UnlocksRepository,
     CAPS,
     pricing as unknown as PricingService,
+    razorpay as unknown as RazorpayClient,
   );
+
+  // §X.6 — leg 2 of the activation-bonus rule is enqueued after a grant commits.
+  const referralBonusQueue = { add: vi.fn(async () => undefined) };
 
   const svc = new UnlockService(
     repo as unknown as UnlocksRepository,
@@ -128,8 +145,13 @@ function setup(opts: SetupOpts = {}) {
     payments,
     events as unknown as EventsService,
     CAPS,
+    referralBonusQueue as unknown as Queue<ReferralBonusJobData>,
+    // ADR-0036 §7 — read only for `free_tier_credits` on the credits_exhausted signal.
+    // The DEFAULTS are the shipped V1 values, so the stub returns them rather than a
+    // fabricated number.
+    { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
   );
-  return { svc, repo, txMethods, consents, workers, pii, events };
+  return { svc, repo, txMethods, consents, workers, pii, events, referralBonusQueue };
 }
 
 function emitted(events: { emit: { mock: { calls: unknown[][] } } }): string[] {
@@ -312,6 +334,40 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
     expect(txMethods.upsertGrant).not.toHaveBeenCalled();
     // Only the entry unlock.requested event (no second grant/payment events).
     expect(emitted(events)).toEqual(["unlock.requested"]);
+  });
+
+  // ---- §X.6: a granted unlock is LEG 2 of the ₹20 activation-bonus rule ----
+
+  it("enqueues a referral-bonus evaluation on a NEW grant (worker id + trigger, no PII)", async () => {
+    const { svc, referralBonusQueue } = setup({
+      balance: 5,
+      consentPurposes: ["employer_sharing"],
+    });
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(referralBonusQueue.add).toHaveBeenCalledWith("evaluate", {
+      invitedWorkerId: WORKER,
+      trigger: "unlock_granted",
+    });
+    // The payer is NOT in the payload — the inviter is resolved server-side from `invites`,
+    // so no caller can nominate who gets paid.
+    expect(JSON.stringify(referralBonusQueue.add.mock.calls)).not.toContain(PAYER);
+  });
+
+  it("does NOT enqueue when no grant happens (insufficient credits)", async () => {
+    const { svc, referralBonusQueue } = setup({ balance: 0 });
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(referralBonusQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("a bonus-enqueue failure does NOT break the unlock (post-commit, log-and-continue)", async () => {
+    const { svc, referralBonusQueue } = setup({
+      balance: 5,
+      consentPurposes: ["employer_sharing"],
+    });
+    referralBonusQueue.add.mockRejectedValueOnce(new Error("redis down"));
+    const out = await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    // The grant is already committed; flushEvents swallows a failed deferred thunk.
+    expect(out).toMatchObject({ ok: true, status: "granted" });
   });
 });
 

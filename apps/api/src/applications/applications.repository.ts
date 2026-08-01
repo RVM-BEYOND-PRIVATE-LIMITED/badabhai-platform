@@ -36,7 +36,12 @@ export interface FeedJob {
 
 /** An application row joined with its (coarse, PII-free) job fields. */
 export interface ApplicationWithJob {
-  jobId: string;
+  // Nullable since migration 0056: `applications.job_id` lost its NOT NULL because a
+  // V1 application points at `job_posting_id` instead. This reader INNER JOINs `jobs`,
+  // so in practice it only ever returns non-null ids — but the column's type is the
+  // contract, and narrowing it here with a cast would be a lie that the next reader
+  // (or a LEFT JOIN refactor) inherits. Render sites handle the null honestly.
+  jobId: string | null;
   tradeKey: Job["tradeKey"];
   title: string;
   city: string;
@@ -57,6 +62,31 @@ export interface UpsertApplicationInput {
   reason: SkipReason | null;
   sourceSurface: SourceSurface;
   rank: number | null;
+}
+
+/**
+ * EXACTLY what {@link ApplicationsRepository.upsertDecision} projects — no more.
+ *
+ * It used to be declared `Application & { inserted: boolean }`, i.e. "the whole row",
+ * while the `.returning({...})` listed a hand-written subset. That is a promise the
+ * projection does not keep, and migration 0056 collected on it: six new columns landed
+ * and the declared type stopped matching. The lesson is not "remember to widen the
+ * projection" — it is that the RETURN TYPE must be the projection, so the two cannot
+ * drift. A caller that needs a new column now has to add it in both places, and the
+ * compiler says so at the call site instead of at the repository.
+ */
+export interface UpsertedApplication {
+  id: string;
+  jobId: string | null;
+  workerId: string;
+  action: ApplicationAction;
+  reason: SkipReason | null;
+  sourceSurface: SourceSurface;
+  rank: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+  /** `(xmax = 0)` — TRUE only when this call created a NEW row. */
+  inserted: boolean;
 }
 
 /**
@@ -142,7 +172,7 @@ export class ApplicationsRepository {
    * touched by the conflict UPDATE — so the caller can count genuine first applies
    * without a separate read (race-safe, single round-trip). PII-free: a boolean.
    */
-  async upsertDecision(input: UpsertApplicationInput): Promise<Application & { inserted: boolean }> {
+  async upsertDecision(input: UpsertApplicationInput): Promise<UpsertedApplication> {
     const rows = await this.db
       .insert(applications)
       .values({

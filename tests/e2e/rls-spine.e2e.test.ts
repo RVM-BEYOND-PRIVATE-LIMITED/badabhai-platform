@@ -83,6 +83,14 @@ const LOCKED_TABLES = [
   "payer_job_posting_chat_sessions", // ADR-0035: payer-side job-posting chat container (opaque payer_id + jsonb state/draft, no PII); RLS+FORCE+REVOKE in migration 0050
   "payer_job_posting_chat_messages", // ADR-0035: payer-side chat transcript (body_text = payer-typed free text about a JOB — never to events/ai_jobs/logs); RLS+FORCE+REVOKE in migration 0050
   "payer_form_drafts", // ADR-0035: generic cross-device payer form-draft primitive (no consumer in that slice by design); RLS+FORCE+REVOKE in migration 0050
+  // ── Matching V1 (migrations 0052–0058) ──────────────────────────────────────
+  "skill_related", // 0052: TIER-2 skill adjacency (reference data — two closed-vocabulary ids); RLS+FORCE+REVOKE in migration 0052
+  "worker_skill", // 0053: per-worker matchable inventory (opaque worker_id + closed vocabulary ids — the reach driver, joins back to identity); RLS+FORCE+REVOKE in migration 0053
+  "worker_industry_tenure", // 0053: per-(worker, industry) calendar tenure (opaque worker_id + integer months); RLS+FORCE+REVOKE in migration 0053
+  "job_reach", // 0055: materialized (posting, worker) reach set — PII-free but the densest worker-linkage table in the system; RLS+FORCE+REVOKE in migration 0055
+  "match_config", // 0057: single-active-row rank-rule config (pricing_catalog clone — ops-editable, PII-free); RLS+FORCE+REVOKE in migration 0057
+  "payment_orders", // 0058: payment intents — opaque payer/provider ids + ₹ integers, NO card/UPI/bank data; RLS+FORCE+REVOKE in migration 0058
+  "referral_bonus_accruals", // 0058: one accrual per referred worker (two opaque worker ids + ₹); RLS+FORCE+REVOKE in migration 0058
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

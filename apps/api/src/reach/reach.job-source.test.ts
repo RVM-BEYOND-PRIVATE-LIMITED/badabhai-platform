@@ -206,8 +206,20 @@ describe("JobsTableJobSource — serves the real jobs table via the faceless pro
 // boost can change NEITHER the rank vector NOR floor membership (hot/pushEligible),
 // because there is no channel for it to reach the engine. This is the deferral
 // guard — it does NOT implement boost ranking.
+//
+// ⚠️ SUPERSEDED BY ADR-0036 §7 FOR THE V1 PATH, AND RETAINED DELIBERATELY.
+// TD42's inert boost is retired: behind `MATCH_V1_ENABLED` a boost DOES lift a card in
+// the worker feed (`ORDER BY (boosted_until > now()) DESC, published_at DESC`). What it
+// still may never do is add a card that failed the skill gate, or touch the company's
+// candidate list (Policy 13) — and those are the three release-gated fences in
+// `apps/api/src/match/boost-fences.test.ts`, which is what REPLACES this suite.
+//
+// This suite stays because the LEGACY path stays: with the flag off, `/feed` reads
+// `jobs` through the weighted engine, and boost must remain inert on it. Deleting these
+// would leave the shipped surface unguarded during the cutover window. They retire with
+// `packages/reach-engine`, in the separate retirement change.
 // ============================================================================
-describe("BOOST-INERT — posting boost never reaches the RANK core (ADR-0013 deferral lock)", () => {
+describe("BOOST-INERT — posting boost never reaches the LEGACY RANK core (ADR-0013 deferral lock)", () => {
   it("the demand-side `jobs` table has NO boost column (boost cannot enter JobSignalRow)", () => {
     // The faceless JobSignalRow projects from `jobs`; if `jobs` grew a boost column a
     // future projection could leak it into a JobSpec. Lock it at the source: `jobs`

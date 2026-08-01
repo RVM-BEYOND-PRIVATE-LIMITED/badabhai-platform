@@ -1,4 +1,5 @@
-import { Body, Controller, HttpCode, Post } from "@nestjs/common";
+import { Body, Controller, HttpCode, Post, UseGuards } from "@nestjs/common";
+import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { ActionsService } from "./actions.service";
@@ -11,6 +12,7 @@ import {
 
 /** Records worker behavioural actions into the event store (no PII). */
 @Controller("actions")
+@UseGuards(InternalServiceGuard)
 export class ActionsController {
   constructor(private readonly actions: ActionsService) {}
 

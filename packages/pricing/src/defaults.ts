@@ -10,7 +10,10 @@
  *    modelled as a price here — it needs a launch-phase waiver/verification mechanism
  *    (ESCALATED, ADR-0013). These paid tiers are left for post-launch; the portal
  *    treats base posting as free-through-launch at the surface.
- *  - job_boost:   all_candidates ₹1200 / 2d
+ *  - job_boost (ADR-0036 §7): boost_7 ₹499 / 7d · boost_15 ₹999 / 15d ·
+ *    boost_30 ₹1799 / 30d. The legacy `all_candidates` ₹1200 / 2d SKU is RETAINED as
+ *    RESOLVABLE for `posting_boosts` history (invariant 8) but is no longer OFFERED —
+ *    see OFFERED_BOOST_TIERS below.
  *  - contact_unlock (§3A 2026-06-19): offered packs pack_50 ₹2000/50, pack_200 ₹8000/200,
  *    pack_1000 ₹32000/1000 (per-unlock unit ₹40; the 1000-pack carries a REAL 20% volume
  *    discount → ₹32/credit, CEO-FINAL 2026-06-22). Legacy pack_10/pack_25 are retained as
@@ -39,9 +42,26 @@ export const DEFAULT_CATALOG: Catalog = catalogSchema.parse({
       ],
     },
     {
+      // ADR-0036 §7 — boost repriced for the Matching V1 economics. Boost now does
+      // something (it lifts a card in the worker feed: `ORDER BY (boosted_until >
+      // now()) DESC, published_at DESC`), where it has been ranking-INERT since it
+      // shipped (TD42, retired here).
+      //
+      // OFFERED: boost_7 ₹499 / boost_15 ₹999 / boost_30 ₹1799.
+      // RESOLVABLE-BUT-NOT-OFFERED: `all_candidates` (₹1200 / 2d) — the retired SKU.
+      // It stays in the catalog because `posting_boosts.tier` rows already reference
+      // it, and `resolvePrice` is what renders a historical receipt; dropping it would
+      // make every past boost unpriceable (invariant #8). This is exactly the
+      // OFFERED-vs-RESOLVABLE split `packages/db/src/credit-packs.ts` uses for
+      // pack_10/pack_25 — see `OFFERED_BOOST_TIERS` below for the portal's list.
       kind: "boost",
       code: "job_boost",
-      tiers: [{ code: "all_candidates", priceInr: 1200, boostDays: 2 }],
+      tiers: [
+        { code: "boost_7", priceInr: 499, boostDays: 7 },
+        { code: "boost_15", priceInr: 999, boostDays: 15 },
+        { code: "boost_30", priceInr: 1799, boostDays: 30 },
+        { code: "all_candidates", priceInr: 1200, boostDays: 2 },
+      ],
     },
     {
       // §3A pricing locks (2026-06-19): per-unlock unit ₹40; offered packs 50/200/1000.
@@ -82,3 +102,16 @@ export const DEFAULT_CATALOG: Catalog = catalogSchema.parse({
   offers: [],
   coupons: [],
 });
+
+/**
+ * The boost tiers the payer portal OFFERS (ADR-0036 §7). The retired `all_candidates`
+ * SKU is deliberately absent: it stays RESOLVABLE in `DEFAULT_CATALOG` above so a
+ * historical `posting_boosts` receipt can still be priced (invariant #8), but it must
+ * never appear on a buy screen again.
+ *
+ * Mirrors the `OFFERED_CREDIT_PACKS` precedent in `packages/db/src/credit-packs.ts`.
+ */
+export const OFFERED_BOOST_TIERS: readonly string[] = ["boost_7", "boost_15", "boost_30"];
+
+/** The retired boost SKU — resolvable for history, never offered. */
+export const RETIRED_BOOST_TIERS: readonly string[] = ["all_candidates"];

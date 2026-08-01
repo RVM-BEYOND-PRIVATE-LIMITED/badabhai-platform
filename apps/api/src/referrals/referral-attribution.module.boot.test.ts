@@ -1,7 +1,12 @@
 import "reflect-metadata";
 import { describe, expect, it } from "vitest";
+import { APP_INTERCEPTOR } from "@nestjs/core";
 import { ReferralAttributionModule } from "./referral-attribution.module";
 import { ReferralAttributionController } from "./referral-attribution.controller";
+import { ReferralBonusController } from "./referral-bonus.controller";
+import { WorkerActivityInterceptor } from "./worker-activity.interceptor";
+import { ProfilesModule } from "../profiles/profiles.module";
+import { UnlocksModule } from "../unlocks/unlocks.module";
 import { ConsentModule } from "../consent/consent.module";
 import { MessagingModule } from "../messaging/messaging.module";
 import { AgencyModule } from "../agency/agency.module";
@@ -42,6 +47,43 @@ describe("ReferralAttributionModule wiring (attribution seam DI regression guard
       typeof p === "function" ? p.name : p,
     );
     expect(providers).toContain("ReferralAttributionService");
+  });
+
+  // ---- B4 / §X.6 additions hosted by this module ----
+
+  it("declares the MOCK ₹20 bonus controller + service + repository + queue processor", () => {
+    expect(getMeta("controllers", ReferralAttributionModule)).toContain(ReferralBonusController);
+    const names = getMeta("providers", ReferralAttributionModule).map((p) =>
+      typeof p === "function" ? p.name : p,
+    );
+    expect(names).toContain("ReferralBonusService");
+    expect(names).toContain("ReferralBonusRepository");
+    // The CONSUMER of the two real triggers. Without it the rule is inert again.
+    expect(names).toContain("ReferralBonusProcessor");
+  });
+
+  it("the bonus trigger is a QUEUE, so neither producer module depends on this one", () => {
+    // The whole point of the queue seam: `profiles` and `unlocks` register the queue and
+    // enqueue; they must NEVER import ReferralAttributionModule (cycle + blast radius).
+    for (const mod of [ProfilesModule, UnlocksModule]) {
+      expect(getMeta("imports", mod)).not.toContain(ReferralAttributionModule);
+    }
+    // ...and this module must not import them either — the edge is Redis, not DI.
+    const imports = getMeta("imports", ReferralAttributionModule);
+    expect(imports).not.toContain(ProfilesModule);
+    expect(imports).not.toContain(UnlocksModule);
+  });
+
+  it("registers the worker.active producer as a GLOBAL APP_INTERCEPTOR", () => {
+    // Registering it under this token is what makes it apply to every authenticated
+    // request WITHOUT editing any controller, guard, or other module — if this provider
+    // is dropped, the X.6 retention signal silently stops being produced.
+    const provider = getMeta("providers", ReferralAttributionModule).find(
+      (p): p is { provide: string; useClass: unknown } =>
+        typeof p === "object" && p !== null && "provide" in p,
+    );
+    expect(provider?.provide).toBe(APP_INTERCEPTOR);
+    expect(provider?.useClass).toBe(WorkerActivityInterceptor);
   });
 
   it("MessagingModule EXPORTS InviteService (the worker→worker seam this feature needs)", () => {

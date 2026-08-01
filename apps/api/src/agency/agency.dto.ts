@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { uuidSchema, looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validators";
+import {
+  uuidSchema,
+  looksLikePii,
+  looksLikeActionContextPii,
+  looksLikeOrgName,
+  looksLikeUrl,
+} from "@badabhai/validators";
 import { REQUIRED_TRADE_KEYS } from "../resume/trade-content";
 
 /**
@@ -192,20 +198,95 @@ export type UpdateAgencyJobDto = z.infer<typeof UpdateAgencyJobSchema>;
 export const AgencyJobIdParamSchema = z.object({ jobId: uuidSchema });
 export type AgencyJobIdParam = z.infer<typeof AgencyJobIdParamSchema>;
 
+/** Max chars for the campaign tag — a short label, never narrative free text. */
+const CAMPAIGN_MAX = 64;
+
+/**
+ * SERVER-side ceiling on one batch mint (ADR-0022 Amendment 3, condition C2). A named
+ * constant, NOT a config value: raising it is a code change that goes through review,
+ * because the batch size is the amplification factor on every downstream write (rows,
+ * events, live invite codes). The browser control is irrelevant — this is the only limit.
+ */
+export const AGENCY_INVITE_BATCH_MAX = 50;
+
+/**
+ * The optional, non-PII CAMPAIGN tag shared by the singular and batch mints.
+ *
+ * Screened with `looksLikeActionContextPii`, NOT the looser `looksLikePii` (ADR-0022
+ * Amendment 3, condition C9 — a MEDIUM pre-existing gap tightened here): `looksLikePii`
+ * catches only email shapes and phone digit runs, so a personal NAME ("Ramesh Kumar")
+ * passed it — and `campaign` is written to `agency_invites.campaign` AND emitted in the
+ * `agency_invite.created` payload, which is an invariant-#2 sink (events). Batch minting
+ * multiplies this field's reach by up to {@link AGENCY_INVITE_BATCH_MAX} per call and
+ * makes per-person tagging the tempting workflow, so the stricter screen (which adds the
+ * human-name / address shapes) applies. This is exactly the short non-narrative label
+ * class `looksLikeActionContextPii` was written for.
+ *
+ * PARITY NOTE: the payer-web mirrors (`invite-actions.ts`, `invite-panel.tsx`) must be
+ * tightened to match — tracked as the frontend half of the same condition.
+ */
+const campaignTag = z
+  .string()
+  .min(1)
+  .max(CAMPAIGN_MAX)
+  .refine((s) => !looksLikeActionContextPii(s), { message: "campaign must be a non-PII tag" });
+
 /**
  * Mint an OWNED invite. NO phone / name / email / worker id input (faceless): the only
  * optional input is a non-PII campaign tag (a short, screened code). `inviter_payer_id`
  * is session-derived (XB-A), never a field.
+ *
+ * `.strict()` (parity with the batch schema): an attempted `{phone}`/`{worker_id}` key is
+ * a LOUD 400 rather than a silently stripped key. Same data outcome, auditable attempt.
  */
-export const CreateAgencyInviteSchema = z.object({
-  campaign: z
-    .string()
-    .min(1)
-    .max(64)
-    .refine((s) => !looksLikePii(s), { message: "campaign must be a non-PII tag" })
-    .optional(),
-});
+export const CreateAgencyInviteSchema = z
+  .object({
+    campaign: campaignTag.optional(),
+  })
+  .strict();
 export type CreateAgencyInviteDto = z.infer<typeof CreateAgencyInviteSchema>;
+
+/**
+ * BATCH mint (ADR-0022 Amendment 3). THIS SCHEMA IS THE ENTIRE SECURITY BOUNDARY between
+ * this feature and the DEAD module-2 "bulk worker/candidate upload".
+ *
+ * The distinction is the DIRECTION and REFERENT of the data, not the count:
+ *  - Bulk upload is INBOUND and has ARITY OVER PEOPLE — the agency asserts a list of real,
+ *    existing, non-consented individuals and the platform ingests contactable identifiers
+ *    for them. Invariant #6 cannot even be evaluated, because the processing already
+ *    happened at ingest. That is why it is DEAD, with no gate that revives it.
+ *  - Batch mint is OUTBOUND and REFERENT-FREE — the platform GENERATES N cryptographically
+ *    random opaque bearer codes. Each row denotes nothing and nobody (`invited_worker_id`
+ *    is NULL and writable only by the consent-gated internal seam). The agency's entire
+ *    contribution is ONE INTEGER plus ONE optional non-PII tag. Fifty random tokens are a
+ *    CARDINALITY, not a list.
+ *
+ * Therefore the body is CARDINALITY-SHAPED and `.strict()`:
+ *  - NO array-typed property may ever be added here. `labels[]`, `recipients[]`,
+ *    `invitees[]`, `notes[]`, `names[]`, `phones[]`, `for[]`, `contacts[]` — any of them
+ *    re-introduces arity over people, flips the direction to inbound, and makes this bulk
+ *    upload with a weaker identifier.
+ *  - NO delivery field (`to`, `phone`, `msisdn`, `email`). Delivery stays OUT-OF-BAND: the
+ *    agency shares the links itself. The platform sends nothing (condition C8).
+ *  - `.strict()` rather than zod's default strip, so an attempted list is a loud, auditable
+ *    400 instead of a silently dropped key — the boundary must be self-documenting to the
+ *    next engineer who reads this endpoint.
+ *
+ * `campaign` is ONE SCALAR applied identically to all N invites. It can never be
+ * per-invite (that is the `labels[]` violation above, wearing a different name).
+ */
+export const CreateAgencyInviteBatchSchema = z
+  .object({
+    // Bounded server-side: non-integer, negative, zero, NaN, Infinity, string-coerced and
+    // over-ceiling values are all rejected AT THE BOUNDARY, never normalized downstream.
+    // An unbounded/client-trusted count would turn one authenticated request into an
+    // unbounded row-insert + event-emit amplifier, and would defeat the cap reservation
+    // before it is even reached.
+    count: z.number().int().min(1).max(AGENCY_INVITE_BATCH_MAX),
+    campaign: campaignTag.optional(),
+  })
+  .strict();
+export type CreateAgencyInviteBatchDto = z.infer<typeof CreateAgencyInviteBatchSchema>;
 
 /**
  * Route param `:code` for the click attribution. An opaque token, bounded length — a

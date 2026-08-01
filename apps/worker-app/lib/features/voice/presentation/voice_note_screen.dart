@@ -10,6 +10,8 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_chat_bubble.dart';
+import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../domain/voice_models.dart';
@@ -29,25 +31,67 @@ const String _kCancelLabel = 'Cancel karein';
 const String _kProcessingCaption =
     'Aapki baat likh rahe hain… thoda intezaar karein.';
 
-/// Shown when a back press is held during Processing (#373). States the REAL
-/// reason the back did nothing — never a silent no-op.
+/// The post-confirmation leg: the approved transcript is on its way to chat.
+const String _kSendingCaption =
+    'Aapki baat bhej rahe hain… thoda intezaar karein.';
+
+// ---- Confirm turn (Persona sheet, worked conversation #05) ----
+// "The transcript is shown for confirmation, never guessed at." These four
+// strings ARE that turn; the two chip labels and the prompt are specified copy.
+
+/// Orients the worker: the bubble below is their own words, read back.
+const String kVoiceConfirmHeading = 'Aapne yeh bola';
+
+/// Bada bhai's question on the confirm turn — the exact prompt from the sheet.
+const String kVoiceConfirmPrompt = 'Yeh theek hai?';
+
+/// "Yes, send it" — the confirm chip from the sheet.
+const String kVoiceConfirmYesLabel = 'Haan';
+
+/// "It needs fixing" — the correct chip from the sheet. Opens re-record + edit.
+const String kVoiceConfirmFixLabel = 'Sudhaarna hai';
+
+/// Heading of the correction panel behind "Sudhaarna hai".
+const String kVoiceEditHeading = 'Theek karke bhej dein';
+
+/// Placeholder for the inline edit field.
+const String kVoiceEditHint = 'Yahan sudhaar karein';
+
+/// Throw the transcript away and speak again. Nothing was sent, so this is free.
+const String kVoiceReRecordLabel = 'Dobara bolein';
+
+/// Shown when a back press is held while the TRANSCRIBE leg is running (#373).
+/// States the REAL reason the back did nothing — never a silent no-op.
 const String kVoiceBackBlockedLabel =
+    'Aapki baat likhi ja rahi hai — bas ek pal ruk jaayein.';
+
+/// Shown when a back press is held while the CONFIRMED transcript is being sent.
+/// This is the leg the #373 divergence actually lives on: the message reaches
+/// the server chat session here, so leaving would strand it off-screen.
+const String kVoiceBackBlockedSendingLabel =
     'Aapki baat bheji ja rahi hai — bas ek pal ruk jaayein.';
 const String _kErrorTitle = 'Voice note nahi gaya.';
 const String _kRetryLabel = 'Dobara try karein';
 const String _kTypeInsteadLabel = 'Type karke bhejein';
 
 /// Voice-note capture (A2, REAL): tap the mic → record (≤120s, live counter,
-/// auto-stop at the cap) → stop → upload + transcribe + merge into chat → pop
-/// back to chat with the [VoiceNoteOutcome] so both bubbles show immediately.
+/// auto-stop at the cap) → stop → upload + transcribe → **show the transcript
+/// and ask "Yeh theek hai?"** → on "Haan", merge into chat → pop back with the
+/// [VoiceNoteOutcome] so both bubbles show immediately.
+///
+/// THE CONFIRM TURN IS THE POINT (Persona sheet, worked conversation #05). The
+/// transcript used to be sent inside the pipeline, so the worker's answer of
+/// record was whatever the recogniser heard — they saw it for the first time as
+/// a sent bubble, already parsed. Now nothing reaches the chat session until
+/// they say so, and "Sudhaarna hai" lets them re-record or fix the words first.
 ///
 /// Errors are honest and worker-safe ([failureReason]); a denied mic permission
 /// or a 503 (voice not enabled server-side) never dead-ends — the worker can
 /// always fall back to typing.
 ///
-/// Back is HELD while the pipeline is in flight (#373): leaving mid-Processing
-/// still merged the transcript into the server chat session but dropped the
-/// outcome, so the answer existed server-side and nowhere on screen.
+/// Back is HELD while either leg is in flight (#373). It is NOT held on the
+/// confirm turn: nothing has been sent there, so leaving costs the transcript
+/// and desynchronises nothing.
 class VoiceNoteScreen extends StatelessWidget {
   const VoiceNoteScreen({super.key});
 
@@ -76,17 +120,23 @@ class _VoiceNoteView extends StatelessWidget {
           context.pop((state as VoiceNoteSuccess).outcome);
         },
         builder: (BuildContext context, VoiceNoteState state) {
-          // #373 — once the pipeline is running the transcript is ALREADY on
-          // its way into the SERVER chat session (the last leg is
-          // `chat.sendMessage`), and the cubit closing does not cancel that
-          // detached future. A back press here used to pop a null outcome, so
-          // the answer landed server-side but never rendered in chat: the
-          // worker re-typed it and extraction saw the same answer twice.
-          // Hold the route until the pipeline is terminal. This is BOUNDED —
-          // `awaitAiJob` caps its polling (~14s) and an error state releases
-          // the back button immediately, with typing always open as a fallback.
+          // #373 — hold the route while work is in flight. On the SENDING leg
+          // the transcript is already on its way into the SERVER chat session
+          // and the cubit closing does not cancel that detached future: a back
+          // press used to pop a null outcome, so the answer landed server-side
+          // but never rendered in chat, and the worker re-typed it. On the
+          // TRANSCRIBE leg nothing has been sent, but the upload + poll are
+          // running and leaving would silently bin them.
+          //
+          // NOT held on the confirm turn — that is a decision point, and a
+          // worker who changes their mind there must be able to walk away.
+          //
+          // BOUNDED: `awaitAiJob` caps its polling (~14s) and an error state
+          // releases back immediately, with typing always open as a fallback.
           final bool pipelineInFlight =
               state is VoiceNoteProcessing || state is VoiceNoteSuccess;
+          final bool sendingLeg =
+              state is VoiceNoteProcessing && state.sending;
           return PopScope<Object?>(
             canPop: !pipelineInFlight,
             onPopInvokedWithResult: (bool didPop, Object? result) {
@@ -94,7 +144,11 @@ class _VoiceNoteView extends StatelessWidget {
               ScaffoldMessenger.of(context)
                 ..hideCurrentSnackBar()
                 ..showSnackBar(
-                  const SnackBar(content: Text(kVoiceBackBlockedLabel)),
+                  SnackBar(
+                    content: Text(sendingLeg
+                        ? kVoiceBackBlockedSendingLabel
+                        : kVoiceBackBlockedLabel),
+                  ),
                 );
             },
             child: switch (state) {
@@ -105,12 +159,24 @@ class _VoiceNoteView extends StatelessWidget {
               VoiceNoteRecording(:final int elapsedSeconds) => _RecordingView(
                   elapsedSeconds: elapsedSeconds,
                   maxSeconds: context.read<VoiceNoteCubit>().maxSeconds,
-                  onSend: () => context.read<VoiceNoteCubit>().stopAndSend(),
+                  onSend: () =>
+                      context.read<VoiceNoteCubit>().stopAndTranscribe(),
                   onCancel: () =>
                       context.read<VoiceNoteCubit>().cancelRecording(),
                 ),
-              VoiceNoteProcessing() =>
-                const BbStatusView.loading(caption: _kProcessingCaption),
+              VoiceNoteProcessing(:final bool sending) => BbStatusView.loading(
+                  caption: sending ? _kSendingCaption : _kProcessingCaption,
+                ),
+              // The confirm turn — keyed on the transcript so an edit rebuilds
+              // the panel with the corrected text instead of a stale controller.
+              VoiceNoteTranscriptReady(:final String transcript) => _ConfirmView(
+                  key: ValueKey<String>(transcript),
+                  transcript: transcript,
+                  onConfirm: () => context.read<VoiceNoteCubit>().confirm(),
+                  onReRecord: () => context.read<VoiceNoteCubit>().reRecord(),
+                  onEdit: (String text) =>
+                      context.read<VoiceNoteCubit>().edit(text),
+                ),
               // Brief frame between success and the pop — keep the spinner up.
               VoiceNoteSuccess() => const BbStatusView.loading(),
               VoiceNoteError(:final Failure failure) => _ErrorView(
@@ -262,6 +328,153 @@ class _RecordingView extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The CONFIRM TURN (Persona sheet, worked conversation #05).
+///
+/// Reads the transcript back in the worker's own bubble, then asks — in bada
+/// bhai's voice, on the left — "Yeh theek hai?" with two chips. Nothing has been
+/// sent to the chat session at this point and nothing will be until "Haan".
+///
+/// "Sudhaarna hai" opens the correction panel, which offers BOTH ways to fix it:
+/// edit the words inline (for a small mis-hear) or re-record (when the whole
+/// thing came out wrong). A low-literacy worker who cannot comfortably type
+/// still has the mic; a worker in a noisy shop floor still has the keyboard.
+class _ConfirmView extends StatefulWidget {
+  const _ConfirmView({
+    super.key,
+    required this.transcript,
+    required this.onConfirm,
+    required this.onReRecord,
+    required this.onEdit,
+  });
+
+  final String transcript;
+  final VoidCallback onConfirm;
+  final VoidCallback onReRecord;
+  final ValueChanged<String> onEdit;
+
+  @override
+  State<_ConfirmView> createState() => _ConfirmViewState();
+}
+
+class _ConfirmViewState extends State<_ConfirmView> {
+  /// True once "Sudhaarna hai" was tapped — swaps the chips for the correction
+  /// panel. Local UI state: choosing to LOOK at the edit box is not a decision
+  /// the cubit (or the server) needs to know about.
+  bool _correcting = false;
+
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.transcript);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  /// Apply the edit, then send — one tap, because "Bhej dein" in the correction
+  /// panel means send, and making them confirm twice would be a trap.
+  void _sendEdited() {
+    final String text = _controller.text.trim();
+    if (text.isEmpty) return;
+    if (text != widget.transcript) widget.onEdit(text);
+    widget.onConfirm();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text(
+            kVoiceConfirmHeading,
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              color: AppColors.textMuted,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          // The worker's own words, in the worker's own bubble.
+          BbChatBubble(text: widget.transcript, fromWorker: true),
+          const SizedBox(height: AppSpacing.s3),
+          // Bada bhai asking. Left-aligned bot bubble, exactly as in chat.
+          const BbChatBubble(text: kVoiceConfirmPrompt, fromWorker: false),
+          const SizedBox(height: AppSpacing.s4),
+          if (!_correcting) _chips() else _correctionPanel(),
+        ],
+      ),
+    );
+  }
+
+  Widget _chips() {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: BbChip(
+            label: kVoiceConfirmYesLabel,
+            selected: true,
+            onTap: widget.onConfirm,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.s3),
+        Expanded(
+          child: BbChip(
+            label: kVoiceConfirmFixLabel,
+            onTap: () => setState(() => _correcting = true),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _correctionPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          kVoiceEditHeading,
+          style: AppTypography.body(
+            size: AppTypography.sizeMd,
+            weight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s2),
+        TextField(
+          controller: _controller,
+          minLines: 3,
+          maxLines: 6,
+          autofocus: true,
+          style: AppTypography.body(size: AppTypography.sizeSm),
+          decoration: const InputDecoration(
+            hintText: kVoiceEditHint,
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: AppSpacing.s3,
+              vertical: AppSpacing.s3,
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s4),
+        BbButton(
+          label: _kSendLabel,
+          block: true,
+          iconLeft: Icons.send_rounded,
+          onPressed: _sendEdited,
+        ),
+        const SizedBox(height: AppSpacing.s3),
+        // The other half of "Sudhaarna hai": start over with the mic.
+        BbButton(
+          label: kVoiceReRecordLabel,
+          variant: BbButtonVariant.ghost,
+          block: true,
+          iconLeft: Icons.mic_rounded,
+          onPressed: widget.onReRecord,
+        ),
+      ],
     );
   }
 }

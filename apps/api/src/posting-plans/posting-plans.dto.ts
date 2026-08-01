@@ -14,10 +14,20 @@ export const BuyPlanSchema = z.object({
 });
 export type BuyPlanDto = z.infer<typeof BuyPlanSchema>;
 
-/** Buy a booster for a job posting (ADR-0013 Decision B). */
+/**
+ * Buy a booster for a job posting (ADR-0013 Decision B, repriced by ADR-0036 §7).
+ *
+ * The tier union is WIDENED, not replaced: `all_candidates` still parses so a caller
+ * pinned to it keeps working and its `posting_boosts` history stays readable. It is
+ * retired from what the portal OFFERS (`OFFERED_BOOST_TIERS` in @badabhai/pricing).
+ *
+ * NO DEFAULT ANY MORE. `all_candidates` used to be the default because it was the only
+ * tier; defaulting to a RETIRED SKU now would quietly sell the wrong thing to a caller
+ * that forgot the field. An explicit tier is required.
+ */
 export const BuyBoostSchema = z.object({
   payer_id: uuidSchema,
-  tier: z.enum(["all_candidates"]).default("all_candidates"),
+  tier: z.enum(["boost_7", "boost_15", "boost_30", "all_candidates"]),
   coupon: z.string().min(1).max(64).optional(),
 });
 export type BuyBoostDto = z.infer<typeof BuyBoostSchema>;
@@ -35,9 +45,13 @@ export const PayerBuyPlanSchema = z.object({
 });
 export type PayerBuyPlanDto = z.infer<typeof PayerBuyPlanSchema>;
 
-/** Payer self-serve buy-a-boost (B3 / LC-1 fix). `payer_id`-free; session-derived (XB-A). */
+/**
+ * Payer self-serve buy-a-boost (B3 / LC-1 fix). `payer_id`-free; session-derived (XB-A).
+ * Tier union widened by ADR-0036 §7, with the retired `all_candidates` still parseable
+ * for compatibility and no default (see {@link BuyBoostSchema}).
+ */
 export const PayerBuyBoostSchema = z.object({
-  tier: z.enum(["all_candidates"]).default("all_candidates"),
+  tier: z.enum(["boost_7", "boost_15", "boost_30", "all_candidates"]),
   coupon: z.string().min(1).max(64).optional(),
 });
 export type PayerBuyBoostDto = z.infer<typeof PayerBuyBoostSchema>;

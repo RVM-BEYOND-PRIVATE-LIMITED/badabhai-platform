@@ -1,5 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { ServerConfig } from "@badabhai/config";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
+import { getRazorpayCredentials, type ServerConfig } from "@badabhai/config";
 import { UNLOCK_WINDOW_DAYS, type UnlockDenyReason, type RoutingChannel } from "@badabhai/db";
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -10,13 +12,21 @@ import { EventsService } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { MatchConfigService } from "../match/match-config.service";
 import {
   UnlocksRepository,
   type Tx,
   type UnlockProjection,
   type CreditLedgerItem,
 } from "./unlocks.repository";
-import { PaymentGateway } from "./payment-gateway";
+import { PaymentGateway, type RealOrderHandoff, type SettleResult } from "./payment-gateway";
+import { verifyCheckoutSignature } from "./razorpay-signature";
+import {
+  RAZORPAY_CAPTURE_EVENTS,
+  RAZORPAY_FAILURE_EVENTS,
+  type RazorpayPaymentEvent,
+} from "./razorpay-webhook.dto";
+import { REFERRAL_BONUS_QUEUE, type ReferralBonusJobData } from "../queue/queue.constants";
 import {
   neutralUnavailable,
   type NeutralUnavailableResponse,
@@ -98,6 +108,13 @@ export class UnlockService {
     private readonly payments: PaymentGateway,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // §X.6 — leg 2 of the activation-bonus rule completes here. Injected as a QUEUE, not as
+    // ReferralBonusService, so this module gains no dependency on `referrals`.
+    @InjectQueue(REFERRAL_BONUS_QUEUE)
+    private readonly referralBonusQueue: Queue<ReferralBonusJobData>,
+    // ADR-0036 §7 — the free-tier grant size, for the credits_exhausted signal + the
+    // signup grant. MatchModule is @Global, so no new import edge on UnlocksModule.
+    private readonly matchConfig: MatchConfigService,
   ) {}
 
   // ===========================================================================
@@ -251,6 +268,26 @@ export class UnlockService {
         events.push(() => this.emitPaymentAuthorized(granted.id, payerId, ctx));
         events.push(() => this.emitPaymentCaptured(granted.id, payerId, ctx));
         events.push(() => this.emitGranted(granted.id, payerId, workerId, jobId, expiresAt, ctx));
+        // §X.6 — a granted unlock is LEG 2 of the ₹20 activation-bonus rule (the leg a
+        // fraudster cannot fake, because it costs a paying party money). Deferred like the
+        // emits above, so it runs POST-COMMIT and inherits flushEvents' log-and-continue:
+        // a Redis blip costs a (recoverable, idempotent) accrual, never the unlock.
+        events.push(() => this.enqueueReferralBonusEvaluation(workerId));
+
+        // ── ADR-0036 §7 — THE CONVERSION SIGNAL ──────────────────────────────
+        // The balance landed on ZERO. This is the moment the whole conversion engine
+        // fires on, so it is EXACT, not approximate:
+        //  * it reads `debit.balanceAfter` — the value the ATOMIC conditional decrement
+        //    RETURNED — never a re-read, which would race a concurrent debit and could
+        //    report zero twice or miss it entirely;
+        //  * it fires only on the `>0 → 0` transition, which is structural here: the
+        //    debit updated a row only if `balance >= 1`, so `balanceAfter === 0` means
+        //    the balance was exactly 1 before;
+        //  * it is keyed on the debiting unlock, so an at-least-once replay of the
+        //    post-commit flush records it once.
+        if (debit.balanceAfter === 0) {
+          events.push(() => this.emitCreditsExhausted(payerId, granted.id, ctx));
+        }
 
         return { response: this.grantedResponse(granted.id, expiresAt), events };
       },
@@ -495,6 +532,205 @@ export class UnlockService {
     return { payer_id: payerId, balance: result.balanceAfter, credits: pack.credits, pack_code: pack.code };
   }
 
+  // ===========================================================================
+  // REAL Razorpay credit purchase (behind PAYMENTS_ENABLE_REAL + the full
+  // credential set). Order → checkout → capture, where the webhook is the source
+  // of truth and the browser verify is a convergent fallback.
+  // ===========================================================================
+
+  /** True when a REAL gateway is fully wired. The controller gates the real routes on this. */
+  get realPaymentsLive(): boolean {
+    return this.payments.realCall;
+  }
+
+  /**
+   * Create a REAL provider order for a credit pack (`POST /payer/credits/order`).
+   *
+   * Returns null for an unknown pack (→ the caller's 404 — a pack code is a public catalog
+   * item, not a per-tenant resource, so a 404 leaks nothing).
+   *
+   * PRICE AUTHORITY: {@link PaymentGateway.resolvePack} — the same live-catalog path the
+   * portal renders from (D-6). The advertised price and the charged price are the same
+   * lookup, and the client never supplies an amount at any point in this chain.
+   *
+   * EVENT (§1): exactly one `payment.authorized`, keyed on our order row so a retried
+   * request that produced a second provider order still produces one event per order.
+   * `real_call` is the honest `true` here — this event means money is genuinely in flight.
+   */
+  async createCreditOrder(
+    payerId: string,
+    packCode: string,
+    ctx: RequestContext,
+  ): Promise<RealOrderHandoff | null> {
+    const pack = await this.payments.resolvePack(packCode);
+    if (!pack) return null;
+
+    const order = await this.payments.createRealOrder(payerId, pack);
+
+    await this.emitPaymentAuthorized(null, payerId, ctx, {
+      packCode: order.packCode,
+      amountInr: order.amountInr,
+      amountCredits: order.credits,
+      // One authorization per ORDER ROW (not per request): a client that retries the call
+      // creates a distinct order and gets a distinct event; a duplicate emit cannot happen.
+      idempotencyKey: `payment.authorized:order:${order.orderRowId}`,
+    });
+    return order;
+  }
+
+  /**
+   * Verify a browser-returned checkout result and settle (`POST /payer/credits/verify`).
+   *
+   * WHY THIS EXISTS: on a flaky Indian mobile network the browser sees Razorpay's success
+   * callback seconds before the webhook reaches our server. Without this path the payer
+   * would be shown "payment failed" for a payment that actually succeeded. It converges on
+   * the SAME order row and the SAME idempotent settle as the webhook, so the two can race
+   * freely — whichever lands first grants, the other reports the already-settled state.
+   *
+   * TRUST: the `razorpay_signature` is HMAC(order_id|payment_id, KEY SECRET), compared
+   * constant-time. A payer cannot mint credits by POSTing ids they invented, because they
+   * cannot produce that HMAC. Ownership is additionally bound to the SESSION payer.
+   *
+   * NO-ORACLE: an invalid signature, an unknown order, and another tenant's order all
+   * return the same `{ verified: false }` shape — the caller learns nothing about which.
+   */
+  async verifyCheckoutPayment(
+    payerId: string,
+    input: { orderId: string; paymentId: string; signature: string },
+    ctx: RequestContext,
+  ): Promise<
+    | { verified: true; payer_id: string; balance: number; credits: number; pack_code: string }
+    | { verified: false }
+  > {
+    const creds = getRazorpayCredentials(this.config);
+    if (!creds) return { verified: false }; // real payments not live ⇒ nothing to verify
+
+    if (!verifyCheckoutSignature(input, creds.keySecret)) {
+      // Log the FACT only — no ids, no signature, nothing an attacker could confirm.
+      this.logger.warn("razorpay checkout signature verification failed");
+      return { verified: false };
+    }
+
+    const result = await this.settleAndEmit(
+      {
+        providerOrderId: input.orderId,
+        providerPaymentRef: input.paymentId,
+        // Ownership is enforced INSIDE settle: a mismatch is indistinguishable from
+        // "no such order", so this endpoint is not an order-id oracle for other tenants.
+        expectedPayerId: payerId,
+      },
+      ctx,
+    );
+
+    switch (result.outcome) {
+      case "granted":
+        return {
+          verified: true,
+          payer_id: payerId,
+          balance: result.balanceAfter,
+          credits: result.credits,
+          pack_code: result.order.packCode,
+        };
+      case "already_settled": {
+        // The webhook won the race. This is a SUCCESS for the payer — report the real
+        // balance, never a failure, or a paying customer is told their purchase failed.
+        const credits = await this.getCredits(payerId);
+        return {
+          verified: true,
+          payer_id: payerId,
+          balance: credits.balance,
+          credits: 0, // already credited by the winning channel; nothing added here
+          pack_code: result.order.packCode,
+        };
+      }
+      case "unknown_order":
+        return { verified: false };
+    }
+  }
+
+  /**
+   * Handle ONE verified Razorpay webhook delivery (`POST /payments/razorpay/webhook`).
+   *
+   * The signature is already verified over the raw bytes by {@link RazorpayWebhookGuard} —
+   * by the time this runs, the delivery is authentic.
+   *
+   * RETRY SEMANTICS (Razorpay retries non-2xx for hours):
+   *  - a duplicate/replayed capture → `no_op`, HTTP 200. Not a 500 (which would spam
+   *    retries) and not a second grant (which would be free credits).
+   *  - an unknown event type → `no_op`, HTTP 200. Silence, not an error.
+   *  - a genuine INFRASTRUCTURE failure (DB down, the layer-3 unique index firing) is NOT
+   *    caught here: it throws, the exceptions filter answers 5xx, and Razorpay redelivers.
+   *    A redelivery after the problem clears finds the order already `paid` and no-ops, so
+   *    captured money is never dropped and never double-granted. There is deliberately no
+   *    "retry" return value: since the grant size is stamped on the order row, no business
+   *    condition can leave a captured payment un-grantable.
+   */
+  async handleRazorpayEvent(
+    event: RazorpayPaymentEvent,
+    ctx: RequestContext,
+  ): Promise<{ result: "granted" | "failed_recorded" | "no_op" }> {
+    const isCapture = (RAZORPAY_CAPTURE_EVENTS as readonly string[]).includes(event.eventName);
+    const isFailure = (RAZORPAY_FAILURE_EVENTS as readonly string[]).includes(event.eventName);
+    if (!isCapture && !isFailure) return { result: "no_op" }; // unknown type → 200 no-op
+    if (event.orderId === null) return { result: "no_op" }; // no order to act on → 200 no-op
+
+    if (isFailure) {
+      const order = await this.payments.failOrder(event.orderId);
+      if (!order) return { result: "no_op" }; // unknown, or already paid (never walk that back)
+      await this.emitPaymentFailed(null, order.payerId, "gateway_error", ctx, {
+        idempotencyKey: `payment.failed:order:${order.id}`,
+      });
+      return { result: "failed_recorded" };
+    }
+
+    const settled = await this.settleAndEmit(
+      {
+        providerOrderId: event.orderId,
+        // A capture without a payment id is malformed; record the order id so the ledger
+        // still carries an opaque reference rather than null.
+        providerPaymentRef: event.paymentId ?? event.orderId,
+        // NO expectedPayerId: the webhook is Razorpay speaking, not a tenant — the order
+        // row itself names the payer to credit.
+      },
+      ctx,
+    );
+
+    switch (settled.outcome) {
+      case "granted":
+        return { result: "granted" };
+      case "already_settled":
+      case "unknown_order":
+        // Replay of a delivery we already processed, or an order we never created (a
+        // payment made against a different environment's account). Both are 200 no-ops:
+        // there is nothing to do and retrying will not change that.
+        return { result: "no_op" };
+    }
+  }
+
+  /**
+   * The ONE settle+emit path both channels share. Emits `payment.captured` if and ONLY if
+   * this call is the one that granted, so the event spine has exactly one capture per
+   * order — matching the money exactly (§1: no important state change without an event,
+   * and no event without a state change).
+   */
+  private async settleAndEmit(
+    input: { providerOrderId: string; providerPaymentRef: string; expectedPayerId?: string },
+    ctx: RequestContext,
+  ): Promise<SettleResult> {
+    const result = await this.payments.settleOrder(input);
+    if (result.outcome === "granted") {
+      await this.emitPaymentCaptured(null, result.order.payerId, ctx, {
+        packCode: result.order.packCode,
+        amountInr: result.priceInr,
+        amountCredits: result.credits,
+        // Keyed on the ORDER ROW: even if both channels somehow reached the emit, the
+        // events table would still hold exactly one capture for this order.
+        idempotencyKey: `payment.captured:order:${result.order.id}`,
+      });
+    }
+    return result;
+  }
+
   // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------
@@ -617,6 +853,23 @@ export class UnlockService {
     });
   }
 
+  /**
+   * §X.6 — ask the referral module to re-evaluate the ₹20 activation bonus for this worker,
+   * because one of its two legs (a granted unlock) just became true.
+   *
+   * A QUEUE, not a service call: `unlocks` must not gain a dependency on `referrals`, and
+   * the evaluation (up to six reads) has no business on the unlock request path. The
+   * processor re-checks BOTH legs from the database, so this is a no-op for the vast
+   * majority of workers (never referred), and `UNIQUE (invited_worker_id)` makes a
+   * duplicate delivery harmless. PII-FREE: an opaque worker id + a non-PII trigger enum.
+   */
+  private async enqueueReferralBonusEvaluation(workerId: string): Promise<void> {
+    await this.referralBonusQueue.add("evaluate", {
+      invitedWorkerId: workerId,
+      trigger: "unlock_granted",
+    });
+  }
+
   private async emitGranted(
     unlockId: string,
     payerId: string,
@@ -725,7 +978,17 @@ export class UnlockService {
     unlockId: string | null,
     payerId: string,
     ctx: RequestContext,
-    extra?: { packCode?: string; amountInr?: number; amountCredits?: number },
+    extra?: {
+      packCode?: string;
+      amountInr?: number;
+      amountCredits?: number;
+      /**
+       * Explicit dedup key for money movements that have NO unlock (a credit-pack
+       * purchase). The real-payment path keys on the `payment_orders` row so the spine
+       * inherits the money path's exactly-once property.
+       */
+      idempotencyKey?: string;
+    },
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.authorized"> = {
       unlock_id: unlockId,
@@ -733,14 +996,52 @@ export class UnlockService {
       pack_code: extra?.packCode ?? null,
       amount_inr: extra?.amountInr ?? null,
       amount_credits: extra?.amountCredits ?? 1,
-      real_call: this.payments.realCall, // honest mock flag (false in alpha)
+      real_call: this.payments.realCall, // honest flag: false on the mock path, true when live
     };
+    const idempotencyKey =
+      extra?.idempotencyKey ?? (unlockId ? `payment.authorized:${unlockId}` : undefined);
     await this.events.emit({
       event_name: "payment.authorized",
       actor: { actor_type: "payer", actor_id: payerId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
-      ...(unlockId ? { idempotencyKey: `payment.authorized:${unlockId}` } : {}),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
+  /**
+   * ADR-0036 §7 — the payer's credit balance hit EXACTLY zero on this debit.
+   *
+   * `free_tier_credits` carries the size of the free-tier grant this payer started with
+   * (`match_config.free_unlock_credits`), because "he used up his 50 free unlocks" and
+   * "he used up a 1000-credit pack" are different conversion moments and the consumer
+   * cannot tell them apart from the balance alone.
+   *
+   * FACELESS: an opaque payer id, an opaque unlock id, one integer. No email, no org
+   * name, no worker.
+   */
+  private async emitCreditsExhausted(
+    payerId: string,
+    unlockId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const cfg = await this.matchConfig.get();
+    const payload: PayloadInputOf<"payer.credits_exhausted"> = {
+      payer_id: payerId,
+      unlock_id: unlockId,
+      free_tier_credits: cfg.freeUnlockCredits,
+    };
+    await this.events.emit({
+      event_name: "payer.credits_exhausted",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "payer", subject_id: payerId },
+      payload,
+      // Keyed on the DEBITING unlock: a post-commit flush replay re-emits at most one
+      // audit row, and a payer who tops up and drains again gets a NEW event (a
+      // different unlock id) rather than being silently deduped forever.
+      idempotencyKey: `payer.credits_exhausted:${unlockId}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -750,7 +1051,12 @@ export class UnlockService {
     unlockId: string | null,
     payerId: string,
     ctx: RequestContext,
-    extra?: { packCode?: string; amountInr?: number; amountCredits?: number },
+    extra?: {
+      packCode?: string;
+      amountInr?: number;
+      amountCredits?: number;
+      idempotencyKey?: string;
+    },
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.captured"> = {
       unlock_id: unlockId,
@@ -760,12 +1066,14 @@ export class UnlockService {
       amount_credits: extra?.amountCredits ?? 1,
       real_call: this.payments.realCall,
     };
+    const idempotencyKey =
+      extra?.idempotencyKey ?? (unlockId ? `payment.captured:${unlockId}` : undefined);
     await this.events.emit({
       event_name: "payment.captured",
       actor: { actor_type: "payer", actor_id: payerId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
-      ...(unlockId ? { idempotencyKey: `payment.captured:${unlockId}` } : {}),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -776,6 +1084,7 @@ export class UnlockService {
     payerId: string,
     reason: "insufficient_credits" | "gateway_error",
     ctx: RequestContext,
+    extra?: { idempotencyKey?: string },
   ): Promise<void> {
     const payload: PayloadInputOf<"payment.failed"> = {
       unlock_id: unlockId,
@@ -788,6 +1097,7 @@ export class UnlockService {
       actor: { actor_type: "payer", actor_id: payerId },
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
+      ...(extra?.idempotencyKey ? { idempotencyKey: extra.idempotencyKey } : {}),
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });

@@ -20,10 +20,15 @@ import '../domain/voice_recorder.dart';
 /// [VoiceUnavailableFailure] BEFORE any audio leaves the device, so the honest
 /// "not available yet" surfaces without a dead-end.
 ///
+/// TWO LEGS, NOT ONE (Persona sheet #05). [stopAndTranscribe] ends at the
+/// transcript and sends nothing; [sendConfirmedTranscript] is what reaches
+/// [ChatRepository.sendMessage], and it only runs after the worker has answered
+/// "Yeh theek hai?" on screen.
+///
 /// PII: the on-device clip path is never sent or logged; only the clip bytes
 /// (to the signed url) and the server-side `storage_path` + opaque ids cross
-/// the wire. The transcript is merged into chat exactly like a typed message
-/// (via [ChatRepository.sendMessage]) and returned for display — never logged.
+/// the wire. The transcript is held transiently for display and merged into chat
+/// exactly like a typed message once confirmed — never logged.
 class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
   VoiceNoteRepositoryImpl({
     required VoiceRecorder recorder,
@@ -74,7 +79,7 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
   }
 
   @override
-  Future<VoiceNoteOutcome> stopRecordingAndTranscribe() async {
+  Future<String> stopAndTranscribe() async {
     RecordedClip? clip;
     bool uploadStarted = false;
     try {
@@ -124,15 +129,14 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
       }
 
       // Transcript text: GET /voice/:id (REAL) / canned (MOCK).
-      final String transcript = await _resolver.resolve(job, authToken: token);
-
-      // Merge the transcript into the profiling chat like a typed message.
-      final ChatTurn turn = await _chat.sendMessage(transcript);
-      return VoiceNoteOutcome(
-        transcript: transcript,
-        reply: turn.reply,
-        extractionReady: turn.extractionReady,
-      );
+      //
+      // AND STOP HERE. The transcript is RETURNED, not sent: the worker sees it
+      // and confirms (or edits) it first, and only then does
+      // [sendConfirmedTranscript] merge it into the chat. Re-adding a
+      // `_chat.sendMessage(...)` on this path would silently restore the bug the
+      // split exists to fix — the answer of record being text the worker never
+      // saw.
+      return await _resolver.resolve(job, authToken: token);
     } catch (error) {
       // A clip that never reached the uploader is raw audio on disk with no
       // owner (the uploader's own `finally` only covers its leg) — delete it,
@@ -144,6 +148,28 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
           // Cleanup only — the cache dir is app-private and OS-evictable.
         }
       }
+      throw mapError(error);
+    }
+  }
+
+  @override
+  Future<VoiceNoteOutcome> sendConfirmedTranscript(String text) async {
+    try {
+      // Merge into the profiling chat like a typed message. `sendMessage`
+      // re-opens the session lazily if it lapsed while the worker was reading
+      // the confirm turn, so no separate ensureSession is needed here.
+      //
+      // [text] is the CONFIRMED string — possibly edited by the worker on the
+      // "Sudhaarna hai" path — never a re-read of the raw recogniser output.
+      final ChatTurn turn = await _chat.sendMessage(text);
+      return VoiceNoteOutcome(
+        transcript: text,
+        reply: turn.reply,
+        extractionReady: turn.extractionReady,
+      );
+    } catch (error) {
+      // No clip to clean up: the audio was deleted on the transcribe leg, and
+      // this leg only ever handles text.
       throw mapError(error);
     }
   }

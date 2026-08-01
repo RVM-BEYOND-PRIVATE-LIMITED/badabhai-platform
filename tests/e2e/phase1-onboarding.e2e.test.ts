@@ -174,11 +174,13 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(workerRow!.phoneHash).not.toContain(NATIONAL); // HMAC, not reversible
 
     // ───────────────────────── STAGE 2 — DPDP consent ─────────────────────────
-    const consent = await call("POST", "/consent/accept", {
-      worker_id: workerId,
-      consent_version: CONSENT_VERSION,
-      purposes: PURPOSES,
-    });
+    // WORKER-AUTHED (invariant #6): the subject is the session worker, not a body id.
+    const consent = await call(
+      "POST",
+      "/consent/accept",
+      { consent_version: CONSENT_VERSION, purposes: PURPOSES },
+      token,
+    );
     expect(consent.status).toBe(201);
     expect(consent.body.consent_id).toBeTruthy();
     expect(consent.body.accepted_at).toBeTruthy();

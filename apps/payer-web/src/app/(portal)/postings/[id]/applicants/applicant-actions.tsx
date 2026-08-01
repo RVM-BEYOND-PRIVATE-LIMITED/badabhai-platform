@@ -5,7 +5,7 @@ import Link from "next/link";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import { Avatar, Badge, Button, Card, Chip, Tabs } from "../../../../../components/ds";
-import { bandLabel, opaqueId } from "../../../../../lib/masking";
+import { bandLabel, monthsLabel, opaqueId } from "../../../../../lib/masking";
 import {
   ConfirmSpendDialog,
   MaskedResumeCard,
@@ -267,12 +267,42 @@ export function ApplicantActions({
                   </div>
                   <div className="applicant__relevance">
                     <Badge tone="neutral">#{a.rank}</Badge>
-                    <span className="bb-mono applicant__score">{a.score.toFixed(2)}</span>
-                    {/* `hot` is the engine's boolean, rendered AS-IS as a distinct tag — never a
-                        client-side percentile or re-sort (the RANK core owns relevance). */}
-                    {a.hot === true ? (
-                      <Badge tone="warning">Hot</Badge>
-                    ) : null}
+                    {/*
+                      MATCHING V1 (ADR-0036 moment ⑥) vs the legacy weighted engine. The
+                      presence of `matchTier` is the discriminator — V1 has no score and
+                      no hot flag, and the seam pins both to placeholder constants
+                      precisely so they are never rendered as if they meant something.
+
+                      E18: the RAW tier is what the badge says. A tier-2 worker promoted
+                      into tier-1 ORDERING by the 36-month floor is still shown as
+                      "related" — the company opted into that breadth and should see
+                      plainly what it is looking at before spending ₹40 to unlock him.
+                    */}
+                    {a.matchTier !== undefined ? (
+                      <>
+                        {a.matchTier === 1 ? (
+                          <Badge tone="success">Has the skill</Badge>
+                        ) : (
+                          <Badge tone="brand">
+                            {a.matchedSkillLabel
+                              ? `Related · ${a.matchedSkillLabel}`
+                              : "Related skill"}
+                          </Badge>
+                        )}
+                        {a.skillMonths !== undefined && a.skillMonths > 0 ? (
+                          <span className="bb-mono applicant__months">
+                            {monthsLabel(a.skillMonths)}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <span className="bb-mono applicant__score">{a.score.toFixed(2)}</span>
+                        {/* `hot` is the engine's boolean, rendered AS-IS as a distinct tag — never a
+                            client-side percentile or re-sort (the RANK core owns relevance). */}
+                        {a.hot === true ? <Badge tone="warning">Hot</Badge> : null}
+                      </>
+                    )}
                   </div>
                 </div>
 

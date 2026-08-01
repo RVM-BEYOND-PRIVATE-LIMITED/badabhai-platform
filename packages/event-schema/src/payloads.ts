@@ -352,6 +352,30 @@ export const WorkerOtpSendFailedPayload = z
   .strict();
 export type WorkerOtpSendFailedPayload = z.infer<typeof WorkerOtpSendFailedPayload>;
 
+/**
+ * The RETENTION signal (§X.6, previously NOT FOUND on the spine): an authenticated worker
+ * was active on a given UTC day. This is the denominator every activation/retention question
+ * needs — "did the referred worker come back?" — and without it the referral funnel ends at
+ * install and goes dark.
+ *
+ * AT MOST ONCE PER WORKER PER UTC DAY, by construction: the producer keys the events-table
+ * idempotency key on `worker.active:<worker_id>:<day>`, so a worker making a thousand requests
+ * writes exactly one row. The event is therefore a coarse DAILY-ACTIVE fact, NOT a request
+ * log — it deliberately carries no route, no session id, no ip/ip_hash, no user-agent, and no
+ * timestamp finer than the day, so it can never be turned into a per-worker movement trace.
+ *
+ * PII-FREE: the opaque worker id + a `YYYY-MM-DD` UTC day bucket ONLY. `.strict()` blocks
+ * smuggling a phone / route / device id alongside.
+ */
+export const WorkerActivePayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** COARSE UTC day bucket `YYYY-MM-DD` — never a timestamp (that would be a trace). */
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be a UTC day bucket YYYY-MM-DD"),
+  })
+  .strict();
+export type WorkerActivePayload = z.infer<typeof WorkerActivePayload>;
+
 // ---------------------------------------------------------------------------
 // consent.*
 // ---------------------------------------------------------------------------
@@ -819,6 +843,17 @@ const JOB_POSTING_CHANGED_FIELDS = [
   // ADR-0030 / TAX-6 (ADDITIVE enum member): the posting's skill inputs changed
   // (names only — the PHRASES/ids never enter the payload).
   "skills",
+  // ADR-0036 (ADDITIVE enum members, same precedent as "skills" above). Widening the
+  // KEY enum is backward-compatible: every shipped payload still validates, and the
+  // payload still carries only which field changed, never its value. `match_skills`
+  // covers the `mskill_*` selection AND its unticks — they are one editorial act on
+  // the form, and splitting them would let a reader infer the untick list's presence.
+  // `pay_band` is one key for pay_min+pay_max for the same reason.
+  "match_skills",
+  "city",
+  "pay_band",
+  "shift",
+  "needed_by",
 ] as const;
 
 /**
@@ -1099,8 +1134,14 @@ export const PaymentFailedPayload = z.object({
 
 /** Paid posting tier (catalog-resolved). */
 const PostingTierEnum = z.enum(["standard", "pro"]);
-/** Booster tier (single tier today; extensible via the catalog). */
-const BoostTierEnum = z.enum(["all_candidates"]);
+/**
+ * Booster tier. ADDITIVE ENUM WIDENING (ADR-0036 §7, same discipline as
+ * `PostingPlanStatus` gaining 'paused'): the three new tiers are appended and
+ * `all_candidates` STAYS — every shipped `job_posting.boosted` payload still
+ * validates, which is what makes this backward-compatible rather than a mutation.
+ * `all_candidates` is retired from the OFFERED catalog, not from history.
+ */
+const BoostTierEnum = z.enum(["all_candidates", "boost_7", "boost_15", "boost_30"]);
 /** Which catalog entity a `pricing.changed` event is about. */
 const PricingChangeTypeEnum = z.enum(["plan", "discount", "coupon"]);
 /** Stable catalog product/tier/coupon code (lowercase machine code). */
@@ -1300,6 +1341,58 @@ export const InviteAcceptedPayload = z.object({
   inviter_worker_id: uuidSchema,
   invited_worker_id: uuidSchema,
 });
+
+/**
+ * WHICH transport carried the referral payload across the Play Store round-trip (blocker
+ * B4). Firebase Dynamic Links died 2025-08-25; the replacement chain is a self-hosted
+ * `/i/<code>` resolver + Play Install Referrer, and this enum is how we measure which leg
+ * of that chain actually delivered the attribution:
+ *   - "app_link"         the app was already installed and intercepted the verified
+ *                        Android App Link (`https://app.badabhai.in/i/<code>`).
+ *   - "install_referrer" a fresh install: the code came back via the Play Install
+ *                        Referrer (`referrer=bb_code=<code>`) on first run.
+ *   - "custom_scheme"    a `badabhai://` deep link (the legacy/fallback leg).
+ *   - "unknown"          the client did not (or could not) say — the safe DEFAULT, and
+ *                        what every pre-B4 client sends, since `source` is OPTIONAL on the
+ *                        wire (invariant #8: old clients keep working unchanged).
+ * A CLOSED enum, never free text — so no client-supplied string can ride onto the spine.
+ */
+export const INVITE_INSTALL_SOURCES = [
+  "app_link",
+  "install_referrer",
+  "custom_scheme",
+  "unknown",
+] as const;
+export const InviteInstallSource = z.enum(INVITE_INSTALL_SOURCES);
+export type InviteInstallSource = z.infer<typeof InviteInstallSource>;
+
+/**
+ * The install was ACTUALLY ATTRIBUTED — the moment the referral chain closed (blocker B4 /
+ * §X.6, previously NOT FOUND on the spine). Emitted at the same instant as the matching
+ * `invite.accepted` / `agency_invite.accepted`, and only ever on a SUCCESSFUL attribution,
+ * but it answers a different question: *how* the payload survived the Play Store round-trip
+ * (`source`). Without it, a broken App Link / Install Referrer leg is invisible — the
+ * funnel just silently loses agents.
+ *
+ * ONE event covers BOTH funnels (worker→worker `invites` and agency→worker `agency_invites`),
+ * discriminated by `invite_kind`; the subject carries the matching subject_type, so the two
+ * are never conflated on the spine.
+ *
+ * PII-FREE by construction: the opaque ROW id (`invite_id`) — NEVER the shareable `code`,
+ * which `invite.clicked`/`agency_invite.created` also deliberately omit (it is a bearer
+ * token: anyone holding it can claim the referral) — plus two closed enums. No phone, no
+ * name, no worker id (the attribution join already lives on `*.accepted`). `.strict()` is
+ * the structural backstop against smuggling a code/phone alongside.
+ */
+export const InviteInstallPayload = z
+  .object({
+    /** The opaque `invites.id` / `agency_invites.id` — never the shareable code. */
+    invite_id: uuidSchema,
+    invite_kind: z.enum(["worker", "agency"]),
+    source: InviteInstallSource,
+  })
+  .strict();
+export type InviteInstallPayload = z.infer<typeof InviteInstallPayload>;
 
 /** A re-engagement/invite message was REQUESTED (consent already checked upstream). */
 export const MessagingRequestedPayload = z.object({
@@ -1640,6 +1733,32 @@ export const AgencyInviteCreatedPayload = z.object({
 export type AgencyInviteCreatedPayload = z.infer<typeof AgencyInviteCreatedPayload>;
 
 /**
+ * An agency referral deep-link was OPENED (TD113). The payer-axis sibling of
+ * `invite.clicked` — the agency funnel shipped `created`/`accepted` but no `clicked`, so
+ * the middle of the funnel had no event at all even though the agency's own stage COUNTS
+ * already tracked it. Adding it (rather than reusing `invite.clicked`) keeps the two
+ * funnels distinguishable on the spine: the inviter is a PAYER here, not a worker.
+ *
+ * Emitted from the PUBLIC click path — the invited worker is the only party who can
+ * actually click, so this is NOT owner-scoped and is NEUTRAL on an unknown code (an
+ * unknown code emits nothing at all, which is what keeps the endpoint from being an
+ * existence oracle).
+ *
+ * PII-FREE: the opaque row id + the opaque owning agency + the channel enum. NEVER the
+ * shareable `code` (a bearer token), never a worker handle — a click happens BEFORE the
+ * DPDP consent gate, so no worker identity may be recorded here (invariant #6);
+ * `agency_invite.accepted` is the only agency event that carries a worker id. `.strict()`.
+ */
+export const AgencyInviteClickedPayload = z
+  .object({
+    agency_invite_id: uuidSchema,
+    inviter_payer_id: uuidSchema,
+    channel: MessageChannelEnum,
+  })
+  .strict();
+export type AgencyInviteClickedPayload = z.infer<typeof AgencyInviteClickedPayload>;
+
+/**
  * An invited person became a worker AND has an ACTIVE consent (invariant #6) — the
  * attribution link. Both ids opaque. This is the ONLY agency_invite event that carries a
  * worker handle, and it is emitted EXCLUSIVELY from the consent-gated internal seam (never
@@ -1918,3 +2037,239 @@ export const SkillPhraseUnresolvedPayload = z
   })
   .strict();
 export type SkillPhraseUnresolvedPayload = z.infer<typeof SkillPhraseUnresolvedPayload>;
+
+// ---------------------------------------------------------------------------
+// referral.* — the WORKER-referral activation bonus (blocker B4 / §X.6).
+//
+// The single most valuable referral fraud control in the plan: the ₹20 is accrued ONLY
+// when a referred worker completes a profile AND is unlocked by a paying party. Both legs
+// are things a fraudster cannot manufacture for free, which kills the referral-farm
+// economics before they start — so the ACCRUAL is the event worth recording, and there is
+// deliberately no event on click / install / upload (those prove nothing).
+//
+// MOCK LEDGER, NO DISBURSEMENT: nothing pays out in this release (mirrors `agency_payout.*`
+// and the ADR-0022 posture — real outbound money is the §7 launch gate). There is
+// deliberately NO `referral.bonus_paid` event: an event name is a promise, and adding one
+// before a ratified payout rail would imply a capability that does not exist.
+//
+// PII-FREE: opaque accrual/worker ids + a whole-rupee integer ONLY. The fraud checks read
+// `workers.phone_hash`, and that hash NEVER appears here (or in any log) — a hash tied to
+// two worker ids in one payload would be a re-identification join. The disqualify REASON is
+// likewise not carried: nothing is emitted at all when a bonus is refused.
+// ---------------------------------------------------------------------------
+
+/**
+ * A referred worker QUALIFIED and the ₹20 activation bonus was accrued to their inviter.
+ * Emitted EXACTLY ONCE per referred worker, ever — enforced by the UNIQUE constraint on
+ * `referral_bonus_accruals.invited_worker_id` (the row is the idempotency key; no row
+ * written ⇒ no event), not by a best-effort check.
+ *
+ * `amount_inr` is WHOLE RUPEES (integer — never paise, matching `agency_payout.*`).
+ * `.strict()` rejects any extra key, so a phone_hash / reason string / name can never ride
+ * along.
+ */
+export const ReferralBonusAccruedPayload = z
+  .object({
+    /** The opaque `referral_bonus_accruals.id` (also the event subject). */
+    accrual_id: uuidSchema,
+    /** The worker who is OWED the bonus (opaque). */
+    inviter_worker_id: uuidSchema,
+    /** The referred worker who QUALIFIED (opaque). */
+    invited_worker_id: uuidSchema,
+    amount_inr: z.number().int().positive(),
+  })
+  .strict();
+export type ReferralBonusAccruedPayload = z.infer<typeof ReferralBonusAccruedPayload>;
+
+// ---------------------------------------------------------------------------
+// Matching V1 (ADR-0036, spec docs/specs/matching-algorithm-v1.md).
+//
+// PII-FREE BY CONSTRUCTION, and narrower than that: these payloads carry opaque
+// worker/posting/payer uuids, CLOSED-VOCABULARY `mskill_*` ids, integer counts and
+// small enums. There is no employer name, no worker identity beyond the uuid, no pay
+// figure, and no free text anywhere. Every one is `.strict()`, so a future field
+// cannot be smuggled in without a review.
+//
+// INVARIANT #4: nothing here is a model output. `match_tier` is set membership, the
+// counts are SQL aggregates, and the ordering these events describe is the fixed
+// lexicographic rank key in `@badabhai/match-engine`. No LLM produces or reads them.
+// ---------------------------------------------------------------------------
+
+/** A closed-set Matching V1 skill id (`mskill_*`). Never free text. */
+const matchSkillIdSchema = z.string().regex(/^mskill_[a-z0-9_]+$/);
+
+/**
+ * MOMENT ①/② — a worker's matchable supply was re-derived from his latest profile and
+ * his rows in `job_reach` were reconciled against every live posting.
+ *
+ * COUNTS ONLY, NEVER THE SKILL LIST. The vocabulary is public, but a per-worker skill
+ * array on the audit spine is a supply profile with no reader — and `worker_skill` is
+ * already the queryable source of truth for it (put the FACT on the spine, not the
+ * data). `skill_count: 0` is a legitimate and useful record: it is exactly the E17
+ * "one-tag worker" / `avg_skill_tags_per_worker` signal.
+ */
+export const WorkerMatchSkillsRebuiltPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** How many `derived_coarse` rows the rebuild produced (0 is legitimate). */
+    skill_count: z.number().int().nonnegative(),
+    /** How many industries he now has tenure in. */
+    industry_count: z.number().int().nonnegative(),
+    /** How many open/paused postings can reach him after reconciliation. */
+    reached_postings: z.number().int().nonnegative(),
+  })
+  .strict();
+export type WorkerMatchSkillsRebuiltPayload = z.infer<typeof WorkerMatchSkillsRebuiltPayload>;
+
+/**
+ * MOMENT ③ — a posting's reach set was materialized into `job_reach` (on publish, on
+ * unpause, on an edit, or on an ops widen). The audit record of "who could this posting
+ * reach, and how wide was the net when we decided that".
+ *
+ * `reach_skill_count >= match_skill_count` always (reach ⊇ posted, spec Part 2). The two
+ * tier counts let an analyst reconstruct the E12/E18 picture later without re-running the
+ * materializer against a `job_reach` table that has since moved.
+ */
+export const JobPostingReachMaterializedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    /** Skills the company actually typed (TIER 1 is membership of these). */
+    match_skill_count: z.number().int().nonnegative(),
+    /** Posted ∪ curated related ⊖ the company's honoured unticks. */
+    reach_skill_count: z.number().int().nonnegative(),
+    /** Related skills the company unticked and we honoured (Policy 10 audit trail). */
+    unticked_count: z.number().int().nonnegative(),
+    /** Workers reached, total and by tier. `reach_total = reach_tier1 + reach_tier2`. */
+    reach_total: z.number().int().nonnegative(),
+    reach_tier1: z.number().int().nonnegative(),
+    reach_tier2: z.number().int().nonnegative(),
+    /** Which write produced this set. */
+    trigger: z.enum(["publish", "unpause", "ops_widen", "edit"]),
+  })
+  .strict();
+export type JobPostingReachMaterializedPayload = z.infer<typeof JobPostingReachMaterializedPayload>;
+
+/**
+ * E12/E13 OPS ALERT — a posting went live into a void, or into a void of the trade it
+ * actually asked for.
+ *
+ *   `zero_reach`     total reach is 0. "Never take money for a posting into a void"
+ *                    (E13). The form warns before payment; this is the server-side
+ *                    re-check at publish, so a client that skipped the preview cannot
+ *                    make the alert disappear.
+ *   `no_tier1_reach` nobody holds a POSTED skill; every reachable worker got there via a
+ *                    related one (E12 — reach falls to the related skills). The posting
+ *                    works, but ops should know the exact trade is unsupplied.
+ *
+ * IDS AND COUNTS ONLY — no org label, no role title, no worker. Deliberately NOT a PACE
+ * event: PACE auto-WIDENS, which V1 forbids (a company's approved reach set is frozen;
+ * only an audited ops action may widen it — Policy 27).
+ */
+export const JobPostingReachAlertPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    reason: z.enum(["zero_reach", "no_tier1_reach"]),
+    reach_total: z.number().int().nonnegative(),
+    reach_tier1: z.number().int().nonnegative(),
+    /** How many skills were in the net when it came up short. */
+    reach_skill_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type JobPostingReachAlertPayload = z.infer<typeof JobPostingReachAlertPayload>;
+
+/**
+ * POLICY 27 — "Ops may widen a reach set, never narrow one. Expiring, audited, evented."
+ * This is the EVENTED half; the audited half is the ops actor on the envelope.
+ *
+ * The payload names the skills ADDED (closed-vocabulary ids, so a reviewer can read the
+ * decision) plus the before/after reach counts, which is what makes "did widening this
+ * actually help?" answerable later. Narrowing is structurally impossible on this path —
+ * the service appends and re-materializes; it never removes an id.
+ */
+export const JobPostingReachWidenedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    /** The `mskill_*` ids appended to `reach_skill_ids`. Never a posted skill. */
+    added_skill_ids: z.array(matchSkillIdSchema).min(1),
+    reach_before: z.number().int().nonnegative(),
+    reach_after: z.number().int().nonnegative(),
+  })
+  .strict();
+export type JobPostingReachWidenedPayload = z.infer<typeof JobPostingReachWidenedPayload>;
+
+/**
+ * A boost purchase was REFUSED because the posting's matched supply is below
+ * `match_config.boost_supply_floor` (ADR-0036 §7). Selling a ₹999 boost into a trade
+ * with four workers costs the ₹999 AND the renewal behind it, so the refusal is a
+ * product fact worth recording, not just a 4xx.
+ *
+ * PII-free & faceless: opaque payer/posting ids, the tier CODE, two integers.
+ */
+export const JobPostingBoostRefusedPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    payer_id: uuidSchema,
+    tier: z.string().min(1),
+    reason: z.literal("supply_below_floor"),
+    reach_total: z.number().int().nonnegative(),
+    supply_floor: z.number().int().nonnegative(),
+  })
+  .strict();
+export type JobPostingBoostRefusedPayload = z.infer<typeof JobPostingBoostRefusedPayload>;
+
+/**
+ * A payer's unlock-credit balance hit EXACTLY ZERO on a debit.
+ *
+ * This is the signal the whole conversion engine fires on, so it is exact rather than
+ * approximate: it is emitted from the debit path using the balance the debit RETURNED
+ * (never a re-read, which would race a concurrent debit), and only on the `>0 → 0`
+ * transition. The emit carries an idempotency key derived from the debiting unlock, so
+ * an at-least-once retry of the same debit records it once.
+ *
+ * FACELESS: the opaque `payer_id` only. No email, no org name, no worker.
+ */
+export const PayerCreditsExhaustedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    /** The debit that took the balance to zero (opaque `unlocks.id`), when known. */
+    unlock_id: uuidSchema.nullable().default(null),
+    /** The free-tier grant this payer started with — the quota that just ran out. */
+    free_tier_credits: z.number().int().nonnegative(),
+  })
+  .strict();
+export type PayerCreditsExhaustedPayload = z.infer<typeof PayerCreditsExhaustedPayload>;
+
+/**
+ * MOMENT ④ — `feed.shown`, VERSION 2 (ADR-0036 "feed.shown gets a v2 payload").
+ *
+ * WHY A NEW NAME AND NOT A VERSION BUMP IN PLACE. Invariant #8 forbids mutating a
+ * shipped payload, and `validateEvent` enforces EXACTLY ONE version per event name — so
+ * bumping `feed.shown` to 2 would invalidate every already-shipped emitter (the legacy
+ * `/feed`, the ops `/reach/*` views, `/payer/reach/*`) the moment it deployed, including
+ * on a database where `MATCH_V1_ENABLED` is still false. A SECOND registry entry keeps
+ * the shipped v1 shape alive, unmodified, as history — exactly what the ADR asks for —
+ * and lets both regimes coexist across the cutover boundary (the offline LEARN corpus
+ * will contain both). The registry `version: 2` records which payload GENERATION this is.
+ *
+ * WHAT CHANGED. `score` and `hot` are GONE: V1 has no score at the visibility layer at
+ * all (spec Part 2 — "Nothing is hidden by score. There is no score at this layer"), and
+ * `hot` was a weighted-engine concept ADR-0036 retires. `match_tier` and `boosted`
+ * replace them — the two facts that explain why this card is here and why it is where it
+ * is. `job_posting_id` (not `job_id`) names the served entity honestly.
+ */
+export const FeedShownV2Payload = z
+  .object({
+    worker_id: uuidSchema,
+    /** The SERVED entity — `job_postings.id`, never the legacy `jobs.id`. */
+    job_posting_id: uuidSchema,
+    /** 1-based position in the worker's feed, AFTER the max-2-per-company interleave. */
+    rank: z.number().int().positive(),
+    /** 1 = holds a posted skill · 2 = reached through a curated related skill (E18). */
+    match_tier: z.union([z.literal(1), z.literal(2)]),
+    /** Whether an active boost lifted this card. Boost NEVER adds a card (Policy 13). */
+    boosted: z.boolean().default(false),
+    /** The skill that earned the match — a closed-set id, the E18 badge's source. */
+    matched_skill_id: matchSkillIdSchema,
+  })
+  .strict();
+export type FeedShownV2Payload = z.infer<typeof FeedShownV2Payload>;

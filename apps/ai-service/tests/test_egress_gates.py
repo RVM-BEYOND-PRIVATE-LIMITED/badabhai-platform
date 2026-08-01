@@ -79,7 +79,13 @@ def test_resume_generate_pseudonymizes_the_llm_payload(monkeypatch):
     assert "[PHONE_1]" in user_content or "[EMPLOYER_1]" in user_content
 
 
-def test_resume_generate_masks_the_city_like_every_other_route_does(monkeypatch):
+def test_resume_generate_sends_the_city_through_because_a_city_is_not_pii(monkeypatch):
+    """INVERTED 2026-07-31 by the owner ruling (Master Context DEAD LIST: "✗ cities as
+    PII (→ a 20-point matching input; never redact)"). This route used to mask the
+    worker's city to [CITY_1] before the résumé model saw it, which meant the ONE
+    surface a payer reads could not name where the worker is. The gate still runs on
+    this payload — the test below it proves a blocked gate still reaches no provider —
+    it just no longer treats a city as an identity class."""
     from app import main as main_module
 
     seen: dict = {}
@@ -95,8 +101,34 @@ def test_resume_generate_masks_the_city_like_every_other_route_does(monkeypatch)
     )
     assert res.status_code == 200
     user_content = seen["messages"][1]["content"]
-    assert "Pune" not in user_content
-    assert "[CITY_1]" in user_content
+    assert "Pune" in user_content
+    assert "[CITY_" not in user_content
+
+
+def test_resume_generate_still_masks_the_identity_classes_in_the_same_payload(monkeypatch):
+    """The guard that makes the inversion above safe: on the SAME route, a name, a
+    phone and an employer written into a model-authored free-text field still never
+    reach the provider."""
+    from app import main as main_module
+
+    seen: dict = {}
+
+    async def _fake_run(task, *, messages, mock_response, real_call_allowed, user_ref=None, **kw):
+        seen["messages"] = messages
+        return mock_response, _meta()
+
+    monkeypatch.setattr(main_module.router, "run", _fake_run)
+    client.post(
+        "/resume/generate",
+        json=_resume_body(
+            education_field="Ramesh, 9876543210, Sharma Industries",
+            location_preference={"current_city": "Pune", "preferred_cities": []},
+        ),
+    )
+    user_content = seen["messages"][1]["content"]
+    for leaked in ("9876543210", "Sharma Industries"):
+        assert leaked not in user_content
+    assert "Pune" in user_content
 
 
 def test_resume_generate_fails_closed_without_calling_the_provider(monkeypatch):
@@ -201,11 +233,14 @@ def test_voice_translate_leg_pseudonymizes_before_the_provider(monkeypatch):
         json={"voice_note_id": "vn1", "storage_path": "x", "translate_to_english": True},
     )
     assert res.status_code == 200
-    # The provider saw the MASKED text...
+    # The provider saw the MASKED text — the IDENTITY classes only. The city rides
+    # through (owner ruling 2026-07-31): translating "Pune" reveals nothing, and the
+    # worker's city is the field this transcript most needs to keep.
     assert "9876543210" not in seen["text"]
-    assert "Pune" not in seen["text"]
+    assert "Ramesh" not in seen["text"]
     assert "[PHONE_1]" in seen["text"]
-    assert "[CITY_1]" in seen["text"]
+    assert "[PERSON_1]" in seen["text"]
+    assert "Pune" in seen["text"]
     # ...while the worker still gets their own words back verbatim.
     assert res.json()["transcript_text"] == "mera naam Ramesh hai, number 9876543210, Pune se"
 
@@ -373,13 +408,23 @@ def test_pseudonymize_itself_is_unchanged_for_general_free_text():
     [
         "roll R/2019/123456",  # ID mask -> not employer-only -> dropped
         "call 9876543210",  # PHONE mask
-        "Pune",  # CITY mask
-        "Bihar",  # STATE mask
+        "salary 1200000",  # AMOUNT mask
+        "mera naam Ramesh hai",  # PERSON mask
     ],
 )
 def test_non_employer_masks_still_drop_the_label(label):
     """The rescue is scoped to [EMPLOYER_n] ONLY — every other mask is real PII."""
     assert certified_clean_skill_labels([label]) == []
+
+
+@pytest.mark.parametrize("label", ["Pune", "Bihar", "welding in Pune"])
+def test_a_place_name_no_longer_masks_so_the_label_is_KEPT(label):
+    """The city ruling's effect on certification, stated as behaviour rather than left
+    implicit. "Pune" and "Bihar" used to mask to [CITY_1]/[STATE_1] and were therefore
+    DROPPED from the résumé; they now certify clean (nothing masked, text unchanged) and
+    survive. That is the intended direction — a city was never PII, and dropping the
+    label was the same silent data loss the FIX-5 employer rescue exists to stop."""
+    assert certified_clean_skill_labels([label]) == [label]
 
 
 def test_blocked_labels_are_still_dropped():

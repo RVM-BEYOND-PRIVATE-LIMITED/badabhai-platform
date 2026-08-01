@@ -1,6 +1,8 @@
 import "server-only";
+import { z } from "zod";
 import {
   agencyEarningsWireSchema,
+  agencyInviteBatchWireSchema,
   agencyInviteWireSchema,
   agencyJobListWireSchema,
   agencyJobWireSchema,
@@ -8,19 +10,25 @@ import {
   agencyPayoutListWireSchema,
   agencyPayoutRequestWireSchema,
   agencyReferralsSummaryWireSchema,
+  agencyWorkerListWireSchema,
+  agencyWorkerWireSchema,
   applicantFeedSchema,
   buyCapacityWireSchema,
   buyPackResultWireSchema,
   capacitySchema,
   creditLedgerWireSchema,
+  creditOrderWireSchema,
   creditsWireSchema,
   creditTopUpSchema,
+  verifyPaymentWireSchema,
   jobPostingChatPublishWireSchema,
   jobPostingChatSessionListWireSchema,
   jobPostingChatTranscriptWireSchema,
   jobPostingChatTurnWireSchema,
   jobPostingListWireSchema,
   jobPostingWireSchema,
+  matchSkillListWireSchema,
+  reachPreviewWireSchema,
   maskedResumeResultSchema,
   maskedResumeWireSchema,
   quotaTopUpWireSchema,
@@ -44,19 +52,27 @@ import {
   type AgencyPayout,
   type AgencyPayoutRequestWire,
   type AgencyReferralsSummary,
+  type AgencyWorker,
   type ApplicantFeed,
   type Capacity,
   type CreatePostingInput,
   type CreditBalance,
+  type CreditOrder,
   type CreditTopUp,
   type Dashboard,
+  type VerifiedPayment,
   type FacelessApplicant,
   type JobPostingChatPublishResult,
   type JobPostingChatSessionSummary,
   type JobPostingChatTranscript,
   type JobPostingChatTurn,
   type MaskedResumeResult,
+  type MatchCandidateWire,
+  type MatchSelectionInput,
+  type MatchSkillWire,
+  type ReachApplicantWire,
   type PostingSummary,
+  type ReachPreview,
   type RevealResult,
   type TopUpResult,
   type UnlockHistoryItem,
@@ -159,14 +175,67 @@ export async function getDashboard(): Promise<Dashboard> {
   return { credits, unlocks, postings };
 }
 
+/** LEGACY (weighted reach engine): score/hot/components → faceless relevance chips. */
+function toWeightedApplicant(a: ReachApplicantWire): FacelessApplicant {
+  return {
+    workerId: a.workerId,
+    rank: a.rank,
+    score: a.score,
+    hot: a.hot,
+    // Score-component reasons as faceless relevance chips (PII-free). The reach DTO's
+    // components are explainable signal reasons; surface only their `reason` strings.
+    signals: a.components
+      .map((c) =>
+        typeof c === "object" && c && "reason" in c ? String((c as { reason: unknown }).reason) : "",
+      )
+      .filter((s): s is string => s.length > 0)
+      .slice(0, 8),
+    // Coarse faceless taxonomy bands (PII-free). Backend may send `null` (no signal);
+    // map to `undefined` so the optional UI fields stay clean.
+    experienceBand: a.experienceBand ?? undefined,
+    tradeLabel: a.tradeLabel ?? undefined,
+    cityLabel: a.cityLabel ?? undefined,
+  };
+}
+
+/**
+ * MATCHING V1 (ADR-0036 moment ⑥) → the same faceless row.
+ *
+ * `score: 0` and `hot: false` are STRUCTURAL PLACEHOLDERS, not values: V1 has no score
+ * and no hot flag, and the shared `FacelessApplicant` still requires both. They are
+ * pinned to constants precisely so nothing can render them as a meaningful number — the
+ * UI reads `matchTier`/`skillMonths` on this path, and a fabricated score would be the
+ * one number on the page that means nothing while looking like it means something.
+ *
+ * `signals` is left EMPTY rather than back-filled with invented reasons. V1's
+ * explanation is the tier badge plus the months, which the card renders directly.
+ */
+function toMatchCandidate(a: MatchCandidateWire): FacelessApplicant {
+  return {
+    workerId: a.workerId,
+    rank: a.rank,
+    score: 0,
+    hot: false,
+    signals: [],
+    matchTier: a.matchTier ?? undefined,
+    effectiveTier: a.effectiveTier ?? undefined,
+    matchedSkillLabel: a.matchedSkillLabel ?? undefined,
+    skillMonths: a.skillMonths ?? undefined,
+    industryMonths: a.industryMonths ?? undefined,
+  };
+}
+
 /**
  * GET /payer/reach/jobs/:jobId/applicants — the FACELESS ranked candidate list for a
  * job the caller OWNS (LIVE). A job that isn't the payer's returns the SAME neutral
  * 404 as an unknown one (no-oracle) → we map that to `null` and the page renders a
- * neutral not-found. The payer-authed reach projection returns RANKING signals
- * (rank/score/hot/components) PLUS coarse, PII-free banded taxonomy chips
- * (experience/trade/city) which we surface as faceless relevance labels. `skills` is
- * not in the projection yet (stays unset). PII-free either way (XB-C).
+ * neutral not-found.
+ *
+ * TWO SERVER IMPLEMENTATIONS, ONE CLIENT. Behind `MATCH_V1_ENABLED` the route returns
+ * the posting's ACTUAL APPLICANTS ordered by the frozen ADR-0036 rank snapshot; with the
+ * flag off it returns the weighted reach engine's scored pool. The wire schema is a
+ * union of both and the mapper branches on shape, so flipping the flag — and rolling it
+ * back — is invisible here. PII-free either way (XB-C).
  */
 export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | null> {
   let wire: ReturnType<typeof reachApplicantListWireSchema.parse>;
@@ -180,27 +249,9 @@ export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | n
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
     throw e;
   }
-  const applicants: FacelessApplicant[] = wire.applicants.map((a) => ({
-    workerId: a.workerId,
-    rank: a.rank,
-    score: a.score,
-    hot: a.hot,
-    // Score-component reasons as faceless relevance chips (PII-free). The reach DTO's
-    // components are explainable signal reasons; surface only their `reason` strings.
-    signals: a.components
-      .map((c) =>
-        typeof c === "object" && c && "reason" in c
-          ? String((c as { reason: unknown }).reason)
-          : "",
-      )
-      .filter((s): s is string => s.length > 0)
-      .slice(0, 8),
-    // Coarse faceless taxonomy bands (PII-free). Backend may send `null` (no signal);
-    // map to `undefined` so the optional UI fields stay clean.
-    experienceBand: a.experienceBand ?? undefined,
-    tradeLabel: a.tradeLabel ?? undefined,
-    cityLabel: a.cityLabel ?? undefined,
-  }));
+  const applicants: FacelessApplicant[] = wire.applicants.map((a) =>
+    "matchTier" in a ? toMatchCandidate(a) : toWeightedApplicant(a),
+  );
   return applicantFeedSchema.parse({
     postingId: wire.jobId,
     // The reach endpoint does not return a role title; the page falls back to a label.
@@ -286,6 +337,66 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
     packCode: wire.pack_code,
     realCall: false, // MOCK money — the backend mock-purchases; there is NO Razorpay.
   });
+}
+
+/**
+ * POST /payer/credits/order — create a REAL Razorpay order (real-payments stream).
+ *
+ * The body carries ONLY `{ pack_code }` (XB-A/XT5: no payer_id, no amount, no currency) —
+ * the server resolves the ₹ from the same pricing catalog the page advertised, so a
+ * tampered client cannot name its own price.
+ *
+ * The response's `key_id` is the PUBLIC `rzp_*` key id; it comes from the API on this
+ * response rather than from a `NEXT_PUBLIC_*` build value, which keeps the key rotatable
+ * without a rebuild and keeps the key SECRET out of this app entirely.
+ *
+ * Returns null when the route 404s: either an unknown pack, or real payments are OFF (the
+ * launch gate answers a NEUTRAL 404 — indistinguishable by design). The caller shows a
+ * generic "cannot start checkout" rather than guessing which.
+ */
+export async function createCreditOrder(input: { packCode: string }): Promise<CreditOrder | null> {
+  try {
+    return await payerFetch("/payer/credits/order", {
+      method: "POST",
+      body: { pack_code: input.packCode }, // pack CODE ONLY — never an amount
+      schema: creditOrderWireSchema,
+    });
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/**
+ * POST /payer/credits/verify — confirm a completed checkout and read back the balance.
+ *
+ * The three values are exactly what Razorpay Checkout handed the browser. They are
+ * UNTRUSTED: the API verifies the signature against the key secret and binds the order to
+ * the session payer. Returns null on a 404, which the API uses for every refusal (forged
+ * signature / unknown order / another tenant's order) — one neutral answer, no oracle.
+ *
+ * A `credits: 0` result is still a SUCCESS: it means the webhook already granted, and
+ * `balance` is authoritative. The UI must never read `credits === 0` as a failure.
+ */
+export async function verifyCreditPayment(input: {
+  orderId: string;
+  paymentId: string;
+  signature: string;
+}): Promise<VerifiedPayment | null> {
+  try {
+    return await payerFetch("/payer/credits/verify", {
+      method: "POST",
+      body: {
+        razorpay_order_id: input.orderId,
+        razorpay_payment_id: input.paymentId,
+        razorpay_signature: input.signature,
+      },
+      schema: verifyPaymentWireSchema,
+    });
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
 }
 
 /**
@@ -569,6 +680,90 @@ export async function createAgencyInvite(input: {
   }
 }
 
+/** The seam result of a BATCH mint — N opaque codes on success, or a NEUTRAL failure. */
+export type CreateAgencyInviteBatchResult =
+  | { ok: true; invites: { code: string; link: string }[] }
+  | { ok: false };
+
+/**
+ * POST /payer/agency/invites/batch — mint N OWNED opaque invite codes in one call.
+ *
+ * The privacy shape is IDENTICAL to the singular {@link createAgencyInvite}: the body carries
+ * only `count` plus the same optional non-PII `campaign` tag — no phone/name/email/worker-id,
+ * and no payer_id (XB-A: the session token is the identity). The response is opaque codes/links
+ * only, which still cross {@link assertNoAgencyPII} (defence-in-depth).
+ *
+ * The per-payer mint cap AND a Redis outage BOTH return the SAME backend 429 (fail-closed, no
+ * leaked reason) → one NEUTRAL `{ ok: false }`, never a fake success and never a partial list
+ * presented as complete. Other transient failures propagate to the caller's action, which
+ * neutralizes them the same way the singular mint's action does.
+ */
+export async function createAgencyInviteBatch(input: {
+  count: number;
+  campaign?: string;
+}): Promise<CreateAgencyInviteBatchResult> {
+  const body: Record<string, unknown> = { count: input.count };
+  if (input.campaign) body.campaign = input.campaign;
+  try {
+    const wire = assertNoAgencyPII(
+      await payerFetch("/payer/agency/invites/batch", {
+        method: "POST",
+        body,
+        schema: agencyInviteBatchWireSchema,
+      }),
+      "payer/agency/invites/batch",
+    );
+    return { ok: true, invites: wire.invites.map((i) => ({ code: i.code, link: i.link })) };
+  } catch (e) {
+    // 429 = mint cap reached OR Redis fail-closed (identical 429, no leaked reason).
+    if (e instanceof Error && /returned 429/.test(e.message)) return { ok: false };
+    throw e;
+  }
+}
+
+/**
+ * TRANSPORT schema for the referred-worker list — the contract shape, but LENIENT.
+ *
+ * A plain `z.object` STRIPS unknown keys, which would silently swallow a regressed backend
+ * payload carrying a worker name before {@link assertNoAgencyPII} ever saw it — the guard
+ * would be decorative on this route. Parsing loosely here means a forbidden key SURVIVES to
+ * the guard, which THROWS in dev/test (a loud CI failure) and strips + warns in prod. The
+ * strict {@link agencyWorkerListWireSchema} is then re-applied below as the final projection,
+ * so only the five contract fields can ever reach the page.
+ */
+const agencyWorkerListTransportSchema = z
+  .object({ workers: z.array(agencyWorkerWireSchema.passthrough()) })
+  .passthrough();
+
+/**
+ * GET /payer/agency/workers — the ENGAGEMENT view of the workers THIS agency referred
+ * (LIVE, agent-role-gated + payer-authed; the `inviter_payer_id` is the SESSION and appears
+ * in no route/query/body — XB-A, there is no parameterised variant to abuse).
+ *
+ * FACELESS: opaque per-agency `ref` handles, booleans, counts and a coarse UTC day only —
+ * never a name/phone/employer, never WHICH job or WHO unlocked. Do not add a client-side
+ * join, lookup or drill-down on `ref`: it is a pseudonym precisely so nothing can be
+ * reconstructed from it.
+ *
+ * CONSENT (invariant #6): the backend selects ONLY workers carrying an active
+ * `agent_activity_visibility` consent, and a non-consenting worker is absent identically to
+ * a never-referred one (no consent oracle). An EMPTY array is therefore the normal answer —
+ * today it is the ONLY answer, because no client requests that consent purpose yet. The page
+ * must treat empty as a first-class state, never as an error.
+ *
+ * SCRAPE BOUND: this read rides the payer hourly reach cap server-side, so it can answer 429.
+ * That is a transport error like any other and propagates — the page degrades to its neutral
+ * retry card rather than rendering a half-list or a fabricated one.
+ */
+export async function listAgencyWorkers(): Promise<AgencyWorker[]> {
+  const wire = await payerFetch("/payer/agency/workers", {
+    schema: agencyWorkerListTransportSchema,
+  });
+  const safe = assertNoAgencyPII(wire, "payer/agency/workers");
+  // Final strict projection: exactly the five contract fields reach the UI, nothing else.
+  return agencyWorkerListWireSchema.parse(safe).workers;
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
  * LIVE — Agency SUPPLY money (ADR-0022 Amendment 2): earnings / KYC / payout.
  * All are payer-authed + agent-role-gated server-side; the SESSION is the identity
@@ -846,6 +1041,74 @@ export async function updatePosting(
     const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
       method: "PATCH",
       body: toPayerJobPostingPatchBody(input),
+      schema: jobPostingWireSchema,
+    });
+    return toPostingSummary(wire);
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/* ── Matching V1 — the posting form's skill surface (ADR-0036) ───────────────── */
+
+/**
+ * GET /payer/match/skills — the closed match vocabulary + the curated relation map.
+ *
+ * PayerAuthGuard-protected but NOT payer-scoped: the vocabulary is the same for every
+ * company. It is behind auth because the trade taxonomy and the supply it implies are
+ * commercial information about the platform, not public data.
+ */
+export async function listMatchSkills(): Promise<MatchSkillWire[]> {
+  const wire = await payerFetch("/payer/match/skills", { schema: matchSkillListWireSchema });
+  return wire.skills;
+}
+
+/**
+ * POST /payer/match/reach-preview — the live "this posting reaches N workers" figure,
+ * shown BEFORE the payer commits (E13: never take money for a posting into a void).
+ *
+ * A POST that writes nothing: the skill list is a body because it would be an unbounded
+ * query string as a GET. It emits no event by design — the decision is evented at
+ * publish, by `job_posting.reach_materialized`, with the unticks that were honoured.
+ *
+ * Reach is a property of WORKER SUPPLY, identical for every payer, so no payer id is
+ * sent or needed and there is no tenancy surface here to get wrong.
+ */
+export async function previewReach(input: MatchSelectionInput): Promise<ReachPreview> {
+  return payerFetch("/payer/match/reach-preview", {
+    method: "POST",
+    body: {
+      match_skill_ids: input.matchSkillIds,
+      unticked_related_ids: input.untickedRelatedIds,
+    },
+    schema: reachPreviewWireSchema,
+  });
+}
+
+/**
+ * PATCH /payer/job-postings/:id — attach the match skills and PUBLISH (draft → open).
+ *
+ * This is the moment ③ trigger: the backend resolves `reach_skill_ids` from the posted
+ * skills + the honoured unticks and materializes `job_reach` in one INSERT..SELECT.
+ *
+ * It sends `match_skill_ids` and `unticked_related_ids` and NEVER a `reach_skill_ids` —
+ * the backend has no such input, so a payer cannot widen past the curated relations
+ * (Policy 10). Unknown/not-owned → the same neutral 404 → `null`, so publishing another
+ * tenant's posting is indistinguishable from publishing one that never existed.
+ */
+export async function publishPostingWithMatchSkills(
+  postingId: string,
+  selection: MatchSelectionInput,
+): Promise<PostingSummary | null> {
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
+      method: "PATCH",
+      body: {
+        match_skill_ids: selection.matchSkillIds,
+        unticked_related_ids: selection.untickedRelatedIds,
+        status: "open",
+      },
       schema: jobPostingWireSchema,
     });
     return toPostingSummary(wire);

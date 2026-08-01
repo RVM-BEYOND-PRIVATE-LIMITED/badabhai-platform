@@ -187,6 +187,79 @@ export const updatePostingInputSchema = z.object({
 });
 export type UpdatePostingInput = z.infer<typeof updatePostingInputSchema>;
 
+/* ── Matching V1 — the posting form's skill surface (ADR-0036) ───────────────── */
+
+/**
+ * A closed-set `mskill_*` id. The payer portal NEVER invents one: the vocabulary comes
+ * from `GET /payer/match/skills`, and anything the client sends is re-checked against
+ * `@badabhai/taxonomy` server-side. The regex here is a wire-shape guard, not the
+ * membership check.
+ */
+export const matchSkillIdSchema = z.string().regex(/^mskill_[a-z0-9_]+$/);
+
+/** `GET /payer/match/skills` — the closed vocabulary + the curated relation map. */
+export const matchSkillWireSchema = z.object({
+  skill_id: matchSkillIdSchema,
+  label: z.string().min(1),
+  industry_id: z.string(),
+  related_skill_ids: z.array(matchSkillIdSchema),
+});
+export const matchSkillListWireSchema = z.object({ skills: z.array(matchSkillWireSchema) });
+export type MatchSkillWire = z.infer<typeof matchSkillWireSchema>;
+
+/**
+ * `POST /payer/match/reach-preview` — the live "reaches N workers" the payer decides on.
+ *
+ * `reach_count` on a related skill is that skill's OWN worker count, NOT a marginal
+ * delta against the running set: a worker holding two related skills is counted under
+ * both, so the per-skill numbers do NOT sum to `reach_total`. The UI must therefore
+ * render them as "+N through this skill" and never as an addend of the total — the
+ * server chose an order-independent number over one that summed, and presenting it as
+ * a sum would reintroduce exactly the arithmetic it avoided.
+ */
+export const reachRelatedWireSchema = z.object({
+  skill_id: matchSkillIdSchema,
+  label: z.string().min(1),
+  ticked: z.boolean(),
+  reach_count: z.number().int().nonnegative(),
+});
+export const reachPreviewWireSchema = z.object({
+  skills: z.array(
+    z.object({
+      skill_id: matchSkillIdSchema,
+      label: z.string().min(1),
+      reach_count: z.number().int().nonnegative(),
+      related: z.array(reachRelatedWireSchema),
+    }),
+  ),
+  reach_skill_ids: z.array(matchSkillIdSchema),
+  reach_total: z.number().int().nonnegative(),
+  reach_tier1: z.number().int().nonnegative(),
+  zero_reach: z.boolean(),
+  applied_unticked_ids: z.array(matchSkillIdSchema),
+  max_skills_per_posting: z.number().int().positive(),
+});
+export type ReachPreview = z.infer<typeof reachPreviewWireSchema>;
+export type ReachPreviewRelated = z.infer<typeof reachRelatedWireSchema>;
+
+/**
+ * The MATCHABLE half of a publish, as the form collects it.
+ *
+ * There is deliberately NO `reachSkillIds` here. The final reach set is resolved
+ * SERVER-side by `resolveReachSet` from the posted skills + the honoured unticks; a
+ * client-supplied set would let a payer widen past the curated relations, which
+ * Policy 10 forbids. The preview's `reach_skill_ids` is for DISPLAY only.
+ *
+ * No `.max()` on `matchSkillIds`: the cap is `match_config.max_skills_per_posting`, a
+ * runtime value the preview reports. Hard-coding 3 here would disagree with ops the
+ * moment they raise it — the same reasoning as the backend DTO.
+ */
+export const matchSelectionInputSchema = z.object({
+  matchSkillIds: z.array(matchSkillIdSchema).min(1),
+  untickedRelatedIds: z.array(matchSkillIdSchema).default([]),
+});
+export type MatchSelectionInput = z.infer<typeof matchSelectionInputSchema>;
+
 /* ── Applicant feed (FACELESS, banded) ──────────────────────────────────────── */
 
 /**
@@ -217,6 +290,21 @@ export const facelessApplicantSchema = z.object({
   tradeLabel: z.string().optional(),
   cityLabel: z.string().optional(),
   skills: z.array(z.string()).max(8).optional(),
+
+  /**
+   * Matching V1 (ADR-0036 moment ⑥). All OPTIONAL — the legacy weighted projection has
+   * none of them, and the flag that switches between the two is server-side.
+   *
+   * Still faceless: a tier is set membership, the months are the worker's own bucketed
+   * (6-month) estimate, and the skill label is a closed-set value. Nothing here narrows
+   * to a person — identity is still bought through `/payer/unlocks`.
+   */
+  matchTier: z.number().int().optional(),
+  effectiveTier: z.number().int().optional(),
+  /** E18's badge: the label of the skill he actually matched on. */
+  matchedSkillLabel: z.string().optional(),
+  skillMonths: z.number().int().optional(),
+  industryMonths: z.number().int().optional(),
 });
 export type FacelessApplicant = z.infer<typeof facelessApplicantSchema>;
 
@@ -520,6 +608,44 @@ export const buyPackResultWireSchema = z.object({
 });
 
 /**
+ * POST /payer/credits/order — create a REAL Razorpay order (LIVE only when
+ * `PAYMENTS_ENABLE_REAL` is on; a neutral 404 otherwise).
+ *
+ * The request body carries ONLY the pack CODE — no payer_id, no amount, no currency. The
+ * ₹ comes back from the server, resolved from the same pricing catalog the page rendered.
+ *
+ * `key_id` is the `rzp_*` KEY ID, which is PUBLIC by design (checkout.js needs it in the
+ * browser). The key SECRET and the webhook secret exist only on the API server and appear
+ * in no response, no bundle, and no NEXT_PUBLIC_* value.
+ */
+export const creditOrderWireSchema = z.object({
+  order_id: z.string().min(1),
+  key_id: z.string().min(1),
+  /** Amount in PAISE — what Razorpay Checkout expects. */
+  amount: z.number().int().positive(),
+  /** The same amount in whole ₹ — what we display. */
+  amount_inr: z.number().int().positive(),
+  currency: z.string().min(1),
+  pack_code: z.string().min(1),
+  credits: z.number().int().positive(),
+});
+export type CreditOrder = z.infer<typeof creditOrderWireSchema>;
+
+/**
+ * POST /payer/credits/verify — the browser-side confirmation fallback. Returns the payer's
+ * post-purchase balance. `credits` is 0 when the webhook already granted (the purchase
+ * still SUCCEEDED — the balance is authoritative), so the UI must key its success copy on
+ * the balance, never on `credits > 0`.
+ */
+export const verifyPaymentWireSchema = z.object({
+  payer_id: z.string().uuid(),
+  balance: z.number().int().nonnegative(),
+  credits: z.number().int().nonnegative(),
+  pack_code: z.string(),
+});
+export type VerifiedPayment = z.infer<typeof verifyPaymentWireSchema>;
+
+/**
  * GET /payer/capacity — the caller's OWN hiring-capacity allowance (LIVE, Bearer only).
  * Mirrors {@link import("../../api/src/posting-plans/posting-plans.service").CapacityView}:
  * `{ payer_id, max_active_vacancies, active_plan_count, source_tier, expires_at }`.
@@ -582,10 +708,49 @@ export const reachApplicantWireSchema = z.object({
   tradeLabel: z.string().nullable().optional(),
   cityLabel: z.string().nullable().optional(),
 });
+
+/**
+ * The SAME route under Matching V1 (ADR-0036 moment ⑥). A STRUCTURALLY DIFFERENT ROW:
+ * there is no `score`, no `hot` and no `components`, because V1 has no weights and no
+ * model output — the order is a fixed lexicographic rank key and the row carries the
+ * frozen inputs that produced it.
+ *
+ * `match_tier` is the RAW tier (E18): 2 means "he holds a related skill, not the one
+ * you posted", and the card must say so even when the 36-month floor promoted him into
+ * tier-1 ordering. `effectiveTier` is what he was ORDERED by, so the list's order is
+ * explainable from the row rather than only reproducible by re-running the rule.
+ */
+export const matchCandidateWireSchema = z.object({
+  workerId: z.string().uuid(),
+  applicationId: z.string().uuid(),
+  rank: z.number().int(),
+  matchTier: z.number().int().nullable(),
+  effectiveTier: z.number().int().nullable(),
+  skillMonths: z.number().int().nullable(),
+  industryMonths: z.number().int().nullable(),
+  lastWorkedAt: z.string().nullable(),
+  matchedSkillLabel: z.string().nullable(),
+  engineVersion: z.string().nullable(),
+});
+
+/**
+ * The applicants read parses EITHER shape.
+ *
+ * `MATCH_V1_ENABLED` is a SERVER flag: the portal cannot know which implementation is
+ * serving, and the flip is meant to be reversible at any moment. A single-shape schema
+ * made the page throw a ZodError the instant the flag went on — measured, not assumed
+ * (the V1 row is missing `score`/`hot`/`pushEligible`/`components`). A union means the
+ * flip, and its rollback, are both invisible to this client.
+ *
+ * `z.union` (not `discriminatedUnion`): the two shapes have no shared literal tag, they
+ * are told apart by which keys exist at all.
+ */
 export const reachApplicantListWireSchema = z.object({
   jobId: z.string().uuid(),
-  applicants: z.array(reachApplicantWireSchema),
+  applicants: z.array(z.union([reachApplicantWireSchema, matchCandidateWireSchema])),
 });
+export type MatchCandidateWire = z.infer<typeof matchCandidateWireSchema>;
+export type ReachApplicantWire = z.infer<typeof reachApplicantWireSchema>;
 
 /**
  * GET/POST/PATCH /payer/job-postings(/:id) — the EMPLOYER self-serve posting row, exactly
@@ -722,6 +887,48 @@ export const agencyInviteWireSchema = z.object({
   link: z.string(),
 });
 export type AgencyInvite = z.infer<typeof agencyInviteWireSchema>;
+
+/**
+ * POST /payer/agency/invites/batch — the SAME faceless mint, N codes in one call.
+ *
+ * Identical privacy shape to the singular mint: the request carries a `count` and the same
+ * optional non-PII `campaign` tag and NOTHING else (no phone/name/email/worker-id — there is
+ * nowhere to put one), and the response is a list of OPAQUE codes/links. The array length
+ * equals the requested count; the agency shares the codes, it never types a contact.
+ */
+export const agencyInviteBatchWireSchema = z.object({
+  invites: z.array(agencyInviteWireSchema),
+});
+export type AgencyInviteBatch = z.infer<typeof agencyInviteBatchWireSchema>;
+
+/**
+ * GET /payer/agency/workers — the ENGAGEMENT view of the workers THIS agency referred.
+ *
+ * FACELESS BY CONSTRUCTION (CLAUDE.md §2 #2). Every field here is either an opaque handle,
+ * a count, a boolean, or a coarse day:
+ *  - `ref` is a PER-AGENCY HMAC pseudonym (16 hex), NOT the worker uuid. Two agencies that
+ *    referred the same worker see two unrelated handles, so they cannot join their lists,
+ *    and neither handle is joinable against anything else on the platform.
+ *  - `appliedCount` / `unlockedCount` are COUNTS ONLY — never WHICH job was applied to and
+ *    never WHO unlocked him. There is no drill-down because there is nothing to drill into.
+ *  - `lastActiveOn` is a coarse UTC DAY (`YYYY-MM-DD`) or null — never a time of day.
+ *
+ * CONSENT (invariant #6): the backend selects only workers carrying an ACTIVE
+ * `agent_activity_visibility` consent. A worker without it is ABSENT — and absent
+ * identically to "never referred", so the list is not a consent oracle. Consequently an
+ * EMPTY list is the normal, correct state, not a failure.
+ */
+export const agencyWorkerWireSchema = z.object({
+  ref: z.string(),
+  profileComplete: z.boolean(),
+  appliedCount: z.number().int().nonnegative(),
+  unlockedCount: z.number().int().nonnegative(),
+  lastActiveOn: z.string().nullable(),
+});
+export const agencyWorkerListWireSchema = z.object({
+  workers: z.array(agencyWorkerWireSchema),
+});
+export type AgencyWorker = z.infer<typeof agencyWorkerWireSchema>;
 
 /* ── Agency SUPPLY money — earnings / KYC / payout (ADR-0022 Amendment 2, LIVE) ────
  *

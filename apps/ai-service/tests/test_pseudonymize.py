@@ -11,11 +11,147 @@ def test_example_from_spec_is_fully_masked():
     text = "Rahul, phone 9876543210, worked at ABC Industries in Faridabad"
     result = pseudonymize(text)
     assert result.blocked is False
-    assert result.text == "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in [CITY_1]"
-    assert result.replaced_entities == 4
-    # The raw values must be gone.
-    for leaked in ("Rahul", "9876543210", "ABC Industries", "Faridabad"):
+    # The three IDENTITY classes are masked; the CITY is not (owner ruling 2026-07-31,
+    # Master Context DEAD LIST: "cities as PII -> a 20-point matching input; never
+    # redact"). "Faridabad" identifies nobody and is the strongest matching signal we
+    # have; the name, the phone and the employer still go.
+    assert result.text == "[PERSON_1], phone [PHONE_1], worked at [EMPLOYER_1] in Faridabad"
+    assert result.replaced_entities == 3
+    for leaked in ("Rahul", "9876543210", "ABC Industries"):
         assert leaked not in result.text
+    assert "Faridabad" in result.text
+
+
+# --- the city / state ruling -------------------------------------------------
+# Owner ruling 2026-07-31 (Master Context DEAD LIST):
+#   "✗ cities as PII (→ a 20-point matching input; never redact)"
+#   "✗ salary flagged as a phone number"
+# Cities and states now pass through VERBATIM. Every identity class and every
+# fail-closed path is unchanged — the tests below assert both halves, because a
+# narrowing of what counts as PII is only safe if the gate itself did not move.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Pune",
+        "abhi Pune mein hu",
+        "Faridabad se hoon",
+        "main dilli me rehta hu",  # a CITY_ALIASES key — also passes through now
+        "bombay se hu, gurgaon bhi chalega",
+        "Pune se hu, Nashik aur Mumbai chalega",
+    ],
+)
+def test_cities_pass_through_verbatim_and_mint_no_token(text):
+    result = pseudonymize(text)
+    assert result.blocked is False
+    assert result.text == text, "a city was rewritten"
+    assert result.replaced_entities == 0
+    assert result.placeholder_tokens == []
+    assert "CITY" not in result.text
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["bihar mai hu", "uttar pradesh se hoon", "main UP se hu", "Maharashtra mein kaam kiya"],
+)
+def test_states_pass_through_verbatim_and_mint_no_token(text):
+    result = pseudonymize(text)
+    assert result.blocked is False
+    assert result.text == text
+    assert result.replaced_entities == 0
+    assert "STATE" not in result.text
+
+
+def test_the_city_ruling_did_not_touch_any_identity_class():
+    """The other half of the ruling, and the one that matters: NAME, PHONE, PAN,
+    AADHAAR and EMPLOYER still mask, in the same message as an untouched city."""
+    text = (
+        "Rahul, phone 9876543210, PAN ABCDE1234F, aadhaar 1234 5678 9012, "
+        "ABC Industries mein tha, Pune se hoon"
+    )
+    result = pseudonymize(text)
+    assert result.blocked is False
+    for leaked in ("Rahul", "9876543210", "ABCDE1234F", "1234 5678 9012", "ABC Industries"):
+        assert leaked not in result.text, f"{leaked} egressed"
+    assert "[PERSON_1]" in result.text
+    assert "[PHONE_1]" in result.text
+    assert "[EMPLOYER_1]" in result.text
+    assert result.text.count("[ID_") >= 1
+    assert "Pune" in result.text  # ...and the matching input survives
+
+
+def test_the_city_ruling_did_not_move_any_fail_closed_path():
+    """Every blocking leg still blocks, in both directions (nothing was loosened, and
+    nothing newly blocks)."""
+    # oversize
+    over = pseudonymize("Pune " * 10, max_length=10)
+    assert over.blocked is True and over.text == "" and "exceeds" in (over.blocked_reason or "")
+    # non-string input
+    bad = pseudonymize(None)  # type: ignore[arg-type]
+    assert bad.blocked is True and bad.text == ""
+    # residual digit run, in a message that ALSO carries a city
+    residual = pseudonymize("Pune se hu, reference number 12345678")
+    assert residual.blocked is True
+    assert "residual" in (residual.blocked_reason or "")
+    # ...and a clean city-bearing message is still NOT blocked
+    assert pseudonymize("Pune se hu").blocked is False
+
+
+# --- salary is not a phone number (DEAD LIST) --------------------------------
+# "✗ salary flagged as a phone number". Amounts are tokenised so digits never egress,
+# but a salary must never be re-labelled [PHONE_n] and must never BLOCK the turn.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "3,60,000 salary hai",  # Indian grouping, 6 digits
+        "salary 2.5 lakh hai",
+        "25 hazar milte hain",
+        "15000 salary hai",
+        "abhi 25000 milte hain, 30000 chahiye",
+        "1,50,000 per year",
+        "12,00,000 CTC tha",  # 7 digits, separator-written
+        "salary 360000 hai",  # 6 digits, unseparated
+    ],
+)
+def test_separator_written_salaries_are_never_phone_masked_and_never_block(text):
+    result = pseudonymize(text)
+    assert result.blocked is False, f"{text!r} blocked the turn: {result.blocked_reason}"
+    assert "[PHONE_" not in result.text, f"{text!r} was misread as a phone: {result.text}"
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["3,60,000 salary hai", "salary 2.5 lakh hai", "25 hazar milte hain", "15000 salary hai"],
+)
+def test_a_salary_that_is_too_short_to_tokenise_still_reaches_the_signal_detector(text):
+    """The point of not blocking: signals.py reads the RAW text locally, so the salary
+    still lands on the profile. Asserted so "not blocked" is not mistaken for "lost"."""
+    from app.profiling import signals
+
+    sig = signals.detect(text)
+    assert sig.current_salary is not None or sig.expected_salary is not None, text
+
+
+def test_a_seven_digit_salary_is_still_amount_masked_not_phone_masked():
+    """The D-1 carve-out is untouched by the city ruling: an in-range 7-8 digit run is
+    [AMOUNT_n] — digits never reach the LLM — and the turn is not blocked."""
+    result = pseudonymize("salary 1200000 hai, Pune mein")
+    assert result.blocked is False
+    assert "[AMOUNT_1]" in result.text
+    assert "[PHONE_" not in result.text
+    assert "1200000" not in result.text
+    assert "Pune" in result.text
+
+
+def test_a_real_phone_next_to_a_salary_is_still_masked():
+    """The direction that must NOT be loosened. The phone net is unchanged."""
+    result = pseudonymize("salary 25000 hai, number 9876543210")
+    assert result.blocked is False
+    assert "[PHONE_1]" in result.text
+    assert "9876543210" not in result.text
 
 
 def test_only_placeholder_labels_are_returned_not_raw_values():

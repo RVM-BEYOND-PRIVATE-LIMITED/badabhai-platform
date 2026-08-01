@@ -61,7 +61,14 @@ export class ApplicationsController {
     return this.applications.getFeed(
       worker.id,
       query.limit,
-      { tradeKey: query.trade_key, city: query.city },
+      {
+        tradeKey: query.trade_key,
+        city: query.city,
+        // ADR-0036 Part 3: the worker's own controls, passed through EXACTLY as sent.
+        // Absent stays absent — nothing here fills a filter in from his profile.
+        shift: query.shift,
+        payMin: query.pay_min,
+      },
       ctx
     );
   }

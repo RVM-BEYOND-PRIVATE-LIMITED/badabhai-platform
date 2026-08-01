@@ -49,6 +49,7 @@ from app.config import Settings
 from app.contracts import WorkerProfileDraft
 from app.profiling import interview_engine, profile_extractor
 from app.profiling.question_bank import topic_by_id
+from app.pseudonymize import pseudonymize
 
 # --- shared harness ----------------------------------------------------------
 
@@ -234,14 +235,31 @@ def test_the_engine_collects_what_production_extraction_loses():
 
 
 def test_collected_never_crosses_the_model_boundary():
-    """§2/#3: no collected value may appear in anything handed to the router — the
-    raw city is the sharpest probe, because it is masked to ``[CITY_1]`` on every
-    path that CAN leave the service."""
+    """§2/#3: no collected value may appear in anything handed to the router.
+
+    THE PROBE CHANGED on 2026-07-31 and the reason is worth stating, because the old
+    one is now the counter-example. It used to be the raw city, "masked to [CITY_1] on
+    every path that CAN leave the service" — but the owner ruling (Master Context DEAD
+    LIST: "✗ cities as PII") took cities out of the identity set, so the city is now
+    exactly the kind of collected value that DOES cross, deliberately. The employer is
+    the sharpest probe left: it is an identity class, it is collected by the detector,
+    and it must never reach the router raw.
+    """
     run = _adaptive(_MockRouter(), _ANSWERS_BY_TOPIC)
     sent = run.router.all_message_text()
+    # The city is collected AND (now) crosses in the clear — the matching input the
+    # ruling exists to preserve. Compared case-insensitively because the worker typed
+    # "pune mein hu" and `collected` holds the CANONICALISED "Pune"; the old
+    # `"Pune" not in sent` assertion passed on that casing difference alone and was
+    # therefore vacuous, which is worth not repeating.
     assert run.collected["current_location"] == "Pune"
-    assert "Pune" not in sent
-    assert "[CITY_1]" in sent  # ...and the masked form DID cross (not merely dropped)
+    assert "pune" in sent.lower()
+    assert "[CITY_" not in sent
+    # ...while an identity-class value in the same conversation is masked in place.
+    gate = pseudonymize("Tata Motors mein kaam kiya, Pune se hu")
+    assert gate.blocked is False
+    assert "Tata Motors" not in gate.text and "[EMPLOYER_1]" in gate.text
+    assert "Pune" in gate.text
 
 
 # --- D1: the precedence rule, unit-level -------------------------------------

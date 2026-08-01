@@ -53,7 +53,11 @@ export class ReferralAttributionController {
     // (no timing oracle) and attribution can never delay/break onboarding. The service is
     // internally fail-safe (never throws); the `.catch` is belt-and-braces against an
     // unhandled rejection. We ignore the internal outcome and always return the same body.
-    void this.attribution.attribute(dto.code, worker.id).catch(() => undefined);
+    // `source` is OPTIONAL on the wire (B4) — a pre-B4 client omits it and the service
+    // defaults it to "unknown". The guard, the IP cap, and the neutral body are unchanged.
+    void this.attribution
+      .attribute(dto.code, worker.id, dto.source ?? "unknown")
+      .catch(() => undefined);
     return { ok: true };
   }
 }

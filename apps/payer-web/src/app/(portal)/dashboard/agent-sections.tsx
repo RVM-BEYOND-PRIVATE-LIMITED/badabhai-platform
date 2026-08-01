@@ -179,6 +179,26 @@ export async function AgentSections() {
               <span className="agency-stat__hint">Across all your roles</span>
             </div>
           </Card>
+          {/* NAV card (not a metric): the faceless engagement view of referred workers.
+              It shows NO count here — a count would itself be a signal about how many
+              referrals consented, and the page's own empty state tells that story
+              honestly. */}
+          <Card
+            className="agency-stat"
+            href="/agency/workers"
+            ariaLabel="Worker activity — how the workers you referred are getting on"
+          >
+            <div className="agency-stat__head">
+              <span className="agency-stat__label">Worker activity</span>
+            </div>
+            <div className="agency-stat__value">View activity</div>
+            <div className="agency-stat__foot">
+              <span className="agency-stat__hint">
+                Referred workers who opted in{" "}
+                <i className="ph ph-arrow-right" aria-hidden="true" />
+              </span>
+            </div>
+          </Card>
           <Card
             className="agency-stat"
             href="/agency/revenue"
@@ -213,31 +233,64 @@ export async function AgentSections() {
       {/* d) INVITE — LIVE faceless mint (opaque code only; consent-first). */}
       <AgencyInvitePanel />
 
-      {/* d2) INVITE TOOLS — placeholder buttons for upcoming features (QR generation, bulk upload). */}
+      {/* d2) INVITE TOOLS — the LIVE ways to hand out invites (QR, batch mint) plus the ONE
+          module that is not available. HONESTY (ADR-0022 Amdt 3): "Bulk Invite Upload"
+          (module 2) is DEAD with NO gate — it would have the agency upload real people's
+          contacts before consent (invariant #2 + the faceless rails) — so it is NEVER
+          advertised as coming. Batch invite MINTING is the shipped answer to the same need
+          and is the opposite shape: BadaBhai generates anonymous links that identify nobody.
+          The two must stay distinguishable in the copy, not blurred into "bulk unavailable".
+          The bulk card still LINKS to /agency/bulk-upload, which explains the reason (the
+          route stays so the tile never 404s). */}
       <section className="agency-section">
         <h2 className="agency-section__title">Invite tools</h2>
-        <p className="agency-section__sub">
-          Additional ways to onboard workers — coming in a future release.
-        </p>
+        <p className="agency-section__sub">More ways to hand out invite links.</p>
         <div className="agency-stats">
-          <Card className="agency-stat" href="/agency/qr" ariaLabel="Generate QR code — coming soon">
+          <Card
+            className="agency-stat"
+            href="/agency/qr"
+            ariaLabel="Generate a scannable invite QR code"
+          >
             <div className="agency-stat__head">
               <span className="agency-stat__label">QR Code</span>
             </div>
             <div className="agency-stat__value">Generate QR</div>
             <div className="agency-stat__foot">
-              <Badge tone="warning" upper>Coming soon</Badge>
+              <Badge tone="success" upper>Live</Badge>
               <span className="agency-stat__hint">Share a scannable invite QR</span>
             </div>
           </Card>
-          <Card className="agency-stat" href="/agency/bulk-upload" ariaLabel="Bulk upload invites — coming soon">
+          {/* LIVE batch mint — lives on /agency/referrals; this tile is how it is found. */}
+          <Card
+            className="agency-stat"
+            href="/agency/referrals#batch-invites"
+            ariaLabel="Batch invite links — create several anonymous invite links at once"
+          >
+            <div className="agency-stat__head">
+              <span className="agency-stat__label">Batch invites</span>
+            </div>
+            <div className="agency-stat__value">Create links</div>
+            <div className="agency-stat__foot">
+              <Badge tone="success" upper>Live</Badge>
+              <span className="agency-stat__hint">
+                Several anonymous links at once &mdash; each identifies nobody
+              </span>
+            </div>
+          </Card>
+          <Card
+            className="agency-stat"
+            href="/agency/bulk-upload"
+            ariaLabel="Bulk invite upload — not available: consent violation"
+          >
             <div className="agency-stat__head">
               <span className="agency-stat__label">Bulk Upload</span>
             </div>
-            <div className="agency-stat__value">Bulk invite</div>
+            <div className="agency-stat__value">Not available</div>
             <div className="agency-stat__foot">
-              <Badge tone="warning" upper>Coming soon</Badge>
-              <span className="agency-stat__hint">Upload multiple invites at once</span>
+              <Badge tone="warning" upper>Not available</Badge>
+              <span className="agency-stat__hint">
+                Uploading a list of workers&rsquo; contacts is a consent violation
+              </span>
             </div>
           </Card>
         </div>

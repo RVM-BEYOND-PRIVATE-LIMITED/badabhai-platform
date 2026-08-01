@@ -7,9 +7,17 @@ import "server-only";
  * Component is a BUILD ERROR — the values here (API base URL, the agency-supply
  * flag) never reach the browser bundle.
  *
- * ADR-0019 Decision D / §7: NO real payments. `PAYMENTS_ENABLE_REAL` is read
- * here ONLY to assert it is false at boot — a real-payment path is a HARD human
- * gate (E-R2 / TD34). The portal has no Razorpay code.
+ * REAL PAYMENTS (Razorpay): `PAYMENTS_ENABLE_REAL` is now a READ flag, not a boot
+ * assertion. It previously THREW here, which made the gate physically un-flippable —
+ * setting the var (the API and the portal share an env) crashed the portal. The gate
+ * itself is unchanged and still fails closed: unset/garbage ⇒ FALSE ⇒ the mock top-up
+ * path, exactly as before. Flipping it on remains a human-gated, staging-first decision
+ * (CLAUDE.md §7), and the API enforces its own fail-closed boot check
+ * (`assertPaymentsConfig` — all three Razorpay secrets or it refuses to start).
+ *
+ * NO SECRET LIVES IN THIS APP. Only the `rzp_*` KEY ID reaches the browser, and it
+ * arrives on the order RESPONSE from the API — never from a `NEXT_PUBLIC_*` value and
+ * never from a build-time constant. The key secret and webhook secret are API-only.
  *
  * NOTE on the interim InternalServiceGuard token: the data seam (`payer-http.ts`)
  * sends a payer JWT as `Authorization: Bearer <jwt>` ONLY. It NEVER sends an
@@ -20,7 +28,10 @@ import "server-only";
 export interface PayerServerConfig {
   /** API base URL used SERVER-SIDE only (route handlers / server actions). */
   apiBaseUrl: string;
-  /** Asserted false in Phase 1 — real payments are a HARD human gate. */
+  /**
+   * Whether the REAL Razorpay checkout is enabled. Fail-closed: only an explicit "true"
+   * turns it on; unset / "false" / garbage all keep the MOCK top-up path (the default).
+   */
   paymentsEnableReal: boolean;
   /**
    * Agency SUPPLY (referrals/payouts/KYC) feature flag — fail-closed boolean, default
@@ -37,14 +48,11 @@ let cached: PayerServerConfig | null = null;
 export function payerServerConfig(): PayerServerConfig {
   if (cached) return cached;
 
+  // Fail-closed: ONLY an explicit "true" enables the real checkout; anything else (unset,
+  // "false", "TRUE ", garbage) keeps the MOCK path. Same parse shape as every other gate
+  // in this file — one convention, no special cases for money.
   const paymentsEnableReal =
     (process.env.PAYMENTS_ENABLE_REAL ?? "false").trim().toLowerCase() === "true";
-  if (paymentsEnableReal) {
-    // ADR-0019 Decision D / §7 hard stop — the portal has no real-payment code.
-    throw new Error(
-      "PAYMENTS_ENABLE_REAL=true is a HARD human gate (ADR-0019 E-R2 / TD34). The payer portal ships MOCK-only; refusing to boot.",
-    );
-  }
 
   // Fail-closed: ONLY an explicit "true" enables agency supply; anything else (unset,
   // "false", garbage) keeps it OFF. Supply is CEO-gated Phase-2 (D2).
@@ -53,7 +61,7 @@ export function payerServerConfig(): PayerServerConfig {
 
   cached = {
     apiBaseUrl: process.env.PAYER_API_URL ?? "http://localhost:3001",
-    paymentsEnableReal: false,
+    paymentsEnableReal,
     agencySupplyEnabled,
   };
   return cached;

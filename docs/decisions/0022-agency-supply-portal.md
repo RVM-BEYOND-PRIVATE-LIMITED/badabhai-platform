@@ -341,3 +341,132 @@ An adversarial multi-reviewer pass (PII-boundary / authz-IDOR / money-correctnes
 **FIX-BEFORE-FLIP (added to the go-live gates above — must close before `AGENCY_PAYOUTS_ENABLED` is turned ON; gated OFF today so no live impact):**
 - **Single-agency-per-worker ownership** (MEDIUM→HIGH-once-live). Accrual dedup is `UNIQUE(source_unlock_id)` **global** (no double-pay ✓), but nothing stops a worker being attributed to two agencies (`agency_invites.invited_worker_id` non-unique; `attributeWorkerToInvite` guards only its own invite; `POST /referrals/attribute` accepts repeated codes). A contested worker's ₹ then goes to whichever agency **recomputes first** (race), not first-touch. **Fix needs a product call** (first-touch vs last-touch — ADR §262 unratified) + a migration (partial-unique on `invited_worker_id` or a single-agency attribution guard, or exclude multiply-attributed workers from accrual).
 - **Event-after-commit dual-write on the ledger** (LOW). `recomputeAccruals` (accruals) and `createRequestClaiming` (payout request) commit the money-ledger rows, then emit `agency_payout.accrued/.requested` **outside** the transaction; a mid-emit failure leaves a committed ledger row with no spine event, un-retried (idempotent insert returns nothing next time). Follows the codebase's emit-after-commit convention but a money ledger should co-commit — thread `EventsService.emit`'s `tx` param into the accrual/claim transactions (mirroring `AdminActionsService.grantCredits`).
+
+---
+
+## Amendment 3 (2026-07-31) — agency engagement view, batch invite minting, printable QR
+
+**Status:** ACCEPTED. Owner-instructed (MASTER CONTEXT 2026-07-30, blocker B5). Three additive
+agency surfaces. This amendment exists mainly to record **why batch invite minting is not
+module 2**, because that reasoning is non-obvious and lives entirely in the shape of one
+request body.
+
+### Batch invite minting is NOT a relaxation of the module-2 kill
+
+Module 2 (bulk worker/candidate upload of raw contacts) remains **DEAD, with no gate** —
+unchanged from §41/§104/§218. Nothing in this amendment revives it, and nothing ever will.
+
+A security-engineer ruled on the distinction adversarially **before any code was written**
+(the frontend build was structurally gated on the verdict — the batch-building agents were not
+spawnable on a "reject"). The distinction is **structural, and it is the direction and referent
+of the data, not the count**:
+
+- **Bulk upload is an INBOUND ASSERTION ABOUT EXISTING PEOPLE.** The agency supplies
+  identifiers for real individuals who never consented. The platform ends up holding a
+  contactable list and an agency→person linkage that exists *before* consent — so invariant #6
+  cannot even be evaluated, because the processing already happened at ingest. No gate can fix
+  that. Hence DEAD.
+- **Batch minting is OUTBOUND GENERATION OF REFERENT-FREE TOKENS.** The platform generates N
+  independently-random opaque bearer codes. Each row denotes nothing and nobody:
+  `invited_worker_id` is NULL and writable **only** by the consent-gated internal seam after a
+  person self-onboards and consents. The agency's entire contribution is one integer and one
+  optional non-PII tag.
+
+> **The one-line test: bulk upload's input has arity over PEOPLE; batch mint's input has arity
+> over NOTHING — it is a scalar count.**
+
+**THE DTO SHAPE IS THE ENTIRE SECURITY BOUNDARY.** The batch body is exactly
+`{ count: number; campaign?: string }` and is `.strict()`. The moment it can carry a per-invite
+element — `labels[]`, `recipients[]`, `invitees[]`, `notes[]`, `names[]`, anything array-shaped
+— the input regains arity over people, the direction flips to inbound, and the feature becomes
+**bulk upload with a weaker identifier**. The campaign PII screen would not catch it, because a
+personal name is not a phone or an email. **Do not add an array to this DTO.**
+
+### Blocking conditions (not nice-to-have)
+
+Four conditions carry the boundary above and are treated as blocking, not advisory:
+
+1. **`.strict()` cardinality-only DTO** — no array-typed property, ever (above).
+2. **No send capability.** The endpoint accepts no phone/email/recipient and triggers no
+   outbound message. Delivery is out-of-band: the agency shares the links itself. This is a
+   permanent boundary, not a phase gate — the named scope-creep path is "we minted 50 links,
+   now let's WhatsApp them out", which requires 50 phone numbers of non-consented people and is
+   module 2 by another route.
+3. **No per-invite readback, now or later.** No endpoint returns per-code status or a per-invite
+   list; `referralsSummary` stays AGGREGATE-ONLY behind the k-anon floor. Batch minting makes
+   "one distinct link per known individual" the natural workflow (a printed QR sheet is exactly
+   that), so the agency may privately hold a link→person map. Aggregate-only is what stops the
+   platform confirming it.
+4. **Independent per-invite code entropy.** Each code is separately `randomUUID`-derived, never
+   `${batchId}-${i}` or a seeded sequence. This is a risk batching introduces that single-mint
+   does not have: derived codes would make all N recoverable from one scanned code.
+
+Also required: N consumes **N** units of the same `agency_invite_mint` hourly bucket reserved
+atomically up-front (a batch that would cross the cap mints zero and emits zero); one
+`agency_invite.created` v1 event per invite row, payload unchanged, N distinct idempotency
+keys — never one aggregate event per batch, which would leave N−1 invites unauditable; Redis
+failure rejects the whole batch; guards and session-derived tenancy (XB-A) unchanged; codes
+never logged.
+
+**The failure path, stated explicitly — it is NOT strict all-or-nothing.** This sentence
+exists because the happy-path guarantee above ("one event per row") was once read as covering
+the failure path too, and it does not. What the code actually does when the event emit fails
+after the row is already durably written:
+
+1. The row insert and the event emit are **separately guarded**. The code-collision retry
+   wraps the row insert **only**, so a 23505 raised by the events idempotency-key index can
+   no longer be misread as a code collision and re-run the insert (which produced a duplicate
+   row holding a live bearer code charged to nobody's cap).
+2. The emit **retries, bounded**. It is keyed `agency_invite.created:<invite_id>`, so a retry
+   is a no-op if the previous attempt actually landed.
+3. If every attempt fails, it logs an **orphan reconciliation marker naming the invite id**
+   (an opaque uuid — never the code, which is a bearer token), then throws neutrally. So the
+   code is returned to **nobody**, and `invites.length` equals the number of rows that are
+   genuinely on the spine.
+
+**The invariant that holds is therefore "no code is ever returned without its event", not
+"no row ever exists without its event".** The row survives, uncollectable: the repository
+exposes no delete/void and `agency_invites.status` has no non-live value, so the service
+cannot compensate. That residual is real and tracked as
+**[R35](../registers/risks-register.md)**; the genuine close is the transaction seam
+`EmitParams.tx` already provides, which is a repository-signature change and is escalated
+rather than assumed inside a bug fix.
+
+### Engagement view — `GET /payer/agency/workers` (consent-gated)
+
+The agency sees a **funnel**, not a person: an opaque per-agency ref, profile-complete, applied
+count, unlocked count, and a coarse last-active **day**. Never a name, phone, employer, which
+jobs, or who unlocked. Three independent protections: the DPDP gate lives **inside the
+repository SQL** (a worker without an active `agent_activity_visibility` consent is never
+SELECTed, so no-consent is indistinguishable from never-referred and the list is not a consent
+oracle); tenancy from the session; and a per-agency HMAC pseudonym so two agencies cannot join
+their lists on a shared referral.
+
+**New consent purpose `agent_activity_visibility`.** `CURRENT_CONSENT_VERSION` is deliberately
+**NOT** bumped: a version names the notice text a worker was shown, and that text has not
+changed — the worker-facing copy for this purpose is outstanding owner/legal work. Bumping it
+would write a false claim onto every consent row about what the worker read. No client requests
+the purpose yet, so the projection is **empty in production on day one**, which is correct and
+expected. The surface is inert until the notice ships.
+
+> **LAUNCH GATE — read this BEFORE shipping the `agent_activity_visibility` notice copy.**
+> The moment a worker can grant this purpose, `GET /payer/agency/workers` and
+> `GET /payer/agency/referrals/summary` become a **differencing oracle**: `accepted` is exact
+> above the k-anon floor, `/workers` returns only the consented, and the difference is the count
+> of the agency's own referrals who **refused**. With batch minting + a printed QR making
+> one-link-per-known-person the natural workflow, polling narrows that to one named individual.
+> Each endpoint is individually correct and floored; the oracle exists only in their composition.
+> It is **inert today only because the list is always empty**. Tracked as
+> **[R33](../registers/risks-register.md)** — close it in the same change that ships the notice.
+
+### Printable QR
+
+Client-side rendering only, encoding **exactly** the invite URL and nothing else — no payer id,
+no campaign, no session token, no agency name. No third-party QR image service (that would ship
+the code to a stranger). A QR is a lossless encoding of a URL the agency already shares openly,
+so it changes no exposure.
+
+### Still DEAD / still gated (unchanged by this amendment)
+
+Module 2 (bulk contact upload), module 4 (matching/pipeline), module 6 (placement outcomes)
+remain DEAD. `AGENCY_PAYOUTS_ENABLED` remains **OFF** and out of scope here.

@@ -33,8 +33,13 @@ class SplashScreen extends StatelessWidget {
           const Spacer(flex: 3),
           const BbLogo(size: 104, withWordmark: true),
           const SizedBox(height: AppSpacing.s4),
+          // PERSONA: was 'Your placement bhai for factory jobs'. The brand name
+          // "Bada Bhai" is exempt from the vocative ban, but a bare `bhai` is
+          // not — and this line is the first copy a worker ever reads, so it
+          // sets the register for everything after it. "team" keeps the meaning
+          // (and matches how the product describes itself) at the same length.
           Text(
-            'Your placement bhai for factory jobs',
+            'Your placement team for factory jobs',
             textAlign: TextAlign.center,
             style: AppTypography.body(
               size: AppTypography.sizeMd,

@@ -9,6 +9,7 @@ import { ChatRepository } from "../chat/chat.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { redactKnownName } from "../common/redact-known-name";
+import { WorkerSkillsService } from "../match/worker-skills.service";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository, type AiJobUsageMetadata } from "./ai-jobs.repository";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
@@ -52,6 +53,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // (WorkersModule / CryptoModule), so ProfilesModule needs no new import edge.
     private readonly workers: WorkersRepository,
     private readonly pii: PiiCryptoService,
+    // ADR-0036 moments ①/② — derive the worker's matchable skills + industry tenure
+    // from the profile this processor just wrote, then reconcile his `job_reach` rows.
+    // `MatchModule` is @Global, so ProfilesModule needs no new import edge (same shape
+    // as WorkersRepository/PiiCryptoService above).
+    private readonly matchSkills: WorkerSkillsService,
   ) {
     super();
   }
@@ -145,6 +151,42 @@ export class ProfileExtractionProcessor extends WorkerHost {
       });
 
       await this.aiJobs.markCompleted(aiJobId, { profile_id: saved.id }, toAiJobUsage(aiMeta));
+
+      // ── ADR-0036 MOMENTS ①/② ──────────────────────────────────────────────────
+      // "Everything is computed on WRITE. Every read is an indexed sort." The profile
+      // row above is the write; this derives `worker_skill` + `worker_industry_tenure`
+      // from it and reconciles the worker's rows in `job_reach` so an already-published
+      // posting can reach him.
+      //
+      // It runs INSIDE this existing BullMQ processor — no new queue, and it inherits
+      // the retry/stall semantics already tuned here.
+      //
+      // A FAILURE HERE MUST NOT FAIL THE EXTRACTION. `rebuildQuietly` swallows and logs
+      // (opaque ids + error class only): the three tables it writes are rebuildable
+      // projections (migration runbook §7), `db:backfill:worker-skills` +
+      // `db:materialize:reach` repair them, and `db:verify:match-v1` fails the deploy
+      // gate if they were not. Losing a worker's extracted profile to a reach-cache
+      // hiccup would be the far worse trade.
+      //
+      // NOT gated on MATCH_V1_ENABLED, deliberately: the flag selects which SOURCE the
+      // feed/apply/candidate-list READ from. Writing the projections while it is off is
+      // exactly what makes the flip safe — flipping it on a database where nobody has
+      // been derived since the backfill would serve a stale feed.
+      //
+      // `rebuildQuietly` is contractually never-throwing, and the try/catch here is
+      // belt-and-braces on purpose: this processor, not the match service, owns the
+      // "an extraction that produced a profile is a SUCCESS" invariant, so it must not
+      // rest on another service keeping a promise. One line, and a future edit to
+      // WorkerSkillsService cannot silently start failing extractions.
+      try {
+        await this.matchSkills.rebuildQuietly(workerId, { correlationId, requestId });
+      } catch (matchErr) {
+        const cls = matchErr instanceof Error ? matchErr.name : "UnknownError";
+        this.logger.error(
+          `match rebuild threw for job ${aiJobId} (${cls}); extraction stands — ` +
+            `db:backfill:worker-skills + db:materialize:reach will repair it`,
+        );
+      }
 
       await this.events.emit({
         event_name: "profile.extraction_completed",

@@ -110,6 +110,14 @@ export const EVENT_DOMAINS = [
   // payer's typed message, never a draft field VALUE, and never the payer's organisation
   // name (which this chat does not ask for and never sees — ADR-0035 §Decision 3).
   "job_posting_chat",
+  // WORKER-REFERRAL activation bonus (blocker B4 / §X.6) — the MOCK ₹20 accrual ledger for
+  // the worker→worker funnel. A DISTINCT domain from `invite` (the funnel STAGES) and from
+  // `agency_payout` (the agency's commission on a different identity axis): this is money
+  // owed to a WORKER for a qualified referral, and conflating it with either would make an
+  // unpaid worker accrual indistinguishable from a funnel step or an agency commission on
+  // the spine. PII-FREE: opaque worker/accrual ids + a whole-rupee integer ONLY — never a
+  // phone, a phone_hash, or a name. MOCK: nothing disburses (real money is the §7 gate).
+  "referral",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -212,6 +220,12 @@ export const SUBJECT_TYPES = [
   // the message id and its type enum. Sibling of `chat_message`, kept separate for the
   // same reason as the session subject above.
   "payer_job_posting_chat_message",
+  // A worker-referral activation-bonus ACCRUAL row (blocker B4 / §X.6). The subject_id is the
+  // opaque `referral_bonus_accruals.id`; it carries NO PII (the inviter/invited worker ids live
+  // in the payload, both opaque). Deliberately NOT the `worker` subject: the subject of an
+  // accrual is the LEDGER ROW, and using `worker` would make one worker's ledger entry
+  // indistinguishable from their account events on the spine. MOCK — nothing disburses.
+  "referral_bonus",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

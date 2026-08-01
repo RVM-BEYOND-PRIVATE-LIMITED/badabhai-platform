@@ -1,16 +1,19 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { InviteInstallSource, PayloadInputOf } from "@badabhai/event-schema";
 import type { Job, JobNeededBy, TradeKey } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { readOwnedById, assertOwnedRows } from "../payers/payer-scope";
 import { AgencyJobsRepository, type AgencyJobUpdate } from "./agency-jobs.repository";
-import {
-  AgencyInvitesRepository,
-  type AgencyInviteStageCounts,
-} from "./agency-invites.repository";
+import { AgencyInvitesRepository, type AgencyInviteStageCounts } from "./agency-invites.repository";
 import type { CreateAgencyJobDto, UpdateAgencyJobDto } from "./agency.dto";
 
 /** Faceless projection of an owned job — ids / status / counts / coarse bands ONLY. */
@@ -44,6 +47,44 @@ export interface AgencyReferralsSummary {
 export type AttributionResult =
   | { ok: true }
   | { ok: false; reason: "unknown_code" | "already_attributed" | "no_consent" };
+
+/**
+ * One minted invite as returned to the agency. Opaque id + bearer code + the relative share
+ * link — and NOTHING that denotes a person (there is no invitee field, by construction).
+ */
+export interface AgencyInviteMint {
+  agency_invite_id: string;
+  code: string;
+  link: string;
+}
+
+/**
+ * Bounded retries for a `agency_invites_code_uq` collision on mint. A 48-bit code makes a
+ * collision astronomically unlikely (~4e-12 within a 50-code batch); this exists so the
+ * failure mode is a NEUTRAL error rather than a raw Drizzle unique-violation 500, and it is
+ * bounded so a pathological code space can never spin.
+ */
+const CODE_COLLISION_RETRIES = 3;
+
+/**
+ * Bounded retries for PERSISTING the `agency_invite.created` event of a row that is already
+ * durably written. The emit is idempotency-keyed (`agency_invite.created:<invite_id>`), so a
+ * retry is exactly-once at the DB — including the case where the previous attempt actually
+ * committed the event row and failed on the way back. Bounded so a hard failure (e.g. an
+ * invalid payload, which is deterministic) can never spin.
+ */
+const EVENT_EMIT_RETRIES = 3;
+
+/**
+ * Postgres unique-violation (23505). Used ONLY to classify a failure of the invite ROW
+ * INSERT, where the sole unique index in play is `agency_invites_code_uq`. It is deliberately
+ * NOT applied to any other statement: the `events` table has its own idempotency-key unique
+ * index, and treating ITS 23505 as "the invite code collided" is what previously re-ran the
+ * row insert and wrote a duplicate row holding a live bearer code.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
+}
 
 /** ORDER-SENSITIVE equality for the benefits/requirements chip lists (display order matters). */
 function sameStringList(a: string[], b: string[] | null): boolean {
@@ -142,7 +183,10 @@ export class AgencyService {
     const rows = await this.jobsRepo.listOwned(payerId);
     // Belt-and-braces: every returned row must belong to the payer (the WHERE already
     // scopes this, but assertOwnedRows is the cross-tenant guarantee on list reads).
-    assertOwnedRows(payerId, rows.map((r) => ({ ...r, payerId: r.payerId ?? "" })));
+    assertOwnedRows(
+      payerId,
+      rows.map((r) => ({ ...r, payerId: r.payerId ?? "" })),
+    );
     return rows.map(AgencyService.toJobView);
   }
 
@@ -324,27 +368,209 @@ export class AgencyService {
     payerId: string,
     campaign: string | undefined,
     ctx: RequestContext,
-  ): Promise<{ agency_invite_id: string; code: string; link: string }> {
-    const code = randomUUID().replace(/-/g, "").slice(0, 12);
-    const invite = await this.invitesRepo.create({ code, inviterPayerId: payerId, campaign });
+  ): Promise<AgencyInviteMint> {
+    return this.mintOneInvite(payerId, campaign, ctx);
+  }
 
+  /**
+   * BATCH mint (ADR-0022 Amendment 3) — mint `count` INDEPENDENT invites in one request.
+   *
+   * This is OUTBOUND, referent-free token GENERATION, not the DEAD module-2 bulk upload:
+   * the caller supplies a scalar CARDINALITY (plus one optional non-PII tag), never a list
+   * of people. See {@link CreateAgencyInviteBatchSchema} — the DTO shape is the boundary.
+   *
+   * Structure (each point is a security condition, not a style choice):
+   *  - N INDEPENDENT invites, each with its OWN `randomUUID`-derived code and its OWN
+   *    `agency_invite.created` v1 event keyed `agency_invite.created:<invite_id>`. There is
+   *    deliberately NO batch event, NO batch id, NO count field and NO `codes[]` anywhere on
+   *    the spine: each invite is an independent state change with its own created → clicked
+   *    → accepted lifecycle, and a code is a BEARER TOKEN that must never enter the
+   *    permanent audit record.
+   *  - ROW-THEN-EVENT per iteration, exactly like the singular mint. There is no wrapping
+   *    transaction: rolling back after events were emitted would leave the spine pointing at
+   *    invite ids that no longer exist. A mid-batch failure therefore returns the
+   *    successfully minted SUBSET, and never a leaked DB error string.
+   *
+   *    C5, RESTATED TO WHAT THE CODE ACTUALLY GUARANTEES (the previous wording overclaimed):
+   *      · NEVER an event without a durably written row — the row insert always precedes the
+   *        emit, and a failed insert emits nothing.
+   *      · NEVER a returned code whose event is not on the spine — the mint returns only
+   *        AFTER its `agency_invite.created` is persisted, so `invites.length` is exactly the
+   *        number of rows carrying an event.
+   *      · A row whose event cannot be persisted is NOT silently orphaned: the keyed emit is
+   *        retried {@link EVENT_EMIT_RETRIES} times and, if it still fails, the row is
+   *        flagged with an explicit code-free reconciliation marker (see
+   *        {@link emitInviteCreated}) and its code is returned to nobody. That row is still
+   *        WRITTEN — the invites repository exposes no rollback/void, and closing the window
+   *        for real needs the tx seam `EventsService.emit({ tx })` already provides
+   *        (`db.transaction` → tx-aware `invitesRepo.create` + emit on the same tx). That is
+   *        a repository-level change, tracked, not silently assumed away here.
+   *  - The hourly cap for all N units is already RESERVED by the controller before we get
+   *    here (one atomic INCRBY, fail-closed) — a batch that would cross the cap mints zero.
+   */
+  async createInviteBatch(
+    payerId: string,
+    count: number,
+    campaign: string | undefined,
+    ctx: RequestContext,
+  ): Promise<{ invites: AgencyInviteMint[] }> {
+    const invites: AgencyInviteMint[] = [];
+    for (let i = 0; i < count; i += 1) {
+      try {
+        invites.push(await this.mintOneInvite(payerId, campaign, ctx));
+      } catch (err) {
+        // Partial success is the CORRECT outcome: the invites already minted are durable
+        // and their events are already on the spine, so we stop and return the subset.
+        // Log the SHAPE of the failure only — never a code (a live bearer token), never a
+        // full payer id, never the DB error surface, which is echoed to nobody.
+        this.logger.error(
+          `agency invite batch stopped early payer=${payerId.slice(0, 8)}… minted=${invites.length}/${count} (reason: ${
+            err instanceof Error ? err.name : "unknown"
+          })`,
+        );
+        break;
+      }
+    }
+
+    if (invites.length === 0) {
+      // Nothing was written and nothing was emitted. Surface a NEUTRAL failure — no DB
+      // error text, no constraint name, no stack (an externally reachable endpoint must
+      // not be a schema-disclosure channel).
+      throw new ServiceUnavailableException(
+        "This is temporarily unavailable; please retry shortly",
+      );
+    }
+    return { invites };
+  }
+
+  /**
+   * Mint exactly ONE invite: row first, then its event. Shared verbatim by the singular and
+   * batch paths so the two can never drift.
+   *
+   * The two steps are SEPARATELY guarded on purpose (they used to share one try block, which
+   * conflated two unrelated failures — see {@link insertInviteWithFreshCode} and
+   * {@link emitInviteCreated} for what each one may and may not retry). Returning happens
+   * only after the event is persisted, so a returned code is always a code on the spine.
+   */
+  private async mintOneInvite(
+    payerId: string,
+    campaign: string | undefined,
+    ctx: RequestContext,
+  ): Promise<AgencyInviteMint> {
+    const { id, code } = await this.insertInviteWithFreshCode(payerId, campaign);
+    await this.emitInviteCreated(id, payerId, campaign, ctx);
+    return { agency_invite_id: id, code, link: `/i/${code}` };
+  }
+
+  /**
+   * Insert ONE invite row with a freshly generated code. NOTHING ELSE IS INSIDE THIS TRY.
+   *
+   * CODE ENTROPY: every code is INDEPENDENTLY derived from its own `randomUUID` — never
+   * from a shared batch id, counter, index, timestamp or common prefix. A derived scheme
+   * (`<batchId>-01..N`) would make the other N-1 codes guessable from ONE leaked or scanned
+   * code; independent codes keep the guessing cost at 2^48 / live_codes, which — with the
+   * per-code cap accounting — makes a batch of N indistinguishable from N single mints.
+   *
+   * A unique-index collision on `agency_invites_code_uq` (~4e-12 within a 50-code batch) is
+   * retried a BOUNDED number of times with a fresh code, so it can never surface as an
+   * unhandled 500. Any OTHER error propagates unchanged (the batch caller stops there).
+   *
+   * THE SCOPE OF THAT RETRY IS THE POINT. When the event emit shared this try block, a 23505
+   * raised by the EVENTS idempotency-key unique index was misread as a code collision and
+   * re-ran the WHOLE iteration — writing a SECOND invite row holding a live bearer code that
+   * was charged to nobody's cap and returned to nobody. The only statement that can raise
+   * here now is the row insert, so the only 23505 reachable is the one this retry is for.
+   *
+   * Returns the code WE generated rather than the column echoed back, so the value handed to
+   * the agency is the one we actually attempted to store.
+   */
+  private async insertInviteWithFreshCode(
+    payerId: string,
+    campaign: string | undefined,
+  ): Promise<{ id: string; code: string }> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < CODE_COLLISION_RETRIES; attempt += 1) {
+      const code = randomUUID().replace(/-/g, "").slice(0, 12);
+      try {
+        const invite = await this.invitesRepo.create({ code, inviterPayerId: payerId, campaign });
+        return { id: invite.id, code };
+      } catch (err) {
+        // Only a CODE collision is retryable — anything else is the caller's problem.
+        if (!isUniqueViolation(err)) throw err;
+        lastErr = err;
+      }
+    }
+    // Bounded retries exhausted: neutral surface, never the constraint name or the code.
+    this.logger.error(
+      `agency invite code collision retries exhausted payer=${payerId.slice(0, 8)}… (reason: ${
+        lastErr instanceof Error ? lastErr.name : "unknown"
+      })`,
+    );
+    throw new ServiceUnavailableException("This is temporarily unavailable; please retry shortly");
+  }
+
+  /**
+   * Put the invite's `agency_invite.created` on the audit spine (invariant #1). The row is
+   * ALREADY durably written when this runs, so a failure here is not a neutral "mint failed"
+   * — it is a live bearer credential with no audit record, which is the worse of the two
+   * inconsistent states (an event without a row is a dangling reference; a row without an
+   * event is an unauditable credential that can still be redeemed).
+   *
+   * So this does NOT fail on the first error:
+   *  1. It RETRIES the emit, bounded. The emit is keyed `agency_invite.created:<invite_id>`,
+   *     so a retry is a DB-level no-op if the previous attempt actually landed — the retry
+   *     can create a duplicate event no more than it can create a duplicate row.
+   *  2. If every attempt fails, it logs an explicit ORPHAN reconciliation marker naming the
+   *     INVITE ID — an opaque uuid, never the code (a bearer token) and never the full payer
+   *     id — so the row is discoverable rather than silently unauditable.
+   *  3. It then throws NEUTRALLY, so the code is returned to nobody and the batch stops with
+   *     `invites.length` equal to the number of rows that ARE on the spine.
+   *
+   * RESIDUAL, stated rather than papered over: the row itself survives. `AgencyInvitesRepository`
+   * exposes no delete/void and `agency_invites.status` has no non-live value, so this service
+   * cannot compensate. The real close is the transaction seam `EmitParams.tx` already exists
+   * for — `db.transaction(tx => invitesRepo.create(…, tx))` + `emit({ …, tx })` — which makes
+   * the row and its event commit or roll back together. That is a repository-signature change
+   * and is escalated, not assumed.
+   */
+  private async emitInviteCreated(
+    inviteId: string,
+    payerId: string,
+    campaign: string | undefined,
+    ctx: RequestContext,
+  ): Promise<void> {
     const payload: PayloadInputOf<"agency_invite.created"> = {
-      agency_invite_id: invite.id,
+      agency_invite_id: inviteId,
       inviter_payer_id: payerId,
       channel: "whatsapp",
       campaign,
     };
-    await this.events.emit({
-      event_name: "agency_invite.created",
-      actor: { actor_type: "payer", actor_id: payerId },
-      subject: { subject_type: "agency_invite", subject_id: invite.id },
-      payload,
-      correlationId: ctx.correlationId,
-      requestId: ctx.requestId,
-      idempotencyKey: `agency_invite.created:${invite.id}`,
-    });
 
-    return { agency_invite_id: invite.id, code, link: `/i/${code}` };
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < EVENT_EMIT_RETRIES; attempt += 1) {
+      try {
+        await this.events.emit({
+          event_name: "agency_invite.created",
+          actor: { actor_type: "payer", actor_id: payerId },
+          subject: { subject_type: "agency_invite", subject_id: inviteId },
+          payload,
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+          idempotencyKey: `agency_invite.created:${inviteId}`,
+        });
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    this.logger.error(
+      `AUDIT ORPHAN agency_invite row written but agency_invite.created not persisted ` +
+        `invite=${inviteId} payer=${payerId.slice(0, 8)}… attempts=${EVENT_EMIT_RETRIES} ` +
+        `(reason: ${lastErr instanceof Error ? lastErr.name : "unknown"}) — ` +
+        `reconcile by re-emitting agency_invite.created for this invite id`,
+    );
+    throw new ServiceUnavailableException("This is temporarily unavailable; please retry shortly");
   }
 
   /**
@@ -352,15 +578,38 @@ export class AgencyService {
    * (no-oracle — the response is identical whether the code exists or not). This is NOT
    * owner-scoped (a click arrives from anyone with the link), but it carries no PII and
    * leaks nothing about the agency. Does NOT advance to 'accepted' (that is the gated seam).
+   *
+   * TD113: this now EMITS `agency_invite.clicked` on a known code — the stage had a status
+   * column but no event, so the agency funnel's middle was invisible on the audit spine
+   * (invariant #1). An UNKNOWN code emits NOTHING, which is what keeps the public caller
+   * from being an existence oracle: the response is byte-identical either way.
+   *
+   * NO WORKER HANDLE: a click happens BEFORE the DPDP consent gate, so no worker identity
+   * is read, written, or emitted here (invariant #6) — `agency_invite.accepted` remains the
+   * only agency event that carries a worker id.
    */
   async recordInviteClick(code: string): Promise<{ ok: true }> {
     const invite = await this.invitesRepo.findByCode(code);
-    // Unknown code → neutral no-op (same response shape, no oracle).
+    // Unknown code → neutral no-op (same response shape, no oracle, no event).
     if (!invite) return { ok: true };
     // Only advance created -> clicked (don't regress an accepted/clicked invite).
     if (invite.status === "created") {
       await this.invitesRepo.setStatus(invite.id, "clicked");
     }
+    const payload: PayloadInputOf<"agency_invite.clicked"> = {
+      agency_invite_id: invite.id,
+      inviter_payer_id: invite.inviterPayerId,
+      channel: "whatsapp",
+    };
+    // DELIBERATELY UNKEYED, exactly like the sibling `invite.clicked`: a click is a
+    // repeatable behavioural fact (the same link can be opened many times) and collapsing
+    // them would destroy the funnel signal this event exists to provide.
+    await this.events.emit({
+      event_name: "agency_invite.clicked",
+      actor: { actor_type: "system", actor_id: null },
+      subject: { subject_type: "agency_invite", subject_id: invite.id },
+      payload,
+    });
     return { ok: true };
   }
 
@@ -381,7 +630,16 @@ export class AgencyService {
    * NO event is emitted. Also no-ops on an unknown code or an already-attributed invite
    * (idempotent).
    */
-  async attributeWorkerToInvite(code: string, workerId: string): Promise<AttributionResult> {
+  async attributeWorkerToInvite(
+    code: string,
+    workerId: string,
+    /**
+     * B4 — which leg of the post-Dynamic-Links chain carried the code across the Play
+     * Store round-trip. OPTIONAL, defaults to "unknown": every existing caller keeps
+     * compiling and every pre-B4 client keeps working unchanged (invariant #8).
+     */
+    source: InviteInstallSource = "unknown",
+  ): Promise<AttributionResult> {
     const invite = await this.invitesRepo.findByCode(code);
     if (!invite) return { ok: false, reason: "unknown_code" };
     if (invite.invitedWorkerId) return { ok: false, reason: "already_attributed" };
@@ -413,6 +671,17 @@ export class AgencyService {
       subject: { subject_type: "agency_invite", subject_id: invite.id },
       payload,
       idempotencyKey: `agency_invite.accepted:${invite.id}`,
+    });
+
+    // B4 — the install ACTUALLY attributed + which leg delivered it. Same instant as
+    // `accepted` above, different question (`source`). The `markAccepted` single-winner
+    // write guarantees at most one per invite; the key makes a retry a no-op.
+    await this.events.emit({
+      event_name: "invite.install",
+      actor: { actor_type: "system", actor_id: null },
+      subject: { subject_type: "agency_invite", subject_id: invite.id },
+      payload: { invite_id: invite.id, invite_kind: "agency", source },
+      idempotencyKey: `invite.install:${invite.id}`,
     });
 
     return { ok: true };

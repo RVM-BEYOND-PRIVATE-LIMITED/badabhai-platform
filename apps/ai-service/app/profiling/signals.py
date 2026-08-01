@@ -1887,6 +1887,169 @@ _NEGATABLE_TOPIC_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
 # ship an incomplete profile silently — the engine must still ask them.
 _NEGATION_ANSWERS_TOPICS: frozenset[str] = frozenset({"education", "skills", "certifications"})
 
+# --- Law 8: "nahi pata" is a COMPLETE answer --------------------------------
+# PERSONA v3.2 §2 Law 8, under a heading that reads "absolute, no exceptions":
+# "'Nahi pata' is a complete answer. Accept it, move on, never re-ask, never teach,
+# never sound let down." Owner ruling 2026-07-31 separated the two cases that used to
+# be conflated:
+#
+#   * an EXPLICIT don't-know is an ANSWER — the answer being "unknown" — and closes
+#     ANY topic, not just the `_NEGATION_ANSWERS_TOPICS` three;
+#   * a reply the detector simply could not KEY is a different situation, and
+#     INTERVIEW-1's bounded re-ask (with the topic's `retry_question`) still owns it.
+#
+# WHAT IS DELIBERATELY NOT IN HERE, each excluded on a MEASUREMENT rather than taste.
+# The cost is asymmetric — a missed close is recoverable (the worker is asked once
+# more), a wrongly-closed essential is not (the topic is never re-asked and the value
+# is lost) — so every ambiguous form is left out.
+#
+#   "yaad nahi" / "yad nahi" ("don't remember"). EXCLUDED. It reads as a don't-know in
+#       isolation, but the corpus contains `certifications: "certificate hai par naam
+#       yaad nahi"` — a worker who HAS a certificate and cannot recall its name — and
+#       that string keys NOTHING today (measured: `{}`), so the `not in answered` guard
+#       below would not have saved it. Including "yaad nahi" would have closed the
+#       certifications topic for a worker who explicitly said they hold one. Not
+#       remembering the NAME of a thing you have is not the same as not knowing.
+#   bare "nahi". EXCLUDED, and the task explicitly allowed leaving it out. To an open
+#       question ("Kaunsi machine?") it is not a don't-know at all, and to a yes/no
+#       question it is a DENIAL, which `_NEGATABLE_TOPIC_CUES` already handles for the
+#       topics where a denial is a complete answer. There is no reading of a bare
+#       "nahi" that is safe across all fourteen topics.
+#
+# Verified against the 314-fixture answer corpus: 3 hits, all of them fixtures a human
+# already labelled `reject` as pure don't-knows ("pata nahi naam kya hai",
+# "controller ka naam nahi pata", "pata nahi konsa hai"). Zero `accept` fixtures hit.
+_DONT_KNOW_RE = re.compile(
+    r"\b(?:"
+    r"pata\s*nahi+n?|nahi+n?\s*pata|pta\s*nahi+n?|nahi+n?\s*pta|"
+    r"patta\s*nahi+n?|nahi+n?\s*patta|"
+    r"maloom\s*nahi+n?|nahi+n?\s*maloom|malum\s*nahi+n?|nahi+n?\s*malum|"
+    r"maalum\s*nahi+n?|nahi+n?\s*maalum|"
+    r"nahi+n?\s*jaanta|nahi+n?\s*janta|nahi+n?\s*jaanti|nahi+n?\s*janti|"
+    r"idk|dunno|"
+    r"(?:i\s*)?(?:do\s*not|don'?t)\s*know|no\s*idea"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def is_dont_know(text: str) -> bool:
+    """True when the worker EXPLICITLY says they do not know (Law 8).
+
+    Local, no network. Used for two things, and they are separable: the interview
+    engine serves the "Koi baat nahi." softener on this turn, and
+    :func:`detect_answered_topics` closes the topic that was on screen.
+    """
+    return bool(_DONT_KNOW_RE.search(text or ""))
+
+
+# --- §5: hardship ------------------------------------------------------------
+# "Says work has been hard -> One line, <=8 words, no advice: 'Samajh sakta hoon.'
+#  **Fires on hardship, never on achievement.**"
+#
+# THE HARD PART IS THE FALSE POSITIVE, not the match. Consoling a worker who just told
+# you about a promotion is a worse failure than saying nothing, and the sheet's own
+# logic applies ("faked fluency is worse than plainness"). So this is a list of PHRASES
+# that can only be about personal hardship, never single words:
+#
+#   "mushkil" alone is unusable — "setting mushkil hoti hai par kar leta hu" is a
+#   worker describing DIFFICULT WORK, which is closer to a capability claim than to
+#   hardship. Only "ghar chalana mushkil" (and its variants) is anchored to the person.
+#
+# Every pattern requires either a household/subsistence anchor (ghar chalana, guzara,
+# paise ki tang), an explicit not-getting-work shape (with or without a duration), or
+# an explicit job-loss verb. Measured: 0 hits across the 314-fixture answer corpus and
+# 0 hits across a hand-written achievement/difficult-work adversarial set.
+_HARDSHIP_RE = re.compile(
+    # subsistence: "ghar chalana mushkil hai", "ghar kaise chalaun"
+    r"ghar\s*(?:kaise\s*)?chal(?:ana|ta|ega|aun|au)?\s*(?:mushkil|muskil|nahi+n?)|"
+    r"\bghar\s*kaise\s*chal(?:ega|aun|au)\b|"
+    # duration + no work: "6 mahine se kaam nahi mila"
+    r"\d+\s*(?:mahine|mahina|saal|sal|din|month|months|year|years)\s*se\s*(?:koi\s*)?"
+    r"(?:kaam|job|naukri|nokri)\s*(?:nahi+n?|nhi)\b|"
+    # not getting work, no duration: "kaam nahi mil raha"
+    r"\b(?:kaam|job|naukri|nokri)\s*(?:nahi+n?|nhi)\s*mil\s*(?:raha|rahi|rha|rhi)\b|"
+    r"\b(?:kaam|job|naukri|nokri)\s*(?:nahi+n?|nhi)\s*mil(?:i|a)\b|"
+    # distress, explicit
+    r"\bbahut\s*(?:pareshan|preshan|dikkat|tang)\b|"
+    r"\bpareshan\s*(?:hu|hoon|hun|hai)\b|"
+    r"\bguzara\s*(?:nahi+n?|mushkil|muskil)\b|"
+    r"\bpaise?\s*ki\s*(?:tang|tangi|dikkat|kami)\b|"
+    # job loss
+    r"\b(?:nikal|nikaal)\s*diya\s*(?:gaya|tha)?\b|"
+    r"\b(?:job|naukri|nokri|kaam)\s*(?:chali|chala|chhut|chhoot|chut)\s*ga(?:yi|ya|ee)\b",
+    re.IGNORECASE,
+)
+
+
+def is_hardship(text: str) -> bool:
+    """True when the worker describes personal HARDSHIP (§5), never when they describe
+    hard WORK or an achievement. Local, no network."""
+    return bool(_HARDSHIP_RE.search(text or ""))
+
+
+# --- §5: "job milegi?" -------------------------------------------------------
+# "Asks 'job milegi?' -> 'Guarantee nahi de sakta — profile poora hoga toh companies
+#  dekhengi.' -> back to the open question. No reassurance, no promise."
+#
+# TWO conjuncts, and the second is what makes it safe. The cue alone (a job noun near a
+# future-tense get/land verb) fires on the corpus fixture "abhi job kar raha hu, 1
+# mahina lagega" — a worker ANSWERING the availability question, measured. Requiring an
+# interrogative shape as well ("?", "kya", "kab", or a trailing "na") drops that to
+# zero corpus hits with no loss on the positives, including the sheet's own two
+# phrasings ("Sir job milegi kya?" and "Job mil jayegi na?").
+#
+# A statement uses the present tense ("kaam milta hai") and cannot match either half.
+_JOB_PROSPECT_RE = re.compile(
+    r"\b(?:job|naukri|nokri|kaam|placement|selection)\b[^.?!]{0,24}?"
+    r"\b(?:mil\s*(?:jaye|jayegi|jayega|jaega|jaegi)|milegi|milega|"
+    r"lag\s*(?:jaye|jayegi|jayega)|lagegi|lagega)\b|"
+    r"\b(?:mil\s*(?:jayegi|jayega)|milegi|milega|lagegi|lagega)\b[^.?!]{0,24}?"
+    r"\b(?:job|naukri|nokri|kaam|placement)\b",
+    re.IGNORECASE,
+)
+_JOB_INTERROGATIVE_RE = re.compile(r"\?|\bkya\b|\bkab\b|\bna\b\s*[.!?]*\s*$", re.IGNORECASE)
+
+
+def asks_about_job_prospects(text: str) -> bool:
+    """True when the worker is ASKING whether they will get work — the §5 row whose
+    current behaviour is silence. Local, no network."""
+    message = text or ""
+    return bool(_JOB_PROSPECT_RE.search(message) and _JOB_INTERROGATIVE_RE.search(message))
+
+
+# --- §5: abusive -------------------------------------------------------------
+# "Is abusive -> One neutral line, continues. Never mirrors tone, never moralises."
+#
+# HIGH PRECISION ONLY. This gazetteer changes the bot's tone, so a false positive is a
+# gratuitous tonal shift on an innocent worker; the whole benefit is small (one neutral
+# acknowledgement instead of the default one), so the bar for inclusion is that the
+# token cannot plausibly occur in shop-floor text.
+#
+# EXCLUDED ON MEASUREMENT — the reason this list is short:
+#   "bastard"  A BASTARD FILE IS A REAL TOOL — the coarse-cut hand file every fitter
+#              owns. Measured: "bastard file" matched. Removed outright.
+#   "mc", "bc" The abbreviations. "m/c" is the standard shop-floor shorthand for
+#              MACHINE and appears constantly ("m/c chalata hu"). No abbreviation is
+#              safe here.
+#   "kutta/kutte", "saala/saale", "harami", "kamina/kamine", "randi", "lodu", "lauda"
+#              Mild, context-dependent, or overlapping ("saal" = years is in almost
+#              every experience answer). Measured: "kutta nahi" matched. Excluded —
+#              silence is preferable to a wrong line.
+# Measured: 0 hits across the 314-fixture answer corpus.
+_ABUSE_RE = re.compile(
+    r"\b(?:chutiy[ae]|chutiye|bhosdi\w*|bhosad\w*|madarchod\w*|maderchod\w*|"
+    r"behenchod\w*|bhenchod\w*|benchod\w*|gaandu|gandu|"
+    r"fuck\w*|bitch|asshole)\b",
+    re.IGNORECASE,
+)
+
+
+def is_abusive(text: str) -> bool:
+    """True when the message carries unambiguous abuse (§5). Deliberately narrow —
+    see the exclusions above. Local, no network."""
+    return bool(_ABUSE_RE.search(text or ""))
+
 # P1-1: an EXPLICIT self-correction. Only these let a value for a topic that is NOT
 # the one being asked overwrite an already-collected value (see interview_engine).
 _CORRECTION_MARKERS: tuple[str, ...] = (
@@ -2797,6 +2960,23 @@ def detect_inferred_topics(text: str, last_asked_topic_id: str | None = None) ->
     return set()
 
 
+# The EQUIPMENT slot's id in each non-CNC family (question_bank._TOPICS_BY_FAMILY).
+# CNC/VMC calls it `machines` and is handled by its own branch; these five are the
+# same question ("what do you operate?") under a family-specific id. Kept as a bare
+# frozenset rather than imported from question_bank on purpose: question_bank imports
+# nothing from here and this module is imported BY it via the engine — a cross-import
+# would be a cycle. ``test_bank_integrity`` pins the two lists against each other.
+_EQUIPMENT_TOPIC_IDS: frozenset[str] = frozenset(
+    {
+        "equipment",  # welding
+        "tools_plumbing",
+        "tools_carpentry",
+        "software_design",
+        "software_interior",
+    }
+)
+
+
 def detect_answered_topics(text: str, last_asked_topic_id: str | None = None) -> dict[str, object]:
     """Map detected signals to interview topic ids -> a short collected value.
 
@@ -2856,6 +3036,39 @@ def detect_answered_topics(text: str, last_asked_topic_id: str | None = None) ->
     if sig.skills or sig.drawing_reading or sig.setting_knowledge != "unknown":
         if last_asked_topic_id == "skills" or has_first_person_claim(lower):
             answered["skills"] = sig.skills
+
+    # S1 — the EQUIPMENT slot, keyed for the five non-CNC families.
+    #
+    # ``machines`` is the CNC/VMC name for "the thing you operate". Every other family
+    # asks the same slot under its OWN id (question_bank: welding `equipment`, plumbing
+    # `tools_plumbing`, carpentry `tools_carpentry`, design `software_design`, interior
+    # `software_interior`) and NOTHING here produced those ids — measured, all five
+    # returned only `role`/`skills`. So those families' answer-essential could be ASKED
+    # but never ANSWERED, and `_extraction_ready` could not be satisfied on purpose:
+    # the interview drained the whole bank and wrapped up on the ask ceiling instead.
+    #
+    # CONTEXT-GATED, exactly like the `preferred_locations` / `salary_expected` /
+    # `availability` widenings above: this fires ONLY when that topic is the question
+    # ON SCREEN. An incidental "welding rod bhi lagta hai" while answering salary can
+    # never close a welder's equipment essential.
+    #
+    # CLOSED-SET VALUES ONLY. The value is the detected machine/skill ids — never the
+    # raw message — because ``ConversationState.collected`` crosses the wire and is
+    # persisted by apps/api, and §2 #2 says that state carries profile signals, never
+    # identity text. A reply with NO detected signal ("hmm") keys nothing, so the
+    # bounded re-ask still does its job.
+    #
+    # WHAT THIS DOES NOT FIX (measured, reported, deliberately not papered over): the
+    # underlying gazetteers are still CNC + welding only. "pipe wrench", "planer",
+    # "plasma cutter" and the bare chip labels resolve NOTHING, so they cannot satisfy
+    # the essential either. This makes the essential SATISFIABLE — there are real
+    # answers that close it ("MIG welder chalata hu", "AutoCAD chalata hu", "threading
+    # machine chalata hu") — not RELIABLE. Widening the tool vocabularies is a
+    # taxonomy job (the TAX-WELD-1 shape), not a detector patch.
+    if last_asked_topic_id in _EQUIPMENT_TOPIC_IDS:
+        equipment = list(sig.machines) + [s for s in sig.skills if s not in sig.machines]
+        if equipment:
+            answered[last_asked_topic_id] = equipment
 
     # Location (B-4): current and preferred are separate topics.
     preferred_ctx = last_asked_topic_id == "preferred_locations"
@@ -2955,6 +3168,30 @@ def detect_answered_topics(text: str, last_asked_topic_id: str | None = None) ->
         last_asked_topic_id in _NEGATION_ANSWERS_TOPICS
         and last_asked_topic_id in negated_topics
         and last_asked_topic_id not in answered
+    ):
+        answered[last_asked_topic_id] = None
+
+    # LAW 8, universal (owner ruling 2026-07-31): an EXPLICIT "nahi pata" closes the
+    # topic on screen — ANY topic, essentials included — with no value, exactly like the
+    # P1-2 denial above. "'Nahi pata' is a complete answer. Accept it, move on, never
+    # re-ask." Before this, only {skills, education, certifications} could be closed
+    # that way, so a worker who said "nahi pata" to the machines question was RE-ASKED
+    # it (measured: ask_counts["machines"] == 2) — the sheet's "never re-ask" broken on
+    # the topics where being asked twice stings most.
+    #
+    # THE BOUNDED RE-ASK IS UNTOUCHED and keeps its real job: a reply the detector could
+    # not KEY at all still earns the topic's `retry_question`. The two cases are now
+    # distinguished by whether the worker actually said they do not know.
+    #
+    # ``last_asked_topic_id not in answered`` is the load-bearing guard: a message that
+    # also carries a real value for the topic keeps the VALUE. "controller pata nahi,
+    # VMC chalata hu" answering the machines question records VMC and does not close on
+    # the don't-know. Attribution is to the topic ON SCREEN only, so an incidental
+    # don't-know about something else can never close a topic that was not being asked.
+    if (
+        last_asked_topic_id is not None
+        and last_asked_topic_id not in answered
+        and is_dont_know(text)
     ):
         answered[last_asked_topic_id] = None
     return answered

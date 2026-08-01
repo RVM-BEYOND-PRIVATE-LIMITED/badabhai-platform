@@ -64,13 +64,26 @@ function setup(opts: { jobExists?: boolean; openJobs?: Array<Record<string, unkn
     emit: vi.fn(async (params: Record<string, unknown>) => params),
     emitMany: vi.fn(async (list: Array<Record<string, unknown>>) => list),
   };
+  // ADR-0036: the V1 collaborators. Every case in this file exercises the LEGACY path
+  // (MATCH_V1_ENABLED false), so these must never be called — asserted below, so a
+  // regression that leaks the V1 branch into the flag-off path fails loudly rather than
+  // quietly changing what `/feed` serves.
+  const matchFeed = { getFeed: vi.fn(async () => ({ jobs: [] })) };
+  const matchApply = {
+    buildSnapshot: vi.fn(),
+    findDecision: vi.fn(),
+    upsertDecision: vi.fn(),
+  };
   const svc = new ApplicationsService(
     repo as unknown as ApplicationsRepository,
     events as unknown as EventsService,
+    matchFeed as never,
+    matchApply as never,
+    { MATCH_V1_ENABLED: false } as never,
   );
   // `countFor` reads the simulated denormalized jobs.applicants_received rollup.
   const countFor = (jobId: string) => applicantsReceived.get(jobId) ?? 0;
-  return { svc, repo, events, countFor };
+  return { svc, repo, events, countFor, matchFeed, matchApply };
 }
 
 describe("ApplicationsService — apply", () => {
@@ -433,5 +446,39 @@ describe("ApplicationsService — PII-free guarantees + ownership", () => {
     expect((events.emit.mock.calls[0]![0].payload as { worker_id: string }).worker_id).toBe(
       WORKER_ID,
     );
+  });
+});
+
+/**
+ * ADR-0036 CUTOVER GATE. `MATCH_V1_ENABLED` is a DEPLOY SWITCH: with it off, every
+ * legacy path must be byte-identical to what shipped. These assert the negative — that
+ * the V1 collaborators are never reached — which is the property the whole
+ * "legacy paths stay intact behind the flag" posture rests on.
+ */
+describe("ApplicationsService — MATCH_V1_ENABLED=false keeps the legacy path", () => {
+  it("serves the feed from `jobs` and never calls the V1 feed", async () => {
+    const { svc, repo, matchFeed } = setup();
+    await svc.getFeed(WORKER_ID, 10, {}, CTX);
+    expect(repo.findOpenJobs).toHaveBeenCalledOnce();
+    expect(matchFeed.getFeed).not.toHaveBeenCalled();
+  });
+
+  it("applies + skips through the legacy repository, never the V1 snapshot writer", async () => {
+    const { svc, repo, matchApply } = setup();
+    await svc.apply(WORKER_ID, JOB_ID, { rank: 1, source_surface: "feed" }, CTX);
+    await svc.skip(WORKER_ID, "33333333-3333-3333-3333-333333333333", { reason: "too_far" }, CTX);
+    expect(repo.upsertDecision).toHaveBeenCalledTimes(2);
+    expect(matchApply.buildSnapshot).not.toHaveBeenCalled();
+    expect(matchApply.upsertDecision).not.toHaveBeenCalled();
+  });
+
+  it("emits feed.shown (v1), never feed.shown_v2", async () => {
+    const { svc, events } = setup();
+    await svc.getFeed(WORKER_ID, 10, {}, CTX);
+    const names = (events.emitMany.mock.calls[0]?.[0] ?? []).map(
+      (e) => (e as { event_name: string }).event_name,
+    );
+    for (const name of names) expect(name).toBe("feed.shown");
+    expect(names).not.toContain("feed.shown_v2");
   });
 });

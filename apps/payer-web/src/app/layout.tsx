@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { publicConfig, resolvePayerTheme, THEME_COOKIE_NAME } from "../lib/config";
-import { THEME_NO_FOUC_SCRIPT } from "../lib/theme";
+import { ASYNC_CSS_SCRIPT, ASYNC_STYLESHEETS, THEME_NO_FOUC_SCRIPT } from "../lib/theme";
 
 export const metadata: Metadata = {
   title: "BadaBhai for Employers",
@@ -38,19 +38,26 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: THEME_NO_FOUC_SCRIPT }} />
         {/* Baloo 2 (display) + Mukta (body/multilingual) — the BadaBhai type tokens
             (--font-display / --font-sans). Roboto Mono (--font-mono) is self-hosted via
-            @font-face in src/styles/tokens.css. Devanagari+Latin for Hinglish/regional copy. */}
+            @font-face in src/styles/tokens.css. Devanagari+Latin for Hinglish/regional copy.
+            Phosphor (`ph ph-*`) supplies the DS glyphs, always beside a text label.
+
+            NON-RENDER-BLOCKING (B4): these four CROSS-ORIGIN sheets used to be `<link
+            rel=stylesheet>` in this head, which made them 4 of 6 render-blocking stylesheets
+            and 250,748 B from two extra origins — measured on the PUBLIC `/i/<code>` install
+            page, which uses no icons at all and exists to convert a worker on a congested 3G
+            tower. They are now appended at runtime by ASYNC_CSS_SCRIPT (an inline head
+            script, the same pattern the no-FOUC script above already uses), so nothing
+            third-party blocks first paint. The preconnects stay: they warm the DNS/TLS
+            handshake for exactly those origins, which is now pure upside.
+            The <noscript> twins below keep both working with JavaScript disabled. */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Mukta:wght@300;400;500;600;700;800&display=swap"
-        />
-        {/* Phosphor icon font (the DS pairs `ph ph-*` glyphs with text labels — StatTile,
-            Button, Select chevron, Input icons). Regular + bold + fill weights. Icons degrade
-            to empty marks if this fails to load, so text always carries the meaning. */}
-        <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
-        <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css" />
-        <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css" />
+        <script dangerouslySetInnerHTML={{ __html: ASYNC_CSS_SCRIPT }} />
+        <noscript>
+          {ASYNC_STYLESHEETS.map((href) => (
+            <link key={href} rel="stylesheet" href={href} />
+          ))}
+        </noscript>
       </head>
       <body>
         {children}

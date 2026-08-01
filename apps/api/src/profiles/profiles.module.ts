@@ -12,6 +12,7 @@ import { AiJobsRetentionSweepProcessor } from "./ai-jobs-retention-sweep.process
 import {
   AI_JOBS_RETENTION_QUEUE,
   PROFILE_EXTRACTION_QUEUE,
+  REFERRAL_BONUS_QUEUE,
   RESUME_GENERATE_QUEUE,
 } from "../queue/queue.constants";
 
@@ -24,6 +25,10 @@ import {
     BullModule.registerQueue({ name: PROFILE_EXTRACTION_QUEUE }),
     // Auto-enqueue a resume render once a profile is confirmed (TD5).
     BullModule.registerQueue({ name: RESUME_GENERATE_QUEUE }),
+    // §X.6 — leg 1 of the ₹20 activation-bonus rule fires on confirm. PRODUCER ONLY: the
+    // processor lives in ReferralAttributionModule, so this stays a queue registration and
+    // NOT a module import (no dependency from `profiles` into `referrals`).
+    BullModule.registerQueue({ name: REFERRAL_BONUS_QUEUE }),
     // PERF-3 — the ai_jobs retention sweep queue (repeatable tick; the prune
     // predicate is authoritative; dry-run by default). Lives here because this
     // module owns ai_jobs data access (AiJobsRepository).
