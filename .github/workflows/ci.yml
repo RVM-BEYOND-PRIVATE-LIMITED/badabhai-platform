@@ -326,15 +326,38 @@ jobs:
           RUN_DB_TESTS: "1"
         run: |
           set -eo pipefail
-          pnpm --filter @badabhai/api test -- rank-parity boost-fences 2>&1 | tee db-gates.log
+          # NO `--` before the filters: pnpm forwards it to the script verbatim, so
+          # `test -- rank-parity` runs `vitest run -- rank-parity`, where vitest
+          # ignores the filter and reruns the whole 2820-test suite. Measured, not
+          # assumed — that is what the first push of this branch actually did.
+          pnpm --filter @badabhai/api run test rank-parity boost-fences 2>&1 | tee db-gates-raw.log
+          sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
-          # NON-VACUITY GUARD. `describe.skipIf` makes an unarmed run exit 0 with
-          # "Tests 9 skipped (9)" — which is exactly how these gates sat green while
-          # proving nothing. Require that at least one test actually executed and
-          # passed, so losing RUN_DB_TESTS fails loudly instead of silently reverting
-          # to the status quo. (Tolerant of a future individual `it.skip`.)
-          if ! grep -qE 'Tests.*passed' db-gates.log; then
-            echo "::error::Matching V1 DB gates did not EXECUTE (no test reported as passed). RUN_DB_TESTS is not reaching vitest — this step would have passed vacuously."
+          # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
+          #     exit 0 reporting "9 skipped" — precisely how these gates sat green for
+          #     their whole life while proving nothing. Assert per FILE, because a
+          #     suite-wide "some test passed" check is satisfied by unrelated tests.
+          for f in rank-parity boost-fences; do
+            line=$(grep -E "src/match/${f}\.test\.ts" db-gates.log | head -1 || true)
+            if [ -z "$line" ]; then
+              echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
+              exit 1
+            fi
+            case "$line" in
+              *skipped*)
+                echo "::error::${f}.test.ts SKIPPED — RUN_DB_TESTS is not reaching vitest, so this gate would have passed vacuously."
+                exit 1
+                ;;
+            esac
+          done
+
+          # (2) …AND ONLY THE GATES. Guards the arg-forwarding bug above: if the filter
+          #     stops reaching vitest, this step silently becomes a slow duplicate of the
+          #     `node` job (and check (1) starts passing on unrelated tests). Update the
+          #     expected count when adding a gate file to the command above.
+          if ! grep -qE 'Test Files +2 passed \(2\)' db-gates.log; then
+            echo "::error::Expected exactly the 2 gate files to run — the vitest file filter is not reaching vitest."
+            grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
 
