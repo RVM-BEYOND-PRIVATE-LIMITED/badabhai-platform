@@ -5,6 +5,41 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-08-01
+
+## BadaBhai Progress Snapshot
+- **No formal % re-score.** The cap rule holds: `docs/qa/evidence/staging/` is still empty and
+  nothing below was verified on a deployed environment. Everything here is CI + local measurement.
+- **PR #526 MERGED to `main`** (merge commit `f28279f`, a true two-parent merge of `22f78f2` +
+  `f4ad567`). Carries Matching V1 ([ADR-0036](../decisions/0036-matching-algorithm-v1.md)) plus the B5 agency
+  slice: engagement page, batch invite minting (≤50), printable QR page.
+- **Batch invite minting passed an adversarial security gate BEFORE any frontend code was written.**
+  Ruling: it is *not* the parked Bulk Upload. Bulk Upload's input has arity over people; batch mint's
+  input is a scalar count, so there is no worker list to consent-launder. The `.strict()` DTO is the
+  entire boundary. Recorded as R34; the composition consent-oracle is R33 (launch gate on the
+  `agent_activity_visibility` notice).
+- **The production canary was 14% true and is now whole.** `scripts/prod-canary.mjs` probed 6 of 43
+  `InternalServiceGuard` routes — not a broken guard, a route nobody was watching. Now probes all 43,
+  measured from Nest metadata, with `canary-coverage.test.ts` failing CI in both directions on drift.
+- **Two data-integrity defects found in code previously certified as fine** (`mintOneInvite`): a live
+  bearer code could be written without its event, and an events-side 23505 re-ran the row insert.
+  Both fixed and mutation-verified red-then-green by an independent probe. Residual documented as R35.
+- **Coverage:** `apps/api` `All files 75.33 stmts / 88.08 branches / 75.02 funcs / 75.33 lines`
+  against floors 75/73/75/75. Closed with 14 new unit-test files (13 in `src/match`, 1 in
+  `src/applications`) —
+  **no threshold lowered, no coverage-exclude added.** Functions clears by ONE function
+  (1370/1826) → logged as **TD122** with the headroom named.
+- **CI at merge:** `ci-required` pass; Node, Worker app, AI service (pytest/ruff + image), E2E Phase 1
+  green. Dependency audit (pnpm) and SAST (semgrep OSS) red and deliberately **not** fixed — proven
+  pre-existing by input comparison, documented in the #526 body.
+- **Branch protection enabled on `main` by owner (2026-08-01):** `ci-required` + 1 review required,
+  force-push and deletion blocked, `enforce_admins` off. Until today every check was advisory.
+- **Next:** Divyanshu applies the migration train (authored, not run by agents — owner ruling);
+  register/tracker close-out; the deferred branch-wide authz sweep and the reach-engine retirement PR
+  (both explicitly held until after a verified cutover).
+
+---
+
 # Daily Tracker — 2026-07-25
 
 ## BadaBhai Progress Snapshot
