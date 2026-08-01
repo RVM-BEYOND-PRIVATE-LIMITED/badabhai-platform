@@ -1,3 +1,4 @@
+# Build output, vendored trees and lockfiles — nothing here is hand-authored.
 **/dist/**
 **/.next/**
 **/coverage/**
@@ -6,3 +7,28 @@ pnpm-lock.yaml
 apps/worker-app/**
 apps/ai-service/.venv/**
 apps/ai-service/**/__pycache__/**
+
+# ---------------------------------------------------------------------------
+# GENERATED SCHEMA ARTIFACTS — never format these.
+#
+# `packages/db/migrations/meta/*.json` is drizzle-kit OUTPUT, not source. Prettier
+# reformats every snapshot (it collapses the multi-line `columnsFrom`/`columnsTo`
+# arrays onto one line), which is semantically null — the JSON parses identically —
+# but it rewrites ~60 files and makes every subsequent `pnpm db:generate` diff noisy
+# against a baseline nobody intended to change. This is the migration spine
+# (invariant #8: never mutate a shipped schema artifact casually), so the only safe
+# posture is that a formatter never touches it at all.
+#
+# Hit for real on 2026-08-01: a bare `pnpm format` rewrote 735 files, 60 of them
+# these snapshots, burying ~20 files of actual work pre-commit.
+packages/db/migrations/**
+
+# ---------------------------------------------------------------------------
+# AGENT + SKILL DEFINITIONS — config that happens to be markdown.
+#
+# `.claude/agents/*.md` and `.claude/skills/**/SKILL.md` are read by tooling, not by
+# people browsing docs. Prettier rewrites their emphasis markers (`*x*` -> `_x_`) and
+# inserts blank lines around list blocks, producing 35 files of diff that changes no
+# meaning and buries real edits to an agent's actual instructions in review.
+.claude/agents/**
+.claude/skills/**
