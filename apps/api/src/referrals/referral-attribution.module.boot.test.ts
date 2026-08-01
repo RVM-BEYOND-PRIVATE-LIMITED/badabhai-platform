@@ -49,6 +49,28 @@ describe("ReferralAttributionModule wiring (attribution seam DI regression guard
     expect(providers).toContain("ReferralAttributionService");
   });
 
+  // ---- B4 RESOLVER (migration 0060) hosted by this module ----
+
+  /**
+   * REGRESSION GUARD, and it exists because it caught a real hole: a mutation that silently
+   * dropped the resolver controller and its two providers from this module left the ENTIRE
+   * test suite green. `GET /r/:code` would have 404'd in production — every shared referral
+   * link dead — with nothing failing in CI. The wiring is the only thing that makes the
+   * resolver reachable, so the wiring is what gets pinned.
+   */
+  it("declares the resolver controller + link service + link repository (GET /r/:code is reachable)", () => {
+    const controllers = getMeta("controllers", ReferralAttributionModule).map((c) =>
+      typeof c === "function" ? c.name : c,
+    );
+    expect(controllers).toContain("ReferralResolverController");
+
+    const providers = getMeta("providers", ReferralAttributionModule).map((p) =>
+      typeof p === "function" ? p.name : p,
+    );
+    expect(providers).toContain("ReferralLinkService");
+    expect(providers).toContain("ReferralLinkRepository");
+  });
+
   // ---- B4 / §X.6 additions hosted by this module ----
 
   it("declares the MOCK ₹20 bonus controller + service + repository + queue processor", () => {

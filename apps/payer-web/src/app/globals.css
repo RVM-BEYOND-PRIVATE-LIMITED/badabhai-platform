@@ -4056,6 +4056,17 @@ img.agency-qr__code,
   margin-bottom: 0;
   color: var(--text-faint);
 }
+/* B4 — the DESKTOP route's QR bridge (`/i/<code>/desktop`). A white plate behind the matrix
+   regardless of theme: scanners need the light-module/dark-module contrast the QR spec
+   assumes, and rendering it on a dark page background makes it unreadable. */
+.invite-landing__qr {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+  margin: 0 0 var(--space-4);
+  background: #fff;
+  border-radius: var(--radius-md);
+}
 /* The root layout's footer says "BadaBhai for Employers" — true everywhere else in this app,
    wrong on its one worker-facing page. There is a single root layout (a second one would mean
    restructuring every existing route), so the footer is hidden from here instead. `:has()`

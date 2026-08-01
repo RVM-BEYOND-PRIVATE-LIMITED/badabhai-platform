@@ -42,6 +42,19 @@ export function playStoreUrl(code: string): string {
 }
 
 /**
+ * The bare Play Store listing, carrying NO referrer payload.
+ *
+ * The destination for the resolver's fallback leg (`/i/unknown`), and for ANY visit whose
+ * code fails the 12-hex shape check, where there is no usable code to attribute. Attaching
+ * `referrer=bb_code=unknown` there would post a junk code into the Install Referrer path on
+ * first run and burn a claim attempt on a code that resolves to nothing — an unattributed
+ * install is the honest outcome, so it carries nothing.
+ */
+export function playStoreBrowseUrl(): string {
+  return `https://play.google.com/store/apps/details?id=${workerAppId()}`;
+}
+
+/**
  * The BRANDED SHORT-LINK origin — the base of `/r/<code>`, the resolver every agent code,
  * worker share, campaign URL and QR now goes through (B4).
  *

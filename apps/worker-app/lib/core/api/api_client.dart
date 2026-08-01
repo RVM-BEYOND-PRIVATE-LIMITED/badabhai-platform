@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../../features/swipe/domain/job_detail.dart';
 import '../config/app_config.dart' show resolveApiBaseUrl;
+import '../referral/pending_referral_store.dart' show ReferralSource;
 import 'api_models.dart';
 
 // Re-export the response models so screens that import this file get them too.
@@ -713,10 +714,18 @@ class ApiClient {
   Future<void> attributeReferral({
     required String authToken,
     required String code,
+    /// B4 — which leg of the post-Dynamic-Links chain delivered the code. OPTIONAL
+    /// (the server defaults a missing value to "unknown"), so this stays wire-compatible
+    /// with the pre-B4 `{code}`-only body. Sent as the closed enum's `wire` token, never
+    /// `name` — `name` is camelCase and the server's enum is snake_case.
+    ReferralSource? source,
   }) async {
     await _post(
       '/referrals/attribute',
-      <String, dynamic>{'code': code},
+      <String, dynamic>{
+        'code': code,
+        if (source != null) 'source': source.wire,
+      },
       authToken: authToken,
     );
   }

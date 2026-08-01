@@ -50,9 +50,16 @@ class ConsentRepositoryImpl implements ConsentRepository {
     final String? token = _session.sessionToken;
     if (token == null || token.isEmpty) return;
     try {
-      final String? code = await store.take(); // reads + clears — consumed once
-      if (code == null) return;
-      await _api.attributeReferral(authToken: token, code: code);
+      // reads + clears — consumed once. `takePending` (not `take`) so the LEG that
+      // delivered the code rides along: without it every attribution records
+      // "unknown" and a broken App-Link / Install-Referrer leg stays invisible.
+      final PendingReferral? pending = await store.takePending();
+      if (pending == null) return;
+      await _api.attributeReferral(
+        authToken: token,
+        code: pending.code,
+        source: pending.source,
+      );
     } catch (_) {
       // Best-effort side-signal — never surface to onboarding. PII-free: the
       // opaque code is never logged.

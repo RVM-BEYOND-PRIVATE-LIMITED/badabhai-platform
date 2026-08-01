@@ -650,11 +650,13 @@ describe("unlock/contact/payment events (ADR-0010 — PII-free, ids/enums/counts
 
   it("defaults real_call to false on every payment.* event (mock-honesty, F-6)", () => {
     for (const name of ["payment.authorized", "payment.captured"] as const) {
-      const result = validateEvent(
-        unlockEvent(name, { payer_id: UUID_B, amount_credits: 1 }),
-      );
+      const result = validateEvent(unlockEvent(name, { payer_id: UUID_B, amount_credits: 1 }));
       expect(result.success).toBe(true);
-      if (result.success && (result.event.event_name === "payment.authorized" || result.event.event_name === "payment.captured")) {
+      if (
+        result.success &&
+        (result.event.event_name === "payment.authorized" ||
+          result.event.event_name === "payment.captured")
+      ) {
         expect(result.event.payload.real_call).toBe(false);
       }
     }
@@ -740,7 +742,14 @@ describe("monetization + pricing events (ADR-0013 — PII-free, ids/codes/enums/
     const viewed = validateEvent(
       payerEvent(
         "applicant.viewed",
-        { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, worker_id: UUID_A, viewed_count: 1, quota: 10 },
+        {
+          plan_id: UUID_A,
+          job_posting_id: UUID_B,
+          payer_id: UUID_C,
+          worker_id: UUID_A,
+          viewed_count: 1,
+          quota: 10,
+        },
         "worker",
       ),
     );
@@ -770,7 +779,13 @@ describe("monetization + pricing events (ADR-0013 — PII-free, ids/codes/enums/
       validateEvent(
         payerEvent(
           "coupon.redeemed",
-          { coupon_code: "launch20", payer_id: UUID_B, product: "job_posting", tier: "standard", discount_inr: 200 },
+          {
+            coupon_code: "launch20",
+            payer_id: UUID_B,
+            product: "job_posting",
+            tier: "standard",
+            discount_inr: 200,
+          },
           "pricing_plan",
         ),
       ).success,
@@ -778,7 +793,12 @@ describe("monetization + pricing events (ADR-0013 — PII-free, ids/codes/enums/
     const changed = validateEvent(
       payerEvent(
         "pricing.changed",
-        { change_type: "plan", entity_code: "job_posting", changed_fields: ["priceInr"], changed_by: UUID_A },
+        {
+          change_type: "plan",
+          entity_code: "job_posting",
+          changed_fields: ["priceInr"],
+          changed_by: UUID_A,
+        },
         "pricing_plan",
       ),
     );
@@ -788,7 +808,12 @@ describe("monetization + pricing events (ADR-0013 — PII-free, ids/codes/enums/
       validateEvent(
         payerEvent(
           "pricing.changed",
-          { change_type: "secret_values", entity_code: "x", changed_fields: [], changed_by: UUID_A },
+          {
+            change_type: "secret_values",
+            entity_code: "x",
+            changed_fields: [],
+            changed_by: UUID_A,
+          },
           "pricing_plan",
         ),
       ).success,
@@ -819,7 +844,12 @@ describe("capacity / posting_plan lifecycle events (ADR-0016 — PII-free, ids/c
       event_name: "posting_plan.paused",
       actor: { actor_type: "system" },
       subject: { subject_type: "posting_plan", subject_id: UUID_A },
-      payload: { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, reason: "capacity_exceeded" },
+      payload: {
+        plan_id: UUID_A,
+        job_posting_id: UUID_B,
+        payer_id: UUID_C,
+        reason: "capacity_exceeded",
+      },
     });
     expect(paused.success).toBe(true);
 
@@ -828,7 +858,12 @@ describe("capacity / posting_plan lifecycle events (ADR-0016 — PII-free, ids/c
       event_name: "posting_plan.resumed",
       actor: { actor_type: "system" },
       subject: { subject_type: "posting_plan", subject_id: UUID_A },
-      payload: { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, reason: "capacity_restored" },
+      payload: {
+        plan_id: UUID_A,
+        job_posting_id: UUID_B,
+        payer_id: UUID_C,
+        reason: "capacity_restored",
+      },
     });
     expect(resumed.success).toBe(true);
   });
@@ -839,7 +874,12 @@ describe("capacity / posting_plan lifecycle events (ADR-0016 — PII-free, ids/c
       event_name: "posting_plan.paused",
       actor: { actor_type: "system" },
       subject: { subject_type: "posting_plan", subject_id: UUID_A },
-      payload: { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, reason: "owner_requested" },
+      payload: {
+        plan_id: UUID_A,
+        job_posting_id: UUID_B,
+        payer_id: UUID_C,
+        reason: "owner_requested",
+      },
     });
     expect(bad.success).toBe(false);
     if (!bad.success) expect(bad.error.stage).toBe("payload");
@@ -967,13 +1007,19 @@ describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method e
     if (result.success && result.event.event_name === "payer.created") {
       // The payload schema has NO field that could hold an email/phone/org-name — only
       // the opaque id + two enums (the B-R2 contact PII lives encrypted in `payers`).
-      expect(Object.keys(result.event.payload).sort()).toEqual(["method", "payer_id", "role"].sort());
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["method", "payer_id", "role"].sort(),
+      );
     }
   });
 
   it("rejects a payer.created role outside the {employer,agent} enum (no free text)", () => {
     const bad = validateEvent(
-      payerAuthEvent("payer.created", { payer_id: UUID_A, role: "Acme Pvt Ltd", method: "email_otp" }),
+      payerAuthEvent("payer.created", {
+        payer_id: UUID_A,
+        role: "Acme Pvt Ltd",
+        method: "email_otp",
+      }),
     );
     expect(bad.success).toBe(false);
   });
@@ -1544,7 +1590,11 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
       event_name: "admin.kill_switch_pause_requested",
       actor: { actor_type: "admin", actor_id: UUID_A },
       subject: { subject_type: "kill_switch", subject_id: null },
-      payload: { admin_id: UUID_A, switch_key: "enable_everything", reason_code: "incident_response" },
+      payload: {
+        admin_id: UUID_A,
+        switch_key: "enable_everything",
+        reason_code: "incident_response",
+      },
     };
     const bad = validateEvent(evt);
     expect(bad.success).toBe(false);
@@ -1592,7 +1642,10 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
 });
 
 describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids/counts only)", () => {
-  function workerAuthEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+  function workerAuthEvent(
+    name: string,
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
     return {
       ...workerCreatedEvent(),
       event_name: name,
@@ -1704,7 +1757,12 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
   it("rejects worker.account_deleted carrying a RAW-PHONE-looking field (strict — never the value)", () => {
     // The §2/D6 invariant: the number NEVER appears. A smuggled raw phone (under any field
     // name) must be rejected by .strict() at the payload stage, not silently passed through.
-    for (const smuggle of [{ phone: "+919876512345" }, { phone_e164: "+919876512345" }, { full_name: "Ramesh Kumar" }, { otp: "482915" }]) {
+    for (const smuggle of [
+      { phone: "+919876512345" },
+      { phone_e164: "+919876512345" },
+      { full_name: "Ramesh Kumar" },
+      { otp: "482915" },
+    ]) {
       const bad = validateEvent(
         workerAuthEvent("worker.account_deleted", {
           worker_id: UUID_B,
@@ -1759,8 +1817,9 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
 
   it("rejects worker.test_login missing phone_hash / worker_id (the opaque identity is required)", () => {
     expect(
-      validateEvent(workerAuthEvent("worker.test_login", { worker_id: UUID_B, is_new_worker: true }))
-        .success,
+      validateEvent(
+        workerAuthEvent("worker.test_login", { worker_id: UUID_B, is_new_worker: true }),
+      ).success,
     ).toBe(false);
     expect(
       validateEvent(
@@ -1795,7 +1854,13 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
   });
 
   it("rejects worker.deletion_scheduled/cancelled smuggling PII (strict — §2)", () => {
-    for (const smuggle of [{ phone: "+919876512345" }, { phone_e164: "+919876512345" }, { full_name: "Ramesh Kumar" }, { phone_hash: "leaked" }, { otp: "482915" }]) {
+    for (const smuggle of [
+      { phone: "+919876512345" },
+      { phone_e164: "+919876512345" },
+      { full_name: "Ramesh Kumar" },
+      { phone_hash: "leaked" },
+      { otp: "482915" },
+    ]) {
       const badScheduled = validateEvent(
         workerAuthEvent("worker.deletion_scheduled", {
           worker_id: UUID_B,
@@ -1815,7 +1880,9 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
   });
 
   it("validates worker.deletion_cancelled with ONLY worker_id (nothing else to know)", () => {
-    const result = validateEvent(workerAuthEvent("worker.deletion_cancelled", { worker_id: UUID_B }));
+    const result = validateEvent(
+      workerAuthEvent("worker.deletion_cancelled", { worker_id: UUID_B }),
+    );
     expect(result.success).toBe(true);
     if (result.success && result.event.event_name === "worker.deletion_cancelled") {
       expect(Object.keys(result.event.payload)).toEqual(["worker_id"]);
@@ -2140,9 +2207,7 @@ describe("worker.push_token_claimed (TD92)", () => {
   }
 
   it("accepts the PII-free shape (winning actor, losing subject, count only)", () => {
-    const ok = validateEvent(
-      claimedEvent({ worker_id: UUID_B, device_count: 2 }),
-    );
+    const ok = validateEvent(claimedEvent({ worker_id: UUID_B, device_count: 2 }));
     expect(ok.success).toBe(true);
   });
 
@@ -2192,7 +2257,10 @@ describe("job_posting_chat.* (ADR-0035)", () => {
   });
 
   it("accepts the PII-free session_started / draft_ready shape (two opaque ids)", () => {
-    for (const name of ["job_posting_chat.session_started", "job_posting_chat.draft_ready"] as const) {
+    for (const name of [
+      "job_posting_chat.session_started",
+      "job_posting_chat.draft_ready",
+    ] as const) {
       const ok = validateEvent(chatEvent(name, { session_id: UUID_C, payer_id: UUID_B }));
       expect(ok.success).toBe(true);
     }
@@ -2263,8 +2331,12 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 136 event names (125 prior + B4/X.6 four + ADR-0036 seven)", () => {
-    expect(EVENT_NAMES).toHaveLength(136);
+  it("exposes all 139 event names (125 prior + B4/X.6 four + ADR-0036 seven + B4 resolver three)", () => {
+    expect(EVENT_NAMES).toHaveLength(139);
+    // B4 RESOLVER (migration 0060): the referral_links primitive's three events.
+    expect(isEventName("referral.link_created")).toBe(true);
+    expect(isEventName("referral.link_clicked")).toBe(true);
+    expect(isEventName("referral.install_claimed")).toBe(true);
     // B4 attribution chain + §X.6 (blocker: invite.install / worker.active were NOT FOUND).
     expect(isEventName("invite.install")).toBe(true);
     expect(isEventName("worker.active")).toBe(true);
@@ -2456,9 +2528,9 @@ describe("invite.install payload (B4) — opaque row id + closed enums, strict",
 
   it("carries BOTH funnels via invite_kind + the matching subject_type", () => {
     expect(validateEvent(make({ ...base, invite_kind: "worker" }, "invite")).success).toBe(true);
-    expect(
-      validateEvent(make({ ...base, invite_kind: "agency" }, "agency_invite")).success,
-    ).toBe(true);
+    expect(validateEvent(make({ ...base, invite_kind: "agency" }, "agency_invite")).success).toBe(
+      true,
+    );
   });
 
   it("REJECTS the shareable code, a phone, or any extra key (.strict — a code is a bearer token)", () => {
@@ -2576,8 +2648,21 @@ describe("referral.bonus_accrued payload (X.6) — ₹ + opaque ids only, strict
 
   it("has NO paid sibling — no payout rail exists, and an event name is a promise", () => {
     expect(isEventName("referral.bonus_paid")).toBe(false);
-    expect(EVENT_NAMES.filter((n) => n.startsWith("referral."))).toEqual([
+    // THE ACTUAL RULE, stated directly rather than as a side effect of an exact-list match:
+    // nothing in the referral domain may NAME a disbursement. Real outbound money is a §7
+    // human gate, and shipping the name before the rail is how a mock gets mistaken for one.
+    // Expressed as a predicate so it keeps holding as the domain legitimately grows.
+    for (const name of EVENT_NAMES.filter((n) => n.startsWith("referral."))) {
+      expect(name, name).not.toMatch(/paid|payout|disburse|settle|transfer/i);
+    }
+    // The exact allowlist, so a NEW referral event is a deliberate review decision.
+    // B4 added the three resolver events; none of them moves money — they record that a link
+    // was minted, that it was clicked, and which click won a worker's first-touch claim.
+    expect(EVENT_NAMES.filter((n) => n.startsWith("referral.")).sort()).toEqual([
       "referral.bonus_accrued",
+      "referral.install_claimed",
+      "referral.link_clicked",
+      "referral.link_created",
     ]);
   });
 });

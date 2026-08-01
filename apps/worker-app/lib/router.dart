@@ -160,6 +160,18 @@ String? referralCodeFromUri(Uri uri) {
   return null;
 }
 
+/// WHICH LEG delivered this deep link (B4). Derived from the URI SCHEME, which is
+/// the only trustworthy signal available at capture time:
+///  - `https` → the verified App Link intercepted by Android (the leg that only
+///    works once P0-6 publishes `assetlinks.json`),
+///  - anything else (`badabhai://`) → the custom-scheme fallback.
+///
+/// Tagging these apart is what makes an App-Link outage VISIBLE: if verification
+/// silently breaks, `app_link` attributions drop to zero and `custom_scheme` spikes,
+/// instead of the funnel just quietly shrinking.
+ReferralSource referralSourceFromUri(Uri uri) =>
+    uri.scheme == 'https' ? ReferralSource.appLink : ReferralSource.customScheme;
+
 /// The router's single top-level redirect. Runs the deep-link referral capture
 /// FIRST — before [_authRedirect] can bounce an unauthenticated worker to /login
 /// and strand the code — then delegates everything else to the auth gate.
@@ -177,7 +189,9 @@ String? _rootRedirect(BuildContext context, GoRouterState state) {
   if (code != null) {
     // Fire-and-forget; the store validates the shape and never throws.
     final PendingReferralStore? store = _maybeReferralStore();
-    if (store != null) unawaited(store.capture(code));
+    if (store != null) {
+      unawaited(store.capture(code, source: referralSourceFromUri(state.uri)));
+    }
     return Routes.splash;
   }
   return _authRedirect(context, state);

@@ -91,7 +91,7 @@ export interface ResolveTarget {
    *  - "app_link"    the https App Link. Android opens the APP if verification has landed
    *                  (P0-6); if not, the same URL renders the masked page, which then
    *                  offers `intent://` → Play Store. One URL, whole chain, no dead end.
-   *  - "masked_page" the landing page, explicitly in desktop/QR mode.
+   *  - "masked_page" the DESKTOP landing page — a QR to scan with a phone.
    */
   leg: "app_link" | "masked_page";
 }
@@ -99,22 +99,26 @@ export interface ResolveTarget {
 /**
  * THE BRANCH TABLE. One rule, stated once:
  *
- *   android  → the App Link (`<base>/i/<code>`)
- *   anything → the masked landing page in desktop mode (`<base>/i/<code>?v=desktop`)
+ *   android            → the App Link            `<base>/i/<code>`
+ *   desktop            → the QR page             `<base>/i/<code>/desktop`
+ *   other (iOS/unknown)→ the App Link route      `<base>/i/<code>`
  *
- * WHY BOTH LEGS POINT AT THE SAME ROUTE. `<base>/i/<code>` is simultaneously (a) the URL
- * the worker app's manifest claims as a verified App Link and (b) a real, rendered web
- * page. On Android with verification live, the OS intercepts it and the app opens — the
- * page is never fetched. Without verification (the P0-6 dependency, which is NOT met yet),
- * the identical URL renders the page, which carries the `intent://` attempt and the Play
- * Store button with the `referrer` payload attached.
+ * WHY ANDROID AND "OTHER" SHARE A DESTINATION. `<base>/i/<code>` is simultaneously (a) the
+ * URL the worker app's manifest claims as a verified App Link and (b) a real, rendered web
+ * page. On Android with verification live, the OS intercepts it and the app opens — the page
+ * is never fetched. Without verification (the P0-6 dependency, NOT met yet), the identical
+ * URL renders the page, which carries the `intent://` attempt and the Play Store button with
+ * the `referrer` payload attached. iOS/unknown gets the same page, which is honest: there is
+ * no iOS app, and the page's Play Store CTA is the truthful thing to show.
  *
  * That is what makes the fallback chain STRUCTURAL rather than a sequence of hops that can
  * each fail: App Link → intent:// → Play Store (+referrer) → masked page, with no step able
  * to dead-end, because the last step is the page that hosts the earlier ones.
  *
- * `v=desktop` is a RENDER HINT only — never an attribution input. The page must render
- * something correct for any value or none.
+ * DESKTOP GETS ITS OWN ROUTE, not a query flag. A QR needs a JS encoder, which needs a
+ * client component; putting it on the shared route would ship that bundle to the ₹7k-phone
+ * mobile path too, breaking that page's deliberate zero-client-JS guarantee. A separate
+ * segment keeps the cost where the capability is used.
  */
 export function resolveTarget(input: {
   base: string;
@@ -123,18 +127,20 @@ export function resolveTarget(input: {
 }): ResolveTarget {
   const base = input.base.replace(/\/+$/, "");
   const path = `${base}/i/${encodeURIComponent(input.code)}`;
-  if (input.platform === "android") return { url: path, leg: "app_link" };
-  return { url: `${path}?v=desktop`, leg: "masked_page" };
+  if (input.platform === "desktop") return { url: `${path}/desktop`, leg: "masked_page" };
+  return { url: path, leg: "app_link" };
 }
 
 /**
  * Where an UNRESOLVABLE code goes. A malformed or unknown code must still land somewhere
- * sensible — "a shared link should never dead-end". It gets the masked page with NO code,
- * so the visitor can still install the app; they simply arrive unattributed.
+ * sensible — "a shared link should never dead-end". It gets the landing page with a
+ * placeholder code, so the visitor can still install the app; they simply arrive
+ * unattributed. (`unknown` fails the 12-hex shape check, so the page's own click ping
+ * correctly declines to fire for it.)
  *
  * This is also what keeps the endpoint from being an existence ORACLE: a valid code and a
  * garbage one both 302 to a page, and neither response body says which it was.
  */
 export function fallbackTarget(base: string): string {
-  return `${base.replace(/\/+$/, "")}/i/unknown?v=desktop`;
+  return `${base.replace(/\/+$/, "")}/i/unknown`;
 }

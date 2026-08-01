@@ -50,6 +50,44 @@ describe("ReferralAttributionService — consent gate (invariant #6, fail-closed
     expect(h.workerInvites.recordAccept).not.toHaveBeenCalled();
     expect(h.agency.attributeWorkerToInvite).not.toHaveBeenCalled();
   });
+
+  /**
+   * THE B4 CLAIM IS BEHIND THE SAME GATE — and this test exists because it caught a real
+   * hole. A mutation that hoisted `claimInstall` ABOVE the consent check left the entire
+   * suite green: the two assertions above only cover the two legacy seams, so the newest
+   * write path was silently exempt from invariant #6.
+   *
+   * The claim WRITES (it stamps `claimed_by_worker_id` on a click row and emits
+   * `referral.install_claimed`), so running it pre-consent would attribute a worker who has
+   * not consented to being processed — exactly what the DPDP gate forbids. Fail-closed:
+   * no consent, no claim.
+   */
+  it("NO consent → the B4 first-touch claim is NOT attempted either (invariant #6, fail-closed)", async () => {
+    h.consent.findLatestByWorker.mockResolvedValue(undefined);
+    await h.svc.attribute(CODE, WORKER);
+    expect(h.referralLinks.claimInstall).not.toHaveBeenCalled();
+  });
+
+  it("REVOKED consent → the B4 first-touch claim is NOT attempted either", async () => {
+    h.consent.findLatestByWorker.mockResolvedValue(revokedConsent);
+    await h.svc.attribute(CODE, WORKER);
+    expect(h.referralLinks.claimInstall).not.toHaveBeenCalled();
+  });
+
+  it("ACTIVE consent → the claim IS attempted, and only after the gate passed", async () => {
+    h.consent.findLatestByWorker.mockResolvedValue(activeConsent);
+    h.workerInvites.recordAccept.mockResolvedValue({ ok: true });
+    await h.svc.attribute(CODE, WORKER, "install_referrer");
+    expect(h.referralLinks.claimInstall).toHaveBeenCalledWith({
+      code: CODE,
+      workerId: WORKER,
+      source: "install_referrer",
+    });
+    // Ordering, pinned directly: the consent read resolved before the claim was invoked.
+    const consentOrder = h.consent.findLatestByWorker.mock.invocationCallOrder[0]!;
+    const claimOrder = h.referralLinks.claimInstall.mock.invocationCallOrder[0]!;
+    expect(consentOrder).toBeLessThan(claimOrder);
+  });
 });
 
 describe("ReferralAttributionService — namespace dispatch (worker first, agency fallback)", () => {
@@ -93,7 +131,12 @@ describe("ReferralAttributionService — namespace dispatch (worker first, agenc
   it("KNOWN worker invite that can't attribute (self_invite) is TERMINAL — agency NOT tried", async () => {
     h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "self_invite" });
     const out = await h.svc.attribute(CODE, WORKER);
-    expect(out).toEqual({ attributed: false, kind: "worker", reason: "self_invite", claimed: false });
+    expect(out).toEqual({
+      attributed: false,
+      kind: "worker",
+      reason: "self_invite",
+      claimed: false,
+    });
     expect(h.agency.attributeWorkerToInvite).not.toHaveBeenCalled();
   });
 
@@ -109,7 +152,12 @@ describe("ReferralAttributionService — namespace dispatch (worker first, agenc
     h.workerInvites.recordAccept.mockResolvedValue({ ok: false, reason: "unknown_code" });
     h.agency.attributeWorkerToInvite.mockResolvedValue({ ok: false, reason: "unknown_code" });
     const out = await h.svc.attribute(CODE, WORKER);
-    expect(out).toEqual({ attributed: false, kind: "none", reason: "unknown_code", claimed: false });
+    expect(out).toEqual({
+      attributed: false,
+      kind: "none",
+      reason: "unknown_code",
+      claimed: false,
+    });
   });
 
   it("agency declines on no_consent (its own re-check) → neutral no-op", async () => {

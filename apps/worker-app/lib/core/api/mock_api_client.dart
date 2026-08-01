@@ -1,4 +1,5 @@
 import '../../features/swipe/domain/job_detail.dart';
+import '../referral/pending_referral_store.dart' show ReferralSource;
 import 'api_client.dart';
 
 /// A no-network [ApiClient] for UI development.
@@ -625,6 +626,7 @@ class MockApiClient extends ApiClient {
   Future<void> attributeReferral({
     required String authToken,
     required String code,
+    ReferralSource? source,
   }) async {
     // No-op: the real route returns a NEUTRAL {ok:true} regardless of outcome
     // (no-oracle) and its body is ignored, so mock mode simply absorbs the
