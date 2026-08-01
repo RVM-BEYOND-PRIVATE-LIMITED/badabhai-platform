@@ -110,6 +110,7 @@ psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f migrations/0052_match_vocabulary.sql
 > | `0056_applications_v1_snapshot` | `1785485029597` |
 > | `0057_match_config` | `1785485088201` |
 > | `0058_payments_and_referral_bonus` | `1785485161707` |
+> | `0059_boost_tiers_widened` | `1785485222108` |
 >
 > The hash must be computed from the **committed file bytes**. If you edit a migration
 > file, the hash changes and the bookkeeping row is wrong.
