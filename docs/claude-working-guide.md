@@ -118,6 +118,51 @@ backward-compatible + migrated + has a rollback note; event payload changes are 
 AI contracts stay mirrored; no secrets committed; registers/docs updated. Run `/code-review`
 and, for any PII/AI/auth change, `/security-review`.
 
+### 8b. Verifying status — a passing-looking command is not evidence
+
+Three separate agents hit this in one day, three different ways. The shared failure is
+trusting that a command *ran* instead of checking *what it measured*.
+
+**Git Bash on Windows silently mangles `<ref>/<branch>:<path>` arguments.** MSYS path
+conversion turns the `/` into `\` and the `:` into `;`:
+
+```
+$ git cat-file -e origin/main:.prettierignore
+fatal: Not a valid object name origin\main;.prettierignore     # exit 128
+```
+
+Wrapped in the usual `... 2>/dev/null && echo YES || echo NO`, that prints a confident
+**NO** — it reads as "the file is not on main", not as "my command was malformed".
+`git show origin/main:<path> | wc -l` fails identically and reports `0` lines. This
+produced a wrong "file absent from main" answer twice on 2026-08-01 for a file that had
+been committed since 2026-06-26.
+
+Use a form with no `/` before the `:`:
+
+```bash
+git ls-tree origin/main -- <path>                       # best — no ref:path syntax at all
+SHA=$(git rev-parse origin/main) && git show "$SHA:<path>"
+git diff --stat origin/main <sha> -- <path>             # content comparison
+```
+
+**Other instances of the same habit, all real:**
+
+- **A filtered query returning empty is not proof of absence.**
+  `git ls-remote --heads origin | grep -iE "b4|referral"` printed nothing while the
+  *unfiltered* `git ls-remote` listed the branch plainly. Re-run unfiltered before
+  concluding something does not exist.
+- **`pnpm test -- <filter>` does not filter** — pnpm forwards the `--` verbatim and vitest
+  ignores it, so the whole suite reruns and a "targeted" check silently proves something
+  else. Use `pnpm --filter <pkg> run test <filter>` (no `--`), and assert on the file
+  count so a filter that stops matching fails loudly.
+- **A green CI check does not mean the gate ran.** `describe.skipIf` on an unarmed suite
+  exits 0 reporting "skipped"; a guard step that finds no config can `exit 0` having
+  deployed nothing. Assert per file that it *executed*, not merely that the job passed.
+- **Treat every "merged" / "pushed" / "done" claim as provisional** until confirmed against
+  raw `gh pr view --json state,mergedAt,mergeCommit` or `git ls-remote` output. Statuses
+  also change *between* your checks when other agents are active — re-check immediately
+  before acting.
+
 ## 9. Response style
 
 Experienced engineers — no tutorials. Default to the Status / Files Changed / Issues /
