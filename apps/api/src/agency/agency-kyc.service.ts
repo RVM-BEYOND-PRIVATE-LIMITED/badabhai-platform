@@ -3,6 +3,7 @@ import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { AgencyKyc, AgencyKycStatus } from "@badabhai/db";
 import { EventsService } from "../events/events.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { PayersRepository } from "../payers/payers.repository";
 import { AgencyKycRepository } from "./agency-kyc.repository";
 import type { SubmitAgencyKycDto } from "./agency-kyc.dto";
 
@@ -49,6 +50,11 @@ export class AgencyKycService {
     private readonly repo: AgencyKycRepository,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
+    // ADR-0037 Decision 7 — the lifecycle read. `findAuthFacts` is REUSED from the payer
+    // guard rather than adding a status read here: it is already the narrow
+    // `{role, status}` projection built for exactly this question, and it deliberately
+    // avoids `findById`, which returns the full encrypted-PII row.
+    private readonly payers: PayersRepository,
   ) {}
 
   private static last4(value: string): string {
@@ -125,6 +131,26 @@ export class AgencyKycService {
    * shared-secret principal (apps/web ops console via InternalServiceGuard); no per-person id.
    */
   async verify(payerId: string): Promise<{ ok: boolean }> {
+    // ADR-0037 Decision 7 — a suspended agency does not progress through KYC.
+    //
+    // This is the ONE agency financial route a suspension cannot otherwise reach. Every
+    // other one (submit KYC, read earnings, request a payout) sits behind `PayerAuthGuard`,
+    // which has required `active` since ADR-0037 — but this is the OPS console under
+    // `InternalServiceGuard`, so there is no payer principal for the guard to check.
+    //
+    // Verifying here is not cosmetic: KYC `verified` is the gate `statusForGate` reads to
+    // decide payout eligibility. Verifying a suspended agency arms their cash-out for the
+    // instant they are reinstated, or immediately if `AGENCY_PAYOUTS_ENABLED` is flipped on
+    // while they are still banned — an ops action taken in one console silently unlocking
+    // money in another.
+    //
+    // REJECT IS DELIBERATELY NOT BLOCKED. Rejecting is restrictive: it takes eligibility
+    // away, never grants it, and ops must stay able to clear a fraudulent submission from
+    // the queue without first reinstating the account that submitted it.
+    const facts = await this.payers.findAuthFacts(payerId);
+    if (facts?.status === "suspended") {
+      throw new ConflictException("Agency is suspended; KYC cannot be verified");
+    }
     const at = await this.repo.markVerified(payerId);
     if (at) {
       const payload: PayloadInputOf<"agency_kyc.verified"> = { payer_id: payerId };
