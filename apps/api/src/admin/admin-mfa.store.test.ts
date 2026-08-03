@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import type { Queue } from "bullmq";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
+import type { AdminRepository } from "./admin.repository";
 import { AdminMfaSecretStore } from "./admin-mfa.store";
 
 // ---------------------------------------------------------------------------
@@ -93,27 +94,55 @@ function makeRedis(
   return { set, setex, get, del, kv, ttls };
 }
 
+/**
+ * ADR-0038 — the TOTP seed now lives in `admin_users.mfa_secret_enc`, not Redis. This is
+ * the column, faked: a single nullable cell plus the two accessors the store calls. Either
+ * can be scripted to throw, which is what drives the fail-closed branches that a Redis
+ * outage used to drive.
+ */
+function makeAdmins(opts: { readThrows?: boolean; writeThrows?: boolean } = {}) {
+  let cell: string | null = null;
+  const setMfaSecret = vi.fn(async (_id: string, enc: string | null) => {
+    if (opts.writeThrows) throw new Error("db UPDATE refused");
+    cell = enc;
+  });
+  const findMfaSecret = vi.fn(async (_id: string) => {
+    if (opts.readThrows) throw new Error("db SELECT refused");
+    return cell;
+  });
+  return { setMfaSecret, findMfaSecret, column: () => cell };
+}
+
 function setup(
   opts: {
     crypto?: { encryptThrows?: boolean; decryptThrows?: boolean };
     redis?: { getThrows?: boolean; delThrows?: boolean; setThrows?: boolean; setexThrows?: boolean };
+    admins?: { readThrows?: boolean; writeThrows?: boolean };
     clientThrows?: boolean;
   } = {},
 ) {
   const crypto = makeCrypto(opts.crypto);
   const redis = makeRedis(opts.redis);
+  const admins = makeAdmins(opts.admins);
   // `queue.client` is a Promise in production; mirror that here.
+  // A GETTER, not a field. Built eagerly, a rejected `client` promise that no code path
+  // consumes surfaces as an unhandled rejection and fails the whole run — which is exactly
+  // what happened once ADR-0038 moved the seed off Redis and `clear()` stopped resolving
+  // the client. Lazily, the rejection only exists when something actually asks for it.
   const queue = {
-    client: opts.clientThrows
-      ? Promise.reject(new Error("redis connection refused"))
-      : Promise.resolve(redis),
+    get client(): Promise<unknown> {
+      return opts.clientThrows
+        ? Promise.reject(new Error("redis connection refused"))
+        : Promise.resolve(redis);
+    },
   };
 
   const store = new AdminMfaSecretStore(
     crypto as unknown as PiiCryptoService,
     queue as unknown as Queue,
+    admins as unknown as AdminRepository,
   );
-  return { store, crypto, redis };
+  return { store, crypto, redis, admins };
 }
 
 /** Capture everything the Nest Logger writes (it routes through console). */
@@ -132,18 +161,23 @@ function captureLogs(): { logged: () => string; restore: () => void } {
 // save/load — TOTP secret encryption round-trip (encrypted at rest, never plaintext).
 // ---------------------------------------------------------------------------
 describe("AdminMfaSecretStore — secret encryption round-trip (at rest)", () => {
-  it("save() writes the ENCRYPTED secret under the namespaced key — plaintext never touches Redis", async () => {
-    const { store, crypto, redis } = setup();
+  it("save() writes the ENCRYPTED seed to the COLUMN — plaintext is never persisted", async () => {
+    const { store, crypto, admins, redis } = setup();
     await store.save(ADMIN_ID, SECRET);
 
     expect(crypto.encrypt).toHaveBeenCalledWith(SECRET);
-    expect(redis.set).toHaveBeenCalledTimes(1);
-    const [key, stored] = redis.set.mock.calls[0]!;
-    expect(key).toBe(SECRET_KEY);
-    // What landed in Redis is the ciphertext — NOT the plaintext secret.
+    expect(admins.setMfaSecret).toHaveBeenCalledTimes(1);
+    const [id, stored] = admins.setMfaSecret.mock.calls[0]!;
+    expect(id).toBe(ADMIN_ID);
+    // What lands in the column is ciphertext — NOT the plaintext seed.
     expect(stored).not.toBe(SECRET);
     expect(stored).not.toContain(SECRET);
-    expect(stored.startsWith(crypto.PREFIX)).toBe(true);
+    expect(String(stored).startsWith(crypto.PREFIX)).toBe(true);
+
+    // ADR-0038 — and it does NOT go to Redis any more. The old key had no TTL and no
+    // persistence guarantee, so a flush destroyed a seed that is shown exactly once.
+    expect(redis.set).not.toHaveBeenCalled();
+    expect(redis.kv.has(SECRET_KEY)).toBe(false);
   });
 
   it("load() decrypts the stored ciphertext back to the ORIGINAL plaintext (round-trip)", async () => {
@@ -153,12 +187,12 @@ describe("AdminMfaSecretStore — secret encryption round-trip (at rest)", () =>
     expect(loaded).toBe(SECRET);
   });
 
-  it("save() overwrites a prior secret (re-enroll replaces, never appends)", async () => {
-    const { store, redis } = setup();
+  it("save() overwrites a prior seed (re-enroll replaces, never appends)", async () => {
+    const { store, admins } = setup();
     await store.save(ADMIN_ID, SECRET);
     await store.save(ADMIN_ID, "NEWSECRET234567");
-    // `set` (not append): only one value lives at the key, and it round-trips to the latest.
-    expect(redis.kv.get(SECRET_KEY)).toBeDefined();
+    // One column, one value: the cell holds the latest and the round-trip proves it.
+    expect(admins.column()).not.toBeNull();
     expect(await store.load(ADMIN_ID)).toBe("NEWSECRET234567");
   });
 
@@ -170,13 +204,17 @@ describe("AdminMfaSecretStore — secret encryption round-trip (at rest)", () =>
     expect(crypto.decrypt).not.toHaveBeenCalled();
   });
 
-  it("the namespaced secret key is distinct from the OTP-pending key (separate concerns)", async () => {
-    const { store, redis } = setup();
+  it("the durable seed and the ephemeral OTP-pending marker live in different stores", async () => {
+    // ADR-0038 split these deliberately. The seed is long-lived and must survive a Redis
+    // flush, so it is a DB column; the pending marker is a short-lived single-flow binding
+    // that SHOULD evaporate, so it stays a TTL'd Redis key.
+    const { store, redis, admins } = setup();
     await store.save(ADMIN_ID, SECRET);
     await store.markOtpPassed(ADMIN_ID);
-    expect(redis.kv.has(SECRET_KEY)).toBe(true);
+
+    expect(admins.column()).not.toBeNull();
     expect(redis.kv.has(PENDING_KEY)).toBe(true);
-    expect(SECRET_KEY).not.toBe(PENDING_KEY);
+    expect(redis.kv.has(SECRET_KEY)).toBe(false);
   });
 });
 
@@ -184,35 +222,34 @@ describe("AdminMfaSecretStore — secret encryption round-trip (at rest)", () =>
 // load — fail-CLOSED on Redis/crypto error (never returns a usable secret).
 // ---------------------------------------------------------------------------
 describe("AdminMfaSecretStore — load() fails closed (deny, never a usable secret)", () => {
-  it("a Redis GET outage returns null (cannot verify second factor → treat as absent)", async () => {
-    const { store } = setup({ redis: { getThrows: true } });
-    const loaded = await store.load(ADMIN_ID);
-    expect(loaded).toBeNull();
-  });
-
-  it("a queue/client connection failure returns null (does not throw, does not leak)", async () => {
-    const { store } = setup({ clientThrows: true });
+  it("a DB read outage returns null (cannot verify second factor → treat as absent)", async () => {
+    // ADR-0038 — this used to script a Redis GET failure. After the move that would pass
+    // TRIVIALLY (load never touches Redis, so the empty column returns null on its own),
+    // proving nothing. The outage now has to be on the store the seed actually lives in.
+    const { store, admins } = setup({ admins: { readThrows: true } });
+    await store.save(ADMIN_ID, SECRET);
+    expect(admins.column()).not.toBeNull(); // a seed IS present — so null means fail-closed
     await expect(store.load(ADMIN_ID)).resolves.toBeNull();
   });
 
-  it("a DECRYPT error degrades silently to null (does not throw) — auth-tag mismatch / key rotation", async () => {
-    // Seed a ciphertext with a healthy crypto, then load with a decrypt that throws.
-    const seed = setup();
-    await seed.store.save(ADMIN_ID, SECRET);
-    const stored = seed.redis.kv.get(SECRET_KEY)!;
-
-    const broken = setup({ crypto: { decryptThrows: true } });
-    broken.redis.kv.set(SECRET_KEY, stored);
+  it("a DECRYPT error degrades silently to null (auth-tag mismatch / key rotation)", async () => {
+    // Seed the column through a healthy crypto, then read it back with a decrypt that
+    // throws — the ciphertext is genuinely present, so null can only come from the catch.
+    const broken = setup({ crypto: {} });
+    await broken.store.save(ADMIN_ID, SECRET);
+    broken.crypto.decrypt.mockImplementationOnce(() => {
+      throw new Error("auth tag mismatch");
+    });
     await expect(broken.store.load(ADMIN_ID)).resolves.toBeNull();
   });
 
-  it("on a decrypt error the raw secret / ciphertext is NEVER written to a log", async () => {
-    const seed = setup();
-    await seed.store.save(ADMIN_ID, SECRET);
-    const stored = seed.redis.kv.get(SECRET_KEY)!;
-
-    const broken = setup({ crypto: { decryptThrows: true } });
-    broken.redis.kv.set(SECRET_KEY, stored);
+  it("on a decrypt error the raw seed / ciphertext is NEVER written to a log", async () => {
+    const broken = setup({ crypto: {} });
+    await broken.store.save(ADMIN_ID, SECRET);
+    const stored = broken.admins.column()!;
+    broken.crypto.decrypt.mockImplementation(() => {
+      throw new Error("auth tag mismatch");
+    });
 
     const logs = captureLogs();
     try {
@@ -278,13 +315,15 @@ describe("AdminMfaSecretStore — OTP-pending marker (single-flow binding)", () 
     await expect(store.consumeOtpPending(ADMIN_ID)).resolves.toBe(false);
   });
 
-  it("consume targets the pending key only — it never deletes the stored secret", async () => {
-    const { store, redis } = setup();
+  it("consume targets the pending marker only — the enrolled seed survives", async () => {
+    const { store, redis, admins } = setup();
     await store.save(ADMIN_ID, SECRET);
     await store.markOtpPassed(ADMIN_ID);
     await store.consumeOtpPending(ADMIN_ID);
     expect(redis.kv.has(PENDING_KEY)).toBe(false);
-    expect(redis.kv.has(SECRET_KEY)).toBe(true); // the enrolled secret survives the OTP-step consume
+    // The seed is in the column, so consuming a Redis marker cannot reach it — an admin is
+    // not silently un-enrolled by completing a login.
+    expect(admins.column()).not.toBeNull();
   });
 });
 
@@ -319,49 +358,61 @@ describe("AdminMfaSecretStore — consumeOtpPending() fails closed (deny, never 
 // clear — best-effort secret removal (a reset), tolerant of Redis errors.
 // ---------------------------------------------------------------------------
 describe("AdminMfaSecretStore — clear() (best-effort reset)", () => {
-  it("clear() deletes the secret key so a subsequent load() returns null (reset took effect)", async () => {
-    const { store, redis } = setup();
+  it("clear() NULLs the column so a subsequent load() returns null (reset took effect)", async () => {
+    const { store, admins } = setup();
     await store.save(ADMIN_ID, SECRET);
     await store.clear(ADMIN_ID);
-    expect(redis.del).toHaveBeenCalledWith(SECRET_KEY);
+    expect(admins.setMfaSecret).toHaveBeenLastCalledWith(ADMIN_ID, null);
+    expect(admins.column()).toBeNull();
     expect(await store.load(ADMIN_ID)).toBeNull();
   });
 
-  it("clear() targets only the secret key (it does not touch the OTP-pending marker)", async () => {
-    const { store, redis } = setup();
+  it("clear() touches only the seed (it does not consume the OTP-pending marker)", async () => {
+    const { store, redis, admins } = setup();
     await store.save(ADMIN_ID, SECRET);
     await store.markOtpPassed(ADMIN_ID);
     await store.clear(ADMIN_ID);
-    expect(redis.del).toHaveBeenCalledWith(SECRET_KEY);
+    expect(admins.column()).toBeNull();
+    // A reset must not silently satisfy or destroy an in-flight login's binding.
     expect(redis.del).not.toHaveBeenCalledWith(PENDING_KEY);
     expect(redis.kv.has(PENDING_KEY)).toBe(true);
   });
 
-  it("clear() swallows a Redis error (best-effort) — it never throws to the caller", async () => {
-    const { store } = setup({ redis: { delThrows: true } });
+  it("clear() swallows a write error (best-effort) — it never throws to the caller", async () => {
+    const { store } = setup({ admins: { writeThrows: true } });
     await expect(store.clear(ADMIN_ID)).resolves.toBeUndefined();
   });
 
-  it("clear() swallows a client connection failure too (best-effort)", async () => {
-    const { store } = setup({ clientThrows: true });
+  it("clear() does not depend on Redis at all (the seed is in the column)", async () => {
+    // ADR-0038 — this used to script a Redis client failure. After the move `clear()` never
+    // resolves the client, so the assertion passed trivially AND the rejected promise
+    // leaked as an unhandled rejection. What is worth pinning now is the property that
+    // replaced it: an admin reset works even when Redis is completely unavailable.
+    const { store, admins } = setup({ clientThrows: true });
+    await store.save(ADMIN_ID, SECRET);
     await expect(store.clear(ADMIN_ID)).resolves.toBeUndefined();
+    expect(admins.column()).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
 // No-secret-leak regression across the WHOLE lifecycle (save→load→mark→consume→clear).
 // ---------------------------------------------------------------------------
-describe("AdminMfaSecretStore — no plaintext secret in Redis at any lifecycle point", () => {
-  it("at no point does the raw secret appear as a stored Redis value", async () => {
-    const { store, redis } = setup();
+describe("AdminMfaSecretStore — no plaintext seed in ANY store at any lifecycle point", () => {
+  it("neither Redis nor the column ever holds the raw seed", async () => {
+    const { store, redis, admins } = setup();
     await store.save(ADMIN_ID, SECRET);
     await store.markOtpPassed(ADMIN_ID);
     await store.consumeOtpPending(ADMIN_ID);
 
-    // Every value ever written to the KV must be free of the plaintext secret.
+    // Every value ever written to the KV must be free of the plaintext seed.
     for (const value of redis.kv.values()) {
       expect(value).not.toContain(SECRET);
     }
+    // ...and so must the column, which is where the seed ACTUALLY lives now. Without this
+    // the sweep above is hollow: it scans a store the seed no longer passes through.
+    expect(admins.column()).not.toBeNull();
+    expect(admins.column()).not.toContain(SECRET);
     // And the secret round-trips correctly out the front door regardless.
     expect(await store.load(ADMIN_ID)).toBe(SECRET);
 

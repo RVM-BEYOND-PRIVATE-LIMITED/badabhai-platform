@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { AdminRepository } from "./admin.repository";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 
 interface RedisKvClient {
@@ -34,11 +35,9 @@ export class AdminMfaSecretStore {
   constructor(
     private readonly pii: PiiCryptoService,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
+    // ADR-0038 — the TOTP seed now lives in `admin_users.mfa_secret_enc`, not Redis.
+    private readonly admins: AdminRepository,
   ) {}
-
-  private static key(adminId: string): string {
-    return `admin_mfa_secret:${adminId}`;
-  }
 
   private static pendingKey(adminId: string): string {
     return `admin_mfa_pending:${adminId}`;
@@ -50,15 +49,13 @@ export class AdminMfaSecretStore {
 
   /** Persist a TOTP secret ENCRYPTED (overwrites any prior, e.g. a re-enroll). */
   async save(adminId: string, secret: string): Promise<void> {
-    const redis = await this.client();
-    await redis.set(AdminMfaSecretStore.key(adminId), this.pii.encrypt(secret));
+    await this.admins.setMfaSecret(adminId, this.pii.encrypt(secret));
   }
 
   /** Load + decrypt an admin's TOTP secret, or null if none/decrypt fails (fail-closed). */
   async load(adminId: string): Promise<string | null> {
     try {
-      const redis = await this.client();
-      const enc = await redis.get(AdminMfaSecretStore.key(adminId));
+      const enc = await this.admins.findMfaSecret(adminId);
       if (!enc) return null;
       return this.pii.decrypt(enc);
     } catch (err) {
@@ -76,8 +73,7 @@ export class AdminMfaSecretStore {
   /** Remove an admin's stored secret (e.g. on a reset). Best-effort. */
   async clear(adminId: string): Promise<void> {
     try {
-      const redis = await this.client();
-      await redis.del(AdminMfaSecretStore.key(adminId));
+      await this.admins.setMfaSecret(adminId, null);
     } catch {
       /* best-effort */
     }
