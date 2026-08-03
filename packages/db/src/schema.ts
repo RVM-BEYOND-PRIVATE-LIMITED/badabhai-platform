@@ -150,6 +150,20 @@ export const payers = pgTable(
     // Business display name — B2B PII; ciphertext at rest (no lookup hash needed).
     orgNameEnc: text("org_name_enc").notNull(), // AES ciphertext token
     status: text("status").$type<PayerStatus>().notNull().default("pending"),
+    /**
+     * The status a SUSPEND moved the payer OUT of, so REINSTATE can restore it
+     * (ADR-0037: "reinstate restores the previous usable state").
+     *
+     * Load-bearing, not bookkeeping. Suspend accepts BOTH `pending` and `active`;
+     * without this column reinstate would have to hardcode `→ active`, which is a
+     * BACKDOOR ACTIVATION: suspend a never-verified payer, reinstate, and they land
+     * active having never passed OTP — defeating the lifecycle it implements.
+     *
+     * NULL means "never suspended" (or suspended before this column existed);
+     * reinstate then falls back to `pending`, the fail-closed direction. Cleared on
+     * reinstate so it only ever describes the CURRENT suspension.
+     */
+    previousStatus: text("previous_status").$type<PayerStatus>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -53,6 +53,7 @@ function rowFor(id: string): Payer {
     phoneHash: null,
     orgNameEnc: "enc",
     status: "active",
+    previousStatus: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   } as Payer;
@@ -62,6 +63,11 @@ function rowFor(id: string): Payer {
 function makeRepo() {
   const rows: Record<string, Payer> = { [PAYER_A]: rowFor(PAYER_A), [PAYER_B]: rowFor(PAYER_B) };
   const findById = vi.fn(async (id: string) => rows[id]);
+  // ADR-0037 — the guard's per-request lifecycle read. Narrow {role,status} projection;
+  // undefined for an unknown id so the guard fails closed exactly as it does in prod.
+  const findAuthFacts = vi.fn(async (id: string) =>
+    rows[id] ? { role: rows[id]!.role, status: rows[id]!.status } : undefined,
+  );
   const decryptContact = vi.fn((row: Payer) => ({
     id: row.id,
     role: row.role,
@@ -70,7 +76,11 @@ function makeRepo() {
     orgName: `Org-${row.id.slice(0, 4)}`,
     phone: null,
   }));
-  return { repo: { findById, decryptContact } as unknown as PayersRepository, findById };
+  return {
+    repo: { findById, findAuthFacts, decryptContact } as unknown as PayersRepository,
+    findById,
+    findAuthFacts,
+  };
 }
 
 interface GuardReq {
@@ -161,14 +171,36 @@ describe("PayerAccountController — horizontal-authz / IDOR (ADR-0019 C / LC-1)
     await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it("a valid session whose payer row is gone → neutral 404 (no oracle)", async () => {
+  /**
+   * ADR-0037 moved this rejection EARLIER, from the service to the guard.
+   *
+   * Before, a session whose payer row had been deleted sailed through the guard (role
+   * resolved to `null`) and every handler had to re-litigate the missing principal; here
+   * that surfaced as the service's neutral 404. Now the guard's lifecycle read returns
+   * `undefined` and it fails closed with 401 — the route never executes at all.
+   *
+   * 401 is also the more truthful answer: a session referencing a payer that no longer
+   * exists is not an authenticated session. No oracle is created, because the only caller
+   * that can reach this is the holder of that session reading their OWN account — there is
+   * no other actor to enumerate.
+   */
+  it("a valid session whose payer row is gone → 401 at the GUARD (route never executes)", async () => {
     const guard = guardFor("99999999-9999-4999-8999-999999999999");
-    const { ctx, req } = makeGuardCtx("Bearer ghost.token");
-    await guard.canActivate(ctx);
+    const { ctx } = makeGuardCtx("Bearer ghost.token");
+    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
 
+  /**
+   * The service-level 404 is still the correct answer for a row that vanishes BETWEEN the
+   * guard's read and the handler's — a real race, just a much narrower one. Kept so that
+   * defence-in-depth is not silently dropped along with the test above.
+   */
+  it("still 404s neutrally if the row vanishes after the guard admitted the request", async () => {
     const { repo } = makeRepo(); // findById returns undefined for the unknown id
     const controller = new PayerAccountController(new PayerAccountService(repo, noopEvents()));
-    await expect(controller.me(currentPayerOf(req))).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      controller.me({ id: "99999999-9999-4999-8999-999999999999", sid: "s1", role: "employer" }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 
@@ -181,6 +213,7 @@ describe("PayerAccountController — own contact on GET /payer/me (PROF-1)", () 
     opts?: { decryptThrows?: boolean },
   ): PayerAccountController {
     const findById = vi.fn(async () => rowFor(PAYER_A));
+    const findAuthFacts = vi.fn(async () => ({ role: "employer" as const, status: "active" as const }));
     const decryptContact = vi.fn((): PayerContact => {
       if (opts?.decryptThrows) throw new Error("gcm auth failed");
       return {
@@ -192,7 +225,7 @@ describe("PayerAccountController — own contact on GET /payer/me (PROF-1)", () 
         phone: contact.phone ?? null,
       };
     });
-    const repo = { findById, decryptContact } as unknown as PayersRepository;
+    const repo = { findById, findAuthFacts, decryptContact } as unknown as PayersRepository;
     return new PayerAccountController(new PayerAccountService(repo, noopEvents()));
   }
 

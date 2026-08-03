@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
+import { PayersModule } from "../payers/payers.module";
 import { AdminRepository } from "./admin.repository";
 import { AdminSessionService } from "./admin-session.service";
 import { AdminOtpService } from "./admin-otp.service";
@@ -70,6 +71,10 @@ import { AdminKillSwitchController } from "./admin-kill-switch.controller";
   imports: [
     DatabaseModule,
     EventsModule,
+    // ADR-0037 — AdminActionsService needs PayerSessionService so suspending a payer
+    // revokes their live sessions immediately. PayersModule exports it. One-directional:
+    // PayersModule does not import AdminModule, so no forwardRef is needed.
+    PayersModule,
     // Reuse BullMQ's Redis connection (client only) for the admin session/OTP/MFA-secret stores.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
     // The admin session is signed with ITS OWN secret — distinct from the worker/payer JWT.

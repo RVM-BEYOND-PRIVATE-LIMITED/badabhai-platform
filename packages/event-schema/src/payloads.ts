@@ -1499,6 +1499,44 @@ export const PayerCreatedPayload = z.object({
 export type PayerCreatedPayload = z.infer<typeof PayerCreatedPayload>;
 
 /**
+ * The payer lifecycle statuses, as they appear on the spine (ADR-0037).
+ *
+ * A CLOSED enum, and admissible under invariant #2: a lifecycle status is a bounded
+ * system value, not PII — unlike the payer's email/org-name/phone, which stay encrypted
+ * in `payers` and never reach an event. Mirrors `PayerStatus` in packages/db.
+ */
+export const PayerStatusEnum = z.enum(["pending", "active", "suspended"]);
+export type PayerStatusEnum = z.infer<typeof PayerStatusEnum>;
+
+/**
+ * A payer lifecycle transition (ADR-0037) — `payer.activated` / `payer.suspended` /
+ * `payer.reinstated`.
+ *
+ * Carries BOTH ends of the transition, which is the point: "audit every state transition"
+ * is unmet by an event that records only that something happened. `previous_status` is
+ * what makes a reinstate auditable (it says what the payer was restored TO) and what makes
+ * a suspend-from-`pending` distinguishable from a suspend-from-`active` after the fact.
+ *
+ * FACELESS: the opaque `payer_id` plus two closed enum values. Deliberately NO reason,
+ * NO actor detail beyond the envelope's own actor, and NO admin email — the admin action
+ * itself is separately recorded by the value-free `admin.action_performed`, and the reason
+ * lives on the system-of-record, not the spine.
+ */
+export const PayerLifecycleTransitionPayload = z
+  .object({
+    payer_id: uuidSchema,
+    previous_status: PayerStatusEnum,
+    new_status: PayerStatusEnum,
+  })
+  // `.strict()` is the STRUCTURAL backstop for the value-free rule, mirroring
+  // `AdminActionPerformedPayload`. Without it an extra key is silently STRIPPED rather
+  // than rejected, so a caller that started attaching a free-text `reason` (the obvious
+  // way a name/email/phone reaches the spine) would look like it was working. Strict
+  // makes that a validation failure at the boundary instead of a silent PII channel.
+  .strict();
+export type PayerLifecycleTransitionPayload = z.infer<typeof PayerLifecycleTransitionPayload>;
+
+/**
  * A login code was issued for an EXISTING payer account (the no-account branch emits
  * nothing — the HTTP response is identical either way, so this asymmetry is not a
  * caller-observable enumeration oracle; XB-H). Resolved `payer_id` + method only —

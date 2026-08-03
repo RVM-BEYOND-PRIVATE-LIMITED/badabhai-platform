@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
@@ -145,6 +146,34 @@ export class PayerAuthService {
     // BEFORE B5.2 shipped has none, and is repaired here on first login. Idempotent, fail-safe.
     if (!(await this.orgs.resolveOrgForPayer(account.id))) {
       await this.orgs.ensureSoloOrg(account.id);
+    }
+
+    // ADR-0037 — a SUSPENDED payer proves mailbox control but gets no session.
+    //
+    // The 403 is deliberately DISTINCT from the 401 an unknown/expired code returns, and
+    // that costs no enumeration: to reach this line the caller has already presented a
+    // valid single-use code for a real account, so they have proven both that the account
+    // exists and that they control its mailbox. There is no oracle left to protect — and
+    // TD110 records what the alternative costs: payer login was down end-to-end and stayed
+    // invisible precisely because the client collapses every verify failure into one
+    // neutral message. A suspended payer must be able to learn WHY.
+    if (account.status === "suspended") {
+      throw new ForbiddenException("Account is suspended");
+    }
+
+    // First successful verification promotes the payer to `active`. The pending→active
+    // predicate lives in the WHERE clause (see PayersRepository.activate), so this is
+    // idempotent on every later login and structurally cannot resurrect a suspended row.
+    // The event fires ONLY on the transition, so it marks first-verification exactly once.
+    if (await this.payers.activate(account.id)) {
+      await this.events.emit({
+        event_name: "payer.activated",
+        actor: { actor_type: "payer", actor_id: account.id },
+        subject: { subject_type: "payer", subject_id: account.id },
+        payload: { payer_id: account.id, previous_status: "pending", new_status: "active" },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
     }
 
     // Carry the role onto the session (ADR-0022) so PayerRoleGuard gates agent-only routes
