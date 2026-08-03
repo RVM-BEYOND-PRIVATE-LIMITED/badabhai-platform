@@ -68,6 +68,12 @@ compiles and tests pass. If a task requires breaking one, **stop and escalate** 
    [`apps/ai-service/app/contracts.py`](apps/ai-service/app/contracts.py).
 8. **Backward compatibility.** Never mutate a shipped event payload schema or drop a DB
    column in use — version it (the `bb-database-design` + `migration` skills).
+9. **Frontend code never compensates for backend inconsistencies.** (Owner, 2026-08-03 —
+   platform-wide.) Every backend defect is corrected **at its source**. UI may present errors
+   gracefully; it must **not** carry business logic that masks a server-side flaw, nor
+   re-implement a server authority (authorization tables, pricing, eligibility) as a second
+   copy. A UI workaround hides the defect from everyone else who will hit it. Found one
+   mid-build? Document it with reproducible evidence and hand it back.
 
 ---
 

@@ -262,6 +262,44 @@ services:
     volumes:
       - ./infra/docker/proxy-harness/nginx.conf:/etc/nginx/nginx.conf:ro
 
+  # ---- Optional: local mail catcher (ADR-0038 — makes the admin login gate runnable) ----
+  # NOT started by `docker compose up` / `pnpm db:up` — profile-gated, like api/ai-service.
+  #
+  #   pnpm mail:up          # start it
+  #   open http://localhost:8025            # read every message the API sends
+  #
+  # WHY THIS EXISTS. `EMAIL_PROVIDER` is REAL-ONLY: zeptomail | smtp | auto, with no mock
+  # or console arm anywhere (packages/config/src/server.ts). That is the right default —
+  # a console-printing email channel is one env var away from being a production account
+  # takeover. But it left the ADR-0038 admin login with NO local path at all: the admin
+  # one-time code is delivered by email and by nothing else, so without a transport the
+  # foundation-verification gate cannot even be attempted. Setting
+  # `PAYER_LOGIN_METHOD=whatsapp` (as the api service above does) only dodges the BOOT
+  # guard — the admin send still fails, opaquely, at delivery time.
+  #
+  # Mailpit is a real SMTP server. The API takes its ordinary `EMAIL_PROVIDER=smtp` path,
+  # nodemailer really connects, and the message is really delivered — it is just delivered
+  # HERE instead of to the internet. So the thing being verified is the production code
+  # path, not a test double.
+  #
+  # NOT sandbox mode: ZEPTOMAIL_SANDBOX_MODE exercises the full request but deliberately
+  # does NOT deliver, so there is no message to read the code out of.
+  #
+  # DEV ONLY. It accepts anything, authenticates nobody and stores mail in memory. Both
+  # ports are LOOPBACK-bound (CD-1a): an inbox holding one-time login codes must never be
+  # reachable off the box.
+  mailpit:
+    profiles: ["mail", "api"]
+    image: axllent/mailpit:v1.21
+    container_name: badabhai-mailpit
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP  — point SMTP_HOST/SMTP_PORT here
+      - "127.0.0.1:8025:8025" # web UI — read the delivered code
+
 volumes:
   badabhai_pgdata:
   badabhai_redisdata:

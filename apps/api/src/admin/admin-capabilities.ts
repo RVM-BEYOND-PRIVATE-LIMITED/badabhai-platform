@@ -57,3 +57,25 @@ export function can(role: AdminRole | null | undefined, capability: AdminCapabil
   const allowed = ADMIN_CAPABILITY_MATRIX[capability];
   return allowed !== undefined && allowed.includes(role);
 }
+
+/**
+ * Every capability `role` holds — the server-resolved answer that `GET /admin/me` returns.
+ *
+ * WHY THIS EXISTS. The Admin Portal (ADMIN-4..8) has to render role-aware UI: hide the
+ * suspend button from an analyst, hide reveal-contact from an ops_admin. The matrix lives
+ * HERE, inside `apps/api` — a sibling app cannot import it. Without this the portal's only
+ * options were to hardcode the role lists in the frontend or to guess, and a second copy of
+ * an authorization table drifts the first time a row changes. So the server answers instead.
+ *
+ * DERIVED VIA {@link can}, deliberately — not by reading the matrix a second way. The guard
+ * decides with `can`; this list is the same function over the same capability set, so what
+ * the UI shows and what the server permits CANNOT disagree. Reimplementing the lookup here
+ * would reintroduce exactly the drift this is meant to remove.
+ *
+ * This is a CONVENIENCE, never the enforcement. The server checks every request against
+ * `@RequireAdminRole` regardless of what the client believes it may do; a client that forges
+ * a longer list gets 403s, not access. Hiding a control the user cannot use is a UX act.
+ */
+export function capabilitiesFor(role: AdminRole | null | undefined): AdminCapability[] {
+  return ADMIN_CAPABILITIES.filter((capability) => can(role, capability));
+}

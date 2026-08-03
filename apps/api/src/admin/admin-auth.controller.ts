@@ -7,6 +7,7 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { AdminAuthGuard, CurrentAdmin, type AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminAuthService } from "./admin-auth.service";
+import { capabilitiesFor } from "./admin-capabilities";
 import {
   AdminLoginRequestSchema,
   AdminLoginVerifySchema,
@@ -96,11 +97,22 @@ export class AdminAuthController {
     await this.auth.logout(admin.id, admin.sid, ctx);
   }
 
-  /** The authenticated admin's own identity (PII-FREE: id + role only). */
+  /**
+   * The authenticated admin's own identity (PII-FREE: id, role, capabilities).
+   *
+   * `capabilities` is resolved SERVER-SIDE from the capability matrix so the Admin Portal can
+   * render role-aware UI without shipping its own copy of the authorization table. It is a
+   * rendering hint only — every route re-checks `@RequireAdminRole` on its own, so a client
+   * that ignores or forges this list gains nothing but 403s.
+   */
   @Get("me")
   @UseGuards(AdminAuthGuard)
   me(@CurrentAdmin() admin: AuthenticatedAdmin): AdminMeResponse {
-    return { admin_id: admin.id, role: admin.role };
+    return {
+      admin_id: admin.id,
+      role: admin.role,
+      capabilities: capabilitiesFor(admin.role),
+    };
   }
 
   /** Per-IP hourly cap on the public admin-auth endpoints (XB-H; fails closed on Redis down). */
