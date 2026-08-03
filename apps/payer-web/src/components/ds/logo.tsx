@@ -1,5 +1,5 @@
 /**
- * BadaBhai Design System — BadaBhaiLogo (brand mark + Baloo 2 wordmark).
+ * BadaBhai Design System — BadaBhaiLogo (brand mark + Anek display wordmark).
  *
  * SHARED (no "use client"): pure SVG + text, no hooks/handlers. The mark colors
  * resolve from design-system tokens via inline `style` (no raw hex), so the lockup

@@ -36,7 +36,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             and sync the theme-color meta, before paint + before hydration. No-op when an
             explicit paper/ink cookie already drove the SSR data-theme. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_NO_FOUC_SCRIPT }} />
-        {/* Baloo 2 (display) + Mukta (body/multilingual) — the BadaBhai type tokens
+        {/* Anek (display) + Roboto (body/multilingual) — the JUL31 type tokens
             (--font-display / --font-sans). Roboto Mono (--font-mono) is self-hosted via
             @font-face in src/styles/tokens.css. Devanagari+Latin for Hinglish/regional copy.
             Phosphor (`ph ph-*`) supplies the DS glyphs, always beside a text label.

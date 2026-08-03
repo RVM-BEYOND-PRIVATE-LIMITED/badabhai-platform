@@ -47,7 +47,7 @@ if(s){var mt=document.querySelector('meta[name="theme-color"]');if(mt){mt.setAtt
 
 /**
  * The CROSS-ORIGIN stylesheets the shell wants but must not BLOCK first paint on:
- * Google Fonts (Baloo 2 + Mukta) and the three Phosphor icon sheets.
+ * Google Fonts (Anek + Roboto) and the three Phosphor icon sheets.
  *
  * Measured on the public `/i/<code>` install page (`next start`, production build): these
  * four sheets were 4 of 6 render-blocking stylesheets, 250,748 B of CSS from two extra
@@ -61,7 +61,7 @@ if(s){var mt=document.querySelector('meta[name="theme-color"]');if(mt){mt.setAtt
  * 244 relative imports rewritten, on a shared integration branch. Recorded, not attempted.
  */
 export const ASYNC_STYLESHEETS: readonly string[] = [
-  "https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Mukta:wght@300;400;500;600;700;800&display=swap",
+  "https://fonts.googleapis.com/css2?family=Anek+Latin:wght@400;500;600;700;800&family=Anek+Devanagari:wght@400;500;600;700;800&family=Roboto:wght@300;400;500;700&display=swap",
   "https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css",
   "https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css",
   "https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css",

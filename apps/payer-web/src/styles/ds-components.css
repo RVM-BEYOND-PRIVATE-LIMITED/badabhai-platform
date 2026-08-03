@@ -333,6 +333,8 @@
 .bb-scrim--sheet { align-items: flex-end; padding: 0; }
 .bb-dialog {
   background: var(--surface-card); border-radius: var(--radius-xl);
+  /* JUL31 elevation 0: shadow token is `none`, so a hairline carries the separation. */
+  border: var(--border-hairline) solid var(--border-default);
   box-shadow: var(--shadow-xl); width: 100%; max-width: 440px;
   max-height: 90vh; overflow: auto;
   animation: bb-pop var(--duration-base) var(--ease-stamp);
@@ -357,6 +359,8 @@
   display: flex; gap: var(--space-3); align-items: flex-start;
   background: var(--surface-ink); color: var(--text-inverse);
   border-radius: var(--radius-md); padding: var(--space-3) var(--space-4);
+  /* JUL31 elevation 0: the dropped shadow becomes a hairline edge on the ink surface. */
+  border: var(--border-hairline) solid var(--surface-ink-2);
   box-shadow: var(--shadow-lg); max-width: 420px;
   animation: bb-pop var(--duration-base) var(--ease-out);
 }
@@ -538,3 +542,17 @@
 .bb-candidate__meta .ph { font-size: var(--text-sm); color: var(--text-faint); }
 .bb-candidate__action { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
 .bb-candidate__unlocked { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--success); }
+
+/* JUL31 contrast fix — `--text-on-brand` is deep-blue for the HALDI CTA (blue-on-yellow
+   is high-contrast). Non-haldi SOLID fills (success/danger/neutral/info + the red nav
+   badge + the dark user chat-play) need white text to stay AA on saturated/dark grounds. */
+.bb-btn--success,
+.bb-btn--danger,
+.bb-badge--solid.bb-badge--success,
+.bb-badge--solid.bb-badge--danger,
+.bb-badge--solid.bb-badge--neutral,
+.bb-badge--solid.bb-badge--info,
+.bb-bottomnav__badge,
+.bb-chat--user .bb-chat__play {
+  color: var(--text-inverse);
+}
