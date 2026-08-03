@@ -138,6 +138,21 @@ export class AdminActionsController {
     return this.service.changeAdminRole(admin.id, params.id, dto, ctx);
   }
 
+  /**
+   * Reset another admin's second factor (super_admin only). The recovery path for a lost
+   * TOTP device — without it, a lost phone is a permanent lockout.
+   */
+  @Post("admins/:id/mfa/reset")
+  @HttpCode(200)
+  @RequireAdminRole("manage_admins")
+  resetAdminMfa(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Param(new ZodValidationPipe(AdminTargetParamsSchema)) params: AdminTargetParamsDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.service.resetAdminMfa(admin.id, params.id, ctx);
+  }
+
   @Post("admins/:id/suspend")
   @HttpCode(200)
   @RequireAdminRole("manage_admins")
