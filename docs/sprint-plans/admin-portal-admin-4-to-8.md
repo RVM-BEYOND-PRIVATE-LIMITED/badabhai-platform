@@ -65,7 +65,7 @@ Raise each new read endpoint as a small backend PR. Do not widen an `InternalSer
 ## 3. Guardrails (non-negotiable)
 
 1. **Consume, don't redesign.** Reuse the controllers, services, guards, DTOs, events, audit and capability matrix. New backend = additive read endpoints only, each its own PR.
-2. **Role-aware UI must mirror `ADMIN_CAPABILITY_MATRIX`, never re-implement it.** Import the matrix; do not hardcode role lists in the frontend. The server is the authority — the UI hides what a role cannot do, it does not *enforce* it.
+2. **Role-aware UI renders from `GET /admin/me`'s `capabilities`, never from its own copy of the matrix.** `ADMIN_CAPABILITY_MATRIX` lives inside `apps/api` and cannot be imported by a sibling app, so the server resolves the list and hands it over (added 2026-08-03). Do not hardcode role lists in the frontend. The server is the authority — the UI hides what a role cannot do, it does not *enforce* it, and every route re-checks `@RequireAdminRole` regardless of what the client believes.
    - `reveal_pii` is **`support` + `super_admin` only** (ops_admin and analyst are denied).
    - `export` deliberately **excludes `support`** — the PII-reveal role must not also bulk-export.
    - `toggle_kill_switch` and `manage_admins` are **`super_admin` only**.
@@ -139,20 +139,62 @@ API · Permissions (each role, including the denied ones) · Audit · Events · 
 
 ---
 
-## 7. Explicitly NOT in this thread
+## 7. Thread split (owner, 2026-08-03 — backend is in MAINTENANCE MODE)
 
-These stay with the backend thread:
+**This thread owns:** `apps/admin-web` · admin auth UI · MFA enrolment UI · dashboard ·
+navigation · Workers · Companies · Agencies · Jobs · Finance · Credits · Events · Audit
+viewer · Reports · Configuration · responsive UX · accessibility · enterprise polish.
 
-- **OBS-4 ops cutover** — only after ADMIN-8 is verified.
-- **TD130** (auth timing equalization, P1) — after ADMIN-8, unless portal work naturally touches the auth flow.
-- **The 13-field audit record** / `audit_logs` writers (§2.1).
-- The final deliverables: Production Readiness, Security Validation, Architecture Consistency, Tech-Debt Register (P0/P1/P2), Roadmap v2, Operational Runbook, DR & Rollback Guide.
+**The backend thread retains:** OBS-4 cutover (after ADMIN-8 only) · TD130 · the 13-field
+audit record · production hardening · security improvements · ADR maintenance · tech-debt
+reduction · architecture consistency · repository health · final production readiness ·
+infrastructure. **No UI work happens there. No backend redesign happens here.**
+
+**The handback rule.** This thread must never work around backend behaviour. A backend
+issue found mid-build is documented with reproducible evidence — request, response, log
+line, step — and returned to the backend thread. That is invariant #9 in
+[CLAUDE.md](../../CLAUDE.md): *frontend code never compensates for backend inconsistencies.*
 
 ---
 
-## 8. First actions for the fresh thread
+## 8. Success criteria before OBS-4 (owner-set)
+
+The legacy ops console is retired only when **all sixteen** hold:
+
+Admin Portal feature-complete · backend API coverage complete · authentication verified ·
+RBAC verified · capability matrix verified · audit verified · events verified · finance
+verified · worker management verified · company management verified · agency management
+verified · responsive UX verified · accessibility verified · performance verified ·
+security review passed · production-readiness checklist complete.
+
+Until then `apps/web` keeps running untouched — that is what makes the cutover a traffic
+switch instead of a rewrite.
+
+---
+
+## 9. First actions for the fresh thread
 
 1. Read this file, [ADR-0025](../decisions/0025-admin-ops-portal.md) and [ADR-0038](../decisions/0038-admin-bootstrap-and-notification-layer.md).
-2. Run the bootstrap CLI against a local DB and complete a real login, including TOTP enrolment — **verify the foundation before building on it** rather than trusting this document. If it does not work, that is a backend-thread bug, not a portal workaround.
+2. **Run the mandatory foundation gate — before any React.**
+   [docs/admin-foundation-verification-runbook.md](../admin-foundation-verification-runbook.md)
+   walks the owner's 13 steps as executable commands on a database created from empty. Verify
+   the foundation rather than trusting this document. Any failure is a **backend defect**:
+   stop, file it with evidence, do not work around it.
 3. Scaffold `apps/admin-web` (decided — §6).
-4. Build Phase 1. It needs no backend work, so it is the cleanest possible proof that the foundation holds.
+4. Build Phase 1. It needs no backend work, so it is the cleanest possible proof that the
+   foundation holds.
+
+### Two gate defects were found and fixed before handoff (backend thread, 2026-08-03)
+
+Running the gate on paper surfaced two things that would each have cost this thread a day:
+
+- **`GET /admin/me` returned only `{admin_id, role}`** — no capabilities. `ADMIN_CAPABILITY_MATRIX`
+  lives inside `apps/api`, so a sibling app cannot import it, and the portal's only options
+  were to hardcode the role lists or guess. `/admin/me` now returns a server-resolved
+  `capabilities` array, derived through `can()` so it cannot drift from what the guards
+  enforce. **Render against this; never ship a second copy of the matrix.**
+- **There was no local email path at all.** `EMAIL_PROVIDER` is real-only by design, so admin
+  login codes had nowhere to go on a dev machine — and `PAYER_LOGIN_METHOD=whatsapp` only
+  dodges the boot guard, leaving the send to fail opaquely later. A profile-gated Mailpit
+  service (`pnpm mail:up`) now gives the real `EMAIL_PROVIDER=smtp` path a real local
+  destination.

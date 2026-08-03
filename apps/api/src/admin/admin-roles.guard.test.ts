@@ -9,6 +9,7 @@ import {
   ADMIN_CAPABILITIES,
   ADMIN_CAPABILITY_MATRIX,
   can,
+  capabilitiesFor,
   type AdminCapability,
 } from "./admin-capabilities";
 
@@ -182,5 +183,53 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     expect(can("support", "export")).toBe(false); // the reveal role must not also bulk-export
     expect(can("ops_admin", "reveal_pii")).toBe(false); // mutations role gets no PII
     expect(can("analyst", "export")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// capabilitiesFor — the list GET /admin/me hands the Admin Portal. It exists so the
+// frontend never carries a second copy of the matrix, which makes ONE property the thing
+// that matters: it must agree with the guard on every cell, forever.
+// ---------------------------------------------------------------------------
+describe("capabilitiesFor — what the UI is told matches what the server permits", () => {
+  const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
+
+  it("agrees with can() on ALL 36 cells — the UI can never show a control the guard denies", () => {
+    for (const role of ROLES) {
+      const granted = capabilitiesFor(role);
+      for (const cap of ADMIN_CAPABILITIES) {
+        // Both directions. Missing a capability hides a control the admin is entitled to;
+        // including one the guard denies renders a button that only ever 403s.
+        expect(granted.includes(cap)).toBe(can(role, cap));
+      }
+    }
+  });
+
+  it("fails CLOSED for a null/undefined role — no session, no capabilities", () => {
+    expect(capabilitiesFor(null)).toEqual([]);
+    expect(capabilitiesFor(undefined)).toEqual([]);
+  });
+
+  it("returns each role's exact ADR-0025 §3.1 grant", () => {
+    // Literal expectations: an assertion derived from the matrix would survive a matrix bug.
+    expect(capabilitiesFor("analyst")).toEqual(["read_events"]);
+    expect(capabilitiesFor("support")).toEqual(["read_events", "reveal_pii"]);
+    expect(capabilitiesFor("ops_admin")).toEqual([
+      "read_events",
+      "export",
+      "suspend_payer",
+      "grant_credits",
+      "force_close_posting",
+      "flag_worker",
+    ]);
+    // super_admin holds everything — the one role for which the list is the whole vocabulary.
+    expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);
+  });
+
+  it("no role but super_admin is handed a break-glass capability", () => {
+    for (const role of ["ops_admin", "support", "analyst"] as AdminRole[]) {
+      expect(capabilitiesFor(role)).not.toContain("toggle_kill_switch");
+      expect(capabilitiesFor(role)).not.toContain("manage_admins");
+    }
   });
 });
