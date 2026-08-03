@@ -34,14 +34,22 @@ export const RequireAdminRole = (capability: AdminCapability): MethodDecorator &
  * and reads the capability declared by {@link RequireAdminRole}; rejects (403) when the
  * authenticated admin's role is not permitted that capability per the single-source matrix.
  *
- * DENY-BY-DEFAULT + fail-closed:
- *   - NO `@RequireAdminRole` metadata on a route → NO-OP (returns true). A capability-gated
- *     route MUST declare one; an undeclared route is reachable by any authenticated admin
- *     (still behind AdminAuthGuard). The "every capability-gated route declares exactly one"
- *     property is asserted by the route-coverage test (must-fix #4).
+ * DENY-BY-DEFAULT + fail-closed, on EVERY branch:
+ *   - NO `@RequireAdminRole` metadata on a route → **403**. A route that mounts this guard and
+ *     declares no capability is a MISCONFIGURATION, and the safe reading of a missing
+ *     declaration is "nobody", not "everybody". This used to return true, which meant a single
+ *     forgotten decorator silently exposed a privileged route to all four roles — an open route
+ *     with a green test, because the route-coverage build-blocker (must-fix #4) enumerates by
+ *     module membership and cannot see a controller registered outside `AdminModule`.
+ *     There is deliberately **no opt-out decorator**: a route that legitimately needs no
+ *     capability must not mount this guard at all (that is what the three session routes —
+ *     `refresh`/`logout`/`me` — already do, using `AdminAuthGuard` alone).
  *   - `req.admin` absent → 401 (guards were misordered or auth skipped — fail closed).
  *   - the role is not allowed the capability (incl. an unknown/edge role) → 403. `can()` is
  *     deny-by-default, so an unlisted capability or role is denied, never defaulted.
+ *
+ * The 403 is deliberately indistinguishable from a real authz denial: a misconfigured route
+ * must not become an oracle that tells a caller the route exists but is unguarded.
  */
 @Injectable()
 export class AdminRolesGuard implements CanActivate {
@@ -53,8 +61,12 @@ export class AdminRolesGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
-    // No capability requirement declared on this route → the guard does nothing.
-    if (!capability) return true;
+    // No capability declared on a route that mounted this guard → MISCONFIGURATION → deny.
+    // Checked BEFORE req.admin so an unguarded-but-mounted route cannot be probed for the
+    // difference between "no session" (401) and "no capability declared" (403).
+    if (!capability) {
+      throw new ForbiddenException("Admin role is not permitted for this capability");
+    }
 
     const req = context.switchToHttp().getRequest<Request>();
     const admin = req.admin;

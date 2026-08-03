@@ -72,11 +72,46 @@ describe("AdminRolesGuard (ADR-0025 Decision 3 — deny-by-default)", () => {
     }
   });
 
-  it("NO-OP: a route with NO @RequireAdminRole metadata is not tightened (any admin passes)", () => {
-    expect(guard.canActivate(makeCtx({ admin: admin("analyst") }))).toBe(true);
+  // -------------------------------------------------------------------------
+  // REGRESSION: a route that mounts this guard and forgets @RequireAdminRole used to
+  // return true, exposing a privileged route to all four roles. It must now DENY.
+  // -------------------------------------------------------------------------
+  it("DENIES (403) a route with NO @RequireAdminRole metadata — for EVERY role, incl. super_admin", () => {
+    for (const role of ["super_admin", "ops_admin", "support", "analyst"] as const) {
+      expect(() => guard.canActivate(makeCtx({ admin: admin(role) }))).toThrow(ForbiddenException);
+    }
   });
 
-  it("REJECTS (401) when req.admin is absent (guards misordered / auth skipped — fail closed)", () => {
+  it("the undeclared-capability denial is INDISTINGUISHABLE from a real authz denial (no oracle)", () => {
+    // Same exception type and same message, so a caller cannot tell a misconfigured route
+    // from one they simply lack the capability for.
+    const undeclared = (() => {
+      try {
+        guard.canActivate(makeCtx({ admin: admin("analyst") }));
+      } catch (e) {
+        return e as ForbiddenException;
+      }
+    })();
+    const denied = (() => {
+      try {
+        guard.canActivate(makeCtx({ capability: "manage_admins", admin: admin("analyst") }));
+      } catch (e) {
+        return e as ForbiddenException;
+      }
+    })();
+    expect(undeclared).toBeInstanceOf(ForbiddenException);
+    expect(denied).toBeInstanceOf(ForbiddenException);
+    expect(undeclared!.getStatus()).toBe(denied!.getStatus());
+    expect(undeclared!.message).toBe(denied!.message);
+  });
+
+  it("DENIES an undeclared route even when req.admin is absent (403 before the 401 branch)", () => {
+    // The misconfiguration check runs first, so an unauthenticated probe of a mounted-but-
+    // undeclared route learns nothing about whether the route declares a capability.
+    expect(() => guard.canActivate(makeCtx({ admin: undefined }))).toThrow(ForbiddenException);
+  });
+
+  it("REJECTS (401) when req.admin is absent on a DECLARED route (guards misordered — fail closed)", () => {
     expect(() => guard.canActivate(makeCtx({ capability: "read_events", admin: undefined }))).toThrow(
       UnauthorizedException,
     );
