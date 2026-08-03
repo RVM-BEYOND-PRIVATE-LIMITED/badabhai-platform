@@ -1574,6 +1574,27 @@ export const PayerInventoryTransitionPayload = z
 export type PayerInventoryTransitionPayload = z.infer<typeof PayerInventoryTransitionPayload>;
 
 /**
+ * A login code was RESERVED but deliberately NOT DELIVERED (ADR-0037 Decision 5) —
+ * `payer.otp_suppressed`.
+ *
+ * This is the security/audit record for a login attempt on a suspended account. It is the
+ * ONLY place that attempt is visible: the HTTP response is deliberately identical to a
+ * normal one (no enumeration), and no `payer.login_requested` is emitted, because no login
+ * code was actually sent — counting it as one would overstate the login funnel and hide
+ * repeated probing of a banned account behind ordinary traffic.
+ *
+ * `reason` is a CLOSED enum, never free text. A free-text reason on an auth event is
+ * exactly how an operator note naming a person reaches the spine.
+ */
+export const PayerOtpSuppressedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    reason: z.enum(["account_suspended"]),
+  })
+  .strict();
+export type PayerOtpSuppressedPayload = z.infer<typeof PayerOtpSuppressedPayload>;
+
+/**
  * A login code was issued for an EXISTING payer account (the no-account branch emits
  * nothing — the HTTP response is identical either way, so this asymmetry is not a
  * caller-observable enumeration oracle; XB-H). Resolved `payer_id` + method only —

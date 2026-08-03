@@ -230,6 +230,42 @@ export class PayerAuthService {
     emitRequested: boolean,
   ): Promise<PayerOtpIssued> {
     const row = await this.payers.findById(payerId);
+
+    // ADR-0037 Decision 5 — RESERVE but do NOT DELIVER for a suspended account.
+    //
+    // Placed HERE, not in `requestLogin`, because this helper is the single chokepoint both
+    // doors go through: signup also lands here (an existing email `createOrGet`s back to the
+    // same account), so a suspended payer could otherwise re-trigger delivery just by
+    // "signing up" again. One check covers both.
+    //
+    // Reached BEFORE `decryptContact`: there is no reason to decrypt three PII fields for a
+    // message that will never be sent.
+    //
+    // The reserve is the SAME call the unknown-email branch makes, so the per-account
+    // cooldown, the hourly cap and the GLOBAL daily send breaker all still run and still
+    // produce the same 429s. Only the ZeptoMail send is skipped — the platform stops paying
+    // to mail an account it has banned, and a suspended account cannot be used to burn the
+    // shared daily send ceiling.
+    //
+    // The HTTP response is byte-identical to the normal one; the attempt is recorded ONLY on
+    // the spine, which is what makes repeated probing of a banned account visible to ops
+    // without being visible to the caller.
+    if (row?.status === "suspended") {
+      const issued = await this.otp.issueWithoutDelivery(this.emailHash(email));
+      // Emitted INSTEAD of `payer.login_requested`, not alongside it: no login code was
+      // delivered, so counting one would overstate the login funnel and would bury repeated
+      // probing of a banned account inside ordinary traffic.
+      await this.events.emit({
+        event_name: "payer.otp_suppressed",
+        actor: { actor_type: "payer", actor_id: payerId },
+        subject: { subject_type: "payer", subject_id: payerId },
+        payload: { payer_id: payerId, reason: "account_suspended" },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+      return issued;
+    }
+
     const contact = row ? this.payers.decryptContact(row) : null;
 
     let issued: PayerOtpIssued;
