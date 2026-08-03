@@ -120,7 +120,14 @@ No module is complete until all of these pass — the same bar the backend threa
 
 API · Permissions (each role, including the denied ones) · Audit · Events · Pagination · Search · Filters · Responsive · Accessibility · Performance · Error states · Loading states · Security.
 
-**Evidence, not assertion.** A passing test counts only after it has been seen to fail — mutate the guard check, the capability lookup and the empty/error branch, and confirm each is caught. The backend thread ran 26 + 17 mutations this way; the same standard applies here.
+**Evidence, not assertion.** A passing test counts only after it has been seen to fail — mutate the guard check, the capability lookup and the empty/error branch, and confirm each is caught. The backend thread ran 49 mutations this way across the ADR-0037/0038 series; the same standard applies here. Report any mutation that **survived** rather than presenting a clean sheet.
+
+**The workstream is not done when the modules are.** ADMIN-4..8 completes against the
+ten-point **Definition of DONE** in [CLAUDE.md §6](../../CLAUDE.md) — architectural +
+security verification, mutation testing, **clean-environment verification** (invariant
+#10: the portal must come up from an empty database via the runbook, not a long-lived dev
+one), DR verification, operational runbook, rollback procedure, performance validation,
+documentation, production-readiness checklist.
 
 ---
 
