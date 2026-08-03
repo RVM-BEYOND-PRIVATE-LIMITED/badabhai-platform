@@ -44,6 +44,7 @@
     "db:convert:seed-jobs": "tsx src/convert-seed-jobs.ts",
     "db:materialize:reach": "tsx src/materialize-job-reach.ts",
     "db:grant:free-tier": "tsx src/grant-free-tier.ts",
+    "db:bootstrap:admin": "tsx src/bootstrap-admin.ts",
     "db:verify:match-v1": "tsx src/verify-match-v1.ts",
     "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
   },

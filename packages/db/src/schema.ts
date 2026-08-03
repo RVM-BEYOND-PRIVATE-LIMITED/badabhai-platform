@@ -2122,10 +2122,32 @@ export const adminUsers = pgTable(
     // login key (login finds the row without decrypting).
     emailEnc: text("email_enc").notNull(), // AES-256-GCM ciphertext token
     emailHash: text("email_hash").notNull(), // keyed HMAC-SHA256 (login lookup/dedup)
+    // Admin's display name. ADMIN-class PII, so it gets the SAME at-rest discipline as the
+    // email (ADR-0004): AES-256-GCM ciphertext, never a plaintext column. NULLABLE, because
+    // every admin created before this column existed has none and the invite flow does not
+    // collect one — a NOT NULL would have needed a fabricated backfill value.
+    //
+    // Deliberately NOT hashed: unlike the email it is never a lookup key, so there is no
+    // reason to make it searchable, and a hash would only invite someone to try.
+    nameEnc: text("name_enc"),
     role: text("role").$type<AdminRole>().notNull(),
     // Invite-then-activate (ADR-0025 OQ-2): default 'pending'. Only 'active' may auth.
     status: text("status").$type<AdminStatus>().notNull().default("pending"),
     mfaEnrolled: boolean("mfa_enrolled").notNull().default(false),
+    // The admin's TOTP secret, AES-256-GCM at rest (ADR-0038).
+    //
+    // MOVED HERE FROM REDIS, which is where `AdminMfaSecretStore` originally put it — its
+    // own docstring records that as a deviation forced by "no migration in ADMIN-1 scope"
+    // and asks for exactly this column. It is not cosmetic: the Redis key carried NO TTL and
+    // no persistence guarantee, so a flush or an eviction permanently locked out every
+    // enrolled admin, with no recovery path at all because the secret is shown once and
+    // never returned again. Done now because zero admins are enrolled (none can log in yet),
+    // so the move costs nothing; after the portal ships it would need a re-enrolment drill.
+    //
+    // NEVER logged, never evented, never returned by any read except the one-time
+    // enrolment response. The short-lived `admin_mfa_pending:<id>` flag stays in Redis —
+    // that one is genuinely ephemeral and TTL-bounded by design.
+    mfaSecretEnc: text("mfa_secret_enc"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
