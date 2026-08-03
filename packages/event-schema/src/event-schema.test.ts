@@ -2436,8 +2436,8 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 144 event names (139 prior + ADR-0037 lifecycle three + inventory two)", () => {
-    expect(EVENT_NAMES).toHaveLength(144);
+  it("exposes all 145 event names (139 prior + the six ADR-0037 payer events)", () => {
+    expect(EVENT_NAMES).toHaveLength(145);
     // ADR-0037 — the payer lifecycle transitions.
     expect(isEventName("payer.activated")).toBe(true);
     expect(isEventName("payer.suspended")).toBe(true);
@@ -2446,6 +2446,9 @@ describe("registry", () => {
     // freeze because the two are different state changes and either can move zero rows.
     expect(isEventName("payer.inventory_suspended")).toBe(true);
     expect(isEventName("payer.inventory_reinstated")).toBe(true);
+    // ADR-0037 Decision 5 — the ONLY record of a login attempt on a suspended account
+    // (the HTTP response is deliberately neutral).
+    expect(isEventName("payer.otp_suppressed")).toBe(true);
     // B4 RESOLVER (migration 0060): the referral_links primitive's three events.
     expect(isEventName("referral.link_created")).toBe(true);
     expect(isEventName("referral.link_clicked")).toBe(true);

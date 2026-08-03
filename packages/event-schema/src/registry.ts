@@ -424,6 +424,10 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerInventoryTransitionPayload,
   },
+  // ADR-0037 Decision 5 — a login code was reserved for a SUSPENDED account but not sent.
+  // The only record of that attempt: the HTTP response stays neutral by design, and no
+  // `payer.login_requested` is emitted because no code was actually delivered. v1.
+  "payer.otp_suppressed": { version: 1, domain: "payer", payload: p.PayerOtpSuppressedPayload },
   // A payer self-edited their own account on PATCH /payer/me (PROF-3). FACELESS:
   // opaque payer_id + the changed field KEYS (subset of {org_name, phone}) ONLY —
   // never the new org-name/phone VALUES (B-R2 PII lives encrypted in `payers`). v1.

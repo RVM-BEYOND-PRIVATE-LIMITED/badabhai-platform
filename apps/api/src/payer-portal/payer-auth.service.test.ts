@@ -381,3 +381,93 @@ describe("PayerAuthService.verifyLogin — lifecycle (ADR-0037)", () => {
     expect(started).toHaveLength(0);
   });
 });
+
+describe("PayerAuthService — OTP suppression for a suspended account (ADR-0037 Decision 5)", () => {
+  /** Re-point both lookups at a SUSPENDED account. */
+  function suspended(d: ReturnType<typeof setup>) {
+    const row = { id: PAYER_ID, role: "employer", status: "suspended" } as never;
+    d.payers.findByEmail.mockResolvedValue(row);
+    d.payers.findById.mockResolvedValue(row);
+    return d;
+  }
+
+  it("reserves the code but NEVER delivers it", async () => {
+    const d = suspended(setup());
+    await d.svc.requestLogin({ email: EMAIL } as never, CTX);
+
+    // The reserve still runs — so the cooldown, the hourly cap and the GLOBAL daily send
+    // breaker all still apply and still produce the same 429s a normal request would.
+    expect(d.otp.issueWithoutDelivery).toHaveBeenCalledTimes(1);
+    // ...but nothing is mailed. This is the whole point: no spend on a banned account.
+    expect(d.otp.issueAndSend).not.toHaveBeenCalled();
+  });
+
+  it("returns the SAME body as an active account (no enumeration through the response)", async () => {
+    const active = await setup().svc.requestLogin({ email: EMAIL } as never, CTX);
+    const banned = await suspended(setup()).svc.requestLogin({ email: EMAIL } as never, CTX);
+    expect(banned).toEqual(active);
+  });
+
+  it("records the attempt on the spine as the ONLY trace, and not as a login", async () => {
+    const d = suspended(setup());
+    await d.svc.requestLogin({ email: EMAIL } as never, CTX);
+
+    const names = d.events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).toEqual(["payer.otp_suppressed"]);
+    // NOT also payer.login_requested: no code was delivered, so counting it as a login
+    // would overstate the funnel and bury repeated probing of a banned account.
+    expect(names).not.toContain("payer.login_requested");
+
+    const evt = d.events.emit.mock.calls[0]![0] as { payload: Record<string, unknown> };
+    expect(evt.payload).toEqual({ payer_id: PAYER_ID, reason: "account_suspended" });
+  });
+
+  it("suppresses on the SIGNUP door too (an existing email resolves to the same account)", async () => {
+    // The hole this closes: signup on an already-registered email `createOrGet`s back to
+    // the SAME payer, so without a shared chokepoint a suspended payer could re-trigger
+    // delivery just by "signing up" again.
+    const d = suspended(setup());
+    d.payers.createOrGet.mockResolvedValue({ id: PAYER_ID, created: false });
+
+    await d.svc.signup({ email: EMAIL, role: "employer", org_name: ORG } as never, CTX);
+
+    expect(d.otp.issueAndSend).not.toHaveBeenCalled();
+    expect(d.otp.issueWithoutDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it("never decrypts contact PII for a message it will not send", async () => {
+    const d = suspended(setup());
+    await d.svc.requestLogin({ email: EMAIL } as never, CTX);
+    expect(d.payers.decryptContact).not.toHaveBeenCalled();
+    assertNoPiiInEvents(d.events);
+  });
+
+  it("emits an event that VALIDATES against the registry", async () => {
+    const d = suspended(setup());
+    await d.svc.requestLogin({ email: EMAIL } as never, CTX);
+    const emitted = d.events.emit.mock.calls[0]![0] as { payload: Record<string, unknown> };
+    const result = validateEvent({
+      event_id: "55555555-5555-4555-8555-555555555555",
+      event_name: "payer.otp_suppressed",
+      event_version: 1,
+      occurred_at: "2026-08-03T00:00:00.000Z",
+      actor: { actor_type: "payer", actor_id: PAYER_ID },
+      subject: { subject_type: "payer", subject_id: PAYER_ID },
+      source: "api",
+      correlation_id: CTX.correlationId,
+      causation_id: null,
+      payload: emitted.payload,
+      metadata: { environment: "test", service: "api" },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("an ACTIVE account is unaffected — it still gets a real delivery", async () => {
+    // The control. Without it, a mutation that suppressed EVERY send would pass every
+    // assertion above while silently taking payer login down for the whole platform.
+    const d = setup();
+    await d.svc.requestLogin({ email: EMAIL } as never, CTX);
+    expect(d.otp.issueAndSend).toHaveBeenCalledTimes(1);
+    expect(d.otp.issueWithoutDelivery).not.toHaveBeenCalled();
+  });
+});
