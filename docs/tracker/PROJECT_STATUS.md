@@ -1,8 +1,8 @@
 # BadaBhai Project Progress
 
-**Last updated:** 2026-08-01 — **PR #526 merged** (Matching V1 / ADR-0036 + B5 agency slice + canary closure). Prior verification state unchanged: **B1 worker capstone verified (Divyanshu)** · **swipe handset verified (Prakash)** · payer company/agency **IN_PROGRESS** (OTP working)
-**Updated by:** Divyanshu Pant (verification sign-off, 2026-07-25) + tracker sync (2026-08-01, #526 merge)
-**Branch:** `origin/main` (HEAD: `f28279f`, 2026-08-01) — branch protection ENABLED 2026-08-01 (`ci-required` + 1 review, force-push/deletion blocked, `enforce_admins` off)
+**Last updated:** 2026-08-03 — **#553–#566 merged**: ADR-0037 (payer lifecycle + suspension) and ADR-0038 (admin bootstrap + one email pipeline + MFA recovery). **Backend thread now FEATURE-FROZEN**; Admin Portal (`apps/admin-web`, ADMIN-4..8) is the critical path. Prior verification state unchanged: **B1 worker capstone verified (Divyanshu)** · **swipe handset verified (Prakash)** · payer company/agency **IN_PROGRESS** (OTP working)
+**Updated by:** Divyanshu Pant (verification sign-off, 2026-07-25) + tracker sync (2026-08-01, #526) + tracker sync (2026-08-03, #553–#566)
+**Branch:** `origin/main` (HEAD: `31b5c2d2`, 2026-08-03) — branch protection ENABLED 2026-08-01 (`ci-required` + 1 review, force-push/deletion blocked, `enforce_admins` off; **every 2026-08-03 merge used the owner's `--admin` bypass — TD132**)
 **Environment:** **Staging LIVE since 2026-07-18** (`0042`+`0043` applied, R27 triaged, **real OTP via Fast2SMS**). Worker B1 + swipe verified 2026-07-25 per [QA_EVIDENCE](QA_EVIDENCE.md). ⚠️ **`docs/qa/evidence/staging/` still empty** — team attestation, not captured files (P2, [BLOCKERS.md](BLOCKERS.md)).
 
 > **Numbers are evidence-based and conservative.** Cap rule: **no area exceeds 85%** until staging + handset proof exists. Phase weights = CLAUDE.md/owner defaults.

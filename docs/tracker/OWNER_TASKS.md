@@ -11,6 +11,30 @@ Do not overload: one primary task per developer per day.
 
 ---
 
+## 2026-08-03 — backend FEATURE-FROZEN; Admin Portal is the critical path
+
+> **State:** `main` @ `31b5c2d2` (#553–#566 merged, 0 open PRs). **64 migrations (0000–0063)** —
+> **`0062` + `0063` APPLIED successfully 2026-08-03 (Prakash).** **38 ADRs** (0037 payer lifecycle +
+> suspension, 0038 admin bootstrap + notification layer). Full detail: [DAILY_TRACKER.md](DAILY_TRACKER.md) top entry.
+
+| # | Owner | Task | Why it is theirs |
+| - | ----- | ---- | ---------------- |
+| 1 | ~~Apply `0062` + `0063`~~ | ✅ **DONE 2026-08-03 (Prakash)** — job-posting `suspended` + `previous_status`, and admin `name_enc` + `mfa_secret_enc`. The ADR-0037/0038 code paths now have their columns. | — |
+| 2 | **Prakash** | **Run the [13-step foundation gate](../admin-foundation-verification-runbook.md) on a clean environment** (`docker compose down -v` → migrate → `pnpm mail:up` → bootstrap CLI → full login incl. TOTP → refresh/logout/re-login → events → capabilities). **Do not start Admin Portal UI until it passes unchanged.** | Invariant #10: the foundation is not proven until it reproduces from an empty DB. A failure here is a backend defect, not a UI workaround. |
+| 3 | **Prakash** | **Bootstrap the first real super_admin** on staging — `--email` is an argument, never a constant. **Break-glass hygiene:** do not run where stdout is centrally logged; the TOTP seed prints once. Recovery for a lost device: [ADR-0038 §4](../decisions/0038-admin-bootstrap-and-notification-layer.md). | Only the owner should hold the first super_admin credential. |
+| 4 | **Divyanshu** | **TD131 — make SAST deterministic.** Pin semgrep + its rulesets (vendor or digest-pin), make the scan reproducible locally with CI's exact command, document an update cadence, then clear or accept the 26 standing findings. | An always-red check trains the team to stop reading it. Owner-classified as repo infrastructure. |
+| 5 | **Rishi** | Continue worker-app / payer-app work in its own thread. **No Admin Portal work** — that is a separate thread on `apps/admin-web`. | Thread separation (owner, 2026-08-03). |
+
+**Decisions the owner already made this session** (no further input needed): suspended payers'
+jobs go to a system `suspended` state and are restored via `previous_status` · OTP is suppressed
+for suspended accounts with an identical response · a captured Razorpay payment from a suspended
+payer is **accepted and credited**, with a Finance alert · the first super_admin comes from a CLI,
+never a hardcoded email · `apps/admin-web` is a **separate app**, not an extension of `apps/web` ·
+`InternalServiceGuard` routes are **not** widened for the portal · shared React UI is extracted on
+the **second** consumer, with `design-tokens` the early exception.
+
+---
+
 ## 2026-07-23 — agency KYC gate + payout ledger + earnings shipped (mock + gated)
 
 > **State:** `main` @ `ed3c872` (#508, 0 open PRs). **49 migrations** (0000–0048; **0048 —
