@@ -146,11 +146,23 @@ export const OPS_ROUTES = [
   ["POST", "/actions/batch", {}],
 ];
 
-/** Routes that must reject an UNAUTHENTICATED caller but are not ops-token routes. */
+/**
+ * Routes that must reject an UNAUTHENTICATED caller but are not ops-token routes.
+ *
+ * NOTE this list is hand-maintained and NOTHING enforces it: `canary-coverage.test.ts`
+ * diffs `OPS_ROUTES` against the routes carrying `InternalServiceGuard` (:117) and is
+ * blind to worker-authed ones. So a worker-data route omitted here is never probed in
+ * production and no test complains. Add worker routes that expose per-worker data.
+ */
 const WORKER_AUTHED_ROUTES = [
   // Invariant #6 — the DPDP consent gate. No bearer => rejected.
   ["POST", "/consent/accept", { consent_version: "0000-00-00", purposes: ["profiling"] }],
   ["GET", "/feed?limit=1"],
+  // The worker AI-job poll — the only route by which a worker's ai_jobs rows leave the
+  // DB. It is ownership-scoped in the query, so the guard is the ONLY thing standing
+  // between an anonymous caller and a job-status read by uuid. An ABSENT id is used so a
+  // pass is the guard rejecting, never a 404 that would mask a missing guard.
+  ["GET", `/workers/me/ai-jobs/${ABSENT_ID}`],
 ];
 
 /** An auth failure. 401 and 403 are both "the guard rejected me" and both pass. */
@@ -263,7 +275,9 @@ async function main() {
         "\nIf /consent/accept is among them, the DPDP gate (invariant #6) is forgeable. Stop.",
     );
   }
-  console.log("[prod-canary] PASS  stage 3 — consent + feed reject an anonymous caller");
+  console.log(
+    `[prod-canary] PASS  stage 3 — all ${WORKER_AUTHED_ROUTES.length} worker-authed routes reject an anonymous caller`,
+  );
 
   // ── STAGE 4 — the ops console can actually reach the API ──────────────────
   if (opsStage) {

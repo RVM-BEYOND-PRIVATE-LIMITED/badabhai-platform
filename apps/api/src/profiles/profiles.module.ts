@@ -7,6 +7,7 @@ import { ProfilesService } from "./profiles.service";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import { AiJobsController } from "./ai-jobs.controller";
+import { WorkerAiJobsController } from "./worker-ai-jobs.controller";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
 import { AiJobsRetentionSweepProcessor } from "./ai-jobs-retention-sweep.processor";
 import {
@@ -34,7 +35,11 @@ import {
     // module owns ai_jobs data access (AiJobsRepository).
     BullModule.registerQueue({ name: AI_JOBS_RETENTION_QUEUE }),
   ],
-  controllers: [ProfilesController, AiJobsController],
+  // WorkerAiJobsController is a SEPARATE controller from AiJobsController on purpose:
+  // guards union class-level with method-level, so a worker route on the ops controller
+  // would inherit InternalServiceGuard and break the prod-canary contract. See its
+  // docstring. AuthModule (already imported above) supplies WorkerAuthGuard/ConsentGuard.
+  controllers: [ProfilesController, AiJobsController, WorkerAiJobsController],
   providers: [
     ProfilesService,
     ProfilesRepository,

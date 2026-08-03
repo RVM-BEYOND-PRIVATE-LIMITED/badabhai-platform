@@ -15,11 +15,8 @@ import 'package:badabhai_worker_app/features/voice/domain/voice_models.dart';
 class MockApiClient extends Mock implements ApiClient {}
 
 const AiJob _completedJob = AiJob(
-  id: 'job-9',
-  jobType: 'transcription',
   status: 'completed',
   profileId: null,
-  errorMessage: null,
   voiceNoteId: 'vn1',
 );
 
@@ -229,13 +226,7 @@ void main() {
     });
 
     test('a job without voice_note_id fails closed WITHOUT a fetch', () async {
-      const AiJob noRef = AiJob(
-        id: 'job-9',
-        jobType: 'transcription',
-        status: 'completed',
-        profileId: null,
-        errorMessage: null,
-      );
+      const AiJob noRef = AiJob(status: 'completed', profileId: null);
 
       await expectLater(
         RealVoiceTranscriptResolver(api).resolve(noRef, authToken: 'tok'),

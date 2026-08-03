@@ -472,7 +472,8 @@ class SessionMessage extends Equatable {
 /// Result of POST /profile/extract.
 ///
 /// Profile extraction is now asynchronous: the API enqueues a background job
-/// (BullMQ) and returns 202 with the job id. The client polls GET /ai-jobs/{id}
+/// (BullMQ) and returns 202 with the job id. The client polls
+/// GET /workers/me/ai-jobs/{id}
 /// (see [AiJob]) until the job completes and yields a profile id.
 class EnqueueResult extends Equatable {
   const EnqueueResult({
@@ -492,33 +493,38 @@ class EnqueueResult extends Equatable {
   List<Object?> get props => <Object?>[aiJobId, status];
 }
 
-/// One async AI job. Result of GET /ai-jobs/{id} (NO auth — see the contract).
+/// One async AI job. Result of `GET /workers/me/ai-jobs/{id}` — worker-scoped,
+/// bearer-authenticated (WorkerAuthGuard + ConsentGuard), and scoped to the OWNER
+/// server-side, so a job belonging to another worker answers 404.
+///
+/// The wire shape is deliberately three flat keys — `status`, `profile_id`,
+/// `voice_note_id`. The ops route `GET /ai-jobs/{id}` returns much more (model
+/// name, `real_call`, token counts, `cost_inr`, the raw `error_message`); none of
+/// that is a worker's business and none of it is sent here. Do not re-add fields
+/// to this model without a server change: parsing something the server never
+/// sends is how the previous "NO auth" claim on this doc survived for months.
 ///
 /// [status] moves queued -> running -> completed | failed. On a completed
-/// PROFILE-extraction job [profileId] (read from `output_ref.profile_id`) is
-/// non-null; on a completed TRANSCRIPTION job [voiceNoteId] (read from
-/// `output_ref.voice_note_id`) is non-null. When failed, [errorMessage] explains
-/// why. The `output_ref` for transcription carries only the voice-note id — NOT
-/// the transcript text (there is no route that returns the transcript body; see
-/// the A2-storage blocker), so this model exposes the reference only.
+/// PROFILE-extraction job [profileId] is non-null; on a completed TRANSCRIPTION
+/// job [voiceNoteId] is non-null. Transcription returns only the voice-note id —
+/// NOT the transcript text (there is no route that returns the transcript body;
+/// see the A2-storage blocker), so this model exposes the reference only.
+///
+/// There is no `errorMessage`: the server withholds it (on an outage it can carry
+/// an infrastructure host:port), and the app never rendered it anyway —
+/// `failure_mapper.dart` maps on status code alone. A failure is [isFailed].
 class AiJob extends Equatable {
   const AiJob({
-    required this.id,
-    required this.jobType,
     required this.status,
     required this.profileId,
-    required this.errorMessage,
     this.voiceNoteId,
   });
 
-  final String id;
-  final String jobType;
   final String status;
   final String? profileId;
-  final String? errorMessage;
 
-  /// Set from `output_ref.voice_note_id` when this is a completed transcription
-  /// job. Null for profile-extraction jobs.
+  /// Set from `voice_note_id` when this is a completed transcription job. Null
+  /// for profile-extraction jobs.
   final String? voiceNoteId;
 
   bool get isCompleted => status == 'completed';
@@ -528,23 +534,14 @@ class AiJob extends Equatable {
   /// poll loop stops here.
   bool get isTerminal => isCompleted || isFailed;
 
-  factory AiJob.fromJson(Map<String, dynamic> json) {
-    final dynamic outputRef = json['output_ref'];
-    final Map<String, dynamic>? ref =
-        outputRef is Map<String, dynamic> ? outputRef : null;
-    return AiJob(
-      id: json['id'] as String? ?? '',
-      jobType: json['job_type'] as String? ?? '',
-      status: json['status'] as String? ?? 'queued',
-      profileId: ref?['profile_id'] as String?,
-      voiceNoteId: ref?['voice_note_id'] as String?,
-      errorMessage: json['error_message'] as String?,
-    );
-  }
+  factory AiJob.fromJson(Map<String, dynamic> json) => AiJob(
+        status: json['status'] as String? ?? 'queued',
+        profileId: json['profile_id'] as String?,
+        voiceNoteId: json['voice_note_id'] as String?,
+      );
 
   @override
-  List<Object?> get props =>
-      <Object?>[id, jobType, status, profileId, errorMessage, voiceNoteId];
+  List<Object?> get props => <Object?>[status, profileId, voiceNoteId];
 }
 
 /// Result of POST /voice/upload (A2a). Registers an already-stored audio clip so
@@ -640,7 +637,7 @@ class VoiceNoteDetail extends Equatable {
 }
 
 /// Result of POST /voice/transcribe (A2b). Enqueues an STT job for a registered
-/// voice note; poll GET /ai-jobs/{id} on [aiJobId] until it is terminal.
+/// voice note; poll GET /workers/me/ai-jobs/{id} on [aiJobId] until terminal.
 class TranscribeResult extends Equatable {
   const TranscribeResult({required this.aiJobId, required this.status});
 

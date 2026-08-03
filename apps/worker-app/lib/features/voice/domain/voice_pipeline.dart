@@ -15,7 +15,7 @@ abstract interface class VoiceStorageUploader {
 
 /// Resolves the transcript TEXT for a completed transcription [AiJob].
 ///
-/// The `GET /ai-jobs/:id` `output_ref` for a transcription carries only
+/// The `GET /workers/me/ai-jobs/:id` response for a transcription carries only
 /// `{voice_note_id}` — the text comes from `GET /voice/:voiceNoteId`
 /// (`transcript_text` preferred, `transcript_english` fallback). REAL fails
 /// closed with [VoiceUnavailableFailure] when neither is ready; MOCK returns
