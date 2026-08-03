@@ -233,7 +233,7 @@ class ApiClient {
       authToken: authToken,
       sessionId: sessionId,
     );
-    return awaitProfileId(enqueued.aiJobId);
+    return awaitProfileId(enqueued.aiJobId, authToken: authToken);
   }
 
   /// Enqueues a profile-extraction job. Returns the job id to poll. Worker-scoped
@@ -252,9 +252,16 @@ class ApiClient {
     return EnqueueResult.fromJson(json);
   }
 
-  /// Fetches the current state of an async AI job.
-  Future<AiJob> getAiJob(String aiJobId) async {
-    final Map<String, dynamic> json = await _get('/ai-jobs/$aiJobId');
+  /// Fetches the current state of the worker's OWN async AI job.
+  ///
+  /// Worker-scoped: GET /profile/ai-jobs/:id (WorkerAuthGuard, owner-checked on
+  /// `ai_jobs.input_ref.worker_id`) — requires [authToken]. The ops read
+  /// (GET /ai-jobs/:id) stays behind InternalServiceGuard; a client must never
+  /// hold that token, so profile-extraction + voice-transcription polling ride
+  /// this owner-scoped route instead.
+  Future<AiJob> getAiJob(String aiJobId, {required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/profile/ai-jobs/$aiJobId', authToken: authToken);
     return AiJob.fromJson(json);
   }
 
@@ -268,6 +275,7 @@ class ApiClient {
   /// queued/running.
   Future<String> awaitProfileId(
     String aiJobId, {
+    required String authToken,
     int maxAttempts = kAiJobPollMaxAttempts,
     Duration pollInterval = kAiJobPollInterval,
   }) async {
@@ -276,7 +284,7 @@ class ApiClient {
       pollInterval: pollInterval,
     );
     for (int attempt = 0; attempt < schedule.length; attempt++) {
-      final AiJob job = await getAiJob(aiJobId);
+      final AiJob job = await getAiJob(aiJobId, authToken: authToken);
       if (job.isCompleted) {
         final String? profileId = job.profileId;
         if (profileId == null || profileId.isEmpty) {
@@ -673,6 +681,7 @@ class ApiClient {
   /// AI-job timeout) if the budget is exhausted while still queued/running.
   Future<AiJob> awaitAiJob(
     String aiJobId, {
+    required String authToken,
     int maxAttempts = kAiJobPollMaxAttempts,
     Duration pollInterval = kAiJobPollInterval,
   }) async {
@@ -681,7 +690,7 @@ class ApiClient {
       pollInterval: pollInterval,
     );
     for (int attempt = 0; attempt < schedule.length; attempt++) {
-      final AiJob job = await getAiJob(aiJobId);
+      final AiJob job = await getAiJob(aiJobId, authToken: authToken);
       if (job.isTerminal) return job;
       await Future<void>.delayed(schedule[attempt]);
     }

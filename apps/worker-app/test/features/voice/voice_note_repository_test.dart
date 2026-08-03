@@ -90,7 +90,8 @@ void main() {
           voiceNoteId: any(named: 'voiceNoteId'),
         )).thenAnswer(
         (_) async => const TranscribeResult(aiJobId: 'job-9', status: 'queued'));
-    when(() => api.awaitAiJob(any())).thenAnswer((_) async => const AiJob(
+    when(() => api.awaitAiJob(any(), authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const AiJob(
           id: 'job-9',
           jobType: 'transcription',
           status: 'completed',

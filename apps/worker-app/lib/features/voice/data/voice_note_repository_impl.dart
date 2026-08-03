@@ -123,7 +123,7 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
         voiceNoteId: uploaded.voiceNoteId,
       );
 
-      final AiJob job = await _api.awaitAiJob(enqueued.aiJobId);
+      final AiJob job = await _api.awaitAiJob(enqueued.aiJobId, authToken: token);
       if (job.isFailed) {
         throw ApiException(502, job.errorMessage ?? 'transcription failed');
       }

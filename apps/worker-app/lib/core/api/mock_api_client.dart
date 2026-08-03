@@ -96,7 +96,7 @@ class MockApiClient extends ApiClient {
   }
 
   @override
-  Future<AiJob> getAiJob(String aiJobId) async {
+  Future<AiJob> getAiJob(String aiJobId, {required String authToken}) async {
     await _delay();
     return AiJob(
       id: 'mock-job-0001',
@@ -110,6 +110,7 @@ class MockApiClient extends ApiClient {
   @override
   Future<String> awaitProfileId(
     String aiJobId, {
+    required String authToken,
     int maxAttempts = 40,
     Duration pollInterval = const Duration(milliseconds: 350),
   }) async {
@@ -596,6 +597,7 @@ class MockApiClient extends ApiClient {
   @override
   Future<AiJob> awaitAiJob(
     String aiJobId, {
+    required String authToken,
     int maxAttempts = 40,
     Duration pollInterval = const Duration(milliseconds: 350),
   }) async {
