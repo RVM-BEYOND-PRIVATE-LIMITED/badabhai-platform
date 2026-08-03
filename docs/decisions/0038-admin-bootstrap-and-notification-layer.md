@@ -54,6 +54,19 @@ The short-lived `admin_mfa_pending:<id>` marker **stays in Redis** — that one 
 
 **Operational note.** `--with-totp` prints the seed and its `otpauth://` URI to stdout **once**; it is stored encrypted and never returned again. Run it somewhere the output is not captured to a shared log.
 
+### 4. Losing a TOTP device must be recoverable (owner reminder, 2026-08-03)
+
+Treating the bootstrap CLI as break-glass exposed a gap: there was **no recovery path at all**. `AdminMfaSecretStore.clear()` had ZERO callers, `setMfaEnrolled` was only ever called with `true`, and no reset route existed. An admin who lost their phone was locked out permanently — and if they were the only `super_admin`, the platform was locked out of its own admin surface, because `manage_admins` is super_admin-only and the bootstrap CLI (correctly) refuses once a super_admin exists.
+
+Two paths, because one cannot cover both cases:
+
+- **`POST /admin/admins/:id/mfa/reset`** — `manage_admins`, audited, and it **refuses a self-reset**. A route an admin could call for themselves would let anyone holding a stolen session strip the second factor off the account they stole, which is exactly what MFA exists to stop. Recovery is another human's decision.
+- **`pnpm --filter @badabhai/db db:admin:reset-mfa`** — the break-glass exit for the last super_admin, at the same trust bar as the bootstrap (shell + DB credentials). Deliberately **not** an endpoint: an MFA reset reachable without an existing admin session is a second-factor bypass wearing a recovery label.
+
+Both clear the seed **and** the flag together. Either alone is its own bug: seed-without-flag leaves an admin the MFA gate never challenges (a silent bypass); flag-without-seed locks them out exactly as before. Neither grants access on its own — the admin still has to pass an email OTP to re-enrol, so mailbox control remains required.
+
+The CLI writes **no event**: this process has no admin actor to attribute the action to, and fabricating one would put a lie on the audit trail. It prints who was reset and instructs the operator to record it by hand. The route is the audited path; the CLI is the deliberate exception.
+
 ## Alternatives rejected
 
 **A seed script with the email in an env var.** Same hardcoding problem one layer out, and env vars leak into process listings and crash dumps far more readily than an argv you type once.

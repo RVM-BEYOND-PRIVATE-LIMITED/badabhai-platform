@@ -74,6 +74,8 @@ interface Mocks {
     create: ReturnType<typeof vi.fn>;
     updateRole: ReturnType<typeof vi.fn>;
     suspend: ReturnType<typeof vi.fn>;
+    setMfaSecret: ReturnType<typeof vi.fn>;
+    setMfaEnrolled: ReturnType<typeof vi.fn>;
     findById: ReturnType<typeof vi.fn>;
     countActiveSuperAdmins: ReturnType<typeof vi.fn>;
     withTransaction: ReturnType<typeof vi.fn>;
@@ -105,6 +107,9 @@ function make(): Mocks {
     create: vi.fn(),
     updateRole: vi.fn(),
     suspend: vi.fn(),
+    // ADR-0038 — the lost-TOTP recovery writes.
+    setMfaSecret: vi.fn(),
+    setMfaEnrolled: vi.fn(),
     findById: vi.fn(),
     countActiveSuperAdmins: vi.fn(async () => 2),
     withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
@@ -847,5 +852,69 @@ describe("emit chokepoint — exactly one event, keyed, never update/delete(even
     expect(emitted.idempotencyKey).toBe(
       `admin_action:payer_suspended:${ADMIN_ID}:${PAYER_ID}:${CTX.requestId}`,
     );
+  });
+});
+
+describe("resetAdminMfa — the lost-device recovery path (ADR-0038)", () => {
+  let m: Mocks;
+  beforeEach(() => {
+    m = make();
+  });
+
+  const TARGET = "cccccccc-0000-4000-8000-00000000000c";
+
+  it("clears the seed AND the flag TOGETHER (either alone is its own bug)", async () => {
+    // Seed-without-flag leaves an admin the MFA gate never challenges — a silent second-
+    // factor bypass. Flag-without-seed locks them out exactly as before. Only both is a reset.
+    m.admins.findById.mockResolvedValue({ id: TARGET, role: "ops_admin", mfaEnrolled: true });
+
+    const res = await m.service.resetAdminMfa(ADMIN_ID, TARGET, CTX);
+
+    expect(res).toEqual({ target_id: TARGET, changed: true });
+    expect(m.admins.setMfaSecret).toHaveBeenCalledWith(TARGET, null, FAKE_TX);
+    expect(m.admins.setMfaEnrolled).toHaveBeenCalledWith(TARGET, false, FAKE_TX);
+  });
+
+  it("REFUSES a self-reset — a stolen session must not be able to shed its own MFA", async () => {
+    // The whole point of the second factor. Recovery is another human's decision; the
+    // last-super_admin case is the break-glass CLI, not this route.
+    m.admins.findById.mockResolvedValue({ id: ADMIN_ID, role: "super_admin", mfaEnrolled: true });
+    await expect(m.service.resetAdminMfa(ADMIN_ID, ADMIN_ID, CTX)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(m.admins.setMfaSecret).not.toHaveBeenCalled();
+  });
+
+  it("404s an unknown admin (no write, no event)", async () => {
+    m.admins.findById.mockResolvedValue(undefined);
+    await expect(m.service.resetAdminMfa(ADMIN_ID, TARGET, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(m.admins.setMfaSecret).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent for an admin with no enrolled factor — no write, NO event", async () => {
+    m.admins.findById.mockResolvedValue({ id: TARGET, role: "ops_admin", mfaEnrolled: false });
+    const res = await m.service.resetAdminMfa(ADMIN_ID, TARGET, CTX);
+    expect(res).toEqual({ target_id: TARGET, changed: false });
+    expect(m.admins.setMfaSecret).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("emits the value-free admin_mfa_reset action on the SAME transaction", async () => {
+    m.admins.findById.mockResolvedValue({ id: TARGET, role: "ops_admin", mfaEnrolled: true });
+    await m.service.resetAdminMfa(ADMIN_ID, TARGET, CTX);
+
+    const evt = m.events.emit.mock.calls[0]![0] as CapturedEmit;
+    expect(evt.event_name).toBe("admin.action_performed");
+    expect(evt.payload).toEqual({
+      admin_id: ADMIN_ID,
+      action_code: "admin_mfa_reset",
+      target_type: "admin_session",
+      target_id: TARGET,
+    });
+    // The write and the record commit together — a reset that vanished from the spine is
+    // an MFA removal nobody can attribute.
+    expect((evt as unknown as { tx?: unknown }).tx).toBe(FAKE_TX);
   });
 });

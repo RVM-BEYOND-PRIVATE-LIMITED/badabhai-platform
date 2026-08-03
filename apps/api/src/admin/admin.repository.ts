@@ -110,8 +110,12 @@ export class AdminRepository {
   }
 
   /** Flip the MFA-enrolled flag (after a successful TOTP enrollment). */
-  async setMfaEnrolled(id: string, enrolled: boolean): Promise<AdminUser | undefined> {
-    const [row] = await this.db
+  async setMfaEnrolled(
+    id: string,
+    enrolled: boolean,
+    tx: Database = this.db,
+  ): Promise<AdminUser | undefined> {
+    const [row] = await tx
       .update(adminUsers)
       .set({ mfaEnrolled: enrolled, updatedAt: new Date() })
       .where(eq(adminUsers.id, id))
@@ -124,8 +128,8 @@ export class AdminRepository {
    * {@link import("./admin-mfa.store").AdminMfaSecretStore}; this method only stores the
    * token it is handed, so the repository never sees a plaintext seed.
    */
-  async setMfaSecret(id: string, secretEnc: string | null): Promise<void> {
-    await this.db
+  async setMfaSecret(id: string, secretEnc: string | null, tx: Database = this.db): Promise<void> {
+    await tx
       .update(adminUsers)
       .set({ mfaSecretEnc: secretEnc, updatedAt: new Date() })
       .where(eq(adminUsers.id, id));

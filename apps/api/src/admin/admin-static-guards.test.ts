@@ -190,7 +190,7 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     );
   }
 
-  it("discovers the nine entity-action routes (no route silently dropped)", () => {
+  it("discovers the ten entity-action routes (no route silently dropped)", () => {
     expect(routeMethods.sort()).toEqual(
       [
         "suspendPayer",
@@ -202,6 +202,10 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
         "inviteAdmin",
         "changeAdminRole",
         "suspendAdmin",
+        // ADR-0038 — the lost-TOTP-device recovery path. Without it a lost phone was a
+        // PERMANENT lockout: clear() had zero callers and setMfaEnrolled was only ever
+        // called with true.
+        "resetAdminMfa",
       ].sort(),
     );
   });
@@ -240,6 +244,10 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     expect(capabilityOf("inviteAdmin")).toBe("manage_admins");
     expect(capabilityOf("changeAdminRole")).toBe("manage_admins");
     expect(capabilityOf("suspendAdmin")).toBe("manage_admins");
+    // ADR-0038 — resetting someone's second factor is an admin-management act, so it sits
+    // under the SAME super_admin-only capability. A weaker one (say ops_admin) would let a
+    // lower-privileged role strip MFA off a super_admin, which inverts the whole hierarchy.
+    expect(capabilityOf("resetAdminMfa")).toBe("manage_admins");
   });
 });
 

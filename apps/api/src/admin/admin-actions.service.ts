@@ -29,6 +29,7 @@ export const ADMIN_ACTION_CODES = {
   admin_invited: "admin_invited",
   admin_role_changed: "admin_role_changed",
   admin_suspended: "admin_suspended",
+  admin_mfa_reset: "admin_mfa_reset",
 } as const;
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];
 
@@ -472,6 +473,62 @@ export class AdminActionsService {
       await this.emitAction(
         adminId,
         ADMIN_ACTION_CODES.admin_suspended,
+        "admin_session",
+        targetAdminId,
+        ctx,
+        tx,
+      );
+    });
+    return { target_id: targetAdminId, changed };
+  }
+
+  /**
+   * ADR-0038 — RESET an admin's second factor (super_admin only, `manage_admins`).
+   *
+   * WHY THIS HAS TO EXIST. A TOTP seed is shown once at enrolment and stored encrypted; it
+   * is recoverable from nowhere. Before this, an admin who lost their phone was locked out
+   * PERMANENTLY — `AdminMfaSecretStore.clear()` existed but had ZERO callers, and
+   * `setMfaEnrolled` was only ever called with `true`. There was no reset route at all.
+   *
+   * Clearing the seed AND the flag together drops the admin back to the enrolment branch of
+   * `verifyLogin`, so their next successful OTP hands them a fresh secret. Clearing only one
+   * would be worse than nothing: seed-without-flag leaves an admin the MFA gate never
+   * challenges (a silent second-factor bypass), and flag-without-seed locks them out exactly
+   * as before.
+   *
+   * NOT self-service, deliberately. A route an admin can call for THEMSELVES would let
+   * anyone holding a stolen session strip the second factor off the account they stole —
+   * which is precisely what MFA is there to stop. Recovery is another human's decision.
+   *
+   * The LAST super_admin losing their device is still unrecoverable through this route (no
+   * one is left who can call it); that case is the break-glass CLI, `db:admin:reset-mfa`.
+   */
+  async resetAdminMfa(
+    adminId: string,
+    targetAdminId: string,
+    ctx: RequestContext,
+  ): Promise<AdminActionResult> {
+    const target = await this.admins.findById(targetAdminId);
+    if (!target) throw new NotFoundException("Admin not found");
+
+    // Self-reset is refused even for a super_admin — see above. The CLI covers the case
+    // where refusing this would leave nobody able to recover the platform.
+    if (targetAdminId === adminId) {
+      throw new ConflictException(
+        "An admin cannot reset their own second factor; ask another super_admin, or use the break-glass CLI",
+      );
+    }
+
+    let changed = false;
+    await this.admins.withTransaction(async (tx) => {
+      // Idempotent: an admin with no enrolled factor is already in the state this produces.
+      if (!target.mfaEnrolled) return;
+      await this.admins.setMfaSecret(targetAdminId, null, tx);
+      await this.admins.setMfaEnrolled(targetAdminId, false, tx);
+      changed = true;
+      await this.emitAction(
+        adminId,
+        ADMIN_ACTION_CODES.admin_mfa_reset,
         "admin_session",
         targetAdminId,
         ctx,
