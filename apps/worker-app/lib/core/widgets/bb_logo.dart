@@ -4,7 +4,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 
-/// The BadaBhai app mark — a vermilion squircle holding a white chat bubble with
+/// The BadaBhai app mark — a deep-blue squircle holding a white chat bubble with
 /// a green "lift" chevron. A Flutter port of `assets/logo/app-icon.svg` (drawn,
 /// not rasterised, so it stays crisp at any size and ships zero extra assets).
 ///
@@ -55,12 +55,13 @@ class _BbLogoPainter extends CustomPainter {
     final double k = size.width / 512.0;
     double sx(double v) => v * k;
 
-    // Vermilion squircle.
+    // Deep-blue squircle — structure/trust base; white bubble reads crisply on
+    // it (JUL31: content on haldi is deep blue, so the mark leads with blue).
     final RRect squircle = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, 0, sx(512), sx(512)),
       Radius.circular(sx(128)),
     );
-    canvas.drawRRect(squircle, Paint()..color = AppColors.brand);
+    canvas.drawRRect(squircle, Paint()..color = AppColors.blue);
 
     // White chat bubble + drip tail.
     final Paint white = Paint()..color = Colors.white;

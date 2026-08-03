@@ -11,10 +11,10 @@ const String kPayerChatSendFailedLabel = 'Not sent — tap to send again';
 /// A single chat message bubble, the payer-app twin of the worker app's
 /// `BbChatBubble` (`apps/worker-app/lib/core/widgets/bb_chat_bubble.dart`).
 ///
-/// The payer's own messages sit right on a soft green tint (their voice); the
-/// assistant sits left on crisp white with a warm hairline. One corner is
-/// squared toward the speaker so the thread reads naturally. Colours come from
-/// the theme tokens only — nothing here is a literal.
+/// The payer's own messages sit right on the soft blue chat tint (their voice)
+/// with no border; the assistant sits left on crisp white with a warm hairline.
+/// One corner is flattened to a 3px tail toward the speaker so the thread reads
+/// naturally. Colours come from the theme tokens only — nothing here is a literal.
 class BbChatBubble extends StatelessWidget {
   const BbChatBubble({
     super.key,
@@ -37,15 +37,18 @@ class BbChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const Radius soft = Radius.circular(AppRadii.lg);
-    const Radius tight = Radius.circular(AppRadii.xs);
+    const Radius soft = Radius.circular(AppRadii.bubble);
+    const Radius tail = Radius.circular(AppRadii.bubbleTail);
 
     final Color background = failed
         ? AppColors.dangerTint
-        : (fromPayer ? AppColors.green50 : AppColors.surfaceCard);
-    final Color borderColor = failed
+        : (fromPayer ? AppColors.blueTintChat : AppColors.surfaceCard);
+    // Outgoing sits borderless on the blue tint (JUL31 "mine"); incoming keeps a
+    // warm hairline; a failed send flips to the danger edge so it can't read
+    // as delivered.
+    final Color? borderColor = failed
         ? AppColors.dangerPress
-        : (fromPayer ? AppColors.green100 : AppColors.borderSubtle);
+        : (fromPayer ? null : AppColors.borderSubtle);
 
     final Widget bubble = Container(
       constraints: const BoxConstraints(maxWidth: 300),
@@ -56,12 +59,12 @@ class BbChatBubble extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: background,
-        border: Border.all(color: borderColor),
+        border: borderColor == null ? null : Border.all(color: borderColor),
         borderRadius: BorderRadius.only(
           topLeft: soft,
           topRight: soft,
-          bottomLeft: fromPayer ? soft : tight,
-          bottomRight: fromPayer ? tight : soft,
+          bottomLeft: fromPayer ? soft : tail,
+          bottomRight: fromPayer ? tail : soft,
         ),
       ),
       child: Column(
@@ -114,7 +117,7 @@ class BbChatBubble extends StatelessWidget {
               label: '$text — $kPayerChatSendFailedLabel',
               child: InkWell(
                 onTap: onRetry,
-                borderRadius: BorderRadius.circular(AppRadii.lg),
+                borderRadius: BorderRadius.circular(AppRadii.bubble),
                 child: bubble,
               ),
             )

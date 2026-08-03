@@ -40,9 +40,9 @@ void main() {
       // The exact pubspec `fonts:` family names — no google_fonts variant
       // suffix ("Baloo2_regular"), which is what proves the fetch path is out
       // of the picture rather than merely cached.
-      expect(AppTypography.display().fontFamily, 'Baloo 2');
-      expect(AppTypography.body().fontFamily, 'Mukta');
-      expect(AppTypography.eyebrow().fontFamily, 'Mukta');
+      expect(AppTypography.display().fontFamily, 'Anek');
+      expect(AppTypography.body().fontFamily, 'Roboto');
+      expect(AppTypography.eyebrow().fontFamily, 'Roboto');
     });
 
     test('bars google_fonts from fetching at runtime', () {
@@ -97,7 +97,7 @@ void main() {
       ];
 
       for (final TextStyle? s in slots) {
-        expect(s!.fontFamily, anyOf('Baloo 2', 'Mukta'));
+        expect(s!.fontFamily, anyOf('Anek', 'Roboto'));
       }
     });
 
@@ -126,7 +126,7 @@ void main() {
         t.labelLarge, t.labelMedium, t.labelSmall,
       ]) {
         final Set<FontWeight> declared =
-            s!.fontFamily == 'Baloo 2' ? baloo : mukta;
+            s!.fontFamily == 'Anek' ? baloo : mukta;
         // Never null: display()/body() both stamp their default weight in.
         expect(declared, contains(s.fontWeight));
       }
@@ -148,9 +148,9 @@ void main() {
       // Deliberately NOT the asset family name — this is the branch that proves
       // the bundled assertions above are testing a real switch and not a
       // constant.
-      expect(AppTypography.display().fontFamily, isNot('Baloo 2'));
-      expect(AppTypography.display().fontFamilyFallback, contains('Baloo2'));
-      expect(AppTypography.body().fontFamilyFallback, contains('Mukta'));
+      expect(AppTypography.display().fontFamily, isNot('Anek'));
+      expect(AppTypography.display().fontFamilyFallback, contains('AnekLatin'));
+      expect(AppTypography.body().fontFamilyFallback, contains('Noto Sans Devanagari'));
     });
 
     testWidgets('does not touch the runtime-fetch config',

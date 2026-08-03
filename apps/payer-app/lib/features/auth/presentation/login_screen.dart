@@ -180,13 +180,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: BoxDecoration(
                     color: AppColors.brand,
                     borderRadius: BorderRadius.circular(16),
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(
-                        color: AppColors.brand.withValues(alpha: 0.40),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
                   ),
                   child: const Icon(
                     Icons.handshake,
@@ -278,7 +271,7 @@ class _LoginScreenState extends State<LoginScreen> {
               child: _RolePick(
                 pickKey: const Key('pick_agency'),
                 icon: Icons.groups,
-                iconColor: AppColors.saffronDeep,
+                iconColor: AppColors.brandPress,
                 title: 'Agency',
                 subtitle: 'Hire + earn on supply',
                 selected: _role == PayerRole.agency,

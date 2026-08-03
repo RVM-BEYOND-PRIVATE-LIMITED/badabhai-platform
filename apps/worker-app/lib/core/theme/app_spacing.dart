@@ -33,16 +33,17 @@ class AppSpacing {
   static const double appMax = 440; // worker mobile canvas
 }
 
-/// Corner radii — friendly but sturdy. Controls 14, cards 18, sheets 24; pills
-/// for chips/status/swipe affordances. Ported from `tokens/radii.css`.
+/// Corner radii — rounded voice on a disciplined skeleton. **Hard cap 12**
+/// (JUL31 "Josh" system): buttons + cards 10, inputs / chat bubble 12, chips
+/// stay pill. Nothing rounds past 12 except [pill].
 class AppRadii {
   AppRadii._();
 
   static const double xs = 6;
-  static const double sm = 10;
-  static const double md = 14; // default control: button, input
-  static const double lg = 18; // card
-  static const double xl = 24; // sheet / large card
-  static const double xxl = 32; // hero / bottom sheet
+  static const double sm = 10; // button, card
+  static const double md = 12; // input, chat bubble (hard cap)
+  static const double lg = 12; // capped (was card 18)
+  static const double xl = 12; // capped
+  static const double xxl = 12; // capped
   static const double pill = 999;
 }

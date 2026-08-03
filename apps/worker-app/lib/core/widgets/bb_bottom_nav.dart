@@ -128,8 +128,9 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color color =
-        active ? AppColors.brandPress : AppColors.textMuted;
+    // Selected tab reads in deep blue (structure/navigation in the Josh system),
+    // which also holds contrast on the white bar far better than haldi would.
+    final Color color = active ? AppColors.blue : AppColors.textMuted;
 
     return InkWell(
       onTap: onTap,

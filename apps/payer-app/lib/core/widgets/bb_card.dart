@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 
-/// The BadaBhai card surface — `.bb-card`. White on cream, soft warm shadow,
-/// 18px corners. Variants cover the design system's modifiers used across the
-/// payer app:
+/// The BadaBhai card surface — `.bb-card`. JUL31: white on canvas, **no
+/// shadow** — separated by a single 1px hairline, 10px corners. Variants cover
+/// the design system's modifiers used across the payer app:
 ///
-///  - default      — plain white card.
-///  - [ink]        — dark warm surface (balance / earn summary blocks).
-///  - [festive]    — 3px double-vermilion border (hero stat, revealed profile).
+///  - default      — plain white card, 1px hairline border.
+///  - [ink]        — dark deep-blue surface (balance / earn summary blocks).
+///  - [festive]    — 3px double-haldi border (hero stat, revealed profile).
 ///  - [interactive]— adds a tap ripple + min 48px target for row-style cards.
 ///
 /// Pass [border] to override the outline (e.g. a "Best value" pack), or
@@ -42,10 +42,14 @@ class BbCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final Color background = ink ? AppColors.surfaceInk : AppColors.surfaceCard;
 
+    // JUL31: separation is a 1px hairline, never a shadow. Festive keeps its
+    // 3px double-haldi hero border; ink / gradient surfaces carry their own edge.
     final BoxBorder? effectiveBorder = border ??
         (festive
             ? Border.all(color: AppColors.brandBorder, width: 3)
-            : null);
+            : (ink || gradient != null
+                ? null
+                : Border.all(color: AppColors.border)));
 
     Widget content = Container(
       padding: padding,
@@ -54,15 +58,6 @@ class BbCard extends StatelessWidget {
         gradient: gradient,
         borderRadius: BorderRadius.circular(AppRadii.lg),
         border: effectiveBorder,
-        boxShadow: ink || gradient != null
-            ? null
-            : <BoxShadow>[
-                BoxShadow(
-                  color: AppColors.ink900.withValues(alpha: 0.10),
-                  blurRadius: 14,
-                  offset: const Offset(0, 6),
-                ),
-              ],
       ),
       child: child,
     );

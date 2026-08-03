@@ -64,9 +64,11 @@ class BbJobCardData {
 /// `Semantics(button: true, label: ...)` pattern the voice screen already ships.
 const String kJobCardTitleSemanticLabel = 'Job kholein — poori jaankari';
 
-/// The festive job card — `.aw-job` (ui.css §160–172). A purely **visual** card
-/// (no drag, no Skip/Apply CTA row — the Feed deck layers those on later). Wraps
-/// [BbFestiveCard] so each job leads with the truck-art double-vermilion frame.
+/// The job card — `.aw-job` (ui.css §160–172). A purely **visual** card (no
+/// drag, no Skip/Apply CTA row — the Feed deck layers those on later). Wraps
+/// [BbFestiveCard], so in the JUL31 "Josh" system each job sits on crisp white
+/// paper with a single hairline border and no shadow (a haldi left rail is
+/// reserved for featured/HOT cards, which this data model does not yet signal).
 ///
 /// Pass [onTitleTap] to make the title open the job detail; the rest is static.
 class BbJobCard extends StatelessWidget {

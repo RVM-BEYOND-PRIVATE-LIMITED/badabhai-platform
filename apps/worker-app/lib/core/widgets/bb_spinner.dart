@@ -8,7 +8,7 @@ import '../theme/app_typography.dart';
 
 /// BadaBhai loading spinner — spec `.aw-spin` (`ui.css` 115).
 ///
-/// A vermilion ring (track) with a brand-coloured arc head rotating once per
+/// A cool hairline ring (track) with a deep-blue arc head rotating once per
 /// second. Use during waits — login OTP, profile extraction, resume generation.
 /// Pass [caption] to label what the worker is waiting for.
 class BbSpinner extends StatefulWidget {
@@ -74,7 +74,7 @@ class _BbSpinnerState extends State<BbSpinner>
   }
 }
 
-/// Paints the full vermilion track plus the brand-coloured ~90deg head arc.
+/// Paints the full hairline track plus the deep-blue ~90deg head arc.
 class _SpinnerPainter extends CustomPainter {
   const _SpinnerPainter();
 
@@ -88,14 +88,14 @@ class _SpinnerPainter extends CustomPainter {
     final Paint track = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = _strokeWidth
-      ..color = AppColors.vermilion100;
+      ..color = AppColors.borderSubtle;
     canvas.drawCircle(center, radius, track);
 
     final Paint head = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = _strokeWidth
       ..strokeCap = StrokeCap.round
-      ..color = AppColors.brand;
+      ..color = AppColors.blue;
     // A quarter-turn arc, starting at the top of the circle.
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
