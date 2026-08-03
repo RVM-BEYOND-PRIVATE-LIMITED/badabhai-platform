@@ -71,25 +71,48 @@ Raise each new read endpoint as a small backend PR. Do not widen an `InternalSer
    - `toggle_kill_switch` and `manage_admins` are **`super_admin` only**.
 3. **PII is allow-list projected.** `POST /admin/workers/:id/reveal-contact` is the *only* contact path and it is capability-gated + audited. No screen may render worker contact detail obtained any other way.
 4. **Design system only.** [`docs/design/BadaBhai Design System`](../design/) + the `bb-design-system` skill. No RVMCAD branding, no placeholder UI, no developer tooling exposed.
-5. **Every privileged action shows its audit trail.** If a screen can suspend, grant, close or reveal, it must also be able to show the resulting event.
+5. **Shared packages: extract on the second use, not the first.** The platform is heading
+   for `packages/ui`, `admin-ui`, `auth`, `permissions`, `events`, `api-client`,
+   `design-tokens`, `shared-types` (owner, 2026-08-03). Two cautions from the current
+   state, so this lands as consolidation rather than speculation:
+   * `packages/` already has 11 members and **none of them is UI**. `apps/payer-web` has
+     exactly 5 component entries. There is not yet enough duplicated UI to extract — a
+     `packages/ui` created before `admin-web` has real screens would be designed against
+     one consumer and refactored the moment the second arrives.
+   * `packages/types` and `packages/validators` already carry the shared-types role, and
+     `packages/event-schema` already is the events contract. Adding `shared-types` and
+     `events` alongside them would create two sources of truth for the same thing.
+   **Recommended sequence:** build Phase 1 with local components → when `admin-web` and
+   `payer-web` genuinely need the same primitive, extract it *then* → `design-tokens` is
+   the exception worth doing early, because the Flutter worker app can consume tokens
+   (emitted as JSON/Dart) and cannot consume a React package.
+
+6. **Every privileged action shows its audit trail.** If a screen can suspend, grant, close or reveal, it must also be able to show the resulting event.
 
 ---
 
-## 4. Module order (owner-set)
+## 4. Phase order (owner-set, 2026-08-03 — do not invert)
 
-**Phase 1 — foundation.** Authentication · Session · MFA · Admin shell · Navigation · Dashboard.
-*Backend needed: none.*
+| Phase | Content | Backend needed |
+|---|---|---|
+| **1** | Create `apps/admin-web` · shell · login · session · MFA · sidebar · navigation · dashboard · event feed · system health | **None** |
+| **2** | Additive admin read APIs: workers, companies, agencies, jobs, applications, credits, transactions | New routes only — **do not modify internal ones** |
+| **3** | All management modules | — |
+| **4** | Audit · Events · Reports · Finance · Admin management · Configuration | — |
+| **5** | Full verification | — |
+| **6** | OBS-4 cutover | — |
+| **7** | Production readiness | — |
 
-**Phase 2 — supply & demand.** Workers · Companies · Agencies · Jobs · Applications · Matching · Visibility.
-*Backend needed: admin-guarded list/detail reads for each.*
+Phase 1 needing **no backend at all** is the point: it is the cleanest possible proof
+that the foundation holds before anything is built on top of it.
 
-**Phase 3 — money & evidence.** Credits · Wallet · Transactions · Finance · Reports · Audit · Events.
-*Backend needed: admin-guarded reads over `credit_ledger`, `payer_credits`, `payment_orders`. Audit = the events spine (§2.1).*
+### The Audit screen needs a data-source seam
 
-**Phase 4 — control plane.** Configuration · Roles · Capabilities · Admins · Notifications · System health · Queues · Logs · Feature flags (**read / fail-safe only**).
-*Backend needed: read endpoints; kill-switch already exists.*
-
----
+Audit reads `GET /admin/events` today (§2.1). If the richer 13-field audit record lands
+later, the UI should **swap the data source behind an abstraction** rather than being
+redesigned. Build the Audit view against a narrow internal interface — `listAuditEntries(query)`
+— with the events API as its first implementation, not against the events response shape
+directly.
 
 ## 5. Per-module verification gate
 
@@ -112,7 +135,7 @@ API · Permissions (each role, including the denied ones) · Audit · Events · 
 | Capability matrix | [`admin-capabilities.ts`](../../apps/api/src/admin/admin-capabilities.ts) |
 | ADRs | [ADR-0025](../decisions/0025-admin-ops-portal.md) · [ADR-0037](../decisions/0037-payer-lifecycle-and-suspension.md) · [ADR-0038](../decisions/0038-admin-bootstrap-and-notification-layer.md) |
 
-**Open question for the owner, before Phase 1 lands:** does the Admin Portal live in `apps/web` (replacing the ops console in place, which makes OBS-4 a deletion) or in a new `apps/admin-web` (which makes OBS-4 a DNS/route switch and lets both run side by side during verification)? The second is lower risk and matches "the migration should be a simple routing change"; the first avoids a fourth Next.js app. **Not decided.**
+**DECIDED (owner, 2026-08-03): a new `apps/admin-web`.** The admin surface is already a distinct bounded context on the backend — its own authentication, RBAC, capability matrix, bootstrap, MFA, APIs and ADRs — and the frontend mirrors that separation. This buys independent deploys and CI, smaller bundles, clearer ownership and easier security review, and it makes OBS-4 a **traffic switch** rather than an in-place rewrite: the ops console keeps running untouched while the portal is built and verified beside it, and legacy pages retire only once parity is proven.
 
 ---
 
@@ -130,6 +153,6 @@ These stay with the backend thread:
 ## 8. First actions for the fresh thread
 
 1. Read this file, [ADR-0025](../decisions/0025-admin-ops-portal.md) and [ADR-0038](../decisions/0038-admin-bootstrap-and-notification-layer.md).
-2. Get the owner's ruling on §6 (`apps/web` vs `apps/admin-web`).
-3. Run the bootstrap CLI against a local DB and complete a real login — **verify the foundation before building on it** rather than trusting this document.
+2. Run the bootstrap CLI against a local DB and complete a real login, including TOTP enrolment — **verify the foundation before building on it** rather than trusting this document. If it does not work, that is a backend-thread bug, not a portal workaround.
+3. Scaffold `apps/admin-web` (decided — §6).
 4. Build Phase 1. It needs no backend work, so it is the cleanest possible proof that the foundation holds.
