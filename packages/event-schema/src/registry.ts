@@ -558,6 +558,27 @@ export const EVENT_REGISTRY = {
     payload: p.ReferralBonusAccruedPayload,
   },
 
+  // B4 — the `referral_links` resolver primitive. All three carry the opaque
+  // `referral_link_id`, NEVER the shareable `code` (a bearer token — same rule as
+  // `invite.clicked`). `install_claimed` is the one that closes attribution, and it is
+  // emitted at most once per worker (the partial unique index on
+  // `referral_clicks.claimed_by_worker_id` is what enforces that, not the emitter). v1.
+  "referral.link_created": {
+    version: 1,
+    domain: "referral",
+    payload: p.ReferralLinkCreatedPayload,
+  },
+  "referral.link_clicked": {
+    version: 1,
+    domain: "referral",
+    payload: p.ReferralLinkClickedPayload,
+  },
+  "referral.install_claimed": {
+    version: 1,
+    domain: "referral",
+    payload: p.ReferralInstallClaimedPayload,
+  },
+
   // ── Matching V1 (ADR-0036) ────────────────────────────────────────────────
   // All PII-FREE: opaque uuids, closed-set `mskill_*` ids, integer counts, small
   // enums. Invariant #4: none of these is a model output — `match_tier` is set

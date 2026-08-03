@@ -2950,6 +2950,182 @@ export type NewPayerJobPostingChatMessage = typeof payerJobPostingChatMessages.$
 export type PayerFormDraft = typeof payerFormDrafts.$inferSelect;
 export type NewPayerFormDraft = typeof payerFormDrafts.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// referral_links — THE RESOLVER PRIMITIVE (B4). One row per shareable link.
+//
+// WHY A THIRD TABLE AND NOT A FOURTH CODE SPACE. `invites` (worker→worker,
+// ADR-0020) and `agency_invites` (agency→worker, ADR-0022) each own an *actor*
+// relationship: who invited whom. Neither can express a campaign link, a QR at a
+// factory gate, or a link that carries deep-link CONTEXT (role/city) — and neither
+// records WHEN a link was clicked, which is what a match window needs. This table
+// is deliberately NOT a replacement for either: it is the SHARING/RESOLUTION layer
+// that sits in front of both. `GET /r/:code` resolves here first and falls through
+// to the two legacy code spaces, so there is ONE resolver, one click log, and one
+// place to audit — the growth-tech playbook's "one primitive, one attribution path".
+//
+// THE CODE IS A BEARER TOKEN. Anyone holding it can claim the referral, so it is
+// NEVER put in an event payload, a log line, or any response body beyond the
+// resolver's own redirect (the same rule `invite.clicked` already follows — see
+// InviteInstallPayload's header). Events carry `referral_link_id`, never `code`.
+//
+// PII-FREE (invariant #2): opaque UUIDs, a short opaque code, closed enums, and a
+// `payload` JSONB that is CONTRACT-BOUND to non-PII deep-link context (role slug,
+// city slug, campaign tag). No phone, no name, no employer — the same discipline
+// `invites.campaign` has held since ADR-0020.
+//
+// DPDP erasure: `owner_worker_id` is `onDelete: "set null"` (keep the PII-free
+// attribution row, drop the identity join — the ADR-0026 Phase 5 D3 posture that
+// `invites` already uses). `agent_payer_id` cascades, mirroring
+// `agency_invites.inviter_payer_id`: a payer is an internal tenant entity, not a
+// worker, and its links have no meaning once the tenant is gone.
+// ---------------------------------------------------------------------------
+
+/** Who owns a link. Drives which legacy funnel (if any) an attribution belongs to. */
+export type ReferralLinkKind = "agent" | "worker" | "campaign";
+
+/**
+ * ORGANIC vs PAID — the match-window discriminator, stamped on the LINK and
+ * snapshotted onto every click. A share forwarded on WhatsApp ("organic") is
+ * credited over a long window because the forward chain is slow; a paid click is
+ * credited over a short one because ad networks bill on last-touch and a long
+ * window would let a stale paid click steal an organic install. The two window
+ * lengths are config, never literals (REFERRAL_MATCH_WINDOW_*_HOURS).
+ */
+export type ReferralLinkMedium = "organic" | "paid";
+
+/** Coarse device class of a click. Diagnostics only — deliberately not a fingerprint. */
+export type ReferralClickPlatform = "android" | "desktop" | "other";
+
+export const referralLinks = pgTable(
+  "referral_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The opaque short token that is actually shared (`/r/<code>`). Unique.
+    code: text("code").notNull(),
+    kind: text("kind").$type<ReferralLinkKind>().notNull(),
+    medium: text("medium").$type<ReferralLinkMedium>().notNull().default("organic"),
+    // The agent/agency that owns this link (a `payers` row with role='agent').
+    // Nullable: a campaign or worker link has no agent.
+    agentPayerId: uuid("agent_payer_id").references(() => payers.id, { onDelete: "cascade" }),
+    // The worker that owns this link (a worker's own share). Nullable; SET NULL on
+    // DSAR erasure so the PII-free attribution row survives.
+    ownerWorkerId: uuid("owner_worker_id").references(() => workers.id, {
+      onDelete: "set null",
+    }),
+    // Stable, non-PII campaign tag (e.g. "gate-qr-pune-01"). Nullable.
+    campaignId: text("campaign_id"),
+    // CONTEXTUAL DEEP-LINK DATA ONLY — role slug, city slug, campaign context. The
+    // app reads this to land the worker on the right screen. Loose JSONB because
+    // each campaign owns its own shape, but see the header: NEVER PII.
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Nullable = never expires. A campaign link can be time-boxed; an agent's
+    // evergreen link is not.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("referral_links_code_uq").on(t.code),
+    // "This agent's links" — the agent dashboard read + the FK cascade's index.
+    index("referral_links_agent_payer_id_idx").on(t.agentPayerId),
+    index("referral_links_owner_worker_id_idx").on(t.ownerWorkerId),
+    // Campaign roll-ups; sparse, so partial.
+    index("referral_links_campaign_idx").on(t.campaignId).where(sql`${t.campaignId} IS NOT NULL`),
+    // Exactly one owner axis, or none (a pure campaign link). Both set would make
+    // "who gets the commission" ambiguous, which is the whole point of this table.
+    check(
+      "referral_links_single_owner_chk",
+      sql`NOT (${t.agentPayerId} IS NOT NULL AND ${t.ownerWorkerId} IS NOT NULL)`,
+    ),
+    check("referral_links_kind_chk", sql`${t.kind} IN ('agent', 'worker', 'campaign')`),
+    check("referral_links_medium_chk", sql`${t.medium} IN ('organic', 'paid')`),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0060
+
+// ---------------------------------------------------------------------------
+// referral_clicks — the CLICK LOG, and the row the first-touch claim locks.
+//
+// WHY IT EXISTS. Attribution needs a per-click TIMESTAMP to enforce a match window,
+// and neither `invites` nor `agency_invites` has one (they carry a status enum and
+// a mutable `updated_at`, which a later click overwrites). Without this row there is
+// no answer to "was the click that produced this install inside the window?".
+//
+// THE RACE, AND WHAT CLOSES IT. Two concurrent install-referrer posts for the same
+// worker used to be able to resolve two claims. The fix is BOTH halves together:
+//   1. `SELECT … FOR UPDATE` on the candidate click row inside the claim transaction
+//      (see ReferralClickRepository.claimFirstTouch), and
+//   2. `referral_clicks_claimed_worker_uq` — a PARTIAL UNIQUE index on
+//      `claimed_by_worker_id`. One claimed click per worker, EVER. The loser of a
+//      concurrent race hits a unique violation and is neutralised into a no-op.
+// (2) is the one that actually holds: a row lock alone cannot stop two transactions
+// that pick two DIFFERENT candidate rows, which is exactly what two clicks on two
+// different links produces. FIRST TOUCH WINS — the candidate query orders by
+// `clicked_at ASC`.
+//
+// EQUIVALENCE TO A PHONE-HASH KEY (deliberate): the playbook words this rule as
+// "unique on the phone hash + active window". `workers.phone_hash` is already UNIQUE,
+// so one worker id IS one phone — keying on `claimed_by_worker_id` enforces the
+// identical rule WITHOUT copying a phone-derived hash into a second table, which
+// would widen the PII surface for no gain (invariant #2). Claims are resolved
+// post-auth, so the worker id is always known at claim time.
+//
+// PII-FREE: `click_hash` is a keyed HMAC-SHA256 over (ip + user-agent) — the same
+// idiom as `workers.phone_hash` / `worker_devices.device_hash`. The raw IP and UA are
+// NEVER persisted. It exists only to de-duplicate refresh spam within a window.
+// ---------------------------------------------------------------------------
+export const referralClicks = pgTable(
+  "referral_clicks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The resolved link, when the code was one of ours. NULL for a legacy
+    // `invites`/`agency_invites` code, which the resolver still logs so the window
+    // rule covers links shared before this table existed.
+    referralLinkId: uuid("referral_link_id").references(() => referralLinks.id, {
+      onDelete: "cascade",
+    }),
+    // The code AS CLICKED. Needed to join a later claim (which arrives carrying only
+    // the code, via the install referrer) back to this row. A bearer token — never
+    // logged, never evented.
+    code: text("code").notNull(),
+    // Keyed HMAC-SHA256 over (ip + user-agent). NEVER the raw values (see header).
+    clickHash: text("click_hash").notNull(),
+    // Snapshot of the link's medium at click time — a later re-tag of the link must
+    // not retroactively change which window a past click was judged under.
+    medium: text("medium").$type<ReferralLinkMedium>().notNull().default("organic"),
+    // Coarse device class, for funnel diagnostics only. No fingerprint.
+    platform: text("platform").$type<ReferralClickPlatform>().notNull().default("other"),
+    clickedAt: timestamp("clicked_at", { withTimezone: true }).notNull().defaultNow(),
+    // Set ONCE when this click wins a worker's first-touch claim (see header).
+    claimedByWorkerId: uuid("claimed_by_worker_id").references(() => workers.id, {
+      onDelete: "set null",
+    }),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  },
+  (t) => [
+    // THE FIRST-TOUCH RULE'S TEETH. Partial: unclaimed rows are the overwhelming
+    // majority and must not contend on a unique index.
+    uniqueIndex("referral_clicks_claimed_worker_uq")
+      .on(t.claimedByWorkerId)
+      .where(sql`${t.claimedByWorkerId} IS NOT NULL`),
+    // The claim-resolution hot path: "unclaimed clicks for this code, oldest first".
+    index("referral_clicks_code_clicked_idx").on(t.code, t.clickedAt),
+    // Refresh-spam de-duplication within a window.
+    index("referral_clicks_hash_idx").on(t.clickHash, t.clickedAt),
+    // Link-scoped funnel counts + the FK cascade's index.
+    index("referral_clicks_link_idx").on(t.referralLinkId),
+    check("referral_clicks_medium_chk", sql`${t.medium} IN ('organic', 'paid')`),
+    // A claim is all-or-nothing: both columns set, or neither.
+    check(
+      "referral_clicks_claim_pair_chk",
+      sql`(${t.claimedByWorkerId} IS NULL) = (${t.claimedAt} IS NULL)`,
+    ),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0060
+
+export type ReferralLink = typeof referralLinks.$inferSelect;
+export type NewReferralLink = typeof referralLinks.$inferInsert;
+export type ReferralClick = typeof referralClicks.$inferSelect;
+export type NewReferralClick = typeof referralClicks.$inferInsert;
+
 /** All tables, handy for migrations/tests. */
 export const schema = {
   workers,
@@ -3005,4 +3181,6 @@ export const schema = {
   payerJobPostingChatSessions,
   payerJobPostingChatMessages,
   payerFormDrafts,
+  referralLinks,
+  referralClicks,
 };

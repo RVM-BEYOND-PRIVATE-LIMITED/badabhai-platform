@@ -42,6 +42,62 @@ export function playStoreUrl(code: string): string {
 }
 
 /**
+ * The bare Play Store listing, carrying NO referrer payload.
+ *
+ * The destination for the resolver's fallback leg (`/i/unknown`), and for ANY visit whose
+ * code fails the 12-hex shape check, where there is no usable code to attribute. Attaching
+ * `referrer=bb_code=unknown` there would post a junk code into the Install Referrer path on
+ * first run and burn a claim attempt on a code that resolves to nothing — an unattributed
+ * install is the honest outcome, so it carries nothing.
+ */
+export function playStoreBrowseUrl(): string {
+  return `https://play.google.com/store/apps/details?id=${workerAppId()}`;
+}
+
+/**
+ * The BRANDED SHORT-LINK origin — the base of `/r/<code>`, the resolver every agent code,
+ * worker share, campaign URL and QR now goes through (B4).
+ *
+ * Defaults to the app-link host the worker app's manifest already claims, so B4 adds NO new
+ * required deployment variable. Pointing it at a real short domain is a DNS/deploy action
+ * (P0-6), never a code change.
+ */
+export function shortLinkOrigin(): string {
+  return (env("NEXT_PUBLIC_SHORT_LINK_BASE") ?? "https://app.badabhai.in").replace(/\/+$/, "");
+}
+
+/** The shareable short link for a code — what a QR encodes and what gets forwarded. */
+export function shortLinkUrl(code: string): string {
+  return `${shortLinkOrigin()}/r/${encodeURIComponent(code)}`;
+}
+
+/**
+ * THE `intent://` FALLBACK — leg 2 of the chain, and the one that does the most work.
+ *
+ * A single Android intent URL that means: "open the app if it is installed; otherwise go
+ * where `S.browser_fallback_url` says". That fallback is the Play Store URL WITH the
+ * `referrer=bb_code=<code>` payload attached, so a worker who does not have the app installs
+ * it and the code still survives the round-trip via the Install Referrer API.
+ *
+ * WHY IT MATTERS EVEN THOUGH THE APP LINK EXISTS. The verified App Link (leg 1) only fires
+ * once `assetlinks.json` is served for the domain — a separate, owner-executed workstream
+ * (P0-6). Until then EVERY shared link falls to this leg, and without it a worker without
+ * the app would land on a page whose only action was a bare Play Store link carrying nothing.
+ * It also stays useful afterwards, because App Link verification legitimately fails on some
+ * OEM browsers and on a first boot with no network.
+ *
+ * `S.browser_fallback_url` must be percent-encoded — it is a URL nested inside a URL, and an
+ * unencoded `&` in the Play query string would terminate the intent's own parameter list.
+ */
+export function intentUrl(code: string): string {
+  const fallback = encodeURIComponent(playStoreUrl(code));
+  return (
+    `intent://i/${encodeURIComponent(code)}#Intent;scheme=badabhai;` +
+    `package=${workerAppId()};S.browser_fallback_url=${fallback};end`
+  );
+}
+
+/**
  * API base for the SERVER-SIDE click ping. Reuses the payer portal's existing
  * `PAYER_API_URL` (the same API this app already talks to) so B4 introduces no new
  * deployment variable; `NEXT_PUBLIC_API_URL` is honoured as a fallback.

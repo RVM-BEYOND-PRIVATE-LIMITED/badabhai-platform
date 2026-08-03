@@ -2082,6 +2082,89 @@ export const ReferralBonusAccruedPayload = z
 export type ReferralBonusAccruedPayload = z.infer<typeof ReferralBonusAccruedPayload>;
 
 // ---------------------------------------------------------------------------
+// B4 ATTRIBUTION — the `referral_links` resolver primitive.
+//
+// THE `code` NEVER APPEARS IN ANY OF THESE PAYLOADS. It is a BEARER TOKEN: anyone
+// holding it can claim the referral, and the events table is read by the ops console.
+// Every payload carries the opaque `referral_link_id` row id instead — exactly the rule
+// `invite.clicked` and `InviteInstallPayload` already follow. `.strict()` on all three is
+// the structural backstop that stops a code/phone/IP being smuggled alongside.
+//
+// PII-FREE otherwise by construction: opaque uuids, closed enums, integer hours. The
+// click's `click_hash` (a keyed HMAC over ip+UA) is deliberately ALSO absent — it is a
+// storage-side de-duplication key, not something the audit spine needs.
+// ---------------------------------------------------------------------------
+
+/** The link's owner axis — which commission channel a click belongs to. */
+export const ReferralLinkKindEnum = z.enum(["agent", "worker", "campaign"]);
+
+/**
+ * ORGANIC vs PAID. Selects which match window a click is judged under (7d vs 24h by
+ * default, both config). Snapshotted onto the click so a later re-tag of the link cannot
+ * retroactively re-judge a click that already happened.
+ */
+export const ReferralLinkMediumEnum = z.enum(["organic", "paid"]);
+
+/** Coarse device class of a click. Diagnostics only — deliberately not a fingerprint. */
+export const ReferralClickPlatformEnum = z.enum(["android", "desktop", "other"]);
+
+/** A shareable referral link was minted (agent code, worker share, campaign URL, or QR). */
+export const ReferralLinkCreatedPayload = z
+  .object({
+    /** The opaque `referral_links.id` (also the event subject). NEVER the code. */
+    referral_link_id: uuidSchema,
+    kind: ReferralLinkKindEnum,
+    medium: ReferralLinkMediumEnum,
+    /** Stable non-PII campaign tag, when this is a campaign link. */
+    campaign_id: z.string().min(1).max(64).optional(),
+  })
+  .strict();
+export type ReferralLinkCreatedPayload = z.infer<typeof ReferralLinkCreatedPayload>;
+
+/**
+ * A referral link was RESOLVED by `GET /r/:code` — one row in the click log.
+ *
+ * Emitted for a link that resolved to a `referral_links` row only; a legacy
+ * `invites`/`agency_invites` code keeps emitting its own `invite.clicked` /
+ * `agency_invite.clicked` (no double-count on the spine).
+ */
+export const ReferralLinkClickedPayload = z
+  .object({
+    referral_link_id: uuidSchema,
+    medium: ReferralLinkMediumEnum,
+    platform: ReferralClickPlatformEnum,
+  })
+  .strict();
+export type ReferralLinkClickedPayload = z.infer<typeof ReferralLinkClickedPayload>;
+
+/**
+ * A click WON a worker's first-touch claim — the moment attribution actually closes.
+ *
+ * Answers the question the funnel could not answer before: not just "was this worker
+ * attributed" (`invite.accepted` already says that) but "which click earned it, how old
+ * was that click, and which window admitted it". `age_hours` + `window_hours` together
+ * make a mis-tuned window visible in the data instead of silently dropping referrals.
+ *
+ * Emitted at most ONCE per worker, ever — enforced by the partial unique index on
+ * `referral_clicks.claimed_by_worker_id`, not by this emitter.
+ */
+export const ReferralInstallClaimedPayload = z
+  .object({
+    referral_link_id: uuidSchema.nullable(),
+    /** The worker who claimed (opaque). */
+    worker_id: uuidSchema,
+    medium: ReferralLinkMediumEnum,
+    /** Which leg of the post-Dynamic-Links chain delivered the code. */
+    source: InviteInstallSource,
+    /** How old the winning click was at claim time (whole hours, floored). */
+    age_hours: z.number().int().nonnegative(),
+    /** The window that admitted it — the config value in force at claim time. */
+    window_hours: z.number().int().positive(),
+  })
+  .strict();
+export type ReferralInstallClaimedPayload = z.infer<typeof ReferralInstallClaimedPayload>;
+
+// ---------------------------------------------------------------------------
 // Matching V1 (ADR-0036, spec docs/specs/matching-algorithm-v1.md).
 //
 // PII-FREE BY CONSTRUCTION, and narrower than that: these payloads carry opaque

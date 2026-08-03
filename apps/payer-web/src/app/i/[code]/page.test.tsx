@@ -20,9 +20,7 @@ import type * as InviteLandingModule from "../../../lib/invite-landing";
 
 const pingInviteClick = vi.fn<(code: string) => Promise<void>>(async () => undefined);
 vi.mock("../../../lib/invite-landing", async () => {
-  const actual = await vi.importActual<typeof InviteLandingModule>(
-    "../../../lib/invite-landing",
-  );
+  const actual = await vi.importActual<typeof InviteLandingModule>("../../../lib/invite-landing");
   return { ...actual, pingInviteClick: (code: string) => pingInviteClick(code) };
 });
 
@@ -89,18 +87,36 @@ describe("/i/[code] — install CTA carries the referral payload", () => {
 });
 
 describe("/i/[code] — NO ORACLE (unauthenticated, shareable URL)", () => {
-  it("renders IDENTICAL markup for a valid, unknown, expired-looking and malformed code", async () => {
+  /**
+   * THE PROPERTY THAT ACTUALLY MATTERS: a LIVE code and a DEAD one must be
+   * indistinguishable. Both are well-formed 12-hex, and the page never resolves either, so
+   * an attacker holding a candidate code learns nothing about whether it is worth anything.
+   * That is what stops enumeration of the referral space.
+   *
+   * A MALFORMED code IS distinguishable, deliberately, and that is NOT an oracle: the
+   * distinction is purely syntactic (a 12-hex regex the attacker can run on their own input),
+   * so the render tells them only what they already knew when they typed it. The difference
+   * exists because B4 must NOT send `referrer=bb_code=not-a-code` to the Play Store — the app
+   * would read that junk back on first run and burn its one install-referrer claim attempt on
+   * a code that resolves to nothing. See the `attributable` branch in page.tsx.
+   */
+  it("renders IDENTICAL markup for a LIVE and a DEAD code — the enumeration property", async () => {
     const strip = (tree: ReactElement) => JSON.stringify(tree).split("abcdef012345").length;
-    const [valid, unknown, malformed] = await Promise.all([
-      render("abcdef012345"),
-      render("000000000000"),
-      render("not-a-code"),
-    ]);
-    // Everything except the code embedded in the store URL is the same for all three.
+    const [valid, unknown] = await Promise.all([render("abcdef012345"), render("000000000000")]);
     const scrub = (t: ReactElement, code: string) => JSON.stringify(t).split(code).join("<CODE>");
     expect(scrub(unknown, "000000000000")).toBe(scrub(valid, "abcdef012345"));
-    expect(scrub(malformed, "not-a-code")).toBe(scrub(valid, "abcdef012345"));
     expect(strip(valid)).toBeGreaterThan(1); // sanity: the code IS present in the store URL
+  });
+
+  it("a MALFORMED code degrades safely: no junk referrer, no deep link into an unresolvable code", async () => {
+    const tree = await render("not-a-code");
+    const json = JSON.stringify(tree);
+    // The Play Store CTA is still there (never a dead end) but carries NO referral payload.
+    expect(json).toContain("play.google.com/store/apps/details?id=");
+    expect(json).not.toContain("referrer=");
+    expect(json).not.toContain("not-a-code");
+    // And no `intent://` shortcut, which would open the app onto a code it cannot resolve.
+    expect(json).not.toContain("intent://");
   });
 
   it("never states whether the code is live, spent or expired", async () => {
@@ -140,10 +156,35 @@ describe("/i/[code] — worker persona copy (Hinglish, aap-form)", () => {
     expect(txt).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 
-  it("carries zero client JavaScript — no onClick/useState, just an anchor (3G, ₹7k phone)", async () => {
+  it("carries zero client JavaScript — plain anchors only, no handlers (3G, ₹7k phone)", async () => {
     const tree = await render("abcdef012345");
     const anchors = findAllByTag(tree, "a");
-    expect(anchors).toHaveLength(1);
-    expect(JSON.stringify(tree)).not.toContain("onClick");
+    // Two by design: the Play Store install CTA, and B4's `intent://` "already have the app?"
+    // leg. Both are plain hrefs — the count is not the guarantee, the ABSENCE of any client
+    // handler is, so that is what is asserted.
+    expect(anchors).toHaveLength(2);
+    for (const a of anchors) {
+      const props = a.props as Record<string, unknown>;
+      expect(typeof props.href).toBe("string");
+      for (const handler of ["onClick", "onSubmit", "onChange", "onTouchStart"]) {
+        expect(props[handler], handler).toBeUndefined();
+      }
+    }
+    const json = JSON.stringify(tree);
+    expect(json).not.toContain("onClick");
+    expect(json).not.toContain("useState");
+  });
+
+  it("the intent:// leg nests a percent-encoded Play Store fallback (no dead end, no broken parse)", async () => {
+    const tree = await render("abcdef012345");
+    const intent = findAllByTag(tree, "a")
+      .map((a) => (a.props as { href: string }).href)
+      .find((h) => h.startsWith("intent://"));
+    expect(intent).toBeDefined();
+    // The nested URL must be encoded — a raw `&` would terminate the intent's own parameter
+    // list and strand a worker who does not have the app.
+    expect(intent).toContain("S.browser_fallback_url=https%3A%2F%2Fplay.google.com");
+    expect(intent).toContain("referrer%3Dbb_code%253Dabcdef012345");
+    expect(intent!.endsWith(";end")).toBe(true);
   });
 });
