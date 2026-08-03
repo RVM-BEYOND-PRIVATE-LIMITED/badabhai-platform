@@ -4,6 +4,7 @@ import { HttpStatus, Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
+import type { EmailMessage } from "../notifications/email-notification.service";
 import { AdminOtpService } from "./admin-otp.service";
 
 // A REAL admin email (ADMIN-class PII) + its keyed-hash lookup key. Neither must ever leak
@@ -87,11 +88,18 @@ function makeRedis(throwOn?: string) {
   };
 }
 
-function setup(opts: { throwOn?: string } = {}) {
+function setup(opts: { throwOn?: string; sendThrows?: boolean } = {}) {
   const redis = makeRedis(opts.throwOn);
   const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
-  const svc = new AdminOtpService(config, pii, queue);
-  return { svc, redis };
+  // ADR-0038 — admin OTP now DELIVERS through the shared pipeline. Wired (not stubbed out)
+  // so the tests exercise the real send + rollback path rather than a no-op.
+  const email = {
+    send: vi.fn<(m: EmailMessage) => Promise<void>>(async () => {
+      if (opts.sendThrows) throw new Error("email delivery failed");
+    }),
+  };
+  const svc = new AdminOtpService(config, pii, queue, email as never);
+  return { svc, redis, email };
 }
 
 /** Assert a serialized blob carries no raw admin PII (email / domain / code / email-hash). */
@@ -108,7 +116,7 @@ function assertNoPii(blob: string, code?: string) {
 describe("AdminOtpService.issueAndSend", () => {
   it("stores the code's HMAC (never the plaintext) and arms a resend cooldown", async () => {
     const { svc, redis } = setup();
-    const out = await svc.issueAndSend(EMAIL_HASH);
+    const out = await svc.issueAndSend(EMAIL_HASH, EMAIL);
 
     // The result carries ONLY the resend cooldown — the code is never echoed (real-only).
     expect(out).toEqual({ resendInSeconds: config.OTP_RESEND_COOLDOWN_SECONDS });
@@ -125,7 +133,7 @@ describe("AdminOtpService.issueAndSend", () => {
 
   it("NEVER returns the OTP code to the caller (no code/email field on the response)", async () => {
     const { svc, redis } = setup();
-    const out = await svc.issueAndSend(EMAIL_HASH);
+    const out = await svc.issueAndSend(EMAIL_HASH, EMAIL);
     const code = reservedCode(redis.store);
 
     // The whole returned object must not carry the code, the email, or the email-hash.
@@ -139,7 +147,7 @@ describe("AdminOtpService.issueAndSend", () => {
     const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
     try {
       const { svc, redis } = setup();
-      await svc.issueAndSend(EMAIL_HASH);
+      await svc.issueAndSend(EMAIL_HASH, EMAIL);
       const code = reservedCode(redis.store);
 
       const logged = JSON.stringify([...log.mock.calls, ...error.mock.calls]);
@@ -155,8 +163,8 @@ describe("AdminOtpService.issueAndSend", () => {
 
   it("arms a resend cooldown — a second immediate issue is rejected with a neutral 429", async () => {
     const { svc } = setup();
-    await svc.issueAndSend(EMAIL_HASH);
-    const err = await svc.issueAndSend(EMAIL_HASH).catch((e) => e);
+    await svc.issueAndSend(EMAIL_HASH, EMAIL);
+    const err = await svc.issueAndSend(EMAIL_HASH, EMAIL).catch((e) => e);
     expect(err.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
     // The throttle message carries no PII / code.
     assertNoPii(err.message);
@@ -165,7 +173,7 @@ describe("AdminOtpService.issueAndSend", () => {
   it("FAILS CLOSED (503, deny — never issue) on a Redis error", async () => {
     // `exists` is the first Redis call in reserve() → a transport error must DENY, not allow.
     const { svc } = setup({ throwOn: "exists" });
-    const err = await svc.issueAndSend(EMAIL_HASH).catch((e) => e);
+    const err = await svc.issueAndSend(EMAIL_HASH, EMAIL).catch((e) => e);
     expect(err.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
     assertNoPii(err.message);
   });
@@ -178,7 +186,7 @@ describe("AdminOtpService.issueWithoutDelivery (no-enumeration parity)", () => {
   it("reserves a code with the IDENTICAL Redis side-effects as issueAndSend (no oracle)", async () => {
     // Known account path.
     const known = setup();
-    const knownOut = await known.svc.issueAndSend(EMAIL_HASH);
+    const knownOut = await known.svc.issueAndSend(EMAIL_HASH, EMAIL);
 
     // Unknown account path — same emailHash arg shape, different service instance.
     const unknown = setup();
@@ -220,11 +228,11 @@ describe("AdminOtpService — resend cooldown + hourly send cap (neutral, PII-fr
     const { svc, redis } = setup();
     // Clear the cooldown between each issue so we exercise the hourly cap, not the cooldown.
     for (let i = 0; i < config.OTP_MAX_SENDS_PER_HOUR; i += 1) {
-      await svc.issueAndSend(EMAIL_HASH);
+      await svc.issueAndSend(EMAIL_HASH, EMAIL);
       redis.store.delete(cooldownKey(EMAIL_HASH));
     }
     // The (cap + 1)th send within the hour is refused.
-    const err = await svc.issueAndSend(EMAIL_HASH).catch((e) => e);
+    const err = await svc.issueAndSend(EMAIL_HASH, EMAIL).catch((e) => e);
     expect(err.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
     // The cap throttle is a NEUTRAL message — no email, no code, no email-hash.
     assertNoPii(err.message);
@@ -240,10 +248,10 @@ describe("AdminOtpService — resend cooldown + hourly send cap (neutral, PII-fr
     // bare, PII-free 429.
     const { svc, redis } = setup();
     for (let i = 0; i < config.OTP_MAX_SENDS_PER_HOUR; i += 1) {
-      await svc.issueAndSend(EMAIL_HASH);
+      await svc.issueAndSend(EMAIL_HASH, EMAIL);
       redis.store.delete(cooldownKey(EMAIL_HASH));
     }
-    const err = await svc.issueAndSend(EMAIL_HASH).catch((e) => e);
+    const err = await svc.issueAndSend(EMAIL_HASH, EMAIL).catch((e) => e);
     const code = reservedCode(redis.store); // best-effort (may be empty post-refusal)
     // The exception (status + message + any attached body) is fully PII/code-free.
     assertNoPii(JSON.stringify({ msg: err.message, status: err.getStatus() }), code || undefined);
@@ -251,7 +259,7 @@ describe("AdminOtpService — resend cooldown + hourly send cap (neutral, PII-fr
 
   it("the hourly send counter is keyed PII-FREE (email-HASH + UTC hour, never the raw email)", async () => {
     const { svc, redis } = setup();
-    await svc.issueAndSend(EMAIL_HASH);
+    await svc.issueAndSend(EMAIL_HASH, EMAIL);
     const sendCountKeys = [...redis.store.keys()].filter((k) =>
       k.startsWith("admin_otp:sendcount:"),
     );
@@ -273,7 +281,7 @@ describe("AdminOtpService — resend cooldown + hourly send cap (neutral, PII-fr
 describe("AdminOtpService.verify", () => {
   it("verifies a correct code, then is SINGLE-USE (a replay is rejected)", async () => {
     const { svc, redis } = setup();
-    await svc.issueAndSend(EMAIL_HASH);
+    await svc.issueAndSend(EMAIL_HASH, EMAIL);
     const code = reservedCode(redis.store);
 
     await expect(svc.verify(EMAIL_HASH, code)).resolves.toBeUndefined();
@@ -288,7 +296,7 @@ describe("AdminOtpService.verify", () => {
 
   it("returns the SAME 401 message for a WRONG code and for NO-code-on-file (no enumeration oracle)", async () => {
     const wrong = setup();
-    await wrong.svc.issueAndSend(EMAIL_HASH);
+    await wrong.svc.issueAndSend(EMAIL_HASH, EMAIL);
     // submit a code that cannot match the reserved one
     const reserved = reservedCode(wrong.redis.store);
     const bad = reserved === "000000" ? "111111" : "000000";
@@ -322,7 +330,7 @@ describe("AdminOtpService.verify", () => {
 
   it("increments the attempt counter and LOCKS OUT after OTP_MAX_ATTEMPTS (neutral 429)", async () => {
     const { svc, redis } = setup();
-    await svc.issueAndSend(EMAIL_HASH);
+    await svc.issueAndSend(EMAIL_HASH, EMAIL);
     const correct = reservedCode(redis.store);
     const wrong = correct === "000000" ? "111111" : "000000";
 
@@ -348,7 +356,7 @@ describe("AdminOtpService.verify", () => {
     // A wrong code of a DIFFERENT length than the stored HMAC must still resolve to the same
     // neutral 401 (the length guard precedes timingSafeEqual; no length oracle, no throw).
     const { svc, redis } = setup();
-    await svc.issueAndSend(EMAIL_HASH);
+    await svc.issueAndSend(EMAIL_HASH, EMAIL);
     const reserved = reservedCode(redis.store);
     expect(reserved).toMatch(/^\d{6}$/);
     const err = await svc.verify(EMAIL_HASH, "1234").catch((e) => e); // shorter ⇒ length mismatch
@@ -360,7 +368,7 @@ describe("AdminOtpService.verify", () => {
     const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
     try {
       const { svc, redis } = setup();
-      await svc.issueAndSend(EMAIL_HASH);
+      await svc.issueAndSend(EMAIL_HASH, EMAIL);
       const code = reservedCode(redis.store);
       await svc.verify(EMAIL_HASH, code);
       const logged = JSON.stringify(log.mock.calls);
@@ -384,7 +392,7 @@ describe("AdminOtpService.verify", () => {
     // Reserve a code, then make the attempts INCR throw → verify must DENY (503), not accept
     // even though a stored code exists.
     const { svc, redis } = setup();
-    await svc.issueAndSend(EMAIL_HASH);
+    await svc.issueAndSend(EMAIL_HASH, EMAIL);
     const code = reservedCode(redis.store);
     // Make the attempts INCR throw on the next call (a code IS already on file).
     vi.spyOn(redis.client, "incr").mockRejectedValueOnce(new Error("redis incr failed") as never);
@@ -408,7 +416,7 @@ describe("AdminOtpService.verify", () => {
 describe("AdminOtpService — namespace isolation (admin_otp:* distinct from payer/worker)", () => {
   it("writes ONLY under the admin_otp:* namespace (no payer_otp:* / otp:* key collision)", async () => {
     const { svc, redis } = setup();
-    await svc.issueAndSend(EMAIL_HASH);
+    await svc.issueAndSend(EMAIL_HASH, EMAIL);
     const keys = [...redis.store.keys()];
     expect(keys.length).toBeGreaterThan(0);
     for (const k of keys) {
@@ -416,6 +424,63 @@ describe("AdminOtpService — namespace isolation (admin_otp:* distinct from pay
       expect(k.startsWith("payer_otp:")).toBe(false);
       // a worker key is the bare `otp:` prefix — admin keys must not match it
       expect(/^otp:/.test(k)).toBe(false);
+    }
+  });
+});
+
+describe("AdminOtpService.issueAndSend — REAL delivery (ADR-0038)", () => {
+  it("actually SENDS, tagged principal=admin purpose=login_code", async () => {
+    // The bug this closes: issueAndSend used to reserve the code and log "delivery
+    // deferred". The code was never returned to the client (correctly) and never sent, so
+    // it reached no human and NO ADMIN COULD EVER LOG IN — the whole ADMIN-3a surface sat
+    // complete and unreachable behind this one stub.
+    const { svc, email } = setup();
+    await svc.issueAndSend(EMAIL_HASH, EMAIL);
+
+    expect(email.send).toHaveBeenCalledTimes(1);
+    const msg = email.send.mock.calls[0]![0];
+    expect(msg.to).toBe(EMAIL);
+    expect(msg.principal).toBe("admin");
+    expect(msg.purpose).toBe("login_code");
+  });
+
+  it("puts the code in BOTH bodies and NEVER in the subject", async () => {
+    const { svc, email, redis } = setup();
+    await svc.issueAndSend(EMAIL_HASH, EMAIL);
+    const msg = email.send.mock.calls[0]![0];
+
+    // The code the service actually RESERVED, read out of the fake KV — so this proves
+    // the MAILED code is the one verify will accept, not merely that some digits were
+    // mailed. A composition bug that mailed a different value fails right here.
+    const code = reservedCode(redis.store);
+    expect(code).not.toBe("");
+    expect(msg.text).toContain(code);
+    expect(msg.html).toContain(code);
+    // Subjects surface in notification previews and mail-server logs.
+    expect(msg.subject).not.toContain(code);
+  });
+
+  it("ROLLS BACK the reserved code when delivery fails", async () => {
+    // A reserved-but-undelivered code is worse than no code: the admin never saw it, yet it
+    // holds the cooldown, so their retry is refused for the whole window. Deleting it lets
+    // them retry immediately.
+    const { svc, redis } = setup({ sendThrows: true });
+    await expect(svc.issueAndSend(EMAIL_HASH, EMAIL)).rejects.toThrow();
+    // No code key survives the failed send.
+    const codeKeys = [...redis.store.keys()].filter((k) => k.includes("code"));
+    expect(codeKeys).toEqual([]);
+  });
+
+  it("never logs the admin's address or the code, even on a delivery failure", async () => {
+    const { svc } = setup({ sendThrows: true });
+    const logSpy = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const errSpy = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      await svc.issueAndSend(EMAIL_HASH, EMAIL).catch(() => undefined);
+      assertNoPii([...logSpy.mock.calls, ...errSpy.mock.calls].flat().join(" "));
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
     }
   });
 });

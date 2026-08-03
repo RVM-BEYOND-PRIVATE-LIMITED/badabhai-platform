@@ -33,6 +33,7 @@ import { PayerPortalModule } from "./payer-portal/payer-portal.module";
 import { AgencyModule } from "./agency/agency.module";
 import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
+import { EmailNotificationModule } from "./notifications/email-notification.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
 import { MatchModule } from "./match/match.module";
@@ -86,6 +87,8 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // Payer portal (ADR-0019 Phase 1 — closes R16/LC-1): the previously un-wired
     // identity/tenancy foundation + the external self-serve `/payer/*` route group.
     PayersModule,
+    // ADR-0038 — @Global: the ONE outbound-email pipeline every principal shares.
+    EmailNotificationModule,
     PayerPortalModule,
     // Agency Supply Portal demand slice (ADR-0022): agent-only `/payer/agency/*` routes
     // (jobs CRUD + invites + referrals summary) + the consent-gated attribution seam.

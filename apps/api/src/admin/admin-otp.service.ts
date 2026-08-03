@@ -5,6 +5,7 @@ import { randomInt, timingSafeEqual } from "node:crypto";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { EmailNotificationService } from "../notifications/email-notification.service";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 
 /** Minimal typed view of the raw Redis commands the OTP flow needs. */
@@ -50,20 +51,52 @@ export class AdminOtpService {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly pii: PiiCryptoService,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
+    // ADR-0038 — the shared outbound pipeline. Admin was the one principal with no sender.
+    private readonly email: EmailNotificationService,
   ) {}
 
   /**
-   * Reserve a code for an EXISTING admin account (stores its HMAC keyed by `emailHash`).
-   * In ADMIN-1 delivery is a stubbed no-op (deferred); the code is never returned. Throws
-   * 429 (cooldown / hourly cap) or 503 (Redis down — fail closed).
+   * Reserve a code for an EXISTING admin account (stores its HMAC keyed by `emailHash`) and
+   * DELIVER it. Throws 429 (cooldown / hourly cap) or 503 (Redis down — fail closed).
+   *
+   * ADR-0038 — delivery is REAL now. Until this, the method reserved the code and logged
+   * "delivery deferred": the code was never returned to the client (correctly — real-only,
+   * no echo) and never sent, so it reached no human and NO ADMIN COULD EVER LOG IN. The
+   * entire ADMIN-3a surface was complete and unreachable behind that one stub.
+   *
+   * ROLLBACK ON A FAILED SEND, mirroring the payer channel: a reserved code that was never
+   * delivered is worse than no code — it is unusable to the admin (they never saw it) while
+   * still occupying the cooldown, so a retry is refused for the cooldown window. Deleting it
+   * lets them retry immediately.
    */
-  async issueAndSend(emailHash: string): Promise<AdminOtpIssued> {
+  async issueAndSend(emailHash: string, email: string): Promise<AdminOtpIssued> {
     const hashPrefix = emailHash.slice(0, 8);
     const redis = await this.client();
     try {
-      await this.reserve(emailHash, redis);
-      // Delivery is a deferred stream — never log/return the code. Record only the fact.
-      this.logger.log(`admin login code issued email_hash=${hashPrefix} (delivery deferred)`);
+      const code = await this.reserve(emailHash, redis);
+      try {
+        await this.email.send({
+          to: email,
+          subject: "Your BadaBhai admin login code",
+          html: [
+            "<p>Your BadaBhai <strong>admin</strong> login code is:</p>",
+            `<p style="font-size:24px;font-weight:bold;letter-spacing:3px;">${code}</p>`,
+            "<p>It expires shortly. If you did not request it, tell your security contact —",
+            " someone has your admin address.</p>",
+          ].join(""),
+          text:
+            `Your BadaBhai admin login code is ${code}. It expires shortly. ` +
+            `If you did not request it, tell your security contact.`,
+          principal: "admin",
+          purpose: "login_code",
+        });
+      } catch (sendErr) {
+        await redis.del(AdminOtpService.codeKey(emailHash)).catch(() => undefined);
+        // NEVER log the email or the code — the hash prefix + a reason class only.
+        this.logger.error(`admin login code delivery failed email_hash=${hashPrefix}`);
+        throw sendErr;
+      }
+      this.logger.log(`admin login code issued + sent email_hash=${hashPrefix}`);
       return this.issued();
     } catch (err) {
       throw this.mapFailClosed(err, hashPrefix);
