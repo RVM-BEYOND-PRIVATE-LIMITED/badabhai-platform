@@ -75,16 +75,22 @@ describe("WorkerAiJobsController.get — scoping", () => {
     // The repository returns undefined in both cases by construction — the
     // ownership leg is part of the WHERE. Assert the controller does not
     // distinguish them in status or message.
-    const notFound = makeController(undefined);
-    const notYours = makeController(undefined);
-    const a = await notFound.controller.get(WORKER, JOB).catch((e: Error) => e);
-    const b = await notYours.controller
-      .get({ ...WORKER, id: OTHER }, JOB)
-      .catch((e: Error) => e);
+    const thrown = async (worker: AuthenticatedWorker): Promise<unknown> => {
+      try {
+        await makeController(undefined).controller.get(worker, JOB);
+        throw new Error("expected the controller to throw");
+      } catch (err) {
+        return err;
+      }
+    };
+
+    const a = await thrown(WORKER);
+    const b = await thrown({ ...WORKER, id: OTHER });
     expect(a).toBeInstanceOf(NotFoundException);
     expect(b).toBeInstanceOf(NotFoundException);
+    // Same status AND same message — either differing would be the oracle.
     expect((a as NotFoundException).getStatus()).toBe((b as NotFoundException).getStatus());
-    expect(a.message).toBe(b.message);
+    expect((a as NotFoundException).message).toBe((b as NotFoundException).message);
   });
 });
 

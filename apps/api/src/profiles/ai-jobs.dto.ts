@@ -28,15 +28,20 @@ export type AiJobUsage = z.infer<typeof AiJobUsageSchema>;
  * `real_call`, token counts), `error_message`, `id`, `job_type`, timestamps — is
  * withheld; see the rationale on {@link import("./worker-ai-jobs.controller")}.
  *
- * `status` is the same closed enum as the ops route, because the client's whole poll
+ * NOT a Zod schema: an output projection, not boundary input — the same rule
+ * `workers.dto.ts` states for `WorkerResumeFields`. Nothing in this repo `.parse()`s a
+ * response, so declaring one here would look like an enforced contract while enforcing
+ * nothing. What actually pins the projection is `worker-ai-jobs.controller.test.ts`,
+ * which asserts the exact key set and that each withheld field is absent.
+ *
+ * `status` is the same closed union as the ops route, because the client's whole poll
  * loop is a fold over it.
  */
-export const WorkerAiJobResponseSchema = z.object({
-  status: z.enum(["queued", "running", "completed", "failed"]),
-  profile_id: z.string().nullable(),
-  voice_note_id: z.string().nullable(),
-});
-export type WorkerAiJobResponse = z.infer<typeof WorkerAiJobResponseSchema>;
+export interface WorkerAiJobResponse {
+  status: "queued" | "running" | "completed" | "failed";
+  profile_id: string | null;
+  voice_note_id: string | null;
+}
 
 export const AiJobResponseSchema = z.object({
   id: z.string().uuid(),
