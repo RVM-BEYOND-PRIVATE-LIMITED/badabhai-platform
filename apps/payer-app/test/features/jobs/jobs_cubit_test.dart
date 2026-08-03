@@ -33,6 +33,13 @@ class _ScriptedJobsApi extends MockPayerApiClient {
     String? vacancyBand,
     int? vacancies,
     String? status,
+    String? city,
+    int? payMin,
+    int? payMax,
+    String? shift,
+    String? neededBy,
+    List<String>? matchSkillIds,
+    List<String>? untickedRelatedIds,
   }) async {
     updated.add(id);
     lastRoleTitle = roleTitle;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/data/models.dart';
@@ -13,6 +15,17 @@ import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_toast.dart';
+import 'widgets/match_skill_picker.dart';
+
+/// Availability of the Matching-V1 demand-skill picker, resolved once at load.
+///
+///  - [loading]     — `fetchMatchSkills()` in flight; Post is held until known.
+///  - [available]   — the route answered with skills; show the picker + reach
+///    meter and gate Post on reach (E13).
+///  - [unavailable] — the route is off server-side (`MATCH_V1_ENABLED` false →
+///    404/error) or returned nothing; HIDE the picker and fall back to the
+///    existing free-text skills flow so posting still works.
+enum _MatchV1 { loading, available, unavailable }
 
 /// Post a job — role-branched on [AppSession.role].
 ///
@@ -87,9 +100,33 @@ class _PostJobScreenState extends State<PostJobScreen> {
   String _tradeKey = kAgencyTradeKeys.first;
   String _neededBy = kAgencyNeededBy.first;
   // #357 — starts empty; '+ Add skill' prompts for a real phrase instead of
-  // inserting the literal placeholder 'Skill N'.
+  // inserting the literal placeholder 'Skill N'. Used ONLY on the V1-off
+  // fallback path (when the demand-skill picker is unavailable).
   final List<String> _skills = <String>[];
   bool _submitting = false;
+
+  // --- Matching V1 (COMPANY posting only) -----------------------------------
+  // The demand-skill picker + live reach meter. All additive: if the route is
+  // off server-side we degrade to the free-text skills flow (see [_MatchV1]).
+
+  /// Fallback cap until a reach preview reports the server's real
+  /// `max_skills_per_posting`. Kept small so we never overshoot the contract.
+  static const int _matchSkillCapFallback = 5;
+
+  _MatchV1 _matchV1 = _MatchV1.loading;
+  List<MatchSkill> _matchSkills = const <MatchSkill>[];
+  final Set<String> _pickedSkillIds = <String>{};
+  final Set<String> _untickedRelatedIds = <String>{};
+  ReachPreview? _reach;
+  bool _reachLoading = false;
+  int _maxSkillsPerPosting = _matchSkillCapFallback;
+  int _reachSeq = 0;
+  Timer? _reachDebounce;
+
+  /// Coarse structured demand attributes (V1 company path). Null = "not set",
+  /// so we never fabricate a shift/timing the payer did not choose (#357).
+  String? _shift;
+  String? _companyNeededBy;
 
   bool get _isAgency =>
       locator<AppSessionCubit>().state?.isAgency ?? false;
@@ -102,10 +139,19 @@ class _PostJobScreenState extends State<PostJobScreen> {
     final String orgName =
         locator<AppSessionCubit>().state?.account.name ?? '';
     _org = TextEditingController(text: orgName);
+    // The picker is a COMPANY-only surface. Load it lazily and fail soft: any
+    // error (route disabled, network) drops us to the free-text fallback.
+    if (!_isAgency) {
+      // ignore: discarded_futures — fire-and-forget load; state updates on done.
+      _loadMatchSkills();
+    } else {
+      _matchV1 = _MatchV1.unavailable;
+    }
   }
 
   @override
   void dispose() {
+    _reachDebounce?.cancel();
     _org.dispose();
     _title.dispose();
     _location.dispose();
@@ -116,6 +162,117 @@ class _PostJobScreenState extends State<PostJobScreen> {
     _expMin.dispose();
     _expMax.dispose();
     super.dispose();
+  }
+
+  /// Load the closed demand-skill set. GRACEFUL DEGRADATION: the match routes
+  /// may be disabled (`MATCH_V1_ENABLED` off → 404/error). On any failure — or
+  /// an empty set — we mark V1 [unavailable], which HIDES the picker + reach UI
+  /// and keeps the existing free-text skills flow so posting still works. Never
+  /// throws to the tree.
+  Future<void> _loadMatchSkills() async {
+    try {
+      final List<MatchSkill> skills =
+          await locator<PayerApiClient>().fetchMatchSkills();
+      if (!mounted) return;
+      setState(() {
+        _matchSkills = skills;
+        _matchV1 =
+            skills.isEmpty ? _MatchV1.unavailable : _MatchV1.available;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _matchV1 = _MatchV1.unavailable);
+    }
+  }
+
+  /// Toggle a demand skill. Adding is capped at [_maxSkillsPerPosting]; emptying
+  /// the set clears the reach meter, otherwise a debounced preview is scheduled.
+  void _onToggleSkill(String id) {
+    setState(() {
+      if (_pickedSkillIds.contains(id)) {
+        _pickedSkillIds.remove(id);
+      } else if (_pickedSkillIds.length < _maxSkillsPerPosting) {
+        _pickedSkillIds.add(id);
+      }
+    });
+    if (_pickedSkillIds.isEmpty) {
+      _reachDebounce?.cancel();
+      setState(() {
+        _reach = null;
+        _reachLoading = false;
+      });
+    } else {
+      _scheduleReach();
+    }
+  }
+
+  /// Untick / re-tick a related skill (excludes/includes its reach slice).
+  void _onToggleRelated(String id) {
+    setState(() {
+      if (!_untickedRelatedIds.remove(id)) _untickedRelatedIds.add(id);
+    });
+    _scheduleReach();
+  }
+
+  /// Debounce reach previews so a burst of taps makes ONE call (~350ms idle).
+  void _scheduleReach() {
+    _reachDebounce?.cancel();
+    _reachDebounce =
+        Timer(const Duration(milliseconds: 350), _loadReach);
+  }
+
+  /// Fetch the deterministic reach preview for the current pick. A [_reachSeq]
+  /// token drops stale responses; a failure keeps the last known reach (marked
+  /// not-loading) rather than flipping the meter to a fabricated zero.
+  Future<void> _loadReach() async {
+    final List<String> ids = _pickedSkillIds.toList(growable: false);
+    if (ids.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _reach = null;
+          _reachLoading = false;
+        });
+      }
+      return;
+    }
+    final int seq = ++_reachSeq;
+    setState(() => _reachLoading = true);
+    try {
+      final ReachPreview preview =
+          await locator<PayerApiClient>().reachPreview(
+        matchSkillIds: ids,
+        untickedRelatedIds: _untickedRelatedIds.toList(growable: false),
+      );
+      if (!mounted || seq != _reachSeq) return;
+      setState(() {
+        _reach = preview;
+        _reachLoading = false;
+        if (preview.maxSkillsPerPosting > 0) {
+          _maxSkillsPerPosting = preview.maxSkillsPerPosting;
+        }
+      });
+    } catch (_) {
+      if (!mounted || seq != _reachSeq) return;
+      setState(() => _reachLoading = false);
+    }
+  }
+
+  /// E13 gate — "never take money for a posting into a void". Post is disabled
+  /// for the company path while V1 is [loading] and unless a picked set reaches
+  /// at least one worker. The agency path and the V1-off fallback are ungated.
+  bool get _companyCanPost {
+    switch (_matchV1) {
+      case _MatchV1.loading:
+        return false;
+      case _MatchV1.unavailable:
+        return true;
+      case _MatchV1.available:
+        final ReachPreview? r = _reach;
+        return _pickedSkillIds.isNotEmpty &&
+            r != null &&
+            !r.zeroReach &&
+            r.reachTotal > 0;
+    }
   }
 
   /// A trimmed whole-number field → int, or null when empty/invalid (an optional
@@ -237,6 +394,21 @@ class _PostJobScreenState extends State<PostJobScreen> {
       return;
     }
 
+    // E13 gate — defence in depth behind the disabled Post button: when the
+    // demand-skill picker is live, never submit a pick that reaches no worker.
+    final bool v1 = _matchV1 == _MatchV1.available;
+    if (v1 && !_companyCanPost) {
+      showBbToast(
+        context,
+        title: _pickedSkillIds.isEmpty ? 'Pick a skill' : 'No workers match yet',
+        message: _pickedSkillIds.isEmpty
+            ? 'Choose at least one skill this role needs.'
+            : 'Widen the skills so this posting reaches someone.',
+        icon: Icons.info_outline,
+      );
+      return;
+    }
+
     setState(() => _submitting = true);
     try {
       final String location = _location.text.trim();
@@ -247,6 +419,22 @@ class _PostJobScreenState extends State<PostJobScreen> {
         // #357 — carries the trade/pay/experience/skills the payer entered.
         description: _companyDescription(),
         vacancyBand: _band,
+        // Matching V1 (additive) — only sent when the picker is live, so a
+        // V1-off server never receives fields it does not understand.
+        matchSkillIds: v1 && _pickedSkillIds.isNotEmpty
+            ? _pickedSkillIds.toList(growable: false)
+            : null,
+        untickedRelatedIds: v1 && _untickedRelatedIds.isNotEmpty
+            ? _untickedRelatedIds.toList(growable: false)
+            : null,
+        // City reuses the existing location field; pay reuses the existing
+        // coarse bands — now sent as structured match inputs, not just folded
+        // into the free-text description.
+        city: v1 && location.isNotEmpty ? location : null,
+        payMin: v1 ? _intOrNull(_payMin.text) : null,
+        payMax: v1 ? _intOrNull(_payMax.text) : null,
+        shift: v1 ? _shift : null,
+        neededBy: v1 ? _companyNeededBy : null,
       );
       if (!mounted) return;
       showBbToast(
@@ -411,7 +599,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
           iconLeft: Icons.send,
           block: true,
           loading: _submitting,
-          onPressed: _submit,
+          // E13 — disabled (null) for the company path until the picked skills
+          // reach at least one worker; the agency path is never gated here.
+          onPressed: (_isAgency || _companyCanPost) ? _submit : null,
         ),
       ],
     );
@@ -516,36 +706,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ],
         ),
         const SizedBox(height: AppSpacing.s4),
-        Text(
-          'Key skills',
-          style: AppTypography.body(
-            size: AppTypography.sizeSm,
-            weight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s2),
-        Wrap(
-          spacing: 7,
-          runSpacing: 7,
-          children: <Widget>[
-            for (final String skill in _skills)
-              BbChip(
-                label: skill,
-                selected: true,
-                icon: Icons.close,
-                onTap: () => setState(() => _skills.remove(skill)),
-              ),
-            // Hidden at the server's cap rather than letting the payer add a
-            // phrase the contract would reject.
-            if (_skills.length < _maxSkills)
-              BbChip(
-                label: '+ Add skill',
-                // ignore: discarded_futures — fire-and-forget dialog, like the
-                // other sheet openers on this surface.
-                onTap: _addSkill,
-              ),
-          ],
-        ),
+        // Matching V1: the demand-skill picker + reach meter when the route is
+        // live; the free-text skills flow otherwise (see [_companySkillsSection]).
+        ..._companySkillsSection(),
         const SizedBox(height: AppSpacing.s4),
         Container(
           padding: const EdgeInsets.all(AppSpacing.s3),
@@ -603,6 +766,155 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ),
         ),
       ];
+
+  /// The COMPANY skills area, branched on Matching-V1 availability:
+  ///  - [_MatchV1.loading]     — a small placeholder while `fetchMatchSkills()`
+  ///    resolves (Post is held disabled meanwhile).
+  ///  - [_MatchV1.available]   — the closed-taxonomy picker + live reach meter,
+  ///    plus the structured Shift / Needed-by selects.
+  ///  - [_MatchV1.unavailable] — the pre-existing free-text "Key skills" flow,
+  ///    so posting still works when the route is off (`MATCH_V1_ENABLED` false).
+  List<Widget> _companySkillsSection() {
+    switch (_matchV1) {
+      case _MatchV1.loading:
+        return <Widget>[_skillsLoading()];
+      case _MatchV1.unavailable:
+        return _freeTextSkills();
+      case _MatchV1.available:
+        return <Widget>[
+          MatchSkillPicker(
+            skills: _matchSkills,
+            pickedIds: _pickedSkillIds,
+            untickedRelatedIds: _untickedRelatedIds,
+            reach: _reach,
+            reachLoading: _reachLoading,
+            maxSkills: _maxSkillsPerPosting,
+            onToggleSkill: _onToggleSkill,
+            onToggleRelated: _onToggleRelated,
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: BbSelect<String?>(
+                  label: 'Shift',
+                  value: _shift,
+                  items: const <String?>[null, 'day', 'night', 'rotational'],
+                  labelOf: _shiftLabel,
+                  onChanged: (String? v) => setState(() => _shift = v),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: BbSelect<String?>(
+                  label: 'Needed by',
+                  value: _companyNeededBy,
+                  items:
+                      const <String?>[null, 'immediate', 'soon', 'flexible'],
+                  labelOf: _companyNeededByLabel,
+                  onChanged: (String? v) =>
+                      setState(() => _companyNeededBy = v),
+                ),
+              ),
+            ],
+          ),
+        ];
+    }
+  }
+
+  /// Placeholder shown while the demand-skill set loads.
+  Widget _skillsLoading() => Container(
+        padding: const EdgeInsets.all(AppSpacing.s3),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceSunken,
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          border: Border.all(color: AppColors.borderDefault),
+        ),
+        child: Row(
+          children: <Widget>[
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppColors.textMuted,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.s2),
+            Text(
+              'Loading matching skills…',
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      );
+
+  /// The V1-off fallback — the pre-existing free-text "Key skills" chips. These
+  /// ride the create call folded into `description` (see [_companyDescription]).
+  List<Widget> _freeTextSkills() => <Widget>[
+        Text(
+          'Key skills',
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            weight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s2),
+        Wrap(
+          spacing: 7,
+          runSpacing: 7,
+          children: <Widget>[
+            for (final String skill in _skills)
+              BbChip(
+                label: skill,
+                selected: true,
+                icon: Icons.close,
+                onTap: () => setState(() => _skills.remove(skill)),
+              ),
+            // Hidden at the server's cap rather than letting the payer add a
+            // phrase the contract would reject.
+            if (_skills.length < _maxSkills)
+              BbChip(
+                label: '+ Add skill',
+                // ignore: discarded_futures — fire-and-forget dialog, like the
+                // other sheet openers on this surface.
+                onTap: _addSkill,
+              ),
+          ],
+        ),
+      ];
+
+  /// "day/night/rotational" → display labels; null = the honest "Any" default.
+  static String _shiftLabel(String? v) {
+    switch (v) {
+      case 'day':
+        return 'Day';
+      case 'night':
+        return 'Night';
+      case 'rotational':
+        return 'Rotational';
+      default:
+        return 'Any shift';
+    }
+  }
+
+  /// "immediate/soon/flexible" → display labels; null = "Not specified".
+  static String _companyNeededByLabel(String? v) {
+    switch (v) {
+      case 'immediate':
+        return 'Immediately';
+      case 'soon':
+        return 'Within weeks';
+      case 'flexible':
+        return 'Flexible';
+      default:
+        return 'Not specified';
+    }
+  }
 
   /// AGENCY posting inputs — every field here IS sent to `POST /payer/agency/
   /// jobs` (trade_key/title/city + optional coarse area/pay/experience bands +

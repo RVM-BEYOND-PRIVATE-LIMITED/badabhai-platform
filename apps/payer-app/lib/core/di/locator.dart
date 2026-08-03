@@ -19,6 +19,8 @@ import '../../features/job_posting_chat/data/job_posting_chat_repository_impl.da
 import '../../features/job_posting_chat/presentation/bloc/job_posting_chat_bloc.dart';
 import '../../features/job_posting_chat/presentation/cubit/chat_sessions_cubit.dart';
 import '../../features/referral/presentation/cubit/referral_cubit.dart';
+import '../../features/agency/presentation/cubit/agency_engagement_cubit.dart';
+import '../../features/agency/presentation/cubit/batch_invite_cubit.dart';
 import '../../features/credits/presentation/cubit/credits_screen_cubit.dart';
 import '../../features/org/presentation/cubit/org_cubit.dart';
 import '../../features/capacity/presentation/cubit/capacity_cubit.dart';
@@ -173,6 +175,15 @@ void setupLocator({
   );
   locator.registerFactory<ReferralCubit>(
     () => ReferralCubit(locator<PayerApiClient>()),
+  );
+  // Agency engagement (faceless referred-worker funnel) + batch invite minting —
+  // both AGENT-only routes (`/payer/agency/workers`, `/payer/agency/invites/batch`),
+  // reached only from the agency Refer-&-earn surface.
+  locator.registerFactory<AgencyEngagementCubit>(
+    () => AgencyEngagementCubit(locator<PayerApiClient>()),
+  );
+  locator.registerFactory<BatchInviteCubit>(
+    () => BatchInviteCubit(locator<PayerApiClient>()),
   );
 
   // --- Org / team members (ADR-0027) + Hiring capacity (ADR-0016) -----------

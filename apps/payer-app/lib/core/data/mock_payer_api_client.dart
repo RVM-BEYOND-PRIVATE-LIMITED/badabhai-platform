@@ -221,6 +221,13 @@ class MockPayerApiClient implements PayerApiClient {
     String? description,
     String? vacancyBand,
     int? vacancies,
+    List<String>? matchSkillIds,
+    List<String>? untickedRelatedIds,
+    String? city,
+    int? payMin,
+    int? payMax,
+    String? shift,
+    String? neededBy,
   }) async {
     if ((vacancyBand == null) == (vacancies == null)) {
       throw ArgumentError(
@@ -259,6 +266,13 @@ class MockPayerApiClient implements PayerApiClient {
     String? vacancyBand,
     int? vacancies,
     String? status,
+    List<String>? matchSkillIds,
+    List<String>? untickedRelatedIds,
+    String? city,
+    int? payMin,
+    int? payMax,
+    String? shift,
+    String? neededBy,
   }) async =>
       _cannedJob(id, wireStatus: status ?? 'draft');
 
@@ -311,6 +325,164 @@ class MockPayerApiClient implements PayerApiClient {
 
   @override
   Future<ReferralLink> referralLink({String? campaign}) async => _referralLink;
+
+  // --- Match V1 — demand skill picker + reach preview (canned) ---------------
+  // A tiny deterministic taxonomy + reach maths so the post-a-job skill picker
+  // and reach meter are walkable in MOCK with no backend. PII-free (skill ids +
+  // integer counts only).
+
+  static const List<MatchSkill> _matchSkills = <MatchSkill>[
+    MatchSkill(
+      skillId: 'cnc_operation',
+      label: 'CNC Operation',
+      industryId: 'manufacturing',
+      relatedSkillIds: <String>['vmc_operation', 'cnc_programming'],
+    ),
+    MatchSkill(
+      skillId: 'vmc_operation',
+      label: 'VMC Operation',
+      industryId: 'manufacturing',
+      relatedSkillIds: <String>['cnc_operation'],
+    ),
+    MatchSkill(
+      skillId: 'cnc_programming',
+      label: 'CNC Programming',
+      industryId: 'manufacturing',
+      relatedSkillIds: <String>['cnc_operation'],
+    ),
+    MatchSkill(
+      skillId: 'quality_inspection',
+      label: 'Quality Inspection',
+      industryId: 'manufacturing',
+      relatedSkillIds: <String>[],
+    ),
+    MatchSkill(
+      skillId: 'welding',
+      label: 'Welding',
+      industryId: 'manufacturing',
+      relatedSkillIds: <String>['fabrication'],
+    ),
+  ];
+
+  @override
+  Future<List<MatchSkill>> fetchMatchSkills() async => _matchSkills;
+
+  @override
+  Future<ReachPreview> reachPreview({
+    required List<String> matchSkillIds,
+    List<String> untickedRelatedIds = const <String>[],
+  }) async {
+    // Deterministic canned maths: each picked skill reaches a fixed base, each
+    // still-ticked related skill adds a smaller slice. Mirrors the shape the
+    // real deterministic matcher returns (never generative).
+    const Map<String, int> baseReach = <String, int>{
+      'cnc_operation': 42,
+      'vmc_operation': 28,
+      'cnc_programming': 15,
+      'quality_inspection': 12,
+      'welding': 20,
+      'fabrication': 9,
+    };
+    final Set<String> unticked = untickedRelatedIds.toSet();
+    final List<ReachSkill> skills = <ReachSkill>[];
+    final Set<String> reachIds = <String>{};
+    int total = 0;
+    int tier1 = 0;
+    for (final String id in matchSkillIds) {
+      final List<String> relatedIds = _matchSkills
+          .where((MatchSkill s) => s.skillId == id)
+          .expand((MatchSkill s) => s.relatedSkillIds)
+          .toList(growable: false);
+      final int direct = baseReach[id] ?? 0;
+      total += direct;
+      tier1 += direct;
+      reachIds.add(id);
+      final List<RelatedPreview> related = <RelatedPreview>[];
+      for (final String relId in relatedIds) {
+        final bool ticked = !unticked.contains(relId);
+        final int relReach = ((baseReach[relId] ?? 0) / 2).round();
+        if (ticked) {
+          total += relReach;
+          reachIds.add(relId);
+        }
+        related.add(RelatedPreview(
+          skillId: relId,
+          label: _matchSkillLabel(relId),
+          ticked: ticked,
+          reachCount: relReach,
+        ));
+      }
+      skills.add(ReachSkill(
+        skillId: id,
+        label: _matchSkillLabel(id),
+        reachCount: direct,
+        related: related,
+      ));
+    }
+    return ReachPreview(
+      skills: skills,
+      reachSkillIds: reachIds.toList(growable: false),
+      reachTotal: total,
+      reachTier1: tier1,
+      zeroReach: total == 0,
+      appliedUntickedIds: unticked.toList(growable: false),
+      maxSkillsPerPosting: 5,
+    );
+  }
+
+  static String _matchSkillLabel(String id) => _matchSkills
+      .where((MatchSkill s) => s.skillId == id)
+      .map((MatchSkill s) => s.label)
+      .followedBy(<String>[id])
+      .first;
+
+  // --- Agency — referred workers + batch invites (canned) --------------------
+
+  static const List<AgencyWorker> _referredWorkers = <AgencyWorker>[
+    AgencyWorker(
+      ref: 'W-3F9A',
+      profileComplete: true,
+      appliedCount: 4,
+      unlockedCount: 2,
+      lastActiveOn: '2026-07-27T00:00:00Z',
+    ),
+    AgencyWorker(
+      ref: 'W-8C21',
+      profileComplete: false,
+      appliedCount: 1,
+      unlockedCount: 0,
+      lastActiveOn: '2026-07-20T00:00:00Z',
+    ),
+    AgencyWorker(
+      ref: 'W-5D7B',
+      profileComplete: true,
+      appliedCount: 0,
+      unlockedCount: 0,
+    ),
+  ];
+
+  @override
+  Future<List<AgencyWorker>> fetchReferredWorkers() async => _referredWorkers;
+
+  int _inviteSeq = 700;
+
+  @override
+  Future<List<MintedInvite>> createInviteBatch({
+    required int count,
+    String? campaign,
+  }) async {
+    final List<MintedInvite> minted = <MintedInvite>[];
+    for (int i = 0; i < count; i++) {
+      _inviteSeq += 1;
+      final String code = 'APEX-$_inviteSeq';
+      minted.add(MintedInvite(
+        agencyInviteId: 'mock-invite-$_inviteSeq',
+        code: code,
+        link: 'badabhai.in/i/$code',
+      ));
+    }
+    return minted;
+  }
 
   // --- AI job-posting chat (ADR-0035) — canned DETERMINISTIC interview -------
   // A tiny in-memory stand-in for the server-side interview engine so the whole
@@ -391,7 +563,9 @@ class MockPayerApiClient implements PayerApiClient {
   }
 
   @override
-  Future<String> publishJobPostingChatSession(String sessionId) async {
+  Future<PublishJobResult> publishJobPostingChatSession(
+    String sessionId,
+  ) async {
     final _MockChatSession? session = _chatSessions[sessionId];
     if (session == null) throw const PayerApiException(404);
     if (session.published) throw const PayerApiException(409);
@@ -401,7 +575,11 @@ class MockPayerApiClient implements PayerApiClient {
     if (!session.draft.hasRequiredFields) throw const PayerApiException(400);
     session.published = true;
     _chatSeq += 1;
-    return 'mock-posting-$_chatSeq';
+    // Canned clean publish — nothing left unmapped.
+    return PublishJobResult(
+      jobPostingId: 'mock-posting-$_chatSeq',
+      unmappedFields: const <String>[],
+    );
   }
 
   // --- Agency demand — jobs CRUD + lifecycle + referrals summary (canned) ----
