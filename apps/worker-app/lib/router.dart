@@ -160,17 +160,23 @@ String? referralCodeFromUri(Uri uri) {
   return null;
 }
 
-/// WHICH LEG delivered this deep link (B4). Derived from the URI SCHEME, which is
-/// the only trustworthy signal available at capture time:
-///  - `https` → the verified App Link intercepted by Android (the leg that only
-///    works once P0-6 publishes `assetlinks.json`),
-///  - anything else (`badabhai://`) → the custom-scheme fallback.
-///
-/// Tagging these apart is what makes an App-Link outage VISIBLE: if verification
-/// silently breaks, `app_link` attributions drop to zero and `custom_scheme` spikes,
-/// instead of the funnel just quietly shrinking.
-ReferralSource referralSourceFromUri(Uri uri) =>
-    uri.scheme == 'https' ? ReferralSource.appLink : ReferralSource.customScheme;
+/// The install-source leg a referral deep link arrived on, for attribution
+/// observability (the `source` sent to `POST /referrals/attribute`): an `https`
+/// App Link is [ReferralSource.appLink], the `badabhai://` custom scheme is
+/// [ReferralSource.customScheme]. Anything else — notably an in-app
+/// `go('/i/<code>')` whose URI has no scheme — returns null so the leg is OMITTED
+/// and the server records it as `unknown`. PII-free: the scheme carries no
+/// identity, only which surface delivered the opaque code.
+String? referralSourceFromUri(Uri uri) {
+  switch (uri.scheme) {
+    case 'https':
+      return ReferralSource.appLink;
+    case 'badabhai':
+      return ReferralSource.customScheme;
+    default:
+      return null;
+  }
+}
 
 /// The router's single top-level redirect. Runs the deep-link referral capture
 /// FIRST — before [_authRedirect] can bounce an unauthenticated worker to /login
@@ -187,7 +193,9 @@ ReferralSource referralSourceFromUri(Uri uri) =>
 String? _rootRedirect(BuildContext context, GoRouterState state) {
   final String? code = referralCodeFromUri(state.uri);
   if (code != null) {
-    // Fire-and-forget; the store validates the shape and never throws.
+    // Fire-and-forget; the store validates the shape and never throws. The
+    // install-source leg (https app-link vs badabhai:// custom scheme) rides
+    // along for attribution observability — omitted when undetermined.
     final PendingReferralStore? store = _maybeReferralStore();
     if (store != null) {
       unawaited(store.capture(code, source: referralSourceFromUri(state.uri)));
@@ -311,7 +319,10 @@ GoRouter _buildRouter() {
         redirect: (BuildContext context, GoRouterState state) {
           final PendingReferralStore? store = _maybeReferralStore();
           if (store != null) {
-            unawaited(store.capture(state.pathParameters['code']));
+            unawaited(store.capture(
+              state.pathParameters['code'],
+              source: referralSourceFromUri(state.uri),
+            ));
           }
           return Routes.splash;
         },

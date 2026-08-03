@@ -40,6 +40,11 @@ abstract class PayerApiClient {
   /// Send [orgLabel] + [roleTitle] (+ optional [locationLabel]/[description]) and
   /// EXACTLY ONE of [vacancyBand] (`'1'|'2-5'|'6-10'|'11-25'|'25+'`) or
   /// [vacancies] (an int) — passing both/neither throws [ArgumentError].
+  ///
+  /// Match V1 (additive, all optional): [matchSkillIds] (+ [untickedRelatedIds]
+  /// excluded from reach), [city], [payMin]/[payMax], [shift], [neededBy] — each
+  /// only added to the body when non-null (snake_case: `match_skill_ids`,
+  /// `unticked_related_ids`, `city`, `pay_min`, `pay_max`, `shift`, `needed_by`).
   Future<JobPosting> createCompanyJob({
     required String orgLabel,
     required String roleTitle,
@@ -47,6 +52,13 @@ abstract class PayerApiClient {
     String? description,
     String? vacancyBand,
     int? vacancies,
+    List<String>? matchSkillIds,
+    List<String>? untickedRelatedIds,
+    String? city,
+    int? payMin,
+    int? payMax,
+    String? shift,
+    String? neededBy,
   });
 
   /// One owned posting (`GET /payer/job-postings/:id`). A neutral 404 (unknown or
@@ -56,6 +68,10 @@ abstract class PayerApiClient {
   /// Patch an owned posting (`PATCH /payer/job-postings/:id`). Pass ≥1 field;
   /// [status] may only be `'open'` (publish a draft). 400 no-op / 409 closed or
   /// illegal transition surface as [PayerApiException].
+  ///
+  /// Match V1 (additive, all optional): [matchSkillIds]/[untickedRelatedIds],
+  /// [city], [payMin]/[payMax], [shift], [neededBy] — each only added to the
+  /// PATCH body when non-null (same snake_case keys as [createCompanyJob]).
   Future<JobPosting> updateJob(
     String id, {
     String? orgLabel,
@@ -65,6 +81,13 @@ abstract class PayerApiClient {
     String? vacancyBand,
     int? vacancies,
     String? status,
+    List<String>? matchSkillIds,
+    List<String>? untickedRelatedIds,
+    String? city,
+    int? payMin,
+    int? payMax,
+    String? shift,
+    String? neededBy,
   });
 
   /// Close an owned posting (`POST /payer/job-postings/:id/close`). 409 when it
@@ -98,6 +121,24 @@ abstract class PayerApiClient {
     String id, {
     required String tier,
     String? coupon,
+  });
+
+  // --- Match V1 — demand skill picker + reach preview -----------------------
+  // The DEMAND-side skill taxonomy the payer picks from + the deterministic
+  // reach preview. Both PII-free (coarse skill ids/labels + integer counts).
+
+  /// The selectable demand skills (`GET /payer/match/skills` → `{skills:[...]}`).
+  /// Each [MatchSkill] carries its related-skill ids the reach preview widens
+  /// into. A non-2xx surfaces as [PayerApiException].
+  Future<List<MatchSkill>> fetchMatchSkills();
+
+  /// Deterministic reach preview for a picked skill set
+  /// (`POST /payer/match/reach-preview`, body `{match_skill_ids,
+  /// unticked_related_ids}`). Returns per-skill breakdowns + roll-up totals. A
+  /// non-2xx surfaces as [PayerApiException].
+  Future<ReachPreview> reachPreview({
+    required List<String> matchSkillIds,
+    List<String> untickedRelatedIds = const <String>[],
   });
 
   // --- AI job-posting chat (ADR-0035) ---------------------------------------
@@ -154,9 +195,11 @@ abstract class PayerApiClient {
   /// draft already lives server-side and the org name is auto-filled there).
   /// The server validates the stored draft against the SAME
   /// `PayerCreateJobPostingSchema` the manual form uses and calls the SAME
-  /// `createForPayer`. Returns the created posting's ID. A 400 (draft still
-  /// incomplete) / 409 (already published) surfaces as [PayerApiException].
-  Future<String> publishJobPostingChatSession(String sessionId);
+  /// `createForPayer`. Returns a [PublishJobResult] carrying the created
+  /// posting's id plus any `unmapped_fields` the draft could not fold onto the
+  /// structured posting. A 400 (draft still incomplete) / 409 (already
+  /// published) surfaces as [PayerApiException].
+  Future<PublishJobResult> publishJobPostingChatSession(String sessionId);
 
   /// The unlock ledger (most-recent first).
   Future<List<LedgerEntry>> fetchLedger();
@@ -184,6 +227,22 @@ abstract class PayerApiClient {
   /// Faceless: the only optional input is a non-PII [campaign] tag — never a
   /// worker id/phone. Returns `{code, link:'/i/<code>'}`.
   Future<ReferralLink> referralLink({String? campaign});
+
+  /// The agency's referred workers (`GET /payer/agency/workers`, AGENT-only →
+  /// `{workers:[...]}`). Faceless funnel rows (opaque ref + coarse counts). A
+  /// company session's 403 — and a 429 rate cap — surface as [PayerApiException]
+  /// so the UI can show the agent-only / try-again state.
+  Future<List<AgencyWorker>> fetchReferredWorkers();
+
+  /// Mint a BATCH of agency invites
+  /// (`POST /payer/agency/invites/batch`, AGENT-only → `{invites:[...]}`). Sends
+  /// [count] (+ optional non-PII [campaign] tag) and returns the minted
+  /// [MintedInvite]s. A 403 (company session) / 429 (mint cap) surface as
+  /// [PayerApiException].
+  Future<List<MintedInvite>> createInviteBatch({
+    required int count,
+    String? campaign,
+  });
 
   // --- Agency demand — jobs CRUD + lifecycle (PASS P4a) ---------------------
   // AGENT-only surface (`@PayerRoles('agent')` → 403 for a company session, so

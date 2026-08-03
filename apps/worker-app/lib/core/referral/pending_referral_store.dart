@@ -11,49 +11,44 @@ final RegExp _kReferralCodePattern = RegExp(r'^[a-f0-9]{12}$');
 bool isValidReferralCode(String? code) =>
     code != null && _kReferralCodePattern.hasMatch(code);
 
-/// WHICH LEG of the post-Dynamic-Links chain delivered a referral code (B4).
-///
-/// Firebase Dynamic Links died 2025-08-25, so attribution now rides three separate
-/// transports, and they fail INDEPENDENTLY: App Links stop working if
-/// `assetlinks.json` is mis-published, the Install Referrer stops if the Play
-/// listing changes, the custom scheme stops if the manifest filter is dropped.
-/// Without tagging which one delivered, a broken leg is invisible — the funnel just
-/// quietly loses agents, which is the exact failure this workstream exists to end.
-///
-/// The wire values mirror the server's closed `InviteInstallSource` enum
-/// (packages/event-schema) — a CLOSED set, so no client string can reach the spine.
-enum ReferralSource {
-  /// The app was installed and intercepted the verified `https://…/i/<code>` App Link.
-  appLink('app_link'),
+/// The closed set of install-source legs a captured referral can carry, mirroring
+/// the server's `source` field on `POST /referrals/attribute`
+/// (`app_link` | `install_referrer` | `custom_scheme` | `unknown`). Observability
+/// only — the leg is opaque + PII-free and never blocks attribution. A captured
+/// code whose leg is unknown simply OMITS the field (the server reads missing as
+/// `unknown`), so only [known] legs are ever persisted/sent.
+class ReferralSource {
+  const ReferralSource._();
 
-  /// A fresh install: the code came back from Play's Install Referrer on first run.
-  installReferrer('install_referrer'),
+  /// The code arrived on an `https` App Link.
+  static const String appLink = 'app_link';
 
-  /// A `badabhai://i/<code>` deep link — the legacy/fallback leg.
-  customScheme('custom_scheme'),
+  /// The code arrived through Google Play's install referrer (B4).
+  static const String installReferrer = 'install_referrer';
 
-  /// Provenance not known (a code captured before this tagging existed).
-  unknown('unknown');
+  /// The code arrived on the `badabhai://` custom scheme.
+  static const String customScheme = 'custom_scheme';
 
-  const ReferralSource(this.wire);
+  /// No leg could be determined — sent as a MISSING field, never this literal.
+  static const String unknown = 'unknown';
 
-  /// The exact token the API expects. Never send `name` — it is camelCase.
-  final String wire;
-
-  /// Parse a persisted wire value back, defaulting to [unknown] for anything
-  /// unrecognised (a prefs value written by an older build, or junk).
-  static ReferralSource fromWire(String? wire) => ReferralSource.values.firstWhere(
-        (ReferralSource s) => s.wire == wire,
-        orElse: () => ReferralSource.unknown,
-      );
+  /// The legs worth persisting/sending. `unknown` is deliberately excluded: it is
+  /// expressed by OMITTING the field, so anything not in this set is dropped.
+  static const Set<String> known = <String>{
+    appLink,
+    installReferrer,
+    customScheme,
+  };
 }
 
-/// A captured referral: the opaque code plus the leg that delivered it.
+/// A captured referral: the opaque 12-hex [code] plus, optionally, the
+/// install-[source] leg it arrived through (one of [ReferralSource.known], or
+/// null when undetermined). Both are PII-free.
 class PendingReferral {
-  const PendingReferral(this.code, this.source);
+  const PendingReferral(this.code, {this.source});
 
   final String code;
-  final ReferralSource source;
+  final String? source;
 }
 
 /// Holds a referral code captured from a `/i/<code>` deep link until it can be
@@ -66,30 +61,20 @@ class PendingReferral {
 /// post-consent even if the app was killed in between.
 abstract interface class PendingReferralStore {
   /// Persists [code] IF it matches the 12-hex shape; ignores anything else.
-  /// Best-effort — NEVER throws (a storage error just means "not captured"), so
-  /// it is safe to fire-and-forget from the router redirect.
-  ///
-  /// [source] records which leg delivered the code. It is OPTIONAL and defaults to
-  /// [ReferralSource.unknown] so every pre-B4 call site keeps compiling and behaving
-  /// exactly as before.
-  ///
-  /// The default is repeated HERE as well as in both implementations because Dart
-  /// requires a non-nullable optional parameter to carry one in every declaration,
-  /// including an abstract one — without it this file does not compile.
-  Future<void> capture(
-    String? code, {
-    ReferralSource source = ReferralSource.unknown,
-  });
+  /// [source] is the OPTIONAL install-source leg — persisted only when it is one
+  /// of [ReferralSource.known], otherwise dropped (an undetermined leg is
+  /// expressed by its absence). Best-effort — NEVER throws (a storage error just
+  /// means "not captured"), so it is safe to fire-and-forget from the router
+  /// redirect.
+  Future<void> capture(String? code, {String? source});
 
-  /// Returns the pending code and CLEARS it (consumed exactly once), or null
-  /// when nothing valid is pending. Best-effort — NEVER throws.
-  ///
-  /// Kept returning a bare code so every existing caller and test is untouched;
-  /// [takePending] is the source-aware form. Both consume — call ONE of them.
-  Future<String?> take();
-
-  /// Like [take], but also reports which leg delivered the code. Clears both.
+  /// Returns the pending referral (code + source) and CLEARS it (consumed exactly
+  /// once), or null when nothing valid is pending. Best-effort — NEVER throws.
   Future<PendingReferral?> takePending();
+
+  /// Convenience: [takePending] but returns only the code (back-compat). Also
+  /// consumes the pending referral. Best-effort — NEVER throws.
+  Future<String?> take();
 }
 
 /// [PendingReferralStore] over `shared_preferences`.
@@ -107,28 +92,29 @@ class SharedPrefsPendingReferralStore implements PendingReferralStore {
   /// `bb_`-prefixed to match the existing `bb_locale` key convention.
   static const String kKey = 'bb_pending_referral';
 
-  /// The provenance of [kKey]'s code. A SEPARATE key rather than a composite value,
-  /// so `InstallReferrerReader` can keep reading [kKey] directly to answer "is a
-  /// fresher deep link already pending?" without having to parse anything.
+  /// Companion key for the install-source leg (see [ReferralSource]). Held
+  /// alongside [kKey] and cleared with it, so the source can never outlive its
+  /// code. A pre-existing capture (before this key existed) simply has no source.
   static const String kSourceKey = 'bb_pending_referral_source';
 
   @override
-  Future<void> capture(
-    String? code, {
-    ReferralSource source = ReferralSource.unknown,
-  }) async {
+  Future<void> capture(String? code, {String? source}) async {
     if (!isValidReferralCode(code)) return;
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString(kKey, code!);
-      await prefs.setString(kSourceKey, source.wire);
+      // Only persist a KNOWN leg; an undetermined one is expressed by ABSENCE.
+      // Always overwrite (set or clear) so a fresh capture never inherits a stale
+      // source from a previous one.
+      if (source != null && ReferralSource.known.contains(source)) {
+        await prefs.setString(kSourceKey, source);
+      } else {
+        await prefs.remove(kSourceKey);
+      }
     } catch (_) {
       // Best-effort: a storage failure simply means the code is not captured.
     }
   }
-
-  @override
-  Future<String?> take() async => (await takePending())?.code;
 
   @override
   Future<PendingReferral?> takePending() async {
@@ -136,19 +122,20 @@ class SharedPrefsPendingReferralStore implements PendingReferralStore {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       final String? code = prefs.getString(kKey);
       final String? source = prefs.getString(kSourceKey);
-      // Consume exactly once: clear whatever was there (valid or stale) before
-      // returning, so a later app-open never re-attributes the same code. The
-      // source is cleared UNCONDITIONALLY alongside it — leaving a stale source
-      // behind would mis-label the NEXT code captured without one.
+      // Consume exactly once: clear both (valid or stale) before returning, so a
+      // later app-open never re-attributes the same code.
       if (code != null) await prefs.remove(kKey);
       if (source != null) await prefs.remove(kSourceKey);
       if (!isValidReferralCode(code)) return null;
-      return PendingReferral(code!, ReferralSource.fromWire(source));
+      return PendingReferral(code!, source: source);
     } catch (_) {
       // Best-effort: a storage failure must never surface to onboarding.
       return null;
     }
   }
+
+  @override
+  Future<String?> take() async => (await takePending())?.code;
 }
 
 /// In-memory [PendingReferralStore] — the seam unit tests inject, and the safe
@@ -156,28 +143,29 @@ class SharedPrefsPendingReferralStore implements PendingReferralStore {
 /// which is acceptable: attribution is a best-effort side-signal, not a gate.
 class InMemoryPendingReferralStore implements PendingReferralStore {
   String? _code;
-  ReferralSource _source = ReferralSource.unknown;
+  String? _source;
 
   @override
-  Future<void> capture(
-    String? code, {
-    ReferralSource source = ReferralSource.unknown,
-  }) async {
+  Future<void> capture(String? code, {String? source}) async {
     if (isValidReferralCode(code)) {
       _code = code;
-      _source = source;
+      // Only a KNOWN leg is retained; an undetermined one is expressed by null.
+      _source = (source != null && ReferralSource.known.contains(source))
+          ? source
+          : null;
     }
   }
 
   @override
-  Future<String?> take() async => (await takePending())?.code;
-
-  @override
   Future<PendingReferral?> takePending() async {
     final String? code = _code;
-    final ReferralSource source = _source;
+    final String? source = _source;
     _code = null;
-    _source = ReferralSource.unknown;
-    return code == null ? null : PendingReferral(code, source);
+    _source = null;
+    if (code == null) return null;
+    return PendingReferral(code, source: source);
   }
+
+  @override
+  Future<String?> take() async => (await takePending())?.code;
 }

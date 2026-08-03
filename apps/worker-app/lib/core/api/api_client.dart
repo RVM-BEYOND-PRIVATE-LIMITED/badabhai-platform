@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 
 import '../../features/swipe/domain/job_detail.dart';
 import '../config/app_config.dart' show resolveApiBaseUrl;
-import '../referral/pending_referral_store.dart' show ReferralSource;
 import 'api_models.dart';
 
 // Re-export the response models so screens that import this file get them too.
@@ -510,16 +509,25 @@ class ApiClient {
   /// [limit] defaults to 50 (the backend's cap) so the LIBERAL alpha feed shows
   /// every open job while volume is small — the feed applies no location/trade
   /// filter server-side, so nothing is dropped between here and the deck.
+  ///
+  /// [shift] ('day' | 'night' | 'rotational') and [payMin] (a ₹/month floor) are
+  /// OPTIONAL server-side narrowing params (the ADR-0024 addendum put shift + pay
+  /// on the `/feed` wire). Each is appended only when non-null, so the call is
+  /// backward-compatible — the feed works with neither set.
   Future<List<FeedItem>> getFeed({
     required String authToken,
     int limit = 50,
     String? tradeKey,
     String? city,
+    String? shift,
+    int? payMin,
   }) async {
     final Map<String, String> queryParams = <String, String>{'limit': limit.toString()};
     if (tradeKey != null) queryParams['trade_key'] = tradeKey;
     if (city != null) queryParams['city'] = city;
-    
+    if (shift != null) queryParams['shift'] = shift;
+    if (payMin != null) queryParams['pay_min'] = payMin.toString();
+
     final Uri uri = Uri(path: '/feed', queryParameters: queryParams);
     
     final Map<String, dynamic> json =
@@ -711,20 +719,23 @@ class ApiClient {
   /// the code matched or attribution happened), so the body is ignored here.
   /// PII-FREE: the code is opaque and carries no worker identity, and is never
   /// logged.
+  ///
+  /// [source] is an OPTIONAL, observability-only install-source leg from the
+  /// closed enum `app_link` | `install_referrer` | `custom_scheme` | `unknown`:
+  /// which surface delivered the code (an https App Link, Play's install
+  /// referrer, or the `badabhai://` custom scheme). It is sent only when non-null
+  /// — the server treats a missing value as `unknown` — so the call stays
+  /// backward-compatible. Like the code it is opaque + PII-free and never logged.
   Future<void> attributeReferral({
     required String authToken,
     required String code,
-    /// B4 — which leg of the post-Dynamic-Links chain delivered the code. OPTIONAL
-    /// (the server defaults a missing value to "unknown"), so this stays wire-compatible
-    /// with the pre-B4 `{code}`-only body. Sent as the closed enum's `wire` token, never
-    /// `name` — `name` is camelCase and the server's enum is snake_case.
-    ReferralSource? source,
+    String? source,
   }) async {
     await _post(
       '/referrals/attribute',
       <String, dynamic>{
         'code': code,
-        if (source != null) 'source': source.wire,
+        if (source != null) 'source': source,
       },
       authToken: authToken,
     );

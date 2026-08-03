@@ -51,6 +51,12 @@ class _FiltersSheetState extends State<FiltersSheet> {
   late Set<String> _selectedCities;
   late Set<String> _selectedBands;
 
+  /// Shift + pay floor are SINGLE-value (a job has one shift; the floor is one
+  /// number), so they are held as a nullable value, not a set. null = not
+  /// filtered. [_selectedShift] is the RAW wire value ('day'|'night'|'rotational').
+  late String? _selectedShift;
+  late int? _selectedPayMin;
+
   /// City options DERIVED from the loaded queue's distinct cities — never a
   /// hardcoded list, which would invent options the feed cannot honour. The
   /// already-selected cities are unioned in so an active filter always keeps a
@@ -64,12 +70,16 @@ class _FiltersSheetState extends State<FiltersSheet> {
     _selectedTrades = <String>{...widget.initial.trades};
     _selectedCities = <String>{...widget.initial.cities};
     _selectedBands = <String>{...widget.initial.experienceBands};
+    _selectedShift = widget.initial.shift;
+    _selectedPayMin = widget.initial.payMin;
   }
 
   FilterSelection get _selection => FilterSelection(
         trades: _selectedTrades,
         cities: _selectedCities,
         experienceBands: _selectedBands,
+        shift: _selectedShift,
+        payMin: _selectedPayMin,
       );
 
   // The REAL count over the loaded queue, across ALL THREE dimensions — so the
@@ -79,6 +89,16 @@ class _FiltersSheetState extends State<FiltersSheet> {
 
   void _toggle(Set<String> set, String value) {
     setState(() => set.contains(value) ? set.remove(value) : set.add(value));
+  }
+
+  /// Single-select toggles: tapping the active chip clears the filter (back to
+  /// "any"), tapping another switches to it. [wire] is already the raw wire value.
+  void _selectShift(String wire) {
+    setState(() => _selectedShift = _selectedShift == wire ? null : wire);
+  }
+
+  void _selectPayMin(int value) {
+    setState(() => _selectedPayMin = _selectedPayMin == value ? null : value);
   }
 
   @override
@@ -124,6 +144,27 @@ class _FiltersSheetState extends State<FiltersSheet> {
               options: kExperienceBandLabels,
               isSelected: _selectedBands.contains,
               onTap: (String b) => _toggle(_selectedBands, b),
+            ),
+          ),
+          // Shift + pay are single-select (a job has one shift; the floor is one
+          // number). Both are REAL `/feed` fields now (ADR-0024 addendum) — the
+          // chosen values narrow the deck client-side AND ride GET /feed.
+          _group(
+            'Shift',
+            _chipWrap(
+              options: kShiftFilterLabels.keys.toList(),
+              isSelected: (String label) =>
+                  _selectedShift == kShiftFilterLabels[label],
+              onTap: (String label) => _selectShift(kShiftFilterLabels[label]!),
+            ),
+          ),
+          _group(
+            'Minimum pay',
+            _chipWrap(
+              options: kPayFloorOptions.keys.toList(),
+              isSelected: (String label) =>
+                  _selectedPayMin == kPayFloorOptions[label],
+              onTap: (String label) => _selectPayMin(kPayFloorOptions[label]!),
             ),
           ),
           const SizedBox(height: AppSpacing.s5),

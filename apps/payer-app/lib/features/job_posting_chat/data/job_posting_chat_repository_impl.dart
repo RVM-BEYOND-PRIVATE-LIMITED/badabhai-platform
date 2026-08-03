@@ -64,9 +64,12 @@ class JobPostingChatRepositoryImpl implements JobPostingChatRepository {
       _api.fetchJobPostingChatSessions();
 
   @override
-  Future<String> publish() async {
+  Future<PublishJobResult> publish() async {
     final String? id = _sessionId;
     if (id == null) throw const PayerApiException(400);
+    // Pass the full result through — the id the caller routes to PLUS any
+    // fields the server could not fold onto the live posting, which the chat
+    // surfaces as a non-blocking honesty notice.
     return _api.publishJobPostingChatSession(id);
   }
 }

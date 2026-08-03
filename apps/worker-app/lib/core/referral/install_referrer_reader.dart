@@ -125,9 +125,8 @@ class InstallReferrerReader {
       final String? code = referralCodeFromInstallReferrer(referrer);
       if (code == null) return;
       // `capture` is the single shape validator and never throws — junk is
-      // dropped there rather than stored. Tagged `installReferrer` so the funnel can
-      // SEE that the Play Store round-trip is the leg that delivered this one — the
-      // whole point of B4 is knowing whether that leg works.
+      // dropped there rather than stored. Tag the leg so post-consent attribution
+      // records this code arrived via Play's install referrer (observability).
       await _store.capture(code, source: ReferralSource.installReferrer);
     } catch (_) {
       // Best-effort by contract (rule 1). A missing plugin, an unavailable Play

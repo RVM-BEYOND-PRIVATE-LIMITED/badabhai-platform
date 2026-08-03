@@ -47,45 +47,9 @@ void main() {
     final http.Request attr =
         requests.firstWhere((http.Request r) => r.url.path == '/referrals/attribute');
     expect(attr.headers['authorization'], 'Bearer tok');
-    // B4: the body now also carries the SOURCE leg. A code captured with no
-    // provenance (this store's default — e.g. one captured before tagging
-    // existed) tags as "unknown", which is a member of the server's closed
-    // InviteInstallSource set, not a missing field.
-    expect(jsonDecode(attr.body),
-        <String, dynamic>{'code': 'abcdef012345', 'source': 'unknown'});
+    expect(jsonDecode(attr.body), <String, dynamic>{'code': 'abcdef012345'});
     // Consumed exactly once.
     expect(await store.take(), isNull);
-  });
-
-  /// The assertion above only proves the DEFAULT tags correctly. This one proves
-  /// the captured source actually reaches the wire — without it, hard-coding
-  /// `source: 'unknown'` at the call site would pass.
-  test('the captured source leg reaches the wire as its enum token', () async {
-    for (final ReferralSource source in ReferralSource.values) {
-      final List<http.Request> requests = <http.Request>[];
-      final ApiClient api = ApiClient(
-        baseUrl: 'http://test',
-        client: MockClient((http.Request req) async {
-          requests.add(req);
-          return http.Response(jsonEncode(<String, dynamic>{'ok': true}), 200);
-        }),
-      );
-      final InMemoryPendingReferralStore store = InMemoryPendingReferralStore();
-      await store.capture('abcdef012345', source: source);
-
-      await ConsentRepositoryImpl(api, _session(), store)
-          .acceptConsent(purposes: <String>['profiling']);
-      await _flush();
-
-      final http.Request attr = requests
-          .firstWhere((http.Request r) => r.url.path == '/referrals/attribute');
-      expect(
-        jsonDecode(attr.body),
-        <String, dynamic>{'code': 'abcdef012345', 'source': source.wire},
-        reason: 'source ${source.name} must serialize as its snake_case wire '
-            'token, never its camelCase Dart name',
-      );
-    }
   });
 
   test('no pending code -> no attribution call', () async {

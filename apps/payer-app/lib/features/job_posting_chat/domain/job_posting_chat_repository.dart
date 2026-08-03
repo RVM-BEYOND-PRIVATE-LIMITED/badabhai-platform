@@ -37,7 +37,9 @@ abstract interface class JobPostingChatRepository {
   Future<List<JobPostingChatSessionSummary>> listSessions();
 
   /// Publishes the bound session's draft through the existing job-posting create
-  /// path. Returns the created posting's id. Throws [PayerApiException] on 400
-  /// (draft incomplete) / 409 (already published or not ready) / 404.
-  Future<String> publish();
+  /// path. Returns the [PublishJobResult] — the created posting's id PLUS any
+  /// collected fields the server could not fold onto the live posting, which the
+  /// chat surfaces as a non-blocking honesty notice. Throws [PayerApiException]
+  /// on 400 (draft incomplete) / 409 (already published or not ready) / 404.
+  Future<PublishJobResult> publish();
 }

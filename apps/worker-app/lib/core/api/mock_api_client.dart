@@ -1,5 +1,4 @@
 import '../../features/swipe/domain/job_detail.dart';
-import '../referral/pending_referral_store.dart' show ReferralSource;
 import 'api_client.dart';
 
 /// A no-network [ApiClient] for UI development.
@@ -350,8 +349,14 @@ class MockApiClient extends ApiClient {
     int limit = 50,
     String? tradeKey,
     String? city,
+    String? shift,
+    int? payMin,
   }) async {
     await _delay();
+    // Mirrors the real signature (incl. the optional shift/pay_min OUTBOUND
+    // filters). The canned feed ignores the server-side narrowing params — like
+    // tradeKey/city today — because the deck's client-side match (applyJobFilters)
+    // is what visibly narrows the loaded queue in mock mode.
     return _cannedFeed.take(limit).toList();
   }
 
@@ -626,7 +631,7 @@ class MockApiClient extends ApiClient {
   Future<void> attributeReferral({
     required String authToken,
     required String code,
-    ReferralSource? source,
+    String? source,
   }) async {
     // No-op: the real route returns a NEUTRAL {ok:true} regardless of outcome
     // (no-oracle) and its body is ignored, so mock mode simply absorbs the

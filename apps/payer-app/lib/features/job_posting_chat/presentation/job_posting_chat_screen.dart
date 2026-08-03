@@ -29,6 +29,64 @@ const String kJobChatTypingLabel = 'Working on it…';
 
 const String kJobChatTitle = 'AI job posting';
 
+/// The base success copy — byte-identical to the pre-notice behaviour, used
+/// whenever the whole draft mapped onto the live posting.
+const String kJobChatPublishSuccessMessage =
+    'Your job posting was created as a draft — publish it from My jobs.';
+
+/// Friendly labels for the raw draft keys the server could not fold onto the
+/// live posting (`PublishJobResult.unmappedFields`), so the honesty notice reads
+/// in plain words. `pay_min` + `pay_max` deliberately collapse to one "pay
+/// range"; camelCase spellings are accepted too since the wire allows both.
+const Map<String, String> kJobChatUnmappedFieldLabels = <String, String>{
+  'pay_min': 'pay range',
+  'pay_max': 'pay range',
+  'payMin': 'pay range',
+  'payMax': 'pay range',
+  'shift': 'shift',
+  'benefits': 'benefits',
+  'requirements': 'requirements',
+  'city': 'location',
+  'needed_by': 'start date',
+  'neededBy': 'start date',
+};
+
+/// Maps raw unmapped keys to friendly labels, de-duplicated in first-seen order
+/// (so `pay_min` + `pay_max` yield a single "pay range"). An unknown key is
+/// humanized rather than dropped — the payer is never left guessing which field
+/// slipped, even if the server adds one this build does not know yet.
+List<String> jobChatFriendlyUnmappedLabels(List<String> raw) {
+  final List<String> labels = <String>[];
+  for (final String key in raw) {
+    final String trimmed = key.trim();
+    if (trimmed.isEmpty) continue;
+    final String label = kJobChatUnmappedFieldLabels[trimmed] ??
+        trimmed.replaceAll(RegExp(r'[_\-]+'), ' ').toLowerCase();
+    if (!labels.contains(label)) labels.add(label);
+  }
+  return labels;
+}
+
+/// Natural-language join: `[a] → "a"`, `[a,b] → "a and b"`,
+/// `[a,b,c] → "a, b and c"`.
+String jobChatJoinLabels(List<String> labels) {
+  if (labels.isEmpty) return '';
+  if (labels.length == 1) return labels.first;
+  final String head = labels.sublist(0, labels.length - 1).join(', ');
+  return '$head and ${labels.last}';
+}
+
+/// The publish-success copy, with an ADDITIVE honesty clause when the server
+/// could not fold some collected fields onto the live posting. Returns the base
+/// message unchanged when everything mapped cleanly.
+String jobChatPublishSuccessMessage(List<String> unmappedFields) {
+  final List<String> labels = jobChatFriendlyUnmappedLabels(unmappedFields);
+  if (labels.isEmpty) return kJobChatPublishSuccessMessage;
+  return '$kJobChatPublishSuccessMessage '
+      'A few details did not carry over — add ${jobChatJoinLabels(labels)} '
+      'on the posting.';
+}
+
 /// The AI-assisted job-posting chat (ADR-0035).
 ///
 /// The payer answers a DETERMINISTIC interview (topic bank + ordering + ask
@@ -148,7 +206,9 @@ class _ChatViewState extends State<_ChatView> {
         switch (state.publishOutcome) {
       PublishOutcome.success => (
           'Posted',
-          'Your job posting was created as a draft — publish it from My jobs.',
+          // Success stays a success toast; the honesty clause about any fields
+          // that did not persist is folded in, non-blocking (see the helper).
+          jobChatPublishSuccessMessage(state.unmappedFields),
           Icons.check_circle,
         ),
       PublishOutcome.incomplete => (

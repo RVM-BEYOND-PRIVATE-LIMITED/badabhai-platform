@@ -15,6 +15,7 @@ class _FakeRepo implements JobPostingChatRepository {
     this.turns = const <JobPostingChatTurn>[],
     this.sendThrows = false,
     this.publishError,
+    this.unmappedFields = const <String>[],
   });
 
   final JobPostingChatTurn? opening;
@@ -23,6 +24,7 @@ class _FakeRepo implements JobPostingChatRepository {
   final List<JobPostingChatTurn> turns;
   final bool sendThrows;
   final PayerApiException? publishError;
+  final List<String> unmappedFields;
 
   String? _sessionId;
   int _turn = 0;
@@ -61,10 +63,10 @@ class _FakeRepo implements JobPostingChatRepository {
       const <JobPostingChatSessionSummary>[];
 
   @override
-  Future<String> publish() async {
+  Future<PublishJobResult> publish() async {
     final PayerApiException? err = publishError;
     if (err != null) throw err;
-    return 'job-9';
+    return PublishJobResult(jobPostingId: 'job-9', unmappedFields: unmappedFields);
   }
 }
 
@@ -262,6 +264,25 @@ void main() {
 
       expect(bloc.state.publishOutcome, PublishOutcome.success);
       expect(bloc.state.publishedJobId, 'job-9');
+      expect(bloc.state.unmappedFields, isEmpty,
+          reason: 'a clean publish carries no honesty notice');
+      await bloc.close();
+    });
+
+    test('success carries the server unmapped_fields onto state for the notice',
+        () async {
+      final JobPostingChatBloc bloc = JobPostingChatBloc(
+        _FakeRepo(unmappedFields: const <String>['pay_min', 'pay_max', 'shift']),
+      );
+      bloc.add(const JobPostingChatPublishRequested());
+      await bloc.stream.firstWhere(
+          (JobPostingChatState s) => s.publishOutcome != PublishOutcome.none);
+
+      expect(bloc.state.publishOutcome, PublishOutcome.success);
+      expect(bloc.state.publishedJobId, 'job-9');
+      expect(bloc.state.unmappedFields,
+          const <String>['pay_min', 'pay_max', 'shift'],
+          reason: 'the screen maps + de-dupes these into a plain-words notice');
       await bloc.close();
     });
 
