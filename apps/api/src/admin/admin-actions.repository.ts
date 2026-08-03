@@ -8,6 +8,7 @@ import {
   type WorkerFlagReasonCode,
   creditLedger,
   jobPostings,
+  jobs,
   payerCredits,
   payers,
   workerFlags,
@@ -125,6 +126,103 @@ export class AdminActionsRepository {
     return row;
   }
 
+  // ----- payer inventory cascade (ADR-0037 Decision 1) ----------------------
+
+  /**
+   * ADR-0037 Decision 1 — freeze a suspended payer's LIVE inventory so it stops being
+   * discoverable, on BOTH job tables. Returns the row counts actually moved.
+   *
+   * WHY A STATUS VALUE AND NOT A JOIN. The alternative was to filter the feed on the
+   * owner's status (`... JOIN payers ON ... WHERE payers.status <> 'suspended'`). That
+   * would put a join on the hottest read in the system and, worse, it only protects the
+   * paths someone remembers to change: `payers` is joined NOWHERE in the feed / reach /
+   * jobs / applications path today. Moving the row out of `open` instead means every
+   * existing discovery query — all of which already filter `status = 'open'` — excludes it
+   * with no edit at all, and any future one written to the same convention inherits the
+   * behaviour. Verified callers that this closes: the worker feed and job-detail reads
+   * (applications + jobs repositories), the reach candidate set, and the Matching-V1 feed
+   * join (`jp.status = 'open'`).
+   *
+   * WHICH ROWS MOVE. `open` and `paused` only.
+   *   * `draft` is not discoverable and not recruiting — nothing to freeze.
+   *   * `closed` is TERMINAL and, critically, is the payer's OWN decision. Sweeping it in
+   *     would make reinstatement reopen jobs the payer had deliberately taken down.
+   * `jobs` has exactly one live state, so only `open` applies there.
+   *
+   * PRESERVED, NOT DESTROYED: `applications` rows are untouched, so a worker who already
+   * applied keeps their history and the employer keeps the applicant; only DISCOVERY stops.
+   *
+   * ONE STATEMENT PER TABLE, with the prior status captured in-statement via `sql` from the
+   * row's own column. Reading the statuses first and writing them back would be a TOCTOU
+   * across a set of rows, which is strictly worse than the single-row case.
+   */
+  async suspendPayerInventory(
+    payerId: string,
+    tx: Database = this.db,
+  ): Promise<{ postings: number; jobs: number }> {
+    const movedPostings = await tx
+      .update(jobPostings)
+      .set({
+        status: "suspended",
+        previousStatus: sql`${jobPostings.status}`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(jobPostings.payerId, payerId), inArray(jobPostings.status, ["open", "paused"])),
+      )
+      .returning({ id: jobPostings.id });
+
+    const movedJobs = await tx
+      .update(jobs)
+      .set({ status: "suspended", updatedAt: new Date() })
+      .where(and(eq(jobs.payerId, payerId), eq(jobs.status, "open")))
+      .returning({ id: jobs.id });
+
+    return { postings: movedPostings.length, jobs: movedJobs.length };
+  }
+
+  /**
+   * ADR-0037 Decision 1 — restore a reinstated payer's inventory to EXACTLY the state it
+   * held before the suspension. Returns the row counts actually moved.
+   *
+   * `job_postings` restores from `previous_status`, not from a hardcoded `open`: a posting
+   * the payer had PAUSED must come back paused. Republishing a job someone deliberately
+   * took down is the one outcome a reinstatement must not cause, and it would be silent.
+   * `COALESCE(previous_status, 'paused')` covers the impossible-but-cheap case of a
+   * suspended row with no recorded prior state, resolving to the LESS visible option — the
+   * same fail-quiet direction as `reinstatePayer`'s coalesce to `pending`.
+   *
+   * `jobs` restores `suspended -> open` directly: that table has one live state, so there
+   * is nothing to remember (see the `JobStatus` note in packages/db/src/schema.ts).
+   *
+   * ONLY `suspended` rows move. A posting CLOSED by an admin (force-close) or expired while
+   * the payer was suspended is no longer `suspended`, so it stays closed — reinstatement
+   * cannot resurrect it. That is the "unless they were manually closed" carve-out, enforced
+   * by the WHERE rather than by a caller remembering it.
+   */
+  async reinstatePayerInventory(
+    payerId: string,
+    tx: Database = this.db,
+  ): Promise<{ postings: number; jobs: number }> {
+    const movedPostings = await tx
+      .update(jobPostings)
+      .set({
+        status: sql`coalesce(${jobPostings.previousStatus}, 'paused')`,
+        previousStatus: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(jobPostings.payerId, payerId), eq(jobPostings.status, "suspended")))
+      .returning({ id: jobPostings.id });
+
+    const movedJobs = await tx
+      .update(jobs)
+      .set({ status: "open", updatedAt: new Date() })
+      .where(and(eq(jobs.payerId, payerId), eq(jobs.status, "suspended")))
+      .returning({ id: jobs.id });
+
+    return { postings: movedPostings.length, jobs: movedJobs.length };
+  }
+
   // ----- credit ledger (positive admin grant) -------------------------------
 
   /**
@@ -209,6 +307,14 @@ export class AdminActionsRepository {
    * Force a posting to `closed`, guarded on status != 'closed' so an already-closed posting
    * matches NO row → undefined (idempotent no-op). Returns the row id when it actually closed.
    * `tx` runs the write on a caller transaction (H3) so it commits with the event atomically.
+   *
+   * ADR-0037 — `previous_status` is CLEARED here. A `suspended` posting is within this
+   * guard's reach (`ne('closed')` matches it) and closing it is the intended admin override:
+   * an admin taking a frozen posting down permanently is exactly the "manually closed"
+   * carve-out that {@link reinstatePayerInventory} must not undo, and it works precisely
+   * because the row is no longer `suspended` when the reinstate cascade runs. Clearing the
+   * column is also REQUIRED, not cosmetic: `job_postings_previous_status_chk` rejects a
+   * non-suspended row that still carries one, so leaving it set would fail the write.
    */
   async forceClosePosting(
     id: string,
@@ -217,7 +323,7 @@ export class AdminActionsRepository {
   ): Promise<{ id: string } | undefined> {
     const [row] = await tx
       .update(jobPostings)
-      .set({ status: "closed", closedAt, updatedAt: closedAt })
+      .set({ status: "closed", previousStatus: null, closedAt, updatedAt: closedAt })
       .where(and(eq(jobPostings.id, id), ne(jobPostings.status, "closed")))
       .returning({ id: jobPostings.id });
     return row;

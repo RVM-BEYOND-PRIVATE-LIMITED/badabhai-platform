@@ -1537,6 +1537,43 @@ export const PayerLifecycleTransitionPayload = z
 export type PayerLifecycleTransitionPayload = z.infer<typeof PayerLifecycleTransitionPayload>;
 
 /**
+ * The INVENTORY side of a payer suspension (ADR-0037 Decision 1) —
+ * `payer.inventory_suspended` / `payer.inventory_reinstated`.
+ *
+ * A payer suspension freezes two independent things: their SESSION (recorded by
+ * `payer.suspended` above) and their live JOB INVENTORY (recorded here). They are
+ * separate events because they can diverge — a suspension with nothing published moves
+ * zero rows — and because "why did this job vanish from the feed?" is a question the
+ * session event cannot answer.
+ *
+ * COUNTS, NOT IDS. The affected postings can number in the hundreds and a per-posting
+ * event would flood the spine on a single admin click; the per-row truth already lives on
+ * `job_postings.status` / `previous_status` (the system of record), which is where an
+ * investigator reads it from. The counts are what make the cascade auditable at a glance:
+ * a reinstate whose counts do not match its suspend is the signal that something moved in
+ * between.
+ *
+ * TWO COUNTS, NOT ONE. `job_postings` is the Matching-V1 served entity and `jobs` is the
+ * legacy entity that still backs the worker feed and the agency surface (TD37 — both are
+ * live). Summing them would hide which surface was actually affected.
+ *
+ * FACELESS: an opaque `payer_id` plus two non-negative integers. No titles, no org label,
+ * no posting ids.
+ */
+export const PayerInventoryTransitionPayload = z
+  .object({
+    payer_id: uuidSchema,
+    /** `job_postings` rows moved by this cascade (the Matching-V1 served entity). */
+    postings_affected: z.number().int().min(0),
+    /** `jobs` rows moved by this cascade (the legacy entity still serving the feed). */
+    jobs_affected: z.number().int().min(0),
+  })
+  // `.strict()` for the same reason as the transition payload above: an extra key is the
+  // obvious way a role title or org label would reach the spine. Reject, never strip.
+  .strict();
+export type PayerInventoryTransitionPayload = z.infer<typeof PayerInventoryTransitionPayload>;
+
+/**
  * A login code was issued for an EXISTING payer account (the no-account branch emits
  * nothing — the HTTP response is identical either way, so this asymmetry is not a
  * caller-observable enumeration oracle; XB-H). Resolved `payer_id` + method only —
@@ -1639,8 +1676,19 @@ export type PayerAccountUpdatedPayload = z.infer<typeof PayerAccountUpdatedPaylo
 // in any event/log. All v1 (version-never-mutate).
 // ---------------------------------------------------------------------------
 
-/** `jobs` lifecycle status (mirrors db.JobStatus — open|closed only). Enum → no PII. */
-export const JobStatusEnum = z.enum(["open", "closed"]);
+/**
+ * `jobs` lifecycle status (mirrors db.JobStatus). Enum → no PII.
+ *
+ * WIDENED, not changed (ADR-0037): `suspended` joins the existing two. Every payload that
+ * validated before still validates — this only admits a value the producers could not
+ * previously emit — so `job.*` stays v1 (invariant #8 forbids MUTATING a shipped payload,
+ * not extending an enum in the accepting direction).
+ *
+ * Keeping the mirror exact is the point: this enum's job is to be db.JobStatus, and a
+ * mirror that silently omits a value the column can hold would make a legitimate emit fail
+ * validation at runtime rather than at compile time.
+ */
+export const JobStatusEnum = z.enum(["open", "closed", "suspended"]);
 export type JobStatusEnum = z.infer<typeof JobStatusEnum>;
 
 /** Coarse city label (e.g. "Pune") — NOT an address. Short, non-PII bound. */

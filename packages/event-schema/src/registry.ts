@@ -410,6 +410,20 @@ export const EVENT_REGISTRY = {
   "payer.activated": { version: 1, domain: "payer", payload: p.PayerLifecycleTransitionPayload },
   "payer.suspended": { version: 1, domain: "payer", payload: p.PayerLifecycleTransitionPayload },
   "payer.reinstated": { version: 1, domain: "payer", payload: p.PayerLifecycleTransitionPayload },
+  // The INVENTORY half of a suspension (ADR-0037 Decision 1). Emitted alongside — never
+  // instead of — `payer.suspended`/`payer.reinstated`: the session freeze and the job
+  // freeze are separate state changes on separate tables and either can move zero rows.
+  // Counts only, so one admin click cannot emit hundreds of events. Both v1.
+  "payer.inventory_suspended": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerInventoryTransitionPayload,
+  },
+  "payer.inventory_reinstated": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerInventoryTransitionPayload,
+  },
   // A payer self-edited their own account on PATCH /payer/me (PROF-3). FACELESS:
   // opaque payer_id + the changed field KEYS (subset of {org_name, phone}) ONLY —
   // never the new org-name/phone VALUES (B-R2 PII lives encrypted in `payers`). v1.

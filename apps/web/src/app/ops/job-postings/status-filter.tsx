@@ -7,6 +7,8 @@ const OPTIONS: { value: JobPostingStatus | "all"; label: string }[] = [
   { value: "all", label: "All" },
   { value: "draft", label: "Draft" },
   { value: "open", label: "Open" },
+  { value: "paused", label: "Paused" },
+  { value: "suspended", label: "Suspended" },
   { value: "closed", label: "Closed" },
 ];
 

@@ -288,6 +288,20 @@ tr:last-child td {
   color: #f0789f;
   border-color: #5b2440;
 }
+/* A payer's OWN pause — reversible by them, amber. */
+.status-paused {
+  background: #3a3320;
+  color: #f0c674;
+  border-color: #5b4a24;
+}
+/* ADR-0037 — a PLATFORM freeze (the owning payer is suspended). Deliberately not the
+   same colour as `paused`: ops must be able to tell "the payer took this down" from
+   "we took this down" without reading the label. */
+.status-suspended {
+  background: #3a2020;
+  color: #f08c8c;
+  border-color: #5b2a2a;
+}
 
 /* --- Forms / actions (job postings create + edit) -------------------------- */
 .form {

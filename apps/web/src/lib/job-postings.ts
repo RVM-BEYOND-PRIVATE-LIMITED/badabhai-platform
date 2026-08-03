@@ -55,5 +55,9 @@ export const FREE_TEXT_PII_WARNING =
 export const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
   open: "Open",
+  paused: "Paused",
+  // ADR-0037 Decision 1 — set by the payer-suspension cascade, never by a poster. Labelled
+  // distinctly from "Paused" so ops can tell a payer's own pause from a platform freeze.
+  suspended: "Suspended",
   closed: "Closed",
 };

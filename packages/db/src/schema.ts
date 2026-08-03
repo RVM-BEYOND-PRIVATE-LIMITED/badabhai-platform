@@ -999,10 +999,25 @@ export const jobPostings = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
+    // ADR-0037 — the live status this posting held before the owning payer was suspended,
+    // so reinstatement restores it EXACTLY (`open` stays open, `paused` stays paused)
+    // instead of guessing. Written only by the suspension cascade and cleared by the
+    // reinstatement cascade; NULL at every other moment, so a non-NULL value on a row that
+    // is not `suspended` is a bug, not a state.
+    //
+    // Reinstating to a hardcoded `open` would silently RESUME a posting the payer had
+    // deliberately paused — publishing a job they took down, which is the one outcome a
+    // suspension must not cause.
+    previousStatus: text("previous_status").$type<JobPostingStatus>(),
   },
   (t) => [
     // Backs the ops list endpoint: filter by `status`, order by `created_at desc`.
     index("job_postings_status_created_at_idx").on(t.status, t.createdAt),
+    // ADR-0037 — backs the suspend/reinstate cascade, which is `WHERE payer_id = $1 AND
+    // status IN (...)`. `job_postings_payer_id_idx` below leads on payer_id but its second
+    // column is created_at, so the status predicate is a filter, not a seek. A payer with
+    // many postings is exactly the case where the cascade matters most.
+    index("job_postings_payer_id_status_idx").on(t.payerId, t.status),
     // Backs the payer self-serve list (own postings, newest first): WHERE payer_id, status.
     index("job_postings_payer_id_idx").on(t.payerId, t.createdAt),
     // ── Matching V1 feed + reconciliation indexes ─────────────────────────────
@@ -1023,9 +1038,22 @@ export const jobPostings = pgTable(
       "job_postings_vacancy_band_chk",
       sql`${t.vacancyBand} IN ('1', '2-5', '6-10', '11-25', '25+')`,
     ),
-    // Pin the lifecycle to the 4 allowed values (mirrors JOB_POSTING_STATUSES). `paused`
-    // (B1) is a reversible open<->paused state, additive to the original draft/open/closed.
-    check("job_postings_status_chk", sql`${t.status} IN ('draft', 'open', 'paused', 'closed')`),
+    // Pin the lifecycle to the 5 allowed values (mirrors JOB_POSTING_STATUSES). `paused`
+    // (B1) is a reversible open<->paused state, additive to the original draft/open/closed;
+    // `suspended` (ADR-0037) is the system state the payer-suspension cascade writes.
+    check(
+      "job_postings_status_chk",
+      sql`${t.status} IN ('draft', 'open', 'paused', 'suspended', 'closed')`,
+    ),
+    // ADR-0037 — `previous_status` describes a SUSPENSION and nothing else. Non-suspended
+    // rows must carry NULL, so a stale value can never be restored onto a posting that was
+    // legitimately closed or republished while the column was still set. Enforced in the DB
+    // because both the suspend and reinstate writes are one-statement cascades: there is no
+    // application-layer read to check it against.
+    check(
+      "job_postings_previous_status_chk",
+      sql`(${t.status} = 'suspended') OR (${t.previousStatus} IS NULL)`,
+    ),
     // Pin the trust review to the 3 allowed values (mirrors JOB_POSTING_VERIFICATION_STATUSES).
     check(
       "job_postings_verification_status_chk",
@@ -1088,8 +1116,21 @@ export const jobPostings = pgTable(
  * Keep this comment for historical context; the actual type is imported.
  */
 
-/** Job lifecycle — a seed job can be retired without deleting the row. */
-export type JobStatus = "open" | "closed";
+/**
+ * Job lifecycle — a seed job can be retired without deleting the row.
+ *
+ * `suspended` (ADR-0037) is the SYSTEM state written when the owning payer is suspended,
+ * and cleared when they are reinstated. It exists so the cascade does not have to overload
+ * `closed`, which is what an agency's own "pause" already maps to (pause == close on this
+ * table) and which a reinstatement must NOT reopen — closing is the payer's decision and
+ * survives a suspension.
+ *
+ * Unlike `job_postings` this table carries NO `previous_status`: it has exactly ONE live
+ * state, so a reinstatement restores `suspended -> open` deterministically and there is
+ * nothing to remember. If a third live state is ever added here, that stops being true and
+ * this table needs the column too.
+ */
+export type JobStatus = "open" | "closed" | "suspended";
 
 /**
  * When the job needs someone — the demand-side availability signal the Reach RANK
@@ -1185,6 +1226,9 @@ export const jobs = pgTable(
     index("jobs_status_created_at_idx").on(t.status, t.createdAt),
     // Covers the feed filtering (TD66) to avoid unindexed scans on trade_key/city
     index("jobs_status_trade_city_created_at_idx").on(t.status, t.tradeKey, t.city, t.createdAt),
+    // ADR-0037 — backs the payer-suspension cascade (`WHERE payer_id = $1 AND status = ...`).
+    // `payer_id` had NO index at all: every agency-owned read and the cascade were seq scans.
+    index("jobs_payer_id_status_idx").on(t.payerId, t.status),
     check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceived} >= 0`),
     // Pay/experience are non-negative when present, and the max is not below the min.
     check(
