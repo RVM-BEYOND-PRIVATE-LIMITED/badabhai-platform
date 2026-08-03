@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { VacancyBand } from "@badabhai/types";
-import { createJobPosting, type CreateJobPostingBody } from "@/lib/api";
+import type { CreateJobPostingBody } from "@/lib/api";
+import { createJobPostingAction } from "../actions";
 import {
   OPS_ACTOR_ID,
   VACANCY_BAND_OPTIONS,
@@ -52,15 +53,18 @@ export function PostingCreateForm() {
     if (desc) body.description = desc;
 
     setSubmitting(true);
-    try {
-      const created = await createJobPosting(body);
-      router.push(`/ops/job-postings/${created.id}`);
-    } catch (err) {
-      // Surface the server's own message (e.g. its 422 description reject, or a
-      // validation error) verbatim.
-      setError(err instanceof Error ? err.message : String(err));
-      setSubmitting(false);
+    // Through a Server Action, NOT a browser fetch: `POST /job-postings` is behind
+    // the API's InternalServiceGuard and the shared token is a server secret, so a
+    // call made from this component would arrive unauthenticated and 401.
+    const result = await createJobPostingAction(body);
+    if (result.ok) {
+      router.push(`/ops/job-postings/${result.posting.id}`);
+      return;
     }
+    // Surface the server's own message (e.g. its 422 description reject, or a
+    // validation error) verbatim.
+    setError(result.error);
+    setSubmitting(false);
   }
 
   return (
