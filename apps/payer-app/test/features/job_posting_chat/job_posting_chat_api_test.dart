@@ -283,7 +283,7 @@ void main() {
         }, 201),
       });
 
-      expect(await h.api.publishJobPostingChatSession(_sid), 'job-9');
+      expect((await h.api.publishJobPostingChatSession(_sid)).jobPostingId, 'job-9');
       final String body = h.router.seen.single.body;
       expect(body.contains('payer_id'), isFalse);
       expect(body.contains('org'), isFalse);
@@ -421,7 +421,7 @@ void main() {
           sessionId: start.sessionId, text: '2+ years');
 
       expect(last.draftReady, isTrue);
-      expect(await api.publishJobPostingChatSession(start.sessionId),
+      expect((await api.publishJobPostingChatSession(start.sessionId)).jobPostingId,
           isNotEmpty);
 
       // Re-publishing the same conversation is a 409.

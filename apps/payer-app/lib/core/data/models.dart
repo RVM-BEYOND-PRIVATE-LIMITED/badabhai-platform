@@ -231,6 +231,12 @@ class Applicant extends Equatable {
     this.experienceBand,
     this.tradeLabel,
     this.cityLabel,
+    this.matchTier,
+    this.effectiveTier,
+    this.skillMonths,
+    this.industryMonths,
+    this.matchedSkillLabel,
+    this.lastWorkedAt,
     this.unlocked = false,
     this.unlockId,
   });
@@ -248,11 +254,38 @@ class Applicant extends Equatable {
   final String? experienceBand;
   final String? tradeLabel;
   final String? cityLabel;
+
+  // --- Match V1 facets (additive, all nullable). The deterministic matcher may
+  // enrich a per-job applicant row with a tier + coarse tenure/skill context.
+  // Absent on legacy rows → null. PII-free (bands/labels only, never a name).
+  /// Match tier: 1 = direct skill match, 2 = reached via a related skill.
+  final int? matchTier;
+
+  /// Effective tier after any per-posting adjustment (may differ from
+  /// [matchTier]); null when the row carries no effective tier.
+  final int? effectiveTier;
+
+  /// Months of experience on the matched skill (coarse tenure signal).
+  final int? skillMonths;
+
+  /// Months of experience in the matched industry (coarse tenure signal).
+  final int? industryMonths;
+
+  /// Human label of the skill this applicant matched on (display only).
+  final String? matchedSkillLabel;
+
+  /// ISO timestamp / coarse "last worked" marker for the matched skill.
+  final String? lastWorkedAt;
+
   final bool unlocked;
 
   /// The granted unlock id (set once a paid unlock succeeds) — carried so the
   /// Reveal screen can fetch the relay handle without a second unlock.
   final String? unlockId;
+
+  /// True when this applicant surfaced via a RELATED skill (tier 2), not a
+  /// direct skill match — lets the card badge "via related skill".
+  bool get viaRelated => matchTier == 2;
 
   /// Masked, PII-free label derived from the opaque UUID — e.g. "Worker ••3f9a".
   /// Never a real name. Used on the faceless feed card + the unlock dialog.
@@ -280,6 +313,12 @@ class Applicant extends Equatable {
         experienceBand: experienceBand,
         tradeLabel: tradeLabel,
         cityLabel: cityLabel,
+        matchTier: matchTier,
+        effectiveTier: effectiveTier,
+        skillMonths: skillMonths,
+        industryMonths: industryMonths,
+        matchedSkillLabel: matchedSkillLabel,
+        lastWorkedAt: lastWorkedAt,
         unlocked: unlocked ?? this.unlocked,
         unlockId: unlockId ?? this.unlockId,
       );
@@ -295,6 +334,12 @@ class Applicant extends Equatable {
         experienceBand,
         tradeLabel,
         cityLabel,
+        matchTier,
+        effectiveTier,
+        skillMonths,
+        industryMonths,
+        matchedSkillLabel,
+        lastWorkedAt,
         unlocked,
         unlockId,
       ];
@@ -843,6 +888,276 @@ String capacityTierLabel(String? code) {
     'cap_15' => '15 active vacancies',
     _ => code,
   };
+}
+
+// --- Match V1 · skill picker + reach preview -------------------------------
+// The DEMAND-side skill taxonomy the payer picks from when posting, plus the
+// deterministic reach preview that shows how many workers each picked skill (and
+// its related skills) can reach. PII-free by construction: coarse skill ids +
+// labels + integer counts only, NEVER a worker identity. `snake_case` on the
+// wire, `camelCase` in Dart.
+
+/// One selectable demand skill (`GET /payer/match/skills` rows). Carries the
+/// skill's canonical [skillId] + display [label] + owning [industryId] and the
+/// ids of RELATED skills the reach preview can widen into. Never free text — a
+/// posting can only ever reference a known skill id.
+class MatchSkill extends Equatable {
+  const MatchSkill({
+    required this.skillId,
+    required this.label,
+    required this.industryId,
+    this.relatedSkillIds = const <String>[],
+  });
+
+  /// One wire row → [MatchSkill] (snake_case in, camelCase fallback for safety).
+  factory MatchSkill.fromJson(Map<String, dynamic> row) => MatchSkill(
+        skillId: (row['skill_id'] ?? row['skillId']) as String? ?? '',
+        label: row['label'] as String? ?? '',
+        industryId: (row['industry_id'] ?? row['industryId']) as String? ?? '',
+        relatedSkillIds: ((row['related_skill_ids'] ?? row['relatedSkillIds'])
+                    as List<dynamic>? ??
+                const <dynamic>[])
+            .whereType<String>()
+            .toList(growable: false),
+      );
+
+  final String skillId;
+  final String label;
+  final String industryId;
+  final List<String> relatedSkillIds;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[skillId, label, industryId, relatedSkillIds];
+}
+
+/// A related-skill preview under a picked [ReachSkill] (`related[]` rows of the
+/// reach-preview response). [ticked] is the server's default include/exclude
+/// state; the UI may untick it (sending the id in `unticked_related_ids`), which
+/// removes its [reachCount] contribution on the next preview.
+class RelatedPreview extends Equatable {
+  const RelatedPreview({
+    required this.skillId,
+    required this.label,
+    required this.ticked,
+    required this.reachCount,
+  });
+
+  factory RelatedPreview.fromJson(Map<String, dynamic> row) => RelatedPreview(
+        skillId: (row['skill_id'] ?? row['skillId']) as String? ?? '',
+        label: row['label'] as String? ?? '',
+        ticked: row['ticked'] as bool? ?? false,
+        reachCount:
+            ((row['reach_count'] ?? row['reachCount']) as num?)?.toInt() ?? 0,
+      );
+
+  final String skillId;
+  final String label;
+  final bool ticked;
+  final int reachCount;
+
+  @override
+  List<Object?> get props => <Object?>[skillId, label, ticked, reachCount];
+}
+
+/// One picked skill's reach breakdown (`skills[]` rows of the reach-preview
+/// response): the direct [reachCount] plus the [related] skills it can widen
+/// into. Counts are how many workers the deterministic matcher would reach —
+/// never a worker identity.
+class ReachSkill extends Equatable {
+  const ReachSkill({
+    required this.skillId,
+    required this.label,
+    required this.reachCount,
+    this.related = const <RelatedPreview>[],
+  });
+
+  factory ReachSkill.fromJson(Map<String, dynamic> row) => ReachSkill(
+        skillId: (row['skill_id'] ?? row['skillId']) as String? ?? '',
+        label: row['label'] as String? ?? '',
+        reachCount:
+            ((row['reach_count'] ?? row['reachCount']) as num?)?.toInt() ?? 0,
+        related: ((row['related'] as List<dynamic>?) ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(RelatedPreview.fromJson)
+            .toList(growable: false),
+      );
+
+  final String skillId;
+  final String label;
+  final int reachCount;
+  final List<RelatedPreview> related;
+
+  @override
+  List<Object?> get props => <Object?>[skillId, label, reachCount, related];
+}
+
+/// The deterministic reach preview (`POST /payer/match/reach-preview`). Given
+/// the picked [MatchSkill] ids (+ any unticked related ids), the matcher returns
+/// per-skill breakdowns and the roll-up totals the post-a-job screen shows. All
+/// counts are k-safe aggregates; [zeroReach] flags a picked set no worker meets
+/// yet. PII-free.
+class ReachPreview extends Equatable {
+  const ReachPreview({
+    this.skills = const <ReachSkill>[],
+    this.reachSkillIds = const <String>[],
+    this.reachTotal = 0,
+    this.reachTier1 = 0,
+    this.zeroReach = false,
+    this.appliedUntickedIds = const <String>[],
+    this.maxSkillsPerPosting = 0,
+  });
+
+  factory ReachPreview.fromJson(Map<String, dynamic> body) => ReachPreview(
+        skills: ((body['skills'] as List<dynamic>?) ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(ReachSkill.fromJson)
+            .toList(growable: false),
+        reachSkillIds:
+            ((body['reach_skill_ids'] ?? body['reachSkillIds']) as List<dynamic>? ??
+                    const <dynamic>[])
+                .whereType<String>()
+                .toList(growable: false),
+        reachTotal:
+            ((body['reach_total'] ?? body['reachTotal']) as num?)?.toInt() ?? 0,
+        reachTier1:
+            ((body['reach_tier1'] ?? body['reachTier1']) as num?)?.toInt() ?? 0,
+        zeroReach: (body['zero_reach'] ?? body['zeroReach']) as bool? ?? false,
+        appliedUntickedIds: ((body['applied_unticked_ids'] ??
+                    body['appliedUntickedIds']) as List<dynamic>? ??
+                const <dynamic>[])
+            .whereType<String>()
+            .toList(growable: false),
+        maxSkillsPerPosting: ((body['max_skills_per_posting'] ??
+                    body['maxSkillsPerPosting']) as num?)
+                ?.toInt() ??
+            0,
+      );
+
+  /// Per-picked-skill reach breakdowns (each with its related skills).
+  final List<ReachSkill> skills;
+
+  /// The skill ids that actually contribute reach (picked + still-ticked
+  /// related), after applying [appliedUntickedIds].
+  final List<String> reachSkillIds;
+
+  /// Total distinct workers reachable across the picked set.
+  final int reachTotal;
+
+  /// Of [reachTotal], how many are tier-1 (direct) matches.
+  final int reachTier1;
+
+  /// True when the picked set reaches no worker yet (drives the empty/warn UX).
+  final bool zeroReach;
+
+  /// The related-skill ids the server applied as unticked in this preview.
+  final List<String> appliedUntickedIds;
+
+  /// The server-enforced cap on how many skills a single posting may carry.
+  final int maxSkillsPerPosting;
+
+  @override
+  List<Object?> get props => <Object?>[
+        skills,
+        reachSkillIds,
+        reachTotal,
+        reachTier1,
+        zeroReach,
+        appliedUntickedIds,
+        maxSkillsPerPosting,
+      ];
+}
+
+// --- Agency · referred workers + batch invites -----------------------------
+// AGENT-only supply surfaces. [AgencyWorker] is a FACELESS referral row (an
+// opaque [ref] + coarse funnel counts, NEVER a name/phone); [MintedInvite] is a
+// freshly minted invite code+link. Both are called only for an agency session —
+// a company session's 403 surfaces as a typed [PayerApiException].
+
+/// One referred worker in the agency's funnel (`GET /payer/agency/workers`).
+/// PII-free: an opaque [ref] handle plus coarse progress/engagement counts and
+/// a coarse last-active marker — never an identity. [lastActiveOn] is null when
+/// the worker has not been active (or the marker is suppressed).
+class AgencyWorker extends Equatable {
+  const AgencyWorker({
+    required this.ref,
+    required this.profileComplete,
+    required this.appliedCount,
+    required this.unlockedCount,
+    this.lastActiveOn,
+  });
+
+  /// One wire row → [AgencyWorker]. The route ships camelCase keys; snake_case
+  /// is accepted as a defensive fallback.
+  factory AgencyWorker.fromJson(Map<String, dynamic> row) => AgencyWorker(
+        ref: row['ref'] as String? ?? '',
+        profileComplete:
+            (row['profileComplete'] ?? row['profile_complete']) as bool? ??
+                false,
+        appliedCount:
+            ((row['appliedCount'] ?? row['applied_count']) as num?)?.toInt() ??
+                0,
+        unlockedCount:
+            ((row['unlockedCount'] ?? row['unlocked_count']) as num?)?.toInt() ??
+                0,
+        lastActiveOn:
+            (row['lastActiveOn'] ?? row['last_active_on']) as String?,
+      );
+
+  /// Opaque worker referral handle — never a name/phone.
+  final String ref;
+  final bool profileComplete;
+  final int appliedCount;
+  final int unlockedCount;
+  final String? lastActiveOn;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[ref, profileComplete, appliedCount, unlockedCount, lastActiveOn];
+}
+
+/// One freshly minted agency invite (`POST /payer/agency/invites/batch` rows).
+/// Carries the opaque [agencyInviteId] plus the shareable [code] and [link]. A
+/// batch mints [count] of these in one call.
+class MintedInvite extends Equatable {
+  const MintedInvite({
+    required this.agencyInviteId,
+    required this.code,
+    required this.link,
+  });
+
+  factory MintedInvite.fromJson(Map<String, dynamic> row) => MintedInvite(
+        agencyInviteId:
+            (row['agency_invite_id'] ?? row['agencyInviteId']) as String? ?? '',
+        code: row['code'] as String? ?? '',
+        link: row['link'] as String? ?? '',
+      );
+
+  final String agencyInviteId;
+  final String code;
+  final String link;
+
+  @override
+  List<Object?> get props => <Object?>[agencyInviteId, code, link];
+}
+
+/// Result of publishing an AI job-posting chat draft
+/// (`POST /payer/job-posting-chat/sessions/:id/publish`). Carries the created
+/// [jobPostingId] the caller routes to, plus any [unmappedFields] the server
+/// could not map from the conversational draft onto the structured posting
+/// (empty when everything mapped cleanly) — surfaced so the UI can nudge the
+/// payer to fill them on the posting afterwards.
+class PublishJobResult extends Equatable {
+  const PublishJobResult({
+    required this.jobPostingId,
+    this.unmappedFields = const <String>[],
+  });
+
+  final String jobPostingId;
+  final List<String> unmappedFields;
+
+  @override
+  List<Object?> get props => <Object?>[jobPostingId, unmappedFields];
 }
 
 /// Identity resolved at login for a chosen [PayerRole]. Kept here so the data

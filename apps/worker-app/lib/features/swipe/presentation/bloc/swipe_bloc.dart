@@ -103,7 +103,15 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     try {
       final String? trade = state.filters.trades.length == 1 ? state.filters.trades.first : null;
       final String? city = state.filters.cities.length == 1 ? state.filters.cities.first : null;
-      final List<FeedItem> jobs = await _repo.getFeed(tradeKey: trade, city: city);
+      // Shift + pay floor are single-value, so they thread straight through as the
+      // OUTBOUND `/feed` narrowing params (server-side); the client-side match in
+      // [applyJobFilters] is what narrows the already-loaded deck immediately.
+      final List<FeedItem> jobs = await _repo.getFeed(
+        tradeKey: trade,
+        city: city,
+        shift: state.filters.shift,
+        payMin: state.filters.payMin,
+      );
       emit(state.copyWith(
         queue: jobs,
         status: jobs.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,

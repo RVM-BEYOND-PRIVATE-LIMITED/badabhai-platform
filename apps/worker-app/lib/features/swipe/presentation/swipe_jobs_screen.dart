@@ -290,10 +290,11 @@ class _FeedViewState extends State<_FeedView> {
   /// state from [_filters] and writes through the same path as the sheet, so the
   /// two can never disagree.
   ///
-  /// ("Verified" and "Day shift" chips used to sit here. Both are deleted: no
-  /// backing field exists for either — verification is not on the `/feed` wire
-  /// and shift is frozen mock-only display data per ADR-0024 — so they could
-  /// only ever have been decorative.)
+  /// ("Verified" and "Day shift" chips used to sit here. Both were deleted when
+  /// neither had a backing `/feed` field. Verification still has none, so it
+  /// stays gone. Shift IS on the wire now (ADR-0024 addendum) and IS filterable —
+  /// but from the "Filter jobs" SHEET (single-select), not this quick-chip row,
+  /// which stays trade-only.)
   Widget _chipRow(BuildContext context) {
     const List<(String, IconData)> chips = <(String, IconData)>[
       ('CNC', Icons.build_outlined),

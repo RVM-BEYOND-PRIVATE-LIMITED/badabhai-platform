@@ -69,6 +69,10 @@ Future<void> _selectCitiesInSheet(
     ));
     await tester.pumpAndSettle();
   }
+  // The sheet gained Shift + Minimum-pay groups, so the apply button can sit
+  // below the fold — scroll it into view before tapping.
+  await tester.ensureVisible(find.textContaining('Show '));
+  await tester.pumpAndSettle();
   await tester.tap(find.textContaining('Show '));
   await tester.pumpAndSettle();
 }
@@ -88,7 +92,7 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
+      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
             _job('cnc1', 'cnc_operator', 'CNC Operator'),
             _job('vmc1', 'vmc_setter', 'VMC Setter'),
           ]);
@@ -130,7 +134,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
+    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
           _job('cnc1', 'cnc_operator', 'CNC Operator'),
           _job('vmc1', 'vmc_setter', 'VMC Setter'),
         ]);
@@ -169,7 +173,7 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
+      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
             _job('cnc1', 'cnc_operator', 'CNC Operator'),
             _job('vmc1', 'vmc_setter', 'VMC Setter'),
           ]);
@@ -211,7 +215,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer(
+    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer(
         (_) async => <FeedItem>[_job('cnc1', 'cnc_operator', 'CNC Operator')]);
 
     await tester.pumpWidget(MaterialApp(
@@ -234,7 +238,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
+    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
           _job('c1', 'cnc_operator', 'CNC Operator', city: 'Pune'),
           _job('c2', 'cnc_operator', 'CNC Machinist', city: 'Nashik'),
           _job('c3', 'cnc_operator', 'CNC Setter', city: 'Aurangabad'),
@@ -266,7 +270,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer(
+    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer(
         (_) async => <FeedItem>[_job('weld1', 'welder', 'Welder')]);
 
     final SwipeBloc bloc = SwipeBloc(repo);
@@ -300,7 +304,7 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
+      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
             _job('weld1', 'welder', 'Welder', city: 'Pune'),
           ]);
 

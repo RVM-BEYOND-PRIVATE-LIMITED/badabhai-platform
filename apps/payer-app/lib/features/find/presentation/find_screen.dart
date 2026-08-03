@@ -377,6 +377,9 @@ class _ApplicantCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool masked = !applicant.unlocked;
     final List<String> signals = applicant.softSignals();
+    // E18 — the match-tier chip. Null on legacy / non-V1 rows (no matchTier),
+    // so those cards render exactly as before (soft signals + Hot only).
+    final Widget? tierBadge = _tierBadge(applicant);
 
     return Container(
       padding: const EdgeInsets.all(15),
@@ -444,12 +447,13 @@ class _ApplicantCard extends StatelessWidget {
                     color: AppColors.textSecondary,
                   ),
                 ),
-                if (signals.isNotEmpty) ...<Widget>[
+                if (tierBadge != null || signals.isNotEmpty) ...<Widget>[
                   const SizedBox(height: 6),
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
                     children: <Widget>[
+                      if (tierBadge != null) tierBadge,
                       for (final String s in signals)
                         BbBadge(s, tone: BbBadgeTone.neutral),
                     ],
@@ -482,6 +486,30 @@ class _ApplicantCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// E18 match-tier chip. When the applicant surfaced via a RELATED skill
+  /// (tier 2), the payer opted into breadth and must see PLAINLY that this is a
+  /// related-skill match — "Related to `skill`" — before spending ₹40 to unlock.
+  /// A direct (tier 1) match gets a quiet positive affordance. Returns null on
+  /// legacy / non-V1 rows (no [matchTier]) so those cards render exactly as
+  /// before — no chip, no layout change.
+  Widget? _tierBadge(Applicant a) {
+    if (a.viaRelated && a.matchedSkillLabel != null) {
+      return BbBadge(
+        'Related to ${a.matchedSkillLabel}',
+        tone: BbBadgeTone.warning,
+        icon: Icons.hub_outlined,
+      );
+    }
+    if (a.matchTier == 1) {
+      return const BbBadge(
+        'Direct match',
+        tone: BbBadgeTone.success,
+        icon: Icons.check_circle_outline,
+      );
+    }
+    return null;
   }
 
   /// Coarse, non-identifying facets: trade · city · experience band. Any of

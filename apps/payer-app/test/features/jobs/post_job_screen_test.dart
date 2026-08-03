@@ -30,6 +30,12 @@ class _SpyApi extends MockPayerApiClient {
   final List<({String title, String city, String? area, int? payMin, int? payMax})>
       createdAgency = <({String title, String city, String? area, int? payMin, int? payMax})>[];
 
+  // These #357 tests assert the LEGACY free-text skills flow, so present
+  // Matching V1 as unavailable (route off) — the screen degrades to the
+  // free-text path. The picker itself is exercised against a real backend.
+  @override
+  Future<List<MatchSkill>> fetchMatchSkills() async => const <MatchSkill>[];
+
   @override
   Future<JobPosting> createCompanyJob({
     required String orgLabel,
@@ -38,6 +44,13 @@ class _SpyApi extends MockPayerApiClient {
     String? description,
     String? vacancyBand,
     int? vacancies,
+    String? city,
+    int? payMin,
+    int? payMax,
+    String? shift,
+    String? neededBy,
+    List<String>? matchSkillIds,
+    List<String>? untickedRelatedIds,
   }) {
     created.add((
       org: orgLabel,
@@ -53,6 +66,13 @@ class _SpyApi extends MockPayerApiClient {
       description: description,
       vacancyBand: vacancyBand,
       vacancies: vacancies,
+      city: city,
+      payMin: payMin,
+      payMax: payMax,
+      shift: shift,
+      neededBy: neededBy,
+      matchSkillIds: matchSkillIds,
+      untickedRelatedIds: untickedRelatedIds,
     );
   }
 

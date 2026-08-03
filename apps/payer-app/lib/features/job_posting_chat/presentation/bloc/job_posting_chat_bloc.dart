@@ -89,6 +89,7 @@ class JobPostingChatState extends Equatable {
     this.publishing = false,
     this.publishOutcome = PublishOutcome.none,
     this.publishedJobId,
+    this.unmappedFields = const <String>[],
   });
 
   /// Ordered, append-only transcript.
@@ -138,6 +139,11 @@ class JobPostingChatState extends Equatable {
   /// Id of the posting created by a successful publish.
   final String? publishedJobId;
 
+  /// Collected draft fields the server could NOT fold onto the live posting on
+  /// the last successful publish (`PublishJobResult.unmappedFields`, raw keys).
+  /// Empty when everything mapped cleanly. Drives the additive honesty notice.
+  final List<String> unmappedFields;
+
   JobPostingChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
@@ -151,6 +157,7 @@ class JobPostingChatState extends Equatable {
     bool? publishing,
     PublishOutcome? publishOutcome,
     String? publishedJobId,
+    List<String>? unmappedFields,
   }) {
     return JobPostingChatState(
       messages: messages ?? this.messages,
@@ -166,6 +173,7 @@ class JobPostingChatState extends Equatable {
       publishing: publishing ?? this.publishing,
       publishOutcome: publishOutcome ?? this.publishOutcome,
       publishedJobId: publishedJobId ?? this.publishedJobId,
+      unmappedFields: unmappedFields ?? this.unmappedFields,
     );
   }
 
@@ -183,6 +191,7 @@ class JobPostingChatState extends Equatable {
         publishing,
         publishOutcome,
         publishedJobId,
+        unmappedFields,
       ];
 }
 
@@ -457,11 +466,14 @@ class JobPostingChatBloc
       publishOutcome: PublishOutcome.none,
     ));
     try {
-      final String jobPostingId = await _repo.publish();
+      final PublishJobResult result = await _repo.publish();
       emit(state.copyWith(
         publishing: false,
         publishOutcome: PublishOutcome.success,
-        publishedJobId: jobPostingId,
+        publishedJobId: result.jobPostingId,
+        // Carry the server's honesty list onto state so the screen can nudge the
+        // payer about fields that did not persist. Empty = clean publish.
+        unmappedFields: result.unmappedFields,
       ));
     } on PayerApiException catch (e) {
       emit(state.copyWith(
