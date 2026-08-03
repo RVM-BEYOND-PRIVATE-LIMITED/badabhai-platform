@@ -2,7 +2,7 @@
 
 - **Status:** Accepted — owner ruling 2026-08-03 (Decision 1: bootstrap CLI, no hardcoded email).
 - **Date:** 2026-08-03
-- **Relates:** [ADR-0025](0025-admin-ops-portal.md) (ADMIN-1/3a — the admin principal, guards, capability matrix, `admin.action_performed`) · [ADR-0004](0004-pii-encryption-at-rest.md) (PII at rest) · [ADR-0037](0037-payer-lifecycle-and-suspension.md) (the verification sweep that surfaced this) · TD33/TD50 (the `InternalServiceGuard` ops interim, blocked on this)
+- **Relates:** [ADR-0025](0025-admin-ops-portal.md) (ADMIN-1/3a — the admin principal, guards, capability matrix, `admin.action_performed`) · [ADR-0004](0004-pii-at-rest-and-rls.md) (PII at rest) · [ADR-0037](0037-payer-lifecycle-and-suspension.md) (the verification sweep that surfaced this) · TD33/TD50 (the `InternalServiceGuard` ops interim, blocked on this)
 
 ## Context
 
