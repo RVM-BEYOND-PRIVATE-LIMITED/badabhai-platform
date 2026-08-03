@@ -3,6 +3,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { createEvent, type CreateEventInput } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
+import type { PayerSessionService } from "../payers/payer-session.service";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminActionsService } from "./admin-actions.service";
@@ -54,6 +55,8 @@ const FORBIDDEN_VALUE_FRAGMENTS = [
 ];
 
 interface Mocks {
+  /** ADR-0037 — the payer session revoker suspension calls after the tx commits. */
+  sessions: { revokeAllForPayer: ReturnType<typeof vi.fn> };
   actions: {
     findPayerStatus: ReturnType<typeof vi.fn>;
     suspendPayer: ReturnType<typeof vi.fn>;
@@ -101,12 +104,16 @@ function make(): Mocks {
     withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
   };
   const events = { emit: vi.fn(async () => undefined) };
+  // ADR-0037 — suspension revokes every live payer session. Spied so tests can assert
+  // revocation happened (and did NOT happen on the idempotent no-op path).
+  const sessions = { revokeAllForPayer: vi.fn(async () => 2) };
   const service = new AdminActionsService(
     actions as unknown as AdminActionsRepository,
     admins as unknown as AdminRepository,
     events as unknown as EventsService,
+    sessions as unknown as PayerSessionService,
   );
-  return { actions, admins, events, service };
+  return { actions, admins, events, sessions, service };
 }
 
 /** The emit params the service passed to EventsService.emit (camelCase tracing ids). */
@@ -124,6 +131,23 @@ interface CapturedEmit {
 function soleEmit(events: Mocks["events"]): CapturedEmit {
   expect(events.emit).toHaveBeenCalledTimes(1);
   return events.emit.mock.calls[0]![0] as CapturedEmit;
+}
+
+/**
+ * Pick ONE emit by event name out of a multi-emit action, asserting there is exactly one.
+ *
+ * ADR-0037 made the payer lifecycle actions emit TWO events: the value-free
+ * `admin.action_performed` (an admin did a thing) and the `payer.*` transition (the payer
+ * moved from X to Y). They answer different questions and the audit mandate needs both,
+ * so `soleEmit` no longer fits those two actions — it is deliberately kept for every
+ * other action, where "exactly one event" is still the contract.
+ */
+function emitNamed(events: Mocks["events"], eventName: string): CapturedEmit {
+  const matches = events.emit.mock.calls
+    .map((c) => c[0] as CapturedEmit)
+    .filter((e) => (e as { event_name?: string }).event_name === eventName);
+  expect(matches).toHaveLength(1);
+  return matches[0]!;
 }
 
 /** Recursively walk every primitive leaf of a value (for the no-value/no-PII scan). */
@@ -198,19 +222,75 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("suspendPayer", () => {
-  it("active payer → suspends the SoR + emits ONE value-free payer_suspended", async () => {
+  it("active payer → suspends the SoR + emits the value-free payer_suspended action", async () => {
     m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
-    m.actions.suspendPayer.mockResolvedValue({ status: "suspended" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
 
     const res = await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
 
     // SoR mutated, target from arg; the 2nd arg is the H3 transaction handle.
     expect(m.actions.suspendPayer).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: true });
-    assertValueFreeAction(soleEmit(m.events), {
+    assertValueFreeAction(emitNamed(m.events, "admin.action_performed"), {
       actionCode: "payer_suspended",
       subjectType: "payer",
       targetId: PAYER_ID,
+    });
+  });
+
+  it("ADR-0037: also emits payer.suspended carrying BOTH ends of the transition", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
+
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    const e = emitNamed(m.events, "payer.suspended") as unknown as {
+      payload: Record<string, unknown>;
+      tx?: unknown;
+    };
+    expect(e.payload).toEqual({
+      payer_id: PAYER_ID,
+      previous_status: "active",
+      new_status: "suspended",
+    });
+    // Rides the SAME transaction as the SoR write (H3) — never a separate commit.
+    expect(e.tx).toBe(FAKE_TX);
+  });
+
+  it("ADR-0037: a PENDING payer CAN now be suspended (it used to 409 for every real payer)", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "pending" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "pending" });
+
+    const res = await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    expect(res).toEqual({ target_id: PAYER_ID, changed: true });
+    // previous_status records that it was pending, so reinstate can put it BACK to pending
+    // rather than granting an activation the payer never earned.
+    const e = emitNamed(m.events, "payer.suspended") as unknown as {
+      payload: Record<string, unknown>;
+    };
+    expect(e.payload).toMatchObject({ previous_status: "pending", new_status: "suspended" });
+  });
+
+  it("ADR-0037: revokes EVERY live session after the transaction commits", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
+
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    expect(m.sessions.revokeAllForPayer).toHaveBeenCalledExactlyOnceWith(PAYER_ID);
+  });
+
+  it("ADR-0037: a revoke failure does NOT fail the suspension (the row is already committed)", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
+    m.sessions.revokeAllForPayer.mockRejectedValueOnce(new Error("redis down"));
+
+    // The payer IS suspended; the per-request lifecycle gate in PayerAuthGuard closes the
+    // window on the next request. Throwing here would report a committed change as failed.
+    await expect(m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX)).resolves.toEqual({
+      target_id: PAYER_ID,
+      changed: true,
     });
   });
 
@@ -230,16 +310,21 @@ describe("suspendPayer", () => {
     expect(m.events.emit).not.toHaveBeenCalled();
   });
 
-  it("pending payer (cannot suspend) → conflict, NO event", async () => {
-    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "pending" });
+  it("a CONCURRENT writer moved the row (SoR returns undefined) → conflict, NO event", async () => {
+    // This used to be "pending payer cannot be suspended". Under ADR-0037 pending IS
+    // suspendable, so the only way the guarded update matches no row is that something
+    // else changed the status between the read and the write. Retained as that guard.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
     m.actions.suspendPayer.mockResolvedValue(undefined);
     await expect(m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX)).rejects.toThrow(ConflictException);
     expect(m.events.emit).not.toHaveBeenCalled();
+    // Nothing was suspended, so nothing may be revoked.
+    expect(m.sessions.revokeAllForPayer).not.toHaveBeenCalled();
   });
 });
 
 describe("reinstatePayer", () => {
-  it("suspended payer → reinstates + emits ONE value-free payer_reinstated", async () => {
+  it("suspended payer → reinstates + emits the value-free payer_reinstated action", async () => {
     m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
     m.actions.reinstatePayer.mockResolvedValue({ status: "active" });
 
@@ -247,11 +332,36 @@ describe("reinstatePayer", () => {
 
     expect(m.actions.reinstatePayer).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: true });
-    assertValueFreeAction(soleEmit(m.events), {
+    assertValueFreeAction(emitNamed(m.events, "admin.action_performed"), {
       actionCode: "payer_reinstated",
       subjectType: "payer",
       targetId: PAYER_ID,
     });
+  });
+
+  it("ADR-0037: reinstate reports the status it RESTORED TO, not a hardcoded active", async () => {
+    // A payer suspended while pending comes back as pending and must still verify —
+    // otherwise suspend+reinstate would be a backdoor activation.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    m.actions.reinstatePayer.mockResolvedValue({ status: "pending" });
+
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+
+    const e = emitNamed(m.events, "payer.reinstated") as unknown as {
+      payload: Record<string, unknown>;
+    };
+    expect(e.payload).toEqual({
+      payer_id: PAYER_ID,
+      previous_status: "suspended",
+      new_status: "pending",
+    });
+  });
+
+  it("ADR-0037: reinstate never revokes sessions (it restores access, it does not remove it)", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    m.actions.reinstatePayer.mockResolvedValue({ status: "active" });
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+    expect(m.sessions.revokeAllForPayer).not.toHaveBeenCalled();
   });
 
   it("already-active payer → idempotent no-op, NO event", async () => {
@@ -321,6 +431,46 @@ describe("grantCredits", () => {
     ).rejects.toThrow(NotFoundException);
     expect(m.actions.grantCredits).not.toHaveBeenCalled();
     expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ADR-0037 — the seed finding.
+   *
+   * `grantCredits` opened with `const exists = await this.actions.findPayerStatus(payerId)`
+   * and then consumed only `!exists`. `findPayerStatus` returns `{id, status}`, so the
+   * status was SELECTED and thrown away — an admin could top up a suspended payer. The
+   * whole suite covered only `active` and `undefined`; there was no suspended case at all,
+   * which is why the gap survived. This test is that missing case.
+   */
+  it("ADR-0037: a SUSPENDED payer cannot be granted credits — no ledger write, no event", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    await expect(
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 10, reason_code: "promo", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
+    ).rejects.toThrow(ConflictException);
+    expect(m.actions.grantCredits).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a PENDING payer CAN be granted credits (pre-provisioning is legitimate)", async () => {
+    // Deliberately allowed: the credits are unspendable until the payer verifies, and
+    // blocking this would break granting a signup bonus before first login.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "pending" });
+    m.actions.grantCredits.mockResolvedValue({ applied: true, ledgerId: "l1", balance: 10 });
+
+    await expect(
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 10, reason_code: "promo", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
+    ).resolves.toMatchObject({ target_id: PAYER_ID });
+    expect(m.actions.grantCredits).toHaveBeenCalled();
   });
 });
 

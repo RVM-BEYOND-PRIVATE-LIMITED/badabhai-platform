@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Database, creditLedger, payerCredits } from "@badabhai/db";
 import { AdminActionsRepository } from "./admin-actions.repository";
+
+const dialect = new PgDialect();
 
 /**
  * Tests for the ADMIN-3a system-of-record repository (ADR-0025). Proves, with a capturing
@@ -148,16 +152,48 @@ describe("AdminActionsRepository.suspendPayer — guarded active→suspended (id
   });
 });
 
-describe("AdminActionsRepository.reinstatePayer — guarded suspended→active", () => {
-  it("sets status=active under a guard; undefined when nothing matched", async () => {
+describe("AdminActionsRepository.reinstatePayer — guarded suspended→previous_status", () => {
+  it("restores the PREVIOUS status (not a hardcoded active) and clears the column", async () => {
+    // ADR-0037. The target status is now computed IN SQL from the row itself
+    // (`coalesce(previous_status,'pending')`), so the `set` carries a SQL node rather than
+    // a literal — assert on the rendered SQL, which is what actually reaches Postgres.
     const hit = makeDb([{ status: "active" }]);
     expect(await new AdminActionsRepository(hit.db).reinstatePayer(PAYER_ID)).toEqual({
       status: "active",
     });
-    expect(hit.updates[0]!.set).toMatchObject({ status: "active" });
+
+    const set = hit.updates[0]!.set as Record<string, unknown>;
+    const rendered = dialect.sqlToQuery(set.status as SQL);
+    expect(rendered.sql).toContain("coalesce");
+    expect(rendered.sql).toContain('"previous_status"');
+    // The fallback is 'pending' — the LESS privileged state. Defaulting a row suspended
+    // before this column existed to 'active' would hand out an activation nobody earned.
+    expect(rendered.sql + JSON.stringify(rendered.params)).toContain("pending");
+    // Cleared, so previous_status only ever describes the CURRENT suspension.
+    expect(set.previousStatus).toBeNull();
 
     const miss = makeDb([]);
     expect(await new AdminActionsRepository(miss.db).reinstatePayer(PAYER_ID)).toBeUndefined();
+  });
+});
+
+describe("AdminActionsRepository.suspendPayer — ADR-0037 widened from-state", () => {
+  it("accepts BOTH pending and active, and captures the status it moved out of", async () => {
+    const m = makeDb([{ status: "suspended", previousStatus: "active" }]);
+    await new AdminActionsRepository(m.db).suspendPayer(PAYER_ID);
+
+    // The from-state predicate is an explicit two-value list, NOT `ne('suspended')`.
+    // There is no DB CHECK on payers.status, so `ne` would silently accept any future or
+    // malformed value; the list fails closed.
+    const where = dialect.sqlToQuery(m.updates[0]!.where as SQL);
+    expect(where.params).toContain("pending");
+    expect(where.params).toContain("active");
+    expect(where.params).not.toContain("suspended");
+
+    // previous_status is captured FROM THE ROW inside the same statement — reading the
+    // status first and passing it back in would be a TOCTOU.
+    const set = m.updates[0]!.set as Record<string, unknown>;
+    expect(dialect.sqlToQuery(set.previousStatus as SQL).sql).toContain('"status"');
   });
 });
 

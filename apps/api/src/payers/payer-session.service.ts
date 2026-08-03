@@ -20,11 +20,20 @@ import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
  * is distinct from worker sessions (`payer_session:` prefix) so a worker token can
  * never satisfy the payer guard and vice-versa, even though both are HS256 JWTs.
  */
+/**
+ * The Redis surface this service uses. A hand-written NARROWING of the live ioredis
+ * connection, not a capability limit — the object returned by `client()` is the BullMQ
+ * connection and supports the full command set. Widened for ADR-0037's `revokeAllForPayer`
+ * with the set commands that maintain the payer→sid index.
+ */
 interface RedisSessionClient {
   set(key: string, value: string, mode: "EX", seconds: number): Promise<unknown>;
   get(key: string): Promise<string | null>;
   del(...keys: string[]): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
+  sadd(key: string, ...members: string[]): Promise<number>;
+  srem(key: string, ...members: string[]): Promise<number>;
+  smembers(key: string): Promise<string[]>;
 }
 
 /**
@@ -84,6 +93,21 @@ export class PayerSessionService {
   }
 
   /**
+   * ADR-0037 — the payer→sids index backing {@link revokeAllForPayer}.
+   *
+   * Sessions are keyed by `sid` alone, so without this there is NO way to enumerate a
+   * payer's live sessions and "suspension revokes every active session immediately" is
+   * unimplementable. The set is best-effort and self-healing: entries are removed on
+   * revoke, and `revokeAllForPayer` prunes any sid whose session key has already expired,
+   * so a crash between the two writes leaves a stale member that costs one wasted DEL and
+   * is then cleaned up. The index is given the SAME TTL as a session on every add, so an
+   * abandoned payer's index expires rather than growing forever.
+   */
+  private static payerIndexKey(payerId: string): string {
+    return `payer_sessions:${payerId}`;
+  }
+
+  /**
    * Create a new payer session: store the record and mint a JWT.
    *
    * `role` (ADR-0022) is OPTIONAL so existing callers keep compiling; when supplied it is
@@ -102,6 +126,21 @@ export class PayerSessionService {
       "EX",
       ttl,
     );
+    // Index this sid under the payer so a suspension can revoke every live session
+    // (ADR-0037). Best-effort: an index failure must never block a legitimate login —
+    // the lifecycle gate in PayerAuthGuard re-reads status per request, so a session that
+    // escaped the index is still stopped on its very next request.
+    try {
+      const indexKey = PayerSessionService.payerIndexKey(payerId);
+      await redis.sadd(indexKey, sid);
+      await redis.expire(indexKey, ttl);
+    } catch (err) {
+      this.logger.error(
+        `Payer session index add failed (session still created; reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+    }
     const token = await this.jwt.signAsync(
       { sub: payerId, sid, typ: "payer", ...(role ? { role } : {}) },
       { expiresIn: `${this.config.SESSION_TTL_DAYS}d` },
@@ -169,10 +208,13 @@ export class PayerSessionService {
   }
 
   /** Revoke a payer session (logout): delete its Redis record. Best-effort. */
-  async revoke(sid: string): Promise<void> {
+  async revoke(sid: string, payerId?: string): Promise<void> {
     try {
       const redis = await this.client();
       await redis.del(PayerSessionService.sessionKey(sid));
+      // Keep the payer→sids index tight when we know the owner (logout supplies it).
+      // Omitting it is harmless: revokeAllForPayer prunes members whose session is gone.
+      if (payerId) await redis.srem(PayerSessionService.payerIndexKey(payerId), sid);
     } catch (err) {
       this.logger.error(
         `Payer session revoke Redis error (reason: ${
@@ -180,5 +222,34 @@ export class PayerSessionService {
         })`,
       );
     }
+  }
+
+  /**
+   * ADR-0037 — revoke EVERY live session for a payer. Called when a payer is suspended,
+   * so an already-issued token stops working immediately rather than at its next
+   * expiry (payer sessions slide to a fresh 30 days on every request, so "expiry" is
+   * effectively never for an active client).
+   *
+   * Returns the number of session keys actually deleted, so the caller can log/assert
+   * that revocation happened rather than assuming it.
+   *
+   * THROWS on Redis failure — deliberately unlike {@link revoke}, which is best-effort
+   * because a failed logout is an inconvenience. A failed revoke-all during suspension is
+   * a security event: the caller must be able to tell that the sessions are still live
+   * and refuse to report the suspension as fully enforced.
+   */
+  async revokeAllForPayer(payerId: string): Promise<number> {
+    const redis = await this.client();
+    const indexKey = PayerSessionService.payerIndexKey(payerId);
+    const sids = await redis.smembers(indexKey);
+    if (sids.length === 0) {
+      // No index (pre-ADR-0037 session, or none live). Nothing enumerable to delete —
+      // those sessions are stopped by the per-request lifecycle gate in PayerAuthGuard.
+      await redis.del(indexKey);
+      return 0;
+    }
+    const deleted = await redis.del(...sids.map((s) => PayerSessionService.sessionKey(s)));
+    await redis.del(indexKey);
+    return deleted;
   }
 }

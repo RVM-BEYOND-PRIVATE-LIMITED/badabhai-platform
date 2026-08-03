@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import type { EventsService } from "../events/events.service";
+import type { PayerSessionService } from "../payers/payer-session.service";
 import type { RequestContext } from "../common/request-context";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
@@ -53,12 +54,14 @@ function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
   const actions = {
     withTransaction,
     findPayerStatus: async () => ({ id: PAYER_ID, status: world.payerStatus }),
-    // The guarded write: only flips active→suspended; mutates the STAGED world via `tx`.
+    // The guarded write (ADR-0037): flips pending OR active → suspended, capturing the
+    // status it moved out of; mutates the STAGED world via `tx`.
     suspendPayer: async (_id: string, tx: World | undefined) => {
       const w = tx!;
-      if (w.payerStatus !== "active") return undefined;
+      if (w.payerStatus !== "active" && w.payerStatus !== "pending") return undefined;
+      const previousStatus = w.payerStatus;
       w.payerStatus = "suspended";
-      return { status: "suspended" as const };
+      return { status: "suspended" as const, previousStatus };
     },
   } as unknown as AdminActionsRepository;
 
@@ -77,7 +80,13 @@ function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
     },
   } as unknown as EventsService;
 
-  const service = new AdminActionsService(actions, admins, events);
+  // ADR-0037: suspension revokes live payer sessions. The revoke runs AFTER the tx
+  // commits, so it is deliberately OUTSIDE the atomicity contract under test here.
+  const sessions = {
+    revokeAllForPayer: async () => 0,
+  } as unknown as PayerSessionService;
+
+  const service = new AdminActionsService(actions, admins, events, sessions);
   return { service, world };
 }
 
@@ -101,8 +110,11 @@ describe("ADMIN-3a atomicity (H3) — SoR write + emit commit together or roll b
 
     expect(res).toEqual({ target_id: PAYER_ID, changed: true });
     expect(h.world.payerStatus).toBe("suspended");
-    expect(h.world.events).toHaveLength(1);
-    expect(h.world.events[0]!.actionCode).toBe("payer_suspended");
+    // ADR-0037: a suspend now commits TWO events on the same transaction — the
+    // value-free admin.action_performed and the payer.suspended transition. The
+    // atomicity contract is that BOTH land with the SoR write, or neither does.
+    expect(h.world.events).toHaveLength(2);
+    expect(h.world.events.map((e) => e.actionCode)).toContain("payer_suspended");
   });
 
   it("a successful suspend commits the SoR write AND the event together (one transaction)", async () => {
@@ -110,6 +122,6 @@ describe("ADMIN-3a atomicity (H3) — SoR write + emit commit together or roll b
     const res = await h.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: true });
     expect(h.world.payerStatus).toBe("suspended");
-    expect(h.world.events).toHaveLength(1);
+    expect(h.world.events).toHaveLength(2);
   });
 });

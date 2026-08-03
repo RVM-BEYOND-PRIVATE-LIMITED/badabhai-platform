@@ -1,6 +1,7 @@
 import {
   type CanActivate,
   type ExecutionContext,
+  ForbiddenException,
   Inject,
   Injectable,
   UnauthorizedException,
@@ -50,18 +51,31 @@ declare global {
  * the data layer via {@link import("./payer-scope").assertPayerOwns} — the guard
  * authenticates *who* the payer is; the scope chokepoint authorizes *which rows*.
  *
+ * LIFECYCLE (ADR-0037): this guard is ALSO the platform-wide suspension gate. Every
+ * request loads the payer's CURRENT `{role, status}` from the row via
+ * {@link PayersRepository.findAuthFacts} and rejects anything but `active` with a 403.
+ *
+ * Enforced HERE rather than in a new `PayerStatusGuard` on purpose: `guard-contract.test.ts`
+ * (and `match-skills.controller.test.ts` / `agency-role-authz.test.ts`) assert the exact
+ * guard array per route with strict `toEqual`, so a new guard class would mean editing ~20
+ * route entries across 3+ test files for zero behavioural gain — and one forgotten route
+ * would be an unguarded hole. One seam, 55 routes, nothing to forget.
+ *
+ * It is deliberately NOT read from the session/JWT: `PayerSessionService` writes its blob
+ * once at `create()` and thereafter only slides the TTL (which itself re-slides to a fresh
+ * 30 days per request, with no absolute ceiling), so a cached status would be stale for the
+ * unbounded life of the session. `revokeAll` on suspend is still required — it kills the
+ * live sessions immediately — but this read is what makes the gate hold even if a revoke
+ * is missed, and what makes a REINSTATE take effect without the payer logging in again.
+ *
  * ROLE (ADR-0022): this guard always attaches `req.payer.role` (the VERTICAL-authz role
- * that {@link import("./payer-role.guard").PayerRoleGuard} gates on). It is sourced
- * BACKWARD-COMPATIBLY + FAIL-CLOSED:
- *   1. PREFERRED — the session carries `role` (minted at login post-ADR-0022): zero DB hit.
- *   2. FALLBACK — a pre-ADR-0022 session has no role claim, so it is loaded from the
- *      `payers` row, and the refreshed (rolling) token is re-minted WITH the role so the
- *      next request takes the fast path. No token migration is required.
- *   3. FAIL-CLOSED — if the role still cannot be resolved (row missing/lookup error),
- *      `role` is `null`. `null` is NOT a privileged role: every `@PayerRoles(...)` route
- *      rejects it. We never default to `agent` (or any concrete role) on the unknown path.
- * `PayerAuthGuard` itself NEVER rejects on role — it only authenticates; restricting BY
- * role is `PayerRoleGuard`'s job. So adding role here cannot tighten any existing route.
+ * that {@link import("./payer-role.guard").PayerRoleGuard} gates on). It now comes from the
+ * SAME row read as `status` — the session claim is a hint, the row is authoritative — which
+ * also retires the old pre-ADR-0022 session fallback. `PayerAuthGuard` still never rejects
+ * on role; restricting BY role remains `PayerRoleGuard`'s job.
+ *
+ * FAIL-CLOSED on a missing row: a payer hard-deleted mid-session gets 401, not a
+ * `role: null` request handed to the service to re-litigate.
  *
  * ROLLING TOKEN: past the half-life a fresh JWT is returned in `x-session-token`.
  */
@@ -83,9 +97,30 @@ export class PayerAuthGuard implements CanActivate {
     const validated = await this.session.validateAndTouch(token);
     if (!validated) throw new UnauthorizedException("Invalid or expired payer session");
 
-    // Resolve the vertical-authz role: session claim first, else fall back to the row;
-    // unresolved → null (fail-closed). This NEVER 401/403s — only PayerRoleGuard gates.
-    const role = validated.role ?? (await this.resolveRoleFromRow(validated.payerId));
+    // ADR-0037 — LIFECYCLE GATE. One narrow row read (role + status) per request. The
+    // session is NOT the authority here: `PayerSessionService` writes its blob once at
+    // create() and only slides the TTL thereafter, and the TTL re-slides to a fresh 30
+    // days on every request with no absolute ceiling — so a status cached in the session
+    // (or in the JWT) would be stale for the unbounded life of that session. Suspension
+    // has to bite on the NEXT request, not whenever the payer happens to log in again.
+    const facts = await this.payers.findAuthFacts(validated.payerId);
+
+    // Row gone (hard-deleted mid-session) → fail CLOSED. Previously this path resolved
+    // `role: null` and let the request through to the service, which decided; a missing
+    // principal is not something a route handler should have to re-litigate.
+    if (!facts) throw new UnauthorizedException("Invalid or expired payer session");
+
+    // `active` is the ONLY status that may hold a live session. `pending` is included
+    // deliberately: a never-verified account must not be able to act, and after ADR-0037
+    // it cannot obtain a session at all — this closes the window for any that predate it.
+    if (facts.status !== "active") {
+      throw new ForbiddenException("Account is not active");
+    }
+
+    // Role now comes from the same read (the session claim is only a hint, and the row is
+    // authoritative). This also retires the pre-ADR-0022 fallback: every request resolves
+    // the role from the row, so a stale session claim can never outrank it.
+    const role = facts.role;
 
     req.payer = { id: validated.payerId, sid: validated.sid, role };
 
@@ -98,16 +133,6 @@ export class PayerAuthGuard implements CanActivate {
     }
 
     return true;
-  }
-
-  /** Load the payer's role from its row (the pre-ADR-0022 fallback); null = fail-closed. */
-  private async resolveRoleFromRow(payerId: string): Promise<PayerRole | null> {
-    try {
-      const row = await this.payers.findById(payerId);
-      return row?.role ?? null;
-    } catch {
-      return null;
-    }
   }
 
   private static extractBearer(req: Request): string | null {

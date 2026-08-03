@@ -988,6 +988,60 @@ describe("pace supply-widening events (ADR-0021 — PII-free, faceless, no-LLM)"
   });
 });
 
+describe("payer lifecycle events (ADR-0037 — FACELESS, opaque id + closed status enums)", () => {
+  function lifecycleEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "admin", actor_id: UUID_B },
+      subject: { subject_type: "payer", subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  const base = { payer_id: UUID_A, previous_status: "pending", new_status: "active" };
+
+  for (const name of ["payer.activated", "payer.suspended", "payer.reinstated"]) {
+    it(`${name} validates and carries BOTH ends of the transition`, () => {
+      const result = validateEvent(lifecycleEvent(name, base));
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // Recording only that "something happened" would not meet "audit every state
+        // transition" — the FROM state is what makes a reinstate auditable.
+        expect(Object.keys(result.event.payload).sort()).toEqual(
+          ["new_status", "payer_id", "previous_status"].sort(),
+        );
+      }
+    });
+  }
+
+  it("rejects a status outside the closed enum (no free text → no PII)", () => {
+    const result = validateEvent(
+      lifecycleEvent("payer.suspended", {
+        ...base,
+        new_status: "banned after call from boss@acme.com",
+      }),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a REASON on the payload — the spine stays value-free", () => {
+    // A suspension reason lives on the system of record, never on the event: free text is
+    // exactly how a name, an email or a phone number reaches the spine.
+    const result = validateEvent(
+      lifecycleEvent("payer.suspended", { ...base, reason: "fraud reported by boss@acme.com" }),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a non-uuid payer_id (an email-shaped id would be PII)", () => {
+    const result = validateEvent(
+      lifecycleEvent("payer.activated", { ...base, payer_id: "boss@acme.com" }),
+    );
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method enums only)", () => {
   function payerAuthEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
     return {
@@ -2331,8 +2385,12 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 139 event names (125 prior + B4/X.6 four + ADR-0036 seven + B4 resolver three)", () => {
-    expect(EVENT_NAMES).toHaveLength(139);
+  it("exposes all 142 event names (139 prior + ADR-0037 payer lifecycle three)", () => {
+    expect(EVENT_NAMES).toHaveLength(142);
+    // ADR-0037 — the payer lifecycle transitions.
+    expect(isEventName("payer.activated")).toBe(true);
+    expect(isEventName("payer.suspended")).toBe(true);
+    expect(isEventName("payer.reinstated")).toBe(true);
     // B4 RESOLVER (migration 0060): the referral_links primitive's three events.
     expect(isEventName("referral.link_created")).toBe(true);
     expect(isEventName("referral.link_clicked")).toBe(true);

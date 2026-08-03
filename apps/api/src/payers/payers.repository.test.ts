@@ -77,6 +77,7 @@ describe("PayersRepository — payer PII at rest (ADR-0019 B-R2 / ADR-0004 disci
       phoneHash: pii.hashPhone(PHONE),
       orgNameEnc: pii.encrypt(ORG),
       status: "active",
+      previousStatus: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

@@ -1,6 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "drizzle-orm";
-import { type Database, payers, type Payer, type PayerRole } from "@badabhai/db";
+import { and, eq } from "drizzle-orm";
+import {
+  type Database,
+  payers,
+  type Payer,
+  type PayerRole,
+  type PayerStatus,
+} from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 
@@ -99,6 +105,56 @@ export class PayersRepository {
   /** Fetch the raw row by id (ciphertext fields; decrypt only via {@link decryptContact}). */
   async findById(id: string): Promise<Payer | undefined> {
     const [row] = await this.db.select().from(payers).where(eq(payers.id, id)).limit(1);
+    return row;
+  }
+
+  /**
+   * The two facts {@link import("./payer-auth.guard").PayerAuthGuard} needs on EVERY
+   * request: the vertical-authz `role` and the lifecycle `status` (ADR-0037).
+   *
+   * A NARROW projection on purpose. `findById` above is `select()` — it returns
+   * `email_enc`, `phone_enc` and `org_name_enc`, i.e. the full encrypted-PII row. Putting
+   * that on the hot path of all 55 payer routes would pull B2B contact ciphertext into
+   * guard scope on every single request for two scalar columns. Two columns is what the
+   * guard needs, so two columns is what it reads.
+   *
+   * Deliberately NOT cached in the session blob. `PayerSessionService` writes that blob
+   * once at `create()` and `validateAndTouch` only slides the TTL — it never rewrites it —
+   * while the TTL itself slides to a fresh 30 days on every request with no absolute
+   * ceiling. A status cached there would be stale for the entire (unbounded) life of the
+   * session, which is worse than useless: it would LOOK like enforcement.
+   *
+   * Cost: one PK-index lookup per guarded request — the same order as the per-request read
+   * `PayerOrgRoleGuard` already performs on the org routes.
+   */
+  async findAuthFacts(id: string): Promise<{ role: PayerRole; status: PayerStatus } | undefined> {
+    const [row] = await this.db
+      .select({ role: payers.role, status: payers.status })
+      .from(payers)
+      .where(eq(payers.id, id))
+      .limit(1);
+    return row;
+  }
+
+  /**
+   * ADR-0037 — promote a payer to `active` on successful OTP verification.
+   *
+   * `status = 'pending'` is IN THE WHERE CLAUSE, not checked in TS beforehand. That makes
+   * it structurally impossible for this to resurrect a `suspended` payer: a suspended row
+   * matches no predicate and the update is a no-op, regardless of what the caller believes
+   * about the row it read a moment ago. It is also the only first-verify discriminator
+   * that exists — `payers` has no `verified_at` or `last_login_at`, and `is_new_payer` is
+   * hardcoded `false` on the response.
+   *
+   * Returns the row ONLY when it actually moved, so the caller emits `payer.activated`
+   * exactly once per payer and every subsequent login is a silent no-op.
+   */
+  async activate(id: string): Promise<{ id: string } | undefined> {
+    const [row] = await this.db
+      .update(payers)
+      .set({ status: "active", updatedAt: new Date() })
+      .where(and(eq(payers.id, id), eq(payers.status, "pending")))
+      .returning({ id: payers.id });
     return row;
   }
 

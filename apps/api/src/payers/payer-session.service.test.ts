@@ -17,8 +17,13 @@ const TTL = 30 * 86400;
 
 function makeRedis() {
   const store = new Map<string, string>();
+  // ADR-0037 — the payer->sids index lives in a Redis SET, so the fake needs set commands
+  // as well as the string ones. Kept as a separate map so a bug that writes a session into
+  // the index (or vice versa) shows up as a type mismatch rather than silently working.
+  const sets = new Map<string, Set<string>>();
   return {
     store,
+    sets,
     client: {
       async set(key: string, value: string) {
         store.set(key, value);
@@ -29,11 +34,36 @@ function makeRedis() {
       },
       async del(...keys: string[]) {
         let n = 0;
-        for (const k of keys) if (store.delete(k)) n += 1;
+        for (const k of keys) {
+          if (store.delete(k)) n += 1;
+          sets.delete(k);
+        }
         return n;
       },
       async expire(key: string) {
-        return store.has(key) ? 1 : 0;
+        return store.has(key) || sets.has(key) ? 1 : 0;
+      },
+      async sadd(key: string, ...members: string[]) {
+        const set = sets.get(key) ?? new Set<string>();
+        let added = 0;
+        for (const m of members) {
+          if (!set.has(m)) {
+            set.add(m);
+            added += 1;
+          }
+        }
+        sets.set(key, set);
+        return added;
+      },
+      async srem(key: string, ...members: string[]) {
+        const set = sets.get(key);
+        if (!set) return 0;
+        let removed = 0;
+        for (const m of members) if (set.delete(m)) removed += 1;
+        return removed;
+      },
+      async smembers(key: string) {
+        return [...(sets.get(key) ?? [])];
       },
     },
   };
@@ -111,5 +141,86 @@ describe("PayerSessionService — role (ADR-0022)", () => {
     const [, b64] = token.split(".");
     const claims = JSON.parse(Buffer.from(b64!, "base64").toString()) as { role?: string };
     expect(claims.role).toBe("agent");
+  });
+});
+
+/**
+ * ADR-0037 — revoking EVERY live session for a payer.
+ *
+ * Sessions are keyed by `sid` alone, so before this there was no way to enumerate a
+ * payer's sessions and "suspension revokes every active session immediately" was
+ * unimplementable: a suspended payer kept working until their session expired, and payer
+ * sessions slide to a fresh 30 days on every request, so that is effectively never.
+ */
+describe("PayerSessionService.revokeAllForPayer (ADR-0037)", () => {
+  it("kills EVERY session the payer holds, across devices", async () => {
+    const { svc, redis } = setup();
+    await svc.create("payer-1", "employer" as PayerRole);
+    await svc.create("payer-1", "employer" as PayerRole);
+    await svc.create("payer-1", "employer" as PayerRole);
+    expect(redis.store.size).toBe(3);
+
+    expect(await svc.revokeAllForPayer("payer-1")).toBe(3);
+    expect(redis.store.size).toBe(0);
+  });
+
+  it("leaves OTHER payers' sessions untouched", async () => {
+    const { svc, redis } = setup();
+    const mine = await svc.create("payer-1", "employer" as PayerRole);
+    await svc.create("payer-2", "employer" as PayerRole);
+
+    await svc.revokeAllForPayer("payer-1");
+
+    expect(await svc.validateAndTouch(mine.token)).toBeNull();
+    expect(redis.store.size).toBe(1); // payer-2 survives
+  });
+
+  it("a revoked session no longer validates — the token is dead immediately", async () => {
+    const { svc } = setup();
+    const { token } = await svc.create("payer-1", "agent" as PayerRole);
+    expect(await svc.validateAndTouch(token)).not.toBeNull();
+
+    await svc.revokeAllForPayer("payer-1");
+
+    // The JWT itself is still cryptographically valid and unexpired; what makes it dead is
+    // that its server-side record is gone. That is the whole point of a revocable session.
+    expect(await svc.validateAndTouch(token)).toBeNull();
+  });
+
+  it("clears the index too, so a later revoke does not re-delete stale sids", async () => {
+    const { svc, redis } = setup();
+    await svc.create("payer-1", "employer" as PayerRole);
+    await svc.revokeAllForPayer("payer-1");
+    expect(redis.sets.size).toBe(0);
+    expect(await svc.revokeAllForPayer("payer-1")).toBe(0);
+  });
+
+  it("returns 0 for a payer with no sessions rather than throwing", async () => {
+    const { svc } = setup();
+    expect(await svc.revokeAllForPayer("nobody")).toBe(0);
+  });
+
+  it("single-session revoke(sid, payerId) also prunes the index", async () => {
+    const { svc, redis } = setup();
+    await svc.create("payer-1", "employer" as PayerRole);
+    const sid = [...redis.sets.values()][0]!.values().next().value as string;
+
+    await svc.revoke(sid, "payer-1");
+
+    expect(redis.store.size).toBe(0);
+    expect([...(redis.sets.get("payer_sessions:payer-1") ?? [])]).toEqual([]);
+  });
+
+  it("THROWS on a Redis failure — a failed revoke during suspension is a security event", async () => {
+    const { svc } = setup();
+    await svc.create("payer-1", "employer" as PayerRole);
+    // Unlike `revoke` (best-effort: a failed logout is an inconvenience), this must not be
+    // swallowed — the caller has to be able to tell the sessions are still live.
+    const broken = new PayerSessionService(
+      config,
+      makeJwt() as unknown as JwtService,
+      { client: Promise.reject(new Error("redis down")) } as unknown as Queue,
+    );
+    await expect(broken.revokeAllForPayer("payer-1")).rejects.toThrow();
   });
 });

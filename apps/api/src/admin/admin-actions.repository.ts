@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   type Database,
   type JobPosting,
@@ -65,33 +65,64 @@ export class AdminActionsRepository {
   }
 
   /**
-   * Transition a payer to a terminal status, guarded so a no-op transition (already in the
-   * target status) matches NO row → returns undefined. `from`/`to` are the only allowed pair
-   * the service passes. Returns the new status when the row actually changed. `tx` runs the
-   * write on a caller-provided transaction (H3) so it commits with the event atomically.
+   * ADR-0037 — SUSPEND, from `pending` OR `active`.
+   *
+   * The from-state is `inArray(['pending','active'])`, NOT `ne('suspended')`. There is no
+   * DB CHECK on `payers.status` (unlike `payer_orgs.status`), so `ne` would silently accept
+   * any future or malformed value; the explicit list fails closed. It also preserves the
+   * `undefined`-means-no-op contract the service and its atomicity fake depend on.
+   *
+   * Captures the status it moved OUT of into `previous_status`, which is what lets
+   * {@link reinstatePayer} restore the payer's actual prior state instead of hardcoding
+   * `active`. Written via `sql` from the row's own column so the capture is atomic with the
+   * transition — reading the status first and passing it back in would be a TOCTOU.
+   *
+   * Returns the new status only when the row actually changed. `tx` runs the write on a
+   * caller-provided transaction (H3) so it commits with the event atomically.
    */
-  private async transitionPayer(
+  async suspendPayer(
     id: string,
-    from: PayerStatus,
-    to: PayerStatus,
+    tx: Database = this.db,
+  ): Promise<{ status: PayerStatus; previousStatus: PayerStatus | null } | undefined> {
+    const [row] = await tx
+      .update(payers)
+      .set({
+        status: "suspended",
+        previousStatus: sql`${payers.status}`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(payers.id, id), inArray(payers.status, ["pending", "active"])))
+      .returning({ status: payers.status, previousStatus: payers.previousStatus });
+    return row;
+  }
+
+  /**
+   * ADR-0037 — REINSTATE: `suspended` → whatever the payer was BEFORE the suspension.
+   *
+   * NOT a hardcoded `→ active`. Once suspend accepts `pending`, restoring everything to
+   * `active` would be a BACKDOOR ACTIVATION: suspend a never-verified payer, reinstate,
+   * and they hold an active account without ever passing OTP — which would defeat the
+   * lifecycle this implements. `previous_status` is restored instead, so a suspended-while-
+   * pending payer returns to `pending` and must still verify.
+   *
+   * `COALESCE(previous_status, 'pending')` covers rows suspended before the column existed:
+   * the unknown case resolves to the LESS privileged state, not the more privileged one.
+   * `previous_status` is cleared so it only ever describes the current suspension.
+   */
+  async reinstatePayer(
+    id: string,
     tx: Database = this.db,
   ): Promise<{ status: PayerStatus } | undefined> {
     const [row] = await tx
       .update(payers)
-      .set({ status: to, updatedAt: new Date() })
-      .where(and(eq(payers.id, id), eq(payers.status, from)))
+      .set({
+        status: sql`coalesce(${payers.previousStatus}, 'pending')`,
+        previousStatus: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(payers.id, id), eq(payers.status, "suspended")))
       .returning({ status: payers.status });
     return row;
-  }
-
-  /** active → suspended. undefined when not active (already suspended/pending = no-op). */
-  suspendPayer(id: string, tx?: Database): Promise<{ status: PayerStatus } | undefined> {
-    return this.transitionPayer(id, "active", "suspended", tx);
-  }
-
-  /** suspended → active. undefined when not suspended (already active/pending = no-op). */
-  reinstatePayer(id: string, tx?: Database): Promise<{ status: PayerStatus } | undefined> {
-    return this.transitionPayer(id, "suspended", "active", tx);
   }
 
   // ----- credit ledger (positive admin grant) -------------------------------

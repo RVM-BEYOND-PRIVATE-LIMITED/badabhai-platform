@@ -401,6 +401,15 @@ export const EVENT_REGISTRY = {
   "payer.created": { version: 1, domain: "payer", payload: p.PayerCreatedPayload },
   "payer.login_requested": { version: 1, domain: "payer", payload: p.PayerLoginRequestedPayload },
   "payer.session_started": { version: 1, domain: "payer", payload: p.PayerSessionStartedPayload },
+  // Payer LIFECYCLE transitions (ADR-0037): pending → active on first successful OTP
+  // verification, and the admin suspend/reinstate pair. FACELESS: opaque payer_id + the
+  // two closed status enums. These are additive and v1; `admin.action_performed` still
+  // records the ADMIN's action separately (value-free), so an admin-driven transition
+  // produces both — one says "an admin did a thing", this one says "the payer moved
+  // from X to Y". All three share one payload shape.
+  "payer.activated": { version: 1, domain: "payer", payload: p.PayerLifecycleTransitionPayload },
+  "payer.suspended": { version: 1, domain: "payer", payload: p.PayerLifecycleTransitionPayload },
+  "payer.reinstated": { version: 1, domain: "payer", payload: p.PayerLifecycleTransitionPayload },
   // A payer self-edited their own account on PATCH /payer/me (PROF-3). FACELESS:
   // opaque payer_id + the changed field KEYS (subset of {org_name, phone}) ONLY —
   // never the new org-name/phone VALUES (B-R2 PII lives encrypted in `payers`). v1.
