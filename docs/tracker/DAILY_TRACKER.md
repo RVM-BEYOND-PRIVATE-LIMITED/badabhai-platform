@@ -5,6 +5,67 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-08-03
+
+## BadaBhai Progress Snapshot
+
+- **No formal % re-score.** The cap rule holds unchanged: `docs/qa/evidence/staging/` is still
+  empty and nothing below ran on a deployed environment. Everything here is CI + local
+  measurement.
+- **14 PRs merged to `main`: #553–#566** (HEAD `31b5c2d2`). Two ADRs closed a long-standing
+  gap between "the admin backend exists" and "an admin can actually log in".
+- **[ADR-0037](../decisions/0037-payer-lifecycle-and-suspension.md) — payer lifecycle +
+  suspension** (#553–#559). Suspension now actually stops recruiting: a suspended payer's
+  postings and jobs move to a **system `suspended` state** (not deleted, not closed), so all
+  five discovery paths exclude them without a single query edit — chosen over a `payers` join
+  because that join would sit on the hottest read and only protect paths someone remembers to
+  change. Reinstate restores `previous_status`, so a *paused* posting comes back paused and a
+  *force-closed* one stays closed. Also: OTP suppressed for suspended accounts with an
+  identical response (no enumeration oracle), agency KYC frozen, free-tier credit runner
+  fixed, and a Finance alert when a Razorpay capture lands on a suspended payer — **the
+  payment is still accepted and credited**, per the owner ruling.
+- **[ADR-0038](../decisions/0038-admin-bootstrap-and-notification-layer.md) — admin bootstrap
+  + one notification layer** (#560–#564). **This was the real blocker:** ADMIN-3a was complete
+  and *unreachable* — admin OTP delivery was a no-op stub and no bootstrap existed. Shipped a
+  first-super-admin CLI (**refuses once one exists**, email as an argument not a constant), a
+  single `EmailNotificationService` replacing ZeptoMail implemented twice, and MFA recovery —
+  `clear()` had **zero callers** and `setMfaEnrolled` was only ever called with `true`, so a
+  lost phone was a permanent lockout and the last super_admin losing a device bricked the
+  admin surface.
+- **Two Admin-Portal gate defects found and fixed before handoff** (#565): `GET /admin/me`
+  returned no capabilities (the matrix lives in `apps/api`, so `apps/admin-web` cannot import
+  it — the portal would have had to duplicate an authorization table), and there was **no
+  local email path at all**, so the mandatory login gate could not be run on a dev machine.
+  Both closed; profile-gated Mailpit added.
+- **Verification: 54 mutations across #553–#565, all caught** (49 through #564 + 5 in #565).
+  **Three were unfaithful on first write and were reported, rewritten and re-run** rather than
+  counted — including one that survived only because the emit call was still present.
+- **CI at merge:** `ci-required`, Node and E2E green on every PR. **SAST red — and this time
+  the cause was established, not waved off:** `semgrep --config p/<alias>` resolves rulesets
+  from the registry **at run time**, so `main` passed 2026-08-02 and the identical workflow
+  blocked 2026-08-03 on files unchanged since June/July. Logged as **TD131** (repo
+  infrastructure, owner-classified).
+- **Migrations `0062` + `0063` APPLIED successfully 2026-08-03 (Prakash).** `0062` =
+  job-posting `suspended` state + `previous_status` (constraint swap in one transaction);
+  `0063` = admin `name_enc` + `mfa_secret_enc` (expand-only, no backfill). The ADR-0037
+  suspension writes and the ADR-0038 admin login now have the columns they read — so the
+  P0 apply-before-deploy gate on this series is **cleared**.
+- **Owner set two permanent invariants** (#566): **#9** frontend never compensates for backend
+  inconsistencies, and **#10** no feature is complete until it reproduces from an **empty
+  database** via an executable runbook — plus a ten-point workstream Definition of DONE, and
+  a determinism standard for security tooling. **TD132** records that every merge here used
+  the owner's `--admin` bypass of the 1-review rule.
+- **Backend thread is FEATURE-FROZEN.** Remaining backend scope is platform work only:
+  13-field audit record (`audit_logs` still has **zero writers** — the events spine is the
+  audit source), TD130 timing equalization, OBS-4 cutover, TD131, hardening, readiness
+  reports.
+- **Next:** a dedicated Admin Portal thread builds `apps/admin-web` (ADMIN-4..8). **Its first
+  action is not code** — `docker compose down -v`, then the 13-step
+  [foundation runbook](../admin-foundation-verification-runbook.md) on a clean system. If it
+  fails, that is a backend defect handed back, not a frontend workaround.
+
+---
+
 # Daily Tracker — 2026-08-01
 
 ## BadaBhai Progress Snapshot
