@@ -1595,6 +1595,31 @@ export const PayerOtpSuppressedPayload = z
 export type PayerOtpSuppressedPayload = z.infer<typeof PayerOtpSuppressedPayload>;
 
 /**
+ * A real payment was captured and credited for a SUSPENDED payer (ADR-0037 Decision 6) —
+ * `payer.suspended_payment_captured`. An OPS ALERT for Finance/Admin review, not a rejection.
+ *
+ * The money was already taken by Razorpay before this webhook arrived, and the codebase has
+ * NO refund path. Refusing to credit it would leave the platform holding funds with no
+ * ledger entry against them — a worse outcome than crediting an account that cannot spend
+ * (every spending route is behind `PayerAuthGuard`, which requires `active`). So the credit
+ * is applied as designed and a human is told.
+ *
+ * Carries the ORDER id, not the amount: the amount already lives on `payment.captured` and
+ * on the `credit_ledger` row keyed to the same order, so repeating it here would create a
+ * second place for the money to be stated — and to disagree.
+ */
+export const PayerSuspendedPaymentCapturedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    /** The internal `payment_orders` row id — the join key to the amount + pack. */
+    order_id: uuidSchema,
+  })
+  .strict();
+export type PayerSuspendedPaymentCapturedPayload = z.infer<
+  typeof PayerSuspendedPaymentCapturedPayload
+>;
+
+/**
  * A login code was issued for an EXISTING payer account (the no-account branch emits
  * nothing — the HTTP response is identical either way, so this asymmetry is not a
  * caller-observable enumeration oracle; XB-H). Resolved `payer_id` + method only —
