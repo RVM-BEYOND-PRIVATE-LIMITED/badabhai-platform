@@ -29,7 +29,7 @@
  *   pnpm db:grant:free-tier --apply               # write
  *   pnpm db:grant:free-tier --apply --repair-balances
  */
-import { eq, sql as dsql } from "drizzle-orm";
+import { eq, ne, sql as dsql } from "drizzle-orm";
 
 import { createDbClient, type Database } from "./client";
 import { creditLedger, matchConfig, payerCredits, payers } from "./schema";
@@ -81,7 +81,24 @@ async function main(): Promise<void> {
     const credits = await readFreeCredits(db);
 
     // ids ONLY — never touch the encrypted PII columns on `payers`.
-    const allPayers = await db.select({ id: payers.id }).from(payers);
+    //
+    // ADR-0037 — SUSPENDED payers are excluded. This runner grants real spendable credits
+    // in BULK and unattended, so without the predicate every re-run tops up every account
+    // the platform has banned. It is the one money path that no request guard can protect,
+    // because it has no request and no principal: the only place to enforce the lifecycle
+    // is in this query.
+    //
+    // `pending` is deliberately still included — a not-yet-verified signup is exactly who
+    // the free tier is FOR, and the credits are unspendable until they verify (every
+    // spending route is behind PayerAuthGuard, which requires `active`).
+    //
+    // NOT reversible by a later re-run: the grant is idempotency-keyed per payer, so a
+    // payer suspended today and reinstated tomorrow simply becomes eligible on the next
+    // run. Nothing is lost, only deferred.
+    const allPayers = await db
+      .select({ id: payers.id })
+      .from(payers)
+      .where(ne(payers.status, "suspended"));
 
     const granted = await db
       .select({ key: creditLedger.idempotencyKey })
@@ -161,7 +178,10 @@ async function main(): Promise<void> {
 
     printCounts(NAME, {
       free_unlock_credits: credits,
-      "payers total": allPayers.length,
+      // Renamed from "payers total": the set is now payers ELIGIBLE for a grant, which
+      // excludes suspended accounts. Reporting it as a total would silently understate
+      // the payer base and hide that the runner is deliberately skipping people.
+      "payers eligible (excl. suspended)": allPayers.length,
       "already granted (no-op)": allPayers.length - pending.length,
       "pending grant": pending.length,
       "ledger rows written": ledgerWritten,
