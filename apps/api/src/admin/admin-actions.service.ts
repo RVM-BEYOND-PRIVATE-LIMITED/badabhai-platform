@@ -116,6 +116,12 @@ export class AdminActionsService {
         ctx,
         tx,
       );
+      // Decision 1 — freeze the inventory in the SAME transaction as the status change.
+      // A suspended payer whose jobs stayed live would still be recruiting, so the two
+      // must be all-or-nothing: a failure here rolls the suspension back rather than
+      // leaving a payer marked suspended while their postings keep taking applications.
+      const inventory = await this.actions.suspendPayerInventory(payerId, tx);
+      await this.emitInventory("payer.inventory_suspended", adminId, payerId, inventory, ctx, tx);
     });
     if (conflict) throw new ConflictException("Payer status changed concurrently; retry");
     await this.revokeSessions(payerId);
@@ -151,6 +157,12 @@ export class AdminActionsService {
         ctx,
         tx,
       );
+      // Decision 1 — thaw the inventory in the SAME transaction, restoring each posting to
+      // the status it actually held (open stays open, paused stays paused). Runs even when
+      // the payer is reinstated to `pending`: a pending payer cannot log in to republish,
+      // so leaving their inventory frozen would strand it with no way to recover it.
+      const inventory = await this.actions.reinstatePayerInventory(payerId, tx);
+      await this.emitInventory("payer.inventory_reinstated", adminId, payerId, inventory, ctx, tx);
     });
     if (conflict) throw new ConflictException("Payer status changed concurrently; retry");
     return { target_id: payerId, changed: true };
@@ -194,6 +206,38 @@ export class AdminActionsService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
       // Keyed on the request so a retried admin call cannot double-record the transition.
+      idempotencyKey: `${eventName}:${payerId}:${ctx.requestId}`,
+      tx,
+    });
+  }
+
+  /**
+   * Emit one PII-free `payer.inventory_*` cascade record on the caller's transaction.
+   *
+   * Emitted UNCONDITIONALLY, including when both counts are zero. A zero-count event is
+   * not noise — it is the positive evidence that the cascade ran and found nothing, which
+   * is exactly what distinguishes "this payer had no live jobs" from "the cascade did not
+   * execute". Suppressing it would make the two indistinguishable on the spine.
+   */
+  private async emitInventory(
+    eventName: "payer.inventory_suspended" | "payer.inventory_reinstated",
+    adminId: string,
+    payerId: string,
+    counts: { postings: number; jobs: number },
+    ctx: RequestContext,
+    tx: Database,
+  ): Promise<void> {
+    await this.events.emit({
+      event_name: eventName,
+      actor: { actor_type: "admin", actor_id: adminId },
+      subject: { subject_type: "payer", subject_id: payerId },
+      payload: {
+        payer_id: payerId,
+        postings_affected: counts.postings,
+        jobs_affected: counts.jobs,
+      },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
       idempotencyKey: `${eventName}:${payerId}:${ctx.requestId}`,
       tx,
     });

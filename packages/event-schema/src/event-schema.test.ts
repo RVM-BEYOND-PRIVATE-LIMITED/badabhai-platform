@@ -1040,6 +1040,57 @@ describe("payer lifecycle events (ADR-0037 — FACELESS, opaque id + closed stat
     );
     expect(result.success).toBe(false);
   });
+
+  // ── Decision 1 — the INVENTORY cascade ────────────────────────────────────────
+  const inventory = { payer_id: UUID_A, postings_affected: 3, jobs_affected: 1 };
+
+  for (const name of ["payer.inventory_suspended", "payer.inventory_reinstated"]) {
+    it(`${name} validates with COUNTS only — never posting ids or titles`, () => {
+      const result = validateEvent(lifecycleEvent(name, inventory));
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(Object.keys(result.event.payload).sort()).toEqual(
+          ["jobs_affected", "payer_id", "postings_affected"].sort(),
+        );
+      }
+    });
+  }
+
+  it("accepts a ZERO-count cascade — the evidence that it ran and found nothing", () => {
+    // Suppressing this event when nothing moved would make "the payer had no live jobs"
+    // indistinguishable from "the cascade never executed" — the exact question an
+    // investigator asks after a job is reported still-visible post-suspension.
+    const result = validateEvent(
+      lifecycleEvent("payer.inventory_suspended", {
+        payer_id: UUID_A,
+        postings_affected: 0,
+        jobs_affected: 0,
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a NEGATIVE affected count (a count is a count)", () => {
+    const result = validateEvent(
+      lifecycleEvent("payer.inventory_suspended", { ...inventory, postings_affected: -1 }),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects smuggled posting ids or titles — .strict() keeps the spine faceless", () => {
+    // The per-row truth lives on job_postings.status/previous_status (the system of
+    // record). An id list here would grow unbounded with the payer's inventory, and a
+    // role title is free text — the way an org name reaches the spine.
+    for (const extra of [
+      { posting_ids: [UUID_B] },
+      { role_titles: ["CNC Operator at Acme Industries"] },
+    ]) {
+      const result = validateEvent(
+        lifecycleEvent("payer.inventory_suspended", { ...inventory, ...extra }),
+      );
+      expect(result.success).toBe(false);
+    }
+  });
 });
 
 describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method enums only)", () => {
@@ -2385,12 +2436,16 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 142 event names (139 prior + ADR-0037 payer lifecycle three)", () => {
-    expect(EVENT_NAMES).toHaveLength(142);
+  it("exposes all 144 event names (139 prior + ADR-0037 lifecycle three + inventory two)", () => {
+    expect(EVENT_NAMES).toHaveLength(144);
     // ADR-0037 — the payer lifecycle transitions.
     expect(isEventName("payer.activated")).toBe(true);
     expect(isEventName("payer.suspended")).toBe(true);
     expect(isEventName("payer.reinstated")).toBe(true);
+    // ADR-0037 Decision 1 — the INVENTORY cascade, recorded separately from the session
+    // freeze because the two are different state changes and either can move zero rows.
+    expect(isEventName("payer.inventory_suspended")).toBe(true);
+    expect(isEventName("payer.inventory_reinstated")).toBe(true);
     // B4 RESOLVER (migration 0060): the referral_links primitive's three events.
     expect(isEventName("referral.link_created")).toBe(true);
     expect(isEventName("referral.link_clicked")).toBe(true);

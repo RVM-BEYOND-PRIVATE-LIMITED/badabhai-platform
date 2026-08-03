@@ -197,6 +197,71 @@ describe("AdminActionsRepository.suspendPayer — ADR-0037 widened from-state", 
   });
 });
 
+describe("AdminActionsRepository — payer inventory cascade (ADR-0037 Decision 1)", () => {
+  it("suspend freezes ONLY the live states, and never the payer's own closes", async () => {
+    const m = makeDb([{ id: POSTING_ID }]);
+    const res = await new AdminActionsRepository(m.db).suspendPayerInventory(PAYER_ID);
+    expect(res).toEqual({ postings: 1, jobs: 1 });
+
+    const postings = dialect.sqlToQuery(m.updates[0]!.where as SQL);
+    // Scoped to the OWNING payer — a cascade that missed this would freeze the platform.
+    expect(postings.params).toContain(PAYER_ID);
+    // The two live states move...
+    expect(postings.params).toContain("open");
+    expect(postings.params).toContain("paused");
+    // ...and `closed` does NOT. It is the payer's OWN decision and it is terminal: sweeping
+    // it in would make reinstatement REOPEN jobs the payer had deliberately taken down.
+    // `draft` is excluded too — never discoverable, so there is nothing to freeze.
+    expect(postings.params).not.toContain("closed");
+    expect(postings.params).not.toContain("draft");
+
+    // previous_status is captured FROM THE ROW in the same statement (no cross-row TOCTOU).
+    const set = m.updates[0]!.set as Record<string, unknown>;
+    expect(dialect.sqlToQuery(set.previousStatus as SQL).sql).toContain('"status"');
+    expect(set.status).toBe("suspended");
+
+    // The legacy `jobs` table is swept too — it still backs the worker feed and the agency
+    // surface (TD37). Freezing only `job_postings` would leave an agency payer recruiting.
+    const legacy = dialect.sqlToQuery(m.updates[1]!.where as SQL);
+    expect(legacy.params).toContain(PAYER_ID);
+    expect(legacy.params).toContain("open");
+  });
+
+  it("reinstate restores the RECORDED status — a paused posting must not come back open", async () => {
+    const m = makeDb([{ id: POSTING_ID }]);
+    await new AdminActionsRepository(m.db).reinstatePayerInventory(PAYER_ID);
+
+    const set = m.updates[0]!.set as Record<string, unknown>;
+    const rendered = dialect.sqlToQuery(set.status as SQL);
+    // Restoring to a hardcoded 'open' would silently REPUBLISH a job the payer had paused —
+    // the one outcome a reinstatement must never cause.
+    expect(rendered.sql).toContain("coalesce");
+    expect(rendered.sql).toContain('"previous_status"');
+    expect(rendered.sql + JSON.stringify(rendered.params)).toContain("paused");
+    expect(rendered.sql).not.toContain("'open'");
+    // Cleared, so the column only ever describes the CURRENT suspension (and so the
+    // `job_postings_previous_status_chk` CHECK holds on the restored row).
+    expect(set.previousStatus).toBeNull();
+
+    // Only `suspended` rows move. A posting force-closed by an admin WHILE the payer was
+    // suspended is no longer `suspended`, so it stays closed — that is the "manually
+    // closed" carve-out, enforced by the WHERE rather than by a caller remembering it.
+    const where = dialect.sqlToQuery(m.updates[0]!.where as SQL);
+    expect(where.params).toContain("suspended");
+    expect(where.params).toContain(PAYER_ID);
+  });
+
+  it("force-close CLEARS previous_status (the admin override the CHECK would otherwise reject)", async () => {
+    const m = makeDb([{ id: POSTING_ID }]);
+    await new AdminActionsRepository(m.db).forceClosePosting(POSTING_ID, new Date());
+    const set = m.updates[0]!.set as Record<string, unknown>;
+    expect(set.status).toBe("closed");
+    // Required, not cosmetic: `job_postings_previous_status_chk` rejects a non-suspended
+    // row that still carries a previous_status, so leaving it set fails the write outright.
+    expect(set.previousStatus).toBeNull();
+  });
+});
+
 const GRANT_KEY = "99999999-0000-4000-8000-00000000000a";
 
 describe("AdminActionsRepository.grantCredits — positive additive ledger movement (H2)", () => {

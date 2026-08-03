@@ -30,6 +30,13 @@ const CTX: RequestContext = {
 interface World {
   payerStatus: string;
   events: { idempotencyKey?: string; actionCode: string }[];
+  /**
+   * ADR-0037 Decision 1 — the payer's live postings. The inventory cascade runs INSIDE the
+   * same transaction as the status flip, so it belongs in the staged world: a rollback that
+   * restored `payers.status` but left the postings frozen would silently take a
+   * still-active payer's jobs out of the feed with no record of why.
+   */
+  postingStatuses: string[];
 }
 
 /**
@@ -39,7 +46,7 @@ interface World {
  * the tx) so we can prove the staged write is discarded (the committed world is untouched).
  */
 function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
-  const world: World = { payerStatus: "active", events: [] };
+  const world: World = { payerStatus: "active", events: [], postingStatuses: ["open", "paused"] };
   let armed = opts.failEmitOnce ?? false;
 
   // The `tx` token IS the staged world for the duration of one transaction.
@@ -48,6 +55,7 @@ function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
     const result = await cb(staged); // may throw → staged is discarded (rollback)
     world.payerStatus = staged.payerStatus;
     world.events = staged.events;
+    world.postingStatuses = staged.postingStatuses;
     return result;
   };
 
@@ -63,19 +71,41 @@ function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
       w.payerStatus = "suspended";
       return { status: "suspended" as const, previousStatus };
     },
+    // The cascade, also staged: it freezes every live posting, mirroring the real
+    // `WHERE payer_id = $1 AND status IN ('open','paused')`.
+    suspendPayerInventory: async (_id: string, tx: World | undefined) => {
+      const w = tx!;
+      let postings = 0;
+      w.postingStatuses = w.postingStatuses.map((s) => {
+        if (s !== "open" && s !== "paused") return s;
+        postings += 1;
+        return "suspended";
+      });
+      return { postings, jobs: 0 };
+    },
   } as unknown as AdminActionsRepository;
 
   const admins = {} as unknown as AdminRepository;
 
   const events = {
-    emit: async (params: { idempotencyKey?: string; payload: { action_code: string }; tx?: World }) => {
+    emit: async (params: {
+      idempotencyKey?: string;
+      event_name: string;
+      payload: { action_code?: string };
+      tx?: World;
+    }) => {
       if (armed) {
         armed = false; // fail once, then succeed on retry
         throw new Error("simulated emit failure");
       }
       // Insert the event onto the SAME staged tx world (H3: emit rides the caller tx).
       const w = params.tx!;
-      w.events.push({ idempotencyKey: params.idempotencyKey, actionCode: params.payload.action_code });
+      // `payer.*` lifecycle/inventory events carry no `action_code` — record the event
+      // NAME for those so the count below covers all of them, not just the admin action.
+      w.events.push({
+        idempotencyKey: params.idempotencyKey,
+        actionCode: params.payload.action_code ?? params.event_name,
+      });
       return undefined;
     },
   } as unknown as EventsService;
@@ -99,6 +129,10 @@ describe("ADMIN-3a atomicity (H3) — SoR write + emit commit together or roll b
     // ROLLBACK: the committed world still shows ACTIVE + NO event (the staged write was discarded).
     expect(h.world.payerStatus).toBe("active");
     expect(h.world.events).toHaveLength(0);
+    // ADR-0037 Decision 1 — and the INVENTORY rolled back with it. This is the half that
+    // would fail if the cascade ran outside the transaction: the payer would be left
+    // active (correctly rolled back) with their jobs frozen out of the feed anyway.
+    expect(h.world.postingStatuses).toEqual(["open", "paused"]);
   });
 
   it("a retry after an emit failure re-does BOTH and emits exactly one event", async () => {
@@ -110,11 +144,14 @@ describe("ADMIN-3a atomicity (H3) — SoR write + emit commit together or roll b
 
     expect(res).toEqual({ target_id: PAYER_ID, changed: true });
     expect(h.world.payerStatus).toBe("suspended");
-    // ADR-0037: a suspend now commits TWO events on the same transaction — the
-    // value-free admin.action_performed and the payer.suspended transition. The
-    // atomicity contract is that BOTH land with the SoR write, or neither does.
-    expect(h.world.events).toHaveLength(2);
+    // ADR-0037: a suspend now commits THREE events on the same transaction — the
+    // value-free admin.action_performed, the payer.suspended transition, and the
+    // payer.inventory_suspended cascade record. The atomicity contract is that ALL of
+    // them land with the SoR writes, or none does.
+    expect(h.world.events).toHaveLength(3);
     expect(h.world.events.map((e) => e.actionCode)).toContain("payer_suspended");
+    expect(h.world.events.map((e) => e.actionCode)).toContain("payer.inventory_suspended");
+    expect(h.world.postingStatuses).toEqual(["suspended", "suspended"]);
   });
 
   it("a successful suspend commits the SoR write AND the event together (one transaction)", async () => {
@@ -122,6 +159,9 @@ describe("ADMIN-3a atomicity (H3) — SoR write + emit commit together or roll b
     const res = await h.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: true });
     expect(h.world.payerStatus).toBe("suspended");
-    expect(h.world.events).toHaveLength(2);
+    expect(h.world.events).toHaveLength(3);
+    // The suspension and the freeze commit together — the payer cannot end up barred from
+    // logging in while their jobs keep recruiting, nor the reverse.
+    expect(h.world.postingStatuses).toEqual(["suspended", "suspended"]);
   });
 });

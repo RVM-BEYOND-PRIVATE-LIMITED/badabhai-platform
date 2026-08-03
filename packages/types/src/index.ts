@@ -115,7 +115,18 @@ export type AiJobStatus = (typeof AI_JOB_STATUSES)[number];
 export const VACANCY_BANDS = ["1", "2-5", "6-10", "11-25", "25+"] as const;
 export type VacancyBand = (typeof VACANCY_BANDS)[number];
 
-export const JOB_POSTING_STATUSES = ["draft", "open", "paused", "closed"] as const;
+/**
+ * `suspended` (ADR-0037) is a SYSTEM state, not a poster state. Nothing a payer or an ops
+ * user can send sets it: it is written only by the payer-suspension cascade and cleared
+ * only by the reinstatement cascade. Every request DTO that accepts a status pins its own
+ * literal set (`z.literal("open")` on PATCH, an explicit `z.enum([...])` on the list
+ * filter) rather than deriving from this const, so widening here cannot widen an input.
+ *
+ * It sits between `paused` and `closed` in meaning — invisible like `closed`, reversible
+ * like `paused` — and is deliberately NOT modelled as `closed`, which is terminal and would
+ * make a suspension unrecoverable.
+ */
+export const JOB_POSTING_STATUSES = ["draft", "open", "paused", "suspended", "closed"] as const;
 export type JobPostingStatus = (typeof JOB_POSTING_STATUSES)[number];
 
 // Ops-set trust review of a posting (the "Verified job" badge the worker sees).

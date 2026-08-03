@@ -173,8 +173,14 @@ export const UpdateJobPostingSchema = z
   });
 export type UpdateJobPostingDto = z.infer<typeof UpdateJobPostingSchema>;
 
-/** Optional `?status=` filter for the list endpoint (includes `paused` — B1). */
+/**
+ * Optional `?status=` filter for the list endpoint (includes `paused` — B1, and
+ * `suspended` — ADR-0037 Decision 1, so ops can find the postings a payer suspension
+ * froze). Enumerated EXPLICITLY rather than derived from `JOB_POSTING_STATUSES`: this is
+ * request input, and a status added to the shared const for storage reasons must not
+ * silently become a queryable filter value.
+ */
 export const ListJobPostingsQuerySchema = z.object({
-  status: z.enum(["draft", "open", "paused", "closed"]).optional(),
+  status: z.enum(["draft", "open", "paused", "suspended", "closed"]).optional(),
 });
 export type ListJobPostingsQueryDto = z.infer<typeof ListJobPostingsQuerySchema>;

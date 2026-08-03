@@ -61,6 +61,8 @@ interface Mocks {
     findPayerStatus: ReturnType<typeof vi.fn>;
     suspendPayer: ReturnType<typeof vi.fn>;
     reinstatePayer: ReturnType<typeof vi.fn>;
+    suspendPayerInventory: ReturnType<typeof vi.fn>;
+    reinstatePayerInventory: ReturnType<typeof vi.fn>;
     grantCredits: ReturnType<typeof vi.fn>;
     findPostingStatus: ReturnType<typeof vi.fn>;
     forceClosePosting: ReturnType<typeof vi.fn>;
@@ -88,6 +90,10 @@ function make(): Mocks {
     findPayerStatus: vi.fn(),
     suspendPayer: vi.fn(),
     reinstatePayer: vi.fn(),
+    // ADR-0037 Decision 1 — the inventory cascade. Default to a NON-ZERO result so a test
+    // that forgets to stub it still exercises the emit path with real counts.
+    suspendPayerInventory: vi.fn(async () => ({ postings: 3, jobs: 1 })),
+    reinstatePayerInventory: vi.fn(async () => ({ postings: 3, jobs: 1 })),
     grantCredits: vi.fn(),
     findPostingStatus: vi.fn(),
     forceClosePosting: vi.fn(),
@@ -257,6 +263,58 @@ describe("suspendPayer", () => {
     expect(e.tx).toBe(FAKE_TX);
   });
 
+  it("ADR-0037 D1: freezes the inventory and reports the counts on the same transaction", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
+    m.actions.suspendPayerInventory.mockResolvedValue({ postings: 4, jobs: 2 });
+
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    // The cascade is called with the tx handle — "cannot recruit while suspended" and
+    // "is suspended" have to become true together or neither does.
+    expect(m.actions.suspendPayerInventory).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
+
+    const e = emitNamed(m.events, "payer.inventory_suspended") as unknown as {
+      payload: Record<string, unknown>;
+      tx?: unknown;
+    };
+    expect(e.payload).toEqual({
+      payer_id: PAYER_ID,
+      postings_affected: 4,
+      jobs_affected: 2,
+    });
+    expect(e.tx).toBe(FAKE_TX);
+  });
+
+  it("ADR-0037 D1: emits the cascade event even when NOTHING was live (zero is evidence)", async () => {
+    // A zero-count event is what distinguishes "this payer had no open jobs" from "the
+    // cascade never ran" — the first question asked when a job is reported still visible
+    // after a suspension. Suppressing it would erase that distinction from the spine.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "pending" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "pending" });
+    m.actions.suspendPayerInventory.mockResolvedValue({ postings: 0, jobs: 0 });
+
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    const e = emitNamed(m.events, "payer.inventory_suspended") as unknown as {
+      payload: Record<string, unknown>;
+    };
+    expect(e.payload).toEqual({ payer_id: PAYER_ID, postings_affected: 0, jobs_affected: 0 });
+  });
+
+  it("ADR-0037 D1: an ALREADY-suspended payer runs no cascade (idempotent, no double freeze)", async () => {
+    // The re-suspend no-ops before the transaction. Re-running the cascade here would be
+    // actively harmful: the postings are already `suspended`, so a second capture would
+    // overwrite `previous_status` with 'suspended' itself and reinstatement would restore
+    // them to a frozen state — permanently invisible with no error anywhere.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+
+    const res = await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    expect(res).toEqual({ target_id: PAYER_ID, changed: false });
+    expect(m.actions.suspendPayerInventory).not.toHaveBeenCalled();
+  });
+
   it("ADR-0037: a PENDING payer CAN now be suspended (it used to 409 for every real payer)", async () => {
     m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "pending" });
     m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "pending" });
@@ -369,6 +427,42 @@ describe("reinstatePayer", () => {
     const res = await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: false });
     expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("ADR-0037 D1: thaws the inventory on the same transaction and reports the counts", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    m.actions.reinstatePayer.mockResolvedValue({ status: "active" });
+    m.actions.reinstatePayerInventory.mockResolvedValue({ postings: 4, jobs: 2 });
+
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+
+    expect(m.actions.reinstatePayerInventory).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
+    const e = emitNamed(m.events, "payer.inventory_reinstated") as unknown as {
+      payload: Record<string, unknown>;
+      tx?: unknown;
+    };
+    expect(e.payload).toEqual({ payer_id: PAYER_ID, postings_affected: 4, jobs_affected: 2 });
+    expect(e.tx).toBe(FAKE_TX);
+  });
+
+  it("ADR-0037 D1: thaws even when the payer is restored to PENDING (never strand the inventory)", async () => {
+    // A payer suspended while `pending` is reinstated to `pending`, not `active`. Their
+    // inventory must still be restored: they cannot authenticate to republish it
+    // themselves, so leaving it frozen would strand it with no recovery path — and the
+    // postings are harmless meanwhile, because `pending` blocks every payer route anyway.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    m.actions.reinstatePayer.mockResolvedValue({ status: "pending" });
+    m.actions.reinstatePayerInventory.mockResolvedValue({ postings: 1, jobs: 0 });
+
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+
+    expect(m.actions.reinstatePayerInventory).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
+  });
+
+  it("ADR-0037 D1: a NOT-suspended payer runs no thaw (nothing of theirs is frozen)", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+    expect(m.actions.reinstatePayerInventory).not.toHaveBeenCalled();
   });
 });
 

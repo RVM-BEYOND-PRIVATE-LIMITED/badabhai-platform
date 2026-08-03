@@ -7,7 +7,15 @@ import { StatusFilter } from "./status-filter";
 // Live ops data — always fetched fresh from the API at request time.
 export const dynamic = "force-dynamic";
 
-const VALID_STATUSES: JobPostingStatus[] = ["draft", "open", "closed"];
+// Mirrors ListJobPostingsQuerySchema on the API. `paused` (B1) was missing here, so the
+// filter silently fell back to "all" for it; `suspended` is ADR-0037 Decision 1.
+const VALID_STATUSES: JobPostingStatus[] = [
+  "draft",
+  "open",
+  "paused",
+  "suspended",
+  "closed",
+];
 
 /**
  * Job postings list — wired to GET /job-postings (newest first), with an
