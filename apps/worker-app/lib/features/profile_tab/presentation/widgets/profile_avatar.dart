@@ -153,13 +153,10 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
     return Container(
       width: _kAvatarSize,
       height: _kAvatarSize,
+      // Flat haldi tint (JUL31 system): a solid avatar fill, no gradient.
       decoration: const BoxDecoration(
         shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[AppColors.saffron300, AppColors.saffron200],
-        ),
+        color: AppColors.brandTint2,
       ),
       alignment: Alignment.center,
       clipBehavior: Clip.antiAlias,

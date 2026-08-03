@@ -173,7 +173,7 @@ class _AllowanceCard extends StatelessWidget {
               minHeight: 8,
               backgroundColor: AppColors.ink700,
               valueColor: AlwaysStoppedAnimation<Color>(
-                cap.atCapacity ? AppColors.saffron500 : AppColors.green300,
+                cap.atCapacity ? AppColors.warning : AppColors.green300,
               ),
             ),
           ),

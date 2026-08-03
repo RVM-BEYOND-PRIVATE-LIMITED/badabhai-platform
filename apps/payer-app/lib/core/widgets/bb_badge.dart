@@ -48,7 +48,7 @@ class BbBadge extends StatelessWidget {
         ),
       BbBadgeTone.warning => (
           AppColors.warningTint,
-          AppColors.saffron700,
+          AppColors.onHaldi, // deep blue reads on the haldi tint, not dark-yellow
           AppColors.saffronDeep,
         ),
       BbBadgeTone.danger => (
@@ -58,7 +58,7 @@ class BbBadge extends StatelessWidget {
         ),
       BbBadgeTone.brand => (
           AppColors.brandTint,
-          AppColors.brandPress,
+          AppColors.onHaldi, // deep blue on the haldi tint (JUL31)
           AppColors.brand,
         ),
       BbBadgeTone.info => (

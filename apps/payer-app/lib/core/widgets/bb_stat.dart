@@ -65,13 +65,6 @@ class BbStat extends StatelessWidget {
         color: AppColors.surfaceCard,
         borderRadius: BorderRadius.circular(AppRadii.lg),
         border: Border.all(color: AppColors.borderSubtle),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: AppColors.ink900.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

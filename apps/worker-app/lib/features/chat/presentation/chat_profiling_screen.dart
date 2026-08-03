@@ -628,9 +628,12 @@ class _ChatViewState extends State<_ChatView> {
   Widget _jumpPill() {
     return Material(
       color: AppColors.surfaceCard,
-      elevation: 3,
-      borderRadius: BorderRadius.circular(AppRadii.pill),
-      shadowColor: AppColors.scrim,
+      elevation: 0,
+      // Flat pill (JUL31 system): a hairline border, not a shadow, lifts it off
+      // the chat.
+      shape: const StadiumBorder(
+        side: BorderSide(color: AppColors.borderSubtle),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadii.pill),
         onTap: _jumpToBottom,

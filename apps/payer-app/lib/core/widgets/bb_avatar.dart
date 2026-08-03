@@ -5,8 +5,8 @@ import '../theme/app_typography.dart';
 
 /// Visual mode of a [BbAvatar] — `.bb-avatar--*`.
 ///
-///  - [brand]  — vermilion-tinted, brand-bordered: an identified account or a
-///    revealed candidate.
+///  - [brand]  — haldi-tinted, brand-bordered with deep-blue initials: an
+///    identified account or a revealed candidate.
 ///  - [masked] — sunken grey, "••" initials: a faceless candidate in the feed.
 enum BbAvatarMode { brand, masked }
 
@@ -32,7 +32,8 @@ class BbAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool masked = mode == BbAvatarMode.masked;
     final Color background = masked ? AppColors.surfaceSunken : AppColors.brandTint;
-    final Color foreground = masked ? AppColors.textFaint : AppColors.brandPress;
+    // Text on haldi is ALWAYS deep blue (JUL31), never a dark-yellow on yellow.
+    final Color foreground = masked ? AppColors.textFaint : AppColors.onHaldi;
     final Color borderColor = masked ? AppColors.borderSubtle : AppColors.brandBorder;
 
     return SizedBox(

@@ -129,13 +129,8 @@ class _JobDetailViewState extends State<_JobDetailView> {
     final String? place = d.place;
     return Container(
       width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[AppColors.vermilion50, AppColors.surfacePage],
-        ),
-      ),
+      // Flat soft-haldi wash (JUL31 system): a solid warm band, no gradient.
+      decoration: const BoxDecoration(color: AppColors.brandTint),
       padding: const EdgeInsets.fromLTRB(
           AppSpacing.gutter, AppSpacing.s4, AppSpacing.gutter, AppSpacing.s5),
       child: Column(
