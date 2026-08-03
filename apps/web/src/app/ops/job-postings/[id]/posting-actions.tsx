@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { VacancyBand } from "@badabhai/types";
+import type { JobPostingRow, UpdateJobPostingBody } from "@/lib/api";
 import {
-  updateJobPosting,
-  closeJobPosting,
-  type JobPostingRow,
-  type UpdateJobPostingBody,
-} from "@/lib/api";
+  updateJobPostingAction,
+  closeJobPostingAction,
+  type JobPostingActionResult,
+} from "../actions";
 import {
   VACANCY_BAND_OPTIONS,
   descriptionLooksLikePii,
@@ -24,8 +24,11 @@ import {
  *   - open:  editable; can Close.
  *   - closed: TERMINAL — read-only, no controls rendered at all.
  *
- * Mutations call the API from the browser, then `router.refresh()` re-runs the
- * server component so the page reflects the new state.
+ * Mutations go through Server Actions, NOT a browser fetch: the job-posting writes
+ * are behind the API's InternalServiceGuard and the shared token is a server secret,
+ * so a call made from this component would arrive unauthenticated and 401. The action
+ * revalidates the affected paths and `router.refresh()` re-runs the server component
+ * so the page reflects the new state.
  */
 export function PostingActions({ posting }: { posting: JobPostingRow }) {
   const router = useRouter();
@@ -77,13 +80,16 @@ export function PostingActions({ posting }: { posting: JobPostingRow }) {
       return;
     }
 
-    await run(() => updateJobPosting(posting.id, body), "Changes saved.");
+    await run(() => updateJobPostingAction(posting.id, body), "Changes saved.");
   }
 
   async function onPublish() {
     setError(null);
     setNotice(null);
-    await run(() => updateJobPosting(posting.id, { status: "open" }), "Posting published.");
+    await run(
+      () => updateJobPostingAction(posting.id, { status: "open" }),
+      "Posting published.",
+    );
   }
 
   async function onClose() {
@@ -92,17 +98,27 @@ export function PostingActions({ posting }: { posting: JobPostingRow }) {
     if (!window.confirm("Close this posting? Closed postings are read-only and cannot be reopened.")) {
       return;
     }
-    await run(() => closeJobPosting(posting.id), "Posting closed.");
+    await run(() => closeJobPostingAction(posting.id), "Posting closed.");
   }
 
-  async function run(action: () => Promise<JobPostingRow>, ok: string) {
+  /**
+   * Server Actions return a discriminated result rather than throwing across the
+   * RSC boundary, so the server's own message (422 description-PII reject, 409
+   * lifecycle conflict) still reaches the operator verbatim.
+   */
+  async function run(action: () => Promise<JobPostingActionResult>, ok: string) {
     setBusy(true);
     try {
-      await action();
-      setNotice(ok);
-      // Re-fetch the server component so status/timestamps/fields refresh.
-      router.refresh();
+      const result = await action();
+      if (result.ok) {
+        setNotice(ok);
+        // Re-fetch the server component so status/timestamps/fields refresh.
+        router.refresh();
+      } else {
+        setError(result.error);
+      }
     } catch (err) {
+      // A transport-level failure invoking the action itself (never an API error).
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
