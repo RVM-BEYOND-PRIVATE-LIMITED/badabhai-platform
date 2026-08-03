@@ -123,9 +123,14 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
         voiceNoteId: uploaded.voiceNoteId,
       );
 
-      final AiJob job = await _api.awaitAiJob(enqueued.aiJobId);
+      final AiJob job = await _api.awaitAiJob(
+        enqueued.aiJobId,
+        authToken: token,
+      );
       if (job.isFailed) {
-        throw ApiException(502, job.errorMessage ?? 'transcription failed');
+        // The server withholds the raw failure reason (it can carry
+        // infrastructure detail); this was the fallback text anyway.
+        throw ApiException(502, 'transcription failed');
       }
 
       // Transcript text: GET /voice/:id (REAL) / canned (MOCK).

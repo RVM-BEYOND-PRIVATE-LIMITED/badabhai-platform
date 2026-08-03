@@ -96,20 +96,18 @@ class MockApiClient extends ApiClient {
   }
 
   @override
-  Future<AiJob> getAiJob(String aiJobId) async {
+  Future<AiJob> getAiJob(String aiJobId, {required String authToken}) async {
     await _delay();
-    return AiJob(
-      id: 'mock-job-0001',
-      jobType: 'profile_extraction',
+    return const AiJob(
       status: 'completed',
       profileId: 'mock-profile-0001',
-      errorMessage: null,
     );
   }
 
   @override
   Future<String> awaitProfileId(
     String aiJobId, {
+    required String authToken,
     int maxAttempts = 40,
     Duration pollInterval = const Duration(milliseconds: 350),
   }) async {
@@ -596,17 +594,15 @@ class MockApiClient extends ApiClient {
   @override
   Future<AiJob> awaitAiJob(
     String aiJobId, {
+    required String authToken,
     int maxAttempts = 40,
     Duration pollInterval = const Duration(milliseconds: 350),
   }) async {
     await _delay();
     // Canned COMPLETED transcription job — terminal on the first poll, no network.
     return const AiJob(
-      id: 'mock-voice-job-0001',
-      jobType: 'transcription',
       status: 'completed',
       profileId: null,
-      errorMessage: null,
       voiceNoteId: 'mock-voice-0001',
     );
   }

@@ -219,7 +219,8 @@ class ApiClient {
   /// Extracts the worker's profile from their chat answers.
   ///
   /// Extraction runs as a background job on the API. This method enqueues the
-  /// job (POST /profile/extract -> 202) and then polls GET /ai-jobs/{id} until
+  /// job (POST /profile/extract -> 202) and then polls
+  /// GET /workers/me/ai-jobs/{id} until
   /// the job completes, returning the resulting `profile_id`. Callers can treat
   /// this as a single awaitable that yields a usable profile id.
   ///
@@ -233,7 +234,7 @@ class ApiClient {
       authToken: authToken,
       sessionId: sessionId,
     );
-    return awaitProfileId(enqueued.aiJobId);
+    return awaitProfileId(enqueued.aiJobId, authToken: authToken);
   }
 
   /// Enqueues a profile-extraction job. Returns the job id to poll. Worker-scoped
@@ -252,9 +253,19 @@ class ApiClient {
     return EnqueueResult.fromJson(json);
   }
 
-  /// Fetches the current state of an async AI job.
-  Future<AiJob> getAiJob(String aiJobId) async {
-    final Map<String, dynamic> json = await _get('/ai-jobs/$aiJobId');
+  /// Fetches the current state of an async AI job — `GET /workers/me/ai-jobs/{id}`.
+  ///
+  /// Worker-scoped and AUTHENTICATED. This used to call the ops route
+  /// `GET /ai-jobs/{id}` with no credential at all; once that route was put behind
+  /// InternalServiceGuard every poll 401'd, which broke profile extraction and voice
+  /// transcription in any real build (mocks hid it). The worker route enforces
+  /// ownership server-side, so a job belonging to someone else answers 404 — the
+  /// same answer as a job that does not exist.
+  Future<AiJob> getAiJob(String aiJobId, {required String authToken}) async {
+    final Map<String, dynamic> json = await _get(
+      '/workers/me/ai-jobs/$aiJobId',
+      authToken: authToken,
+    );
     return AiJob.fromJson(json);
   }
 
@@ -268,6 +279,7 @@ class ApiClient {
   /// queued/running.
   Future<String> awaitProfileId(
     String aiJobId, {
+    required String authToken,
     int maxAttempts = kAiJobPollMaxAttempts,
     Duration pollInterval = kAiJobPollInterval,
   }) async {
@@ -276,7 +288,7 @@ class ApiClient {
       pollInterval: pollInterval,
     );
     for (int attempt = 0; attempt < schedule.length; attempt++) {
-      final AiJob job = await getAiJob(aiJobId);
+      final AiJob job = await getAiJob(aiJobId, authToken: authToken);
       if (job.isCompleted) {
         final String? profileId = job.profileId;
         if (profileId == null || profileId.isEmpty) {
@@ -285,10 +297,10 @@ class ApiClient {
         return profileId;
       }
       if (job.isFailed) {
-        throw ApiException(
-          502,
-          job.errorMessage ?? 'profile extraction failed',
-        );
+        // The server no longer sends the raw failure reason (it can carry
+        // infrastructure detail). This message was the fallback anyway: the UI
+        // maps on status code, never on the text.
+        throw ApiException(502, 'profile extraction failed');
       }
       await Future<void>.delayed(schedule[attempt]);
     }
@@ -673,6 +685,7 @@ class ApiClient {
   /// AI-job timeout) if the budget is exhausted while still queued/running.
   Future<AiJob> awaitAiJob(
     String aiJobId, {
+    required String authToken,
     int maxAttempts = kAiJobPollMaxAttempts,
     Duration pollInterval = kAiJobPollInterval,
   }) async {
@@ -681,7 +694,7 @@ class ApiClient {
       pollInterval: pollInterval,
     );
     for (int attempt = 0; attempt < schedule.length; attempt++) {
-      final AiJob job = await getAiJob(aiJobId);
+      final AiJob job = await getAiJob(aiJobId, authToken: authToken);
       if (job.isTerminal) return job;
       await Future<void>.delayed(schedule[attempt]);
     }

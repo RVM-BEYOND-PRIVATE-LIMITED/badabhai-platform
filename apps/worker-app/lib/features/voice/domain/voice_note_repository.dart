@@ -27,7 +27,7 @@ abstract interface class VoiceNoteRepository {
   /// Stops recording and resolves the TRANSCRIPT — nothing more.
   ///
   /// Runs: release the mic → mint signed slot (POST /voice/upload-url) → PUT clip
-  /// bytes → POST /voice/upload → POST /voice/transcribe → poll GET /ai-jobs/:id
+  /// bytes → POST /voice/upload → POST /voice/transcribe → poll GET /workers/me/ai-jobs/:id
   /// until terminal → resolve transcript (GET /voice/:id). Returns that text.
   ///
   /// DOES NOT SEND IT TO CHAT. Nothing the worker has not seen may become their

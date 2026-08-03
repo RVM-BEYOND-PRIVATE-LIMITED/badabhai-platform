@@ -85,7 +85,38 @@ function makeDb(rows: unknown[] = []) {
 
 const SESSION = "44444444-4444-4444-8444-444444444444";
 const WORKER = "11111111-1111-4111-8111-111111111111";
+const JOB = "99999999-9999-4999-8999-999999999999";
 const SINCE = new Date("2026-07-18T10:00:00.000Z");
+
+/** Capturing mock of the simpler select().from().where().limit() chain. */
+function makeSimpleDb(rows: unknown[] = []) {
+  const captured: Captured = {};
+  const db = {
+    select: () => ({
+      from: (table: unknown) => {
+        captured.from = table;
+        return {
+          where: (cond: unknown) => {
+            captured.where = cond;
+            return {
+              limit: (n: number) => {
+                captured.limit = n;
+                return Promise.resolve(rows);
+              },
+            };
+          },
+        };
+      },
+    }),
+  } as unknown as Database;
+  return { db, captured };
+}
+
+async function runOwned(rows: unknown[] = [], workerId: string = WORKER) {
+  const { db, captured } = makeSimpleDb(rows);
+  const result = await new AiJobsRepository(db).findByIdForWorker(JOB, workerId);
+  return { captured, result };
+}
 
 async function run(rows: unknown[] = []) {
   const { db, captured } = makeDb(rows);
@@ -245,8 +276,9 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate (#420
  * the shape of the SQL that is supposed to imply it. No database is involved.
  * ---------------------------------------------------------------------------*/
 
-/** The `ai_jobs` fields the dedupe predicate reads. */
+/** The `ai_jobs` fields the dedupe and ownership predicates read. */
 interface CandidateRow {
+  id: string;
   jobType: string;
   status: string;
   createdAt: Date;
@@ -254,6 +286,7 @@ interface CandidateRow {
 }
 
 const COLUMN_READERS: Record<string, (row: CandidateRow) => unknown> = {
+  id: (r) => r.id,
   job_type: (r) => r.jobType,
   status: (r) => r.status,
   created_at: (r) => r.createdAt,
@@ -378,6 +411,7 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate, EVAL
   const STALE = new Date(SINCE.getTime() - 60_000); // outside it
 
   const row = (patch: Partial<CandidateRow> = {}): CandidateRow => ({
+    id: JOB,
     jobType: "profile_extraction",
     status: "completed",
     createdAt: FRESH,
@@ -497,5 +531,92 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — row mapping", () =>
       availability: { status: "unknown" },
       richProfileDraft: { skill_labels: ["cnc operator"] },
     });
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * findByIdForWorker — the OWNERSHIP predicate behind GET /workers/me/ai-jobs/:id.
+ *
+ * `ai_jobs` has no worker_id column and no FK, so this predicate IS the authz
+ * boundary: get it wrong and any worker reads any worker's job by uuid. Asserted
+ * with the same EVALUATED-AST approach as the #420 dedupe suite above (not string
+ * matching), so a rewrite that reformats the SQL cannot hide a broken check.
+ * -------------------------------------------------------------------------*/
+describe("AiJobsRepository.findByIdForWorker — the ownership predicate", () => {
+  it("selects from ai_jobs and takes at most one row", async () => {
+    const { captured } = await runOwned();
+    expect(captured.from).toBe(aiJobs);
+    expect(captured.limit).toBe(1);
+  });
+
+  it("binds BOTH the job id and the worker id", async () => {
+    const { captured } = await runOwned();
+    const { sql, params } = compile(captured.where);
+    expect(sql).toContain('"id"');
+    expect(sql).toContain('"input_ref"');
+    expect(params).toContain(JOB);
+    expect(params).toContain(WORKER);
+  });
+
+  it("reads the owner out of input_ref->>'worker_id' — the same key the writers set", async () => {
+    const { captured } = await runOwned();
+    expect(compile(captured.where).sql).toContain("->>'worker_id'");
+  });
+
+  const ownershipRow = (patch: Partial<CandidateRow> = {}): CandidateRow => ({
+    id: JOB,
+    jobType: "profile_extraction",
+    status: "completed",
+    createdAt: new Date("2026-07-18T11:00:00.000Z"),
+    inputRef: { session_id: SESSION, worker_id: WORKER },
+    ...patch,
+  });
+
+  const owned = async (patch: Partial<CandidateRow> = {}): Promise<boolean> => {
+    const { captured } = await runOwned();
+    return evaluateCondition(captured.where, ownershipRow(patch));
+  };
+
+  it("sanity: the owner's own job matches (guards against a vacuously-false predicate)", async () => {
+    expect(await owned()).toBe(true);
+  });
+
+  it("ANOTHER worker's job never matches — this is the IDOR boundary", async () => {
+    expect(
+      await owned({ inputRef: { session_id: SESSION, worker_id: "22222222-2222-4222-8222-222222222222" } }),
+    ).toBe(false);
+  });
+
+  it("a job with NO worker_id in input_ref never matches — fails CLOSED, not open", async () => {
+    // `->>` yields SQL NULL for a missing key, and NULL = uuid is never true. A row
+    // written by some future third writer that forgets worker_id is unreachable here
+    // rather than reachable by everyone.
+    expect(await owned({ inputRef: { session_id: SESSION } })).toBe(false);
+  });
+
+  it("a DIFFERENT job id never matches, even for the right worker", async () => {
+    expect(await owned({ id: "88888888-8888-4888-8888-888888888888" })).toBe(false);
+  });
+
+  it("matches a TRANSCRIPTION job too — voice polls this route as well", async () => {
+    // Unlike the #420 dedupe predicate, this one must NOT constrain job_type:
+    // voice_note_repository_impl polls the same endpoint for transcription jobs.
+    expect(await owned({ jobType: "transcription", inputRef: { voice_note_id: "v1", worker_id: WORKER } })).toBe(true);
+  });
+
+  it("matches a job in ANY status — the point of a poll is the non-terminal states", async () => {
+    for (const status of ["queued", "running", "completed", "failed"]) {
+      expect(await owned({ status })).toBe(true);
+    }
+  });
+
+  it("returns undefined when the query finds nothing (not-yours and not-found are one answer)", async () => {
+    const { result } = await runOwned([]);
+    expect(result).toBeUndefined();
+  });
+
+  it("returns the row when it does", async () => {
+    const { result } = await runOwned([{ id: JOB, status: "completed" }]);
+    expect(result).toEqual({ id: JOB, status: "completed" });
   });
 });

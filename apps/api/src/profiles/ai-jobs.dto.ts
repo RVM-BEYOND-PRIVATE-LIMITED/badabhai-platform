@@ -18,6 +18,26 @@ export const AiJobUsageSchema = z.object({
 });
 export type AiJobUsage = z.infer<typeof AiJobUsageSchema>;
 
+/**
+ * The WORKER-facing projection (`GET /workers/me/ai-jobs/:id`) — deliberately three
+ * keys, and deliberately NOT a subset-by-omission of {@link AiJobResponseSchema}.
+ *
+ * `output_ref` is flattened into two explicitly-named opaque ids rather than passed
+ * through as a jsonb blob, so a future key added to that column cannot reach a worker
+ * by accident. Everything the ops route returns beyond this — `ai_usage` (cost, model,
+ * `real_call`, token counts), `error_message`, `id`, `job_type`, timestamps — is
+ * withheld; see the rationale on {@link import("./worker-ai-jobs.controller")}.
+ *
+ * `status` is the same closed enum as the ops route, because the client's whole poll
+ * loop is a fold over it.
+ */
+export const WorkerAiJobResponseSchema = z.object({
+  status: z.enum(["queued", "running", "completed", "failed"]),
+  profile_id: z.string().nullable(),
+  voice_note_id: z.string().nullable(),
+});
+export type WorkerAiJobResponse = z.infer<typeof WorkerAiJobResponseSchema>;
+
 export const AiJobResponseSchema = z.object({
   id: z.string().uuid(),
   job_type: z.enum(["pseudonymization", "transcription", "profile_extraction", "resume_generation"]),

@@ -18,6 +18,7 @@ import { CapacityController } from "../posting-plans/capacity.controller";
 import { PostingPlansController } from "../posting-plans/posting-plans.controller";
 import { PricingController } from "../pricing/pricing.controller";
 import { AiJobsController } from "../profiles/ai-jobs.controller";
+import { WorkerAiJobsController } from "../profiles/worker-ai-jobs.controller";
 import { ProfilesController } from "../profiles/profiles.controller";
 import { ReachController } from "../reach/reach.controller";
 import { PaceController } from "../pace/pace.controller";
@@ -177,6 +178,11 @@ const CONTRACT: ControllerContract[] = [
     routes: { getCatalog: [I], updateCatalog: [I], quote: [I] },
   },
   { name: "AiJobs", ctor: AiJobsController, routes: { list: [I], get: [I] } },
+  // The WORKER poll for the same rows — a separate controller precisely so it does NOT
+  // inherit AiJobsController's class-level InternalServiceGuard (that union would drag it
+  // into OPS_ROUTES via canary-coverage.test.ts and then fail prod-canary stage 4, which
+  // sends the ops token and requires a non-401). Ownership is enforced in the query.
+  { name: "WorkerAiJobs", ctor: WorkerAiJobsController, routes: { get: [C, W] } },
   // P0 fix (PR #91).
   { name: "Profiles", ctor: ProfilesController, routes: { extract: [C, W], confirm: [C, W] } },
   { name: "Reach", ctor: ReachController, routes: { applicants: [I], feed: [I] } },
@@ -487,6 +493,19 @@ describe("API authz contract — guards on every controller route", () => {
     it("JobsController.getJob runs [WorkerAuthGuard, ConsentGuard] in order", () => {
       const handler = (JobsController.prototype as unknown as Record<string, object>).getJob;
       expect(guardNames(handler)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
+    });
+
+    // The worker AI-job poll. Order matters here as everywhere, but so does the
+    // NEGATIVE: this controller must never acquire InternalServiceGuard, because the
+    // union with a worker guard is what would break the prod-canary contract.
+    it("WorkerAiJobsController.get runs [WorkerAuthGuard, ConsentGuard] in order", () => {
+      const handler = (WorkerAiJobsController.prototype as unknown as Record<string, object>)
+        .get;
+      expect(guardNames(handler)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
+    });
+
+    it("WorkerAiJobsController carries NO class-level guard (never InternalServiceGuard)", () => {
+      expect(guardNames(WorkerAiJobsController)).toEqual([]);
     });
   });
 });

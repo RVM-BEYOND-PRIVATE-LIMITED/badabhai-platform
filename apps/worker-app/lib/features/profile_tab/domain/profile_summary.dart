@@ -81,7 +81,7 @@ class ProfileSummary extends Equatable {
   ///
   /// WHY IT IS CARRIED (TD81 / backend #503): a content-poor or mock/AI-down
   /// extraction now COMPLETES the ai_job with a real `profile_id` but stamps the
-  /// row `'draft'` instead of `'extracted'`. The GET /ai-jobs/:id status cannot
+  /// row `'draft'` instead of `'extracted'`. The GET /workers/me/ai-jobs/:id status cannot
   /// tell the two apart — only this field can. The profiling preview gates the
   /// "Confirm & generate resume" step on it ([isDraft]) so a near-empty draft is
   /// never confirmed into an empty resume (the Phase-1 exit contract).
