@@ -6,9 +6,10 @@ import '../theme/app_typography.dart';
 
 /// A single chat message bubble for the "bada bhai" profiling chat.
 ///
-/// Worker messages sit right on a soft green tint (the worker's own voice);
-/// bada bhai sits left on crisp white with a warm hairline. One corner is
-/// squared toward the speaker so the thread reads naturally.
+/// Worker messages sit right on the soft blue outgoing tint (the worker's own
+/// voice, JUL31 "Josh" system); bada bhai sits left on crisp white with a
+/// hairline. One corner is squared toward the speaker so the thread reads
+/// naturally. Green stays reserved for money/success, so it is off the bubbles.
 /// Hinglish copy on an undelivered worker bubble (#343). States the honest
 /// cause and the action — never a vague "kuch gadbad".
 const String kChatSendFailedLabel = 'Nahi bheja gaya — dobara bhejein';
@@ -39,10 +40,12 @@ class BbChatBubble extends StatelessWidget {
 
     final Color background = failed
         ? AppColors.red50
-        : (fromWorker ? AppColors.green50 : AppColors.surfaceCard);
+        : (fromWorker ? AppColors.blueTintChat : AppColors.surfaceCard);
+    // Outgoing bubble is borderless in the Josh system, so its border matches the
+    // fill; incoming keeps the hairline; a failed send stays crimson-outlined.
     final Color borderColor = failed
         ? AppColors.red600
-        : (fromWorker ? AppColors.green100 : AppColors.borderSubtle);
+        : (fromWorker ? AppColors.blueTintChat : AppColors.borderSubtle);
 
     final Widget bubble = Container(
       constraints: const BoxConstraints(maxWidth: 300),

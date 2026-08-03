@@ -154,10 +154,8 @@ class _ResumeViewState extends State<_ResumeView> {
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
       children: <Widget>[
         Card(
-          // A clearer lift than the default card so the resume stands out on the
-          // paper background.
-          elevation: 6,
-          shadowColor: AppColors.ink900.withValues(alpha: 0.18),
+          // Flat card (JUL31 system): the card theme's 1px hairline border — not a
+          // shadow — separates the resume from the paper background.
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[

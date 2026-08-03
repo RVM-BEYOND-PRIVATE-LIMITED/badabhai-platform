@@ -7,11 +7,11 @@ import '../theme/app_typography.dart';
 
 /// Visual style of a [BbButton].
 ///
-///  - [primary]  — green action CTA (the everyday worker action: Apply, Continue).
-///  - [brand]    — vermilion brand CTA (logo moments / brand highlights).
+///  - [primary]  — haldi action CTA, deep-blue label (the one main action).
+///  - [brand]    — haldi brand CTA (logo moments / brand highlights).
 ///  - [secondary]— outlined, ink on white (the quiet alternative).
-///  - [tonal]    — soft vermilion tint.
-///  - [ghost]    — text only.
+///  - [tonal]    — soft haldi tint.
+///  - [ghost]    — text only, reads as a blue link.
 ///  - [danger]   — crimson destructive action.
 enum BbButtonVariant { primary, brand, secondary, tonal, ghost, danger }
 
@@ -21,7 +21,7 @@ enum BbButtonSize { sm, md, lg }
 /// The one reusable BadaBhai button. Built on Material's button family so it
 /// inherits [AppTheme] and keeps native ink/press; never hand-roll a button.
 ///
-/// `primary` is the single green CTA per screen — quieten everything else with
+/// `primary` is the single haldi CTA per screen — quieten everything else with
 /// `secondary`, `tonal`, or `ghost`.
 class BbButton extends StatelessWidget {
   const BbButton({
@@ -59,12 +59,22 @@ class BbButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final VoidCallback? effectiveOnPressed = loading ? null : onPressed;
 
+    // The spinner must sit on each variant's own foreground — a white spinner
+    // is invisible on the haldi primary/brand/tonal faces.
+    final Color spinnerColor = switch (variant) {
+      BbButtonVariant.primary || BbButtonVariant.brand => AppColors.onHaldi,
+      BbButtonVariant.tonal => AppColors.brandPress,
+      BbButtonVariant.secondary || BbButtonVariant.ghost => AppColors.textPrimary,
+      BbButtonVariant.danger => AppColors.textInverse,
+    };
+
     final Widget child = _Content(
       label: label,
       iconLeft: iconLeft,
       iconRight: iconRight,
       loading: loading,
       size: size,
+      spinnerColor: spinnerColor,
     );
 
     final Size minSize = Size(block ? double.infinity : 64, _height);
@@ -141,6 +151,7 @@ class _Content extends StatelessWidget {
     required this.iconRight,
     required this.loading,
     required this.size,
+    required this.spinnerColor,
   });
 
   final String label;
@@ -148,6 +159,7 @@ class _Content extends StatelessWidget {
   final IconData? iconRight;
   final bool loading;
   final BbButtonSize size;
+  final Color spinnerColor;
 
   @override
   Widget build(BuildContext context) {
@@ -160,9 +172,9 @@ class _Content extends StatelessWidget {
           SizedBox(
             width: iconSize,
             height: iconSize,
-            child: const CircularProgressIndicator(
+            child: CircularProgressIndicator(
               strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              valueColor: AlwaysStoppedAnimation<Color>(spinnerColor),
             ),
           ),
           const SizedBox(width: AppSpacing.s2),

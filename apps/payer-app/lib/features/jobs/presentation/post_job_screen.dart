@@ -1015,12 +1015,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
           decoration: BoxDecoration(
             color: AppColors.infoTint,
             borderRadius: BorderRadius.circular(AppRadii.md),
-            border: Border.all(color: AppColors.teal500, width: 1.5),
+            border: Border.all(color: AppColors.info, width: 1.5),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Icon(Icons.info_outline, size: 22, color: AppColors.teal700),
+              const Icon(Icons.info_outline, size: 22, color: AppColors.bluePressed),
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: Text(
@@ -1028,7 +1028,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                   'the right workers. Posting is free.',
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.teal700,
+                    color: AppColors.bluePressed,
                     height: 1.45,
                   ),
                 ),

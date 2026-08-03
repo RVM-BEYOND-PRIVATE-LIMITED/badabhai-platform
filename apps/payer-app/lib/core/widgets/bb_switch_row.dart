@@ -57,7 +57,7 @@ class BbSwitchRow extends StatelessWidget {
               Switch(
                 value: value,
                 onChanged: onChanged,
-                activeThumbColor: AppColors.textOnBrand,
+                activeThumbColor: AppColors.paper0,
                 activeTrackColor: AppColors.success,
                 inactiveThumbColor: AppColors.paper0,
                 inactiveTrackColor: AppColors.borderStrong,

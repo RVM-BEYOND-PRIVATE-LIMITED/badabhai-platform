@@ -7,7 +7,7 @@
    tokens, never raw hex/px literals (bb-design-system fast rule).
 
    Fonts: Roboto Mono is SELF-HOSTED below (public/fonts/, shipped binaries so data
-   renders identically offline). Baloo 2 + Mukta load via a <link> in app/layout.tsx
+   renders identically offline). Anek (display) + Roboto (body) load via a <link>
    (Google Fonts) and resolve through the family names mapped in the typography block.
    ============================================================ */
 
@@ -42,81 +42,91 @@
 }
 
 /* ============================================================
-   COLOR — "Desi Vernacular Pop" [LOCKED #5]
-   Vermilion brand · green = action/money · saffron warmth · ink/cream surfaces.
+   COLOR — JUL31 "same tokens, SOBER dial"
+   Blue-dominant structure · haldi = the ONE CTA per view · green = money/verified ·
+   cool neutral ink · canvas/white surfaces. No orange, pink or teal in this system.
    ============================================================ */
 :root {
-  /* ---- Vermilion (brand) ---- */
-  --vermilion-50: #fceae3;
-  --vermilion-100: #f8d0c3;
-  --vermilion-200: #f1a78f;
-  --vermilion-300: #e97d5e;
-  --vermilion-400: #e35636;
-  --vermilion-500: #e0371c; /* base brand */
-  --vermilion-600: #c22a12;
-  --vermilion-700: #9c220f;
-  --vermilion-800: #7b1d11;
-  --vermilion-900: #641a10;
+  /* ---- Blue (JUL31 structure — the dominant color) ---- */
+  --blue-50: #e9f0fb;
+  --blue-100: #c7d6f0;
+  --blue-300: #6e93d6;
+  --blue-500: #123d8c; /* base structure */
+  --blue-600: #0d2d68;
+  --blue-700: #0a2350;
+  --blue-tint-chat: #e9f0fb;
 
-  /* ---- Saffron (haldi warm) ---- */
-  --saffron-50: #fef4dd;
-  --saffron-100: #fbe3ac;
-  --saffron-200: #f8cd6b;
-  --saffron-300: #f5b435;
-  --saffron-400: #f29d10; /* base */
-  --saffron-500: #e5870a;
-  --saffron-600: #c06e08;
-  --saffron-700: #965507;
+  /* ---- Vermilion (brand) → HALDI ramp (JUL31: the one-CTA color) ---- */
+  --vermilion-50: #fff7e0;
+  --vermilion-100: #ffecb3;
+  --vermilion-200: #ffe08a;
+  --vermilion-300: #ffd24d;
+  --vermilion-400: #ffc91f;
+  --vermilion-500: #ffc400; /* base brand — haldi */
+  --vermilion-600: #e0ac00;
+  --vermilion-700: #b88a00;
+  --vermilion-800: #8a6800;
+  --vermilion-900: #5c4600;
+
+  /* ---- Saffron → folds to the SAME haldi ramp (orange does not exist in JUL31) ---- */
+  --saffron-50: var(--vermilion-50);
+  --saffron-100: var(--vermilion-100);
+  --saffron-200: var(--vermilion-200);
+  --saffron-300: var(--vermilion-300);
+  --saffron-400: var(--vermilion-400);
+  --saffron-500: var(--vermilion-500);
+  --saffron-600: var(--vermilion-600);
+  --saffron-700: var(--vermilion-700);
 
   /* ---- Green (go / verified / money) ---- */
-  --green-50: #e5f4ed;
-  --green-100: #c2e6d3;
-  --green-200: #8fd0ae;
-  --green-300: #52b384;
-  --green-500: #0e7a4f; /* base */
-  --green-600: #0a6341;
-  --green-700: #084d33;
+  --green-50: #e9f5ec;
+  --green-100: #cfe5d6;
+  --green-200: #a6d2b4;
+  --green-300: #6db588;
+  --green-500: #1e7a3c; /* base */
+  --green-600: #145c2d;
+  --green-700: #0f4a24;
 
-  /* ---- Rani pink (festive accent) ---- */
-  --pink-50: #fbe7f0;
-  --pink-100: #f4c2d9;
-  --pink-500: #c2186a;
-  --pink-600: #a01357;
+  /* ---- Rani pink → folds to the BLUE ramp (pink is not in JUL31) ---- */
+  --pink-50: var(--blue-50);
+  --pink-100: var(--blue-100);
+  --pink-500: var(--blue-500);
+  --pink-600: var(--blue-600);
 
-  /* ---- Turquoise (festive / info) ---- */
-  --teal-50: #e2f3f3;
-  --teal-100: #bee5e5;
-  --teal-500: #0e8488;
-  --teal-600: #0a6a6e;
-  --teal-700: #08565a;
+  /* ---- Turquoise → folds to the BLUE ramp (teal is not in JUL31) ---- */
+  --teal-50: var(--blue-50);
+  --teal-100: var(--blue-100);
+  --teal-500: var(--blue-500);
+  --teal-600: var(--blue-600);
+  --teal-700: var(--blue-700);
 
   /* ---- Crimson (danger, distinct from brand) ---- */
-  --red-50: #fce9eb;
-  --red-100: #f7cbd0;
-  --red-300: #e5808b;
-  --red-500: #c8142c;
-  --red-600: #a50f23;
-  --red-700: #820b1b;
+  --red-50: #fbeaea;
+  --red-100: #f5c9c9;
+  --red-300: #e38b8b;
+  --red-500: #c62828;
+  --red-600: #a21f1f;
+  --red-700: #7f1818;
 
-  /* ---- Ink (warm brown neutrals) ---- */
-  --ink-950: #1c1108;
-  --ink-900: #2a1a0e;
-  --ink-800: #3d2a1a;
-  --ink-700: #523a26;
-  --ink-600: #6e5238;
-  --ink-500: #8e7252;
-  --ink-400: #b29977;
-  --ink-300: #d3bf9f;
-  --ink-200: #e7d9c2;
-  --ink-100: #f1e7d5;
-  --ink-50: #f8f1e4;
+  /* ---- Ink (COOL neutrals) ---- */
+  --ink-950: #0b1220;
+  --ink-900: #101828;
+  --ink-800: #1d2739;
+  --ink-700: #2e3a50;
+  --ink-600: #475069;
+  --ink-500: #667085;
+  --ink-400: #8a92a6;
+  --ink-300: #b9c0ce;
+  --ink-200: #d8dee9;
+  --ink-100: #edf0f5;
+  --ink-50: #f2f4f8;
 
-  /* ---- Cream / paper (warm surfaces) ---- */
+  /* ---- Paper (canvas / white surfaces) ---- */
   --paper-0: #ffffff;
-  --paper-1: #fffdf8;
-  --paper-2: #fff6e8; /* page — warm cream */
-  --paper-3: #fbead0; /* sunken */
-  --paper-4: #f4debe;
+  --paper-1: #ffffff;
+  --paper-2: #f2f4f8; /* page — cool canvas */
+  --paper-3: #edf0f5; /* sunken */
+  --paper-4: #e4e9f1;
 
   /* Back-compat aliases: legacy --marigold-* resolve to the vermilion brand ramp. */
   --marigold-50: var(--vermilion-50);
@@ -138,9 +148,9 @@
   --text-muted: var(--ink-500);
   --text-faint: var(--ink-400);
   --text-inverse: var(--paper-1);
-  --text-brand: var(--vermilion-700);
-  --text-on-brand: #ffffff;
-  --text-link: var(--green-600);
+  --text-brand: var(--blue-500);
+  --text-on-brand: var(--blue-500); /* text on haldi is ALWAYS deep blue */
+  --text-link: var(--blue-600);
 
   /* surfaces */
   --surface-page: var(--paper-2);
@@ -148,8 +158,8 @@
   --surface-raised: var(--paper-1);
   --surface-sunken: var(--paper-3);
   --surface-inset: var(--paper-4);
-  --surface-ink: var(--ink-900);
-  --surface-ink-2: var(--ink-800);
+  --surface-ink: var(--blue-500);
+  --surface-ink-2: var(--blue-600);
 
   /* brand */
   --brand: var(--vermilion-500);
@@ -172,68 +182,76 @@
   --danger: var(--red-500);
   --danger-press: var(--red-600);
   --danger-tint: var(--red-50);
-  --warning: var(--saffron-600);
-  --warning-tint: var(--saffron-50);
-  --info: var(--teal-500);
-  --info-tint: var(--teal-50);
+  --warning: var(--vermilion-500); /* haldi */
+  --warning-tint: var(--vermilion-50);
+  --info: var(--blue-500);
+  --info-tint: var(--blue-50);
 
-  /* lines & dividers */
-  --border-subtle: rgba(42, 26, 14, 0.1);
-  --border-default: rgba(42, 26, 14, 0.15);
-  --border-strong: rgba(42, 26, 14, 0.26);
-  --border-ink: var(--ink-800);
-  --divider: rgba(42, 26, 14, 0.09);
+  /* lines & dividers — SOLID cool hairlines (JUL31 drops the warm rgba) */
+  --border-subtle: #edf0f5;
+  --border-default: #d8dee9;
+  --border-strong: #c3cbda;
+  --border-ink: var(--blue-500);
+  --divider: var(--ink-100);
 
-  /* festive dashed/double border helpers (Desi Pop motif) */
-  --border-festive: 2px dashed var(--green-500);
-  --border-double: 3px double var(--vermilion-500);
+  /* festive border helpers — sober solids in JUL31 (no dashes/doubles) */
+  --border-festive: 2px solid var(--green-500);
+  --border-double: 2px solid var(--blue-500);
 
-  /* focus ring */
-  --ring: rgba(224, 55, 28, 0.42);
+  /* focus ring — sober blue */
+  --ring: rgba(18, 61, 140, 0.35);
 
   /* scrim */
   --scrim: rgba(28, 17, 8, 0.56);
 }
 
-/* ---- DARK / INK THEME — opt in with [data-theme="ink"] --------------------- */
+/* ---- DARK / INK THEME — DEEP-BLUE based (JUL31 spec §9). Opt in with [data-theme="ink"]. -- */
 [data-theme="ink"] {
   --text-primary: var(--paper-1);
-  --text-secondary: var(--ink-200);
-  --text-muted: var(--ink-300);
-  --text-faint: var(--ink-400);
-  --text-inverse: var(--ink-900);
-  --text-brand: var(--vermilion-300);
-  --text-link: var(--green-300);
+  --text-secondary: #b9c0ce;
+  --text-muted: var(--ink-400);
+  --text-faint: var(--ink-500);
+  --text-brand: var(--blue-300);
+  --text-on-brand: var(--blue-700); /* text on haldi stays deep blue */
+  --text-link: var(--blue-300);
 
   --surface-page: var(--ink-950);
-  --surface-card: var(--ink-900);
-  --surface-raised: var(--ink-800);
-  --surface-sunken: #150c06;
-  --surface-inset: #100a05;
+  --surface-card: #101b33;
+  --surface-raised: #17264a;
+  --surface-sunken: #0c1526;
+  --surface-inset: #0a1120;
+  --surface-ink: var(--blue-600);
+  --surface-ink-2: var(--blue-700);
 
-  --brand-tint: rgba(224, 55, 28, 0.18);
-  --brand-tint-2: rgba(224, 55, 28, 0.26);
-  --brand-border: rgba(224, 55, 28, 0.42);
+  /* brand — haldi holds in dark */
+  --brand: var(--vermilion-500);
+  --brand-tint: rgba(255, 196, 0, 0.16);
+  --brand-tint-2: rgba(255, 196, 0, 0.24);
+  --brand-border: rgba(255, 196, 0, 0.42);
 
-  --success-tint: rgba(14, 122, 79, 0.2);
-  --danger-tint: rgba(200, 20, 44, 0.2);
-  --warning-tint: rgba(242, 157, 16, 0.18);
+  --success-tint: rgba(30, 122, 60, 0.22);
+  --danger-tint: rgba(198, 40, 40, 0.22);
+  --warning-tint: rgba(255, 196, 0, 0.16);
+  --info-tint: rgba(18, 61, 140, 0.28);
 
-  --border-subtle: rgba(255, 250, 240, 0.08);
-  --border-default: rgba(255, 250, 240, 0.15);
-  --border-strong: rgba(255, 250, 240, 0.26);
-  --divider: rgba(255, 250, 240, 0.1);
-  --scrim: rgba(8, 5, 2, 0.66);
+  --border-subtle: #1e2a45;
+  --border-default: #24314f;
+  --border-strong: #3a4a70;
+  --border-ink: var(--blue-300);
+  --divider: #24314f;
+  --scrim: rgba(3, 7, 15, 0.66);
 }
 
 /* ============================================================
-   TYPOGRAPHY — Baloo 2 (display) · Mukta (body, ≥16px) · Roboto Mono (data)
-   Families map the loaded fonts (Baloo 2 + Mukta via <link>, Roboto Mono self-hosted).
+   TYPOGRAPHY — Anek (display) · Roboto (body, ≥16px) · Roboto Mono (data)
+   Families map the loaded fonts (Anek + Roboto via <link>, Roboto Mono self-hosted).
+   Anek is served per-script on Google Fonts, so the concrete "Anek Latin" / "Anek
+   Devanagari" families sit right behind "Anek" in the fallback chain.
    ============================================================ */
 :root {
   /* families */
-  --font-display: "Baloo 2", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-sans: "Mukta", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Anek", "Anek Latin", "Anek Devanagari", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Roboto Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* type scale (px) — mobile-first, generous for low literacy */
@@ -374,24 +392,23 @@
 }
 
 /* ============================================================
-   ELEVATION — ink-tinted soft shadows; brand glow for THE one CTA.
+   ELEVATION — JUL31 bans shadows. Separation is the 1px hairline border (elevation 0);
+   every shadow token resolves to `none` so token-consuming components flatten uniformly.
+   The focus-ring composition below is deliberately KEPT.
    ============================================================ */
 :root {
-  --shadow-xs: 0 1px 2px rgba(33, 30, 22, 0.06);
-  --shadow-sm:
-    0 1px 2px rgba(33, 30, 22, 0.06), 0 2px 6px rgba(33, 30, 22, 0.05);
-  --shadow-md:
-    0 2px 4px rgba(33, 30, 22, 0.05), 0 8px 20px rgba(33, 30, 22, 0.09);
-  --shadow-lg:
-    0 4px 10px rgba(33, 30, 22, 0.06), 0 18px 40px rgba(33, 30, 22, 0.14);
-  --shadow-xl: 0 24px 60px rgba(33, 30, 22, 0.22);
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
 
-  /* the one CTA per screen */
-  --shadow-brand: 0 6px 18px rgba(224, 55, 28, 0.34);
-  --shadow-brand-lg: 0 12px 30px rgba(224, 55, 28, 0.4);
+  /* the one CTA per screen — no glow in the sober dial */
+  --shadow-brand: none;
+  --shadow-brand-lg: none;
 
   /* pressed / sunken inputs */
-  --shadow-inset: inset 0 1px 2px rgba(33, 30, 22, 0.1);
+  --shadow-inset: none;
 
   /* focus ring (compose with box-shadow) */
   --ring-focus: 0 0 0 3px var(--ring);

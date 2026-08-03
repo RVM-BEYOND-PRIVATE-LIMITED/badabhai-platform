@@ -114,7 +114,7 @@ class MatchSkillPicker extends StatelessWidget {
 
   /// The live reach meter. Three states:
   ///  - nothing picked → a quiet prompt (Post stays disabled upstream).
-  ///  - picked, [ReachPreview.zeroReach] → a saffron warning (E13 gate).
+  ///  - picked, [ReachPreview.zeroReach] → a haldi warning (E13 gate).
   ///  - picked, reach > 0 → a green count + per-skill breakdown + related chips.
   Widget _reachMeter() {
     if (pickedIds.isEmpty) {
@@ -294,7 +294,7 @@ class MatchSkillPicker extends StatelessWidget {
   }
 }
 
-/// The E13 zero-reach warning — a saffron "attention, but fixable" card. Kept
+/// The E13 zero-reach warning — a haldi "attention, but fixable" card. Kept
 /// private to the picker: it is the only reason Post is blocked once a skill is
 /// picked, so its copy lives next to the reach meter.
 class _WarnCard extends StatelessWidget {
@@ -326,12 +326,12 @@ class _WarnCard extends StatelessWidget {
               height: 22,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: AppColors.saffron700,
+                color: AppColors.onHaldi,
               ),
             )
           else
             const Icon(Icons.error_outline,
-                size: 22, color: AppColors.saffron700),
+                size: 22, color: AppColors.onHaldi),
           const SizedBox(width: AppSpacing.s2),
           Expanded(
             child: Column(
@@ -342,7 +342,7 @@ class _WarnCard extends StatelessWidget {
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
                     weight: FontWeight.w800,
-                    color: AppColors.saffron700,
+                    color: AppColors.onHaldi,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -350,7 +350,7 @@ class _WarnCard extends StatelessWidget {
                   body,
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    color: AppColors.saffron700,
+                    color: AppColors.onHaldi,
                     height: 1.4,
                   ),
                 ),

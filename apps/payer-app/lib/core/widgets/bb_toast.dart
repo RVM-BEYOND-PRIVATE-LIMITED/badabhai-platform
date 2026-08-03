@@ -57,13 +57,6 @@ class _ToastBody extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surfaceInk,
         borderRadius: BorderRadius.circular(AppRadii.md),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: AppColors.ink950.withValues(alpha: 0.30),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-          ),
-        ],
       ),
       child: Row(
         children: <Widget>[

@@ -50,7 +50,7 @@ beforeEach(() => {
     rootDataset: {},
     rootAttrs: {},
     metas: [],
-    surface: "#fff6e8", // paper page surface (stand-in for the computed --surface-page)
+    surface: "#f2f4f8", // paper page surface (stand-in for the computed --surface-page)
     protocol: "https:",
     prefersDark: false,
   };
@@ -165,10 +165,10 @@ describe("applyResolvedTheme — flips data-theme + syncs theme-color", () => {
     expect(meta).toBeDefined();
     expect(meta!.getAttribute("content")).toBe(dom.surface);
     // a later flip updates the SAME meta (no duplicates)
-    dom.surface = "#1c1108";
+    dom.surface = "#0b1220";
     syncThemeColorMeta();
     expect(dom.metas.filter((m) => m.name === "theme-color")).toHaveLength(1);
-    expect(meta!.getAttribute("content")).toBe("#1c1108");
+    expect(meta!.getAttribute("content")).toBe("#0b1220");
   });
 });
 

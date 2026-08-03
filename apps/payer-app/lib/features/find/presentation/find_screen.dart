@@ -390,13 +390,6 @@ class _ApplicantCard extends StatelessWidget {
           color: masked ? AppColors.borderSubtle : AppColors.success,
           width: masked ? 1 : 1.5,
         ),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: AppColors.ink900.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -551,13 +544,6 @@ class _CandidateCard extends StatelessWidget {
           color: masked ? AppColors.borderSubtle : AppColors.success,
           width: masked ? 1 : 1.5,
         ),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: AppColors.ink900.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,

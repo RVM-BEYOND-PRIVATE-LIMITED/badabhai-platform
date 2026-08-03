@@ -33,16 +33,23 @@ class AppSpacing {
   static const double appMax = 440; // worker mobile canvas
 }
 
-/// Corner radii — friendly but sturdy. Controls 14, cards 18, sheets 24; pills
-/// for chips/status/swipe affordances. Ported from `tokens/radii.css`.
+/// Corner radii — JUL31 "rounded voice on a disciplined skeleton": **hard cap
+/// 12** on the skeleton. Buttons/cards 10, chat bubble 12 (with a 3px flattened
+/// tail corner), chips are the one exception — soft 14px pills (`rChip`).
 class AppRadii {
   AppRadii._();
 
   static const double xs = 6;
   static const double sm = 10;
-  static const double md = 14; // default control: button, input
-  static const double lg = 18; // card
-  static const double xl = 24; // sheet / large card
-  static const double xxl = 32; // hero / bottom sheet
+  static const double md = 10; // default control: button, input
+  static const double lg = 10; // card
+  static const double xl = 12; // sheet / large card (capped)
+  static const double xxl = 12; // hero / bottom sheet (capped)
+
+  // JUL31 kit radii (mirror tokens.dart: rChip / rBubble / rBubbleTail).
+  static const double chip = 14; // chip pill — the one radius above the cap
+  static const double bubble = 12; // chat bubble corners
+  static const double bubbleTail = 3; // the flattened tail corner on a bubble
+
   static const double pill = 999;
 }
