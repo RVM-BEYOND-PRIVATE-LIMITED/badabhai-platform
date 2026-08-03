@@ -214,8 +214,15 @@ function makeFakeRepo() {
   return { repo, orders, ledger, balances, seedOrder, key };
 }
 
-function makeService() {
+function makeService(opts: { payerStatus?: "pending" | "active" | "suspended" } = {}) {
   const fake = makeFakeRepo();
+  // ADR-0037 Decision 6 — the payer's lifecycle status at capture time.
+  const payers = {
+    findAuthFacts: vi.fn(async () => ({
+      role: "employer" as const,
+      status: opts.payerStatus ?? ("active" as const),
+    })),
+  };
   const pricing = {
     getActiveCatalog: vi.fn(async () => ({
       catalog: DEFAULT_CATALOG,
@@ -253,8 +260,13 @@ function makeService() {
     // ADR-0036 §7 — read only for `free_tier_credits`. A credit PURCHASE only ever raises
     // a balance, so the exhaustion signal this feeds cannot fire on the paths under test.
     { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
+    // ADR-0037 Decision 6 — the lifecycle read behind the suspended-capture alert.
+    // MUST be wired even for the active-payer cases: the alert helper is fail-open, so an
+    // undefined dependency here would be swallowed by its catch and every assertion below
+    // would still pass while the alert silently never worked.
+    payers as never,
   );
-  return { svc, payments, events, razorpay, pricing, ...fake };
+  return { svc, payments, events, razorpay, pricing, payers, ...fake };
 }
 
 /** The event names emitted, in order. */
@@ -738,6 +750,7 @@ describe("PAYMENTS_ENABLE_REAL=false — the mock path is unchanged and remains 
       MOCK_CONFIG,
       { add: vi.fn(async () => undefined) } as unknown as Queue<ReferralBonusJobData>,
       { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
+      { findAuthFacts: vi.fn(async () => ({ role: "employer", status: "active" })) } as never,
     );
     return { svc, events, razorpay, repo: fake.repo };
   }
@@ -773,5 +786,77 @@ describe("PAYMENTS_ENABLE_REAL=false — the mock path is unchanged and remains 
     );
     expect(out).toEqual({ verified: false });
     expect(emitted(d.events)).toEqual([]);
+  });
+});
+
+describe("a capture for a SUSPENDED payer (ADR-0037 Decision 6)", () => {
+  it("STILL grants the credits — money already taken is never refused", async () => {
+    // The ruling, and the reason for it: Razorpay has already captured the funds by the
+    // time this webhook arrives, and there is no refund path anywhere in the codebase.
+    // Refusing the credit would leave the platform holding money with no ledger entry
+    // against it — strictly worse than crediting an account that cannot spend.
+    const d = makeService({ payerStatus: "suspended" });
+    d.seedOrder();
+    const out = await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+
+    expect(out).toEqual({ result: "granted" });
+    expect(d.ledger).toHaveLength(1);
+    expect(d.balances.get(PAYER)).toBe(50);
+    expect(d.orders.get(`razorpay:${PROVIDER_ORDER}`)?.status).toBe("paid");
+  });
+
+  it("raises the Finance/Admin alert ALONGSIDE the capture, not instead of it", async () => {
+    const d = makeService({ payerStatus: "suspended" });
+    d.seedOrder();
+    await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+
+    // Both events: the money record AND the alert. Dropping `payment.captured` would
+    // break the ledger↔spine correspondence the capture path guarantees.
+    expect(emitted(d.events)).toEqual(["payment.captured", "payer.suspended_payment_captured"]);
+
+    const alert = d.events.emit.mock.calls[1]![0] as {
+      payload: Record<string, unknown>;
+      idempotencyKey?: string;
+    };
+    // The ORDER id, not the amount: the amount already lives on `payment.captured` and on
+    // the ledger row keyed to the same order. Repeating it would create a second place for
+    // the money to be stated, and to disagree.
+    expect(alert.payload).toEqual({ payer_id: PAYER, order_id: ORDER_ROW });
+    expect(alert.idempotencyKey).toBe(`payer.suspended_payment_captured:order:${ORDER_ROW}`);
+  });
+
+  it("an ACTIVE payer's capture raises NO alert (the alert means something)", async () => {
+    // The control. Without it, a mutation that alerted on every capture would satisfy the
+    // assertions above while burying real alerts in noise.
+    const d = makeService({ payerStatus: "active" });
+    d.seedOrder();
+    await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+    expect(emitted(d.events)).toEqual(["payment.captured"]);
+  });
+
+  it("a REPLAYED webhook raises no second alert (keyed on the order, like the money)", async () => {
+    const d = makeService({ payerStatus: "suspended" });
+    d.seedOrder();
+    await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+    const replay = await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+
+    expect(replay).toEqual({ result: "no_op" });
+    // The replay settles to `already_settled`, so it never reaches the alert at all.
+    expect(emitted(d.events)).toEqual(["payment.captured", "payer.suspended_payment_captured"]);
+  });
+
+  it("FAIL-OPEN: a broken status read cannot turn a successful capture into a 5xx", async () => {
+    // This is the whole reason the helper swallows. Throwing here would make Razorpay
+    // redeliver a payment we already settled — trading a missing notification for a retry
+    // storm on the money path.
+    const d = makeService({ payerStatus: "suspended" });
+    d.seedOrder();
+    d.payers.findAuthFacts.mockRejectedValueOnce(new Error("db down"));
+
+    const out = await d.svc.handleRazorpayEvent(captureEvent(), CTX);
+
+    expect(out).toEqual({ result: "granted" });
+    expect(d.balances.get(PAYER)).toBe(50);
+    expect(emitted(d.events)).toEqual(["payment.captured"]);
   });
 });

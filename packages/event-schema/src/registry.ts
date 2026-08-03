@@ -428,6 +428,15 @@ export const EVENT_REGISTRY = {
   // The only record of that attempt: the HTTP response stays neutral by design, and no
   // `payer.login_requested` is emitted because no code was actually delivered. v1.
   "payer.otp_suppressed": { version: 1, domain: "payer", payload: p.PayerOtpSuppressedPayload },
+  // ADR-0037 Decision 6 — a captured payment was credited to a SUSPENDED payer. An ops
+  // alert for Finance/Admin, NOT a rejection: the money is already taken and there is no
+  // refund path, so the credit is applied and a human is told. The credits are unspendable
+  // until reinstatement (PayerAuthGuard requires `active`). v1.
+  "payer.suspended_payment_captured": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerSuspendedPaymentCapturedPayload,
+  },
   // A payer self-edited their own account on PATCH /payer/me (PROF-3). FACELESS:
   // opaque payer_id + the changed field KEYS (subset of {org_name, phone}) ONLY —
   // never the new org-name/phone VALUES (B-R2 PII lives encrypted in `payers`). v1.
