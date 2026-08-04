@@ -14,6 +14,16 @@ import { readAdminToken } from "./auth/session-cookie";
  *    the payer surface already holds).
  *  - Every response is parsed with a Zod schema, so a shape change surfaces as an honest
  *    error state instead of `undefined` rendering as a blank screen.
+ *
+ * ── ONE DEV-ONLY CAVEAT, MEASURED ───────────────────────────────────────────────────
+ * Under `next dev`, Next serialises fetch `Response` objects into the RSC flight payload
+ * for its dev overlay — including the request's `Authorization` header. So the admin JWT
+ * and the internal API origin ARE visible in dev-server HTML. Verified against a
+ * production build (`next build && next start`): **zero occurrences of either**.
+ *
+ * Recorded because the difference matters twice over: nobody should panic at a dev
+ * screenshot, and — more importantly — nobody should wave away a REAL leak later on the
+ * assumption that "it's just the dev thing". Assert against a production build.
  */
 
 /** The session is gone (expired, revoked, or never existed). Callers redirect to /login. */

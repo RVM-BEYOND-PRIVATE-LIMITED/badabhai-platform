@@ -630,3 +630,280 @@ h3 {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---- data surfaces (Milestone 2) ----------------------------------------- */
+
+.cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-4);
+}
+.stat {
+  background: var(--surface-card);
+  border: var(--border-default) solid var(--divider);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.stat--warn {
+  border-color: var(--warning);
+  background: var(--warning-tint);
+}
+.stat__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  line-height: 1.1;
+}
+.stat__label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.funnel,
+.health {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.funnel__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-hairline) solid var(--divider);
+}
+.funnel__row:last-child {
+  border-bottom: 0;
+}
+.funnel__label {
+  font-size: var(--text-sm);
+}
+.funnel__nums {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+}
+.funnel__distinct {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-bold);
+}
+/* A withheld statistic must not look like a measured one. Italic + muted + a dotted
+   underline signals "this is a statement about suppression", not a number. */
+.funnel__distinct.is-suppressed {
+  font-style: italic;
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+  border-bottom: 1px dotted var(--text-faint);
+  cursor: help;
+}
+.funnel__events {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.health__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-hairline) solid var(--divider);
+}
+.health__row:last-child {
+  border-bottom: 0;
+}
+.health__name {
+  flex: 1;
+  font-size: var(--text-sm);
+  text-transform: capitalize;
+}
+.health__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.health__value--ok {
+  color: var(--green-600);
+}
+.health__value--warn {
+  color: var(--warning);
+}
+.health__value--bad {
+  color: var(--danger);
+}
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-round);
+  flex: 0 0 auto;
+}
+.dot--ok {
+  background: var(--green-500);
+}
+.dot--warn {
+  background: var(--warning);
+}
+.dot--bad {
+  background: var(--danger);
+}
+
+.panel__head--row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+/* Wide tables scroll INSIDE their container. The page body must never scroll sideways. */
+.tablewrap {
+  overflow-x: auto;
+  border: var(--border-default) solid var(--divider);
+  border-radius: var(--radius-md);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-hairline) solid var(--divider);
+  white-space: nowrap;
+}
+.table th {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--font-eyebrow-spacing);
+  color: var(--text-faint);
+  font-weight: var(--weight-semibold);
+  background: var(--surface-sunken);
+  position: sticky;
+  top: 0;
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.table tbody tr:hover {
+  background: var(--surface-sunken);
+}
+.table__meta {
+  margin-left: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.tag {
+  display: inline-block;
+  margin-right: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.link {
+  color: var(--text-link);
+  text-decoration: none;
+}
+.link:hover {
+  text-decoration: underline;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-4);
+  align-items: end;
+}
+.filters__actions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.pager {
+  margin-top: var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: var(--space-3) var(--space-5);
+  margin: 0;
+}
+.kv__k {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.kv__v {
+  margin: 0;
+  font-size: var(--text-sm);
+  word-break: break-all;
+}
+
+.code {
+  margin: 0;
+  padding: var(--space-4);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.crumb {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.chain__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+}
+.chain__time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+@media (max-width: 560px) {
+  .stats,
+  .filters {
+    grid-template-columns: 1fr;
+  }
+  .kv {
+    grid-template-columns: 1fr;
+    gap: var(--space-1) 0;
+  }
+}
