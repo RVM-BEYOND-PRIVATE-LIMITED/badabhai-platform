@@ -91,8 +91,8 @@ cross-thread dependency in the plan and the most likely place for the portal to 
 | Field | Value |
 |---|---|
 | **Owner / Priority / Status** | T1 · P1 · **Blocked** |
-| **Dependencies** | AP-2, **BP-1** (admin-guarded read endpoints) |
-| **Entry criteria** | BP-1 endpoints merged and callable with an admin session. |
+| **Dependencies** | AP-2, **BP-1** (admin-guarded read endpoints) — **BP-1 merged 2026-08-04, PR #574** |
+| **Entry criteria** | BP-1 endpoints merged and callable with an admin session. **MET.** |
 | **Exit criteria** | List + detail + search + filter + pagination for each; every privileged action (suspend / reinstate / flag / unflag / reveal-contact) shows its resulting event. Worker contact detail appears **only** via `POST /admin/workers/:id/reveal-contact`. |
 | **Deliverables** | Three modules against the design system, with role-aware controls driven by `/admin/me` capabilities. |
 | **Verification** | Per-module gate, **including the denied roles** — an `analyst` must not see suspend; an `ops_admin` must not see reveal-contact. |
