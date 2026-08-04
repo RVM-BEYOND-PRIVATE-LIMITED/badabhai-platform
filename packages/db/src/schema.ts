@@ -1568,6 +1568,10 @@ export const creditLedger = pgTable(
     // BP-1 — the admin per-payer ledger keyset. Payer-leading because the admin read is
     // ALWAYS scoped to one payer; a bare (created_at, id) index would not serve it.
     index("credit_ledger_payer_keyset_idx").on(t.payerId, t.createdAt.desc(), t.id.desc()),
+    // BP-2 — the PLATFORM-WIDE ledger keyset (Finance → recent movements, all payers). The
+    // payer-leading index above cannot serve an unscoped scan; this one can, and it is also
+    // what the by-reason aggregate ranges over.
+    index("credit_ledger_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
   ],
 );
 
@@ -2820,6 +2824,9 @@ export const paymentOrders = pgTable(
     uniqueIndex("payment_orders_provider_order_uq").on(t.provider, t.providerOrderId),
     // Ops/payer read: this payer's orders, newest first.
     index("payment_orders_payer_created_idx").on(t.payerId, t.createdAt),
+    // BP-2 — the admin Transactions keyset (all payers, newest first). The payer-leading
+    // index above cannot serve an unscoped scan.
+    index("payment_orders_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
     // A zero/negative-amount order is always a bug, never a real purchase.
     check("payment_orders_amount_pos_chk", sql`${t.amountInr} > 0`),
     // Same reasoning for the grant side: an order that buys zero (or negative) credits is

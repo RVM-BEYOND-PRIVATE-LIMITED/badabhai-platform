@@ -242,3 +242,95 @@ export function qs(filters: object): string {
   const s = params.toString();
   return s ? `?${s}` : "";
 }
+
+// ---------------------------------------------------------------------------
+// finance (BP-2) — credit position, the platform-wide ledger, payment orders
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the ₹ figures in a response describe real money.
+ *
+ * `mock` means no payment provider was ever called and nobody was charged. The server sends
+ * this on EVERY money-bearing response, and the UI renders it every time — a finance screen
+ * that shows simulated money in the same type as real money is how TD81 happened on the AI
+ * side, where staging looked healthy for weeks behind a mocked provider.
+ */
+export const paymentsPostureSchema = z.object({
+  mode: z.enum(["real", "mock"]),
+  blocked_reason: z.string().nullable(),
+});
+export type PaymentsPosture = z.infer<typeof paymentsPostureSchema>;
+
+/** A finance page carries the posture alongside the rows. */
+function financePageOf<T extends z.ZodTypeAny>(item: T) {
+  return z.object({
+    items: z.array(item),
+    nextCursor: z.string().nullable(),
+    payments: paymentsPostureSchema,
+  });
+}
+
+export const reasonBucketSchema = z.object({
+  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
+  movements: z.number(),
+  credits_delta: z.number(),
+  amount_inr: z.number(),
+});
+export type ReasonBucket = z.infer<typeof reasonBucketSchema>;
+
+export const financeSummarySchema = z.object({
+  payments: paymentsPostureSchema,
+  window_days: z.number(),
+  outstanding_credits: z.number(),
+  payers_with_balance: z.number(),
+  by_reason: z.array(reasonBucketSchema),
+  paid_orders: z.object({ count: z.number(), credits: z.number(), amount_inr: z.number() }),
+  unsettled_orders: z.object({ count: z.number(), amount_inr: z.number() }),
+  failed_orders: z.object({ count: z.number() }),
+  top_balances: z.array(z.object({ payer_id: z.string(), balance: z.number() })),
+});
+export type FinanceSummary = z.infer<typeof financeSummarySchema>;
+
+export const ledgerRowSchema = z.object({
+  id: z.string(),
+  payer_id: z.string(),
+  delta: z.number(),
+  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
+  unlock_id: z.string().nullable(),
+  pack_code: z.string().nullable(),
+  price_inr: z.number().nullable(),
+  created_at: z.string(),
+});
+export type LedgerRow = z.infer<typeof ledgerRowSchema>;
+
+export const orderRowSchema = z.object({
+  id: z.string(),
+  payer_id: z.string(),
+  pack_code: z.string(),
+  amount_inr: z.number(),
+  credits_granted: z.number(),
+  provider: z.string(),
+  status: z.enum(["created", "paid", "failed"]),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type OrderRow = z.infer<typeof orderRowSchema>;
+
+export const ledgerPageSchema = financePageOf(ledgerRowSchema);
+export const ordersPageSchema = financePageOf(orderRowSchema);
+
+export function getFinanceSummary(f: { windowDays?: number } = {}) {
+  return adminFetch(`/admin/finance/summary${qs(f)}`, { schema: financeSummarySchema });
+}
+
+export function listLedger(
+  f: { payerId?: string; reason?: string; cursor?: string; limit?: number } = {},
+) {
+  return adminFetch(`/admin/finance/ledger${qs(f)}`, { schema: ledgerPageSchema });
+}
+
+export function listOrders(
+  f: { payerId?: string; status?: string; cursor?: string; limit?: number } = {},
+) {
+  return adminFetch(`/admin/finance/orders${qs(f)}`, { schema: ordersPageSchema });
+}

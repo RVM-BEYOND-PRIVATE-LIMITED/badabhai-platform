@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   applicationListItemSchema,
   creditsViewSchema,
+  financeSummarySchema,
+  ledgerPageSchema,
+  ordersPageSchema,
   jobPostingDetailSchema,
   jobPostingListItemSchema,
   payerListItemSchema,
@@ -220,5 +223,126 @@ describe("schemas reject shapes that should never arrive", () => {
   it("a page envelope without nextCursor fails — an absent cursor is not the same as null", () => {
     expect(workersPageSchema.safeParse({ items: [] }).success).toBe(false);
     expect(workersPageSchema.safeParse({ items: [], nextCursor: null }).success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// finance — the posture is REQUIRED, so money can never render unlabelled
+// ---------------------------------------------------------------------------
+
+const LEDGER_ROW = {
+  id: "l1",
+  payer_id: "p1",
+  delta: -1,
+  reason: "unlock_debit",
+  unlock_id: "u1",
+  pack_code: null,
+  price_inr: null,
+  created_at: "2026-08-04T12:00:00.000Z",
+};
+
+const ORDER_ROW = {
+  id: "o1",
+  payer_id: "p1",
+  pack_code: "pack_10",
+  amount_inr: 1000,
+  credits_granted: 10,
+  provider: "razorpay",
+  status: "paid",
+  created_at: "2026-08-04T12:00:00.000Z",
+  updated_at: "2026-08-04T12:00:00.000Z",
+};
+
+const MOCK_POSTURE = { mode: "mock", blocked_reason: "PAYMENTS_ENABLE_REAL is false" };
+
+describe("finance schemas — money never arrives without its provenance", () => {
+  it("a ledger page parses with the posture attached", () => {
+    const p = ledgerPageSchema.parse({
+      items: [LEDGER_ROW],
+      nextCursor: null,
+      payments: MOCK_POSTURE,
+    });
+    expect(p.payments.mode).toBe("mock");
+  });
+
+  it("a ledger page WITHOUT `payments` FAILS to parse", () => {
+    // The load-bearing assertion of Milestone 4. If the server ever stopped sending the
+    // posture, the page must show an error — not a table of rupees with no indication
+    // that none of them were ever charged.
+    expect(ledgerPageSchema.safeParse({ items: [LEDGER_ROW], nextCursor: null }).success).toBe(
+      false,
+    );
+  });
+
+  it("an orders page WITHOUT `payments` FAILS to parse", () => {
+    expect(ordersPageSchema.safeParse({ items: [ORDER_ROW], nextCursor: null }).success).toBe(
+      false,
+    );
+  });
+
+  it("a summary WITHOUT `payments` FAILS to parse", () => {
+    const { payments: _drop, ...rest } = {
+      payments: MOCK_POSTURE,
+      window_days: 30,
+      outstanding_credits: 0,
+      payers_with_balance: 0,
+      by_reason: [],
+      paid_orders: { count: 0, credits: 0, amount_inr: 0 },
+      unsettled_orders: { count: 0, amount_inr: 0 },
+      failed_orders: { count: 0 },
+      top_balances: [],
+    };
+    expect(financeSummarySchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("an unknown posture mode is rejected — it must be exactly real or mock", () => {
+    // A third value would fall through the UI's `mode === "real"` check and render the
+    // MOCK banner, or worse, neither. Reject it at the boundary.
+    expect(
+      ledgerPageSchema.safeParse({
+        items: [],
+        nextCursor: null,
+        payments: { mode: "sandbox", blocked_reason: null },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("a full summary parses, and unsettled orders stay separate from paid", () => {
+    const s = financeSummarySchema.parse({
+      payments: MOCK_POSTURE,
+      window_days: 30,
+      outstanding_credits: 125,
+      payers_with_balance: 3,
+      by_reason: [
+        { reason: "grant", movements: 2, credits_delta: 50, amount_inr: 0 },
+        { reason: "unlock_debit", movements: 5, credits_delta: -5, amount_inr: 0 },
+      ],
+      paid_orders: { count: 1, credits: 10, amount_inr: 1000 },
+      unsettled_orders: { count: 4, amount_inr: 4000 },
+      failed_orders: { count: 0 },
+      top_balances: [{ payer_id: "p1", balance: 100 }],
+    });
+    expect(s.paid_orders.amount_inr).toBe(1000);
+    expect(s.unsettled_orders.amount_inr).toBe(4000);
+  });
+
+  it("an unknown credit reason is rejected rather than rendered as a blank row", () => {
+    expect(
+      ledgerPageSchema.safeParse({
+        items: [{ ...LEDGER_ROW, reason: "chargeback" }],
+        nextCursor: null,
+        payments: MOCK_POSTURE,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("an unknown order status is rejected", () => {
+    expect(
+      ordersPageSchema.safeParse({
+        items: [{ ...ORDER_ROW, status: "refunded" }],
+        nextCursor: null,
+        payments: MOCK_POSTURE,
+      }).success,
+    ).toBe(false);
   });
 });

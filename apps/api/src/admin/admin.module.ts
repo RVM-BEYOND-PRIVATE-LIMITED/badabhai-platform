@@ -30,6 +30,9 @@ import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminEntitiesService } from "./admin-entities.service";
 import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminFinanceRepository } from "./admin-finance.repository";
+import { AdminFinanceService } from "./admin-finance.service";
+import { AdminFinanceController } from "./admin-finance.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -96,6 +99,7 @@ import { AdminEntitiesController } from "./admin-entities.controller";
     AdminPiiRevealController,
     AdminKillSwitchController,
     AdminEntitiesController,
+    AdminFinanceController,
   ],
   providers: [
     AdminRepository,
@@ -126,6 +130,11 @@ import { AdminEntitiesController } from "./admin-entities.controller";
     // widen InternalServiceGuard and does not touch the existing ops read routes.
     AdminEntitiesRepository,
     AdminEntitiesService,
+    // BP-2: finance reads (credit position, platform-wide ledger, payment orders) behind
+    // `read_entities`. SELECT-ONLY. Every money-bearing response carries the payments
+    // posture, so a mock rupee can never be read as a real one.
+    AdminFinanceRepository,
+    AdminFinanceService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

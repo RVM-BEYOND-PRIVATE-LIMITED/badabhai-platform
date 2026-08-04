@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  creditReasonLabel,
   formatCount,
+  formatDelta,
   formatPayBand,
+  formatRupees,
   formatRelative,
   formatSuppressible,
   formatTimestamp,
@@ -151,5 +154,45 @@ describe("formatPayBand — a missing bound is never invented", () => {
 
   it("a genuine zero is still a figure, not an absence", () => {
     expect(formatPayBand(0, 0)).toBe("₹0");
+  });
+});
+
+describe("money — a ledger row's sign is its meaning", () => {
+  it("formatRupees uses whole rupees with Indian grouping", () => {
+    expect(formatRupees(125000)).toBe("₹1,25,000");
+    expect(formatRupees(0)).toBe("₹0");
+  });
+
+  it("a debit is rendered with an explicit minus", () => {
+    // A bare "10" next to a debit reads as a grant. The sign carries the whole meaning.
+    expect(formatDelta(-10)).toBe("\u221210");
+    expect(formatDelta(-10)).not.toBe("10");
+  });
+
+  it("a credit is rendered with an explicit plus", () => {
+    expect(formatDelta(25)).toBe("+25");
+  });
+
+  it("uses a real minus sign, not a hyphen — it aligns with tabular digits", () => {
+    expect(formatDelta(-5).charCodeAt(0)).toBe(0x2212);
+  });
+
+  it("zero renders as +0, never bare", () => {
+    expect(formatDelta(0)).toBe("+0");
+  });
+});
+
+describe("creditReasonLabel", () => {
+  it("labels the four known reasons", () => {
+    expect(creditReasonLabel("pack_purchase")).toBe("Pack purchase");
+    expect(creditReasonLabel("unlock_debit")).toBe("Contact unlock");
+    expect(creditReasonLabel("refund")).toBe("Refund");
+    expect(creditReasonLabel("grant")).toBe("Ops grant");
+  });
+
+  it("an UNKNOWN reason is shown raw, never blank", () => {
+    // A code nobody recognises is a reason to look, not to render an empty cell.
+    expect(creditReasonLabel("chargeback_hold")).toBe("chargeback hold");
+    expect(creditReasonLabel("chargeback_hold")).not.toBe("");
   });
 });
