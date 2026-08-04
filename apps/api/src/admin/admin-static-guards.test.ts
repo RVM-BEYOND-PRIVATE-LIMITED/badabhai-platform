@@ -9,6 +9,7 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminEntitiesController } from "./admin-entities.controller";
 import { AdminFinanceController } from "./admin-finance.controller";
+import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { type AdminCapability } from "./admin-capabilities";
@@ -529,5 +530,64 @@ describe("BP-2 finance routes — guarded, read-only, and free of external refer
     expect(svc).toContain("areRealPaymentsEnabled");
     expect(svc).toContain("realPaymentsBlockedReason");
     expect(svc).not.toMatch(/config\.PAYMENTS_ENABLE_REAL/);
+  });
+});
+
+describe("BP-3 administration routes — guarded, read-only, and secret-free", () => {
+  const proto = AdminDirectoryController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminDirectoryController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers the two administration routes", () => {
+    expect(routeMethods.sort()).toEqual(["capabilities", "directory"].sort());
+  });
+
+  it("BOTH routes carry AdminAuthGuard AND AdminRolesGuard", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminDirectoryController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("the directory is manage_admins; the matrix is read_entities (deliberately different)", () => {
+    const capOf = (m: string) =>
+      Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[m] as object) as AdminCapability;
+    expect(capOf("directory")).toBe("manage_admins");
+    expect(capOf("capabilities")).toBe("read_entities");
+    expect(
+      Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminDirectoryController),
+      "must NOT declare a class-level capability",
+    ).toBeUndefined();
+  });
+
+  it("the surface is READ-ONLY by construction — every route is a GET", () => {
+    for (const method of routeMethods) {
+      expect(Reflect.getMetadata("method", proto[method] as object) as number).toBe(0);
+    }
+  });
+
+  it("the directory repository issues no write and never projects a secret or identity", () => {
+    const repo = readFileSync(join(ADMIN_DIR, "admin-directory.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(repo).not.toMatch(/\.select\(\s*\)/);
+    const src = repo.replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+    // `mfaSecretEnc` is the TOTP seed: returning it is a permanent second-factor bypass.
+    for (const forbidden of ["emailEnc", "emailHash", "nameEnc", "mfaSecretEnc"]) {
+      expect(src, `admin-directory.repository must not project ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+  });
+
+  it("the served matrix is DERIVED via can(), not read off the constant a second way", () => {
+    // Reading ADMIN_CAPABILITY_MATRIX directly would let this route and the guard diverge
+    // if the lookup ever gained a rule (a deny-list, a role hierarchy).
+    const svc = readFileSync(join(ADMIN_DIR, "admin-directory.service.ts"), "utf8");
+    expect(svc).toContain("can(role, capability)");
   });
 });

@@ -33,6 +33,9 @@ import { AdminEntitiesController } from "./admin-entities.controller";
 import { AdminFinanceRepository } from "./admin-finance.repository";
 import { AdminFinanceService } from "./admin-finance.service";
 import { AdminFinanceController } from "./admin-finance.controller";
+import { AdminDirectoryRepository } from "./admin-directory.repository";
+import { AdminDirectoryService } from "./admin-directory.service";
+import { AdminDirectoryController } from "./admin-directory.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -100,6 +103,7 @@ import { AdminFinanceController } from "./admin-finance.controller";
     AdminKillSwitchController,
     AdminEntitiesController,
     AdminFinanceController,
+    AdminDirectoryController,
   ],
   providers: [
     AdminRepository,
@@ -135,6 +139,11 @@ import { AdminFinanceController } from "./admin-finance.controller";
     // posture, so a mock rupee can never be read as a real one.
     AdminFinanceRepository,
     AdminFinanceService,
+    // BP-3: the FACELESS admin directory (`manage_admins`, super_admin only) + the
+    // role→capability matrix (`read_entities`), served so the portal carries no second copy
+    // of the authorization table. SELECT-ONLY; never projects email/name/mfa_secret.
+    AdminDirectoryRepository,
+    AdminDirectoryService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

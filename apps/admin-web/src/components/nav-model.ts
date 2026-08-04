@@ -57,8 +57,13 @@ export const NAV: NavSection[] = [
   {
     title: "Administration",
     items: [
-      { href: "/admins", label: "Admin users", capability: "manage_admins", upcoming: true },
-      { href: "/system", label: "System health", upcoming: true },
+      { href: "/admins", label: "Admin users", capability: "manage_admins" },
+      // No capability: the authorization model describes the reader's OWN limits, and
+      // hiding it would only make the portal opaque to the people working inside it.
+      { href: "/roles", label: "Roles & capabilities" },
+      // No capability either: dependency health is not a secret. The page itself hides the
+      // switch table from anyone without `toggle_kill_switch`, rather than 403-ing the lot.
+      { href: "/system", label: "System" },
     ],
   },
 ];

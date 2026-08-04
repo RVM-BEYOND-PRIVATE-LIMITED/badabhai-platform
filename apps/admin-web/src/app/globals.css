@@ -1032,3 +1032,41 @@ h3 {
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-xs);
 }
+
+/* Milestone 5 — Administration: capability chips and the matrix marks. */
+.chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.chip {
+  padding: 0.1rem var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  border: var(--border-default) solid var(--divider);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+.table__rowhead {
+  text-align: left;
+  font-weight: var(--weight-medium);
+}
+/* The signed-in admin's column, so "what can I do" is findable at a glance. */
+.cell--mine {
+  background: var(--brand-tint);
+}
+.mark {
+  font-family: var(--font-mono);
+}
+.mark--yes {
+  color: var(--success-press);
+  font-weight: var(--weight-bold);
+}
+/* Denied is a muted dot, not a red cross: most cells are denials by design, and a wall of
+   red would read as a wall of problems rather than as least-privilege working. */
+.mark--no {
+  color: var(--text-faint);
+}

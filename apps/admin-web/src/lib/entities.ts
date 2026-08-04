@@ -334,3 +334,77 @@ export function listOrders(
 ) {
   return adminFetch(`/admin/finance/orders${qs(f)}`, { schema: ordersPageSchema });
 }
+
+// ---------------------------------------------------------------------------
+// administration (BP-3) — the faceless admin directory, roles, and the switches
+// ---------------------------------------------------------------------------
+
+export const adminRowSchema = z.object({
+  id: z.string(),
+  role: z.enum(["super_admin", "ops_admin", "support", "analyst"]),
+  status: z.enum(["pending", "active", "suspended"]),
+  mfa_enrolled: z.boolean(),
+  last_login_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  is_self: z.boolean(),
+});
+export type AdminRow = z.infer<typeof adminRowSchema>;
+
+export const adminDirectorySchema = z.object({
+  admins: z.array(adminRowSchema),
+  active_super_admins: z.number(),
+});
+export type AdminDirectory = z.infer<typeof adminDirectorySchema>;
+
+export function listAdmins(f: { role?: string; status?: string } = {}) {
+  return adminFetch(`/admin/admins${qs(f)}`, { schema: adminDirectorySchema });
+}
+
+/**
+ * The role→capability matrix, SERVED.
+ *
+ * The portal carries no copy of this mapping (invariant #9). Hardcoding it here to render a
+ * Roles screen would create a second authorization table that drifts the first time a row
+ * changes — which is the whole reason the server answers instead.
+ */
+export const capabilityMatrixSchema = z.object({
+  roles: z.array(z.enum(["super_admin", "ops_admin", "support", "analyst"])),
+  matrix: z.array(
+    z.object({
+      capability: z.string(),
+      roles: z.array(z.enum(["super_admin", "ops_admin", "support", "analyst"])),
+    }),
+  ),
+});
+export type CapabilityMatrix = z.infer<typeof capabilityMatrixSchema>;
+
+export function getCapabilityMatrix() {
+  return adminFetch("/admin/capabilities", { schema: capabilityMatrixSchema });
+}
+
+/**
+ * The platform's provider/operational switches (ADMIN-3c).
+ *
+ * DISPLAY ONLY. Enabling a real provider is an env/deploy action and never a portal toggle
+ * (CLAUDE.md §2 #5) — so this portal renders `pause_via` as documentation, not as a button.
+ */
+export const killSwitchSchema = z.object({
+  switches: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      category: z.string(),
+      real_spend: z.boolean(),
+      state: z.enum(["live", "blocked", "paused", "disabled"]),
+      detail: z.string().nullable(),
+      pause_via: z.string(),
+    }),
+  ),
+  note: z.string(),
+});
+export type KillSwitchStatus = z.infer<typeof killSwitchSchema>;
+
+export function getKillSwitchStatus() {
+  return adminFetch("/admin/kill-switch/status", { schema: killSwitchSchema });
+}
