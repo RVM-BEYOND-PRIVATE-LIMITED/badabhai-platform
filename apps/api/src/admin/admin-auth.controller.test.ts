@@ -190,6 +190,8 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
       role: ROLE,
       capabilities: [
         "read_events",
+        // BP-1 — the faceless entity reads (ADR-0025 §3.1 row 2, all four roles).
+        "read_entities",
         "export",
         "suspend_payer",
         "grant_credits",

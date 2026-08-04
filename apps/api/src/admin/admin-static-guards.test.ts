@@ -7,6 +7,7 @@ import { AdminEventsController } from "./admin-events.controller";
 import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
+import { AdminEntitiesController } from "./admin-entities.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { type AdminCapability } from "./admin-capabilities";
@@ -351,5 +352,109 @@ describe("ADMIN-3c kill-switch routes — guarded + toggle_kill_switch + SAFE-DI
       expect(onMethod, `${method} must declare a method-level @RequireAdminRole`).toBeDefined();
       expect(capabilityOf(method)).toBe("toggle_kill_switch");
     }
+  });
+});
+
+describe("BP-1 entity-read routes — guarded, read-only, and read_entities-scoped (must-fix #4 extended)", () => {
+  const proto = AdminEntitiesController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminEntitiesController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  function capabilityOf(method: string): AdminCapability | undefined {
+    const fn = (proto[method] ?? undefined) as object | undefined;
+    return (
+      (fn && (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, fn) as AdminCapability | undefined)) ??
+      (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminEntitiesController) as
+        | AdminCapability
+        | undefined)
+    );
+  }
+
+  it("discovers the eight entity-read routes (no route silently dropped)", () => {
+    expect(routeMethods.sort()).toEqual(
+      [
+        "listWorkers",
+        "getWorker",
+        "listPayers",
+        "getPayer",
+        "getPayerCredits",
+        "listJobPostings",
+        "getJobPosting",
+        "listApplications",
+      ].sort(),
+    );
+  });
+
+  it("EVERY entity-read route carries AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminEntitiesController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("EVERY entity-read route declares method-level @RequireAdminRole('read_entities')", () => {
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminEntitiesController) as
+      | AdminCapability
+      | undefined;
+    expect(onClass, "AdminEntitiesController must NOT declare a class-level capability").toBeUndefined();
+    for (const method of routeMethods) {
+      const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as
+        | AdminCapability
+        | undefined;
+      expect(onMethod, `${method} must declare a method-level @RequireAdminRole`).toBeDefined();
+      expect(capabilityOf(method)).toBe("read_entities");
+    }
+  });
+
+  it("the surface is READ-ONLY by construction — every route is a GET, none is a write verb", () => {
+    // Nest stores the HTTP verb as route metadata under "method" (RequestMethod.GET === 0).
+    // Structural, not conventional: a POST/PATCH/DELETE added to this controller would bypass
+    // AdminActionsService and therefore mutate system-of-record state with NO
+    // `admin.action_performed` audit — the exact failure the admin design exists to prevent.
+    for (const method of routeMethods) {
+      const verb = Reflect.getMetadata("method", proto[method] as object) as number;
+      expect(verb, `${method} must be a GET (this controller is read-only)`).toBe(0);
+    }
+  });
+
+  it("the repository issues no write against ANY table (read-only data access)", () => {
+    // The spine guard above covers `events`. This is the wider promise for BP-1: the entity
+    // repository never writes anything at all.
+    const repo = readFileSync(join(ADMIN_DIR, "admin-entities.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
+  });
+
+  it("the repository never projects a PII column (the faceless contract, enforced on source)", () => {
+    // The projection is the boundary, so pin it where it is written. These identifiers are the
+    // encrypted/hashed/raw PII columns on `workers` and `payers`; none may appear in a select
+    // list here. A future `select()` with no projection would return them silently — that is
+    // why the whole-row form is banned on the next line rather than just these names.
+    const repo = readFileSync(join(ADMIN_DIR, "admin-entities.repository.ts"), "utf8");
+    const source = repo
+      .split("\n")
+      .filter((l) => !l.trimStart().startsWith("*") && !l.trimStart().startsWith("//"))
+      .join("\n");
+    for (const forbidden of [
+      "phoneE164",
+      "phoneHash",
+      "fullName",
+      "emailEnc",
+      "emailHash",
+      "phoneEnc",
+      "orgNameEnc",
+      "photoStorageKey:", // the boolean is fine; projecting the key under its own name is not
+      "paymentRef",
+    ]) {
+      expect(source, `admin-entities.repository must not project ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+    // No unprojected `select()` — that form returns every column, PII included.
+    expect(source).not.toMatch(/\.select\(\s*\)/);
   });
 });
