@@ -1,0 +1,2 @@
+CREATE INDEX "credit_ledger_admin_keyset_idx" ON "credit_ledger" USING btree ("created_at" DESC NULLS LAST,"id" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX "payment_orders_admin_keyset_idx" ON "payment_orders" USING btree ("created_at" DESC NULLS LAST,"id" DESC NULLS LAST);

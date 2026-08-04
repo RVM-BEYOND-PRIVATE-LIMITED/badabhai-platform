@@ -47,8 +47,11 @@ export const NAV: NavSection[] = [
   {
     title: "Finance",
     items: [
-      { href: "/credits", label: "Credits", capability: "grant_credits", upcoming: true },
-      { href: "/transactions", label: "Transactions", upcoming: true },
+      // `read_entities`, NOT `grant_credits`. Seeing the credit position and changing it are
+      // different privileges — an analyst investigating a billing complaint should be able to
+      // read the ledger without gaining the ability to alter a balance.
+      { href: "/credits", label: "Credits", capability: "read_entities" },
+      { href: "/transactions", label: "Transactions", capability: "read_entities" },
     ],
   },
   {

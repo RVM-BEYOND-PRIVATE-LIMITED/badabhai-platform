@@ -8,6 +8,7 @@ import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { type AdminCapability } from "./admin-capabilities";
@@ -456,5 +457,77 @@ describe("BP-1 entity-read routes — guarded, read-only, and read_entities-scop
     }
     // No unprojected `select()` — that form returns every column, PII included.
     expect(source).not.toMatch(/\.select\(\s*\)/);
+  });
+});
+
+describe("BP-2 finance routes — guarded, read-only, and free of external references", () => {
+  const proto = AdminFinanceController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminFinanceController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers the three finance routes (no route silently dropped)", () => {
+    expect(routeMethods.sort()).toEqual(["ledger", "orders", "summary"].sort());
+  });
+
+  it("EVERY finance route carries AdminAuthGuard AND AdminRolesGuard", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminFinanceController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("EVERY finance route declares method-level @RequireAdminRole('read_entities')", () => {
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminFinanceController) as
+      | AdminCapability
+      | undefined;
+    expect(onClass, "AdminFinanceController must NOT declare a class-level capability").toBeUndefined();
+    for (const method of routeMethods) {
+      const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as
+        | AdminCapability
+        | undefined;
+      expect(onMethod, `${method} must declare a method-level @RequireAdminRole`).toBe("read_entities");
+    }
+  });
+
+  it("the surface is READ-ONLY by construction — every route is a GET", () => {
+    // A write here would move money with no `admin.action_performed` audit. Grants go
+    // through AdminActionsService, which emits one.
+    for (const method of routeMethods) {
+      expect(Reflect.getMetadata("method", proto[method] as object) as number).toBe(0);
+    }
+  });
+
+  it("the finance repository issues no write against any table", () => {
+    const repo = readFileSync(join(ADMIN_DIR, "admin-finance.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(repo).not.toMatch(/\.select\(\s*\)/); // never an unprojected whole-row read
+  });
+
+  it("the finance repository never projects an EXTERNAL reference or a secret", () => {
+    // These originate outside this codebase (a gateway, or a caller), so their contents are
+    // the one thing we cannot vouch for. Nothing on the screens needs them.
+    // Strip comment lines before scanning: this file NAMES the forbidden fields in prose,
+    // and matching its own documentation would be a test that can never pass.
+    const src = readFileSync(join(ADMIN_DIR, "admin-finance.repository.ts"), "utf8").replace(
+      /^\s*(\/\/|\*|\/\*).*$/gm,
+      "",
+    );
+    for (const forbidden of ["paymentRef", "providerPaymentRef", "providerOrderId", "idempotencyKey"]) {
+      expect(src, `admin-finance.repository must not project ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it("the payments posture is derived from the SHARED config helper, not a second flag read", () => {
+    // Two independent readings of PAYMENTS_ENABLE_REAL would be two sources of truth about
+    // whether money is real — the Finance screen and the kill-switch screen could disagree.
+    const svc = readFileSync(join(ADMIN_DIR, "admin-finance.service.ts"), "utf8");
+    expect(svc).toContain("areRealPaymentsEnabled");
+    expect(svc).toContain("realPaymentsBlockedReason");
+    expect(svc).not.toMatch(/config\.PAYMENTS_ENABLE_REAL/);
   });
 });

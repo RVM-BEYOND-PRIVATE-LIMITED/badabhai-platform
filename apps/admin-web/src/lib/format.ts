@@ -107,3 +107,42 @@ export function formatPayBand(min: number | null, max: number | null): string {
   if (max !== null) return `up to ${rupees(max)}`;
   return "not stated";
 }
+
+/**
+ * Whole rupees, Indian digit grouping. Never paise — the columns are integer ₹, and
+ * decimals would imply a precision the data does not have.
+ */
+export function formatRupees(n: number): string {
+  return `₹${formatCount(n)}`;
+}
+
+/**
+ * A signed credit movement: "+25" / "−10".
+ *
+ * The sign is the whole meaning of a ledger row, so it is always explicit — a bare "25"
+ * beside a debit reads as a grant. Uses a real minus sign (U+2212), which aligns with digits
+ * in the tabular figures the table uses; a hyphen renders shorter and makes a column of
+ * negatives look ragged.
+ */
+export function formatDelta(n: number): string {
+  if (n < 0) return `\u2212${formatCount(Math.abs(n))}`;
+  return `+${formatCount(n)}`;
+}
+
+/** Human label for a credit-ledger reason code. */
+export function creditReasonLabel(reason: string): string {
+  switch (reason) {
+    case "pack_purchase":
+      return "Pack purchase";
+    case "unlock_debit":
+      return "Contact unlock";
+    case "refund":
+      return "Refund";
+    case "grant":
+      return "Ops grant";
+    default:
+      // An unmapped reason is shown RAW rather than hidden — a code nobody recognises is a
+      // reason to look, not to render a blank cell.
+      return reason.replace(/_/g, " ");
+  }
+}
