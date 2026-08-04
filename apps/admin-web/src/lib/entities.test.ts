@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   applicationListItemSchema,
+  adminDirectorySchema,
+  adminRowSchema,
+  capabilityMatrixSchema,
   creditsViewSchema,
+  killSwitchSchema,
   financeSummarySchema,
   ledgerPageSchema,
   ordersPageSchema,
@@ -343,6 +347,118 @@ describe("finance schemas — money never arrives without its provenance", () =>
         nextCursor: null,
         payments: MOCK_POSTURE,
       }).success,
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// administration (BP-3)
+// ---------------------------------------------------------------------------
+
+const ADMIN_ROW = {
+  id: "aaaaaaaa-0000-4000-8000-000000000001",
+  role: "super_admin",
+  status: "active",
+  mfa_enrolled: true,
+  last_login_at: "2026-08-04T12:00:00.000Z",
+  created_at: "2026-08-01T00:00:00.000Z",
+  updated_at: "2026-08-04T12:00:00.000Z",
+  is_self: true,
+};
+
+describe("admin directory schema — the faceless contract", () => {
+  it("parses a faceless admin row", () => {
+    expect(adminRowSchema.parse(ADMIN_ROW).role).toBe("super_admin");
+  });
+
+  it("a row is valid WITHOUT any identity field — faceless is the contract", () => {
+    // Guards the owner ruling: nothing in the schema requires a name or an email, so the
+    // UI can never come to depend on one arriving.
+    const parsed = adminRowSchema.parse(ADMIN_ROW);
+    expect(parsed).not.toHaveProperty("email");
+    expect(parsed).not.toHaveProperty("name");
+  });
+
+  it("an unknown role or status is rejected rather than rendered", () => {
+    expect(adminRowSchema.safeParse({ ...ADMIN_ROW, role: "root" }).success).toBe(false);
+    expect(adminRowSchema.safeParse({ ...ADMIN_ROW, status: "deleted" }).success).toBe(false);
+  });
+
+  it("mfa_enrolled must be a boolean — a truthy string would render as enrolled", () => {
+    expect(adminRowSchema.safeParse({ ...ADMIN_ROW, mfa_enrolled: "no" }).success).toBe(false);
+  });
+
+  it("the directory envelope carries the active super-admin count", () => {
+    const d = adminDirectorySchema.parse({ admins: [ADMIN_ROW], active_super_admins: 1 });
+    expect(d.active_super_admins).toBe(1);
+  });
+
+  it("the envelope REQUIRES the count — a missing one must not read as zero", () => {
+    // Zero would trip the "only one super admin" warning logic in the wrong direction.
+    expect(adminDirectorySchema.safeParse({ admins: [ADMIN_ROW] }).success).toBe(false);
+  });
+});
+
+describe("capability matrix schema — served, never copied", () => {
+  it("parses the server's matrix", () => {
+    const m = capabilityMatrixSchema.parse({
+      roles: ["super_admin", "ops_admin", "support", "analyst"],
+      matrix: [
+        { capability: "read_events", roles: ["super_admin", "ops_admin", "support", "analyst"] },
+        { capability: "manage_admins", roles: ["super_admin"] },
+      ],
+    });
+    expect(m.matrix[1]!.roles).toEqual(["super_admin"]);
+  });
+
+  it("capability is a free STRING on purpose — a new server capability must still render", () => {
+    // If the API adds a capability this portal has not been taught about, the page shows it
+    // raw rather than failing to parse and hiding the whole authorization model.
+    expect(
+      capabilityMatrixSchema.safeParse({
+        roles: ["super_admin"],
+        matrix: [{ capability: "brand_new_capability", roles: ["super_admin"] }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("an unknown ROLE is still rejected — roles are a closed set", () => {
+    expect(
+      capabilityMatrixSchema.safeParse({
+        roles: ["super_admin"],
+        matrix: [{ capability: "x", roles: ["root"] }],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("kill-switch schema", () => {
+  const SWITCH = {
+    key: "real_payments",
+    label: "Real payments",
+    category: "payments",
+    real_spend: true,
+    state: "blocked",
+    detail: "PAYMENTS_ENABLE_REAL is false",
+    pause_via: "set PAYMENTS_ENABLE_REAL=false (env/deploy)",
+  };
+
+  it("parses the switch snapshot", () => {
+    const s = killSwitchSchema.parse({ switches: [SWITCH], note: "display only" });
+    expect(s.switches[0]!.state).toBe("blocked");
+  });
+
+  it("an unknown state is rejected — the tone mapping is exhaustive over the four", () => {
+    expect(
+      killSwitchSchema.safeParse({ switches: [{ ...SWITCH, state: "degraded" }], note: "" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("real_spend must be a boolean — it drives whether LIVE reads as amber", () => {
+    expect(
+      killSwitchSchema.safeParse({ switches: [{ ...SWITCH, real_spend: "yes" }], note: "" })
+        .success,
     ).toBe(false);
   });
 });
