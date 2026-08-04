@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   formatCount,
+  formatPayBand,
   formatRelative,
   formatSuppressible,
   formatTimestamp,
@@ -120,5 +121,35 @@ describe("counts", () => {
   it("groups with Indian digit grouping", () => {
     expect(formatCount(1234)).toBe("1,234");
     expect(formatCount(0)).toBe("0");
+  });
+});
+
+describe("formatPayBand — a missing bound is never invented", () => {
+  it("renders a real band", () => {
+    expect(formatPayBand(18000, 25000)).toBe("₹18,000–₹25,000");
+  });
+
+  it("collapses an equal min and max to one figure", () => {
+    expect(formatPayBand(20000, 20000)).toBe("₹20,000");
+  });
+
+  it("a min-only posting reads 'from', NOT as a fixed salary", () => {
+    // The bug this prevents: rendering min-only as "₹18,000" states a ceiling the
+    // employer never offered, on a screen a worker's expectations are set from.
+    expect(formatPayBand(18000, null)).toBe("from ₹18,000");
+    expect(formatPayBand(18000, null)).not.toBe("₹18,000");
+  });
+
+  it("a max-only posting reads 'up to'", () => {
+    expect(formatPayBand(null, 25000)).toBe("up to ₹25,000");
+  });
+
+  it("no pay at all says so plainly rather than showing ₹0", () => {
+    expect(formatPayBand(null, null)).toBe("not stated");
+    expect(formatPayBand(null, null)).not.toContain("0");
+  });
+
+  it("a genuine zero is still a figure, not an absence", () => {
+    expect(formatPayBand(0, 0)).toBe("₹0");
   });
 });

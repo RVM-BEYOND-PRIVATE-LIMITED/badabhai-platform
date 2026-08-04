@@ -22,6 +22,7 @@
 
 export const ADMIN_CAPABILITIES = [
   "read_events",
+  "read_entities",
   "export",
   "suspend_payer",
   "grant_credits",
@@ -48,6 +49,7 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
 
 export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   read_events: "Read events",
+  read_entities: "Read workers, companies, agencies and jobs",
   export: "Export data",
   suspend_payer: "Suspend payers",
   grant_credits: "Grant credits",

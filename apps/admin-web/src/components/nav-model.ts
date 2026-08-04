@@ -38,10 +38,10 @@ export const NAV: NavSection[] = [
   {
     title: "Operations",
     items: [
-      { href: "/workers", label: "Workers", upcoming: true },
-      { href: "/companies", label: "Companies", upcoming: true },
-      { href: "/agencies", label: "Agencies", upcoming: true },
-      { href: "/jobs", label: "Jobs", upcoming: true },
+      { href: "/workers", label: "Workers", capability: "read_entities" },
+      { href: "/companies", label: "Companies", capability: "read_entities" },
+      { href: "/agencies", label: "Agencies", capability: "read_entities" },
+      { href: "/jobs", label: "Jobs", capability: "read_entities" },
     ],
   },
   {

@@ -60,6 +60,16 @@ export function isAdminForbidden(err: unknown): err is AdminForbiddenError {
   return err instanceof AdminForbiddenError;
 }
 
+/**
+ * Narrow to the status-carrying error, so a page can distinguish "no such record" (404,
+ * and 400 for a malformed id) from a genuine server fault. Without this every failure is
+ * indistinguishable and a mistyped id in a URL renders the error boundary instead of the
+ * not-found screen.
+ */
+export function isAdminRequestError(err: unknown): err is AdminRequestError {
+  return err instanceof AdminRequestError;
+}
+
 interface RequestOptions<T> {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;

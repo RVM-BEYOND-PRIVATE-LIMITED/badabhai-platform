@@ -907,3 +907,116 @@ h3 {
     gap: var(--space-1) 0;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Milestone 3 — Operations
+ *
+ * Additions only; nothing above is changed. The key/value blocks reuse the shipped `.kv`
+ * grid rather than introducing a second one.
+ * ------------------------------------------------------------------------ */
+
+/* A section breadcrumb above a detail title. */
+.page__eyebrow {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+/* Actions sit opposite the title in the existing flex `.page__head`. */
+.page__actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* Denser stat grid for detail sidebars, where four tiles share a narrow column. */
+.stats--compact {
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: var(--space-3);
+}
+.stats--compact .stat {
+  padding: var(--space-4);
+}
+
+/*
+ * Status pill. Tones are the semantic tokens, so a status reads the same everywhere in the
+ * portal. `warn` is the fallback for an unrecognised value — a state this portal has not
+ * been taught about is worth looking at, and defaulting it to green would hide it.
+ */
+.pill {
+  display: inline-block;
+  padding: 0.1rem var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  border: var(--border-default) solid transparent;
+  white-space: nowrap;
+}
+.pill--ok {
+  background: var(--success-tint);
+  color: var(--success-press);
+  border-color: var(--success);
+}
+.pill--warn {
+  background: var(--warning-tint);
+  color: var(--ink-800);
+  border-color: var(--warning);
+}
+.pill--bad {
+  background: var(--danger-tint);
+  color: var(--danger-press);
+  border-color: var(--danger);
+}
+.pill--muted {
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  border-color: var(--divider);
+}
+
+/* A page-level banner for a state the operator must not miss (suspension, pending delete). */
+.notice {
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
+  border: var(--border-default) solid var(--divider);
+  background: var(--surface-raised);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+.notice--bad {
+  background: var(--danger-tint);
+  border-color: var(--danger);
+}
+.notice--warn {
+  background: var(--warning-tint);
+  border-color: var(--warning);
+}
+
+/* Poster-typed prose (a job description), shown verbatim. */
+.prose {
+  margin-top: var(--space-5);
+}
+.prose__head {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+}
+.prose__body {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  /* The poster's line breaks are part of what is being reviewed — collapsing them
+     changes how the advertisement reads. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A checkbox filter sits inline rather than stacking label-over-input like `.field`. */
+.field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+  align-self: end;
+  padding-bottom: var(--space-3);
+}
+.field--check .field__label {
+  margin: 0;
+}

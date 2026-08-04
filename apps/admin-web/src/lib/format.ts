@@ -86,3 +86,24 @@ export function healthTone(value: string): "ok" | "warn" | "bad" {
   // saying so plainly is the entire point of TD81.
   return "warn";
 }
+
+/**
+ * A monthly pay band in whole rupees.
+ *
+ * Pay is nullable on a posting, and the three partial cases are NOT the same claim:
+ * "₹18,000–25,000", "from ₹18,000" and "not stated" each tell an operator something
+ * different. Collapsing a missing bound into the one that exists — rendering a min-only
+ * posting as a fixed "₹18,000" — would state a ceiling the employer never offered.
+ *
+ * Never paise: the column is an integer ₹ amount, and showing decimals would imply a
+ * precision the band does not have.
+ */
+export function formatPayBand(min: number | null, max: number | null): string {
+  const rupees = (n: number) => `₹${formatCount(n)}`;
+  if (min !== null && max !== null) {
+    return min === max ? rupees(min) : `${rupees(min)}–${rupees(max)}`;
+  }
+  if (min !== null) return `from ${rupees(min)}`;
+  if (max !== null) return `up to ${rupees(max)}`;
+  return "not stated";
+}
