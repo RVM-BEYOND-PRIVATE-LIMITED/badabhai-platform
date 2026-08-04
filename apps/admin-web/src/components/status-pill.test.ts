@@ -54,3 +54,21 @@ describe("statusTone", () => {
     expect(statusTone("")).toBe("muted");
   });
 });
+
+describe("tone override — borrowing a tone must never change the text", () => {
+  it("statusTone still drives the tone when none is passed", () => {
+    // The override is additive: the entity screens keep the value-derived behaviour,
+    // including the warn fallback for an unknown status.
+    expect(statusTone("paid")).toBe("warn"); // unmapped → warn, not ok
+    expect(statusTone("active")).toBe("ok");
+  });
+
+  it("the finance domain's values are NOT in the map — which is why tone is passed", () => {
+    // These are exactly the values that tempted the original bug: none of them resolve,
+    // so a caller wanting the right colour reached for another domain's value and
+    // silently changed the displayed word too.
+    for (const v of ["pack_purchase", "unlock_debit", "grant", "created"]) {
+      expect(statusTone(v), v).toBe("warn");
+    }
+  });
+});

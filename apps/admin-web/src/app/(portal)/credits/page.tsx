@@ -272,8 +272,16 @@ export default async function CreditsPage({
                       </Link>
                     </td>
                     <td>
-                      <StatusPill value={row.reason === "unlock_debit" ? "skipped" : "applied"} />
-                      <span className="table__meta">{creditReasonLabel(row.reason)}</span>
+                      {/* The pill shows the REASON, toned by direction — a debit spends
+                          credits, everything else adds them. It used to borrow the
+                          applications tone map by value, which rendered the word "applied"
+                          next to an ops grant. */}
+                      <StatusPill
+                        value={row.reason}
+                        label={creditReasonLabel(row.reason)}
+                        tone={row.delta < 0 ? "warn" : "ok"}
+                        title={`${row.reason} · ${row.delta < 0 ? "spends" : "adds"} credits`}
+                      />
                     </td>
                     <td className="mono">{formatDelta(row.delta)}</td>
                     <td className="table__meta">
