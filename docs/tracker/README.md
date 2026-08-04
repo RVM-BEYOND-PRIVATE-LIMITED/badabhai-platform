@@ -20,6 +20,7 @@ close we are to alpha — **with evidence, not guesses**.
 
 | File | Purpose | Update cadence |
 | ---- | ------- | -------------- |
+| **[BACKLOG.md](BACKLOG.md)** | **Single source of truth for WHO OWNS WHAT.** Every open item in exactly one of 5 threads, with dependencies, entry/exit criteria and the dependency graph. **Check here before starting any work.** | On thread/ownership change |
 | [PROJECT_STATUS.md](PROJECT_STATUS.md) | Weighted %-progress dashboard: overall / phase / main-task / final-task, with status + evidence | Every working day |
 | [DAILY_TRACKER.md](DAILY_TRACKER.md) | Per-day movement: yesterday/today/blockers/decisions/tests + %-delta | Every working day |
 | [ROADMAP.md](ROADMAP.md) | Phase 0→7 to paid launch: goal, in/out scope, gates, test gates, owner | On milestone change |
