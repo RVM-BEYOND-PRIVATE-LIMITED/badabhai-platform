@@ -84,7 +84,10 @@ export default tseslint.config(
     // selectors would false-positive on. Color/size token *values* live in CSS, so the
     // token files + the `.bb-*` component CSS (the design-system source of truth) are out
     // of scope here (ESLint lints TS/TSX only).
-    files: ["apps/payer-web/src/**/*.{ts,tsx}"],
+    // admin-web ships on the SAME token layer (its tokens.css is a port of the design
+    // system), so it is gated identically — a portal built with raw hex would not flip
+    // under [data-theme="ink"] and would drift from payer-web on the first restyle.
+    files: ["apps/payer-web/src/**/*.{ts,tsx}", "apps/admin-web/src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -106,6 +109,7 @@ export default tseslint.config(
     files: [
       "apps/payer-web/**/*.{test,spec}.{ts,tsx}",
       "apps/payer-web/**/*.stories.{ts,tsx}",
+      "apps/admin-web/**/*.{test,spec}.{ts,tsx}",
     ],
     rules: {
       "no-restricted-syntax": "off",
