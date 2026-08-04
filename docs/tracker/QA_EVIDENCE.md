@@ -9,6 +9,80 @@ written index.
 
 ---
 
+## 2026-08-03 — AP-1 admin foundation gate: **PASS (13/13) on a genuinely empty database**
+
+**Verifier:** Claude (backend thread), executed — not reasoned about. **Commit:** `a4348cbb`
++ the blocker fix in this PR. **Runbook:** [admin-foundation-verification-runbook.md](../admin-foundation-verification-runbook.md).
+
+Environment created by `docker compose down -v` (volumes destroyed), then `pnpm db:up`,
+`pnpm mail:up`. Postgres, Redis and Mailpit all reported healthy before step 1.
+
+### It did NOT pass first time — a P0 blocker was found at step 2
+
+`pnpm db:migrate` failed with **zero migrations applied and zero tables created**, and
+`drizzle-kit` **exited 1 printing no error at all**. Running the migrator programmatically
+surfaced it:
+
+```
+MIGRATE FAILED
+message: Failed query: REVOKE ALL ON TABLE "workers" FROM anon;
+cause  : PostgresError: role "anon" does not exist   (SQLSTATE 42704)
+```
+
+**26 of the 64 migrations** REVOKE/GRANT on `anon`, `authenticated`, `service_role` — the
+Supabase PostgREST roles. Supabase ships them; the `pgvector/pgvector:pg16` container that
+`pnpm db:up` starts does not. So the documented local path **could never have worked from an
+empty database**; every existing developer database predates `0004` or was created against
+Supabase. This is exactly the failure mode CLAUDE.md invariant #10 exists to catch, and it
+was invisible until someone actually ran it.
+
+Fixed in the **environment**, not the migrations: `infra/docker/postgres-init/00-supabase-roles.sql`
+creates the three roles (NOLOGIN) on first boot. Editing 26 shipped migrations would change
+their hashes and make databases that already ran them re-apply all 26.
+
+### After the fix — the documented path, start to finish
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Empty DB (`down -v` → `db:up`) | 0 tables, no `drizzle` schema — verified, not assumed |
+| 2 | `pnpm db:migrate` | ✅ **64 migrations applied, 55 tables** |
+| 3 | Bootstrap CLI | ✅ created `super_admin` `80e2b2a0…`, status `active`; email never printed (hash prefix only) |
+| 3b | **Bootstrap run a second time** | ✅ **REFUSED, exit 0**, `admin_users` count stayed **1** |
+| 4 | Email delivery | ✅ real SMTP → Mailpit, subject "Your BadaBhai admin login code" |
+| 5 | OTP verify | ✅ `{"status":"mfa_required","needs_enrollment":false}` — **no `access_token`** |
+| 6 | TOTP enrolment | ✅ seed from `--with-totp` accepted by an RFC-6238 generator |
+| 7 | Session | ✅ `access_token` minted **only after** the second factor |
+| 8 | Refresh | ✅ 200, and the returned token **differs** from the old one (rotated) |
+| 9 | Logout | ✅ 204 — **and the logged-out token then returned 401** (the assertion that matters) |
+| 9b | Pre-refresh token | ✅ also 401 — rotation does not leave a live predecessor |
+| 10 | Re-login | ✅ second code delivered (2 messages in Mailpit) |
+| 11 | MFA challenge | ✅ `needs_enrollment: false` — the seed **persisted**, was not re-issued; still no session pre-MFA |
+| 12 | Events | ✅ `admin.session_started` → `admin.session_revoked` → `admin.session_started`; **no email, no OTP code, no TOTP secret** anywhere in the payloads |
+| 13 | Capabilities | ✅ `/admin/me` returned all **9** capabilities for `super_admin` |
+
+`GET /health` during the run: `database: up`, `redis: up`, and `ai_posture: "mock"` — the
+mocked-AI state is honestly reported rather than hidden behind a bare 200 (TD81's mitigation
+visible in practice).
+
+### Consequence
+
+**The ADR-0038 foundation is proven reproducible from zero.** Admin Portal UI work (ADMIN-4)
+is unblocked. The AP-1 P1 blocker in [BLOCKERS.md](BLOCKERS.md) is cleared.
+
+### Noted, not fixed here (no opportunistic changes)
+
+- **`drizzle-kit migrate` swallows the failure entirely** — silent exit 1, no message, while
+  the same SQL applied fine under `psql`. This cost the whole diagnosis. Logged as **TD133**.
+- CLAUDE.md and the ADMIN brief say **43 tables**; the real count from a clean migrate is
+  **55**. Doc drift only — `schema.ts` is the source of truth.
+- The admin OTP email's From identity resolved to an `@rvmcad.org` address from the local
+  environment, not the `EMAIL_FROM_ADDRESS` passed for the run (`SMTP_FROM` wins in
+  `sendViaSmtp`). Harmless locally; worth confirming for staging/production sender identity.
+- The bootstrap CLI's refusal message points to `POST /admin/invite`; the route inventory
+  records `POST /admin/admins`. Message text only, no behavioural impact.
+
+---
+
 ## 2026-07-25 — B1 worker capstone + swipe handset (team attestation)
 
 **Verifier:** Divyanshu Pant — **B1 worker capstone VERIFIED** (staging/real stack: worker

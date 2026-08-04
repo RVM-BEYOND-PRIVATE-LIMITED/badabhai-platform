@@ -40,6 +40,29 @@ pnpm db:migrate                 # full migration chain onto an empty DB
 not evidence. If the migration chain does not apply cleanly from empty, that is a backend
 defect on its own — report it and stop.
 
+> **This is exactly where the gate failed on its first run (2026-08-03), and it is why the
+> step exists.** 26 of the 64 migrations `REVOKE`/`GRANT` on `anon`, `authenticated` and
+> `service_role` — the Supabase PostgREST roles. Supabase ships them; the plain
+> `pgvector/pgvector:pg16` container does not, so the chain died on `0004` with
+> `role "anon" does not exist` and **zero** tables created. `pnpm db:up && pnpm db:migrate`
+> had therefore never worked from empty; every developer database predated `0004` or was
+> created against Supabase. Fixed by
+> [`infra/docker/postgres-init/00-supabase-roles.sql`](../infra/docker/postgres-init/00-supabase-roles.sql),
+> which the container runs automatically on an empty data dir — you do not need to do
+> anything, but if you see that error, check the volume mount survived.
+>
+> **If `db:migrate` fails, do not trust its output.** `drizzle-kit migrate` reports a failed
+> migration as a **silent exit 1** with no message (TD133). To see the real error:
+> ```js
+> // packages/db/diag.mjs — throwaway
+> import postgres from "postgres"; import { drizzle } from "drizzle-orm/postgres-js";
+> import { migrate } from "drizzle-orm/postgres-js/migrator";
+> const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+> try { await migrate(drizzle(sql), { migrationsFolder: "./migrations" }); }
+> catch (e) { console.error(e.message, "\ncause:", e.cause); }
+> finally { await sql.end(); }
+> ```
+
 ## 2. Start the mail catcher
 
 ```bash

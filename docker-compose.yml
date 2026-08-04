@@ -21,6 +21,12 @@ services:
       - "5432:5432"
     volumes:
       - badabhai_pgdata:/var/lib/postgresql/data
+      # Creates the Supabase client-facing roles (anon / authenticated / service_role)
+      # that 26 migrations REVOKE from. Without them the chain dies on 0004 with
+      # `role "anon" does not exist` and NO migration applies at all — so
+      # `pnpm db:up && pnpm db:migrate` could never work from an empty database.
+      # Runs once, on an empty data dir. See the file header for the full reasoning.
+      - ./infra/docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U badabhai -d badabhai"]
       interval: 5s
