@@ -5,6 +5,7 @@ packages:
   - "apps/api"
   - "apps/web"
   - "apps/payer-web"
+  - "apps/admin-web"
   - "packages/*"
   - "tests/e2e"
 # Allow these dependencies to run install/build scripts (pnpm sandboxes the rest).
