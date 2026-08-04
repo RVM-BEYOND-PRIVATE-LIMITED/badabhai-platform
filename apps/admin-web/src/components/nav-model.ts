@@ -32,7 +32,7 @@ export const NAV: NavSection[] = [
     title: "Overview",
     items: [
       { href: "/", label: "Dashboard" },
-      { href: "/events", label: "Events", capability: "read_events", upcoming: true },
+      { href: "/events", label: "Events", capability: "read_events" },
     ],
   },
   {
