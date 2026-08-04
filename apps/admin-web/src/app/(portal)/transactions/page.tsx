@@ -221,13 +221,23 @@ export default async function TransactionsPage({
                     <td className="mono">{formatRupees(o.amount_inr)}</td>
                     <td className="mono">{formatCount(o.credits_granted)}</td>
                     <td>
-                      {/* `created` maps to a warn tone, not a neutral one: an order stuck
-                          in checkout is a thing to look at, not a resting state. */}
+                      {/* The pill shows the REAL order status. `created` is toned warn, not
+                          neutral: an order stuck in checkout is a thing to look at, not a
+                          resting state. Toned explicitly rather than by borrowing another
+                          domain's value, which would have displayed "active" for a paid
+                          order and "rejected" for a failed one. */}
                       <StatusPill
-                        value={o.status === "created" ? "pending" : o.status === "paid" ? "active" : "rejected"}
+                        value={o.status}
+                        label={
+                          o.status === "created"
+                            ? "unsettled"
+                            : o.status === "paid"
+                              ? "settled"
+                              : "failed"
+                        }
+                        tone={o.status === "paid" ? "ok" : o.status === "created" ? "warn" : "bad"}
                         title={`order status: ${o.status}`}
                       />
-                      <span className="table__meta">{o.status}</span>
                     </td>
                     <td className="table__meta">
                       {o.provider}
