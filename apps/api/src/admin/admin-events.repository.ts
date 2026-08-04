@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, gte, inArray, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, lte, or, sql, type SQL } from "drizzle-orm";
 import { type Database, events, type EventRow } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { type KeysetCursor } from "./admin-events.cursor";
@@ -76,13 +76,17 @@ export class AdminEventsRepository {
    * The keyset predicate for "strictly OLDER than the cursor" under the DESC `(occurred_at, id)`
    * sort: `occurred_at < cur` OR (`occurred_at = cur` AND `id < curId`). Total ordering via the
    * unique `id` tie-breaker, so no row is skipped or repeated across page boundaries.
+   *
+   * BUGFIX (BP-1, 2026-08-04): the `<` terms were interpolated `sql` templates. Those pass the
+   * value to the driver UNMAPPED, so the `Date` arrived raw and postgres-js threw
+   * `The "string" argument must be of type string ... Received an instance of Date` — every
+   * request carrying a cursor 500'd. Page one worked, so the events explorer looked fine and
+   * only "Next" was broken. `lt(column, value)` routes through the column's
+   * `mapToDriverValue`, which is what encodes the timestamp.
    */
   private static keysetBefore(cursor: KeysetCursor): SQL {
     const cur = new Date(cursor.occurredAt);
-    return or(
-      sql`${events.occurredAt} < ${cur}`,
-      and(eq(events.occurredAt, cur), sql`${events.id} < ${cursor.id}`),
-    )!;
+    return or(lt(events.occurredAt, cur), and(eq(events.occurredAt, cur), lt(events.id, cursor.id)))!;
   }
 
   /**

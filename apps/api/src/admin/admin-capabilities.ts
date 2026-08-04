@@ -12,6 +12,19 @@ import type { AdminRole } from "@badabhai/db";
  */
 export const ADMIN_CAPABILITIES = [
   "read_events",
+  /**
+   * Read the FACELESS entity projections (workers / payers / job postings / applications /
+   * credit balances). ADR-0025 Decision 3.1 row 2, signed with the rest of the matrix but
+   * never coded until BP-1, because until the Admin Portal there was no entity read route
+   * to gate — the ops console reached those tables through `InternalServiceGuard` instead.
+   *
+   * It is DELIBERATELY NOT folded into `read_events`. The two cover different data classes:
+   * `read_events` is the append-only audit spine (PII-free by registry construction),
+   * `read_entities` is live system-of-record state. They happen to share the same allow-set
+   * today, so conflating them would be invisible — right up until one of them needs to
+   * narrow, at which point every route named for the wrong one moves with it.
+   */
+  "read_entities",
   "export",
   "suspend_payer",
   "grant_credits",
@@ -37,6 +50,10 @@ export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
  */
 export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole[]> = {
   read_events: ["super_admin", "ops_admin", "support", "analyst"],
+  // ADR-0025 §3.1: "Read entities (workers/payers/jobs/postings — faceless, no PII)" — all
+  // four roles, the same read floor as events. Faceless is what makes that safe: the
+  // projections carry ids/enums/timestamps/counts, never a name, email, phone or ciphertext.
+  read_entities: ["super_admin", "ops_admin", "support", "analyst"],
   export: ["super_admin", "ops_admin"],
   suspend_payer: ["super_admin", "ops_admin"],
   grant_credits: ["super_admin", "ops_admin"],

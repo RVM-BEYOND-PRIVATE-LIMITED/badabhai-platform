@@ -113,6 +113,11 @@ export const workers = pgTable(
     index("workers_deletion_due_idx")
       .on(t.deletionScheduledAt)
       .where(sql`"deletion_scheduled_at" IS NOT NULL`),
+    // BP-1 — the admin faceless-list keyset. `(created_at DESC, id DESC)` is the EXACT sort
+    // the admin read orders by, so the page comes straight out of the index instead of
+    // sorting the table. `id` last is what makes the ordering total: without it a page
+    // boundary landing inside a bulk insert's shared timestamp silently skips or repeats.
+    index("workers_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
   ],
 ).enableRLS(); // RLS tracked in the model so db:generate keeps it (migration 0003/0004 carry the SQL)
 
@@ -167,7 +172,11 @@ export const payers = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("payers_email_hash_uq").on(t.emailHash)],
+  (t) => [
+    uniqueIndex("payers_email_hash_uq").on(t.emailHash),
+    // BP-1 — the admin Companies/Agencies keyset (see workers_admin_keyset_idx).
+    index("payers_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
+  ],
 ).enableRLS(); // RLS tracked in the model; REVOKE carried by the migration (ADR-0004 posture)
 
 // ---------------------------------------------------------------------------
@@ -1364,6 +1373,10 @@ export const applications = pgTable(
         t.id,
       )
       .where(sql`${t.action} = 'applied'`),
+    // BP-1 — the admin applications keyset (see workers_admin_keyset_idx). The unfiltered
+    // and worker/action-filtered admin lists all order by this; the posting-scoped read is
+    // already served by applications_rank_idx / applications_job_id_idx.
+    index("applications_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
     // Exactly one job reference must be present. This is what makes "coexist" a DB
     // guarantee instead of a convention: a row with neither pointer cannot be written.
     check(
@@ -1552,6 +1565,9 @@ export const creditLedger = pgTable(
     index("credit_ledger_payer_id_idx").on(t.payerId),
     // Exactly-once: non-null keys are unique; many NULLs allowed (Postgres NULLS DISTINCT).
     uniqueIndex("credit_ledger_idempotency_key_uq").on(t.idempotencyKey),
+    // BP-1 — the admin per-payer ledger keyset. Payer-leading because the admin read is
+    // ALWAYS scoped to one payer; a bare (created_at, id) index would not serve it.
+    index("credit_ledger_payer_keyset_idx").on(t.payerId, t.createdAt.desc(), t.id.desc()),
   ],
 );
 

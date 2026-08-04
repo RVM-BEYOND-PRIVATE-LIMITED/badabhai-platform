@@ -27,6 +27,9 @@ import { AdminPiiRevealService } from "./admin-pii-reveal.service";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchService } from "./admin-kill-switch.service";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
+import { AdminEntitiesRepository } from "./admin-entities.repository";
+import { AdminEntitiesService } from "./admin-entities.service";
+import { AdminEntitiesController } from "./admin-entities.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -92,6 +95,7 @@ import { AdminKillSwitchController } from "./admin-kill-switch.controller";
     AdminActionsController,
     AdminPiiRevealController,
     AdminKillSwitchController,
+    AdminEntitiesController,
   ],
   providers: [
     AdminRepository,
@@ -117,6 +121,11 @@ import { AdminKillSwitchController } from "./admin-kill-switch.controller";
     // existing server-config gates; emits a value-free `admin.kill_switch_pause_requested`. It NEVER
     // enables a provider (enabling stays env/deploy-gated, §2 #5) — there is no enable code path.
     AdminKillSwitchService,
+    // BP-1: faceless entity reads (workers/payers/job-postings/applications/credits) behind
+    // `read_entities`. SELECT-ONLY, explicit column projections, keyset-paginated. It does NOT
+    // widen InternalServiceGuard and does not touch the existing ops read routes.
+    AdminEntitiesRepository,
+    AdminEntitiesService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

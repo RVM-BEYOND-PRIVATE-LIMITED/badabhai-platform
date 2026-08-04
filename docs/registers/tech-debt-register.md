@@ -159,6 +159,8 @@ Seeded 2026-06-09 from the Phase-1 sprint plan and ADR-0001.
 
 | TD134 | **The dependency-audit gate is effectively dormant, and 13 high-severity advisories are sitting behind it** — `pnpm audit --audit-level high` is PATH-FILTERED on the lockfile, so it only runs when a PR touches `pnpm-lock.yaml`. Surfaced 2026-08-04 by PR #572 (the first lockfile change in a while), which turned the job red. **Measured, not assumed: the advisory sets on `main` and on the PR branch are IDENTICAL — 13 GHSAs each, zero introduced by the PR** (`comm -13` on the sorted sets). The paths are dev-tooling transitives (e.g. `.>eslint>@eslint/config-array>minimatch>brace-expansion`, GHSA-3jxr-9vmj-r5cp), not runtime dependencies of any shipped app. | The path filter is reasonable on its face — auditing on every PR that changes no dependency is noise. The consequence was not intended: because the gate only fires on lockfile churn, a standing set of high-severity advisories accumulated with nothing routinely reporting it, and the first PR to touch the lockfile inherits a red check it did not cause. Same failure class as TD131: a check that is red for reasons unrelated to the change trains people to skip it. | Two parts, both cheap. (1) Run the audit on a SCHEDULE (the security-scan workflow already runs on cron) so the standing set is visible continuously rather than ambushing a random PR. (2) Triage the 13: they are dev-tooling transitives, so the likely outcome is a documented accepted-risk list plus `pnpm.overrides` for the ones with a clean patched version — but that is a decision to take deliberately, not inside a feature PR. | **Open** — logged 2026-08-04 from PR #572; the main-vs-branch comparison was run, not inferred. Owner DevOps + Security |
 
+| TD135 | **Only the two admin keyset readers are guarded against binding an unmapped value to the driver; the rest of the codebase is not** — PR #574 fixed a real, shipped defect: `AdminEventsRepository.keysetBefore` built its `<` term as `` sql`${events.occurredAt} < ${cur}` `` instead of `lt(events.occurredAt, cur)`. The two render **byte-identical SQL** (`"occurred_at" < $1`); the difference is that the interpolated form passes the value to the driver **without the column's `mapToDriverValue`**, so postgres-js received a raw `Date` and threw `The "string" argument must be of type string or an instance of Buffer or ArrayBuffer`. **Every `GET /admin/events` request carrying a cursor returned 500** — page one has no cursor, so the events explorer looked healthy and only "Next" was broken. It shipped in ADMIN-2, survived review, a full unit suite and a live Milestone-2 verification that never clicked past page one. Now covered by [`admin-keyset-params.test.ts`](../../apps/api/src/admin/admin-keyset-params.test.ts), which asserts no bound parameter is a non-primitive — the only signal short of a real database, since a SQL-shape test cannot see it. | The guard is scoped to `AdminEntitiesRepository` + `AdminEventsRepository` because those are what BP-1 touched and the backend is frozen to that scope. The pattern is not inherently wrong: `agency-payout.repository.ts:72-73` uses interpolated `sql` templates too, but compares **two columns** (`unlocks.granted_at` vs `agency_invites.attributed_at`) with only an integer interpolated, so nothing needs a column mapper and it is unaffected — verified, not assumed. What is missing is anything stopping the *next* JS-value-in-a-template from being written. | Cheap: generalise the parameter assertion into a shared test helper and apply it to every repository that binds a `Date`/`Decimal`/`Buffer` through a `sql` template, **or** add an ESLint rule banning a `sql` template whose interpolated value is not a column reference. Either turns a class of silent 500s into a build failure. Do it when the backend thread reopens — it is a platform improvement, explicitly out of scope while the Admin Portal is the priority. | **Open** — logged 2026-08-04 in PR #574, which fixed the two live instances and proved the fix against a real database (page 2 returns rows sharing none with page 1). Owner Backend |
+
 > When you pay debt down, mark it **Paid** with the PR link and date — don't
 > delete the row. When you take *new* debt, add a row in the same PR that creates it.
 
@@ -169,7 +171,10 @@ Seeded 2026-06-09 from the Phase-1 sprint plan and ADR-0001.
 Every open row now carries **one owner thread** and **one priority**. Ownership and the thread
 model live in [BACKLOG.md](../tracker/BACKLOG.md); this table is the priority half.
 
-**101 open** (was 103 — see the drift note below). Assigned mechanically from each row's own
+**104 open** (was 103; two closed on the TD69/TD79 drift sweep below, then TD133/TD134/TD135
+added). **TD133 and TD134 were missing from the assignment table entirely** — they were logged
+2026-08-03/04 without the table being extended, so the "101" was stale rather than wrong-by-one.
+All three are added below. Assigned mechanically from each row's own
 *"when to fix"* cell, not re-judged from scratch, so the trigger a row already records is what
 sets its band:
 
@@ -212,7 +217,7 @@ Three more rows (**TD94**, **TD104**, **TD111**) carry "Paid (2026-07-25)…" te
 flagged for a verify-and-close pass, because closing a row on evidence that may belong to
 another row is how a register starts lying. Owner: whoever runs TD125.
 
-### Full assignment (101 open · thread · priority)
+### Full assignment (104 open · thread · priority)
 
 | TD | Thr | Pri | TD | Thr | Pri | TD | Thr | Pri | TD | Thr | Pri |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -239,11 +244,11 @@ another row is how a register starts lying. Owner: whoever runs TD125.
 | TD29 | T5 | **P0** | TD65 | T4 | **P1** | TD99 | T2 | **P2** | TD130 | T2 | **P1** |
 | TD33 | T2 | **P1** | TD66 | T5 | **P2** | TD100 | T2 | **P2** | TD131 | T3 | **P0** |
 | TD34 | T4 | **P1** | TD67 | T3 | **P1** | TD101 | T5 | **P1** | TD132 | T3 | **P1** |
-| TD35 | T2 | **P1** | TD70 | T2 | **P2** | TD102 | T5 | **P1** | | | |
-| TD36 | T4 | **P2** | TD71 | T3 | **P1** | TD103 | T5 | **P2** | | | |
-| TD37 | T4 | **P2** | TD72 | T3 | **P1** | TD104 | T2 | **P2** | | | |
+| TD35 | T2 | **P1** | TD70 | T2 | **P2** | TD102 | T5 | **P1** | TD133 | T3 | **P2** |
+| TD36 | T4 | **P2** | TD71 | T3 | **P1** | TD103 | T5 | **P2** | TD134 | T3 | **P1** |
+| TD37 | T4 | **P2** | TD72 | T3 | **P1** | TD104 | T2 | **P2** | TD135 | T2 | **P2** |
 
-**By thread:** T2 Backend Platform 39 · T3 Infrastructure 18 · T4 Future Product 26 ·
+**By thread:** T2 Backend Platform 40 · T3 Infrastructure 20 · T4 Future Product 26 ·
 T5 Product Streams 18. **Asserted:** every open row has exactly one thread and one priority;
 no P0/P1 overlap; nothing prioritised that is already closed.
 
