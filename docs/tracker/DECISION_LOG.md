@@ -1,9 +1,32 @@
-# Decision Log
+# Decision Log — **Thread 0 (governance; no implementation)**
 
 Human decisions that gate engineering. Each has options, a recommendation, an owner, a
 deadline, and a **safe default** so engineering can proceed without stalling.
 
 Status: `OPEN · DECIDED · DEFERRED`.
+
+> **Thread 0 exists so that six months from now nobody has to ask "why did we build it this
+> way?"** (owner, 2026-08-03). It contains **no implementation** — only decisions. It is the
+> one place the answer lives. Threads 1–5 are in [BACKLOG.md](BACKLOG.md).
+
+## Required schema (from D11 onward)
+
+Every new decision records all ten fields. `D1–D10` predate this schema and are
+**grandfathered** — they carry most of it under older field names (*Why needed* = Context,
+*Options* = Alternatives, *Status* = Final decision); do not rewrite them retroactively.
+
+| Field | Meaning |
+|---|---|
+| **Decision ID** | `D<n>` — stable, never reused |
+| **Date** | When it was decided (absolute, never "last week") |
+| **Owner** | The human who decided |
+| **Context** | What forced the decision |
+| **Alternatives considered** | What was rejected — a decision with no alternatives is a description |
+| **Final decision** | What was chosen, stated so it can be checked |
+| **Reason** | Why that one |
+| **Impacted threads** | T0–T5 |
+| **ADR reference** | If it changed architecture |
+| **Reversal history** | Every later change, appended — never overwritten |
 
 ---
 
@@ -88,3 +111,92 @@ Status: `OPEN · DECIDED · DEFERRED`.
 - **Dev/mock OTP:** removed, real-only — decided (commit `d2f228e`). `DEV_QUICK_LOGIN` is DEAD.
 - **Worker router:** go_router stateful shell — decided (ADR-0023).
 - **ADMIN-3b reveal direction:** accepted with conditions — decided (ADR-0025 R24); code landed `0635aee`.
+
+---
+
+## 2026-08-03 decision batch (D11–D20) — the backend-thread rulings
+
+Recorded under the Thread-0 schema. Before this, these lived only in PR bodies and session
+summaries — which is precisely the loss Thread 0 exists to prevent.
+
+### D11 — Payer lifecycle, and what suspension actually stops
+- **Date / Owner:** 2026-08-03 · Prakash
+- **Context:** `payers.status` existed but suspension stopped nothing. A suspended payer's job postings kept appearing in every discovery path, OTPs kept being mailed, and agency KYC kept progressing.
+- **Alternatives considered:** (a) join `payers` into every discovery query and filter on status; (b) delete or hard-close the postings; (c) move the inventory to a **system** `suspended` state.
+- **Final decision:** (c). Lifecycle is Created → Pending Verification → OTP Verified → Active → Suspended → Reinstated. Activation is immediate on OTP verification; **admin approval is not part of the default lifecycle**; future compliance states must be **additive**. Reinstatement restores `previous_status`. A suspended agency is frozen from KYC, payout and every financial-enablement workflow. OTP delivery to a suspended account is **suppressed with a byte-identical response**.
+- **Reason:** A join would sit on the hottest read and would only protect the paths someone remembers to change; moving the row out of `open` means all five existing queries exclude it with **no query edit**. Deleting destroys history a reinstatement needs. Restoring `previous_status` is what keeps a *paused* posting paused and a *force-closed* one closed.
+- **Impacted threads:** T2, T5 · **ADR:** [ADR-0037](../decisions/0037-payer-lifecycle-and-suspension.md) (supersedes the deferred payer-verification decision of 2026-07-17)
+- **Reversal history:** none.
+
+### D12 — A captured payment from a suspended payer is accepted, not rejected
+- **Date / Owner:** 2026-08-03 · Prakash
+- **Context:** Razorpay can capture a payment for a payer suspended between checkout and webhook.
+- **Alternatives considered:** (a) reject the webhook; (b) accept, credit, and block *use* until reinstated.
+- **Final decision:** (b) — verify, record, credit the ledger as designed, prevent spending until reinstated, raise an operational alert for Finance/Admin, keep the full audit trail.
+- **Reason:** The money already moved. Rejecting the webhook does not refund anyone; it just loses the record and creates a reconciliation problem for Finance.
+- **Impacted threads:** T2 · **ADR:** ADR-0037 Decision 5 · **Reversal history:** none.
+
+### D13 — First Super Admin comes from a CLI, never a hardcoded email
+- **Date / Owner:** 2026-08-03 · Prakash
+- **Context:** ADMIN-3a was complete and **unreachable** — admin OTP delivery was a no-op stub and no bootstrap path existed.
+- **Alternatives considered:** (a) hardcode the first super-admin email; (b) an HTTP bootstrap endpoint; (c) a standalone CLI.
+- **Final decision:** (c). Email is an **argument**. It runs only if **no `super_admin` exists** and **refuses safely once one does**. All later admin creation goes through the invitation flow. Consolidate the two duplicate ZeptoMail implementations into **one** principal-agnostic email pipeline.
+- **Reason:** A hardcoded email is brittle and makes every future deployment awkward. An HTTP endpoint is reachable by anyone who can route to it. Treat the CLI as **break-glass**: never run where stdout is centrally logged, restrict to trusted operators.
+- **Impacted threads:** T2, T3 · **ADR:** [ADR-0038](../decisions/0038-admin-bootstrap-and-notification-layer.md)
+- **Reversal history:** amended the same day — §4 added a documented lost-TOTP recovery path (an admin-to-admin reset route plus a break-glass CLI) after verification found that a lost device was a permanent lockout and that the last super_admin losing one bricked the admin surface.
+
+### D14 — The Admin Portal is a separate app, and internal guards are not widened
+- **Date / Owner:** 2026-08-03 · Prakash
+- **Context:** ADMIN-4..8 needed a home, and the reads it wants exist only behind `InternalServiceGuard`.
+- **Alternatives considered:** (a) extend `apps/web`; (b) a new `apps/admin-web`; (c) widen `InternalServiceGuard` routes to accept an admin session.
+- **Final decision:** (b), and **(c) is refused**. The portal is a presentation layer over the completed backend — **do not redesign the backend**. New backend is **additive admin-guarded read endpoints only**, alongside the internal ones.
+- **Reason:** The admin surface is already a distinct bounded context (its own auth, RBAC, capability matrix, bootstrap, MFA, ADRs); the frontend mirrors that separation. It makes OBS-4 a **traffic switch** rather than an in-place rewrite. Widening internal routes would undo the LC-1 hardening — a guard union is the fail-open shape this codebase deliberately avoids.
+- **Impacted threads:** T1, T2 · **ADR:** ADR-0025 (extends) · **Reversal history:** none.
+
+### D15 — The events spine is the canonical audit source
+- **Date / Owner:** 2026-08-03 · Prakash
+- **Context:** `audit_logs` exists in the schema with **zero writers**.
+- **Alternatives considered:** (a) build the Audit UI on `audit_logs`; (b) build on the events spine behind a swappable seam.
+- **Final decision:** (b). The Audit screen consumes a narrow `listAuditEntries(query)` interface whose first implementation is `GET /admin/events`. The richer 13-field record swaps in behind it later.
+- **Reason:** Building UI against an empty table produces a screen that cannot be tested, and a later record change would then force a redesign rather than a swap.
+- **Impacted threads:** T1, T2 · **ADR:** — · **Reversal history:** none.
+
+### D16 — Shared packages: extract on the second use
+- **Date / Owner:** 2026-08-03 · Prakash
+- **Context:** A proposal to pre-create `packages/ui`, `admin-ui`, `auth`, `permissions`, `events`, `api-client`, `design-tokens`, `shared-types`.
+- **Alternatives considered:** (a) create them up front; (b) extract when a second consumer appears.
+- **Final decision:** (b). **`packages/design-tokens` is the exception worth doing early.**
+- **Reason:** `packages/` already has 11 members and none is UI, while `payer-web` has 5 component entries — a `packages/ui` built before `admin-web` has real screens gets designed against one consumer and refactored the moment the second arrives. `types`/`validators`/`event-schema` already carry the shared-types and events-contract roles, so adding `shared-types`/`events` would create two sources of truth. Design tokens are the genuine exception: the **Flutter** app can consume tokens emitted as JSON/Dart and can never consume a React package.
+- **Impacted threads:** T1, T5 · **ADR:** — · **Reversal history:** none.
+
+### D17 — Engineering standards made permanent
+- **Date / Owner:** 2026-08-03 · Prakash
+- **Context:** Verification kept finding defects that a green test suite had not, and "done" was being claimed on tests passing.
+- **Alternatives considered:** (a) leave as team convention; (b) write them into the operating contract as invariants.
+- **Final decision:** (b). **Invariant #9** — frontend never compensates for backend inconsistencies. **Invariant #10** — no feature is complete until it reproduces from an **empty database** via an executable runbook. A **ten-point workstream Definition of DONE** replaces "all tests pass". **Security tooling must be deterministic** — pinned versions and rule sets, reproducible locally and in CI, with a documented update cadence.
+- **Reason:** A long-lived developer database silently carries state nobody can reconstruct, so a flow that "works" there may never have worked from zero. A scan that fails because the rules changed overnight trains everyone to stop reading it.
+- **Impacted threads:** T0–T5 (platform-wide) · **ADR:** CLAUDE.md §2 #9/#10 and §6 · **Reversal history:** none.
+
+### D18 — TD130 is a P1 improvement, not a blocker
+- **Date / Owner:** 2026-08-03 · Prakash
+- **Context:** The payer login path has a real known/unknown **timing** oracle even though the response body is identical.
+- **Alternatives considered:** (a) block on it; (b) treat as P1 and equalize by making both paths do comparable work; (c) add an artificial delay.
+- **Final decision:** (b). **No artificial delays without measurement** — use a consistent execution path where practical. Sequenced after ADMIN-8.
+- **Reason:** The portal is alpha-gated, so exposure is bounded; an unmeasured sleep adds latency to every login without proving it closed anything.
+- **Impacted threads:** T2 · **ADR:** — · **Reversal history:** none.
+
+### D19 — Privileged writes need a real principal
+- **Date / Owner:** 2026-08-03 · Prakash
+- **Context:** Ops endpoints still accept `payer_id` from the request body.
+- **Alternatives considered:** (a) keep as an accepted interim; (b) eliminate or refactor onto authenticated principals.
+- **Final decision:** (b). Every privileged operation executes under an authenticated principal with actor identity, capability verification, audit, reason and correlation ID. **No privileged write where `actor_id` is null**, unless it is a documented system process.
+- **Reason:** A body-supplied id is not an identity; it is a request parameter the caller also controls.
+- **Impacted threads:** T2 · **ADR:** — (relates to LC-1 / TD33 / TD50) · **Reversal history:** none — sequenced behind ADMIN-4..8 as OBS-4.
+
+### D20 — Thread structure, execution order, and merge policy
+- **Date / Owner:** 2026-08-03 · Prakash
+- **Context:** A flat TODO list was mixing execution threads, and every merge was using an admin bypass of the 1-review rule.
+- **Alternatives considered:** (a) keep a single backlog; (b) split by owner thread with explicit dependencies and entry/exit criteria.
+- **Final decision:** (b) — **Threads 0–5** (see [BACKLOG.md](BACKLOG.md)); **Thread 5 is named "Product Runtime"**, approved as separate from Future because those are active production streams and production-impacting defects. Execution order is **AP-1 → BP-1 ∥ AP-2 → ADMIN-4..8 → Infrastructure → DR**. Administrative merges are acceptable while the reviewer pool is ~1; **genuine peer review is required before public beta**.
+- **Reason:** Ownership ambiguity is how work leaks into the wrong thread and how "deferred" quietly becomes "forgotten". The merge bypass is a deliberate, time-boxed accommodation, recorded rather than left to be discovered later in the merge log.
+- **Impacted threads:** T0–T5 · **ADR:** — · **Reversal history:** none.

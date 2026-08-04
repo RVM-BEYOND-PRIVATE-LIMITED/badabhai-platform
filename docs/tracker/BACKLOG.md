@@ -6,10 +6,10 @@ stabilization thread entered Platform Maintenance Mode. Every open work item bel
 your thread, it is not yours.
 
 **Built from the repository, not from a session TODO list.** Sources: the 132-row
-[tech-debt register](../registers/tech-debt-register.md) (103 open), [BLOCKERS.md](BLOCKERS.md),
+[tech-debt register](../registers/tech-debt-register.md) (**101 open** — two rows were found already fixed, and closed, during triage), [BLOCKERS.md](BLOCKERS.md),
 [OWNER_TASKS.md](OWNER_TASKS.md), the [ADMIN-4..8 brief](../sprint-plans/admin-portal-admin-4-to-8.md),
-and CLAUDE.md §8. Ownership was assigned programmatically and asserted: **0 orphans,
-0 multi-owner items, 0 assigned-but-closed** (§7).
+and CLAUDE.md §8. Ownership **and priority** were assigned programmatically and asserted: **0 orphans,
+0 multi-owner items, 0 P0/P1 overlap, 0 assigned-but-closed**.
 
 ---
 
@@ -21,7 +21,7 @@ answer chips resolve the wrong topic, measured), TD102 (a worker's ITI can never
 résumé) and TD73 (`GET /feed` must exclude decided jobs server-side, ruled MANDATORY before
 real job volume). These are neither platform work nor "future nice-to-have", so filing them
 in either place would be a lie that loses them. They are collected in **Thread 5 — Product
-Streams**, which is *not new work*: it is the existing worker-app / payer-web streams the
+Runtime** (name approved by the owner 2026-08-03), which is *not new work*: it is the existing worker-app / payer-web streams the
 owner already referred to as "their respective product thread". Rename or split it freely;
 do not empty it into Thread 4.
 
@@ -36,13 +36,20 @@ cross-thread dependency in the plan and the most likely place for the portal to 
 
 ## 1. Thread registry
 
+**Approved by the owner 2026-08-03.**
+
 | Thread | Name | Mode | Owns |
 |---|---|---|---|
-| **T1** | **Admin Portal** | **ACTIVE — critical path** | `apps/admin-web`, ADMIN-4..8, all portal UI/UX/a11y, portal verification |
-| **T2** | **Backend Platform** | Maintenance (**frozen after this doc**) | Audit record, TD130, OBS-4, readiness deliverables, security hardening, ADR maintenance, backend tech debt |
-| **T3** | **Infrastructure & DevOps** | Maintenance | CI/CD, Docker, deploy pipelines, secrets/env, security tooling, monitoring, health checks |
-| **T4** | **Future Product** | Deferred — **must not block alpha** | Admin Portal v2, analytics, advanced reporting, real-money modules, future automation |
-| **T5** | **Product Streams** | Active (pre-existing) | worker-app, payer-web, AI extraction quality |
+| **T0** | **Product Decisions** | **Governance — no implementation** | The [Decision Log](DECISION_LOG.md). Records decisions only, under a 10-field schema, so nobody has to ask "why did we build it this way?" |
+| **T1** | **Admin Portal** | **ACTIVE — critical path** | `apps/admin-web`, ADMIN-4..8, admin UI only |
+| **T2** | **Backend Platform** | Maintenance (**feature-frozen except unblockers**) | Platform engineering, audit record, TD130, TD131, OBS-4, architecture, production readiness, security, ADR maintenance |
+| **T3** | **Infrastructure / DevOps** | Maintenance | CI/CD, GitHub Actions, Docker, Mailpit, ZeptoMail, monitoring, logging, deployments, secrets, security tooling |
+| **T4** | **Future Product** | Deferred — **nothing here may block alpha** | Future roadmap only |
+| **T5** | **Product Runtime** | Active (pre-existing) | Worker App · Payer Web · AI quality · résumé quality · feed quality · questionnaire quality · search quality · matching improvements · runtime bugs · product polish |
+
+> **T5 is "Runtime", not "Future".** These are live production streams and
+> production-impacting defects. Keeping them separate from T4 is the whole point — a
+> measured defect filed under "future enhancements" stops being a defect.
 
 ---
 
@@ -153,25 +160,24 @@ loading states · security.
 | **BP-5** | Architecture Consistency Report | P2 | Not Started | BP-1..BP-4 | Portal verified | Duplicate-logic audit, ADR compliance, RBAC consistency, API + event consistency | Review |
 | **BP-6** | Security Validation Report | P1 | Not Started | AP-7 | Portal verified | Full PII/authz/DPDP posture incl. the admin surface | `bb-security-review` + independent pass |
 | **BP-7** | Production Readiness Report + checklist | **P0** | Not Started | BP-5, BP-6, T3 items | Infra green | The release gate document | Owner sign-off |
-| **BP-8** | Tech-debt triage into P0/P1/P2 | P2 | Not Started | — | Anytime | Every open TD carries a priority (this doc assigns *ownership*; it does not re-prioritise 103 items) | Register updated |
+| **BP-8** | Tech-debt triage into P0/P1/P2 | P2 | ✅ **Complete 2026-08-03** | — | — | Every open TD now carries one thread **and** one priority — [register § Priority triage](../registers/tech-debt-register.md). **8 P0 · 45 P1 · 48 P2** | Asserted: no orphan, no P0/P1 overlap, nothing prioritised that is already closed |
 | **BP-9** | Consolidated Operational Runbook | P1 | Not Started | — | Anytime | Merge the existing runbooks into one operator entry point | Dry-run by someone who did not write it |
 | **BP-10** | **Disaster Recovery & Rollback plan** — *does not exist* | **P0** | Not Started | — | Anytime | Backup/restore, RPO/RTO, data-loss drill. Named as still-pending in CLAUDE.md §8 | A **rehearsed** restore, not a written one |
 | **BP-11** | **Cost strategy doc** — named pending in CLAUDE.md §8 | P2 | Not Started | — | Anytime | AI + infra unit economics vs the §3A ≤₹4/profile target | Owner review |
 | **BP-12** | Roadmap v2 document (the *plan* for Admin Portal v2) | P2 | Not Started | AP-7 | Portal verified | Document only — the **work** is T4 | Owner review |
 
-**Backend Platform tech debt — 41 open items** (detail in the register; not duplicated here):
+**Backend Platform tech debt — 39 open items** (detail in the register; not duplicated here):
 `TD1 TD3 TD4 TD8 TD9 TD12 TD14 TD15 TD19 TD20 TD21 TD22 TD24 TD25 TD33 TD35 TD38 TD44 TD48
-TD50 TD55 TD57 TD69 TD70 TD74 TD77 TD79 TD80 TD83 TD88 TD91 TD92 TD93 TD95 TD99 TD100 TD104
+TD50 TD55 TD57 TD70 TD74 TD77 TD80 TD83 TD88 TD91 TD92 TD93 TD95 TD99 TD100 TD104
 TD124 TD125 TD128 TD130`
 
 Highest-signal of those: **TD4** (RLS not enforced platform-wide — backend still runs as the
-service role), **TD69** (consent-withdrawal ⇒ session-revocation is an untested invariant,
-owner-ACTIVATED), **TD130** (= BP-3), **TD125** (registers drift open behind shipped fixes —
+service role), **TD130** (= BP-3), **TD125** (registers drift open behind shipped fixes —
 three instances in one week).
 
 ---
 
-## 4. THREAD 3 — Infrastructure & DevOps
+## 4. THREAD 3 — Infrastructure / DevOps
 
 | ID | Title | Pri | Status | Depends on | Entry / Exit | Verification |
 |---|---|---|---|---|---|---|
@@ -212,12 +218,12 @@ TD107 TD108 TD112 TD113 TD114 TD116 TD117 TD127`
 
 ---
 
-## 6. THREAD 5 — Product Streams (active; pre-existing, see §0a)
+## 6. THREAD 5 — Product Runtime (active; pre-existing, see §0a)
 
 Owners: **Rishi** (worker-app / payer-app), **Divyanshu** (payer-web / AI). Not opened by the
 backend thread; listed so these items are not orphaned.
 
-**Product-stream tech debt — 18 open items:**
+**Product Runtime tech debt — 18 open items:**
 `TD5 TD6 TD17 TD26 TD29 TD54 TD59 TD63 TD66 TD73 TD94 TD98 TD101 TD102 TD103 TD111 TD119 TD121`
 
 Highest-signal: **TD73** (`GET /feed` must exclude decided jobs server-side — ruled
@@ -301,7 +307,7 @@ NEVER BLOCKS ALPHA:
 | **P1** | **15** | AP-3 · AP-4 · AP-5 · AP-6 · BP-2 · BP-3 · BP-4 · BP-6 · BP-9 · INF-5 · INF-6 · INF-7 · INF-8 · INF-9 · INF-10 |
 | **P2** | **11** | BP-5 · BP-8 · BP-11 · BP-12 · INF-11 · FP-1..FP-6 (all deferred) |
 | **Named tasks** | **36** | T1 7 · T2 12 · T3 11 · T4 6 |
-| **Open TD** | **103** | T2 41 · T3 18 · T4 26 · T5 18 |
+| **Open TD** | **101** | T2 39 · T3 18 · T4 26 · T5 18 · priorities in the [register](../registers/tech-debt-register.md) |
 
 ### Critical blockers
 
@@ -335,10 +341,38 @@ NEVER BLOCKS ALPHA:
 | **Backend Platform** | **~78%** | Admin identity/RBAC/MFA/bootstrap/email, payer lifecycle and the event spine are built and test-verified. Remaining: BP-1, the audit record, TD130, OBS-4, DR, and 41 TD items. Capped: none of it is verified on a trustworthy deployed environment. |
 | **Admin Portal** | **~6%** | Groundwork only — brief, phase order, runbook, `/admin/me` capabilities, local email. **Zero UI exists.** AP-1 has not been run. |
 | **Infrastructure** | **~45%** | Docker/compose, CI gates, staging box and observability runbooks exist. But CD has never run, ai-service is undeployed, staging is in dev mode, secrets are unmanaged, SAST is nondeterministic. |
-| **Product Streams** | ~70% | Worker journey + payer portal are built and partially handset-verified; 18 open items, several measured-and-material. |
+| **Product Runtime** | ~70% | Worker journey + payer portal are built and partially handset-verified; 18 open items, several measured-and-material. |
+| **Decision Log (T0)** | **~95%** | D1-D20 recorded; the 10-field schema is live from D11. Remaining: keep it current as decisions land. |
 | **OVERALL** | **~55%** | Weighted: platform 30% · portal 25% · infra 25% · product 20%. The portal being ~0% and infra being half-done are what hold this down — not backend feature work, which is essentially finished. |
 
-### Recommended execution order
+### Execution order — **owner-approved 2026-08-03, follow this**
+
+| # | Work | Note |
+|---|---|---|
+| **1** | **AP-1 — run the clean bootstrap verification** | **Do not skip it.** The single highest-value task in the project |
+| **2** | **BP-1 — begin the additive admin read APIs immediately** | Run **in parallel with AP-2**. This is what stops the Admin Portal stalling after login |
+| **3** | **AP-2** — authentication · MFA · admin shell · navigation · dashboard | Needs no backend |
+| **4** | **ADMIN-4 → ADMIN-8** (AP-3 → AP-6 → AP-7) | In order |
+| **5** | **Infrastructure — fix staging** | *"A staging environment that cannot be trusted is effectively equivalent to having no staging environment."* INF-1..INF-4 |
+| **6** | **Disaster Recovery (BP-10)** | **Must not wait until the end — the DR plan should exist before Beta.** No dependencies; start it in parallel |
+
+### Definition of project completion (owner, 2026-08-03)
+
+The project is complete only when **all eleven** are true:
+
+- [ ] Backend Platform stable
+- [ ] Admin Portal complete
+- [ ] Infrastructure verified
+- [ ] Product Runtime stable
+- [ ] Decision Log complete
+- [ ] ADRs complete
+- [ ] Production Readiness passed
+- [ ] Disaster Recovery **validated** (rehearsed, not written)
+- [ ] Security Review passed
+- [ ] Clean-environment verification passed
+- [ ] OBS-4 completed
+
+### Supporting rationale for that order
 
 1. **AP-1** — today. One person, ~15 minutes. It either unblocks everything or produces the
    most valuable bug report available right now.
@@ -382,6 +416,28 @@ would mean inventing priorities for items I have not re-verified.
 
 ---
 
+## 10. The single objective for the next thread
+
+> **Prove that a completely fresh environment can reach a fully authenticated Admin session
+> using only documented procedures.** — owner, 2026-08-03
+
+Not "build the login screen". Not "start the scaffold". **That proof, and nothing else**, is
+the next thread's opening objective. No UI development begins until it exists.
+
+Everything needed is in place: the procedure is
+[the runbook](../admin-foundation-verification-runbook.md), the two defects that would have
+blocked it are fixed (#565), and migrations `0062`/`0063` are applied. What is missing is the
+**execution**.
+
+If it passes, the Admin Portal proceeds on a verified, reproducible platform instead of on
+assumptions. If it fails, that failure is worth more than a week of UI — it is a real defect
+found before anything was built on top of it. Either outcome is a win; only skipping it is a loss.
+
+**This is the new engineering standard for BadaBhai** (owner): a subsystem is not ready to be
+built on until a fresh environment can reach it from documented procedures alone.
+
+---
+
 **Backend Platform backlog FROZEN 2026-08-03.** Changes require an owner decision recorded in
-[DECISION_LOG.md](DECISION_LOG.md). Task detail lives in the
+[DECISION_LOG.md](DECISION_LOG.md) (**Thread 0**). Task detail lives in the
 [tech-debt register](../registers/tech-debt-register.md); this file owns *who* and *when*.
