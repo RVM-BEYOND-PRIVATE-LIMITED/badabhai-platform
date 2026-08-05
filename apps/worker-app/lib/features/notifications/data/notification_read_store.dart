@@ -18,6 +18,11 @@ abstract interface class NotificationReadStore {
 
   /// Replaces the persisted set with [ids], oldest-first.
   Future<void> write(List<String> ids);
+
+  /// Wipe the persisted read-ids. Called on LOGOUT: the key is a SINGLE global
+  /// (non-worker-scoped) key, so without this the previous worker's read-state
+  /// persists on disk into the next worker's session (TD90). Best-effort.
+  Future<void> clear();
 }
 
 /// The DEFAULT [NotificationReadStore]: remembers nothing across launches.
@@ -46,6 +51,11 @@ class SessionOnlyNotificationReadStore implements NotificationReadStore {
     // read-state for this session, so the badge behaves correctly — it just
     // does not survive a restart.
   }
+
+  @override
+  Future<void> clear() async {
+    // Nothing persisted → nothing to wipe.
+  }
 }
 
 /// [NotificationReadStore] over `shared_preferences`.
@@ -71,5 +81,11 @@ class SharedPrefsNotificationReadStore implements NotificationReadStore {
   Future<void> write(List<String> ids) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(kReadIds, ids);
+  }
+
+  @override
+  Future<void> clear() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.remove(kReadIds);
   }
 }

@@ -345,6 +345,47 @@ void main() {
     });
   });
 
+  group('onSessionCleared — cross-user cache teardown', () {
+    test('logout() fires onSessionCleared (drops photo/notifs/name/imageCache)',
+        () async {
+      bool cleared = false;
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: api,
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+        onSessionCleared: () => cleared = true,
+      );
+      addTearDown(m.dispose);
+
+      await m.logout();
+
+      // The isolate + get_it singletons survive a logout, so the previous
+      // worker's caches must be explicitly torn down or the next worker inherits
+      // them (the cross-user photo/badge/name leak).
+      expect(cleared, isTrue);
+    });
+
+    test('a forced reauth (dead session) also fires onSessionCleared', () async {
+      bool cleared = false;
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: api,
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+        onSessionCleared: () => cleared = true,
+      );
+      addTearDown(m.dispose);
+
+      reauth.requireReauth();
+      await Future<void>.delayed(Duration.zero); // let the stream listener run
+
+      expect(cleared, isTrue);
+    });
+  });
+
   group('verifyOtp bridges into SessionRepository', () {
     test('new user (no PIN) -> locked, but the token is already bridged',
         () async {

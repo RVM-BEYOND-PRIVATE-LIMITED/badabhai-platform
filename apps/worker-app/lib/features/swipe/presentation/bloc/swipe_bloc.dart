@@ -41,6 +41,24 @@ class SwipeSkipped extends SwipeEvent {
   const SwipeSkipped();
 }
 
+/// Apply to a SPECIFIC job from the vertical feed LIST (kit 07 Job feed). The
+/// old swipe deck could only ever decide the HEAD card, so [SwipeApplied]
+/// targets [SwipeState.current]; the list shows every job at once and each card
+/// has its own inline "APPLY →", so this carries the tapped job's id and applies
+/// to it directly. Identical repository call + advance / decision-error
+/// bookkeeping as [SwipeApplied] (success bumps `appliedNonce` → the feed's
+/// "Applied" toast; failure bumps `decisionError`). A no-op when the id is no
+/// longer in the queue (already decided / filtered away) or a decision is
+/// already in flight.
+class SwipeCardApplied extends SwipeEvent {
+  const SwipeCardApplied(this.jobId);
+
+  final String jobId;
+
+  @override
+  List<Object?> get props => <Object?>[jobId];
+}
+
 /// A job was applied OUTSIDE the deck — the JobDetail full-screen applies via
 /// its own [JobDetailCubit] and pops back with `'applied'`; the Feed dispatches
 /// this so the just-applied job is PRUNED from the queue (H-1). Without it the
@@ -77,6 +95,7 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
   SwipeBloc(this._repo) : super(const SwipeState()) {
     on<SwipeFeedRequested>(_onFeedRequested);
     on<SwipeApplied>(_onApplied);
+    on<SwipeCardApplied>(_onCardApplied);
     on<SwipeSkipped>(_onSkipped);
     on<SwipeJobApplied>(_onJobApplied);
     on<SwipeFiltersChanged>(_onFiltersChanged);
@@ -142,6 +161,29 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
   Future<void> _onApplied(SwipeApplied event, Emitter<SwipeState> emit) async {
     final FeedItem? job = state.current;
     if (job == null || state.deciding) return;
+    emit(state.copyWith(deciding: true));
+    try {
+      await _repo.applyToJob(job.jobId, rank: job.rank);
+      _advance(emit, job, applied: true);
+    } on Failure catch (failure) {
+      _onDecisionError(emit, failure);
+    }
+  }
+
+  /// Apply to a specific job by id (the vertical feed list's inline "APPLY →").
+  /// Mirrors [_onApplied] but looks the job up in the queue instead of taking
+  /// the head, so any visible card can be applied to. The job is captured before
+  /// the `await` and handed to [_advance], so a filter change landing mid-flight
+  /// cannot make it drop the wrong card (same discipline as [_onApplied]).
+  Future<void> _onCardApplied(
+    SwipeCardApplied event,
+    Emitter<SwipeState> emit,
+  ) async {
+    if (state.deciding) return;
+    final int index =
+        state.queue.indexWhere((FeedItem job) => job.jobId == event.jobId);
+    if (index < 0) return; // already decided / filtered away
+    final FeedItem job = state.queue[index];
     emit(state.copyWith(deciding: true));
     try {
       await _repo.applyToJob(job.jobId, rank: job.rank);

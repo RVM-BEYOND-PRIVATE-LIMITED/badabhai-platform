@@ -103,6 +103,11 @@ void main() {
       ApiClient(
         baseUrl: 'http://test',
         client: MockClient((http.Request req) async {
+          // No prior session to resume → the served-opener open path runs.
+          if (req.url.path == '/chat/session/latest') {
+            return http.Response(
+                jsonEncode(<String, dynamic>{'session_id': null}), 200);
+          }
           opens++;
           return http.Response(
             jsonEncode(<String, dynamic>{

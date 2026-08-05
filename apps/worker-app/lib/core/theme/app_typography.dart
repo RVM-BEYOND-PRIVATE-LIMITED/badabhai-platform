@@ -59,13 +59,21 @@ class AppTypography {
   /// Mutable (not `const`) so a test can drive BOTH sides of the seam; restore
   /// it in `tearDown`.
   ///
-  /// TRUE since #350, and kept TRUE through the Josh re-skin: with fetching
-  /// hardened off, google_fonts is never called and no font request leaves the
-  /// device. NOTE: [displayFamily]/[bodyFamily] now name **Anek**/**Roboto**;
-  /// the pubspec still ships the old Baloo 2/Mukta binaries, so display copy
-  /// falls back to the platform font until the Anek assets are provisioned
-  /// (the parent owns that font decision — pubspec assets are untouched here).
-  static bool bundledBrandFonts = true;
+  /// FALSE since the Josh re-skin (2026-08-04): [displayFamily] now names **Anek**,
+  /// which the pubspec does NOT bundle (it still ships the DEAD Baloo 2/Mukta
+  /// binaries). With this TRUE, `display()` asked Flutter for a font family named
+  /// 'Anek' that does not exist, so EVERY headline/button/salary silently rendered
+  /// in the platform fallback — NOT Anek, not even Baloo. Flipping to FALSE routes
+  /// display through `GoogleFonts.anekLatin`, which fetches real Anek at runtime —
+  /// the SAME delivery the kit gallery and apps/payer-web use. Cost: a first launch
+  /// with no network shows the fallback until the file lands (then it is cached),
+  /// which is strictly better than the permanent fallback TRUE produced.
+  ///
+  /// The offline-safe upgrade (DESIGN_SPEC §3 "bundle subsetted Anek, drop the
+  /// google_fonts fetch") is to add Anek Latin/Devanagari .ttf to assets/fonts/,
+  /// declare `family: Anek` in pubspec, drop the dead Baloo 2/Mukta, and flip this
+  /// back to TRUE — in that one commit. Until those binaries exist, FALSE is correct.
+  static bool bundledBrandFonts = false;
 
   /// #350 — once the binaries are bundled, slam the network door: google_fonts
   /// must never quietly fetch a family we already ship.

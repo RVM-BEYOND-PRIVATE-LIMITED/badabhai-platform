@@ -31,8 +31,26 @@ class ChatRepositoryImpl implements ChatRepository {
   Future<String?> ensureSession() async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
-    if (_session.sessionId != null) return null; // already open
+    if (_session.sessionId != null) return null; // already open (in-memory)
     try {
+      // RESUME the worker's latest session before opening a new one. The session
+      // id lives in memory only, so after a cold restart (or opening the "Bada
+      // Bhai" tab later) it is null even though the signup profiling session — and
+      // its whole Q&A — is still server-side. Re-attaching to it means
+      // [loadHistory] redraws that transcript instead of a fresh empty thread, and
+      // any further chat appends to the SAME session. A resume serves no opener
+      // (the client renders its canned greeting, then the history redraw follows).
+      // Best-effort: a failed lookup falls through to opening a new session rather
+      // than blocking the chat.
+      try {
+        final String? latest = await _api.latestChatSessionId(authToken: token);
+        if (latest != null) {
+          _session.setSession(latest);
+          return null;
+        }
+      } catch (_) {
+        // Swallow: resume is an optimisation, never a gate — fall through to open.
+      }
       final ChatSessionStart start = await _api.startSession(authToken: token);
       _session.setSession(start.sessionId);
       return start.openingText;

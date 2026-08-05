@@ -240,8 +240,8 @@ class _StatusBanner extends StatelessWidget {
       case BatchInviteStatus.rateLimited:
         return _Banner(
           icon: Icons.hourglass_empty,
-          tint: AppColors.warningTint,
-          iconColor: AppColors.warning,
+          tint: AppColors.infoTint,
+          iconColor: AppColors.info,
           title: 'Just a moment',
           message:
               'You have minted a lot of invites quickly. Wait a bit, then try '

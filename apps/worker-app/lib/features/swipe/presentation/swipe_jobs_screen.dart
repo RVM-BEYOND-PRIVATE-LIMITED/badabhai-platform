@@ -11,6 +11,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/job_display.dart';
 import '../../../core/util/pay_format.dart';
+import '../../../core/widgets/bb_alerts_action.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_job_card.dart';
 import '../../../core/widgets/bb_chip.dart';
@@ -21,14 +22,19 @@ import '../domain/job_filter.dart';
 import 'bloc/swipe_bloc.dart';
 import 'bloc/swipe_state.dart';
 import 'widgets/filters_sheet.dart';
-import 'widgets/job_deck.dart';
 
-/// The Jobs tab — the rich swipe-to-apply Feed (spec §5.5 / `.aw-feed`).
+/// The Jobs tab — kit 07 "Job feed" as a VERTICAL LIST (the Tinder swipe deck
+/// is retired). A deep-blue header ("Kaam milega." + the day's job count + a
+/// horizontal row of filter chips) sits over a scrolling [ListView] of
+/// [BbJobCard]s, each with an inline green "APPLY →" and a tappable title that
+/// opens the full posting.
 ///
-/// Header + filter chips + the [JobDeck] card deck + swipe hint. All business
-/// logic stays in [SwipeBloc]; this widget renders state and dispatches events.
-/// The real feed contract ([FeedItem] / getFeed) is PII-free and unchanged — the
-/// card shows ONLY real feed fields — no invented employer/pay (see [_cardData]).
+/// All business logic stays in [SwipeBloc]; this widget renders state and
+/// dispatches events. The real feed contract ([FeedItem] / getFeed) is PII-free
+/// and unchanged — the card shows ONLY real feed fields, no invented
+/// employer/pay (see [_cardData]). Inline apply dispatches [SwipeCardApplied]
+/// (per-card, id-targeted); the title tap opens the detail route exactly as the
+/// deck did (and prunes on an 'applied' pop, H-1).
 class SwipeJobsScreen extends StatelessWidget {
   const SwipeJobsScreen({super.key, this.bloc});
 
@@ -62,16 +68,10 @@ class _FeedViewState extends State<_FeedView> {
   int _shownAppliedNonce = 0;
   int _shownDecisionError = 0;
 
-  /// The head jobId captured at skip-dispatch time. Skip success is silent in the
-  /// bloc (it only advances the queue), so we confirm it here: once this id is no
-  /// longer the head and no new decision error landed, we toast "Skipped".
-  String? _pendingSkipId;
-
-  /// The ONE source of truth for filter state on this screen. BOTH the top chip
-  /// row and the Filters sheet read and write it, and every write dispatches
-  /// [SwipeFiltersChanged] — so a chip tap narrows the deck exactly like the
-  /// sheet does. (The chips were previously visual-only, tracked in a separate
-  /// set that nothing filtered on; that divergence was the bug.)
+  /// The ONE source of truth for filter state on this screen. BOTH the header
+  /// chip row and the Filters sheet read and write it, and every write dispatches
+  /// [SwipeFiltersChanged] — so a chip tap narrows the list exactly like the
+  /// sheet does.
   FilterSelection _filters = FilterSelection.initial;
 
   @override
@@ -81,7 +81,7 @@ class _FeedViewState extends State<_FeedView> {
   }
 
   /// The single write path for filter state: hold it locally (to seed the sheet
-  /// and paint the chips) AND push it to the bloc (to narrow the deck). Takes the
+  /// and paint the chips) AND push it to the bloc (to narrow the list). Takes the
   /// bloc rather than a [BuildContext] so callers can resolve it BEFORE an async
   /// gap (see [_openFilters]).
   void _setFilters(SwipeBloc bloc, FilterSelection next) {
@@ -89,7 +89,7 @@ class _FeedViewState extends State<_FeedView> {
     bloc.add(SwipeFiltersChanged(next));
   }
 
-  /// Toggle one trade from the top chip row — the same path the sheet takes.
+  /// Toggle one trade from the header chip row — the same path the sheet takes.
   void _toggleTradeChip(BuildContext context, String trade) {
     final Set<String> trades = <String>{..._filters.trades};
     trades.contains(trade) ? trades.remove(trade) : trades.add(trade);
@@ -111,11 +111,21 @@ class _FeedViewState extends State<_FeedView> {
     }
   }
 
+  /// Pull-to-refresh — reloads the feed via the SAME [SwipeFeedRequested] the
+  /// empty-state "Refresh" button uses. `background: true` keeps the current list
+  /// on screen (the RefreshIndicator supplies the spinner) instead of flashing
+  /// the full-screen loader; the list updates reactively when the load lands. The
+  /// short delay just gives the indicator a bounded, natural lifetime.
+  Future<void> _onRefresh(BuildContext context) async {
+    context.read<SwipeBloc>().add(const SwipeFeedRequested(background: true));
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
+
   @override
   Widget build(BuildContext context) {
     // The IndexedStack keeps this branch mounted, so initState's feed request
     // runs only on the first visit — refetch when the tab comes back into view
-    // (T4). background: true keeps the current deck on screen while it reloads.
+    // (T4). background: true keeps the current list on screen while it reloads.
     return TabFocusRefetch(
       tabFocus: locator<TabFocus>(),
       index: TabIndex.jobs,
@@ -123,42 +133,38 @@ class _FeedViewState extends State<_FeedView> {
           .read<SwipeBloc>()
           .add(const SwipeFeedRequested(background: true)),
       child: Scaffold(
-        body: SafeArea(
-          bottom: false,
-          child: BlocConsumer<SwipeBloc, SwipeState>(
-            listenWhen: (SwipeState prev, SwipeState curr) =>
-                prev.decisionError != curr.decisionError ||
-                prev.appliedNonce != curr.appliedNonce ||
-                prev.queue != curr.queue,
-            listener: (BuildContext context, SwipeState state) {
-              if (state.appliedNonce != _shownAppliedNonce) {
-                _shownAppliedNonce = state.appliedNonce;
-                _pendingSkipId = null;
-                // Apply truly succeeded — confirm with a lightweight toast and let
-                // the deck advance to the next card (no full-screen confirmation).
-                _toast(context, 'Applied');
-              } else if (state.decisionError != _shownDecisionError) {
-                _shownDecisionError = state.decisionError;
-                _pendingSkipId = null; // a failed skip never confirms
-                _toast(context, 'Could not save. Please try again.');
-              } else if (_pendingSkipId != null &&
-                  state.current?.jobId != _pendingSkipId) {
-                // The skipped head advanced away with no error — confirm the skip.
-                _pendingSkipId = null;
-                _toast(context, 'Skipped');
-              }
-            },
-            builder: (BuildContext context, SwipeState state) {
-              return switch (state.status) {
-                SwipeStatus.loading => const BbStatusView.loading(),
-                SwipeStatus.error => _error(context, state),
-                SwipeStatus.consentRequired => _consentRequired(context),
-                SwipeStatus.empty => _empty(context),
-                SwipeStatus.ready =>
-                  state.filteredOut ? _noMatch(context) : _feed(context, state),
-              };
-            },
-          ),
+        backgroundColor: AppColors.canvas,
+        body: BlocConsumer<SwipeBloc, SwipeState>(
+          listenWhen: (SwipeState prev, SwipeState curr) =>
+              prev.decisionError != curr.decisionError ||
+              prev.appliedNonce != curr.appliedNonce,
+          listener: (BuildContext context, SwipeState state) {
+            if (state.appliedNonce != _shownAppliedNonce) {
+              _shownAppliedNonce = state.appliedNonce;
+              // Apply truly succeeded — confirm with a lightweight toast and let
+              // the list drop the applied card (no full-screen confirmation).
+              _toast(context, 'Applied');
+            } else if (state.decisionError != _shownDecisionError) {
+              _shownDecisionError = state.decisionError;
+              _toast(context, 'Could not save. Please try again.');
+            }
+          },
+          builder: (BuildContext context, SwipeState state) {
+            return switch (state.status) {
+              // Determinate progress is impossible for an open-ended fetch, so
+              // the loader carries a caption — never a bare centered spinner.
+              SwipeStatus.loading => const SafeArea(
+                  child: BbStatusView.loading(caption: 'Jobs load ho rahe hain…'),
+                ),
+              SwipeStatus.error => SafeArea(child: _error(context, state)),
+              SwipeStatus.consentRequired =>
+                SafeArea(child: _consentRequired(context)),
+              SwipeStatus.empty => SafeArea(child: _empty(context)),
+              SwipeStatus.ready => state.filteredOut
+                  ? SafeArea(child: _noMatch(context))
+                  : _feed(context, state),
+            };
+          },
         ),
       ),
     );
@@ -166,65 +172,63 @@ class _FeedViewState extends State<_FeedView> {
 
   Widget _feed(BuildContext context, SwipeState state) {
     final SwipeBloc bloc = context.read<SwipeBloc>();
-    // Render the FILTERED deck — the head matches [SwipeState.current], the card
-    // apply/skip act on, so the visible top card is always the decided one.
-    final List<JobDeckItem> cards = state.visibleQueue
-        .map((FeedItem i) => JobDeckItem(id: i.jobId, data: _cardData(i)))
-        .toList();
+    // Render the FILTERED list — the chip row + sheet narrow [visibleQueue].
+    final List<FeedItem> jobs = state.visibleQueue;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _header(context),
-        _chipRow(context),
+        _header(context, state),
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.gutter, AppSpacing.s2, AppSpacing.gutter, 0),
-            child: JobDeck(
-              cards: cards,
-              deciding: state.deciding,
-              onTitleTap: (String id) async {
-                // Hand the detail screen the REAL feed row — there is no
-                // worker-facing job-detail route, so this row IS the source.
-                final FeedItem item =
-                    state.queue.firstWhere((FeedItem i) => i.jobId == id);
-                // J3: applying from JobDetail pops back with 'applied' — surface
-                // the same "Applied" toast here (no more Applied confirmation screen).
-                final Object? result = await context.push(
-                  '${Routes.jobDetail}/$id',
-                  extra: JobDetail(
-                    jobId: item.jobId,
-                    title: item.title,
-                    city: item.city,
-                    area: item.area,
-                  ),
+          child: RefreshIndicator(
+            color: AppColors.blue,
+            onRefresh: () => _onRefresh(context),
+            child: ListView.builder(
+              // AlwaysScrollable so a short list can still be pulled to refresh.
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(
+                  top: AppSpacing.s2, bottom: AppSpacing.s4),
+              itemCount: jobs.length,
+              itemBuilder: (BuildContext context, int index) {
+                final FeedItem item = jobs[index];
+                return BbJobCard(
+                  data: _cardData(item),
+                  // The title opens the FULL posting (an accessible ≥48px button,
+                  // #362); the green "APPLY →" applies to THIS job.
+                  onTitleTap: () => _openDetail(context, bloc, item),
+                  onApply: () => bloc.add(SwipeCardApplied(item.jobId)),
                 );
-                if (result == 'applied') {
-                  // H-1: the detail applied OUTSIDE the deck (JobDetailCubit,
-                  // not SwipeBloc) — prune the job from the queue so it cannot
-                  // stay deck head where the natural next left-swipe would
-                  // POST a skip and flip the fresh applied row (last-write-
-                  // wins upsert). Also prevents reopening the still-present
-                  // card with a stale null applicationAction. `bloc` was
-                  // resolved before the await, so nothing crosses the gap.
-                  bloc.add(SwipeJobApplied(id));
-                  if (context.mounted) _toast(context, 'Applied');
-                }
               },
-              onSkip: () {
-                // Capture the head id so the listener can confirm the skip once
-                // it advances away with no error (the bloc has no skip nonce).
-                _pendingSkipId = state.current?.jobId;
-                bloc.add(const SwipeSkipped());
-              },
-              onApply: () => bloc.add(const SwipeApplied()),
             ),
           ),
         ),
-        _swipeHint(),
       ],
     );
+  }
+
+  /// Open the full posting for [item], handing over the light [JobDetail] the row
+  /// already holds (there is no worker-facing job-detail route, so this row IS
+  /// the source). If the detail applied OUTSIDE the list (its own cubit) it pops
+  /// 'applied' — H-1: prune the job from the queue so it cannot linger and be
+  /// skip-overwritten, and surface the same "Applied" toast.
+  Future<void> _openDetail(
+    BuildContext context,
+    SwipeBloc bloc,
+    FeedItem item,
+  ) async {
+    final Object? result = await context.push(
+      '${Routes.jobDetail}/${item.jobId}',
+      extra: JobDetail(
+        jobId: item.jobId,
+        title: item.title,
+        city: item.city,
+        area: item.area,
+      ),
+    );
+    if (result == 'applied') {
+      bloc.add(SwipeJobApplied(item.jobId));
+      if (context.mounted) _toast(context, 'Applied');
+    }
   }
 
   void _toast(BuildContext context, String message) {
@@ -233,62 +237,63 @@ class _FeedViewState extends State<_FeedView> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Widget _header(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, AppSpacing.s3, AppSpacing.s3, AppSpacing.s3),
-      child: Row(
+  /// The kit 07 deep-blue header: brand line + the day's job count + a horizontal
+  /// filter-chip row, plus a "Filter jobs" affordance for the richer sheet
+  /// (city / experience / shift / pay). The band bleeds under the status bar.
+  Widget _header(BuildContext context, SwipeState state) {
+    return Container(
+      width: double.infinity,
+      color: AppColors.blue,
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        MediaQuery.of(context).padding.top + AppSpacing.s3,
+        AppSpacing.s3,
+        AppSpacing.s3,
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                // "JOBS FOR YOU", not "NEAR YOU": the feed applies NO location
-                // filter (it is deliberately liberal), so "near" would be a
-                // claim the backend does not make.
-                Text('JOBS FOR YOU', style: AppTypography.eyebrow()),
-                const SizedBox(height: 2),
-                Row(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    const Icon(Icons.place_outlined,
-                        size: 20, color: AppColors.brand),
-                    const SizedBox(width: AppSpacing.s1),
-                    Text(_cityLabel(),
+                    Text('Kaam milega.',
                         style: AppTypography.display(
-                            size: AppTypography.sizeMd,
-                            weight: FontWeight.w800)),
+                            size: 22,
+                            weight: FontWeight.w800,
+                            color: AppColors.haldi)),
+                    const SizedBox(height: 2),
+                    Text('Aaj ${state.queue.length} naye jobs',
+                        style: AppTypography.body(
+                            size: AppTypography.size2xs,
+                            color: AppColors.onBlueMuted)),
                   ],
                 ),
-              ],
-            ),
+              ),
+              // Alerts moved off the bottom nav into a header bell (kit 4-tab
+              // set) — surface it here so notifications stay reachable from the
+              // feed, not only the Resume tab.
+              const BbAlertsAction(),
+              IconButton(
+                tooltip: 'Filter jobs',
+                icon: const Icon(Icons.tune, color: AppColors.onBlue),
+                onPressed: () => _openFilters(context),
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: 'Filter jobs',
-            icon: const Icon(Icons.tune),
-            onPressed: () => _openFilters(context),
-          ),
+          const SizedBox(height: AppSpacing.s2),
+          _chipRow(context),
         ],
       ),
     );
   }
 
-  /// The header's location line, driven by the REAL city filter state — never a
-  /// hardcoded place or distance. There is no distance/radius data anywhere in
-  /// the stack, so a "· 15 km" claim would be a lie; the honest statement is
-  /// simply which cities the deck is narrowed to.
-  String _cityLabel() {
-    final List<String> cities = _filters.cities.toList()..sort();
-    return switch (cities.length) {
-      0 => 'All cities',
-      1 => cities.first,
-      _ => '${cities.first} +${cities.length - 1}',
-    };
-  }
-
-  /// The Feed's quick-filter row: REAL trade chips only. Each reads its selected
-  /// state from [_filters] and writes through the same path as the sheet, so the
-  /// two can never disagree.
+  /// The header quick-filter row on the blue band: a leading "Sabhi" (all) chip
+  /// plus REAL trade chips. Each reads its selected state from [_filters] and
+  /// writes through the same path as the sheet, so the two can never disagree.
   ///
   /// ("Verified" and "Day shift" chips used to sit here. Both were deleted when
   /// neither had a backing `/feed` field. Verification still has none, so it
@@ -296,48 +301,33 @@ class _FeedViewState extends State<_FeedView> {
   /// but from the "Filter jobs" SHEET (single-select), not this quick-chip row,
   /// which stays trade-only.)
   Widget _chipRow(BuildContext context) {
+    final SwipeBloc bloc = context.read<SwipeBloc>();
     const List<(String, IconData)> chips = <(String, IconData)>[
       ('CNC', Icons.build_outlined),
       ('VMC', Icons.build_outlined),
     ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, 0, AppSpacing.gutter, AppSpacing.s3),
       child: Row(
         children: <Widget>[
+          BbChip(
+            label: 'Sabhi',
+            selected: _filters.trades.isEmpty,
+            onDark: true,
+            onTap: () =>
+                _setFilters(bloc, _filters.copyWith(trades: <String>{})),
+          ),
+          const SizedBox(width: AppSpacing.s2),
           for (final (String label, IconData icon) in chips) ...<Widget>[
             BbChip(
               label: label,
               icon: icon,
               selected: _filters.trades.contains(label),
+              onDark: true,
               onTap: () => _toggleTradeChip(context, label),
             ),
             const SizedBox(width: AppSpacing.s2),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _swipeHint() {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          const Icon(Icons.swipe, size: 18, color: AppColors.textMuted),
-          const SizedBox(width: AppSpacing.s2),
-          // #362 — the hint used to read only "Skip · Apply", so nothing on the
-          // screen told a worker that the job title opens the full posting.
-          // Flexible because the line is now long enough to overflow a narrow
-          // phone.
-          Flexible(
-            child: Text('Skip · Apply · Naam par tap = poori jaankari',
-                textAlign: TextAlign.center,
-                style: AppTypography.body(
-                    size: AppTypography.sizeSm, color: AppColors.textMuted)),
-          ),
         ],
       ),
     );
@@ -359,9 +349,8 @@ class _FeedViewState extends State<_FeedView> {
 
   /// Jobs exist but none match the active filter — distinct from the drained
   /// "No more jobs" state. Clearing resets EVERY dimension (trade, city and
-  /// experience) back to [FilterSelection.initial], so the full deck really does
-  /// come back and the chips stop reading as selected. (It previously cleared
-  /// only trades, leaving city/experience live and the chips visually stuck.)
+  /// experience) back to [FilterSelection.initial], so the full list really does
+  /// come back and the chips stop reading as selected.
   Widget _noMatch(BuildContext context) {
     return BbStatusView(
       icon: Icons.filter_alt_off_outlined,
@@ -407,9 +396,13 @@ class _FeedViewState extends State<_FeedView> {
 /// the feed now carries the REAL pay band + shift, so the card shows them when
 /// present — a null field simply leaves its row hidden (never invented). Still
 /// NEVER set here: company (employer identity is hidden entirely — nothing
-/// employer-shaped, PII per CLAUDE.md §2), tags, and spots-left (frozen — no
-/// real source). An earlier build invented all of them client-side from
-/// `jobId.hashCode` and rendered them as fact.
+/// employer-shaped, PII per CLAUDE.md §2), tags, spots-left, and `hot` (no real
+/// "featured" source, so the haldi rail / HOT tag stay unearned). An earlier
+/// build invented all of them client-side from `jobId.hashCode`.
+///
+/// The list card wires an inline "APPLY →", so its right-hand meta slot renders
+/// the action rather than the shift; the shift still surfaces in full on the job
+/// detail screen.
 BbJobCardData _cardData(FeedItem item) {
   return BbJobCardData(
     title: item.title,

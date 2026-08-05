@@ -6,6 +6,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
@@ -103,7 +104,7 @@ class _EngagementView extends StatelessWidget {
       case AgencyEngagementStatus.ready:
         return RefreshIndicator(
           onRefresh: () => context.read<AgencyEngagementCubit>().load(),
-          color: AppColors.brand,
+          color: AppColors.blue,
           child: ListView.separated(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.gutter,
@@ -157,14 +158,46 @@ class _WorkerCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
+              // Faceless funnel row: the masked avatar is the kit's mark for a
+              // candidate with no revealed identity — no name, no photo, no
+              // demographic signal, only the opaque ref below it.
+              const BbAvatar(
+                initials: '••',
+                size: 40,
+                mode: BbAvatarMode.masked,
+              ),
+              const SizedBox(width: AppSpacing.s3),
               Expanded(
-                child: Text(
-                  worker.ref.isNotEmpty ? worker.ref : 'Worker',
-                  style: AppTypography.mono(
-                    size: AppTypography.sizeBase,
-                    weight: FontWeight.w700,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      worker.ref.isNotEmpty ? worker.ref : 'Worker',
+                      style: AppTypography.mono(
+                        size: AppTypography.sizeBase,
+                        weight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: <Widget>[
+                        const Icon(Icons.schedule,
+                            size: 14, color: AppColors.textFaint),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            _lastActiveLabel(worker.lastActiveOn),
+                            style: AppTypography.body(
+                              size: AppTypography.sizeXs,
+                              color: AppColors.textMuted,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: AppSpacing.s2),
@@ -182,26 +215,14 @@ class _WorkerCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.s3),
+          // Hairline — the kit's only separator (no shadow, elevation 0).
+          Container(height: 1, color: AppColors.border),
+          const SizedBox(height: AppSpacing.s3),
           Row(
             children: <Widget>[
               _MiniStat(label: 'Applied', value: worker.appliedCount),
               const SizedBox(width: AppSpacing.s6),
               _MiniStat(label: 'Unlocked', value: worker.unlockedCount),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: <Widget>[
-              const Icon(Icons.schedule,
-                  size: 16, color: AppColors.textFaint),
-              const SizedBox(width: AppSpacing.s2),
-              Text(
-                _lastActiveLabel(worker.lastActiveOn),
-                style: AppTypography.body(
-                  size: AppTypography.sizeXs,
-                  color: AppColors.textMuted,
-                ),
-              ),
             ],
           ),
         ],

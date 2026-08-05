@@ -9,6 +9,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../domain/chat_message.dart';
 import 'bloc/job_posting_chat_bloc.dart';
@@ -276,7 +277,7 @@ class _ChatViewState extends State<_ChatView> {
               if (state.sessionFailed) _sessionBanner(),
               Expanded(
                 child: state.initializing
-                    ? const Center(child: CircularProgressIndicator())
+                    ? const BbStatusView.loading()
                     : ListView(
                         controller: _scroll,
                         padding: const EdgeInsets.symmetric(
@@ -494,19 +495,38 @@ class _ChatViewState extends State<_ChatView> {
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _send(),
               style: AppTypography.body(size: AppTypography.sizeSm),
-              decoration: const InputDecoration(
+              // Kit §4: the chat composer is one of the two pill surfaces (with
+              // chips). Hairline border, haldi focus ring — no shadow.
+              decoration: InputDecoration(
                 hintText: 'Type your answer…',
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: AppSpacing.s3,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.s4,
                   vertical: AppSpacing.s2,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.chip),
+                  borderSide:
+                      const BorderSide(color: AppColors.borderStrong, width: 1),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.chip),
+                  borderSide:
+                      const BorderSide(color: AppColors.borderStrong, width: 1),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.chip),
+                  borderSide:
+                      const BorderSide(color: AppColors.brand, width: 1.5),
                 ),
               ),
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
+          // Deep-blue send: the view's single haldi is the draft-panel Publish
+          // CTA, so send is a navy action — and green stays money/WhatsApp only.
           Material(
-            color: AppColors.success,
+            color: AppColors.blue,
             shape: const CircleBorder(),
             child: InkWell(
               customBorder: const CircleBorder(),
@@ -516,7 +536,7 @@ class _ChatViewState extends State<_ChatView> {
                 height: AppSpacing.tap,
                 child: Icon(
                   Icons.send_rounded,
-                  color: AppColors.textOnBrand,
+                  color: AppColors.onBlue,
                   size: 22,
                 ),
               ),

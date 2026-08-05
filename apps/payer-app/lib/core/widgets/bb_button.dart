@@ -1,19 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_theme.dart';
 import '../theme/app_typography.dart';
 
-/// Visual style of a [BbButton].
+/// Visual style of a [BbButton]. Mirrors the JUL31 kit's `BBButtonKind`
+/// (primary · navy · success · outline) plus the payer-app's own quiet
+/// variants. Label voice is ALWAYS Anek (display) and a light haptic fires on
+/// press — the kit's two button laws.
 ///
-///  - [primary]  — haldi action CTA, deep-blue label (the one main action).
+///  - [primary]  — haldi action CTA, deep-blue label (the ONE main action).
 ///  - [brand]    — haldi brand CTA (logo moments / brand highlights).
-///  - [secondary]— outlined, ink on white (the quiet alternative).
+///  - [navy]     — deep-blue commitment (kit "navy": download / continue).
+///  - [secondary]— outlined, ink on white (the quiet alternative / kit "outline").
 ///  - [tonal]    — soft haldi tint.
+///  - [success]  — green: money / WhatsApp / done ONLY (kit "success").
 ///  - [ghost]    — text only, reads as a blue link.
 ///  - [danger]   — crimson destructive action.
-enum BbButtonVariant { primary, brand, secondary, tonal, ghost, danger }
+enum BbButtonVariant { primary, brand, navy, secondary, tonal, success, ghost, danger }
 
 /// Control height: [sm] 36 · [md] 44 · [lg] 52 (the worker-app primary CTA).
 enum BbButtonSize { sm, md, lg }
@@ -57,12 +63,20 @@ class BbButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final VoidCallback? effectiveOnPressed = loading ? null : onPressed;
+    // Kit rule: a light haptic on every press. Suppressed while loading or when
+    // there is no handler.
+    final VoidCallback? effectiveOnPressed = (loading || onPressed == null)
+        ? null
+        : () {
+            HapticFeedback.lightImpact();
+            onPressed!();
+          };
 
     // The spinner must sit on each variant's own foreground — a white spinner
     // is invisible on the haldi primary/brand/tonal faces.
     final Color spinnerColor = switch (variant) {
       BbButtonVariant.primary || BbButtonVariant.brand => AppColors.onHaldi,
+      BbButtonVariant.navy || BbButtonVariant.success => AppColors.textInverse,
       BbButtonVariant.tonal => AppColors.brandPress,
       BbButtonVariant.secondary || BbButtonVariant.ghost => AppColors.textPrimary,
       BbButtonVariant.danger => AppColors.textInverse,
@@ -78,11 +92,13 @@ class BbButton extends StatelessWidget {
     );
 
     final Size minSize = Size(block ? double.infinity : 64, _height);
-    final TextStyle? textStyle = switch (size) {
-      BbButtonSize.sm => AppTypography.body(
-          size: AppTypography.sizeSm, weight: FontWeight.w700),
-      _ => null, // inherit labelLarge from the theme
-    };
+    // Kit law: buttons speak in Anek (display), never Roboto. The button's own
+    // foregroundColor still resolves the label colour (Material copies it over
+    // this style), so each variant keeps its correct on-face colour.
+    final TextStyle labelStyle = AppTypography.display(
+      size: size == BbButtonSize.sm ? AppTypography.sizeSm : AppTypography.sizeBase,
+      weight: FontWeight.w700,
+    );
 
     final Widget button = switch (variant) {
       BbButtonVariant.secondary => OutlinedButton(
@@ -90,7 +106,7 @@ class BbButton extends StatelessWidget {
           onPressed: effectiveOnPressed,
           style: OutlinedButton.styleFrom(
             minimumSize: minSize,
-            textStyle: textStyle,
+            textStyle: labelStyle,
           ),
           child: child,
         ),
@@ -100,7 +116,7 @@ class BbButton extends StatelessWidget {
           style: TextButton.styleFrom(
             foregroundColor: AppColors.textPrimary,
             minimumSize: minSize,
-            textStyle: textStyle,
+            textStyle: labelStyle,
           ),
           child: child,
         ),
@@ -111,8 +127,40 @@ class BbButton extends StatelessWidget {
             backgroundColor: AppColors.brandTint2,
             foregroundColor: AppColors.brandPress,
             minimumSize: minSize,
-            textStyle: textStyle,
+            textStyle: labelStyle,
             elevation: 0,
+          ),
+          child: child,
+        ),
+      // Kit "navy" — deep-blue strong commitment (download / continue).
+      BbButtonVariant.navy => FilledButton(
+          key: buttonKey,
+          onPressed: effectiveOnPressed,
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.blue,
+            foregroundColor: AppColors.onBlue,
+            disabledBackgroundColor: AppColors.disabled,
+            disabledForegroundColor: AppColors.textSecondary,
+            minimumSize: minSize,
+            textStyle: labelStyle,
+            elevation: 0,
+            shadowColor: Colors.transparent,
+          ),
+          child: child,
+        ),
+      // Kit "success" — green: money / WhatsApp / done ONLY.
+      BbButtonVariant.success => FilledButton(
+          key: buttonKey,
+          onPressed: effectiveOnPressed,
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.success,
+            foregroundColor: AppColors.textInverse,
+            disabledBackgroundColor: AppColors.disabled,
+            disabledForegroundColor: AppColors.textSecondary,
+            minimumSize: minSize,
+            textStyle: labelStyle,
+            elevation: 0,
+            shadowColor: Colors.transparent,
           ),
           child: child,
         ),
@@ -121,6 +169,7 @@ class BbButton extends StatelessWidget {
           onPressed: effectiveOnPressed,
           style: AppButtonStyles.brand.copyWith(
             minimumSize: WidgetStatePropertyAll<Size>(minSize),
+            textStyle: WidgetStatePropertyAll<TextStyle>(labelStyle),
           ),
           child: child,
         ),
@@ -129,13 +178,14 @@ class BbButton extends StatelessWidget {
           onPressed: effectiveOnPressed,
           style: AppButtonStyles.danger.copyWith(
             minimumSize: WidgetStatePropertyAll<Size>(minSize),
+            textStyle: WidgetStatePropertyAll<TextStyle>(labelStyle),
           ),
           child: child,
         ),
       BbButtonVariant.primary => FilledButton(
           key: buttonKey,
           onPressed: effectiveOnPressed,
-          style: FilledButton.styleFrom(minimumSize: minSize, textStyle: textStyle),
+          style: FilledButton.styleFrom(minimumSize: minSize, textStyle: labelStyle),
           child: child,
         ),
     };

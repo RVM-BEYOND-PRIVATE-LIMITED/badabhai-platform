@@ -23,8 +23,8 @@ import 'package:badabhai_worker_app/features/kit/presentation/kit_screen.dart';
 import 'package:badabhai_worker_app/features/profile_tab/presentation/profile_tab_screen.dart';
 import 'package:badabhai_worker_app/router.dart';
 
-/// Shell branch order (router.dart): Jobs 0 · Resume 1 · Profile 2 · Alerts 3.
-const int kProfileTabIndex = 2;
+/// Shell branch order (router.dart): Jobs 0 · Resume 1 · Bada Bhai 2 · Profile 3.
+const int kProfileTabIndex = 3;
 
 /// Advance the fake clock until [finder] matches (the mock client answers after
 /// ~300ms; pumpAndSettle would hang on perpetual spinners).

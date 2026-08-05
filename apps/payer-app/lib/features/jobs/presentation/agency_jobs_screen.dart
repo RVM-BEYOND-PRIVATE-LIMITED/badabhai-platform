@@ -112,8 +112,10 @@ class _AgencyJobCard extends StatelessWidget {
 
   final AgencyJobView job;
 
+  // Green is reserved for VERIFIED only (kit law); an open posting is an
+  // active/info state, not success green.
   (String, BbBadgeTone) get _pill => job.isOpen
-      ? ('Open', BbBadgeTone.success)
+      ? ('Open', BbBadgeTone.info)
       : ('Closed', BbBadgeTone.neutral);
 
   Future<void> _run(

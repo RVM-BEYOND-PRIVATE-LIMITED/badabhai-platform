@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import 'bb_toggle.dart';
 
 /// Colour tone for a [BbListRow.notification] leading tile.
 ///
@@ -81,6 +82,52 @@ class BbListRow extends StatelessWidget {
       trailing: const Icon(
         Icons.chevron_right,
         color: AppColors.textFaint,
+      ),
+    );
+  }
+
+  /// A settings row whose trailing affordance is a [BbToggle] slide switch (not a
+  /// chevron). Tapping anywhere on the row flips it, same as the switch. Used for
+  /// on/off preferences (e.g. Notifications).
+  factory BbListRow.toggle({
+    Key? key,
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+    bool enabled = true,
+  }) {
+    return BbListRow._(
+      key: key,
+      onTap: enabled ? () => onChanged(!value) : null,
+      leading: _IconTile(
+        icon: icon,
+        size: 38,
+        radius: AppRadii.sm,
+        background: AppColors.surfaceSunken,
+        iconColor: AppColors.textSecondary,
+      ),
+      title: Text(
+        title,
+        style: AppTypography.body(
+          size: AppTypography.sizeBase,
+          weight: FontWeight.w600,
+          color: AppColors.textPrimary,
+        ),
+      ),
+      subtitle: subtitle == null
+          ? null
+          : Text(
+              subtitle,
+              style: AppTypography.body(
+                size: AppTypography.sizeXs,
+                color: AppColors.textMuted,
+              ),
+            ),
+      trailing: BbToggle(
+        value: value,
+        onChanged: enabled ? onChanged : (_) {},
       ),
     );
   }

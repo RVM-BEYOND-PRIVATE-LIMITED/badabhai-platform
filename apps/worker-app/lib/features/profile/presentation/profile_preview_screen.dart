@@ -62,16 +62,34 @@ class _ProfileView extends StatelessWidget {
             state.status == ProfileStatus.confirmed;
         return BbScaffold(
           appBar: const BbAppBar(title: 'Your profile'),
+          // Kit 04 CONFIRM actions: [Badlo outline] + [Haan, sahi hai primary].
+          // "Badlo" routes back to the chat to change details (the app's edit
+          // path); "Haan, sahi hai" confirms + generates the resume.
           bottomBar: isReady
-              ? BbButton(
-                  label: 'Confirm & generate resume',
-                  block: true,
-                  iconLeft: Icons.description_outlined,
-                  // #360 — on 2G this request can run the full 15s timeout. An
-                  // unbound button looked dead, so the worker tapped repeatedly
-                  // at the last step of the flow and gave up.
-                  loading: state.confirming,
-                  onPressed: context.read<ProfileCubit>().confirm,
+              ? Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: BbButton(
+                        label: 'Badlo',
+                        variant: BbButtonVariant.outline,
+                        block: true,
+                        onPressed: () => _backToChat(context),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.s3),
+                    Expanded(
+                      flex: 2,
+                      child: BbButton(
+                        label: 'Haan, sahi hai',
+                        block: true,
+                        // #360 — on 2G this request can run the full 15s timeout.
+                        // An unbound button looked dead, so the worker tapped
+                        // repeatedly at the last step of the flow and gave up.
+                        loading: state.confirming,
+                        onPressed: context.read<ProfileCubit>().confirm,
+                      ),
+                    ),
+                  ],
                 )
               : null,
           body: switch (state.status) {
@@ -80,7 +98,7 @@ class _ProfileView extends StatelessWidget {
             ProfileStatus.draft => _buildDraft(context),
             ProfileStatus.ready ||
             ProfileStatus.confirmed =>
-              _buildProfile(state.summary),
+              _buildProfile(context, state.summary),
           },
         );
       },
@@ -174,69 +192,79 @@ class _ProfileView extends StatelessWidget {
     }
   }
 
-  /// Renders the REAL extracted profile read back from the summary route. Every
-  /// value is actual data or an honest "being finalised" note — never a
+  /// Renders the REAL extracted profile read back from the summary route, as the
+  /// kit 04 CONFIRM sheet content: a "Yeh sahi hai?" title over label→value rows,
+  /// each editable row carrying an edit glyph (tap → back to chat to change it).
+  /// Every value is actual data or an honest "being finalised" note — never a
   /// fabricated placeholder (the worker confirms what they can actually see).
-  Widget _buildProfile(ProfileSummary? summary) {
+  Widget _buildProfile(BuildContext context, ProfileSummary? summary) {
+    final List<Widget> rows = <Widget>[];
     if (summary == null) {
       // Extraction succeeded but the summary read missed. Be honest — no fake
       // rows — and still let the worker confirm (the profile does exist).
-      return ListView(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
-        children: <Widget>[
-          const _ProfileRow(
-              icon: Icons.check_circle_outline,
-              label: 'Profile',
-              value: 'Ready'),
+      rows.add(const _ConfirmRow(label: 'Profile', value: 'Ready', last: true));
+    } else {
+      final String trade = (summary.tradeLabel?.isNotEmpty ?? false)
+          ? summary.tradeLabel!
+          : 'Tayyar ho raha hai…';
+      // WA-4: `strengthSignals` is the backend's integer signal count — shown as
+      // an honest count in DS voice ("N cheezein complete"; "N/max" only once
+      // the API ships a real denominator), never a client-fabricated percent.
+      final int? strengthMax = summary.strengthMax;
+      final String strengthValue = (strengthMax != null && strengthMax > 0)
+          ? '${summary.strengthSignals}/$strengthMax cheezein complete'
+          : '${summary.strengthSignals} cheezein complete';
+      final String? city =
+          (summary.city?.isNotEmpty ?? false) ? summary.city : null;
+      // PII-free education labels — shown only when present, never fabricated.
+      final String? education = _educationLabel(summary);
+
+      // The data facts (editable via chat) then the informational strength row.
+      final List<({String label, String value, bool editable})> specs =
+          <({String label, String value, bool editable})>[
+        (label: 'Trade', value: trade, editable: true),
+        if (city != null) (label: 'City', value: city, editable: true),
+        if (education != null)
+          (label: 'Education', value: education, editable: true),
+        (label: 'Profile strength', value: strengthValue, editable: false),
+      ];
+      for (int i = 0; i < specs.length; i++) {
+        final ({String label, String value, bool editable}) s = specs[i];
+        rows.add(_ConfirmRow(
+          label: s.label,
+          value: s.value,
+          last: i == specs.length - 1,
+          onEdit: s.editable ? () => _backToChat(context) : null,
+        ));
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
+      children: <Widget>[
+        Text('Yeh sahi hai?',
+            style: AppTypography.display(
+                size: AppTypography.sizeLg, color: AppColors.blue)),
+        const SizedBox(height: AppSpacing.s2),
+        Text('Neeche di gayi jaankari confirm karein.',
+            style: AppTypography.body(color: AppColors.textSecondary)),
+        const SizedBox(height: AppSpacing.s4),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.surfaceCard,
+            border: Border.all(color: AppColors.borderSubtle),
+            borderRadius: BorderRadius.circular(AppRadii.sm),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
+          child: Column(children: rows),
+        ),
+        if (summary == null) ...<Widget>[
           const SizedBox(height: AppSpacing.s3),
           Text(
             'Details abhi dikh nahi paa rahe — aap confirm karke aage badh sakte hain.',
             style: AppTypography.body(color: AppColors.textSecondary),
           ),
         ],
-      );
-    }
-
-    final String trade = (summary.tradeLabel?.isNotEmpty ?? false)
-        ? summary.tradeLabel!
-        : 'Tayyar ho raha hai…';
-    // WA-4: `strengthSignals` is the backend's integer signal count — shown as
-    // an honest count in DS voice ("N cheezein complete"; "N/max" only once
-    // the API ships a real denominator), never a client-fabricated percent.
-    final int? strengthMax = summary.strengthMax;
-    final String strengthValue = (strengthMax != null && strengthMax > 0)
-        ? '${summary.strengthSignals}/$strengthMax cheezein complete'
-        : '${summary.strengthSignals} cheezein complete';
-    final String? city =
-        (summary.city?.isNotEmpty ?? false) ? summary.city : null;
-    // PII-free education labels — shown only when present, never fabricated.
-    final String? education = _educationLabel(summary);
-
-    return ListView(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
-      children: <Widget>[
-        Text('Aapki profile:',
-            style: AppTypography.body(color: AppColors.textSecondary)),
-        const SizedBox(height: AppSpacing.s4),
-        _ProfileRow(
-            icon: Icons.badge_outlined, label: 'Trade', value: trade),
-        if (city != null) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
-          _ProfileRow(
-              icon: Icons.place_outlined, label: 'City', value: city),
-        ],
-        if (education != null) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
-          _ProfileRow(
-              icon: Icons.school_outlined,
-              label: 'Education',
-              value: education),
-        ],
-        const SizedBox(height: AppSpacing.s3),
-        _ProfileRow(
-            icon: Icons.insights_outlined,
-            label: 'Profile strength',
-            value: strengthValue),
       ],
     );
   }
@@ -252,49 +280,72 @@ String? _educationLabel(ProfileSummary s) {
   return parts.isEmpty ? null : parts.join(' • ');
 }
 
-/// One labelled profile attribute card with a warm saffron icon chip.
-class _ProfileRow extends StatelessWidget {
-  const _ProfileRow({
-    required this.icon,
+/// One kit 04 CONFIRM sheet row: `label` on the left, `value` on the right with
+/// an optional edit glyph. A bottom hairline separates rows (the design system's
+/// only separation tool) except on the [last] row. When [onEdit] is set the whole
+/// row is the tap target (≥48px), routing back to the chat to change the fact.
+class _ConfirmRow extends StatelessWidget {
+  const _ConfirmRow({
     required this.label,
     required this.value,
+    this.onEdit,
+    this.last = false,
   });
 
-  final IconData icon;
   final String label;
   final String value;
+  final VoidCallback? onEdit;
+  final bool last;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.s4),
-        child: Row(
-          children: <Widget>[
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: AppColors.saffron50,
-                borderRadius: BorderRadius.circular(AppRadii.sm),
+    final Widget row = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
+        decoration: last
+            ? null
+            : const BoxDecoration(
+                border: Border(
+                    bottom: BorderSide(color: AppColors.divider)),
               ),
-              child: Icon(icon, color: AppColors.saffronDeep, size: 24),
-            ),
-            const SizedBox(width: AppSpacing.s4),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(label, style: AppTypography.eyebrow()),
-                const SizedBox(height: 2),
-                Text(value,
-                    style: AppTypography.body(
-                        size: AppTypography.sizeMd, weight: FontWeight.w600)),
-              ],
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Text(label,
+                style: AppTypography.body(
+                    size: AppTypography.sizeSm,
+                    color: AppColors.textSecondary)),
+            const SizedBox(width: AppSpacing.s3),
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: <Widget>[
+                  Flexible(
+                    child: Text(value,
+                        textAlign: TextAlign.end,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.body(
+                            size: AppTypography.sizeMd,
+                            weight: FontWeight.w600)),
+                  ),
+                  if (onEdit != null) ...<Widget>[
+                    const SizedBox(width: AppSpacing.s2),
+                    const Icon(Icons.edit, size: 16, color: AppColors.blue),
+                  ],
+                ],
+              ),
             ),
           ],
         ),
       ),
     );
+
+    if (onEdit == null) return row;
+    return InkWell(onTap: onEdit, child: row);
   }
 }
 

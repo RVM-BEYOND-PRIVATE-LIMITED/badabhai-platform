@@ -114,7 +114,10 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
         onPressed: state.saving ? null : cubit.save,
       ),
       body: ListView(
-        padding: const EdgeInsets.only(top: AppSpacing.s4),
+        padding: const EdgeInsets.only(
+          top: AppSpacing.s4,
+          bottom: AppSpacing.s4,
+        ),
         children: <Widget>[
           Text(
             'Sirf yeh fields aap badal sakte hain. Baaki resume bada bhai '
@@ -122,26 +125,36 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
             style: AppTypography.body(color: AppColors.textMuted),
           ),
           const SizedBox(height: AppSpacing.s4),
-          _NameField(
-            value: fields.displayName,
-            onEdit: () => _editName(context, cubit, fields.displayName),
-          ),
-          _PhotoField(
-            hasPhoto: fields.hasPhoto,
-            photoUrl: state.photoUrl,
-            busy: state.photoBusy,
-            onEdit: () => _editPhoto(context, cubit, fields.hasPhoto),
-          ),
-          _ToggleField(
-            label: 'Photo dikhayein',
-            value: fields.showPhoto,
-            onChanged: cubit.setShowPhoto,
-          ),
-          _ToggleField(
-            label: 'Night shift ke liye taiyaar',
-            value: fields.nightShiftReady,
-            onChanged: cubit.setNightShiftReady,
-            last: true,
+          // Kit 10: the editable safe fields grouped in a single flat card — the
+          // card's hairline border + the inter-row dividers carry separation,
+          // never a shadow.
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: <Widget>[
+                _NameField(
+                  value: fields.displayName,
+                  onEdit: () => _editName(context, cubit, fields.displayName),
+                ),
+                _PhotoField(
+                  hasPhoto: fields.hasPhoto,
+                  photoUrl: state.photoUrl,
+                  busy: state.photoBusy,
+                  onEdit: () => _editPhoto(context, cubit, fields.hasPhoto),
+                ),
+                _ToggleField(
+                  label: 'Photo dikhayein',
+                  value: fields.showPhoto,
+                  onChanged: cubit.setShowPhoto,
+                ),
+                _ToggleField(
+                  label: 'Night shift ke liye taiyaar',
+                  value: fields.nightShiftReady,
+                  onChanged: cubit.setNightShiftReady,
+                  last: true,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -428,7 +441,10 @@ class _FieldRow extends StatelessWidget {
             ? null
             : const Border(bottom: BorderSide(color: AppColors.divider)),
       ),
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s4,
+        vertical: AppSpacing.s3,
+      ),
       child: child,
     );
   }

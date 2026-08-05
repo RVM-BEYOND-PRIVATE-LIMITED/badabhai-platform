@@ -17,6 +17,12 @@ abstract class PhotoRepository {
 
   /// Removes the worker's photo (idempotent server-side).
   Future<void> removePhoto();
+
+  /// Drop the in-memory signed-URL cache. Called on LOGOUT/REAUTH: the repo is a
+  /// DI singleton that outlives a logout (the isolate is never restarted), and
+  /// the cached URL is a bearer credential for the PREVIOUS worker's photo — the
+  /// next worker must never inherit it. Safe to call more than once.
+  void onLogout();
 }
 
 /// The byte-PUT leg of the upload, split behind an interface (exactly like

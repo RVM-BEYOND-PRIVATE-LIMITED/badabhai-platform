@@ -35,8 +35,11 @@ class BbChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const Radius soft = Radius.circular(AppRadii.lg);
-    const Radius tight = Radius.circular(AppRadii.xs);
+    // Bubble radius 12 with ONE flattened 3px "tail" corner toward the speaker
+    // (kit `rBubble` / `rBubbleTail`): bottom-right tail on the worker's own
+    // messages, bottom-left tail on bada bhai's.
+    const Radius soft = Radius.circular(AppRadii.md);
+    const Radius tail = Radius.circular(AppRadii.bubbleTail);
 
     final Color background = failed
         ? AppColors.red50
@@ -48,12 +51,16 @@ class BbChatBubble extends StatelessWidget {
         : (fromWorker ? AppColors.blueTintChat : AppColors.borderSubtle);
 
     final Widget bubble = Container(
-      constraints: const BoxConstraints(maxWidth: 300),
+      // Bubbles never span the full column — cap at ~78% so the speaker side is
+      // always legible (kit ChatBubble).
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.78,
+      ),
       margin: const EdgeInsets.symmetric(vertical: AppSpacing.s1),
-      // Snug vertical padding keeps more of the transcript on screen with the
-      // keyboard open, while the full horizontal inset keeps copy comfortable.
+      // Snug, dense padding keeps more of the transcript on screen with the
+      // keyboard open.
       padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s4,
+        horizontal: AppSpacing.s3,
         vertical: AppSpacing.s2,
       ),
       decoration: BoxDecoration(
@@ -62,8 +69,8 @@ class BbChatBubble extends StatelessWidget {
         borderRadius: BorderRadius.only(
           topLeft: soft,
           topRight: soft,
-          bottomLeft: fromWorker ? soft : tight,
-          bottomRight: fromWorker ? tight : soft,
+          bottomLeft: fromWorker ? soft : tail,
+          bottomRight: fromWorker ? tail : soft,
         ),
       ),
       child: Column(

@@ -6,8 +6,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_app_bar.dart';
-import '../../../core/widgets/bb_scaffold.dart';
+import '../../../core/widgets/bb_blue_header.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/devices_cubit.dart';
 
@@ -30,12 +29,22 @@ class _DevicesView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BbScaffold(
-      padded: false,
-      appBar: const BbAppBar(title: 'Aapke devices'),
-      body: BlocBuilder<DevicesCubit, DevicesState>(
-        builder: (BuildContext context, DevicesState state) {
-          return switch (state.status) {
+    // Kit auth chrome: full-bleed blue header over the list. Pushed from
+    // Settings, so a white back affordance is shown. Not [BbScaffold] — the
+    // header bleeds to the status bar.
+    return Scaffold(
+      body: Column(
+        children: <Widget>[
+          BbBlueHeader(
+            title: 'Aapke devices',
+            onBack: () => Navigator.of(context).maybePop(),
+          ),
+          Expanded(
+            child: SafeArea(
+              top: false,
+              child: BlocBuilder<DevicesCubit, DevicesState>(
+                builder: (BuildContext context, DevicesState state) {
+                  return switch (state.status) {
             DevicesStatus.loading => const BbStatusView.loading(),
             DevicesStatus.failed => BbStatusView(
                 icon: Icons.error_outline_rounded,
@@ -67,8 +76,12 @@ class _DevicesView extends StatelessWidget {
                     itemBuilder: (BuildContext context, int i) =>
                         _DeviceTile(device: state.devices[i]),
                   ),
-          };
-        },
+                  };
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -91,11 +104,25 @@ class _DeviceTile extends StatelessWidget {
       padding: const EdgeInsets.all(AppSpacing.s4),
       child: Row(
         children: <Widget>[
-          Icon(
-            device.isCurrent
-                ? Icons.phone_android_rounded
-                : Icons.devices_other_rounded,
-            color: device.isCurrent ? AppColors.brand : AppColors.textMuted,
+          // Soft square icon tile (kit list idiom). Blue = trust / this-is-you
+          // for the current handset; a muted sunken tile for the rest.
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: device.isCurrent
+                  ? AppColors.infoTint
+                  : AppColors.surfaceSunken,
+              borderRadius: BorderRadius.circular(AppRadii.sm),
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              device.isCurrent
+                  ? Icons.phone_android_rounded
+                  : Icons.devices_other_rounded,
+              size: 20,
+              color: device.isCurrent ? AppColors.blue : AppColors.textMuted,
+            ),
           ),
           const SizedBox(width: AppSpacing.s3),
           Expanded(

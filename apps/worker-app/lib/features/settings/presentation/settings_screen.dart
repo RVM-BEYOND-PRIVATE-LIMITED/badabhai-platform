@@ -16,6 +16,7 @@ import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
+import '../domain/notification_prefs_repository.dart';
 import 'cubit/account_delete_cubit.dart';
 
 /// Settings (spec §5.10). Most rows are inert for the alpha (a tap shows a
@@ -102,62 +103,74 @@ class _SettingsView extends StatelessWidget {
     );
   }
 
+  /// A settings group card — white paper, one hairline border, no shadow; the
+  /// rows supply their own dividers (kit grouped-list idiom).
+  Widget _group(List<Widget> rows) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: rows),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return BbScaffold(
       appBar: const BbAppBar(title: 'Settings'),
+      padded: false,
       body: ListView(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.s2),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.gutter,
+          vertical: AppSpacing.s4,
+        ),
         children: <Widget>[
-          // HIDDEN FOR NOW: the 'Bhasha' language row. Language selection is
-          // hidden across the app until real localization ships — the picker
-          // only ever set `X-Locale`, with no translated strings behind it, so
-          // it promised a choice the app could not honour. The worker keeps the
-          // LocaleStore default (`hi`), so `X-Locale` is unchanged. Restore this
-          // row together with the splash picker.
-          // B7 kill switch. Defaults to VISIBLE (today's behaviour); lets ops
-          // pause the referral funnel without shipping a build. Hiding the entry
-          // point does NOT disable attribution — a code already captured from a
-          // deep link or the install referrer is still drained after consent.
-          if (!BbRemoteConfig.instance.inviteEntryHidden)
+          // HIDDEN FOR NOW: the 'Bhasha' language row — hidden across the app
+          // until real localization ships (the picker only ever set `X-Locale`,
+          // with no translated strings behind it). Restore it with the splash
+          // picker.
+          _group(<Widget>[
+            // B7 kill switch. Defaults to VISIBLE (today's behaviour); lets ops
+            // pause the referral funnel without shipping a build. Hiding the
+            // entry point does NOT disable attribution — a code already captured
+            // from a deep link / install referrer is still drained after consent.
+            if (!BbRemoteConfig.instance.inviteEntryHidden)
+              BbListRow.setting(
+                icon: Icons.person_add_alt_1_outlined,
+                title: 'Dost ko invite karein',
+                subtitle: 'Referral link share karein',
+                onTap: () => context.push(Routes.invite),
+              ),
             BbListRow.setting(
-              icon: Icons.person_add_alt_1_outlined,
-              title: 'Dost ko invite karein',
-              subtitle: 'Referral link share karein',
-              onTap: () => context.push(Routes.invite),
+              icon: Icons.chat,
+              title: 'WhatsApp alerts',
+              subtitle: 'Job alert · resume · reply',
+              onTap: () => _comingSoon(context),
             ),
-          BbListRow.setting(
-            icon: Icons.chat,
-            title: 'WhatsApp alerts',
-            subtitle: 'Job alert · resume · reply',
-            onTap: () => _comingSoon(context),
-          ),
-          BbListRow.setting(
-            icon: Icons.notifications_outlined,
-            title: 'Notifications',
-            subtitle: 'On',
-            onTap: () => _comingSoon(context),
-          ),
-          // #464 — RESTORED. This row is the worker's only in-app way to kick a
-          // lost or stolen handset off their account. It had been removed to
-          // sidestep an emit-after-close crash in DevicesCubit.load (FI-001),
-          // which left DevicesScreen and Routes.devices built but UNREACHABLE:
-          // the thief kept a live session and the refresh token sat in secure
-          // storage on hardware they controlled, while the worker's only
-          // recourse was "contact support" — not a real option for a
-          // first-time smartphone user. The crash is now guarded at its source.
-          BbListRow.setting(
-            icon: Icons.devices_other_outlined,
-            title: 'Aapke devices',
-            subtitle: 'Logged-in devices dekhein · hatayein',
-            onTap: () => context.push(Routes.devices),
-          ),
-          BbListRow.setting(
-            icon: Icons.verified_user_outlined,
-            title: 'Privacy & data',
-            subtitle: 'Consent · download · delete',
-            onTap: () => _comingSoon(context),
-          ),
+            const _NotificationsToggleRow(),
+          ]),
+          const SizedBox(height: AppSpacing.s4),
+          _group(<Widget>[
+            // #464 — RESTORED. The worker's only in-app way to kick a lost or
+            // stolen handset off their account (the emit-after-close crash in
+            // DevicesCubit.load, FI-001, that got it removed is now guarded at
+            // its source — DevicesScreen / Routes.devices are reachable again).
+            BbListRow.setting(
+              icon: Icons.devices_other_outlined,
+              title: 'Aapke devices',
+              subtitle: 'Logged-in devices dekhein · hatayein',
+              onTap: () => context.push(Routes.devices),
+            ),
+            BbListRow.setting(
+              icon: Icons.verified_user_outlined,
+              title: 'Privacy & data',
+              subtitle: 'Consent · download · delete',
+              onTap: () => _comingSoon(context),
+            ),
+          ]),
           // Account delete hidden for now; will return after the flow is redesigned.
           Visibility(
             visible: false,
@@ -211,7 +224,7 @@ class _SettingsView extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s5),
           Text(
-            'BadaBhai · v1.0 · Made in India 🇮🇳',
+            'BadaBhai · v1.0 · Made in India',
             textAlign: TextAlign.center,
             style: AppTypography.body(
                 size: AppTypography.sizeXs, color: AppColors.textFaint),
@@ -458,6 +471,53 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
           ],
         );
       },
+    );
+  }
+}
+
+/// Settings → Notifications: the master on/off slide switch. OFF = the worker
+/// receives NO push notifications; ON = all types. Reads its initial value from
+/// [NotificationPrefsRepository] (server-preferred, local fallback, default ON)
+/// and writes the choice back on every flip — local instantly, server best-effort.
+class _NotificationsToggleRow extends StatefulWidget {
+  const _NotificationsToggleRow();
+
+  @override
+  State<_NotificationsToggleRow> createState() =>
+      _NotificationsToggleRowState();
+}
+
+class _NotificationsToggleRowState extends State<_NotificationsToggleRow> {
+  NotificationPrefsRepository get _repo => locator<NotificationPrefsRepository>();
+
+  // Optimistic default ON until the async load resolves — the app's baseline is
+  // "notifications on", so this never briefly shows a wrong OFF.
+  bool _enabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final bool value = await _repo.isEnabled();
+    if (mounted) setState(() => _enabled = value);
+  }
+
+  void _onChanged(bool value) {
+    setState(() => _enabled = value); // optimistic — the write never throws
+    _repo.setEnabled(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BbListRow.toggle(
+      icon: Icons.notifications_outlined,
+      title: 'Notifications',
+      subtitle: _enabled ? 'On — sabhi alerts milenge' : 'Off — koi alert nahi',
+      value: _enabled,
+      onChanged: _onChanged,
     );
   }
 }

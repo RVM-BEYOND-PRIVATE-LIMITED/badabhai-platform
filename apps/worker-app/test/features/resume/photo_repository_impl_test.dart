@@ -125,6 +125,35 @@ void main() {
       expect(repo.photoUrl(), throwsA(isA<UnauthorizedFailure>()));
       expect(reqs, isEmpty);
     });
+
+    test(
+        'onLogout() drops the cached url — a re-login as a DIFFERENT worker '
+        're-fetches instead of inheriting the previous worker photo (cross-user leak)',
+        () async {
+      final List<http.Request> reqs = <http.Request>[];
+      final PhotoRepositoryImpl repo = PhotoRepositoryImpl(
+        ApiClient(baseUrl: 'http://test', client: _apiClient(reqs)),
+        _session(),
+        _RecordingUploader(),
+      );
+
+      await repo.photoUrl(); // fetch #1 → caches the signed url
+      await repo.photoUrl(); // second call is a CACHE HIT — no network
+      expect(
+        reqs.where((http.Request r) => r.url.path == '/workers/me/photo-url').length,
+        1,
+        reason: 'the second read must be served from the in-memory cache',
+      );
+
+      repo.onLogout(); // logout wipes the singleton cache (the previous worker is gone)
+      await repo.photoUrl(); // fetch #2 → a fresh GET, never the stale cached url
+
+      expect(
+        reqs.where((http.Request r) => r.url.path == '/workers/me/photo-url').length,
+        2,
+        reason: 'after logout the cache is cleared, so the next read re-fetches',
+      );
+    });
   });
 
   group('uploadPhoto', () {

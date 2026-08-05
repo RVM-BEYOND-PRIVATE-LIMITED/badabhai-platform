@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
@@ -19,16 +19,28 @@ import '../../../core/util/pdf_downloader.dart';
 import '../../../core/util/taxonomy_labels.dart';
 import '../../../core/util/transient_retry.dart';
 import '../../../core/util/resume_file_name.dart';
+import '../../../core/widgets/bb_alerts_action.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_action.dart';
 import '../../../core/widgets/bb_scaffold.dart';
+import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
 import '../domain/resume_edit_repository.dart';
 import '../domain/resume_safe_fields.dart';
 import 'cubit/resume_cubit.dart';
 import 'resume_photo_header.dart';
 import 'widgets/resume_sections.dart';
+
+/// The shared resume-tab header — title + the Bada Bhai chat entry point — used
+/// on the loading / no-profile / failed states. The ready state replaces it with
+/// the kit-06 deep-blue status header.
+const BbAppBar _resumeAppBar = BbAppBar(
+  title: 'Your resume',
+  // Bell = the relocated Alerts entry point (notifications lost their bottom-nav
+  // tab in the kit's 4-tab set). Sits alongside the Bada Bhai chat action.
+  actions: <Widget>[BbAlertsAction(), BbChatAction()],
+);
 
 class ResumePreviewScreen extends StatelessWidget {
   const ResumePreviewScreen({super.key, this.initialResume});
@@ -120,26 +132,98 @@ class _ResumeViewState extends State<_ResumeView> {
       onFocused: _onTabFocused,
       child: BlocBuilder<ResumeCubit, ResumeState>(
         builder: (BuildContext context, ResumeState state) {
-          return BbScaffold(
-            appBar: const BbAppBar(
-              title: 'Your resume',
-              actions: <Widget>[BbChatAction()],
-            ),
-            body: switch (state.status) {
-              ResumeStatus.loading =>
-                const Center(child: CircularProgressIndicator()),
-              ResumeStatus.noProfile => _buildNoProfile(context),
-              ResumeStatus.failed => _buildFailed(context),
-              ResumeStatus.ready =>
-                  _buildResume(context, state.resumeText, state.nightShiftReady),
-            },
-          );
+          return switch (state.status) {
+            // Bare centered spinners are banned — use the shared status surface
+            // under the same 'Your resume' chrome.
+            ResumeStatus.loading => const BbScaffold(
+                appBar: _resumeAppBar,
+                body: BbStatusView.loading(),
+              ),
+            ResumeStatus.noProfile => BbScaffold(
+                appBar: _resumeAppBar,
+                body: _buildNoProfile(context),
+              ),
+            ResumeStatus.failed => BbScaffold(
+                appBar: _resumeAppBar,
+                body: _buildFailed(context),
+              ),
+            // Kit 06 "Resume ready": a deep-blue status header over the resume
+            // artifact card and its download / WhatsApp / edit actions.
+            ResumeStatus.ready => _buildReady(
+                context,
+                state.resumeText,
+                state.nightShiftReady,
+              ),
+          };
         },
       ),
     );
   }
 
-  Widget _buildResume(BuildContext context, String resumeText, bool nightShiftReady) {
+  /// Kit 06 — the ready screen. The 'Your resume' chrome is retained (it is the
+  /// shell landmark and carries the Bada Bhai chat action); directly beneath it a
+  /// full-width deep-blue "Resume taiyaar!" banner leads into the artifact card
+  /// and its download / WhatsApp / edit actions.
+  Widget _buildReady(
+    BuildContext context,
+    String resumeText,
+    bool nightShiftReady,
+  ) {
+    return BbScaffold(
+      appBar: _resumeAppBar,
+      padded: false,
+      body: Column(
+        children: <Widget>[
+          _blueBanner(),
+          Expanded(child: _resumeList(context, resumeText, nightShiftReady)),
+        ],
+      ),
+    );
+  }
+
+  /// The full-width deep-blue "Resume taiyaar!" status banner — the celebratory
+  /// strip (haldi headline on blue) that sits directly under the app bar.
+  Widget _blueBanner() {
+    return Container(
+      width: double.infinity,
+      color: AppColors.blue,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.s4,
+        AppSpacing.gutter,
+        AppSpacing.s4,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Resume taiyaar ✓',
+            style: AppTypography.display(
+              size: AppTypography.sizeLg,
+              weight: FontWeight.w800,
+              color: AppColors.haldi,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s1 / 2),
+          Text(
+            'Bilkul free · share-ready',
+            style: AppTypography.body(
+              size: AppTypography.sizeXs,
+              color: AppColors.onBlueMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The scrollable body: the resume artifact card, the three actions, then the
+  /// muted "aap control karte ho" note.
+  Widget _resumeList(
+    BuildContext context,
+    String resumeText,
+    bool nightShiftReady,
+  ) {
     // Presentation-only transform: the resume body is a deterministic
     // `Label: value` template (ADR-0013), so it is re-structured into the
     // design's grouped sections WITHOUT re-fetching or inventing any data — the
@@ -151,14 +235,25 @@ class _ResumeViewState extends State<_ResumeView> {
     );
 
     return ListView(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s3,
+        AppSpacing.s4,
+        AppSpacing.s3,
+        AppSpacing.s6,
+      ),
       children: <Widget>[
+        // The resume artifact card, marked by a 4px HALDI TOP RAIL. Flat — the
+        // card theme's hairline border separates it, never a shadow; clipped so
+        // the rail follows the card's rounded top corners.
         Card(
           // Flat card (JUL31 system): the card theme's 1px hairline border — not a
-          // shadow — separates the resume from the paper background.
+          // shadow — separates the resume from the paper background. Clipped so the
+          // haldi top-rail follows the card's rounded top corners.
+          clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              Container(height: AppSpacing.s1, color: AppColors.haldi),
               // ADR-0032: the worker's OWN photo + name + WORKER PROFILE (DRAFT)
               // header. Self-contained + fail-silent (the photo/name are garnish
               // and never fabricated). Keyed on the edit-return nonce so a photo
@@ -181,24 +276,27 @@ class _ResumeViewState extends State<_ResumeView> {
                       )
                     : ResumeSectionsView(parsed: parsed),
               ),
-              const Divider(height: 1, color: AppColors.divider),
-              // In-card actions: download the PDF (GET /resume/:id/download —
-              // real, worker-authed), SHARE that PDF to WhatsApp (#336 — the
-              // parity item that was never built), + the safe-field edit
-              // entry-point.
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.s4),
-                child: Column(
-                  children: <Widget>[
-                    const _DownloadResumeButton(),
-                    const SizedBox(height: AppSpacing.s2),
-                    const ResumeShareButton(),
-                    const SizedBox(height: AppSpacing.s2),
-                    _EditResumeButton(onReturned: _onEditReturned),
-                  ],
-                ),
-              ),
             ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s3),
+        // Download the PDF (GET /resume/:id/download — real, worker-authed) as a
+        // deep-blue commitment, SHARE that PDF to WhatsApp in green (#336), and
+        // the safe-field edit entry-point — the only route to ResumeEditScreen.
+        const _DownloadResumeButton(),
+        const SizedBox(height: AppSpacing.s2),
+        const ResumeShareButton(),
+        const SizedBox(height: AppSpacing.s2),
+        _EditResumeButton(onReturned: _onEditReturned),
+        const SizedBox(height: AppSpacing.s4),
+        Center(
+          child: Text(
+            'Naam / photo / phone aap control karte hain',
+            textAlign: TextAlign.center,
+            style: AppTypography.body(
+              size: AppTypography.size2xs,
+              color: AppColors.textMuted,
+            ),
           ),
         ),
       ],
@@ -471,8 +569,12 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
     return BbButton(
       // Honest progress while the server renders — not an error, and not a
       // silent spinner.
-      label: _preparing ? kResumePreparingLabel : 'Download Resume',
+      label: _preparing ? kResumePreparingLabel : 'PDF download karein',
       block: true,
+      // Kit 06: navy download (deep-blue commitment) + green WhatsApp. There is
+      // NO haldi button on this screen by design — haldi lives in the banner
+      // headline and the artifact card's top rail, not on a CTA here.
+      variant: BbButtonVariant.navy,
       iconLeft: Icons.download_rounded,
       loading: _loading,
       onPressed: _loading ? null : _download,
@@ -481,7 +583,7 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
 }
 
 // Worker-facing share copy, exported so tests assert the exact honest lines.
-const String kResumeShareLabel = 'WhatsApp par bhejein';
+const String kResumeShareLabel = 'WhatsApp pe bhejein';
 const String kResumeSharePreparingNotice = 'Resume taiyaar kar rahe hain…';
 const String kResumeShareGenericFailureNotice =
     'Resume bhej nahi paye. Dobara koshish karein.';
@@ -683,7 +785,7 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
       // renders — waiting on a render is not an error.
       label: _preparing ? kResumePreparingLabel : kResumeShareLabel,
       block: true,
-      variant: BbButtonVariant.secondary,
+      variant: BbButtonVariant.success,
       iconLeft: Icons.share_rounded,
       loading: _loading,
       // Busy for the WHOLE share so a double-tap can't open two sheets.

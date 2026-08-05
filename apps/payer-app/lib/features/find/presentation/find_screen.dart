@@ -11,6 +11,7 @@ import '../../../core/util/name_mask.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
@@ -381,16 +382,12 @@ class _ApplicantCard extends StatelessWidget {
     // so those cards render exactly as before (soft signals + Hot only).
     final Widget? tierBadge = _tierBadge(applicant);
 
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(
-          color: masked ? AppColors.borderSubtle : AppColors.success,
-          width: masked ? 1 : 1.5,
-        ),
-      ),
+    return BbCard(
+      // Kit: the 4px haldi left rail marks a HOT / featured card — earned, never
+      // uniform. A green outline still marks an already-unlocked card.
+      featured: applicant.hot,
+      border:
+          masked ? null : Border.all(color: AppColors.success, width: 1.5),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -535,16 +532,11 @@ class _CandidateCard extends StatelessWidget {
         ? NameMask.redacted(candidate.name)
         : candidate.name;
 
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(
-          color: masked ? AppColors.borderSubtle : AppColors.success,
-          width: masked ? 1 : 1.5,
-        ),
-      ),
+    return BbCard(
+      // Kit: haldi left rail for a HOT candidate; green outline once unlocked.
+      featured: candidate.hot,
+      border:
+          masked ? null : Border.all(color: AppColors.success, width: 1.5),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[

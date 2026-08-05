@@ -46,4 +46,8 @@ class AppRadii {
   static const double xl = 12; // capped
   static const double xxl = 12; // capped
   static const double pill = 999;
+
+  /// The single flattened "tail" corner on a chat bubble — kit `rBubbleTail`.
+  /// The other three corners stay [md] (12); this one squares toward the speaker.
+  static const double bubbleTail = 3;
 }

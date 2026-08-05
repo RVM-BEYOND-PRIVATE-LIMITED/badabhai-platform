@@ -26,20 +26,24 @@ void main() {
 
   tearDown(() {
     // Restore BOTH globals to the SHIPPED state — this suite drives them on
-    // purpose and every other test in the app reads them. `true` (not `false`)
-    // is the restore value because the binaries are in the repo: it is what
-    // `main()` runs with.
-    AppTypography.bundledBrandFonts = true;
+    // purpose and every other test in the app reads them. `false` is the
+    // restore value: the pubspec bundles the DEAD Baloo 2 / Mukta faces, NOT
+    // Anek, so the bundled path would render the display voice as a system
+    // fallback. Shipping false routes display() through GoogleFonts.anekLatin —
+    // it is what `main()` runs with.
+    AppTypography.bundledBrandFonts = false;
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
-  group('bundledBrandFonts = true (shipped)', () {
+  group('bundledBrandFonts = true (bundled-asset branch — NOT the shipped default)', () {
     setUp(() => AppTypography.bundledBrandFonts = true);
 
-    test('display/body/eyebrow resolve to the bundled asset families', () {
-      // The exact pubspec `fonts:` family names — no google_fonts variant
-      // suffix ("Baloo2_regular"), which is what proves the fetch path is out
-      // of the picture rather than merely cached.
+    test('display/body/eyebrow resolve to the named asset families', () {
+      // On the bundled branch, display()/body() name a family DIRECTLY (no
+      // google_fonts "_regular" variant suffix). NB: 'Anek' is the family this
+      // branch NAMES, not one the pubspec actually declares — it bundles Baloo 2
+      // / Mukta — which is exactly why shipping this branch `true` rendered the
+      // headline voice as a system fallback. This only pins the branch mechanics.
       expect(AppTypography.display().fontFamily, 'Anek');
       expect(AppTypography.body().fontFamily, 'Roboto');
       expect(AppTypography.eyebrow().fontFamily, 'Roboto');
@@ -133,14 +137,13 @@ void main() {
     });
   });
 
-  // These two exercise the google_fonts path, which — with no google_fonts-named
-  // Baloo2/Mukta assets to find (ours are declared as the 'Baloo 2'/'Mukta'
-  // pubspec families, not under the google_fonts asset naming) — rejects its
+  // These two exercise the google_fonts path (the shipped default): with no
+  // pre-bundled Anek/Roboto google_fonts asset to find, google_fonts rejects its
   // fire-and-forget load future. `testWidgets` runs under FakeAsync so that
   // rejection is never pumped, which is how the rest of this app's widget suite
   // already coexists with google_fonts. A plain `test()` here would fail on the
   // unhandled async error, not on the assertion.
-  group('bundledBrandFonts = false (pre-#350 fetch branch)', () {
+  group('bundledBrandFonts = false (the shipped default — google_fonts delivery)', () {
     setUp(() => AppTypography.bundledBrandFonts = false);
 
     testWidgets('falls back to the google_fonts families',
@@ -166,10 +169,13 @@ void main() {
     });
   });
 
-  test('ships bundled by default', () {
-    // The whole point of #350. Declared outside both groups so no setUp has
-    // touched it; tearDown restores this same value.
-    expect(AppTypography.bundledBrandFonts, isTrue);
+  test('ships via google_fonts by default (Anek is not bundled)', () {
+    // The #350 fix on the payer app: the pubspec carries the dead Baloo 2 /
+    // Mukta faces, NOT Anek, so a `true` flag would render every headline in the
+    // system fallback. The flag MUST ship false, routing display() through
+    // GoogleFonts.anekLatin for the real Anek voice. Declared outside both groups
+    // so no setUp has touched it; tearDown restores this same value.
+    expect(AppTypography.bundledBrandFonts, isFalse);
   });
 
   test('mono stays self-hosted regardless of the brand-font switch', () {

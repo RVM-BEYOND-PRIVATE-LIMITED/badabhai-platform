@@ -177,7 +177,9 @@ class _NavCard extends StatelessWidget {
       onTap: onTap,
       child: Row(
         children: <Widget>[
-          Icon(icon, size: 24, color: AppColors.brand),
+          // Deep blue = structure / navigation / trust. Haldi is a fill, never a
+          // foreground stroke on white (kit law).
+          Icon(icon, size: 24, color: AppColors.blue),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Column(

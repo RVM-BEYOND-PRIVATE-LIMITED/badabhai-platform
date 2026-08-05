@@ -273,8 +273,10 @@ class _RealJobCard extends StatelessWidget {
 
   String get _wire => job.wireStatus ?? 'draft';
 
+  // Green is reserved for VERIFIED only (kit law) — an open posting reads as an
+  // active/info state, not a success/money green.
   (String, BbBadgeTone) get _pill => switch (_wire) {
-        'open' => ('Open', BbBadgeTone.success),
+        'open' => ('Open', BbBadgeTone.info),
         'paused' => ('Paused', BbBadgeTone.warning),
         'closed' => ('Closed', BbBadgeTone.neutral),
         _ => ('Draft', BbBadgeTone.neutral),
@@ -454,6 +456,9 @@ class _RealJobCard extends StatelessWidget {
               Expanded(
                 child: BbButton(
                   label: 'Publish',
+                  // Navy commitment — the single haldi on this view is the header
+                  // 'Post' CTA, so per-card actions never compete for it.
+                  variant: BbButtonVariant.navy,
                   size: BbButtonSize.sm,
                   iconLeft: Icons.send,
                   onPressed: () =>
@@ -505,6 +510,8 @@ class _RealJobCard extends StatelessWidget {
         return <Widget>[
           BbButton(
             label: 'Resume',
+            // Navy commitment — keeps the header 'Post' as the view's sole haldi.
+            variant: BbButtonVariant.navy,
             size: BbButtonSize.sm,
             iconLeft: Icons.play_arrow,
             block: true,
@@ -571,8 +578,9 @@ class _JobCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool dim = job.status == JobStatus.filled;
+    // Green stays reserved for VERIFIED — a live posting is an active/info tone.
     final BbBadgeTone statusTone = switch (job.status) {
-      JobStatus.live => BbBadgeTone.success,
+      JobStatus.live => BbBadgeTone.info,
       JobStatus.filled => BbBadgeTone.neutral,
       JobStatus.review => BbBadgeTone.warning,
     };

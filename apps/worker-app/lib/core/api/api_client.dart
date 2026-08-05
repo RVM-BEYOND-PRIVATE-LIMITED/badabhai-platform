@@ -174,6 +174,19 @@ class ApiClient {
     return ChatSessionStart.fromJson(json);
   }
 
+  /// The worker's LATEST chat session id, or null if they have none (GET
+  /// /chat/session/latest). Worker-scoped: the worker is taken from [authToken],
+  /// never a param. Lets the app re-attach to the signup profiling session after a
+  /// cold restart — the session id is in-memory only, so without this the "Bada
+  /// Bhai" tab would start a fresh empty thread and orphan the earlier Q&A. The
+  /// response is `{ session_id: <uuid> | null }`.
+  Future<String?> latestChatSessionId({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/chat/session/latest', authToken: authToken);
+    final Object? id = json['session_id'];
+    return id is String && id.isNotEmpty ? id : null;
+  }
+
   /// Posts a worker message. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token, never from the body.
   Future<ChatReply> sendMessage({
@@ -600,6 +613,42 @@ class ApiClient {
         .whereType<Map<String, dynamic>>()
         .map(WorkerNotification.fromJson)
         .toList();
+  }
+
+  /// Marks the worker's Alerts read up to now (POST /workers/me/notifications/read —
+  /// WorkerAuthGuard + ConsentGuard). Worker-scoped: the worker is derived from
+  /// [authToken], never a body. Sets the SERVER-SIDE read watermark so read-state
+  /// is CROSS-DEVICE (a later `getMyNotifications` returns `read: true` for these
+  /// on any device). Empty body; the response is ignored. Callers invoke this
+  /// FAIL-SOFT — an older API without the route simply keeps local-only read state.
+  Future<void> markNotificationsRead({required String authToken}) async {
+    await _post('/workers/me/notifications/read', <String, dynamic>{},
+        authToken: authToken);
+  }
+
+  /// The worker's master Notifications on/off preference (GET
+  /// /workers/me/notification-prefs — WorkerAuthGuard). Worker-scoped: the worker
+  /// is derived from [authToken]. `{ notifications_enabled: bool }`. ABSENT/older
+  /// API → defaults ON (true), so the client keeps its local value — fail-soft.
+  Future<bool> getNotificationPrefs({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/notification-prefs', authToken: authToken);
+    return json['notifications_enabled'] as bool? ?? true;
+  }
+
+  /// Sets the master Notifications on/off preference (PATCH
+  /// /workers/me/notification-prefs — WorkerAuthGuard). Worker-scoped. When OFF,
+  /// the backend must SKIP every push fan-out to this worker (the gate lives in
+  /// the send path, not here). Callers invoke this best-effort.
+  Future<void> updateNotificationPrefs({
+    required bool enabled,
+    required String authToken,
+  }) async {
+    await _patch(
+      '/workers/me/notification-prefs',
+      <String, dynamic>{'notifications_enabled': enabled},
+      authToken: authToken,
+    );
   }
 
   /// Mints a signed upload slot for a voice clip (POST /voice/upload-url —

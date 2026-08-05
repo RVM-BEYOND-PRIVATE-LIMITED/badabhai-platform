@@ -67,6 +67,7 @@ class AuthSessionManager extends ChangeNotifier {
     required ReauthSignal reauthSignal,
     bool persistentAuthEnabled = kPersistentAuth,
     PushTokenService? pushTokenService,
+    this.onSessionCleared,
   })  : _authApi = authApi,
         _tokenStore = tokenStore,
         _session = session,
@@ -85,6 +86,13 @@ class AuthSessionManager extends ChangeNotifier {
   final ReauthSignal _reauthSignal;
   final bool _persistentAuthEnabled;
   final PushTokenService? _pushTokenService;
+
+  /// Teardown for user-scoped DI singletons that OUTLIVE a logout (photo URL,
+  /// notifications badge/read-state, resume-edit name, the global image cache).
+  /// Wired in the locator to a routine that clears them; called on BOTH sign-out
+  /// paths right after the session is cleared, so the next worker inherits none
+  /// of the previous worker's cached data. Null in tests that don't wire it.
+  final VoidCallback? onSessionCleared;
 
   /// Whether the PIN / cold-start-lock / re-lock layer is active. Exposed so the
   /// lifecycle observer / router can skip lock UX when the layer is off.
@@ -606,6 +614,7 @@ class AuthSessionManager extends ChangeNotifier {
   void _onReauthRequired() {
     // PASS 1's interceptor already cleared SecureTokenStore before firing.
     _session.clear();
+    onSessionCleared?.call(); // drop singleton-held user data (photo/notifs/name/imageCache)
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: the store's pin_set went with the clear()
     _resumeLocation = null; // #349: a new login must not land on the old screen
@@ -616,6 +625,7 @@ class AuthSessionManager extends ChangeNotifier {
   Future<void> _wipeAndLogOut() async {
     await _tokenStore.clear(); // also deletes pin_set
     _session.clear();
+    onSessionCleared?.call(); // drop singleton-held user data (photo/notifs/name/imageCache)
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: keep the in-memory flag in step with the store
     _consecutivePinFailures = 0; // the trapped session is gone; start clean

@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/nav/tab_focus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/widgets/bb_alerts_action.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_action.dart';
 import '../../../core/widgets/bb_list_row.dart';
@@ -48,51 +49,48 @@ class _ProfileTabView extends StatelessWidget {
       index: TabIndex.profile,
       onFocused: () => context.read<ProfileTabCubit>().refresh(),
       child: Scaffold(
-        appBar: BbAppBar(
-          title: 'Profile',
-          actions: <Widget>[
-            const BbChatAction(),
-            IconButton(
-              tooltip: 'Settings',
-              icon: const Icon(Icons.settings_outlined),
-              onPressed: () => context.push(Routes.settings),
-            ),
-          ],
-        ),
         body: BlocBuilder<ProfileTabCubit, ProfileTabState>(
           builder: (BuildContext context, ProfileTabState state) {
-            return switch (state.status) {
-              ProfileTabStatus.loading => const BbStatusView.loading(),
-              ProfileTabStatus.failed => BbStatusView(
-                  icon: failureReason(state.failure).icon,
-                  title: 'Profile load nahi hui.',
-                  subtitle: failureReason(state.failure).reason,
-                  action: FilledButton(
-                    onPressed: () => context.read<ProfileTabCubit>().load(),
-                    child: const Text('Try again'),
-                  ),
-                ),
-              ProfileTabStatus.ready => _profile(context, state.summary!),
-            };
+            final ProfileSummary? summary =
+                state.status == ProfileTabStatus.ready ? state.summary : null;
+            return Column(
+              children: <Widget>[
+                _header(context, summary),
+                Expanded(child: _body(context, state)),
+              ],
+            );
           },
         ),
       ),
     );
   }
 
+  /// The state-driven content that sits below the blue identity header.
+  Widget _body(BuildContext context, ProfileTabState state) {
+    return switch (state.status) {
+      ProfileTabStatus.loading => const BbStatusView.loading(),
+      ProfileTabStatus.failed => BbStatusView(
+          icon: failureReason(state.failure).icon,
+          title: 'Profile load nahi hui.',
+          subtitle: failureReason(state.failure).reason,
+          action: FilledButton(
+            onPressed: () => context.read<ProfileTabCubit>().load(),
+            child: const Text('Try again'),
+          ),
+        ),
+      ProfileTabStatus.ready => _profile(context, state.summary!),
+    };
+  }
+
   Widget _profile(BuildContext context, ProfileSummary s) {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       children: <Widget>[
-        _header(s),
-        const SizedBox(height: AppSpacing.s5),
         _strengthCard(s),
         const SizedBox(height: AppSpacing.s4),
         _skillsCard(s),
         const SizedBox(height: AppSpacing.s4),
-        _kitShortcut(context),
-        const SizedBox(height: AppSpacing.s4),
-        _appliedShortcut(context),
+        _shortcutsCard(context),
         // Comfortable separation from the content above; logout sits last.
         const SizedBox(height: AppSpacing.s8),
         _logoutButton(context),
@@ -140,24 +138,70 @@ class _ProfileTabView extends StatelessWidget {
     context.go(Routes.phoneLogin);
   }
 
-  Widget _header(ProfileSummary s) {
+  /// Full-bleed blue identity header — kit language (blue = structure / trust).
+  /// It carries the two Profile actions (chat + settings) and, once loaded, the
+  /// worker's avatar + name. Rendered in every state so the chrome stays put
+  /// through loading and error.
+  Widget _header(BuildContext context, ProfileSummary? s) {
+    return Container(
+      width: double.infinity,
+      color: AppColors.blue,
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        MediaQuery.of(context).padding.top + AppSpacing.s2,
+        AppSpacing.s2,
+        s == null ? AppSpacing.s4 : AppSpacing.s5,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Text('Profile',
+                    style: AppTypography.display(
+                        size: AppTypography.sizeLg,
+                        weight: FontWeight.w800,
+                        color: AppColors.onBlue)),
+              ),
+              // Alerts moved off the bottom nav into a header bell (kit 4-tab
+              // set) — surface it on Profile too so notifications stay reachable.
+              const BbAlertsAction(),
+              const BbChatAction(),
+              IconButton(
+                tooltip: 'Settings',
+                icon: const Icon(Icons.settings_outlined,
+                    color: AppColors.onBlue),
+                onPressed: () => context.push(Routes.settings),
+              ),
+            ],
+          ),
+          if (s != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s3),
+            _identity(s),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Avatar + name/subline + verified badge, laid over the blue header.
+  Widget _identity(ProfileSummary s) {
     final String resolvedTrade = replaceTaxonomyIds(s.tradeLabel ?? '');
     // The worker's NAME is an open §2 escalation and is NOT on the wire today —
     // lead with the trade label (then a neutral generic) rather than fabricate a
     // name. Only repeat the trade in the subline when a name IS the headline.
-    final String headline = s.displayName ?? (resolvedTrade.isNotEmpty ? resolvedTrade : 'Aapki profile');
+    final String headline =
+        s.displayName ?? (resolvedTrade.isNotEmpty ? resolvedTrade : 'Aapki profile');
     final List<String> subParts = <String>[
-      if (s.displayName != null && resolvedTrade.isNotEmpty)
-        resolvedTrade,
+      if (s.displayName != null && resolvedTrade.isNotEmpty) resolvedTrade,
       if (s.city?.isNotEmpty ?? false) s.city!,
     ];
     final String? subline = subParts.isEmpty ? null : subParts.join(' · ');
 
     return Row(
       children: <Widget>[
-        // ADR-0032 — the worker's real photo, with the edit entry point. The tab
-        // used to render initials/an icon only, and the comment below admitted
-        // the photo flow was reachable ONLY from the resume-edit screen. Same
+        // ADR-0032 — the worker's real photo, with the edit entry point. Same
         // photo, same endpoints, same shared sheet — no second concept.
         ProfileAvatar(
           initials: s.initials,
@@ -171,11 +215,13 @@ class _ProfileTabView extends StatelessWidget {
             children: <Widget>[
               Text(headline,
                   style: AppTypography.display(
-                      size: AppTypography.sizeXl, weight: FontWeight.w800)),
+                      size: AppTypography.sizeXl,
+                      weight: FontWeight.w800,
+                      color: AppColors.onBlue)),
               if (subline != null) ...<Widget>[
                 const SizedBox(height: 2),
                 Text(subline,
-                    style: AppTypography.body(color: AppColors.textMuted)),
+                    style: AppTypography.body(color: AppColors.onBlueMuted)),
               ],
               if (s.verified) ...<Widget>[
                 const SizedBox(height: AppSpacing.s2),
@@ -254,21 +300,29 @@ class _ProfileTabView extends StatelessWidget {
         s.machines.isNotEmpty ||
         s.experienceYears != null ||
         education != null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text('Skills aur anubhav',
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, weight: FontWeight.w700)),
-        const SizedBox(height: AppSpacing.s3),
-        if (!hasAny)
-          Text(
-            'Abhi kuch nahi — chat mein apne skills aur experience batayein.',
-            style: AppTypography.body(color: AppColors.textMuted),
-          )
-        else
-          ..._structuredRows(s, education),
-      ],
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('Skills aur anubhav',
+              style: AppTypography.body(
+                  size: AppTypography.sizeSm, weight: FontWeight.w700)),
+          const SizedBox(height: AppSpacing.s3),
+          if (!hasAny)
+            Text(
+              'Abhi kuch nahi — chat mein apne skills aur experience batayein.',
+              style: AppTypography.body(color: AppColors.textMuted),
+            )
+          else
+            ..._structuredRows(s, education),
+        ],
+      ),
     );
   }
 
@@ -347,7 +401,15 @@ class _ProfileTabView extends StatelessWidget {
     return '$n saal';
   }
 
-  Widget _kitShortcut(BuildContext context) {
+  /// The Profile shortcuts grouped into one white card, split by hairlines
+  /// (kit grouped-list idiom). Navigation targets are unchanged:
+  ///  - Interview kit opens WITHIN the Profile branch (WA-3: nested under
+  ///    /profile, so backing out of the kit lands on Profile, not Resume).
+  ///  - Applied jobs is pushed full-screen from Profile (back → Profile).
+  ///  - Invite (route already present) is gated by the same B7 kill switch the
+  ///    Settings screen uses, so hiding the funnel hides it here too.
+  Widget _shortcutsCard(BuildContext context) {
+    final bool showInvite = !BbRemoteConfig.instance.inviteEntryHidden;
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
@@ -355,32 +417,39 @@ class _ProfileTabView extends StatelessWidget {
         border: Border.all(color: AppColors.borderSubtle),
       ),
       clipBehavior: Clip.antiAlias,
-      // Opens the kit WITHIN the Profile branch (WA-3): the kit routes are
-      // nested under /profile, so the Profile tab stays active and backing out
-      // of the kit lands here — not on the Resume tab.
-      child: BbListRow.kit(
-        icon: Icons.quiz_outlined,
-        title: 'Interview kit',
-        subtitle: '15 sawaal + jawaab',
-        onTap: () => context.push(Routes.kit),
-      ),
-    );
-  }
-
-  Widget _appliedShortcut(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.borderSubtle),
-      ),
-      clipBehavior: Clip.antiAlias,
-      // Pushed full-screen from Profile (back → Profile), like Settings.
-      child: BbListRow.kit(
-        icon: Icons.work_history,
-        title: 'Applied jobs',
-        subtitle: 'Aapki apply ki gayi jobs',
-        onTap: () => context.push(Routes.appliedJobs),
+      child: Column(
+        children: <Widget>[
+          BbListRow.kit(
+            icon: Icons.quiz_outlined,
+            title: 'Interview kit',
+            subtitle: '15 sawaal + jawaab',
+            onTap: () => context.push(Routes.kit),
+          ),
+          const Divider(
+            height: 1,
+            indent: AppSpacing.s4,
+            endIndent: AppSpacing.s4,
+          ),
+          BbListRow.kit(
+            icon: Icons.work_history,
+            title: 'Applied jobs',
+            subtitle: 'Aapki apply ki gayi jobs',
+            onTap: () => context.push(Routes.appliedJobs),
+          ),
+          if (showInvite) ...<Widget>[
+            const Divider(
+              height: 1,
+              indent: AppSpacing.s4,
+              endIndent: AppSpacing.s4,
+            ),
+            BbListRow.kit(
+              icon: Icons.person_add_alt_1_outlined,
+              title: 'Dost ko invite karein',
+              subtitle: 'Referral link share karein',
+              onTap: () => context.push(Routes.invite),
+            ),
+          ],
+        ],
       ),
     );
   }

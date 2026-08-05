@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../core/api/api_client.dart';
@@ -82,6 +84,21 @@ class NotificationsRepositoryImpl implements NotificationsRepository {
   ValueListenable<int> get unreadCount => _unread;
 
   @override
+  void onLogout() {
+    // The shell badge binds to this singleton, which outlives a logout. Reset
+    // every cached read-state so the NEXT worker starts clean instead of seeing
+    // the previous worker's unread count / read ids.
+    _readIds.clear();
+    _lastIds.clear();
+    _unread.value = 0;
+    _hydration = null; // force a fresh disk read for the next worker
+    _storeUsable = true; // a prior store failure must not carry across accounts
+    // Best-effort disk wipe of the single global read-ids key (TD90). Fire and
+    // forget: a slow/failed prefs write must not block sign-out.
+    unawaited(_readStore.clear());
+  }
+
+  @override
   Future<List<AppNotification>> list() async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
@@ -120,6 +137,16 @@ class NotificationsRepositoryImpl implements NotificationsRepository {
     // fire-and-forget) so a worker who marks read and immediately kills the app
     // has the write ordered before we return; it cannot throw — see [_persist].
     await _persist();
+    // Set the SERVER read watermark so the state is CROSS-DEVICE (another device
+    // then sees these read). FAIL-SOFT + fire-and-forget: an older API without the
+    // route, or an offline device, degrades to the local read set above — never a
+    // thrown error, never a blocked mark-read.
+    final String? token = _session.sessionToken;
+    if (token != null && token.isNotEmpty) {
+      unawaited(
+        _api.markNotificationsRead(authToken: token).catchError((Object _) {}),
+      );
+    }
   }
 
   @override
@@ -203,7 +230,11 @@ class NotificationsRepositoryImpl implements NotificationsRepository {
       title: n.title,
       subtitle: n.body,
       time: _relativeTime(n.createdAt),
-      read: _readIds.contains(n.id),
+      // Server-authoritative read flag (cross-device) OR the local optimistic set
+      // (offline / older API). Either being true means read — so a row read on
+      // another device stays read here, and a just-tapped row clears instantly
+      // before the server round-trip lands.
+      read: n.read || _readIds.contains(n.id),
     );
   }
 

@@ -7,8 +7,16 @@ import 'package:flutter/widgets.dart';
 abstract final class TabIndex {
   static const int jobs = 0;
   static const int resume = 1;
-  static const int profile = 2;
-  static const int alerts = 3;
+  static const int chat = 2; // Bada Bhai
+  static const int profile = 3;
+
+  /// Alerts is NO LONGER a bottom-nav tab (kit 4-tab set: Jobs · Resume ·
+  /// Bada Bhai · Profile). Notifications are pushed full-screen from a header
+  /// bell ([BbAlertsAction]) instead. Kept as a NON-branch sentinel so the
+  /// notifications screen's `TabFocusRefetch(index: TabIndex.alerts)` still
+  /// compiles; it never equals the live tab focus (0..3) and so never fires —
+  /// the screen loads once via its `create:` on push, which is enough.
+  static const int alerts = -1;
 }
 
 /// Which shell tab is currently visible.

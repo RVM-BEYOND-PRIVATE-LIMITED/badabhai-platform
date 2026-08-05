@@ -86,14 +86,28 @@ class PhotoRepositoryImpl implements PhotoRepository {
   }
 
   @override
+  void onLogout() {
+    // The signed URL is the PREVIOUS worker's photo credential. This singleton
+    // survives logout (get_it, same isolate), so without this a re-login as a
+    // DIFFERENT worker would serve the old face photo from cache with no network
+    // or token check. Dropped from the single logout choke point.
+    _cachedUrl = null;
+  }
+
+  @override
   Future<String?> photoUrl() async {
+    // Require a live session FIRST — before serving any cache. A cleared session
+    // (logout/reauth) can then never hand back a stale signed URL even if a
+    // future path forgets to call onLogout(): defense-in-depth for the #cross-user
+    // photo leak. Fail-closed with UnauthorizedFailure when the token is gone.
+    final String token = _requireToken();
+
     // Return cached URL immediately — avoids a redundant network round-trip
     // every time a widget remounts or a tab is re-focused. The cache lives in
     // memory only (the URL is a bearer credential) and is invalidated on
-    // upload/remove so a fresh URL is fetched after any mutation.
+    // upload/remove (and on logout) so a fresh URL is fetched after any change.
     if (_cachedUrl != null) return _cachedUrl;
 
-    final String token = _requireToken();
     try {
       final String url = await _api.getMyPhotoUrl(authToken: token);
       _cachedUrl = url.isEmpty ? null : url;

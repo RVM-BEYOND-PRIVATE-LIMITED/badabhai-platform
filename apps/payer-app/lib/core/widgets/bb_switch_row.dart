@@ -7,6 +7,9 @@ import '../theme/app_typography.dart';
 /// A labelled toggle row — `.bb-switch`. Title (+ optional muted suffix) on the
 /// left, a themed [Switch] on the right; the whole row is at least 48px tall.
 /// Used for the "Boost this posting" toggle on Post-a-job.
+///
+/// Track reads green when ON (go / money), ink when OFF; the knob is a flat
+/// white disc (Material 3 — no drop shadow, per the kit's shadows-banned law).
 class BbSwitchRow extends StatelessWidget {
   const BbSwitchRow({
     super.key,
@@ -60,7 +63,9 @@ class BbSwitchRow extends StatelessWidget {
                 activeThumbColor: AppColors.paper0,
                 activeTrackColor: AppColors.success,
                 inactiveThumbColor: AppColors.paper0,
-                inactiveTrackColor: AppColors.borderStrong,
+                // Ink off-track (not a pale hairline) so the white knob has
+                // real contrast and the OFF state can't read as unset.
+                inactiveTrackColor: AppColors.textMuted,
                 trackOutlineColor:
                     const WidgetStatePropertyAll<Color>(Colors.transparent),
               ),

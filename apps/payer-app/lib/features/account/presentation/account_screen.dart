@@ -8,7 +8,10 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_avatar.dart';
+import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
+import '../../../core/widgets/bb_field.dart';
+import '../../../core/widgets/bb_status_view.dart';
 import '../../capacity/presentation/capacity_screen.dart';
 import '../../org/presentation/team_screen.dart';
 import '../../referral/presentation/referral_screen.dart';
@@ -257,22 +260,18 @@ class _EditSheetState extends State<_EditSheet> {
             ),
           ),
           const SizedBox(height: AppSpacing.s4),
-          _FieldLabel('Company / org name'),
-          const SizedBox(height: AppSpacing.s1),
-          TextField(
+          BbField(
+            label: 'Company / org name',
             controller: _org,
-            textCapitalization: TextCapitalization.words,
-            style: AppTypography.body(size: AppTypography.sizeBase),
-            decoration: _inputDecoration('Your organisation'),
+            hint: 'Your organisation',
           ),
           const SizedBox(height: AppSpacing.s4),
-          _FieldLabel('New phone (optional)'),
-          const SizedBox(height: AppSpacing.s1),
-          TextField(
+          BbField(
+            label: 'New phone (optional)',
             controller: _phone,
+            hint: '+91XXXXXXXXXX',
+            mono: true,
             keyboardType: TextInputType.phone,
-            style: AppTypography.mono(size: AppTypography.sizeBase),
-            decoration: _inputDecoration('+91XXXXXXXXXX'),
           ),
           const SizedBox(height: AppSpacing.s2),
           Text(
@@ -283,57 +282,16 @@ class _EditSheetState extends State<_EditSheet> {
             ),
           ),
           const SizedBox(height: AppSpacing.s5),
-          SizedBox(
-            width: double.infinity,
-            height: AppSpacing.controlLg,
-            child: FilledButton(
-              onPressed: _saving ? null : _save,
-              child: _saving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppColors.textOnBrand,
-                      ),
-                    )
-                  : const Text('Save changes'),
-            ),
+          BbButton(
+            label: 'Save changes',
+            block: true,
+            loading: _saving,
+            onPressed: _saving ? null : _save,
           ),
         ],
       ),
     );
   }
-
-  InputDecoration _inputDecoration(String hint) => InputDecoration(
-        hintText: hint,
-        hintStyle: AppTypography.body(color: AppColors.textFaint),
-        filled: true,
-        fillColor: AppColors.surfaceSunken,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.s4,
-          vertical: AppSpacing.s3,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppRadii.md),
-          borderSide: BorderSide.none,
-        ),
-      );
-}
-
-class _FieldLabel extends StatelessWidget {
-  const _FieldLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Text(
-        text,
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
-          weight: FontWeight.w600,
-          color: AppColors.textSecondary,
-        ),
-      );
 }
 
 class _IdentityCard extends StatelessWidget {
@@ -480,9 +438,7 @@ class _LoadingCard extends StatelessWidget {
   Widget build(BuildContext context) => const BbCard(
         child: SizedBox(
           height: 72,
-          child: Center(
-            child: CircularProgressIndicator(color: AppColors.brand),
-          ),
+          child: BbStatusView.loading(),
         ),
       );
 }
@@ -506,12 +462,11 @@ class _ErrorCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.s3),
-            SizedBox(
-              height: AppSpacing.tap,
-              child: OutlinedButton(
-                onPressed: onRetry,
-                child: const Text('Retry'),
-              ),
+            BbButton(
+              label: 'Retry',
+              variant: BbButtonVariant.secondary,
+              size: BbButtonSize.md,
+              onPressed: onRetry,
             ),
           ],
         ),

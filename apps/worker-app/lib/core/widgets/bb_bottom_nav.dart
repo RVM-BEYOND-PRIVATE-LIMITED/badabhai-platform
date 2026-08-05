@@ -4,10 +4,13 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 
-/// The worker-app bottom navigation bar — four destinations in fixed order:
-/// Jobs · Resume · Profile · Alerts. A token-driven port of the `Nav` block
-/// (`screens.jsx` 29–42) / `.aw-nav` (`ui.css` 218–222); cream card surface,
-/// a hairline top border, and a danger pill counting unread alerts.
+/// The worker-app bottom navigation bar — the kit's four destinations in fixed
+/// order: Jobs · Resume · Bada Bhai · Profile. The kit's `BBNav`: a white paper
+/// surface, a single hairline top border (no shadow), labels ALWAYS visible,
+/// and a haldi active indicator on the selected tab.
+///
+/// Notifications are NOT a tab here: they moved to a header bell
+/// ([BbAlertsAction]), so this bar carries no unread badge.
 ///
 /// Each tab is at least [AppSpacing.tap] tall — gloved hands, low-end screens.
 class BbBottomNav extends StatelessWidget {
@@ -15,17 +18,14 @@ class BbBottomNav extends StatelessWidget {
     super.key,
     required this.currentIndex,
     required this.onTap,
-    this.alertsUnread = 0,
   });
 
-  /// Index of the active destination (0 Jobs · 1 Resume · 2 Profile · 3 Alerts).
+  /// Index of the active destination
+  /// (0 Jobs · 1 Resume · 2 Bada Bhai · 3 Profile).
   final int currentIndex;
 
   /// Fired with the tapped destination index.
   final ValueChanged<int> onTap;
-
-  /// Unread-alerts count; renders a badge on the Alerts tab when > 0.
-  final int alertsUnread;
 
   @override
   Widget build(BuildContext context) {
@@ -49,25 +49,21 @@ class BbBottomNav extends StatelessWidget {
                 index: 0,
                 label: 'Jobs',
                 iconInactive: Icons.work_outline,
-                iconActive: Icons.work,
               ),
               _NavItem(
                 index: 1,
                 label: 'Resume',
                 iconInactive: Icons.description_outlined,
-                iconActive: Icons.description,
               ),
               _NavItem(
                 index: 2,
-                label: 'Profile',
-                iconInactive: Icons.person_outline,
-                iconActive: Icons.person,
+                label: 'Bada Bhai',
+                iconInactive: Icons.chat_bubble_outline,
               ),
               _NavItem(
                 index: 3,
-                label: 'Alerts',
-                iconInactive: Icons.notifications_outlined,
-                iconActive: Icons.notifications,
+                label: 'Profile',
+                iconInactive: Icons.person_outline,
               ),
             ].map(_resolve).toList(growable: false),
           ),
@@ -84,7 +80,6 @@ class BbBottomNav extends StatelessWidget {
       child: nav.bind(
         active: nav.index == currentIndex,
         onTap: () => onTap(nav.index),
-        badgeCount: nav.index == 3 ? alertsUnread : 0,
       ),
     );
   }
@@ -95,34 +90,27 @@ class _NavItem extends StatelessWidget {
     required this.index,
     required this.label,
     required this.iconInactive,
-    required this.iconActive,
     this.active = false,
     this.onTap,
-    this.badgeCount = 0,
   });
 
   final int index;
   final String label;
   final IconData iconInactive;
-  final IconData iconActive;
   final bool active;
   final VoidCallback? onTap;
-  final int badgeCount;
 
   /// Returns a copy of this item bound to its resolved interaction state.
   _NavItem bind({
     required bool active,
     required VoidCallback onTap,
-    required int badgeCount,
   }) {
     return _NavItem(
       index: index,
       label: label,
       iconInactive: iconInactive,
-      iconActive: iconActive,
       active: active,
       onTap: onTap,
-      badgeCount: badgeCount,
     );
   }
 
@@ -141,11 +129,21 @@ class _NavItem extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            _IconWithBadge(
-              icon: active ? iconActive : iconInactive,
-              color: color,
-              badgeCount: badgeCount,
+            // Haldi active indicator — the earned brand rail on the selected tab.
+            // A 3px haldi pill above the glyph; it reserves its height in EVERY
+            // state (transparent when inactive) so the row never reflows on tap.
+            Container(
+              width: 22,
+              height: 3,
+              margin: const EdgeInsets.only(bottom: 5),
+              decoration: BoxDecoration(
+                color: active ? AppColors.haldi : Colors.transparent,
+                borderRadius: BorderRadius.circular(AppRadii.pill),
+              ),
             ),
+            // The outline glyph stays in every state; the active tab reads in
+            // deep blue — legible on white, with haldi reserved for the indicator.
+            Icon(iconInactive, size: 24, color: color),
             const SizedBox(height: 3),
             Text(
               label,
@@ -158,66 +156,6 @@ class _NavItem extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _IconWithBadge extends StatelessWidget {
-  const _IconWithBadge({
-    required this.icon,
-    required this.color,
-    required this.badgeCount,
-  });
-
-  final IconData icon;
-  final Color color;
-  final int badgeCount;
-
-  @override
-  Widget build(BuildContext context) {
-    final Icon glyph = Icon(icon, size: 24, color: color);
-    if (badgeCount <= 0) {
-      return glyph;
-    }
-    return Stack(
-      clipBehavior: Clip.none,
-      children: <Widget>[
-        glyph,
-        Positioned(
-          top: -4,
-          right: -8,
-          child: _Badge(count: badgeCount),
-        ),
-      ],
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minWidth: 16),
-      height: 16,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s1),
-      alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        color: AppColors.danger,
-        borderRadius: BorderRadius.all(Radius.circular(AppRadii.pill)),
-      ),
-      child: Text(
-        '$count',
-        textAlign: TextAlign.center,
-        style: AppTypography.body(
-          size: AppTypography.size2xs,
-          weight: FontWeight.w700,
-          color: AppColors.textOnBrand,
         ),
       ),
     );

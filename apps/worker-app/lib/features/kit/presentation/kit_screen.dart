@@ -60,6 +60,30 @@ class _KitView extends StatelessWidget {
   }
 
   Widget _list(BuildContext context, List<KitListItem> items) {
+    final List<Widget> rows = <Widget>[
+      for (final KitListItem item in items)
+        BbListRow.kit(
+          icon: Icons.build_outlined,
+          title: item.title,
+          subtitle: item.subtitle,
+          onTap: () => context.push('${Routes.kitDetail}/${item.tradeKey}'),
+        ),
+      // Coming-soon stub for the alpha — the per-day interview checklist
+      // (documents / dress / timing) is a follow-up; tapping just nudges.
+      BbListRow.kit(
+        icon: Icons.assignment_outlined,
+        iconBg: AppColors.successTint,
+        iconColor: AppColors.success,
+        title: 'Interview din ki checklist',
+        subtitle: 'Documents · pehnaava · timing',
+        onTap: () => ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            const SnackBar(content: Text('Jald aa raha hai')),
+          ),
+      ),
+    ];
+
     return Scaffold(
       appBar: const BbAppBar(title: 'Interview kit'),
       body: ListView(
@@ -74,40 +98,43 @@ class _KitView extends StatelessWidget {
             style: AppTypography.body(color: AppColors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.s4),
-          if (items.isEmpty)
+          if (items.isEmpty) ...<Widget>[
             // Honest empty state — the list loaded but returned no kits (not a
             // fake kit, not a false "check internet").
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.s5),
-              child: Text(
-                'Abhi koi interview kit available nahi. Thodi der baad dekhein.',
-                style: AppTypography.body(color: AppColors.textMuted),
-              ),
+            Text(
+              'Abhi koi interview kit available nahi. Thodi der baad dekhein.',
+              style: AppTypography.body(color: AppColors.textMuted),
             ),
-          for (final KitListItem item in items)
-            BbListRow.kit(
-              icon: Icons.build_outlined,
-              title: item.title,
-              subtitle: item.subtitle,
-              onTap: () =>
-                  context.push('${Routes.kitDetail}/${item.tradeKey}'),
-            ),
-          // Coming-soon stub for the alpha — the per-day interview checklist
-          // (documents / dress / timing) is a follow-up; tapping just nudges.
-          BbListRow.kit(
-            icon: Icons.assignment_outlined,
-            iconBg: AppColors.successTint,
-            iconColor: AppColors.success,
-            title: 'Interview din ki checklist',
-            subtitle: 'Documents · pehnaava · timing',
-            onTap: () => ScaffoldMessenger.of(context)
-              ..clearSnackBars()
-              ..showSnackBar(
-                const SnackBar(content: Text('Jald aa raha hai')),
-              ),
-          ),
+            const SizedBox(height: AppSpacing.s4),
+          ],
+          _group(rows),
         ],
       ),
+    );
+  }
+
+  /// The kit rows grouped into one white card, split by hairlines (kit
+  /// grouped-list idiom — [BbListRow.kit] draws no border of its own).
+  Widget _group(List<Widget> rows) {
+    final List<Widget> children = <Widget>[];
+    for (int i = 0; i < rows.length; i++) {
+      if (i > 0) {
+        children.add(const Divider(
+          height: 1,
+          indent: AppSpacing.s4,
+          endIndent: AppSpacing.s4,
+        ));
+      }
+      children.add(rows[i]);
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: children),
     );
   }
 }

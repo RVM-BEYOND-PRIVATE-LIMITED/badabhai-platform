@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart' show PaintingBinding;
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -33,6 +34,8 @@ import '../../features/consent/presentation/cubit/consent_cubit.dart';
 import '../../features/invite/data/invite_repository_impl.dart';
 import '../../features/invite/domain/invite_repository.dart';
 import '../../features/invite/presentation/cubit/invite_cubit.dart';
+import '../../features/settings/data/notification_prefs_repository_impl.dart';
+import '../../features/settings/domain/notification_prefs_repository.dart';
 import '../../features/settings/presentation/cubit/account_delete_cubit.dart';
 import '../../features/voice/data/record_package_voice_recorder.dart';
 import '../../features/voice/data/voice_note_repository_impl.dart';
@@ -215,6 +218,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<ResumeEditRepository>(
     () => ResumeEditRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerLazySingleton<NotificationPrefsRepository>(
+    () => NotificationPrefsRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
   );
   // ADR-0032 profile photo: mint/confirm/read/delete ride the ApiClient (so the
   // MockApiClient covers them in mock mode); ONLY the raw byte-PUT to the signed
@@ -477,6 +484,39 @@ Future<void> initAuthLocator({
       reauthSignal: locator<ReauthSignal>(),
       persistentAuthEnabled: persistentAuthEnabled,
       pushTokenService: locator<PushTokenService>(),
+      onSessionCleared: _clearSessionScopedCaches,
     ),
   );
+}
+
+/// Drop every user-scoped cache held by a DI SINGLETON on logout/reauth.
+///
+/// The app never restarts the isolate on logout (get_it singletons live for the
+/// whole process), so without this the PREVIOUS worker's data — a signed photo
+/// URL, the unread badge + read ids, a cached name, decoded photo bytes — would
+/// survive into the NEXT worker's session (a cross-user PII leak). Wired into
+/// [AuthSessionManager.onSessionCleared], which fires right after the session is
+/// cleared on BOTH sign-out paths (_wipeAndLogOut + _onReauthRequired).
+///
+/// Each lookup is `isRegistered`-guarded so the synchronous, plugin-free
+/// widget-test graph (which may not register every repo) is unaffected. Must
+/// never throw — a teardown failure must not block sign-out.
+void _clearSessionScopedCaches() {
+  if (locator.isRegistered<PhotoRepository>()) {
+    locator<PhotoRepository>().onLogout();
+  }
+  if (locator.isRegistered<ResumeEditRepository>()) {
+    locator<ResumeEditRepository>().onLogout();
+  }
+  if (locator.isRegistered<NotificationsRepository>()) {
+    locator<NotificationsRepository>().onLogout();
+  }
+  if (locator.isRegistered<NotificationPrefsRepository>()) {
+    locator<NotificationPrefsRepository>().onLogout();
+  }
+  // Evict the previous worker's DECODED photos from Flutter's global image cache,
+  // so a re-login can never repaint them from memory even before a fresh fetch.
+  PaintingBinding.instance.imageCache
+    ..clear()
+    ..clearLiveImages();
 }

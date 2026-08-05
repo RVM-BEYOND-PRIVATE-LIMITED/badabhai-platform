@@ -53,6 +53,11 @@ void main() {
           baseUrl: 'http://test',
           client: MockClient((http.Request req) async {
             hitPaths.add(req.url.path);
+            // No prior session to resume (brand-new worker) → the open path runs.
+            if (req.url.path == '/chat/session/latest') {
+              return http.Response(
+                  jsonEncode(<String, dynamic>{'session_id': null}), 200);
+            }
             if (req.url.path == '/chat/session') {
               return http.Response(
                   jsonEncode(<String, dynamic>{'session_id': 's1'}), 201);
@@ -68,8 +73,43 @@ void main() {
 
       expect(turn.reply, 'Got it.');
       expect(session.sessionId, 's1', reason: 'the session healed itself');
-      expect(hitPaths, <String>['/chat/session', '/chat/message'],
-          reason: 'one session-open, then the send — in that order');
+      expect(
+          hitPaths,
+          <String>['/chat/session/latest', '/chat/session', '/chat/message'],
+          reason: 'resume-check (none), then session-open, then the send');
+    });
+
+    test('resumes the worker\'s latest session instead of opening a new one',
+        () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
+
+      final List<String> hitPaths = <String>[];
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async {
+            hitPaths.add(req.url.path);
+            if (req.url.path == '/chat/session/latest') {
+              return http.Response(
+                  jsonEncode(<String, dynamic>{'session_id': 'prior-1'}), 200);
+            }
+            return http.Response(
+                jsonEncode(<String, dynamic>{'reply': 'Got it.'}), 200);
+          }),
+        ),
+        session,
+      );
+
+      final String? opener = await repo.ensureSession();
+
+      // Re-attached to the signup session (so loadHistory redraws its Q&A) — a
+      // resume serves NO opener, and it must NOT mint a fresh /chat/session.
+      expect(opener, isNull);
+      expect(session.sessionId, 'prior-1',
+          reason: 'the Bada Bhai tab resumes the existing session');
+      expect(hitPaths, <String>['/chat/session/latest'],
+          reason: 'latest found → resume, no new session-open');
     });
 
     test('a still-failing session-open surfaces the failure (never silence)',

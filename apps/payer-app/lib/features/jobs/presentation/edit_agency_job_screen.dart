@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/data/models.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_card.dart';
+import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_toast.dart';
@@ -136,9 +139,86 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
     }
   }
 
+  /// A JUL31 section card — paper, 1px hairline, radius 10, elevation 0 — with a
+  /// deep-blue Anek section title. Uses a [ListBody] (never a [Column]) as its
+  /// vertical wrapper so a field label's only [Column] ancestor stays its own.
+  Widget _sectionCard(String title, List<Widget> children) => BbCard(
+        child: ListBody(
+          children: <Widget>[
+            Text(
+              title,
+              style: AppTypography.display(
+                size: AppTypography.sizeMd,
+                weight: FontWeight.w800,
+                color: AppColors.blue,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            ...children,
+          ],
+        ),
+      );
+
+  /// A labelled single-select rendered as aligned kit chips — the JUL31 pattern
+  /// for enum choices; selected flips to a solid haldi pill. Keeps the same
+  /// value/onChanged contract, so the PATCH payload is unchanged.
+  Widget _chipField<T>({
+    required String label,
+    required T value,
+    required List<T> options,
+    required String Function(T) labelOf,
+    required ValueChanged<T> onSelected,
+  }) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            label,
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              weight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Wrap(
+            spacing: AppSpacing.s2,
+            runSpacing: AppSpacing.s2,
+            children: <Widget>[
+              for (final T option in options)
+                BbChip(
+                  label: labelOf(option),
+                  selected: option == value,
+                  onTap: () => onSelected(option),
+                ),
+            ],
+          ),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Sticky primary action — always visible + hittable regardless of form
+      // height (a tall form otherwise pushes it below the fold). One haldi CTA.
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s3,
+            AppSpacing.gutter,
+            AppSpacing.s3,
+          ),
+          child: BbButton(
+            label: 'Save changes',
+            iconLeft: Icons.check,
+            block: true,
+            loading: _saving,
+            onPressed: _save,
+          ),
+        ),
+      ),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
@@ -166,94 +246,94 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
               ],
             ),
             const SizedBox(height: AppSpacing.s4),
-            BbSelect<String>(
-              label: 'Trade',
-              value: _tradeKey,
-              items: kAgencyTradeKeys,
-              labelOf: agencyTradeLabel,
-              onChanged: (String? v) => setState(() => _tradeKey = v ?? _tradeKey),
-            ),
-            const SizedBox(height: AppSpacing.s4),
-            BbField(label: 'Job title', controller: _title),
-            const SizedBox(height: AppSpacing.s4),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Expanded(
-                  child: BbField(label: 'City', controller: _city),
-                ),
-                const SizedBox(width: AppSpacing.s3),
-                Expanded(
-                  child: BbField(label: 'Area (optional)', controller: _area),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.s4),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Expanded(
-                  child: BbField(
-                    label: 'Pay min ₹/mo',
-                    controller: _payMin,
-                    hint: 'optional',
-                    keyboardType: TextInputType.number,
-                    mono: true,
+            _sectionCard('Job details', <Widget>[
+              // Job title stays the first TextField in the tree (trade is a chip
+              // row, not an input) — the edit test edits it via TextField.first.
+              BbField(label: 'Job title', controller: _title),
+              const SizedBox(height: AppSpacing.s4),
+              _chipField<String>(
+                label: 'Trade',
+                value: _tradeKey,
+                options: kAgencyTradeKeys,
+                labelOf: agencyTradeLabel,
+                onSelected: (String v) => setState(() => _tradeKey = v),
+              ),
+              const SizedBox(height: AppSpacing.s4),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: BbField(label: 'City', controller: _city),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.s3),
-                Expanded(
-                  child: BbField(
-                    label: 'Pay max ₹/mo',
-                    controller: _payMax,
-                    hint: 'optional',
-                    keyboardType: TextInputType.number,
-                    mono: true,
+                  const SizedBox(width: AppSpacing.s3),
+                  Expanded(
+                    child: BbField(label: 'Area (optional)', controller: _area),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+            ]),
             const SizedBox(height: AppSpacing.s4),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Expanded(
-                  child: BbField(
-                    label: 'Exp min (yrs)',
-                    controller: _expMin,
-                    hint: 'optional',
-                    keyboardType: TextInputType.number,
-                    mono: true,
+            _sectionCard('Pay & experience', <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: BbField(
+                      label: 'Pay min ₹/mo',
+                      controller: _payMin,
+                      hint: 'optional',
+                      keyboardType: TextInputType.number,
+                      mono: true,
+                    ),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.s3),
-                Expanded(
-                  child: BbField(
-                    label: 'Exp max (yrs)',
-                    controller: _expMax,
-                    hint: 'optional',
-                    keyboardType: TextInputType.number,
-                    mono: true,
+                  const SizedBox(width: AppSpacing.s3),
+                  Expanded(
+                    child: BbField(
+                      label: 'Pay max ₹/mo',
+                      controller: _payMax,
+                      hint: 'optional',
+                      keyboardType: TextInputType.number,
+                      mono: true,
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.s4),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: BbField(
+                      label: 'Exp min (yrs)',
+                      controller: _expMin,
+                      hint: 'optional',
+                      keyboardType: TextInputType.number,
+                      mono: true,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.s3),
+                  Expanded(
+                    child: BbField(
+                      label: 'Exp max (yrs)',
+                      controller: _expMax,
+                      hint: 'optional',
+                      keyboardType: TextInputType.number,
+                      mono: true,
+                    ),
+                  ),
+                ],
+              ),
+            ]),
             const SizedBox(height: AppSpacing.s4),
-            BbSelect<String>(
-              label: 'Needed by',
-              value: _neededBy,
-              items: kAgencyNeededBy,
-              labelOf: agencyNeededByLabel,
-              onChanged: (String? v) => setState(() => _neededBy = v ?? _neededBy),
-            ),
-            const SizedBox(height: AppSpacing.s5),
-            BbButton(
-              label: 'Save changes',
-              iconLeft: Icons.check,
-              block: true,
-              loading: _saving,
-              onPressed: _save,
-            ),
+            _sectionCard('Timing', <Widget>[
+              _chipField<String>(
+                label: 'Needed by',
+                value: _neededBy,
+                options: kAgencyNeededBy,
+                labelOf: agencyNeededByLabel,
+                onSelected: (String v) => setState(() => _neededBy = v),
+              ),
+            ]),
           ],
         ),
       ),

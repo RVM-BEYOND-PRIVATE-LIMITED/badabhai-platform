@@ -6,7 +6,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_scaffold.dart';
+import '../../../core/widgets/bb_blue_header.dart';
 import '../../../router.dart';
 import 'cubit/enter_pin_cubit.dart';
 import 'widgets/bb_pin_keypad.dart';
@@ -80,65 +80,74 @@ class _EnterPinViewState extends State<_EnterPinView> {
     return BlocBuilder<EnterPinCubit, EnterPinState>(
       builder: (BuildContext context, EnterPinState state) {
         final bool error = state.status == EnterPinStatus.failure;
-        return BbScaffold(
+        // Kit auth chrome: blue header carries the title/context; the light body
+        // holds the masked dots + on-screen keypad. Not [BbScaffold] — the header
+        // bleeds to the status bar. No back button: this is the locked root.
+        return Scaffold(
           body: Column(
             children: <Widget>[
-              const Spacer(flex: 2),
-              const Icon(Icons.lock_outline,
-                  size: 40, color: AppColors.brand),
-              const SizedBox(height: AppSpacing.s4),
-              Text('PIN daalein',
-                  style: AppTypography.display(size: AppTypography.sizeXl)),
-              const SizedBox(height: AppSpacing.s2),
-              Text(
-                'Apne account mein wapas aane ke liye PIN daalein.',
-                textAlign: TextAlign.center,
-                style: AppTypography.body(color: AppColors.textSecondary),
+              const BbBlueHeader(
+                title: 'PIN daalein',
+                subtitle: 'Apne account mein wapas aane ke liye PIN daalein.',
               ),
-              const SizedBox(height: AppSpacing.s7),
-              BbPinView(
-                length: kPinLength,
-                filled: _pin.length,
-                error: error,
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              SizedBox(
-                height: AppSpacing.s6,
-                child: state.message != null
-                    ? Text(
-                        state.message!,
-                        textAlign: TextAlign.center,
-                        style: AppTypography.body(
-                          size: AppTypography.sizeSm,
-                          color: AppColors.danger,
+              Expanded(
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.gutter),
+                    child: Column(
+                      children: <Widget>[
+                        const Spacer(flex: 2),
+                        BbPinView(
+                          length: kPinLength,
+                          filled: _pin.length,
+                          error: error,
                         ),
-                      )
-                    : null,
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              BbPinKeypad(
-                // Keypad disables ONLY while submitting — no lockout state.
-                enabled: !state.isSubmitting,
-                onDigit: _onDigit,
-                onBackspace: _onBackspace,
-              ),
-              const Spacer(flex: 1),
-              TextButton(
-                onPressed: () => context.push(Routes.forgotPin),
-                child: Text(
-                  // After enough soft fails, nudge harder toward the reset flow.
-                  state.suggestForgot
-                      ? 'PIN bhool gaye? Naya PIN banayein'
-                      : 'PIN bhool gaye?',
-                  style: AppTypography.body(
-                    weight: FontWeight.w700,
-                    color: state.suggestForgot
-                        ? AppColors.brand
-                        : AppColors.textLink,
+                        const SizedBox(height: AppSpacing.s4),
+                        SizedBox(
+                          height: AppSpacing.s6,
+                          child: state.message != null
+                              ? Text(
+                                  state.message!,
+                                  textAlign: TextAlign.center,
+                                  style: AppTypography.body(
+                                    size: AppTypography.sizeSm,
+                                    color: AppColors.danger,
+                                  ),
+                                )
+                              : null,
+                        ),
+                        const SizedBox(height: AppSpacing.s4),
+                        BbPinKeypad(
+                          // Keypad disables ONLY while submitting — no lockout.
+                          enabled: !state.isSubmitting,
+                          onDigit: _onDigit,
+                          onBackspace: _onBackspace,
+                        ),
+                        const Spacer(flex: 1),
+                        TextButton(
+                          onPressed: () => context.push(Routes.forgotPin),
+                          child: Text(
+                            // After enough soft fails, nudge toward the reset flow.
+                            state.suggestForgot
+                                ? 'PIN bhool gaye? Naya PIN banayein'
+                                : 'PIN bhool gaye?',
+                            style: AppTypography.body(
+                              // Deep-blue link in BOTH states — haldi (brand) as
+                              // body text on white is ~1.4:1 and illegible; the
+                              // w700 weight carries the emphasis when suggestForgot.
+                              weight: FontWeight.w700,
+                              color: AppColors.textLink,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.s4),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.s4),
             ],
           ),
         );

@@ -36,6 +36,7 @@ import 'package:badabhai_worker_app/core/auth/mock_auth_api.dart';
 import 'package:badabhai_worker_app/core/auth/secure_token_store.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/features/notifications/data/notification_read_store.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_alerts_action.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_bottom_nav.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
@@ -73,15 +74,18 @@ Future<void> _pumpUntilGone(WidgetTester tester, Finder finder,
       reason: 'timed out (${maxFrames * 100}ms) waiting for $finder to clear');
 }
 
-/// The Alerts unread badge lives inside the bottom nav — scope to it so the
-/// assertion can only pass via the real reactive count, not a stray '$n'.
-Finder _navBadge(String count) => find.descendant(
-      of: find.byType(BbBottomNav),
+/// The Alerts unread badge lives on the header bell ([BbAlertsAction]) now, not
+/// the bottom nav (kit 4-tab set). Every mounted branch carries its own bell
+/// (IndexedStack keeps them all in the tree, sharing one reactive count), so
+/// scope to the VISIBLE bell — `.hitTestable()` drops the offstage branches'
+/// bells — and match the count under it, never a stray '$n'.
+Finder _bellBadge(String count) => find.descendant(
+      of: find.byType(BbAlertsAction).hitTestable(),
       matching: find.text(count),
     );
 
-/// Branch order in the shell's bottom nav: Jobs · Resume · Profile · Alerts.
-const int _kProfileTab = 2;
+/// Branch order in the shell's bottom nav: Jobs · Resume · Bada Bhai · Profile.
+const int _kProfileTab = 3;
 
 /// The tab the bottom bar is actually highlighting — read off the live widget
 /// rather than inferred from what is on screen, so it catches a bar that moved
@@ -171,7 +175,7 @@ void main() {
     // ── 3b. SET-PIN (new user) — the OTP-verify flags route here (pin_set=false).
     //     Enter a PIN then confirm it; setPin authenticates and continues to
     //     consent (the onboarding). Masked keypad → tap the on-screen digits. ──
-    await _pumpUntil(tester, find.text('4-digit PIN banayein'));
+    await _pumpUntil(tester, find.text('PIN banayein'));
     await _enterPin(tester, '7416');
     await _pumpUntil(tester, find.text('PIN dobara daalein'));
     await _enterPin(tester, '7416');
@@ -204,26 +208,29 @@ void main() {
     await _pumpUntil(tester, find.text(kChatNudgeProceedLabel));
     await tester.tap(find.text(kChatNudgeProceedLabel));
 
-    // ── 6. PROFILE PREVIEW — extraction resolves, confirm to generate. ──
-    await _pumpUntil(tester, find.text('Confirm & generate resume'));
-    await tester.tap(find.text('Confirm & generate resume'));
+    // ── 6. PROFILE PREVIEW — extraction resolves, confirm to generate. The kit
+    //     04 confirm sheet's primary action is "Haan, sahi hai" ([Badlo] is the
+    //     outline escape back to chat). ──
+    await _pumpUntil(tester, find.text('Haan, sahi hai'));
+    await tester.tap(find.text('Haan, sahi hai'));
 
     // ── 7. SHELL — landed on the Resume tab; onboarding stack cleared. ──
     await _pumpUntil(tester, find.text('Your resume'));
     expect(find.text('Your resume'), findsOneWidget);
-    // The Alerts badge reflects the reactive unread count. The shell fires a
+    // The header-bell badge reflects the reactive unread count. The shell fires a
     // best-effort refresh() on mount, so the badge populates from the real mock
     // feed (5 unread) BEFORE Alerts is opened — wait for the async fetch to land.
-    await _pumpUntil(tester, _navBadge('5'));
-    expect(_navBadge('5'), findsOneWidget);
+    // (The Resume tab carries a bell; so do Jobs + Profile.)
+    await _pumpUntil(tester, _bellBadge('5'));
+    expect(_bellBadge('5'), findsOneWidget);
 
     // ── 8. TAB THROUGH every branch (each its own mock-backed screen). The
     //     IndexedStack offstages inactive branches, so default finders only see
     //     the active tab. ──
     await tester.tap(find.text('Jobs'));
-    // "FOR YOU", not "NEAR YOU": the feed applies no location filter.
-    await _pumpUntil(tester, find.text('JOBS FOR YOU'));
-    expect(find.text('JOBS FOR YOU'), findsOneWidget);
+    // Kit 07 feed header — the brand line leads, no unbacked location claim.
+    await _pumpUntil(tester, find.text('Kaam milega.'));
+    expect(find.text('Kaam milega.'), findsOneWidget);
 
     await tester.tap(find.text('Profile'));
     await _pumpUntil(tester, find.text('Profile strength'));
@@ -246,17 +253,23 @@ void main() {
     expect(find.text('Profile strength'), findsOneWidget);
     expect(_navIndex(tester), _kProfileTab);
 
-    // T5: the badge is lit BEFORE Alerts is opened. FIVE now, not four — #403
-    // added the worker's own application.submitted to the feed.
-    expect(_navBadge('5'), findsOneWidget);
-    await tester.tap(find.text('Alerts'));
+    // T5: the badge is lit on the Profile header bell BEFORE Alerts is opened.
+    // FIVE now, not four — #403 added the worker's own application.submitted.
+    expect(_bellBadge('5'), findsOneWidget);
+    // Alerts is no longer a tab — the header bell pushes it full-screen (kit
+    // 4-tab set). Tap the VISIBLE bell (the active branch's), open Alerts.
+    await tester.tap(find.byType(BbAlertsAction).hitTestable());
     await _pumpUntil(tester, find.text('Alerts'));
-    // ...and opening the tab IS the read — no tick to press. The mark-all-read
-    // action was removed: reading your own alerts should not need confirming.
-    await _pumpUntilGone(tester, _navBadge('5'));
-    expect(_navBadge('5'), findsNothing);
+    // Opening the screen IS the read — no mark-all-read tick to press.
     expect(find.byIcon(Icons.check), findsNothing,
         reason: 'the mark-all-read tick is gone (T5)');
+    // Back to the shell via the Alerts screen's own back affordance (it is a
+    // pushed full-screen route now, not a tab); the shared unread count is 0, so
+    // the bell badge is gone on the (again-visible) Profile bell.
+    await tester.tap(find.byTooltip('Wapas'));
+    await tester.pumpAndSettle();
+    await _pumpUntilGone(tester, _bellBadge('5'));
+    expect(_bellBadge('5'), findsNothing);
 
 
     await tester.tap(find.text('Resume'));

@@ -152,7 +152,7 @@ void main() {
     // to send it to the factory owner who asked for it.
     expect(find.widgetWithText(BbButton, kResumeShareLabel), findsOneWidget);
     // …and it is ADDITIVE — Download and Edit are untouched.
-    expect(find.widgetWithText(BbButton, 'Download Resume'), findsOneWidget);
+    expect(find.widgetWithText(BbButton, 'PDF download karein'), findsOneWidget);
     expect(find.widgetWithText(BbButton, 'Edit resume'), findsOneWidget);
   });
 

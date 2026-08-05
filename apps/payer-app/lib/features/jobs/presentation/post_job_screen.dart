@@ -11,6 +11,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_icon_button.dart';
@@ -607,108 +608,162 @@ class _PostJobScreenState extends State<PostJobScreen> {
     );
   }
 
+  /// A JUL31 section card — paper, 1px hairline, radius 10, elevation 0 — with a
+  /// deep-blue Anek section title. Uses a [ListBody] (never a [Column]) as its
+  /// vertical wrapper so the only [Column] ancestor of a field label stays the
+  /// field's own — the form tests locate an input by that ancestor.
+  Widget _sectionCard(String title, List<Widget> children) => BbCard(
+        child: ListBody(
+          children: <Widget>[
+            Text(
+              title,
+              style: AppTypography.display(
+                size: AppTypography.sizeMd,
+                weight: FontWeight.w800,
+                color: AppColors.blue,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            ...children,
+          ],
+        ),
+      );
+
+  /// A labelled single-select rendered as aligned kit chips (the JUL31 pattern
+  /// for enum choices) — selected flips to a solid haldi pill. Carries the same
+  /// value/onChanged contract the old [BbSelect] did, so submit logic is intact.
+  Widget _chipField<T>({
+    required String label,
+    required T value,
+    required List<T> options,
+    required String Function(T) labelOf,
+    required ValueChanged<T> onSelected,
+  }) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            label,
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              weight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Wrap(
+            spacing: AppSpacing.s2,
+            runSpacing: AppSpacing.s2,
+            children: <Widget>[
+              for (final T option in options)
+                BbChip(
+                  label: labelOf(option),
+                  selected: option == value,
+                  onTap: () => onSelected(option),
+                ),
+            ],
+          ),
+        ],
+      );
+
   /// COMPANY posting inputs. #357: every input here now reaches
   /// `POST /payer/job-postings` — org/title/location/vacancy band as their own
   /// columns, and trade + pay + experience + skills folded into the free-text
   /// `description` (see [_companyDescription]), because that route has no typed
   /// column for them. Nothing on this form is prefilled and nothing is dropped.
   List<Widget> _companyFields() => <Widget>[
-        BbField(label: 'Company / org name', controller: _org),
-        const SizedBox(height: AppSpacing.s4),
-        BbField(
-          label: 'Job title',
-          controller: _title,
-          hint: 'e.g. CNC Setter',
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        // Null until picked — a preselected trade would land in `description`
-        // without the payer ever choosing it (#357).
-        BbSelect<String?>(
-          label: 'Trade (optional)',
-          value: _trade,
-          items: <String?>[null, ..._trades],
-          labelOf: (String? t) => t ?? 'Not specified',
-          onChanged: (String? v) => setState(() => _trade = v),
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              child: BbField(
-                label: 'Location',
-                controller: _location,
-                hint: 'optional',
-              ),
-            ),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: BbSelect<String>(
-                label: 'Vacancies',
-                value: _band,
-                items: _bands,
-                labelOf: (String b) => b,
-                onChanged: (String? v) => setState(() => _band = v ?? _band),
-              ),
-            ),
-          ],
-        ),
+        _sectionCard('Company & role', <Widget>[
+          BbField(label: 'Company / org name', controller: _org),
+          const SizedBox(height: AppSpacing.s4),
+          BbField(
+            label: 'Job title',
+            controller: _title,
+            hint: 'e.g. CNC Setter',
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          // Null until picked — a preselected trade would land in `description`
+          // without the payer ever choosing it (#357). A dropdown (not a chip
+          // grid) so the unpicked trade names are not surfaced on the form.
+          BbSelect<String?>(
+            label: 'Trade (optional)',
+            value: _trade,
+            items: <String?>[null, ..._trades],
+            labelOf: (String? t) => t ?? 'Not specified',
+            onChanged: (String? v) => setState(() => _trade = v),
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          BbField(
+            label: 'Location',
+            controller: _location,
+            hint: 'optional',
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          _chipField<String>(
+            label: 'Vacancies',
+            value: _band,
+            options: _bands,
+            labelOf: (String b) => b,
+            onSelected: (String v) => setState(() => _band = v),
+          ),
+        ]),
         const SizedBox(height: AppSpacing.s4),
         // Whole rupees, not free text: the entered band is formatted with
         // thousands grouping (DS money rule) before it rides `description`.
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              child: BbField(
-                label: 'Pay min ₹/mo',
-                controller: _payMin,
-                hint: 'optional',
-                keyboardType: TextInputType.number,
-                mono: true,
+        _sectionCard('Pay & experience', <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: BbField(
+                  label: 'Pay min ₹/mo',
+                  controller: _payMin,
+                  hint: 'optional',
+                  keyboardType: TextInputType.number,
+                  mono: true,
+                ),
               ),
-            ),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: BbField(
-                label: 'Pay max ₹/mo',
-                controller: _payMax,
-                hint: 'optional',
-                keyboardType: TextInputType.number,
-                mono: true,
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: BbField(
+                  label: 'Pay max ₹/mo',
+                  controller: _payMax,
+                  hint: 'optional',
+                  keyboardType: TextInputType.number,
+                  mono: true,
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              child: BbField(
-                label: 'Exp min (yrs)',
-                controller: _expMin,
-                hint: 'optional',
-                keyboardType: TextInputType.number,
-                mono: true,
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: BbField(
+                  label: 'Exp min (yrs)',
+                  controller: _expMin,
+                  hint: 'optional',
+                  keyboardType: TextInputType.number,
+                  mono: true,
+                ),
               ),
-            ),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: BbField(
-                label: 'Exp max (yrs)',
-                controller: _expMax,
-                hint: 'optional',
-                keyboardType: TextInputType.number,
-                mono: true,
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: BbField(
+                  label: 'Exp max (yrs)',
+                  controller: _expMax,
+                  hint: 'optional',
+                  keyboardType: TextInputType.number,
+                  mono: true,
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
+        ]),
         const SizedBox(height: AppSpacing.s4),
         // Matching V1: the demand-skill picker + reach meter when the route is
         // live; the free-text skills flow otherwise (see [_companySkillsSection]).
-        ..._companySkillsSection(),
+        _sectionCard('Skills & matching', _companySkillsSection()),
         const SizedBox(height: AppSpacing.s4),
         Container(
           padding: const EdgeInsets.all(AppSpacing.s3),
@@ -793,31 +848,20 @@ class _PostJobScreenState extends State<PostJobScreen> {
             onToggleRelated: _onToggleRelated,
           ),
           const SizedBox(height: AppSpacing.s4),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: BbSelect<String?>(
-                  label: 'Shift',
-                  value: _shift,
-                  items: const <String?>[null, 'day', 'night', 'rotational'],
-                  labelOf: _shiftLabel,
-                  onChanged: (String? v) => setState(() => _shift = v),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: BbSelect<String?>(
-                  label: 'Needed by',
-                  value: _companyNeededBy,
-                  items:
-                      const <String?>[null, 'immediate', 'soon', 'flexible'],
-                  labelOf: _companyNeededByLabel,
-                  onChanged: (String? v) =>
-                      setState(() => _companyNeededBy = v),
-                ),
-              ),
-            ],
+          _chipField<String?>(
+            label: 'Shift',
+            value: _shift,
+            options: const <String?>[null, 'day', 'night', 'rotational'],
+            labelOf: _shiftLabel,
+            onSelected: (String? v) => setState(() => _shift = v),
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          _chipField<String?>(
+            label: 'Needed by',
+            value: _companyNeededBy,
+            options: const <String?>[null, 'immediate', 'soon', 'flexible'],
+            labelOf: _companyNeededByLabel,
+            onSelected: (String? v) => setState(() => _companyNeededBy = v),
           ),
         ];
     }
@@ -920,95 +964,101 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// jobs` (trade_key/title/city + optional coarse area/pay/experience bands +
   /// needed_by). No org/employer name — that is not a demand attribute.
   List<Widget> _agencyFields() => <Widget>[
-        BbSelect<String>(
-          label: 'Trade',
-          value: _tradeKey,
-          items: kAgencyTradeKeys,
-          labelOf: agencyTradeLabel,
-          onChanged: (String? v) => setState(() => _tradeKey = v ?? _tradeKey),
-        ),
+        _sectionCard('Job details', <Widget>[
+          _chipField<String>(
+            label: 'Trade',
+            value: _tradeKey,
+            options: kAgencyTradeKeys,
+            labelOf: agencyTradeLabel,
+            onSelected: (String v) => setState(() => _tradeKey = v),
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          BbField(label: 'Job title', controller: _title),
+          const SizedBox(height: AppSpacing.s4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                // #357 — was prefilled 'Pune' (and area 'Chakan'); the agency
+                // route is just as real, so these start empty too.
+                child: BbField(
+                  label: 'City',
+                  controller: _city,
+                  hint: 'e.g. Pune',
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: BbField(
+                  label: 'Area (optional)',
+                  controller: _area,
+                ),
+              ),
+            ],
+          ),
+        ]),
         const SizedBox(height: AppSpacing.s4),
-        BbField(label: 'Job title', controller: _title),
+        _sectionCard('Pay & experience', <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: BbField(
+                  label: 'Pay min ₹/mo',
+                  controller: _payMin,
+                  hint: 'optional',
+                  keyboardType: TextInputType.number,
+                  mono: true,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: BbField(
+                  label: 'Pay max ₹/mo',
+                  controller: _payMax,
+                  hint: 'optional',
+                  keyboardType: TextInputType.number,
+                  mono: true,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: BbField(
+                  label: 'Exp min (yrs)',
+                  controller: _expMin,
+                  hint: 'optional',
+                  keyboardType: TextInputType.number,
+                  mono: true,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: BbField(
+                  label: 'Exp max (yrs)',
+                  controller: _expMax,
+                  hint: 'optional',
+                  keyboardType: TextInputType.number,
+                  mono: true,
+                ),
+              ),
+            ],
+          ),
+        ]),
         const SizedBox(height: AppSpacing.s4),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              // #357 — was prefilled 'Pune' (and area 'Chakan'); the agency
-              // route is just as real, so these start empty too.
-              child: BbField(
-                label: 'City',
-                controller: _city,
-                hint: 'e.g. Pune',
-              ),
-            ),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: BbField(
-                label: 'Area (optional)',
-                controller: _area,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              child: BbField(
-                label: 'Pay min ₹/mo',
-                controller: _payMin,
-                hint: 'optional',
-                keyboardType: TextInputType.number,
-                mono: true,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: BbField(
-                label: 'Pay max ₹/mo',
-                controller: _payMax,
-                hint: 'optional',
-                keyboardType: TextInputType.number,
-                mono: true,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              child: BbField(
-                label: 'Exp min (yrs)',
-                controller: _expMin,
-                hint: 'optional',
-                keyboardType: TextInputType.number,
-                mono: true,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: BbField(
-                label: 'Exp max (yrs)',
-                controller: _expMax,
-                hint: 'optional',
-                keyboardType: TextInputType.number,
-                mono: true,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        BbSelect<String>(
-          label: 'Needed by',
-          value: _neededBy,
-          items: kAgencyNeededBy,
-          labelOf: agencyNeededByLabel,
-          onChanged: (String? v) => setState(() => _neededBy = v ?? _neededBy),
-        ),
+        _sectionCard('Timing', <Widget>[
+          _chipField<String>(
+            label: 'Needed by',
+            value: _neededBy,
+            options: kAgencyNeededBy,
+            labelOf: agencyNeededByLabel,
+            onSelected: (String v) => setState(() => _neededBy = v),
+          ),
+        ]),
         const SizedBox(height: AppSpacing.s4),
         Container(
           padding: const EdgeInsets.all(AppSpacing.s3),

@@ -208,7 +208,9 @@ class _IdleView extends StatelessWidget {
             button: true,
             label: _kMicSemanticLabel,
             child: Material(
-              color: AppColors.saffron50,
+              // Kit mic language: the mic is the ONE haldi hero on this screen —
+              // a solid haldi circle with a deep-blue glyph (on-haldi is always blue).
+              color: AppColors.haldi,
               shape: const CircleBorder(),
               child: InkWell(
                 customBorder: const CircleBorder(),
@@ -218,7 +220,7 @@ class _IdleView extends StatelessWidget {
                   width: AppSpacing.s12,
                   height: AppSpacing.s12,
                   child: Icon(Icons.mic_rounded,
-                      size: AppSpacing.s9, color: AppColors.saffronDeep),
+                      size: AppSpacing.s9, color: AppColors.onHaldi),
                 ),
               ),
             ),
@@ -278,16 +280,39 @@ class _RecordingView extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Container(
+          SizedBox(
             width: AppSpacing.s12,
             height: AppSpacing.s12,
-            alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              color: AppColors.dangerTint,
-              shape: BoxShape.circle,
+            child: Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                // DETERMINATE record ring — fills as the cap (maxSeconds)
+                // approaches, so the record state shows real progress rather than
+                // a bare/indeterminate spinner. The mono clock reads out the same.
+                Positioned.fill(
+                  child: CircularProgressIndicator(
+                    value: maxSeconds > 0
+                        ? (elapsedSeconds / maxSeconds).clamp(0.0, 1.0)
+                        : 0.0,
+                    strokeWidth: 4,
+                    backgroundColor: AppColors.dangerTint,
+                    valueColor:
+                        const AlwaysStoppedAnimation<Color>(AppColors.danger),
+                  ),
+                ),
+                Container(
+                  width: AppSpacing.s11,
+                  height: AppSpacing.s11,
+                  alignment: Alignment.center,
+                  decoration: const BoxDecoration(
+                    color: AppColors.dangerTint,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.mic_rounded,
+                      size: AppSpacing.s8, color: AppColors.danger),
+                ),
+              ],
             ),
-            child: const Icon(Icons.mic_rounded,
-                size: AppSpacing.s9, color: AppColors.danger),
           ),
           const SizedBox(height: AppSpacing.s5),
           Row(

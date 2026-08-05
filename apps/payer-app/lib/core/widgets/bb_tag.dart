@@ -34,3 +34,32 @@ class BbTag extends StatelessWidget {
     );
   }
 }
+
+/// The kit's `BBHotTag` — a solid haldi flag with a deep-blue **Anek** label,
+/// marking a featured / urgent card (pairs with [BbCard]'s `featured` rail).
+/// Earned, never uniform. Defaults to "HOT"; pass [label] for "URGENT", "NEW".
+class BbHotTag extends StatelessWidget {
+  const BbHotTag({super.key, this.label = 'HOT'});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.haldi,
+        borderRadius: BorderRadius.circular(AppRadii.xs),
+      ),
+      child: Text(
+        label,
+        // Text on haldi is ALWAYS deep blue; the flag speaks in Anek (display).
+        style: AppTypography.display(
+          size: AppTypography.size2xs,
+          weight: FontWeight.w800,
+          color: AppColors.onHaldi,
+        ),
+      ),
+    );
+  }
+}

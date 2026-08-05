@@ -7,7 +7,7 @@ import 'bb_button.dart';
 
 /// The unlock confirmation — `.bb-dialog` over a scrim. Names the candidate
 /// (their redacted feed name), states the spend ("1 credit (₹40) used —
-/// N left after"), and carries the teal fair-use note. Confirm returns `true`.
+/// N left after"), and carries the deep-blue fair-use note. Confirm returns `true`.
 ///
 /// The redacted name is passed in (the dialog never receives the real name);
 /// the fair-use note states the unlock NEVER changes a worker's ranking.

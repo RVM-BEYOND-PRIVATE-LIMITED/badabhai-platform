@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
 
-/// Standard BadaBhai page shell: cream background (from the theme), a safe area,
-/// and the shared gutter padding. Keeps a real [Scaffold] underneath so
-/// `ScaffoldMessenger` (snackbars) keeps working.
+/// Standard BadaBhai page shell: JUL31 **canvas** (#F2F4F8) background from the
+/// theme — never cream — a safe area, and the shared gutter padding. Keeps a
+/// real [Scaffold] underneath so `ScaffoldMessenger` (snackbars) keeps working.
 class BbScaffold extends StatelessWidget {
   const BbScaffold({
     super.key,

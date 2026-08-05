@@ -14,4 +14,10 @@ abstract interface class ResumeEditRepository {
   /// making the caller diff again, and the preview regenerates ONLY on a real
   /// name change (an unconditional regenerate would burn the 5/day cap).
   Future<bool> save(ResumeSafeFields fields);
+
+  /// Forget the last-loaded name. Called on LOGOUT/REAUTH: this repo is a DI
+  /// singleton that outlives a logout, and it caches the previous worker's
+  /// plaintext name for change-detection — the next worker must not inherit it
+  /// (residual PII, and a save-before-load would diff against the wrong name).
+  void onLogout();
 }

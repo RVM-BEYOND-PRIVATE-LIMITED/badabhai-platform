@@ -10,6 +10,8 @@ import '../theme/app_spacing.dart';
 ///  - default      — plain white card, 1px hairline border.
 ///  - [ink]        — dark deep-blue surface (balance / earn summary blocks).
 ///  - [festive]    — 3px double-haldi border (hero stat, revealed profile).
+///  - [featured]   — 4px haldi LEFT RAIL (the kit's mark for a HOT / featured
+///    card — earned, never uniform).
 ///  - [interactive]— adds a tap ripple + min 48px target for row-style cards.
 ///
 /// Pass [border] to override the outline (e.g. a "Best value" pack), or
@@ -21,6 +23,7 @@ class BbCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(AppSpacing.s4),
     this.ink = false,
     this.festive = false,
+    this.featured = false,
     this.border,
     this.gradient,
     this.onTap,
@@ -31,6 +34,10 @@ class BbCard extends StatelessWidget {
   final EdgeInsetsGeometry padding;
   final bool ink;
   final bool festive;
+
+  /// Draws the 4px haldi left rail — the JUL31 mark for a featured / HOT card.
+  /// Earned, never uniform: reserve it for the single hero card in a list.
+  final bool featured;
   final BoxBorder? border;
   final Gradient? gradient;
   final VoidCallback? onTap;
@@ -51,16 +58,46 @@ class BbCard extends StatelessWidget {
                 ? null
                 : Border.all(color: AppColors.border)));
 
-    Widget content = Container(
-      padding: padding,
-      decoration: BoxDecoration(
-        color: gradient == null ? background : null,
-        gradient: gradient,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: effectiveBorder,
-      ),
-      child: child,
-    );
+    final BorderRadius radius = BorderRadius.circular(AppRadii.lg);
+
+    Widget content;
+    if (featured) {
+      // The haldi rail is a single-side border, so it can't share the rounded
+      // outline directly (Flutter forbids a non-uniform border with a radius).
+      // Draw the surface + hairline on an outer layer, clip to the radius, then
+      // lay the 4px rail on the padded inner layer — mirroring the kit's card.
+      content = DecoratedBox(
+        decoration: BoxDecoration(
+          color: gradient == null ? background : null,
+          gradient: gradient,
+          borderRadius: radius,
+          border: effectiveBorder,
+        ),
+        child: ClipRRect(
+          borderRadius: radius,
+          child: Container(
+            padding: padding,
+            decoration: const BoxDecoration(
+              border: Border(
+                left: BorderSide(color: AppColors.haldi, width: AppSpacing.s1),
+              ),
+            ),
+            child: child,
+          ),
+        ),
+      );
+    } else {
+      content = Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: gradient == null ? background : null,
+          gradient: gradient,
+          borderRadius: radius,
+          border: effectiveBorder,
+        ),
+        child: child,
+      );
+    }
 
     if (onTap != null) {
       content = Material(
