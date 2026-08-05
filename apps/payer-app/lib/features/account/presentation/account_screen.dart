@@ -12,6 +12,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/payer_role_badge.dart';
 import '../../capacity/presentation/capacity_screen.dart';
 import '../../org/presentation/team_screen.dart';
 import '../../referral/presentation/referral_screen.dart';
@@ -60,12 +61,19 @@ class _AccountView extends StatelessWidget {
             AppSpacing.s6,
           ),
           children: <Widget>[
-            Text(
-              'Account',
-              style: AppTypography.display(
-                size: AppTypography.sizeXl,
-                weight: FontWeight.w800,
-              ),
+            Row(
+              children: <Widget>[
+                Text(
+                  'Account',
+                  style: AppTypography.display(
+                    size: AppTypography.sizeXl,
+                    weight: FontWeight.w800,
+                  ),
+                ),
+                const Spacer(),
+                // Which portal you're signed into — COMPANY or AGENCY.
+                PayerRoleBadge(role: session.role),
+              ],
             ),
             const SizedBox(height: AppSpacing.s4),
             if (state.status == AccountStatus.loading && state.me == null)
