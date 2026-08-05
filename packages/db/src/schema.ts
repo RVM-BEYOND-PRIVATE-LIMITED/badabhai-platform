@@ -503,7 +503,7 @@ export const workerProfiles = pgTable(
     // Managed Vertex embedding (text-multilingual-embedding-002, 768-dim) for
     // semantic similarity. Nullable until the profile is embedded (plan G3).
     embedding: vector("embedding", { dimensions: 768 }),
-    // ── Generalized profiling: the matched job domain (migration 0060) ────────
+    // ── Generalized profiling: the matched job domain (migration 0066) ────────
     //
     // A NEW, PARALLEL COLUMN — deliberately NOT a widening of `canonical_role_id`.
     // That distinction is load-bearing, and getting it wrong fails SILENTLY:
@@ -2576,7 +2576,7 @@ export const skillRelated = pgTable(
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0052
 
 // ===========================================================================
-// Generalized profiling — the JOB DOMAIN catalog (migration 0060).
+// Generalized profiling — the JOB DOMAIN catalog (migration 0066).
 // ---------------------------------------------------------------------------
 // WHAT THIS IS FOR. Chat profiling no longer picks questions from a hardcoded
 // Python bank keyed to 7 role families — the LLM conducts the interview for
@@ -2724,7 +2724,7 @@ export const jobDomains = pgTable(
       sql`${t.parentJobDomainId} IS NULL OR ${t.parentJobDomainId} <> ${t.jobDomainId}`,
     ),
   ],
-).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0060
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0066
 
 // Alias variants of a job domain — official title, the standards' own "occupations
 // classified here" examples, and Hinglish/vernacular forms a worker would actually
@@ -2764,7 +2764,7 @@ export const jobDomainAliases = pgTable(
     index("job_domain_alias_embedding_hnsw").using("hnsw", t.embedding.op("vector_cosine_ops")),
     check("job_domain_alias_source_chk", sql`${t.source} IN ('isco08', 'nco2015', 'rvm')`),
   ],
-).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0060
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0066
 
 // ===========================================================================
 // Matching V1 — the SUPPLY side (migration 0053).

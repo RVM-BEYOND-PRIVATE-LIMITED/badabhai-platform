@@ -1,5 +1,5 @@
 /**
- * Job-domain catalog seed (migration 0060) — loads packages/db/data/job-domains/*.jsonl
+ * Job-domain catalog seed (migration 0066) — loads packages/db/data/job-domains/*.jsonl
  * into `job_domain` + `job_domain_alias` (embedding = NULL).
  *
  *   pnpm db:seed:domains              # DRY RUN — plans and prints, writes nothing

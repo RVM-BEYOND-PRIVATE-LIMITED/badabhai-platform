@@ -1,5 +1,5 @@
 /**
- * Job-domain catalog verifier (migration 0060) — the DEPLOY GATE.
+ * Job-domain catalog verifier (migration 0066) — the DEPLOY GATE.
  *
  *   pnpm db:verify:domains
  *
@@ -50,13 +50,22 @@ async function main(): Promise<void> {
     );
     const aliases = await one(dsql`SELECT count(*) AS n FROM "job_domain_alias"`);
 
+    // PRECONDITION, deliberately NOT a `checks` entry. Every check below counts BAD
+    // ROWS, and the reporting loop reads `count === 0` as "nothing wrong → PASS". An
+    // empty catalog is the exact inversion of that convention: the finding IS the zero.
+    // Pushed as a check it printed `PASS  catalog is empty` and exited 0 — and since an
+    // unseeded table also yields 0 for every other check, the script cheerfully reported
+    // "all structural checks passed" on a database with no catalog at all. That is the
+    // one failure this gate exists to catch, so it is asserted here and returns
+    // immediately: the remaining checks are not merely redundant on an empty table, they
+    // are actively misleading.
     if (domains === 0) {
-      checks.push({
-        name: "catalog is empty",
-        level: "fail",
-        detail: "no job_domain rows — run `pnpm db:seed:domains --apply` first",
-        count: 0,
-      });
+      console.error(
+        `[${SCRIPT}] FAIL  catalog is empty — no job_domain rows. ` +
+          "Run `pnpm db:seed:domains --apply` first.",
+      );
+      process.exitCode = 1;
+      return;
     }
 
     // A selectable row with NO alias is INVISIBLE to retrieval (we embed aliases, not

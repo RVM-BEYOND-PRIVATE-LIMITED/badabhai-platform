@@ -1,6 +1,6 @@
 # BadaBhai — AI Profiling Architecture: Implementation Status Report
 
-**Branch:** `feat/generalized-profiling` · **Date:** 2026-08-03 · **Status:** in development, not deployed
+**Branch:** `feat/ai-chat-profiling` (PR #583) · **Date:** 2026-08-03 · **Status:** in development, not deployed
 
 ## Purpose and reading rules
 
@@ -515,7 +515,7 @@ The task frames `captured` as feeding "downstream extraction." Verified in code:
 
 ## 6.1 Two classification schemes, one catalog
 
-`packages/db/src/schema.ts` defines a single table pair — `job_domain` / `job_domain_alias` (migration 0060) — that holds rows from **two published standards**, distinguished by the `source` column (`packages/db/src/schema.ts:2515`, `type JobDomainSource = "isco08" | "nco2015" | "rvm"`):
+`packages/db/src/schema.ts` defines a single table pair — `job_domain` / `job_domain_alias` (migration 0066) — that holds rows from **two published standards**, distinguished by the `source` column (`packages/db/src/schema.ts:2515`, `type JobDomainSource = "isco08" | "nco2015" | "rvm"`):
 
 - **ISCO-08** (International Standard Classification of Occupations) — seeded from `isco08.jsonl` in the corpus directory. 619 rows (confirmed by running `audit-job-domains.ts`, output below).
 - **NCO-2015** (India's National Classification of Occupations) — seeded from `nco2015.jsonl`. 3,452 rows.
@@ -930,21 +930,21 @@ Loading is defensive: a value that fails `JSON.parse` or fails the structural `n
 
 # 11. Database Changes
 
-The **only** migration for this architecture is `packages/db/migrations/0060_tearful_wilson_fisk.sql` — confirmed by grep: no other file under `packages/db/migrations/*.sql` matches `job_domain` (only `0060_tearful_wilson_fisk.sql` and its generated `meta/0060_snapshot.json` do), and no migration matches `chat_transcript` or `chatTranscript` at all (the transcript buffer is Redis-only and has no schema footprint). `chat_sessions` and `chat_messages` themselves are pre-existing tables not created or altered by this architecture.
+The **only** migration for this architecture is `packages/db/migrations/0066_special_pyro.sql` — confirmed by grep: no other file under `packages/db/migrations/*.sql` matches `job_domain` (only `0066_special_pyro.sql` and its generated `meta/0066_snapshot.json` do), and no migration matches `chat_transcript` or `chatTranscript` at all (the transcript buffer is Redis-only and has no schema footprint). `chat_sessions` and `chat_messages` themselves are pre-existing tables not created or altered by this architecture.
 
-**`CREATE TABLE job_domain_alias`** (`0060_tearful_wilson_fisk.sql:65-76`; Drizzle def `packages/db/src/schema.ts:2638-2667`):
+**`CREATE TABLE job_domain_alias`** (`0066_special_pyro.sql:65-76`; Drizzle def `packages/db/src/schema.ts:2638-2667`):
 - `id uuid PRIMARY KEY DEFAULT gen_random_uuid()`
-- `job_domain_id text NOT NULL` — FK to `job_domain.job_domain_id`, `ON DELETE cascade` (added at `0060:114`)
+- `job_domain_id text NOT NULL` — FK to `job_domain.job_domain_id`, `ON DELETE cascade` (added at `0066`)
 - `text text NOT NULL` — the alias phrase (official title / standards' example / vernacular term)
 - `lang text` (nullable)
 - `source text NOT NULL` — CHECK `job_domain_alias_source_chk`: `IN ('isco08','nco2015','rvm')`
 - `embedding vector(768)` (nullable until backfilled)
 - `embedding_model text`, `embedded_at timestamptz` (nullable — provenance for mock-vs-real vector cleanup)
 - `created_at timestamptz NOT NULL DEFAULT now()`
-- `ENABLE ROW LEVEL SECURITY` (0060:78), plus later `FORCE ROW LEVEL SECURITY` and `REVOKE ALL` from `PUBLIC`/`anon`/`authenticated`/`service_role` (0060:137-141)
+- `ENABLE ROW LEVEL SECURITY` (0066), plus later `FORCE ROW LEVEL SECURITY` and `REVOKE ALL` from `PUBLIC`/`anon`/`authenticated`/`service_role` (0066)
 - Indexes: `job_domain_alias_job_domain_id_idx` (btree on `job_domain_id`), `job_domain_alias_embedding_hnsw` (HNSW, `vector_cosine_ops`)
 
-**`CREATE TABLE job_domain`** (`0060:79-107`; Drizzle def `schema.ts:2542-2627`):
+**`CREATE TABLE job_domain`** (`0066`; Drizzle def `schema.ts:2542-2627`):
 - `job_domain_id text PRIMARY KEY` (minted ids, e.g. `jd_isco_7223`)
 - `label_en text NOT NULL`, `label_hi text`, `description_en text`
 - `source text NOT NULL` — CHECK `job_domain_source_chk`: `IN ('isco08','nco2015','rvm')`
@@ -960,23 +960,23 @@ The **only** migration for this architecture is `packages/db/migrations/0060_tea
 - `version integer NOT NULL DEFAULT 1`
 - `replaced_by text` — self-FK; CHECK `job_domain_replaced_by_chk`: `replaced_by IS NULL OR status = 'deprecated'`
 - `created_at`, `updated_at timestamptz NOT NULL DEFAULT now()`
-- `ENABLE ROW LEVEL SECURITY` (0060:109), plus `FORCE ROW LEVEL SECURITY` + `REVOKE ALL` from all four roles (0060:132-136)
+- `ENABLE ROW LEVEL SECURITY` (0066), plus `FORCE ROW LEVEL SECURITY` + `REVOKE ALL` from all four roles (0066)
 - Indexes: `job_domain_source_code_uq` (unique btree on `(source, source_code)`), `job_domain_parent_idx` (btree on `parent_job_domain_id`), `job_domain_selectable_idx` (btree on `(selectable, status)`), `job_domain_isco_unit_idx` (btree on `isco_unit_code`)
-- FKs added post-creation: `job_domain_parent_job_domain_id_job_domain_job_domain_id_fk`, `job_domain_replaced_by_job_domain_job_domain_id_fk` (both `0060:115-116`)
+- FKs added post-creation: `job_domain_parent_job_domain_id_job_domain_job_domain_id_fk`, `job_domain_replaced_by_job_domain_job_domain_id_fk` (both `0066`)
 
-**Four new nullable columns on `worker_profiles`** (`0060:110-113`; Drizzle def `schema.ts:502-513`):
-- `job_domain_id text` — FK `worker_profiles_job_domain_id_job_domain_job_domain_id_fk`, `ON DELETE set null` (0060:123), indexed by `worker_profiles_job_domain_id_idx` (0060:124)
-- `job_domain_match_status text` — CHECK `worker_profiles_job_domain_match_status_chk`: NULL or `IN ('matched_auto','matched_llm','unmatched_below_floor','unmatched_llm_declined','unmatched_degraded')` (0060:125)
+**Four new nullable columns on `worker_profiles`** (`0066`; Drizzle def `schema.ts:502-513`):
+- `job_domain_id text` — FK `worker_profiles_job_domain_id_job_domain_job_domain_id_fk`, `ON DELETE set null` (0066), indexed by `worker_profiles_job_domain_id_idx` (0066)
+- `job_domain_match_status text` — CHECK `worker_profiles_job_domain_match_status_chk`: NULL or `IN ('matched_auto','matched_llm','unmatched_below_floor','unmatched_llm_declined','unmatched_degraded')` (0066)
 - `job_domain_match_score double precision` (nullable)
 - `job_domain_matched_at timestamptz` (nullable)
 
 No CHECK constraint ties `job_domain_id` to non-null when `job_domain_match_status` indicates a match, or vice versa — the three fields are independently nullable columns; consistency between them is enforced only in application code (`ProfileExtractionProcessor.resolveJobDomain`, §12 below).
 
-**Expand-only / no drops.** The migration's own header states: "EXPAND-ONLY: nothing is dropped, renamed, or made NOT NULL, and no shipped column changes meaning. Nothing READS the new worker_profiles columns until DOMAIN_MATCH_ENABLED is flipped on, so applying this is inert" (`0060:3-6`). The migration file also documents that a stray `posting_boosts_tier_chk` DROP/re-ADD emitted by `drizzle-kit` (from an unrelated stale-snapshot diff, migration 0059) was deliberately excluded from this file (`0060:15-24`) — i.e., 0060 is scoped purely to the job-domain catalog.
+**Expand-only / no drops.** The migration's own header states: "EXPAND-ONLY: nothing is dropped, renamed, or made NOT NULL, and no shipped column changes meaning. Nothing READS the new worker_profiles columns until DOMAIN_MATCH_ENABLED is flipped on, so applying this is inert" (`0066`). The migration file also documents that a stray `posting_boosts_tier_chk` DROP/re-ADD emitted by `drizzle-kit` (from an unrelated stale-snapshot diff, migration 0059) was deliberately excluded from this file (`0066`) — i.e., 0066 is scoped purely to the job-domain catalog.
 
-**RLS posture.** Both new tables get `ENABLE ROW LEVEL SECURITY` (via Drizzle's `.enableRLS()`, `schema.ts:2627,2667`) plus hand-appended `FORCE ROW LEVEL SECURITY` and `REVOKE ALL` from `PUBLIC`, `anon`, `authenticated`, and `service_role` (`0060:126-141`) — the same posture as prior migrations per the comment "Both tables are registered in `tests/e2e/rls-spine.e2e.test.ts` LOCKED_TABLES."
+**RLS posture.** Both new tables get `ENABLE ROW LEVEL SECURITY` (via Drizzle's `.enableRLS()`, `schema.ts:2627,2667`) plus hand-appended `FORCE ROW LEVEL SECURITY` and `REVOKE ALL` from `PUBLIC`, `anon`, `authenticated`, and `service_role` (`0066`) — the same posture as prior migrations per the comment "Both tables are registered in `tests/e2e/rls-spine.e2e.test.ts` LOCKED_TABLES."
 
-**Rollback**, per the migration's own comment block (`0060:48-60`): drop the four `worker_profiles` columns, the FK, the status CHECK, and the index; then `DROP TABLE job_domain_alias` and `DROP TABLE job_domain`. Stated as "fully reversible — nothing reads these," with catalog data recoverable via `pnpm db:seed:domains --apply` and embeddings via `pnpm db:embed:domains`.
+**Rollback**, per the migration's own comment block (`0066`): drop the four `worker_profiles` columns, the FK, the status CHECK, and the index; then `DROP TABLE job_domain_alias` and `DROP TABLE job_domain`. Stated as "fully reversible — nothing reads these," with catalog data recoverable via `pnpm db:seed:domains --apply` and embeddings via `pnpm db:embed:domains`.
 
 ---
 
@@ -1001,7 +1001,7 @@ No CHECK constraint ties `job_domain_id` to non-null when `job_domain_match_stat
 ---
 
 **Files read for this assignment:**
-`apps/api/src/chat/chat-transcript.buffer.ts`, `apps/api/src/chat/chat.module.ts`, `apps/api/src/chat/chat.service.ts` (partial, cited sections), `apps/ai-service/app/ai/model_config.py`, `apps/ai-service/app/ai/gemini_client.py` (lines 1-185), `apps/ai-service/app/config.py`, `apps/ai-service/app/profiling/domain_match.py`, `apps/ai-service/app/main.py` (lines 1090-1220), `packages/db/migrations/0060_tearful_wilson_fisk.sql`, `packages/db/src/schema.ts` (lines 480-540, 2480-2670), `apps/api/src/profiles/profile-extraction.processor.ts`, `apps/api/src/profiles/profiles.module.ts`, `apps/api/src/skills/skills.module.ts`, `apps/api/src/queue/queue.constants.ts`, `apps/api/src/queue/queue.module.ts`, `packages/config/src/server.ts` (grep hits only).
+`apps/api/src/chat/chat-transcript.buffer.ts`, `apps/api/src/chat/chat.module.ts`, `apps/api/src/chat/chat.service.ts` (partial, cited sections), `apps/ai-service/app/ai/model_config.py`, `apps/ai-service/app/ai/gemini_client.py` (lines 1-185), `apps/ai-service/app/config.py`, `apps/ai-service/app/profiling/domain_match.py`, `apps/ai-service/app/main.py` (lines 1090-1220), `packages/db/migrations/0066_special_pyro.sql`, `packages/db/src/schema.ts` (lines 480-540, 2480-2670), `apps/api/src/profiles/profile-extraction.processor.ts`, `apps/api/src/profiles/profiles.module.ts`, `apps/api/src/skills/skills.module.ts`, `apps/api/src/queue/queue.constants.ts`, `apps/api/src/queue/queue.module.ts`, `packages/config/src/server.ts` (grep hits only).
 
 ---
 
@@ -1071,7 +1071,7 @@ Each line states the evidence section. "Partial" always names what specifically 
 | ✅ | Structured output (`json_mode`) on 3 of 4 routes; `domain_match` capped at 64 tokens, temp 0.0 | §9 |
 | ✅ | History window bounds O(n²) input growth | §9 |
 | ✅ | Per-call / per-profile / per-user-day / global spend ceilings | §9 |
-| ✅ | Migration 0060 — expand-only, RLS-forced, reversible | §11 |
+| ✅ | Migration 0066 — expand-only, RLS-forced, reversible | §11 |
 | ✅ | Extraction reads the Redis buffer when the session is not yet flushed (early-finish path) | §12 |
 | ⚠️ | Prompt caching is a **no-op on the Anthropic fallback** — 1,607 < 4,096 floor | §9 |
 | ❌ | Explicit Gemini `cachedContent` — constant defined, marked DEFERRED, no code path | §9 |

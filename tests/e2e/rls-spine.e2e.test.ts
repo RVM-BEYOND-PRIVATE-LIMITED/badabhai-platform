@@ -75,8 +75,8 @@ const LOCKED_TABLES = [
   "payer_members", // ADR-0027 (B5.1): org membership; email_enc/email_hash (TD21) + invite_token_hash; RLS+FORCE+REVOKE in migration 0035
   "skill", // ADR-0030/TAX-1: canonical skill vocabulary (reference data); RLS+FORCE+REVOKE in migration 0037
   "skill_alias", // ADR-0030/TAX-1: embedded aliases + vector(768) (reference data); RLS+FORCE+REVOKE in migration 0037
-  "job_domain", // 0060: generalized-profiling occupation catalog (ISCO-08/NCO-2015 reference data, PII-free); RLS+FORCE+REVOKE in migration 0060
-  "job_domain_alias", // 0060: job-domain aliases + vector(768) for the RAG match (reference data, PII-free); RLS+FORCE+REVOKE in migration 0060
+  "job_domain", // 0066: generalized-profiling occupation catalog (ISCO-08/NCO-2015 reference data, PII-free); RLS+FORCE+REVOKE in migration 0066
+  "job_domain_alias", // 0066: job-domain aliases + vector(768) for the RAG match (reference data, PII-free); RLS+FORCE+REVOKE in migration 0066
   "unresolved_phrase", // ADR-0030/TAX-1: below-floor growth queue — PSEUDONYMIZED phrase + count, NO worker_id; RLS+FORCE+REVOKE in migration 0037
   "push_deliveries", // ADR-0034: one row per (source event, device) push attempt — faceless (opaque event/device ids + status, NO worker_id and no copy); RLS+FORCE+REVOKE in migration 0045
   "agency_kyc", // ADR-0022 Amdt 2: agency financial KYC (PAN/bank ciphertext + keyed HMAC — high-sensitivity financial PII, ADR-0004 discipline); RLS+FORCE+REVOKE in migration 0048
