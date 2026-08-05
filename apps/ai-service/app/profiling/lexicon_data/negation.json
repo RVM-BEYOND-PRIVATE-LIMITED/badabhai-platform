@@ -1,0 +1,139 @@
+{
+  "$comment": [
+    "The negation engine, lifted from apps/ai-service/app/profiling/signals.py.",
+    "",
+    "WHAT IT DOES: blanks out the words a negator denies, replacing them with SPACES so the",
+    "string keeps its LENGTH and every offset-based reader downstream (city spans, salary",
+    "windows, _level_near) is unaffected. It also reports which TOPICS were negated.",
+    "",
+    "WHY IT EXISTS: without it, 'abhi kaam nahi mil raha' becomes availability=immediate and",
+    "'VMC nahi chalaya' becomes a VMC operator. Both were measured, not imagined."
+  ],
+
+  "backWords": 3,
+  "$comment_backWords": [
+    "How many words BEFORE a negator get blanked. Three is the measured Hinglish scope:",
+    "'setting nahi aati' (2), 'CNC program editing nahi aata' (3). Wider swallowed the next",
+    "clause's subject; narrower missed the compound noun."
+  ],
+
+  "tokenTrim": " \t\r\n.,;:!?\"'()[]{}-–—।|/",
+  "$comment_tokenTrim": [
+    "Stripped from both ends of a token before the negator lookup, so 'nahi,' tokenizes as",
+    "'nahi'. Includes the Devanagari danda (।) and both dash widths."
+  ],
+
+  "wordScan": { "source": "\\S+", "flags": "" },
+  "$comment_wordScan": [
+    "Tokenizer. Non-whitespace runs, so offsets stay exact and reconstructable — the masker",
+    "writes spaces back at the SAME indices, which only works if tokens carry real offsets."
+  ],
+
+  "clauseSplit": {
+    "source": "[,;:.!?|/\\n\\r।]+|\\s(?:lekin|magar|balki|but|sirf|only|bas|kintu|parantu)\\s",
+    "flags": "i"
+  },
+  "$comment_clauseSplit": [
+    "Clause boundaries: punctuation (incl. the Devanagari danda) plus the contrastive",
+    "connectors that start a NEW assertion — 'setting nahi aati, sirf chalata hu'.",
+    "A spurious split only ever SHRINKS a negation scope, which is the safe direction."
+  ],
+
+  "negators": [
+    "nahi",
+    "nahin",
+    "nahee",
+    "nahii",
+    "nai",
+    "nhi",
+    "nahiin",
+    "mat",
+    "not",
+    "never",
+    "नहीं",
+    "नही",
+    "नहि",
+    "मत",
+    "न"
+  ],
+  "$comment_negators": [
+    "Unambiguous negators: never a tag or an affirmation in worker speech.",
+    "",
+    "NOT INCLUDED: bare English 'no'. In this domain it is far more often the ABBREVIATION",
+    "('part no. 12', 'drawing no. 45') than a denial, and as a negator it would blank the three",
+    "words before it — deleting 'drawing' from a worker who reads drawings. 'nahi' and its",
+    "spellings carry the real load in worker replies."
+  ],
+
+  "tagOnlyNegators": ["na", "ना"],
+  "tagPreceders": [
+    "hu",
+    "hun",
+    "hoon",
+    "hai",
+    "hain",
+    "ho",
+    "hota",
+    "hoti",
+    "tha",
+    "the",
+    "thi",
+    "karta",
+    "karte",
+    "karti",
+    "aata",
+    "aati",
+    "aate",
+    "chalata",
+    "chalate",
+    "chalati",
+    "theek",
+    "thik",
+    "haan",
+    "han",
+    "sahi",
+    "ok"
+  ],
+  "$comment_tagNegators": [
+    "'na' / 'ना' are negators ONLY sometimes: Hinglish also uses a CLAUSE-FINAL 'na' as an",
+    "affirmative tag ('VMC chalata hu na' = 'I do run VMC, right?'). Treating that as a denial",
+    "would delete the very machine the worker just claimed, so 'na' negates only when it is",
+    "followed by more words in its clause AND is not sitting right after a verb/copula",
+    "(the tag position) — that is what `tagPreceders` lists."
+  ],
+
+  "negatableTopicCues": [
+    {
+      "topic": "education",
+      "source": "{WB}iti{WE}|diploma|{WB}(?:b\\.?tech|be|degree|engineering){WE}|nsdc|rvm",
+      "flags": "i"
+    },
+    {
+      "topic": "certifications",
+      "source": "{WB}ncvt{WE}|{WB}scvt{WE}|{WB}nsqf{WE}|apprentice|certificate|certification",
+      "flags": "i"
+    },
+    {
+      "topic": "skills",
+      "source": "setting|set\\s?up|{SKILL_KEYWORDS}",
+      "flags": "i"
+    }
+  ],
+  "$comment_negatableTopicCues": [
+    "Which TOPIC a negated cue belongs to. Only cue families whose DENIAL is itself a complete",
+    "answer are listed — deliberately NOT machines/role/location/salary, where 'VMC nahi' is a",
+    "denial, not an answer.",
+    "",
+    "{SKILL_KEYWORDS} expands from skills.json. See data/README.md."
+  ],
+
+  "negationAnswersTopics": ["education", "skills", "certifications"],
+  "$comment_negationAnswersTopics": [
+    "Topics for which a DENIAL is a COMPLETE answer, so the ask is satisfied ('kya training li",
+    "hai?' -> 'ITI nahi kiya'; 'kya aata hai?' -> 'setting nahi aati').",
+    "",
+    "Deliberately excludes the essentials (role/machines/current_location) and salary: 'VMC nahi",
+    "chalaya' is a denial, not an answer, and closing those asks on it would ship an incomplete",
+    "profile SILENTLY — the engine must still ask them."
+  ]
+}

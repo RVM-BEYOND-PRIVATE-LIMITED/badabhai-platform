@@ -40,6 +40,8 @@
     "db:down": "docker compose down",
     "mail:up": "docker compose --profile mail up -d mailpit",
     "mail:down": "docker compose --profile mail stop mailpit",
+    "lexicon:sync": "pnpm --filter @badabhai/profiling-lexicon lexicon:sync",
+    "lexicon:verify": "pnpm --filter @badabhai/profiling-lexicon lexicon:verify",
     "staging:smoke": "node scripts/staging-smoke.mjs",
     "staging:smoke:test": "node --test scripts/staging-smoke.test.mjs",
     "clean": "turbo run clean",

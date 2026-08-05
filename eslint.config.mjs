@@ -54,10 +54,15 @@ export default tseslint.config(
     },
   },
   {
-    // Standalone Node ESM scripts (operational tooling, e.g. the staging smoke):
-    // give them the Node global environment so `process`/`console`/`fetch` etc.
-    // are recognized (they run under `node`, not the TS build).
-    files: ["scripts/**/*.{mjs,js}"],
+    // Standalone Node ESM scripts (operational tooling, e.g. the staging smoke, and
+    // packages/profiling-lexicon's lexicon mirror generator): give them the Node global
+    // environment so `process`/`console`/`fetch` etc. are recognized (they run under
+    // `node`, not the TS build).
+    //
+    // The leading `**/` is load-bearing. Without it the pattern anchors to the repo root
+    // and matches ONLY `scripts/`, so an identical script inside a package gets no Node
+    // globals and fails `no-undef` on its first `console.log`.
+    files: ["**/scripts/**/*.{mjs,js}"],
     languageOptions: {
       sourceType: "module",
       globals: {
