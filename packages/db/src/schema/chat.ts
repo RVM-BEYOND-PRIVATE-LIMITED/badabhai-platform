@@ -109,6 +109,12 @@ export const chatMessages = pgTable(
   (t) => [
     index("chat_messages_session_id_idx").on(t.sessionId),
     index("chat_messages_worker_id_idx").on(t.workerId),
+    // The hot-path read is `WHERE session_id = $1 ORDER BY created_at DESC LIMIT n`
+    // (`chat.repository.ts` listMessages). `chat_messages_session_id_idx` alone gets the
+    // filter but leaves the sort, so every turn of every interview re-sorts the session's
+    // whole history to take the tail. This composite serves filter+sort+limit from the
+    // index. Descending to match the query's own direction (migration 0067).
+    index("chat_messages_session_created_idx").on(t.sessionId, t.createdAt.desc()),
   ],
 );
 

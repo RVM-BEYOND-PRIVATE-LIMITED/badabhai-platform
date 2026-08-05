@@ -25,14 +25,24 @@ This has already cost the project real work:
 
 ## Reserved blocks
 
-Numbers are reserved **up front**, per developer, per workstream. Current head: **`0066_special_pyro`**
-(journal has 67 entries, `idx` 0–66).
+Numbers are reserved **up front**, per developer, per workstream. Current head: **`0067_slim_hawkeye`**
+(journal has 68 entries, `idx` 0–67).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
-| `0067`–`0074` | Divyanshu | Occupation Intelligence — taxonomy, retrieval, question packs |
+| `0067`        | Divyanshu | **APPLIED** — Phase 1 retrieval foundations                   |
+| `0068`–`0074` | Divyanshu | Occupation Intelligence — taxonomy, retrieval, question packs |
 | `0075`–`0079` | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
 | `0080`+       | unclaimed | claim in a PR of its own, so the claim is reviewable          |
+
+`0068` is **free again**. The sprint plan reserved it for the alias unique index and the HNSW
+retune, deferred until after `db:normalize:aliases` had run — because a unique index on
+`(job_domain_id, text_norm, lang) NULLS NOT DISTINCT` fails while `text_norm` is still NULL
+(every domain with 2+ aliases is a duplicate; verified against the live catalogue). Making that
+index **partial on `is_searchable`**, which defaults to false, removes the ordering dependency
+entirely — the index is empty at creation and cannot fail — so both statements folded into
+`0067`. Two migrations that must be separated by a mandatory data-runner run is a deploy hazard;
+one order-independent migration is not.
 
 ## Rules
 

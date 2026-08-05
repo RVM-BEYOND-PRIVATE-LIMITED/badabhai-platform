@@ -36,6 +36,7 @@
     "db:seed:domains": "tsx src/seed-job-domains.ts",
     "db:embed:domains": "tsx src/embed-job-domain-aliases.ts",
     "db:verify:domains": "tsx src/verify-job-domains.ts",
+    "db:normalize:aliases": "tsx src/normalize-job-domain-aliases.ts",
     "db:growth:cluster": "tsx src/growth-cluster.ts",
     "db:retag:skills": "tsx src/retag-skills.ts",
     "db:reencrypt:pii": "tsx src/reencrypt-pii-backfill.ts",
@@ -58,6 +59,7 @@
   },
   "dependencies": {
     "@badabhai/match-engine": "workspace:*",
+    "@badabhai/profiling-lexicon": "workspace:*",
     "@badabhai/reach-engine": "workspace:*",
     "@badabhai/taxonomy": "workspace:*",
     "@badabhai/types": "workspace:*",
