@@ -12,9 +12,8 @@ import '../../../core/otp/sms_otp_autofill.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/widgets/bb_blue_header.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
 import '../domain/auth_session_manager.dart';
 import 'enter_pin_screen.dart' show kPinLength;
@@ -221,144 +220,163 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     }
   }
 
+  /// The blue-header title for the current phase/step (the kit auth chrome
+  /// carries the heading, so the phase bodies below start at the first control).
+  String get _headerTitle => switch (_phase) {
+        _Phase.phone => 'Apna number daalein',
+        _Phase.pin => _pinStep == _PinStep.confirm
+            ? 'PIN dobara daalein'
+            : 'Naya 4-digit PIN banayein',
+        _Phase.confirm => 'OTP daalein',
+      };
+
+  String get _headerSubtitle => switch (_phase) {
+        _Phase.phone =>
+          'Hum aapke number par OTP bhejenge — fir naya PIN bana sakte hain.',
+        _Phase.pin => _pinStep == _PinStep.confirm
+            ? 'Confirm karne ke liye wahi PIN dobara daalein.'
+            : 'Yeh naya PIN aapke purane PIN ko badal dega.',
+        _Phase.confirm =>
+          'Number par aaya OTP daalein — naya PIN set ho jayega.',
+      };
+
   @override
   Widget build(BuildContext context) {
-    return BbScaffold(
-      appBar: const BbAppBar(title: 'PIN reset'),
-      body: switch (_phase) {
-        _Phase.phone => _phoneView(),
-        _Phase.pin => _pinView(),
-        _Phase.confirm => _confirmView(),
-      },
+    // Kit auth chrome: a full-bleed blue header (title/subtitle change per phase)
+    // over the phase body. Pushed from enter-PIN, so a back affordance is shown.
+    return Scaffold(
+      body: Column(
+        children: <Widget>[
+          BbBlueHeader(
+            title: _headerTitle,
+            subtitle: _headerSubtitle,
+            onBack: () => Navigator.of(context).maybePop(),
+          ),
+          Expanded(
+            child: SafeArea(
+              top: false,
+              child: switch (_phase) {
+                _Phase.phone => _phoneView(),
+                _Phase.pin => _pinView(),
+                _Phase.confirm => _confirmView(),
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _phoneView() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        const SizedBox(height: AppSpacing.s6),
-        Text(
-          'Apna number daalein',
-          style: AppTypography.display(size: AppTypography.sizeXl),
-        ),
-        const SizedBox(height: AppSpacing.s2),
-        Text(
-          'Hum aapke number par OTP bhejenge — fir naya PIN bana sakte hain.',
-          style: AppTypography.body(color: AppColors.textSecondary),
-        ),
-        const SizedBox(height: AppSpacing.s6),
-        TextField(
-          controller: _phone,
-          keyboardType: TextInputType.phone,
-          style: AppTypography.mono(size: AppTypography.sizeLg),
-          onChanged: (_) => setState(() {}), // repaint the CTA at 10 digits
-          inputFormatters: <TextInputFormatter>[
-            FilteringTextInputFormatter.digitsOnly,
-            LengthLimitingTextInputFormatter(kNationalNumberDigits),
-          ],
-          decoration: InputDecoration(
-            prefixText: '$kIndiaDialCode ',
-            prefixStyle: AppTypography.mono(size: AppTypography.sizeLg),
-            hintText: 'XXXXXXXXXX',
-            prefixIcon: const Icon(Icons.phone_outlined),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.s6,
+        AppSpacing.gutter,
+        AppSpacing.s6,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text('MOBILE NUMBER',
+              style: AppTypography.eyebrow(color: AppColors.textMuted)),
+          const SizedBox(height: AppSpacing.s2),
+          TextField(
+            controller: _phone,
+            keyboardType: TextInputType.phone,
+            style: AppTypography.mono(size: AppTypography.sizeLg),
+            onChanged: (_) => setState(() {}), // repaint the CTA at 10 digits
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(kNationalNumberDigits),
+            ],
+            decoration: InputDecoration(
+              prefixText: '$kIndiaDialCode ',
+              prefixStyle: AppTypography.mono(size: AppTypography.sizeLg),
+              hintText: 'XXXXXXXXXX',
+            ),
           ),
-        ),
-        if (_error != null) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
-          _errorText(_error!),
+          if (_error != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s3),
+            _errorText(_error!),
+          ],
+          const SizedBox(height: AppSpacing.s7),
+          BbButton(
+            label: 'Send OTP',
+            block: true,
+            loading: _busy,
+            // Disabled until 10 digits — a half-typed number can only fail, and
+            // a reset OTP is a real (billed) SMS.
+            onPressed: _busy || !isCompleteNationalNumber(_phone.text)
+                ? null
+                : _sendReset,
+          ),
         ],
-        const SizedBox(height: AppSpacing.s7),
-        BbButton(
-          label: 'Send OTP',
-          block: true,
-          loading: _busy,
-          // Disabled until 10 digits — a half-typed number can only fail, and a
-          // reset OTP is a real (billed) SMS.
-          onPressed: _busy || !isCompleteNationalNumber(_phone.text)
-              ? null
-              : _sendReset,
-        ),
-      ],
+      ),
     );
   }
 
   Widget _pinView() {
-    final bool confirming = _pinStep == _PinStep.confirm;
-    return Column(
-      children: <Widget>[
-        const Spacer(flex: 1),
-        Icon(
-          confirming ? Icons.check_circle_outline : Icons.pin_outlined,
-          size: 40,
-          color: AppColors.brand,
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        Text(
-          confirming ? 'PIN dobara daalein' : 'Naya 4-digit PIN banayein',
-          style: AppTypography.display(size: AppTypography.sizeXl),
-        ),
-        const SizedBox(height: AppSpacing.s2),
-        Text(
-          confirming
-              ? 'Confirm karne ke liye wahi PIN dobara daalein.'
-              : 'Yeh naya PIN aapke purane PIN ko badal dega.',
-          textAlign: TextAlign.center,
-          style: AppTypography.body(color: AppColors.textSecondary),
-        ),
-        const SizedBox(height: AppSpacing.s7),
-        BbPinView(
-            length: kPinLength, filled: _buffer.length, error: _error != null),
-        const SizedBox(height: AppSpacing.s4),
-        SizedBox(
-          height: AppSpacing.s6,
-          child: _error != null ? _errorText(_error!) : null,
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        BbPinKeypad(onDigit: _onDigit, onBackspace: _onBackspace),
-        const Spacer(flex: 2),
-      ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+      child: Column(
+        children: <Widget>[
+          const Spacer(flex: 1),
+          BbPinView(
+              length: kPinLength,
+              filled: _buffer.length,
+              error: _error != null),
+          const SizedBox(height: AppSpacing.s4),
+          SizedBox(
+            height: AppSpacing.s6,
+            child: _error != null ? _errorText(_error!) : null,
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          BbPinKeypad(onDigit: _onDigit, onBackspace: _onBackspace),
+          const Spacer(flex: 2),
+        ],
+      ),
     );
   }
 
   Widget _confirmView() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        const SizedBox(height: AppSpacing.s6),
-        Text(
-          'OTP daalein',
-          style: AppTypography.display(size: AppTypography.sizeXl),
-        ),
-        const SizedBox(height: AppSpacing.s2),
-        Text(
-          'Number par aaya OTP daalein — naya PIN set ho jayega.',
-          style: AppTypography.body(color: AppColors.textSecondary),
-        ),
-        const SizedBox(height: AppSpacing.s6),
-        TextField(
-          controller: _otp,
-          keyboardType: TextInputType.number,
-          textAlign: TextAlign.center,
-          style: AppTypography.mono(
-            size: AppTypography.size2xl,
-            weight: FontWeight.w700,
-            letterSpacing: 12,
-          ),
-          decoration: const InputDecoration(hintText: '— — — —'),
-        ),
-        if (_error != null) ...<Widget>[
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.s6,
+        AppSpacing.gutter,
+        AppSpacing.s6,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text('OTP DAALEIN',
+              style: AppTypography.eyebrow(color: AppColors.textMuted)),
           const SizedBox(height: AppSpacing.s3),
-          _errorText(_error!),
+          TextField(
+            controller: _otp,
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.center,
+            style: AppTypography.mono(
+              size: AppTypography.size2xl,
+              weight: FontWeight.w700,
+              letterSpacing: 12,
+            ),
+            decoration: const InputDecoration(hintText: '— — — —'),
+          ),
+          if (_error != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s3),
+            _errorText(_error!),
+          ],
+          const SizedBox(height: AppSpacing.s7),
+          BbButton(
+            label: 'Naya PIN set karein',
+            block: true,
+            loading: _busy,
+            onPressed: _busy ? null : _confirmReset,
+          ),
         ],
-        const SizedBox(height: AppSpacing.s7),
-        BbButton(
-          label: 'Naya PIN set karein',
-          block: true,
-          loading: _busy,
-          onPressed: _busy ? null : _confirmReset,
-        ),
-      ],
+      ),
     );
   }
 

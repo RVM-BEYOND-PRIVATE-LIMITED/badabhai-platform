@@ -43,36 +43,6 @@ Finder _topChip(String label) => find.descendant(
       matching: find.text(label),
     );
 
-/// The header's location line specifically — a city name also appears on the
-/// card face, so scope to the column that holds the eyebrow.
-Finder _headerText(String label) => find.descendant(
-      of: find
-          .ancestor(
-            of: find.text('JOBS FOR YOU'),
-            matching: find.byType(Column),
-          )
-          .first,
-      matching: find.text(label),
-    );
-
-/// Opens the Filters sheet, TOGGLES each named city chip, and applies.
-Future<void> _selectCitiesInSheet(
-  WidgetTester tester,
-  List<String> cities,
-) async {
-  await tester.tap(find.byTooltip('Filter jobs'));
-  await tester.pumpAndSettle();
-  for (final String city in cities) {
-    await tester.tap(find.descendant(
-      of: find.byType(FiltersSheet),
-      matching: find.text(city),
-    ));
-    await tester.pumpAndSettle();
-  }
-  await tester.tap(find.textContaining('Show '));
-  await tester.pumpAndSettle();
-}
-
 void main() {
   setUp(() async {
     await locator.reset();
@@ -88,7 +58,7 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
+      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
             _job('cnc1', 'cnc_operator', 'CNC Operator'),
             _job('vmc1', 'vmc_setter', 'VMC Setter'),
           ]);
@@ -130,7 +100,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
+    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
           _job('cnc1', 'cnc_operator', 'CNC Operator'),
           _job('vmc1', 'vmc_setter', 'VMC Setter'),
         ]);
@@ -169,7 +139,7 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
+      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
             _job('cnc1', 'cnc_operator', 'CNC Operator'),
             _job('vmc1', 'vmc_setter', 'VMC Setter'),
           ]);
@@ -211,7 +181,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer(
+    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer(
         (_) async => <FeedItem>[_job('cnc1', 'cnc_operator', 'CNC Operator')]);
 
     await tester.pumpWidget(MaterialApp(
@@ -224,41 +194,10 @@ void main() {
     expect(find.text('Day shift'), findsNothing);
     expect(find.textContaining('15 km'), findsNothing);
     expect(find.textContaining('km'), findsNothing);
-    // The feed applies NO location filter, so "near you" was untrue too.
+    // The kit 07 header leads with the brand line, not an unbacked location
+    // claim ("near you" / "15 km" the stack cannot back).
     expect(find.text('JOBS NEAR YOU'), findsNothing);
-    expect(find.text('JOBS FOR YOU'), findsOneWidget);
-  });
-
-  testWidgets('the header city line is driven by the REAL city filter state',
-      (WidgetTester tester) async {
-    _tallSurface(tester);
-
-    final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
-          _job('c1', 'cnc_operator', 'CNC Operator', city: 'Pune'),
-          _job('c2', 'cnc_operator', 'CNC Machinist', city: 'Nashik'),
-          _job('c3', 'cnc_operator', 'CNC Setter', city: 'Aurangabad'),
-        ]);
-
-    final SwipeBloc bloc = SwipeBloc(repo);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: SwipeJobsScreen(bloc: bloc),
-    ));
-    await tester.pumpAndSettle();
-
-    // No city filter ⇒ the honest line is "All cities" (never a hardcoded place
-    // and never a "· 15 km" radius the stack cannot back).
-    expect(_headerText('All cities'), findsOneWidget);
-
-    // Exactly one city selected ⇒ that city's name.
-    await _selectCitiesInSheet(tester, <String>['Pune']);
-    expect(_headerText('Pune'), findsOneWidget);
-    expect(_headerText('All cities'), findsNothing);
-
-    // More than one ⇒ "<first> +N" over the sorted selection.
-    await _selectCitiesInSheet(tester, <String>['Nashik']);
-    expect(_headerText('Nashik +1'), findsOneWidget);
+    expect(find.text('Kaam milega.'), findsOneWidget);
   });
 
   testWidgets('a filter matching no jobs shows the "no jobs match" empty state',
@@ -266,7 +205,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer(
+    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer(
         (_) async => <FeedItem>[_job('weld1', 'welder', 'Welder')]);
 
     final SwipeBloc bloc = SwipeBloc(repo);
@@ -300,7 +239,7 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
+      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
             _job('weld1', 'welder', 'Welder', city: 'Pune'),
           ]);
 
@@ -326,7 +265,6 @@ void main() {
 
       expect(bloc.state.filters.isEmpty, isTrue);
       expect(find.text('Welder'), findsOneWidget);
-      expect(find.text('All cities'), findsOneWidget);
     },
   );
 }

@@ -16,9 +16,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/date_label.dart';
-import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/widgets/bb_blue_header.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
 import '../domain/auth_session_manager.dart';
 import 'cubit/otp_verify_cubit.dart';
@@ -331,35 +330,54 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
         }
       },
       builder: (BuildContext context, OtpVerifyState state) {
-        return BbScaffold(
-          appBar: const BbAppBar(title: 'Verify OTP'),
+        // Kit 02 (bottom half): full-bleed blue header, then the 'OTP DAALEIN'
+        // label + the underline code slots + the haldi CTA + resend. Not
+        // [BbScaffold] — the header must bleed to the status bar.
+        return Scaffold(
           body: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const SizedBox(height: AppSpacing.s7),
-              Text('Enter the code',
-                  style: AppTypography.display(size: AppTypography.sizeXl)),
-              const SizedBox(height: AppSpacing.s2),
-              Text(
-                'Sent to $phone',
-                style: AppTypography.body(color: AppColors.textSecondary),
+              BbBlueHeader(
+                title: 'Enter the code',
+                subtitle: 'Sent to $phone',
+                onBack: () => Navigator.of(context).maybePop(),
               ),
-              const SizedBox(height: AppSpacing.s6),
-              _buildCodeField(),
-              const SizedBox(height: AppSpacing.s7),
-              BbButton(
-                label: state.isSubmitting ? 'Verifying…' : 'Verify',
-                block: true,
-                loading: state.isSubmitting,
-                onPressed: state.isSubmitting
-                    ? null
-                    : () => context.read<OtpVerifyCubit>().verify(
-                          phone: phone,
-                          otp: _controller.text.trim(),
+              Expanded(
+                child: SafeArea(
+                  top: false,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.gutter,
+                      AppSpacing.s6,
+                      AppSpacing.gutter,
+                      AppSpacing.s6,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        Text('OTP DAALEIN',
+                            style: AppTypography.eyebrow(
+                                color: AppColors.textMuted)),
+                        const SizedBox(height: AppSpacing.s3),
+                        _buildCodeField(),
+                        const SizedBox(height: AppSpacing.s7),
+                        BbButton(
+                          label: state.isSubmitting ? 'Verifying…' : 'Verify',
+                          block: true,
+                          loading: state.isSubmitting,
+                          onPressed: state.isSubmitting
+                              ? null
+                              : () => context.read<OtpVerifyCubit>().verify(
+                                    phone: phone,
+                                    otp: _controller.text.trim(),
+                                  ),
                         ),
+                        const SizedBox(height: AppSpacing.s3),
+                        _buildResend(context, state, phone),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(height: AppSpacing.s3),
-              _buildResend(context, state, phone),
             ],
           ),
         );
@@ -513,6 +531,9 @@ class _OtpCells extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      // Stretch so each slot fills the field height and its underline sits on
+      // the baseline, not floating mid-cell.
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         for (int i = 0; i < kOtpLength; i++) ...<Widget>[
           if (i > 0) const SizedBox(width: AppSpacing.s2),
@@ -528,23 +549,26 @@ class _OtpCells extends StatelessWidget {
     // the ring stays on the last cell rather than vanishing off the end.
     final bool active = focused &&
         index == (code.length >= kOtpLength ? kOtpLength - 1 : code.length);
-    final Color border = active
-        ? AppColors.brand
-        : (filled ? AppColors.borderStrong : AppColors.borderDefault);
-    return DecoratedBox(
+    // Underline slots — the kit BBOtpRow / Indian bank convention (no boxes):
+    // the active slot's underline turns blue, filled slots keep a strong
+    // hairline, empty slots sit on the muted disabled line.
+    final Color underline = active
+        ? AppColors.blue
+        : (filled ? AppColors.borderStrong : AppColors.disabled);
+    return Container(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s1),
       decoration: BoxDecoration(
-        color: filled ? AppColors.surfaceCard : AppColors.surfaceInset,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: border, width: active ? 2 : 1.5),
+        border: Border(
+          bottom: BorderSide(color: underline, width: active ? 2.5 : 2),
+        ),
       ),
-      child: Center(
-        child: Text(
-          filled ? code[index] : '',
-          style: AppTypography.mono(
-            size: AppTypography.sizeXl,
-            weight: FontWeight.w700,
-            letterSpacing: 0,
-          ),
+      alignment: Alignment.bottomCenter,
+      child: Text(
+        filled ? code[index] : '',
+        style: AppTypography.mono(
+          size: AppTypography.sizeXl,
+          weight: FontWeight.w700,
+          letterSpacing: 0,
         ),
       ),
     );

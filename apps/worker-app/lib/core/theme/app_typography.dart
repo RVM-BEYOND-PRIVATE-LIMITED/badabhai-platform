@@ -3,12 +3,13 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
 
-/// BadaBhai typography — ported from `tokens/typography.css`.
+/// BadaBhai typography — **"Josh" system** (LOCKED 2026-07-27).
 ///
-///  - **Baloo 2** — display & brand voice. Warm, rounded, sturdy; carries
-///    Devanagari. Headlines, the logo, big worker-facing moments.
-///  - **Mukta** — body & all UI. Calm, highly legible, multilingual. Carries
-///    Hinglish/regional copy at low-literacy sizes.
+///  - **Anek** — display & brand voice (Ek Type). Distinctive, Indian; a
+///    matching Anek Devanagari family means Hindi & English speak alike.
+///    Headlines, the logo, big worker-facing moments, buttons, ₹ salaries.
+///  - **Roboto** — body & all UI, with Noto Sans Devanagari fallback. Neutral,
+///    free, renders perfectly on budget handsets at low-literacy sizes.
 ///  - **Roboto Mono** — data: wages, IDs, OTP, counts. Tabular numerals.
 ///    Self-hosted (see pubspec) so figures render identically offline.
 ///
@@ -25,12 +26,17 @@ class AppTypography {
   /// Self-hosted data font family (declared in pubspec under `fonts:`).
   static const String monoFamily = 'Roboto Mono';
 
-  /// Display family. Doubles as the pubspec `fonts:` family name once the
-  /// binaries land — see [bundledBrandFonts].
-  static const String displayFamily = 'Baloo 2';
+  /// Display family — **Anek** (Ek Type). Doubles as the pubspec `fonts:`
+  /// family name once the binaries land — see [bundledBrandFonts]. Until then
+  /// the string falls back (the bundled Baloo 2 assets don't match this name).
+  static const String displayFamily = 'Anek';
 
-  /// Body/UI family. Same deal as [displayFamily].
-  static const String bodyFamily = 'Mukta';
+  /// Body/UI family — **Roboto** (a platform font on Android). Devanagari copy
+  /// falls through to [bodyFallback].
+  static const String bodyFamily = 'Roboto';
+
+  /// Devanagari fallback for body copy — free system font on budget handsets.
+  static const List<String> bodyFallback = <String>['Noto Sans Devanagari'];
 
   /// #350 — whether the Baloo 2 + Mukta BINARIES ship inside the APK.
   ///
@@ -53,11 +59,21 @@ class AppTypography {
   /// Mutable (not `const`) so a test can drive BOTH sides of the seam; restore
   /// it in `tearDown`.
   ///
-  /// TRUE since #350: the six Devanagari-carrying binaries (Baloo 2 at wght
-  /// 600/700/800, statically instanced from the upstream variable font; Mukta
-  /// 400/600/700) ship in `assets/fonts/` and are declared in `pubspec.yaml`,
-  /// so google_fonts is never called and no font request leaves the device.
-  static bool bundledBrandFonts = true;
+  /// FALSE since the Josh re-skin (2026-08-04): [displayFamily] now names **Anek**,
+  /// which the pubspec does NOT bundle (it still ships the DEAD Baloo 2/Mukta
+  /// binaries). With this TRUE, `display()` asked Flutter for a font family named
+  /// 'Anek' that does not exist, so EVERY headline/button/salary silently rendered
+  /// in the platform fallback — NOT Anek, not even Baloo. Flipping to FALSE routes
+  /// display through `GoogleFonts.anekLatin`, which fetches real Anek at runtime —
+  /// the SAME delivery the kit gallery and apps/payer-web use. Cost: a first launch
+  /// with no network shows the fallback until the file lands (then it is cached),
+  /// which is strictly better than the permanent fallback TRUE produced.
+  ///
+  /// The offline-safe upgrade (DESIGN_SPEC §3 "bundle subsetted Anek, drop the
+  /// google_fonts fetch") is to add Anek Latin/Devanagari .ttf to assets/fonts/,
+  /// declare `family: Anek` in pubspec, drop the dead Baloo 2/Mukta, and flip this
+  /// back to TRUE — in that one commit. Until those binaries exist, FALSE is correct.
+  static bool bundledBrandFonts = false;
 
   /// #350 — once the binaries are bundled, slam the network door: google_fonts
   /// must never quietly fetch a family we already ship.
@@ -84,7 +100,7 @@ class AppTypography {
   static const double size3xl = 38;
   static const double size4xl = 48;
 
-  /// Display / headline / button style — **Baloo 2**.
+  /// Display / headline / button style — **Anek**.
   static TextStyle display({
     double size = sizeXl,
     FontWeight weight = FontWeight.w700,
@@ -103,7 +119,7 @@ class AppTypography {
         letterSpacing: letterSpacing,
       );
     }
-    return GoogleFonts.baloo2(
+    return GoogleFonts.anekLatin(
       fontSize: size,
       fontWeight: weight,
       color: color,
@@ -112,7 +128,7 @@ class AppTypography {
     );
   }
 
-  /// Body / UI style — **Mukta**.
+  /// Body / UI style — **Roboto** (+ Noto Sans Devanagari fallback).
   static TextStyle body({
     double size = sizeBase,
     FontWeight weight = FontWeight.w400,
@@ -120,7 +136,7 @@ class AppTypography {
     double height = 1.5,
     double letterSpacing = 0,
   }) {
-    return _mukta(
+    return _body(
       size: size,
       weight: weight,
       color: color,
@@ -129,9 +145,9 @@ class AppTypography {
     );
   }
 
-  /// Tiny uppercase eyebrow / status-chip label — Mukta bold, wide tracking.
+  /// Tiny uppercase eyebrow / status-chip label — Roboto bold, wide tracking.
   static TextStyle eyebrow({Color color = AppColors.textBrand}) {
-    return _mukta(
+    return _body(
       size: sizeXs,
       weight: FontWeight.w700,
       color: color,
@@ -140,9 +156,10 @@ class AppTypography {
     );
   }
 
-  /// The one Mukta resolver behind [body] + [eyebrow], so the #350 delivery
-  /// branch lives in exactly one place per family.
-  static TextStyle _mukta({
+  /// The one Roboto resolver behind [body] + [eyebrow], so the #350 delivery
+  /// branch lives in exactly one place per family. Devanagari copy falls
+  /// through to [bodyFallback] on either branch.
+  static TextStyle _body({
     required double size,
     required FontWeight weight,
     required Color color,
@@ -153,6 +170,7 @@ class AppTypography {
     if (bundledBrandFonts) {
       return TextStyle(
         fontFamily: bodyFamily,
+        fontFamilyFallback: bodyFallback,
         fontSize: size,
         fontWeight: weight,
         color: color,
@@ -160,13 +178,13 @@ class AppTypography {
         letterSpacing: letterSpacing,
       );
     }
-    return GoogleFonts.mukta(
+    return GoogleFonts.roboto(
       fontSize: size,
       fontWeight: weight,
       color: color,
       height: height,
       letterSpacing: letterSpacing,
-    );
+    ).copyWith(fontFamilyFallback: bodyFallback);
   }
 
   /// Data style — **Roboto Mono**, tabular numerals (wages, ₹, OTP, IDs).

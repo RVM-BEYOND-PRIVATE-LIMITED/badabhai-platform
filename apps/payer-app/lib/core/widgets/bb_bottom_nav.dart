@@ -23,8 +23,8 @@ class BbNavTab {
 /// is supplied by the caller (Company = Home·Find·Jobs·Credits·Account;
 /// Agency = Home·Find·Jobs·**Earn**·Account), matching the kit's `navTabs`.
 ///
-/// Active tab takes the vermilion brand colour with a filled glyph. Every item
-/// clears the 48px tap target.
+/// Active tab takes the deep-blue structure colour with a filled glyph, labels
+/// always visible (JUL31 nav). Every item clears the 48px tap target.
 class BbBottomNav extends StatelessWidget {
   const BbBottomNav({
     super.key,
@@ -83,7 +83,7 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color color = active ? AppColors.brandPress : AppColors.textMuted;
+    final Color color = active ? AppColors.blue : AppColors.textMuted;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadii.sm),

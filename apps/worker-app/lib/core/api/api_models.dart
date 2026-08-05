@@ -239,6 +239,7 @@ class WorkerNotification extends Equatable {
     required this.title,
     required this.body,
     required this.createdAt,
+    this.read = false,
   });
 
   final String id;
@@ -246,6 +247,12 @@ class WorkerNotification extends Equatable {
   final String title;
   final String body;
   final DateTime createdAt;
+
+  /// Server-computed read flag (cross-device: derived from the worker's read
+  /// watermark on the events spine). ABSENT on an older API build → defaults
+  /// false, so the client falls back to its local optimistic read set — additive,
+  /// never a regression. See [markNotificationsRead].
+  final bool read;
 
   factory WorkerNotification.fromJson(Map<String, dynamic> json) =>
       WorkerNotification(
@@ -255,10 +262,11 @@ class WorkerNotification extends Equatable {
         body: json['body'] as String? ?? '',
         createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
             DateTime.fromMillisecondsSinceEpoch(0),
+        read: json['read'] as bool? ?? false,
       );
 
   @override
-  List<Object?> get props => <Object?>[id, type, title, body, createdAt];
+  List<Object?> get props => <Object?>[id, type, title, body, createdAt, read];
 }
 
 /// Result of POST /applications/:jobId/apply.

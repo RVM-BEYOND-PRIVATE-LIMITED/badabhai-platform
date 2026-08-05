@@ -57,21 +57,14 @@ class _BbSuccessStampState extends State<BbSuccessStamp>
         child: Container(
           width: widget.size,
           height: widget.size,
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: AppColors.success,
             shape: BoxShape.circle,
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: AppColors.success.withValues(alpha: 0.4),
-                blurRadius: 22,
-                offset: const Offset(0, 8),
-              ),
-            ],
           ),
           child: Icon(
             widget.icon,
             size: widget.size * 0.54,
-            color: AppColors.textOnBrand,
+            color: AppColors.textInverse,
           ),
         ),
       ),

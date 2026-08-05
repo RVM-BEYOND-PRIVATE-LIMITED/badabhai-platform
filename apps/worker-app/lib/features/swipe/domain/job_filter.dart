@@ -1,27 +1,34 @@
 /// The Jobs-feed filter domain: the selection model + every matching rule.
 ///
-/// Three dimensions, and only three — Trade, City, Experience. Each maps to a
-/// real, PII-free field the `/feed` contract actually returns, so nothing here
+/// Five dimensions — Trade, City, Experience, Shift and a pay floor. Each maps to
+/// a real, PII-free field the `/feed` contract actually returns, so nothing here
 /// filters on invented data:
-///   * TRADE      → [FeedItem.tradeKey] / [FeedItem.title] (one of the 15 alpha
+///   * TRADE      → [FeedItem.tradeKey] / [FeedItem.title] (one of the alpha
 ///                  trades), keyword substring match.
 ///   * CITY       → [FeedItem.city] (`jobs.city` is NOT NULL), exact match.
 ///   * EXPERIENCE → [FeedItem.minExperienceYears] / [FeedItem.maxExperienceYears]
 ///                  (year counts, PII-free like pay bands), band-overlap match.
+///   * SHIFT      → [FeedItem.shift] ('day' | 'night' | 'rotational'), single
+///                  value, exact match.
+///   * PAY FLOOR  → [FeedItem.payMax] vs a ₹/month floor, "pays at least" match.
 ///
-/// Combination: AND across dimensions, OR within a dimension. An EMPTY set for a
+/// The multi-select dimensions (Trade, City, Experience) combine AND across,
+/// OR within; Shift + pay floor are SINGLE-value. An EMPTY set / null on a
 /// dimension means "no filter on that dimension" (identity), so the default
 /// [FilterSelection.initial] shows the whole feed.
 ///
 /// ── Why AREA is deliberately NOT a filter dimension ──────────────────────────
 /// `jobs.area` is NULL for the entire reach pool, so an area filter would match
 /// nothing and silently drop every job the moment a worker touched it. `city` is
-/// NOT NULL and is therefore THE location filter. (Distance/shift/pay stay out
-/// for the same honesty reason: distance is not modelled, and shift/pay are not
-/// on the wire — shift is frozen mock-only display data per ADR-0024.)
+/// NOT NULL and is therefore THE location filter. (DISTANCE stays out for the
+/// same honesty reason — it is not modelled. Shift + pay used to be out too, but
+/// the ADR-0024 addendum (2026-07-16) put both on the `/feed` wire, so they are
+/// now honest filters.)
 ///
-/// Matching is client-side over the already-loaded queue — there is no `/feed`
-/// filter param to invent.
+/// Trade/City/Experience/Shift/pay all match CLIENT-SIDE over the already-loaded
+/// queue (so the deck + the sheet's "Show N jobs" count narrow instantly); Shift
+/// and the pay floor ALSO ride `GET /feed` as `shift` / `pay_min` for server-side
+/// narrowing on the next load (see `ApiClient.getFeed`).
 ///
 /// Kept pure and dependency-free (api_models + equatable only) so the bloc and
 /// its tests share one source of truth and the bloc never imports presentation.
@@ -52,6 +59,28 @@ const List<String> kExperienceBandLabels = <String>[
   '5+ yrs',
 ];
 
+/// Shift options offered in the Filters sheet, DISPLAY label → the RAW wire value
+/// ('day' | 'night' | 'rotational') that [FeedItem.shift] carries and `GET /feed`
+/// accepts as its `shift` param. SINGLE-select — a job has exactly one shift, so
+/// the sheet stores the chosen wire value (not a set) in [FilterSelection.shift].
+const Map<String, String> kShiftFilterLabels = <String, String>{
+  'Day': 'day',
+  'Night': 'night',
+  'Rotational': 'rotational',
+};
+
+/// Pay-floor options offered in the Filters sheet, DISPLAY label → ₹/month floor.
+/// SINGLE-select: the chosen floor is matched client-side (see [jobMatchesPayFloor])
+/// AND sent to `GET /feed` as `pay_min`. Round monthly wages spanning the alpha
+/// manufacturing roles; keeping them as preset chips (not a slider/keyboard) suits
+/// the low-literacy, large-tap-target design.
+const Map<String, int> kPayFloorOptions = <String, int>{
+  '₹15,000+': 15000,
+  '₹20,000+': 20000,
+  '₹25,000+': 25000,
+  '₹30,000+': 30000,
+};
+
 /// A band's closed/open year window. A null [max] means open-ended (infinity).
 class _Band {
   const _Band(this.min, this.max);
@@ -74,21 +103,26 @@ const Map<String, _Band> _kBands = <String, _Band>{
 /// (saved filters) is a follow-up.
 ///
 /// Lives in the DOMAIN layer, not in the sheet, so the bloc can hold it in state
-/// without importing presentation. All three sets are multi-select; an empty set
-/// means that dimension is not filtered.
+/// without importing presentation. Trade/City/Experience are multi-select sets
+/// (empty = that dimension not filtered); [shift] and [payMin] are SINGLE values
+/// (null = not filtered).
 ///
-/// NOTE: there is deliberately NO distance/location-radius field and NO shift
-/// field. The alpha feed is LIBERAL — the backend returns every open job with no
-/// location filter — so a distance chip would filter nothing and falsely imply
-/// location filtering; [cities] is the honest location control. Shift is not on
-/// the `/feed` wire at all (mock display data, frozen by ADR-0024), so filtering
-/// on it was dead. See the LOCATION SEAM in `ApplicationsRepository.findOpenJobs`
-/// for where a real distance filter re-lands later.
+/// NOTE: there is deliberately NO distance/location-radius field — the alpha feed
+/// is LIBERAL (the backend returns every open job with no location filter), so a
+/// distance chip would filter nothing and falsely imply location filtering;
+/// [cities] is the honest location control. Shift + pay USED to be excluded here
+/// too (shift was mock-only display data), but the ADR-0024 addendum put both on
+/// the `/feed` wire, so they are now real filter dimensions: matched client-side
+/// AND threaded into `GET /feed` (see `ApiClient.getFeed`). See the LOCATION SEAM
+/// in `ApplicationsRepository.findOpenJobs` for where a real distance filter
+/// re-lands later.
 class FilterSelection extends Equatable {
   const FilterSelection({
     required this.trades,
     required this.cities,
     required this.experienceBands,
+    this.shift,
+    this.payMin,
   });
 
   /// Labels from [kTradeFilterKeywords]. Empty = no trade filter.
@@ -100,6 +134,16 @@ class FilterSelection extends Equatable {
 
   /// Labels from [kExperienceBandLabels]. Empty = no experience filter.
   final Set<String> experienceBands;
+
+  /// The chosen shift as its RAW wire value ('day' | 'night' | 'rotational'),
+  /// from [kShiftFilterLabels]. null = no shift filter. Single-value: a job has
+  /// exactly one shift.
+  final String? shift;
+
+  /// The chosen ₹/month pay FLOOR (from [kPayFloorOptions]). null = no pay
+  /// filter. A job matches when its pay could reach this floor (see
+  /// [jobMatchesPayFloor]).
+  final int? payMin;
 
   /// Default filter state = NOTHING selected on any dimension. The alpha feed is
   /// LIBERAL — every open job shows until the worker actively narrows — so the
@@ -116,24 +160,39 @@ class FilterSelection extends Equatable {
   /// True when no dimension is filtered — i.e. this selection is the identity
   /// and the deck shows the whole queue.
   bool get isEmpty =>
-      trades.isEmpty && cities.isEmpty && experienceBands.isEmpty;
+      trades.isEmpty &&
+      cities.isEmpty &&
+      experienceBands.isEmpty &&
+      shift == null &&
+      payMin == null;
 
+  /// PRESERVE-only copy for the multi-select sets (and, when passed, shift/pay).
+  /// The nullable [shift]/[payMin] cannot be CLEARED here (a null argument means
+  /// "leave unchanged") — the sheet rebuilds them via the constructor, and
+  /// [FilterSelection.initial] resets everything, so no caller needs copyWith to
+  /// unset them.
   FilterSelection copyWith({
     Set<String>? trades,
     Set<String>? cities,
     Set<String>? experienceBands,
+    String? shift,
+    int? payMin,
   }) {
     return FilterSelection(
       trades: trades ?? this.trades,
       cities: cities ?? this.cities,
       experienceBands: experienceBands ?? this.experienceBands,
+      shift: shift ?? this.shift,
+      payMin: payMin ?? this.payMin,
     );
   }
 
-  /// Value equality over the three sets (Equatable compares collections deeply),
-  /// so a bloc state holding a [FilterSelection] de-duplicates emits correctly.
+  /// Value equality over every dimension (Equatable compares collections
+  /// deeply), so a bloc state holding a [FilterSelection] de-duplicates emits
+  /// correctly.
   @override
-  List<Object?> get props => <Object?>[trades, cities, experienceBands];
+  List<Object?> get props =>
+      <Object?>[trades, cities, experienceBands, shift, payMin];
 }
 
 /// True if [job] matches ANY of [selectedTrades] (OR within the dimension). An
@@ -210,12 +269,43 @@ bool jobMatchesExperience(FeedItem job, Set<String> selectedBands) {
   return false;
 }
 
+/// True if [job]'s shift equals [selectedShift] (single-value, case-insensitive).
+/// A null selection means "no shift filter" → every job matches.
+///
+/// CONSEQUENCE (deliberate, mirroring experience): a job whose shift is null/blank
+/// on the wire matches EVERY shift — an unstated shift never costs the job its
+/// impressions. Only a job with a KNOWN, DIFFERENT shift is dropped.
+bool jobMatchesShift(FeedItem job, String? selectedShift) {
+  if (selectedShift == null) return true;
+  final String? jobShift = job.shift;
+  if (jobShift == null || jobShift.isEmpty) return true; // unstated ⇒ never dropped
+  return jobShift.toLowerCase() == selectedShift.toLowerCase();
+}
+
+/// True if [job] could pay AT LEAST [payMin] (₹/month floor). A null floor means
+/// "no pay filter" → every job matches.
+///
+/// The test is against the band's CEILING ([FeedItem.payMax]): a job is dropped
+/// only when its top pay is KNOWN and strictly below the floor. A null payMax
+/// (open-ended / unstated ceiling) keeps the job — same liberal rule as the
+/// experience bands: a blank field must never cost a job its impressions. Do NOT
+/// "fix" this by defaulting a null bound to a concrete number.
+bool jobMatchesPayFloor(FeedItem job, int? payMin) {
+  if (payMin == null) return true;
+  final int? top = job.payMax;
+  if (top == null) return true; // open-ended / unstated ceiling ⇒ never dropped
+  return top >= payMin;
+}
+
 /// True if [job] satisfies EVERY filtered dimension (AND across dimensions).
-/// Dimensions left empty are identity, so [FilterSelection.initial] matches all.
+/// Dimensions left empty/null are identity, so [FilterSelection.initial] matches
+/// all.
 bool jobMatchesFilters(FeedItem job, FilterSelection filters) =>
     jobMatchesTrades(job, filters.trades) &&
     jobMatchesCities(job, filters.cities) &&
-    jobMatchesExperience(job, filters.experienceBands);
+    jobMatchesExperience(job, filters.experienceBands) &&
+    jobMatchesShift(job, filters.shift) &&
+    jobMatchesPayFloor(job, filters.payMin);
 
 /// [jobs] narrowed to those matching [filters], original order preserved. An
 /// empty selection returns the list UNCHANGED (identity — the unfiltered feed),

@@ -1,28 +1,45 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
-import '../theme/app_theme.dart';
 import '../theme/app_typography.dart';
 
-/// Visual style of a [BbButton].
+/// Visual style of a [BbButton]. The four kit kinds come first; the rest are
+/// retained aliases so existing call sites keep compiling.
 ///
-///  - [primary]  — green action CTA (the everyday worker action: Apply, Continue).
-///  - [brand]    — vermilion brand CTA (logo moments / brand highlights).
-///  - [secondary]— outlined, ink on white (the quiet alternative).
-///  - [tonal]    — soft vermilion tint.
+///  - [primary]  — HALDI hero CTA, deep-blue label. The ONE main action per screen.
+///  - [navy]     — deep-blue button, white label. Strong secondary commitment
+///                 (download / continue / "aur jobs dekho").
+///  - [success]  — GREEN button, white label. Money / WhatsApp / done ONLY.
+///  - [outline]  — white fill, deep-blue label, 1.5px blue border. Everything else.
+///  - [brand]    — alias of [primary] (haldi hero).
+///  - [secondary]— quiet outlined button, ink label, grey hairline border.
+///  - [tonal]    — soft haldi tint.
 ///  - [ghost]    — text only.
-///  - [danger]   — crimson destructive action.
-enum BbButtonVariant { primary, brand, secondary, tonal, ghost, danger }
+///  - [danger]   — crimson destructive action, white label.
+enum BbButtonVariant {
+  primary,
+  brand,
+  secondary,
+  tonal,
+  ghost,
+  danger,
+  navy,
+  success,
+  outline,
+}
 
 /// Control height: [sm] 36 · [md] 44 · [lg] 52 (the worker-app primary CTA).
 enum BbButtonSize { sm, md, lg }
 
-/// The one reusable BadaBhai button. Built on Material's button family so it
-/// inherits [AppTheme] and keeps native ink/press; never hand-roll a button.
+/// The one reusable BadaBhai button (JUL31 "Josh" system). Elevation is ALWAYS
+/// 0 — separation is fill + hairline, never shadow. The label is **Anek**
+/// (display voice; Roboto never rides a button), the corner is [AppRadii.sm]
+/// (10), and every press darkens the fill and fires a light haptic.
 ///
-/// `primary` is the single green CTA per screen — quieten everything else with
-/// `secondary`, `tonal`, or `ghost`.
+/// Discipline: exactly one HALDI [primary]/[brand] per screen; reserve [success]
+/// for money / WhatsApp.
 class BbButton extends StatelessWidget {
   const BbButton({
     super.key,
@@ -57,7 +74,15 @@ class BbButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final VoidCallback? effectiveOnPressed = loading ? null : onPressed;
+    // Light haptic on every press (design system motion §8) — wraps the caller's
+    // callback so it fires for every variant. `loading` suppresses the action.
+    final VoidCallback? base = loading ? null : onPressed;
+    final VoidCallback? effective = base == null
+        ? null
+        : () {
+            HapticFeedback.lightImpact();
+            base();
+          };
 
     final Widget child = _Content(
       label: label,
@@ -68,69 +93,138 @@ class BbButton extends StatelessWidget {
     );
 
     final Size minSize = Size(block ? double.infinity : 64, _height);
-    final TextStyle? textStyle = switch (size) {
-      BbButtonSize.sm => AppTypography.body(
-          size: AppTypography.sizeSm, weight: FontWeight.w700),
-      _ => null, // inherit labelLarge from the theme
-    };
+
+    // Anek label — display voice on every button. Never Roboto on a button.
+    final double labelSize = size == BbButtonSize.sm ? 13 : 15;
+    final TextStyle labelStyle = AppTypography.display(
+      size: labelSize,
+      weight: FontWeight.w800,
+      letterSpacing: -0.2,
+    );
 
     final Widget button = switch (variant) {
+      BbButtonVariant.primary || BbButtonVariant.brand => _filled(
+          onPressed: effective,
+          child: child,
+          minSize: minSize,
+          labelStyle: labelStyle,
+          bg: AppColors.haldi,
+          fg: AppColors.onHaldi,
+          pressed: AppColors.haldiPressed,
+        ),
+      BbButtonVariant.navy => _filled(
+          onPressed: effective,
+          child: child,
+          minSize: minSize,
+          labelStyle: labelStyle,
+          bg: AppColors.blue,
+          fg: AppColors.onBlue,
+          pressed: AppColors.bluePressed,
+        ),
+      BbButtonVariant.success => _filled(
+          onPressed: effective,
+          child: child,
+          minSize: minSize,
+          labelStyle: labelStyle,
+          bg: AppColors.success,
+          fg: AppColors.onBlue,
+          pressed: AppColors.successPress,
+        ),
+      BbButtonVariant.danger => _filled(
+          onPressed: effective,
+          child: child,
+          minSize: minSize,
+          labelStyle: labelStyle,
+          bg: AppColors.danger,
+          fg: AppColors.onBlue,
+          pressed: AppColors.dangerPress,
+        ),
+      BbButtonVariant.tonal => _filled(
+          onPressed: effective,
+          child: child,
+          minSize: minSize,
+          labelStyle: labelStyle,
+          bg: AppColors.brandTint2,
+          fg: AppColors.brandPress,
+          pressed: AppColors.brandTint,
+        ),
+      BbButtonVariant.outline => _filled(
+          onPressed: effective,
+          child: child,
+          minSize: minSize,
+          labelStyle: labelStyle,
+          bg: AppColors.surfaceCard,
+          fg: AppColors.blue,
+          pressed: AppColors.canvas,
+          side: const BorderSide(color: AppColors.blue, width: 1.5),
+        ),
       BbButtonVariant.secondary => OutlinedButton(
           key: buttonKey,
-          onPressed: effectiveOnPressed,
+          onPressed: effective,
           style: OutlinedButton.styleFrom(
+            backgroundColor: AppColors.surfaceCard,
+            foregroundColor: AppColors.textPrimary,
             minimumSize: minSize,
-            textStyle: textStyle,
+            textStyle: labelStyle,
+            side: const BorderSide(color: AppColors.borderStrong, width: 1.5),
+            shape: _shape,
           ),
           child: child,
         ),
       BbButtonVariant.ghost => TextButton(
           key: buttonKey,
-          onPressed: effectiveOnPressed,
+          onPressed: effective,
           style: TextButton.styleFrom(
             foregroundColor: AppColors.textPrimary,
             minimumSize: minSize,
-            textStyle: textStyle,
+            textStyle: labelStyle,
+            shape: _shape,
           ),
-          child: child,
-        ),
-      BbButtonVariant.tonal => FilledButton(
-          key: buttonKey,
-          onPressed: effectiveOnPressed,
-          style: FilledButton.styleFrom(
-            backgroundColor: AppColors.brandTint2,
-            foregroundColor: AppColors.brandPress,
-            minimumSize: minSize,
-            textStyle: textStyle,
-            elevation: 0,
-          ),
-          child: child,
-        ),
-      BbButtonVariant.brand => FilledButton(
-          key: buttonKey,
-          onPressed: effectiveOnPressed,
-          style: AppButtonStyles.brand.copyWith(
-            minimumSize: WidgetStatePropertyAll<Size>(minSize),
-          ),
-          child: child,
-        ),
-      BbButtonVariant.danger => FilledButton(
-          key: buttonKey,
-          onPressed: effectiveOnPressed,
-          style: AppButtonStyles.danger.copyWith(
-            minimumSize: WidgetStatePropertyAll<Size>(minSize),
-          ),
-          child: child,
-        ),
-      BbButtonVariant.primary => FilledButton(
-          key: buttonKey,
-          onPressed: effectiveOnPressed,
-          style: FilledButton.styleFrom(minimumSize: minSize, textStyle: textStyle),
           child: child,
         ),
     };
 
     return block ? SizedBox(width: double.infinity, child: button) : button;
+  }
+
+  static const RoundedRectangleBorder _shape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(AppRadii.sm)),
+  );
+
+  /// A flat [FilledButton] whose fill darkens on press (never a shadow, never a
+  /// scale-bounce) and dims to [AppColors.disabled] when disabled.
+  Widget _filled({
+    required VoidCallback? onPressed,
+    required Widget child,
+    required Size minSize,
+    required TextStyle labelStyle,
+    required Color bg,
+    required Color fg,
+    required Color pressed,
+    BorderSide? side,
+  }) {
+    return FilledButton(
+      key: buttonKey,
+      onPressed: onPressed,
+      style: ButtonStyle(
+        backgroundColor: WidgetStateProperty.resolveWith<Color>((states) {
+          if (states.contains(WidgetState.disabled)) return AppColors.disabled;
+          if (states.contains(WidgetState.pressed)) return pressed;
+          return bg;
+        }),
+        foregroundColor: WidgetStateProperty.resolveWith<Color>((states) =>
+            states.contains(WidgetState.disabled) ? AppColors.textMuted : fg),
+        side: side == null ? null : WidgetStatePropertyAll<BorderSide>(side),
+        elevation: const WidgetStatePropertyAll<double>(0),
+        minimumSize: WidgetStatePropertyAll<Size>(minSize),
+        padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
+          EdgeInsets.symmetric(horizontal: AppSpacing.s6, vertical: 12),
+        ),
+        textStyle: WidgetStatePropertyAll<TextStyle>(labelStyle),
+        shape: const WidgetStatePropertyAll<OutlinedBorder>(_shape),
+      ),
+      child: child,
+    );
   }
 }
 

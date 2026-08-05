@@ -282,7 +282,7 @@ void main() {
       final AuthSessionManager auth = locator<AuthSessionManager>();
       tester.element(find.byType(Scaffold).first).go(Routes.chatProfiling);
       await tester.pumpAndSettle();
-      expect(find.text('Profiling'), findsOneWidget);
+      expect(find.text('Bada Bhai'), findsOneWidget);
 
       // >5 min backgrounded: the lifecycle observer re-locks.
       await auth.relock();
@@ -291,10 +291,10 @@ void main() {
           reason: 'the interrupted location must be remembered');
 
       await _enterPin(tester, '7416');
-      await _pumpUntil(tester, find.text('Profiling'));
+      await _pumpUntil(tester, find.text('Bada Bhai'));
 
       // Back in the chat — NOT dumped on the Resume tab.
-      expect(find.text('Profiling'), findsOneWidget);
+      expect(find.text('Bada Bhai'), findsOneWidget);
       expect(auth.resumeLocation, isNull,
           reason: 'the stash is cleared once the worker has landed');
       await tester.pump(const Duration(milliseconds: 700));

@@ -27,6 +27,15 @@ class ResumeEditRepositoryImpl implements ResumeEditRepository {
   String? _loadedName;
 
   @override
+  void onLogout() {
+    // Drop the previous worker's cached name (PII) so a re-login as a different
+    // worker never diffs their input against it (which would silently skip a
+    // legitimate PATCH /workers/me/name). The next load() would overwrite it
+    // anyway, but a save-before-load must not see stale state.
+    _loadedName = null;
+  }
+
+  @override
   Future<ResumeSafeFields> load() async {
     final String? token = _session.sessionToken;
     if (token == null) {

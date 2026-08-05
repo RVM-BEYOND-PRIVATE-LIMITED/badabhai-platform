@@ -4,9 +4,18 @@ import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 
+/// Focus = a deep-blue hairline (kit law: haldi is a fill, blue carries
+/// structure / focus). Overrides the theme's default focus edge on these form
+/// primitives so a focused field reads as "active/trusted", never haldi text.
+final OutlineInputBorder _kFocusBorder = OutlineInputBorder(
+  borderRadius: BorderRadius.circular(AppRadii.md),
+  borderSide: const BorderSide(color: AppColors.blue, width: 2),
+);
+
 /// A labelled form field — `.bb-field` + `.bb-input`. A bold label over a
 /// themed [TextField] (the input chrome comes from [AppTheme]'s
-/// `inputDecorationTheme`). Optional leading [icon] for the phone/search inputs.
+/// `inputDecorationTheme`); paper fill, 1px hairline, radius 10, and a deep-blue
+/// focus border. Optional leading [icon] for the phone/search inputs.
 ///
 /// [mono] renders the value in Roboto Mono (the phone field).
 class BbField extends StatelessWidget {
@@ -66,6 +75,7 @@ class BbField extends StatelessWidget {
             prefixIcon: icon == null
                 ? null
                 : Icon(icon, size: 20, color: AppColors.textMuted),
+            focusedBorder: _kFocusBorder,
           ),
         ),
       ],
@@ -109,6 +119,7 @@ class BbSelect<T> extends StatelessWidget {
         DropdownButtonFormField<T>(
           initialValue: value,
           isExpanded: true,
+          decoration: InputDecoration(focusedBorder: _kFocusBorder),
           icon: const Icon(Icons.expand_more, color: AppColors.textMuted),
           style: AppTypography.body(size: AppTypography.sizeBase),
           items: items

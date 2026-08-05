@@ -3,11 +3,10 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
-import 'bb_festive_card.dart';
 import 'bb_tag.dart';
 
-/// Immutable contents of a [BbJobCard] — the worker-facing job summary the Feed
-/// deck renders. Pure data, no behaviour.
+/// Immutable contents of a [BbJobCard] — the worker-facing job summary the feed
+/// renders. Pure data, no behaviour.
 class BbJobCardData {
   const BbJobCardData({
     required this.title,
@@ -19,6 +18,8 @@ class BbJobCardData {
     this.tags = const <String>[],
     this.spotsLeft,
     this.matchNote,
+    this.hot = false,
+    this.metaRight,
   });
 
   final String title;
@@ -29,21 +30,24 @@ class BbJobCardData {
   /// from `jobId.hashCode` and rendered it as fact.
   final String? company;
 
-  /// Pay band — NULL on the real feed; no worker-facing route serves pay.
+  /// Pay band — the card's salary. NULL when no source supplies it (the salary
+  /// row is then omitted, never invented).
   final String? payBand;
 
   final String place;
 
-  /// Shift — NULL on the real feed.
+  /// Shift — retained on the model; not rendered on the compact list card.
   final String? shift;
 
   /// Only ever shown for a REAL employer; never a badge on an invented name.
   final bool verified;
 
-  /// Requirement tags — empty on the real feed.
+  /// Requirement tags — retained on the model; not rendered on the compact list
+  /// card (the job-detail screen renders them).
   final List<String> tags;
 
-  /// Remaining spots — NULL on the real feed.
+  /// Remaining spots — retained on the model; surface it via [metaRight] if a
+  /// screen wants it on the card.
   final int? spotsLeft;
 
   /// Matching V1 / E18 (ADR-0036): WHY this job is in the worker's feed, when
@@ -55,67 +59,122 @@ class BbJobCardData {
   /// explanation, so it gets none rather than a line of noise on every card.
   ///
   /// NULL is the honest default: on the legacy feed, and whenever the server
-  /// did not name the matched skill, the card says nothing instead of guessing
-  /// at a reason.
+  /// did not name the matched skill, the card says nothing instead of guessing.
   final String? matchNote;
+
+  /// Featured / urgent: draws the 4px haldi left rail and a [BbHotTag]. EARNED,
+  /// never uniform — set only for a genuinely featured posting.
+  final bool hot;
+
+  /// Muted right-hand meta on the salary row, shown when [BbJobCard.onApply] is
+  /// not wired (e.g. "General shift", "Sirf 4 seat baaki"). When null the card
+  /// falls back to [shift] for this slot (the kit uses the meta slot for shift).
+  final String? metaRight;
+
+  /// The value the card shows in its right-hand meta slot: an explicit
+  /// [metaRight] wins, otherwise [shift].
+  String? get effectiveMetaRight => metaRight ?? shift;
 }
 
 /// TalkBack label for the title button. Hinglish, matching the app voice and the
 /// `Semantics(button: true, label: ...)` pattern the voice screen already ships.
 const String kJobCardTitleSemanticLabel = 'Job kholein — poori jaankari';
 
-/// The festive job card — `.aw-job` (ui.css §160–172). A purely **visual** card
-/// (no drag, no Skip/Apply CTA row — the Feed deck layers those on later). Wraps
-/// [BbFestiveCard] so each job leads with the truck-art double-vermilion frame.
+/// TalkBack label for the APPLY action.
+const String kJobCardApplySemanticLabel = 'Apply karein';
+
+/// The job card — the kit's LIST `JobCard`. Crisp white paper, one hairline
+/// border, radius 10, elevation 0. A featured/urgent posting ([BbJobCardData.hot])
+/// earns a 4px haldi LEFT RAIL and a [BbHotTag]; nothing else does.
 ///
-/// Pass [onTitleTap] to make the title open the job detail; the rest is static.
+/// Layout: title, then "company · location" with an optional verified tick, then
+/// a bottom row of the salary (Anek, `/mah` muted) on the left and either a green
+/// Anek `APPLY →` action ([onApply]) or a muted [BbJobCardData.metaRight] on the
+/// right. Designed for a VERTICAL LIST feed.
+///
+/// Pass [onTitleTap] to make the title open the job detail (an accessible ≥48px
+/// button, #362); pass [onApply] to wire the APPLY action.
 class BbJobCard extends StatelessWidget {
-  const BbJobCard({super.key, required this.data, this.onTitleTap});
+  const BbJobCard({
+    super.key,
+    required this.data,
+    this.onTitleTap,
+    this.onApply,
+  });
 
   final BbJobCardData data;
   final VoidCallback? onTitleTap;
 
+  /// Fired by the green `APPLY →` action. When null the action is not rendered
+  /// (the salary row shows [BbJobCardData.metaRight] instead, if present).
+  final VoidCallback? onApply;
+
+  bool get _hasSalaryRow =>
+      data.payBand != null ||
+      onApply != null ||
+      data.effectiveMetaRight != null;
+
   @override
   Widget build(BuildContext context) {
-    return BbFestiveCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _TitleRow(data: data, onTitleTap: onTitleTap),
-          const SizedBox(height: AppSpacing.s3),
-          _FactsRow(data: data),
-          // E18 — the "why am I seeing this" line, only for a related match.
-          if (data.matchNote != null) ...<Widget>[
-            const SizedBox(height: AppSpacing.s2),
-            Text(
-              data.matchNote!,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.textSecondary,
-              ),
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+        AppSpacing.s3,
+        0,
+        AppSpacing.s3,
+        AppSpacing.s2,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        child: DecoratedBox(
+          // Haldi left rail on featured/urgent cards ONLY — earned, never uniform.
+          decoration: BoxDecoration(
+            border: data.hot
+                ? const Border(
+                    left: BorderSide(
+                      color: AppColors.haldi,
+                      width: AppSpacing.s1, // 4px rail (kit railWidth)
+                    ),
+                  )
+                : null,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.s3),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _HeaderRow(data: data, onTitleTap: onTitleTap),
+                // E18 — the "why am I seeing this" line, only for a related match.
+                if (data.matchNote != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s2),
+                  Text(
+                    data.matchNote!,
+                    style: AppTypography.body(
+                      size: AppTypography.sizeSm,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+                if (_hasSalaryRow) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s2),
+                  _SalaryRow(data: data, onApply: onApply),
+                ],
+              ],
             ),
-          ],
-          if (data.tags.isNotEmpty) ...<Widget>[
-            const SizedBox(height: AppSpacing.s3),
-            Wrap(
-              spacing: AppSpacing.s2,
-              runSpacing: AppSpacing.s2,
-              children: data.tags.map(BbTag.new).toList(),
-            ),
-          ],
-          if (data.spotsLeft != null) ...<Widget>[
-            const SizedBox(height: AppSpacing.s3),
-            _QuotaRow(spotsLeft: data.spotsLeft!),
-          ],
-        ],
+          ),
+        ),
       ),
     );
   }
 }
 
-/// Title + company (left, flexes) and the saffron logo tile (right).
-class _TitleRow extends StatelessWidget {
-  const _TitleRow({required this.data, required this.onTitleTap});
+/// Title (left, flexes) + optional [BbHotTag] (right).
+class _HeaderRow extends StatelessWidget {
+  const _HeaderRow({required this.data, required this.onTitleTap});
 
   final BbJobCardData data;
   final VoidCallback? onTitleTap;
@@ -129,58 +188,159 @@ class _TitleRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              // #362 — in the Feed deck this title is the ONLY route to the job
+              // #362 — in a swipe deck this title is the ONLY route to the job
               // detail (the pan recognizer claims the rest of the card), so it
-              // has to be a real button rather than a bare GestureDetector on a
-              // ~26px text line: a tap landing just under the glyphs used to
-              // fall through to the drag and only wiggle the card. Static cards
-              // (no callback) keep a plain, non-interactive title.
+              // must be a real ≥48px button, not a bare tap on a text line.
+              // Static cards (no callback) keep a plain, non-interactive title.
               if (onTitleTap == null)
                 _titleText(data.title)
               else
                 _TitleButton(onTap: onTitleTap!, title: _titleText(data.title)),
-              // Only when a REAL employer name exists (never on the live feed).
-              if (data.company != null) ...<Widget>[
-                const SizedBox(height: AppSpacing.s1),
-                Row(
-                  children: <Widget>[
-                    Flexible(
-                      child: Text(
-                        data.company!,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.body(
-                          weight: FontWeight.w600,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                    if (data.verified) ...<Widget>[
-                      const SizedBox(width: AppSpacing.s1),
-                      const Icon(
-                        Icons.verified,
-                        size: 15,
-                        color: AppColors.success,
-                      ),
-                    ],
-                  ],
-                ),
-              ],
+              const SizedBox(height: 2),
+              _SubtitleRow(data: data),
             ],
           ),
         ),
-        const SizedBox(width: AppSpacing.s3),
-        const _LogoTile(),
+        if (data.hot) ...<Widget>[
+          const SizedBox(width: AppSpacing.s2),
+          const BbHotTag(),
+        ],
       ],
     );
   }
 
+  // Kit `cardTitle` — Roboto bold 15 ink, tight leading. Compact list rows read
+  // in body-strong, not the big Anek display voice (which is for the detail).
   Text _titleText(String title) => Text(
         title,
-        style: AppTypography.display(
-          size: AppTypography.sizeXl,
-          weight: FontWeight.w800,
+        style: AppTypography.body(
+          size: 15,
+          weight: FontWeight.w700,
+          color: AppColors.textPrimary,
+          height: 1.25,
         ),
       );
+}
+
+/// "company · location" with an optional blue verified tick. On the real feed
+/// [BbJobCardData.company] is null, so only the location shows.
+class _SubtitleRow extends StatelessWidget {
+  const _SubtitleRow({required this.data});
+
+  final BbJobCardData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final String line =
+        data.company == null ? data.place : '${data.company} · ${data.place}';
+    return Row(
+      children: <Widget>[
+        Flexible(
+          child: Text(
+            line,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.body(
+              size: AppTypography.sizeXs,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        if (data.verified) ...<Widget>[
+          const SizedBox(width: 3),
+          const Icon(Icons.verified, size: 14, color: AppColors.blue),
+        ],
+      ],
+    );
+  }
+}
+
+/// Salary (Anek + muted `/mah`) on the left; the green `APPLY →` action or a
+/// muted meta line on the right.
+class _SalaryRow extends StatelessWidget {
+  const _SalaryRow({required this.data, required this.onApply});
+
+  final BbJobCardData data;
+  final VoidCallback? onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: <Widget>[
+        // Salary — Anek number + muted "/mah". Two Texts (not a rich span) so the
+        // bare pay string stays selectable/findable and the baseline aligns.
+        if (data.payBand != null)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: <Widget>[
+              Text(
+                data.payBand!,
+                style: AppTypography.display(size: 16, weight: FontWeight.w800),
+              ),
+              Text(
+                ' /mah',
+                style: AppTypography.body(
+                  size: AppTypography.size2xs,
+                  color: AppColors.textMuted,
+                ),
+              ),
+            ],
+          )
+        else
+          const SizedBox.shrink(),
+        if (onApply != null)
+          _ApplyAction(onApply: onApply!)
+        else if (data.effectiveMetaRight != null)
+          Text(
+            data.effectiveMetaRight!,
+            style: AppTypography.body(
+              size: AppTypography.size2xs,
+              color: AppColors.textMuted,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Green Anek `APPLY →` — the kit's card-level apply action, wrapped in a
+/// transparent [Material] so its ripple is visible over the opaque card fill.
+class _ApplyAction extends StatelessWidget {
+  const _ApplyAction({required this.onApply});
+
+  final VoidCallback onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: kJobCardApplySemanticLabel,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          key: const Key('jobCardApplyButton'),
+          onTap: onApply,
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.s2,
+              vertical: AppSpacing.s1,
+            ),
+            child: Text(
+              'APPLY →',
+              style: AppTypography.display(
+                size: 13,
+                weight: FontWeight.w800,
+                color: AppColors.success,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// The job title as a proper button (#362): a ≥48px (`AppSpacing.tap`) hit
@@ -203,7 +363,7 @@ class _TitleButton extends StatelessWidget {
         button: true,
         label: kJobCardTitleSemanticLabel,
         child: Material(
-          // BbFestiveCard is a plain DecoratedBox with an OPAQUE white fill, so
+          // The card is a plain DecoratedBox with an OPAQUE white fill, so
           // without a local transparent Material the ink would splash on the
           // Scaffold underneath the card and never be seen.
           type: MaterialType.transparency,
@@ -228,132 +388,6 @@ class _TitleButton extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// 50×50 saffron logo tile standing in for the employer mark.
-class _LogoTile extends StatelessWidget {
-  const _LogoTile();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 50,
-      height: 50,
-      decoration: const BoxDecoration(
-        color: AppColors.saffron100,
-        borderRadius: BorderRadius.all(Radius.circular(AppRadii.md)),
-      ),
-      child: const Icon(
-        Icons.build_outlined,
-        size: 24,
-        color: AppColors.saffron700,
-      ),
-    );
-  }
-}
-
-/// Place · shift · pay facts, wrapping on narrow widths.
-class _FactsRow extends StatelessWidget {
-  const _FactsRow({required this.data});
-
-  final BbJobCardData data;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: AppSpacing.s4,
-      runSpacing: AppSpacing.s2,
-      children: <Widget>[
-        // Place is the only fact the real feed carries. Shift and pay render
-        // ONLY if a real source ever supplies them — never invented.
-        _Fact(icon: Icons.place_outlined, child: _factText(data.place)),
-        if (data.shift != null)
-          _Fact(icon: Icons.schedule, child: _factText(data.shift!)),
-        if (data.payBand != null)
-          _Fact(
-            icon: Icons.currency_rupee,
-            child: Text(
-              data.payBand!,
-              style: AppTypography.mono(
-                weight: FontWeight.w700,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Text _factText(String value) => Text(
-        value,
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
-          color: AppColors.textSecondary,
-        ),
-      );
-}
-
-/// One icon + label fact unit.
-class _Fact extends StatelessWidget {
-  const _Fact({required this.icon, required this.child});
-
-  final IconData icon;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Icon(icon, size: 15, color: AppColors.textFaint),
-        const SizedBox(width: AppSpacing.s1),
-        child,
-      ],
-    );
-  }
-}
-
-/// "N spots left" remaining-quota line.
-class _QuotaRow extends StatelessWidget {
-  const _QuotaRow({required this.spotsLeft});
-
-  final int spotsLeft;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        const Icon(
-          Icons.groups_outlined,
-          size: 15,
-          color: AppColors.textMuted,
-        ),
-        const SizedBox(width: AppSpacing.s1),
-        Text.rich(
-          TextSpan(
-            children: <TextSpan>[
-              TextSpan(
-                text: '$spotsLeft spots',
-                style: AppTypography.body(
-                  size: AppTypography.sizeSm,
-                  weight: FontWeight.w700,
-                  color: AppColors.brandPress,
-                ),
-              ),
-              TextSpan(
-                text: ' left',
-                style: AppTypography.body(
-                  size: AppTypography.sizeSm,
-                  color: AppColors.textMuted,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

@@ -58,8 +58,8 @@ SwipeBloc _bloc(MockClient client) {
 }
 
 /// Mounts the Feed at `/jobs` with an injected bloc, plus the routes its actions
-/// reach: `/consent` (403) and `/jobs/detail/:id` (title tap). Apply/skip now stay
-/// on the Feed and confirm with a SnackBar (no Applied screen navigation).
+/// reach: `/consent` (403) and `/jobs/detail/:id` (title tap). Inline apply stays
+/// on the Feed and confirms with a SnackBar (no Applied screen navigation).
 /// The detail stand-in exposes a DETAIL_APPLY button that pops `'applied'` —
 /// exactly what the real JobDetailScreen does after a successful apply — so the
 /// H-1 prune path can be driven end-to-end.
@@ -98,8 +98,8 @@ void main() {
   // cubit from get_it — so the locator must be wired. Idempotent.
   setUpAll(setupLocator);
 
-  testWidgets('renders the head job card with title, place and the REAL '
-      'pay band + shift from the feed (ADR-0024 addendum)', (
+  testWidgets('renders a feed job card with title, place and the REAL '
+      'pay band from the feed (ADR-0024 addendum)', (
     WidgetTester tester,
   ) async {
     http.Request? captured;
@@ -131,14 +131,16 @@ void main() {
     expect(captured?.headers['authorization'], 'Bearer test-token');
     expect(find.text('VMC Operator'), findsOneWidget);
     expect(find.text('Chakan, Pune'), findsOneWidget);
-    // Real wire pay/shift render compactly; still NOTHING employer-shaped
-    // and no spots-left (frozen — never set).
+    // Real wire pay renders compactly; still NOTHING employer-shaped and no
+    // spots-left (frozen — never set). The list card wires an inline APPLY, so
+    // its meta slot shows the action rather than the shift (shift lives on the
+    // detail screen).
     expect(find.text('₹16k–26k'), findsOneWidget);
-    expect(find.text('Day'), findsOneWidget);
     expect(find.byIcon(Icons.verified), findsNothing);
     expect(find.textContaining('spots'), findsNothing);
-    expect(find.byKey(const Key('swipeApplyButton')), findsOneWidget);
-    expect(find.byKey(const Key('swipeSkipButton')), findsOneWidget);
+    // Every card carries the inline green "APPLY →"; the swipe deck is retired.
+    expect(find.byKey(const Key('jobCardApplyButton')), findsOneWidget);
+    expect(find.byKey(const Key('swipeSkipButton')), findsNothing);
   });
 
   testWidgets('a feed job WITHOUT pay/shift keys (old shape) renders no pay '
@@ -203,12 +205,14 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'Try again'), findsOneWidget);
   });
 
-  testWidgets('Apply commits, hits the apply endpoint and toasts (no nav)', (
+  testWidgets(
+      'inline APPLY on a card hits the apply endpoint for THAT job and toasts '
+      '(no nav)', (
     WidgetTester tester,
   ) async {
     http.Request? applyReq;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      
+
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
@@ -234,24 +238,24 @@ void main() {
     await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('swipeApplyButton')));
+    // Tap the FIRST card's inline "APPLY →" (every card carries the same key).
+    await tester.tap(find.byKey(const Key('jobCardApplyButton')).first);
     await tester.pumpAndSettle();
 
     expect(applyReq?.url.path, '/applications/job-1/apply');
     expect(applyReq?.headers['authorization'], 'Bearer test-token');
-    // J3: stays on the Feed (advances the deck), confirms with a SnackBar.
+    // J3: stays on the Feed (drops the applied card), confirms with a SnackBar.
     expect(find.text('Applied'), findsOneWidget);
+    expect(find.text('First Job'), findsNothing);
     expect(find.text('Second Job'), findsOneWidget);
   });
 
   testWidgets(
-      'H-1: applying from the DETAIL screen prunes the job from the deck — '
-      'the next skip cannot hit the just-applied job', (
+      'H-1: applying from the DETAIL screen prunes the job from the list so it '
+      'cannot linger and be re-decided', (
     WidgetTester tester,
   ) async {
-    final List<String> decisionPaths = <String>[];
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
@@ -263,12 +267,11 @@ void main() {
           200,
         );
       }
-      decisionPaths.add(req.url.path);
       return http.Response(
         jsonEncode(<String, dynamic>{
           'ok': true,
           'application_id': 'app-1',
-          'action': 'skipped',
+          'action': 'applied',
         }),
         200,
       );
@@ -277,8 +280,9 @@ void main() {
     await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
-    // Open the head card's detail and apply from THERE (JobDetail path — it
-    // pops 'applied' after its own POST, bypassing SwipeBloc entirely).
+    // Open the first card's detail (title tap) and apply from THERE (JobDetail
+    // path — it pops 'applied' after its own POST, bypassing SwipeBloc's inline
+    // apply entirely).
     await tester.tap(find.text('First Job'));
     await tester.pumpAndSettle();
     expect(find.text('DETAIL job-1'), findsOneWidget);
@@ -286,87 +290,10 @@ void main() {
     await tester.pumpAndSettle();
 
     // Back on the Feed: toast shown and the just-applied job is GONE from the
-    // deck — it can no longer sit at the head waiting to be skip-overwritten.
+    // list — it can no longer sit around waiting to be re-decided.
     expect(find.text('Applied'), findsOneWidget);
     expect(find.text('First Job'), findsNothing);
     expect(find.text('Second Job'), findsOneWidget);
-
-    // The natural next gesture: skip. It must hit job-2 — NEVER job-1 (a skip
-    // on job-1 would flip its fresh applied row via the last-write-wins upsert).
-    await tester.tap(find.byKey(const Key('swipeSkipButton')));
-    await tester.pumpAndSettle();
-    expect(decisionPaths, <String>['/applications/job-2/skip']);
-  });
-
-  testWidgets('Skip commits, hits the skip endpoint, toasts and advances', (
-    WidgetTester tester,
-  ) async {
-    String? skipPath;
-    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      
-      if (req.url.path == '/feed') {
-        return http.Response(
-          jsonEncode(<String, dynamic>{
-            'jobs': <Map<String, dynamic>>[
-              _job(id: 'job-1', title: 'First Job', rank: 1),
-              _job(id: 'job-2', title: 'Second Job', rank: 2),
-            ],
-          }),
-          200,
-        );
-      }
-      skipPath = req.url.path;
-      return http.Response(
-        jsonEncode(<String, dynamic>{
-          'ok': true,
-          'application_id': 'app-1',
-          'action': 'skipped',
-        }),
-        200,
-      );
-    }));
-
-    await tester.pumpWidget(_harness(bloc));
-    await tester.pumpAndSettle();
-
-    expect(find.text('First Job'), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('swipeSkipButton')));
-    await tester.pumpAndSettle();
-
-    expect(skipPath, '/applications/job-1/skip');
-    expect(find.text('First Job'), findsNothing);
-    expect(find.text('Second Job'), findsOneWidget);
-    // J3: skip now confirms with a SnackBar (previously silent).
-    expect(find.text('Skipped'), findsOneWidget);
-  });
-
-  testWidgets('skip failure keeps the card and shows a retry snackbar', (
-    WidgetTester tester,
-  ) async {
-    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      
-      if (req.url.path == '/feed') {
-        return http.Response(
-          jsonEncode(<String, dynamic>{
-            'jobs': <Map<String, dynamic>>[_job(id: 'job-1', title: 'Stay Put')],
-          }),
-          200,
-        );
-      }
-      throw Exception('no network');
-    }));
-
-    await tester.pumpWidget(_harness(bloc));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('swipeSkipButton')));
-    await tester.pump(); // start the fly-off
-    await tester.pump(const Duration(milliseconds: 400)); // commit + catch/emit
-    await tester.pump(const Duration(milliseconds: 400)); // snackbar entrance
-
-    expect(find.text('Stay Put'), findsOneWidget);
-    expect(find.text('Could not save. Please try again.'), findsOneWidget);
   });
 
   testWidgets('403 on load routes the worker back to consent', (

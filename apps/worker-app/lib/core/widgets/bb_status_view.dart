@@ -48,7 +48,13 @@ class BbStatusView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const CircularProgressIndicator(),
+            // Branded (deep-blue) indeterminate ring, not a naked default-Material
+            // spinner. The design laws ban BARE spinners; where a step count is
+            // known prefer BbProgressBar (determinate) instead.
+            const CircularProgressIndicator(
+              color: AppColors.blue,
+              strokeWidth: 3,
+            ),
             if (caption != null) ...<Widget>[
               const SizedBox(height: AppSpacing.s4),
               Text(

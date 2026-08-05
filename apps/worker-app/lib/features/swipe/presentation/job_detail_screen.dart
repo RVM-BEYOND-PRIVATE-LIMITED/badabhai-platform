@@ -19,19 +19,24 @@ import 'cubit/job_detail_cubit.dart';
 /// TalkBack label for the icon-only sticky close button (#375).
 const String kCloseSemanticLabel = 'Band karein';
 
-/// Full job posting. Reached full-screen from a Feed card (or an Applied row),
-/// which hands over the light [JobDetail] it already holds — the header (title
-/// + place) renders instantly from it while the FULL worker-visible posting is
-/// fetched from `GET /jobs/:jobId` (the ADR-0024 addendum, 2026-07-16).
-/// Applying goes through the same path as the Feed.
+/// Full job posting — kit 08 "Job detail". A white header block (title + the big
+/// ₹ salary) sits above a hairline-bracketed meta row (place / shift / experience
+/// / needed-by), then the description, ZAROORI SKILLS and BENEFITS sections, with
+/// a sticky "Apply karein" CTA pinned at the bottom.
 ///
-/// Shows ONLY what the backend actually returns: pay band, shift, experience
-/// window, needed-by, description, requirements and benefits — each row
-/// rendered ONLY when its field is non-null (a null field HIDES its row, never
-/// a placeholder). EMPLOYER IDENTITY IS HIDDEN ENTIRELY per the addendum
-/// ruling: no company name, no masked descriptor, no verified badge, no
-/// spots-left — nothing employer-shaped. An earlier build invented all of that
-/// client-side from `jobId.hashCode`; nothing here is synthesised.
+/// Reached full-screen from a Feed card (or an Applied row), which hands over the
+/// light [JobDetail] it already holds — the header renders instantly from it
+/// while the FULL worker-visible posting is fetched from `GET /jobs/:jobId` (the
+/// ADR-0024 addendum, 2026-07-16). Applying goes through the same path as the
+/// Feed.
+///
+/// Shows ONLY what the backend actually returns; each row renders ONLY when its
+/// field is non-null (a null field HIDES its row, never a placeholder). EMPLOYER
+/// IDENTITY IS HIDDEN ENTIRELY per the addendum ruling: no company name, no
+/// masked descriptor, no verified badge, no HOT tag, no spots-left, no fabricated
+/// "match %" — nothing employer-shaped and nothing scored (LLMs never rank,
+/// CLAUDE.md §4). An earlier build invented all of that client-side from
+/// `jobId.hashCode`; nothing here is synthesised.
 class JobDetailScreen extends StatelessWidget {
   const JobDetailScreen({super.key, required this.detail, this.cubit});
 
@@ -76,6 +81,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.canvas,
       appBar: const BbAppBar(title: ''),
       body: BlocConsumer<JobDetailCubit, JobDetailState>(
         listenWhen: (JobDetailState p, JobDetailState c) =>
@@ -111,6 +117,10 @@ class _JobDetailViewState extends State<_JobDetailView> {
             padding: EdgeInsets.zero,
             children: <Widget>[
               _headBand(state.detail),
+              // Hairline-bracketed meta row (place / shift / experience /
+              // needed-by). Place is on the light detail, so it shows instantly;
+              // the rest fill in after the full fetch.
+              ..._metaBlock(state.detail),
               if (state.loading)
                 _loading()
               else ...<Widget>[
@@ -125,64 +135,116 @@ class _JobDetailViewState extends State<_JobDetailView> {
     );
   }
 
+  /// The white header block: the job title and, once the full posting lands, the
+  /// big ₹ salary in the Anek display voice (salaries are a display-font moment,
+  /// design spec §3). Salary is hidden until pay is known — never a placeholder.
   Widget _headBand(JobDetail d) {
-    final String? place = d.place;
+    final String? pay = formatPayBandFull(d.payMin, d.payMax);
     return Container(
       width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: <Color>[AppColors.vermilion50, AppColors.surfacePage],
-        ),
-      ),
+      color: AppColors.surfaceCard,
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, AppSpacing.s4, AppSpacing.gutter, AppSpacing.s5),
+          AppSpacing.gutter, AppSpacing.s5, AppSpacing.gutter, AppSpacing.s5),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: Text(d.title,
-                    style: AppTypography.display(
-                        size: AppTypography.size2xl, weight: FontWeight.w800)),
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Container(
-                width: 50,
-                height: 50,
-                decoration: BoxDecoration(
-                  color: AppColors.saffron100,
-                  borderRadius: BorderRadius.circular(AppRadii.md),
-                ),
-                child: const Icon(Icons.build_outlined,
-                    color: AppColors.saffron700, size: 24),
-              ),
-            ],
-          ),
-          // Rendered ONLY when the source actually gave us a place.
-          if (place != null) ...<Widget>[
-            const SizedBox(height: AppSpacing.s4),
-            _fact(Icons.place_outlined, Text(place,
-                style: AppTypography.body(color: AppColors.textSecondary))),
+          Text(d.title,
+              style: AppTypography.display(size: 22, weight: FontWeight.w800)),
+          if (pay != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s3),
+            // The salary is the hero of the header — bigger than the title.
+            Text(pay,
+                style: AppTypography.display(
+                    size: 28,
+                    weight: FontWeight.w800,
+                    color: AppColors.textPrimary)),
           ],
         ],
       ),
     );
   }
 
-  /// Fetch-phase spinner below the instantly-rendered header.
-  Widget _loading() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: AppSpacing.s7),
-      child: Center(child: CircularProgressIndicator()),
+  /// The meta row bracketed by hairline dividers, on paper — kit 08's coarse-fact
+  /// strip. Returns the dividers + row only when at least one fact exists; a job
+  /// with nothing to show gets a single divider under the header instead of an
+  /// empty band.
+  List<Widget> _metaBlock(JobDetail d) {
+    final List<Widget> metas = _metaItems(d);
+    if (metas.isEmpty) {
+      return const <Widget>[Divider()];
+    }
+    return <Widget>[
+      const Divider(),
+      Container(
+        color: AppColors.surfaceCard,
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.gutter, vertical: AppSpacing.s3),
+        child: Wrap(
+          spacing: AppSpacing.s5,
+          runSpacing: AppSpacing.s2,
+          children: metas,
+        ),
+      ),
+      const Divider(),
+    ];
+  }
+
+  /// The coarse facts, each rendered ONLY when its field is non-null (a null
+  /// field hides its chip — never fabricated). Order per the ADR-0024 addendum:
+  /// place, shift, experience, needed-by.
+  List<Widget> _metaItems(JobDetail d) {
+    final List<Widget> items = <Widget>[];
+    final String? place = d.place;
+    if (place != null) items.add(_meta(Icons.place_outlined, place));
+    final String? shift = shiftLabel(d.shift);
+    if (shift != null) items.add(_meta(Icons.schedule, '$shift shift'));
+    final String? experience =
+        experienceLabel(d.minExperienceYears, d.maxExperienceYears);
+    if (experience != null) items.add(_meta(Icons.work_outline, experience));
+    final String? neededBy = neededByLabel(d.neededBy);
+    if (neededBy != null) {
+      items.add(_meta(Icons.event_available_outlined, neededBy));
+    }
+    return items;
+  }
+
+  Widget _meta(IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(icon, size: 15, color: AppColors.textMuted),
+        const SizedBox(width: AppSpacing.s1),
+        Text(text,
+            style: AppTypography.body(
+                size: AppTypography.sizeXs, color: AppColors.textSecondary)),
+      ],
     );
   }
 
-  /// Quiet retry affordance: the light header above stays — what we have is
-  /// real — only the FULL posting failed to load.
+  /// Fetch-phase indicator below the instantly-rendered header. A captioned
+  /// spinner, never a bare centered one (design spec §5 / §10).
+  Widget _loading() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.gutter, vertical: AppSpacing.s7),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: AppSpacing.s3),
+          Text('Poori jaankari load ho rahi hai…',
+              style: AppTypography.body(color: AppColors.textSecondary)),
+        ],
+      ),
+    );
+  }
+
+  /// Quiet retry affordance: the header above stays — what we have is real —
+  /// only the FULL posting failed to load.
   Widget _loadFailedNote(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -207,57 +269,14 @@ class _JobDetailViewState extends State<_JobDetailView> {
     );
   }
 
-  /// The full-posting sections, each rendered ONLY when its field is non-null
-  /// (a null field hides its row — never fabricated). Order per the ADR-0024
-  /// addendum build spec: pay, shift, experience, needed-by, description,
-  /// requirements, benefits.
+  /// The narrative sections, each rendered ONLY when its field is non-null (a
+  /// null field hides the whole section). The coarse facts live in the meta row
+  /// above, so this is description → ZAROORI SKILLS → BENEFITS only.
   List<Widget> _sections(JobDetail d) {
-    final String? pay = formatPayBandFull(d.payMin, d.payMax);
-    final String? shift = shiftLabel(d.shift);
-    final String? experience =
-        experienceLabel(d.minExperienceYears, d.maxExperienceYears);
-    final String? neededBy = neededByLabel(d.neededBy);
     final List<String>? requirements = d.requirements;
     final List<String>? benefits = d.benefits;
 
     return <Widget>[
-      if (pay != null ||
-          shift != null ||
-          experience != null ||
-          neededBy != null)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-              AppSpacing.gutter, AppSpacing.s4, AppSpacing.gutter, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              if (pay != null) ...<Widget>[
-                _fact(
-                  Icons.currency_rupee,
-                  // Money renders in the data font (Roboto Mono), like the
-                  // deck card's pay band.
-                  Text(pay,
-                      style: AppTypography.mono(
-                          weight: FontWeight.w700,
-                          color: AppColors.textPrimary)),
-                ),
-                const SizedBox(height: AppSpacing.s3),
-              ],
-              if (shift != null) ...<Widget>[
-                _fact(Icons.schedule, _factText('$shift shift')),
-                const SizedBox(height: AppSpacing.s3),
-              ],
-              if (experience != null) ...<Widget>[
-                _fact(Icons.work_outline, _factText(experience)),
-                const SizedBox(height: AppSpacing.s3),
-              ],
-              if (neededBy != null) ...<Widget>[
-                _fact(Icons.event_available_outlined, _factText(neededBy)),
-                const SizedBox(height: AppSpacing.s3),
-              ],
-            ],
-          ),
-        ),
       if (d.description != null && d.description!.trim().isNotEmpty)
         _section(
           'KAAM KE BAARE MEIN',
@@ -266,7 +285,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
         ),
       if (requirements != null && requirements.isNotEmpty)
         _section(
-          'REQUIREMENTS',
+          'ZAROORI SKILLS',
           Wrap(
             spacing: AppSpacing.s2,
             runSpacing: AppSpacing.s2,
@@ -318,20 +337,6 @@ class _JobDetailViewState extends State<_JobDetailView> {
       ),
     );
   }
-
-  Widget _fact(IconData icon, Widget text) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Icon(icon, size: 17, color: AppColors.textFaint),
-        const SizedBox(width: AppSpacing.s2),
-        Expanded(child: text),
-      ],
-    );
-  }
-
-  Text _factText(String value) =>
-      Text(value, style: AppTypography.body(color: AppColors.textSecondary));
 
   Widget _stickyCta(BuildContext context, JobDetailState state) {
     // WA-2: an ALREADY-APPLIED job (opened from an Applied-jobs row, which

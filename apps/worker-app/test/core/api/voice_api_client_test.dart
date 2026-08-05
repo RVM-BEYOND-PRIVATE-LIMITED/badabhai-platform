@@ -81,8 +81,8 @@ void main() {
       expect(res.status, 'queued');
     });
 
-    test('getAiJob parses a completed transcription output_ref (NO auth header)',
-        () async {
+    test('getAiJob parses a completed transcription output_ref (worker-authed, '
+        'owner-scoped /profile/ai-jobs)', () async {
       late http.Request captured;
       final ApiClient api = ApiClient(
         baseUrl: 'http://test',
@@ -101,10 +101,10 @@ void main() {
         }),
       );
 
-      final AiJob job = await api.getAiJob('job-9');
+      final AiJob job = await api.getAiJob('job-9', authToken: 'tok');
 
-      expect(captured.url.path, '/ai-jobs/job-9');
-      expect(captured.headers.containsKey('authorization'), isFalse);
+      expect(captured.url.path, '/profile/ai-jobs/job-9');
+      expect(captured.headers['authorization'], 'Bearer tok');
       expect(job.isCompleted, isTrue);
       expect(job.isTerminal, isTrue);
       expect(job.voiceNoteId, 'vn1');
@@ -134,6 +134,7 @@ void main() {
 
       final AiJob job = await api.awaitAiJob(
         'job-9',
+        authToken: 'tok',
         pollInterval: const Duration(milliseconds: 1),
       );
 
@@ -261,6 +262,7 @@ void main() {
       expect(
         () => api.awaitAiJob(
           'job-9',
+          authToken: 'tok',
           maxAttempts: 2,
           pollInterval: const Duration(milliseconds: 1),
         ),

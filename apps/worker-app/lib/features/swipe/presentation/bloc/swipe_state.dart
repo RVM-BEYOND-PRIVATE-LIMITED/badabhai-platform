@@ -27,14 +27,15 @@ class SwipeState extends Equatable {
   /// decided card untouched so nothing is lost on a network drop.
   final List<FeedItem> queue;
 
-  /// The active filter selection — Trade, City and Experience (from the "Filter
-  /// jobs" sheet AND the Feed's top chip row, which share this one source of
-  /// truth). [FilterSelection.initial] (all three empty) = show all, which
-  /// preserves the unfiltered feed on load.
+  /// The active filter selection — Trade, City, Experience, Shift and a pay floor
+  /// (from the "Filter jobs" sheet; Trade also from the Feed's top chip row —
+  /// they share this one source of truth). [FilterSelection.initial] (all unset)
+  /// = show all, which preserves the unfiltered feed on load.
   ///
-  /// Every dimension maps to a real PII-free [FeedItem] field; distance and
-  /// shift are deliberately absent because neither is on the wire. See
-  /// `domain/job_filter.dart` for the matching rules.
+  /// Every dimension maps to a real PII-free [FeedItem] field. Shift + pay are on
+  /// the `/feed` wire (ADR-0024 addendum), so they narrow the deck client-side AND
+  /// ride `GET /feed` as `shift` / `pay_min`; only DISTANCE stays out (not
+  /// modelled). See `domain/job_filter.dart` for the matching rules.
   final FilterSelection filters;
 
   /// [queue] narrowed to [filters] (AND across dimensions, OR within one). This

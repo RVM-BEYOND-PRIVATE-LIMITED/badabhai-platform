@@ -78,6 +78,13 @@ class HttpPayerApiClient implements PayerApiClient {
     String? description,
     String? vacancyBand,
     int? vacancies,
+    List<String>? matchSkillIds,
+    List<String>? untickedRelatedIds,
+    String? city,
+    int? payMin,
+    int? payMax,
+    String? shift,
+    String? neededBy,
   }) async {
     // EXACTLY ONE of vacancy_band | vacancies (server rejects both/neither).
     if ((vacancyBand == null) == (vacancies == null)) {
@@ -94,6 +101,15 @@ class HttpPayerApiClient implements PayerApiClient {
         'description': description,
       if (vacancyBand != null) 'vacancy_band': vacancyBand,
       if (vacancies != null) 'vacancies': vacancies,
+      // Match V1 (additive) — only sent when supplied.
+      if (matchSkillIds != null) 'match_skill_ids': matchSkillIds,
+      if (untickedRelatedIds != null)
+        'unticked_related_ids': untickedRelatedIds,
+      if (city != null) 'city': city,
+      if (payMin != null) 'pay_min': payMin,
+      if (payMax != null) 'pay_max': payMax,
+      if (shift != null) 'shift': shift,
+      if (neededBy != null) 'needed_by': neededBy,
     };
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/job-postings', body: body);
@@ -121,6 +137,13 @@ class HttpPayerApiClient implements PayerApiClient {
     String? vacancyBand,
     int? vacancies,
     String? status,
+    List<String>? matchSkillIds,
+    List<String>? untickedRelatedIds,
+    String? city,
+    int? payMin,
+    int? payMax,
+    String? shift,
+    String? neededBy,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{
       if (orgLabel != null) 'org_label': orgLabel,
@@ -130,6 +153,15 @@ class HttpPayerApiClient implements PayerApiClient {
       if (vacancyBand != null) 'vacancy_band': vacancyBand,
       if (vacancies != null) 'vacancies': vacancies,
       if (status != null) 'status': status,
+      // Match V1 (additive) — only sent when supplied.
+      if (matchSkillIds != null) 'match_skill_ids': matchSkillIds,
+      if (untickedRelatedIds != null)
+        'unticked_related_ids': untickedRelatedIds,
+      if (city != null) 'city': city,
+      if (payMin != null) 'pay_min': payMin,
+      if (payMax != null) 'pay_max': payMax,
+      if (shift != null) 'shift': shift,
+      if (neededBy != null) 'needed_by': neededBy,
     };
     if (body.isEmpty) {
       throw ArgumentError('updateJob needs at least one field');
@@ -222,6 +254,40 @@ class HttpPayerApiClient implements PayerApiClient {
     return _planFromResponse(res.body);
   }
 
+  // --- Match V1 — demand skill picker + reach preview ------------------------
+
+  @override
+  Future<List<MatchSkill>> fetchMatchSkills() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/match/skills');
+    // A non-2xx must not decode to a fabricated empty picker shown as ready.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final List<dynamic> rows =
+        (res.body['skills'] as List<dynamic>?) ?? const <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(MatchSkill.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<ReachPreview> reachPreview({
+    required List<String> matchSkillIds,
+    List<String> untickedRelatedIds = const <String>[],
+  }) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/match/reach-preview',
+      body: <String, dynamic>{
+        'match_skill_ids': matchSkillIds,
+        'unticked_related_ids': untickedRelatedIds,
+      },
+    );
+    // A non-2xx must not decode to a fabricated zero-reach preview shown as real.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return ReachPreview.fromJson(res.body);
+  }
+
   // --- AI job-posting chat (ADR-0035) ----------------------------------------
   // Five routes behind PayerAuthGuard. NEVER a body `payer_id` (the server
   // derives it from the bearer) and NEVER an org/company name on the wire — the
@@ -299,7 +365,9 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   @override
-  Future<String> publishJobPostingChatSession(String sessionId) async {
+  Future<PublishJobResult> publishJobPostingChatSession(
+    String sessionId,
+  ) async {
     // EMPTY body: the draft already lives server-side on the session row, the
     // payer IS the session (XB-A), and the org name is auto-filled there.
     final PayerResponse res = await _http.send(
@@ -313,7 +381,15 @@ class HttpPayerApiClient implements PayerApiClient {
     // A 2xx without the created id is contract breakage — do NOT report a
     // success the caller cannot route to.
     if (id is! String || id.isEmpty) throw PayerApiException(res.statusCode);
-    return id;
+    // Fields the server could not fold onto the structured posting (additive,
+    // default []). Accepts snake_case + camelCase; ignores non-string entries.
+    final List<String> unmapped =
+        ((res.body['unmapped_fields'] ?? res.body['unmappedFields'])
+                    as List<dynamic>? ??
+                const <dynamic>[])
+            .whereType<String>()
+            .toList(growable: false);
+    return PublishJobResult(jobPostingId: id, unmappedFields: unmapped);
   }
 
   /// Rows from `{<key>: [...]}`, falling back to the `items` envelope
@@ -514,6 +590,48 @@ class HttpPayerApiClient implements PayerApiClient {
     final String code = res.body['code'] as String? ?? '';
     final String link = res.body['link'] as String? ?? '';
     return ReferralLink(code: code, url: link);
+  }
+
+  @override
+  Future<List<AgencyWorker>> fetchReferredWorkers() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/agency/workers');
+    // A 403 (company session — agent-only route) and a 429 (rate cap) must
+    // surface as a typed error so the UI can show agent-only / try-again, NOT a
+    // fabricated empty funnel. Any other non-2xx surfaces too.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final List<dynamic> rows =
+        (res.body['workers'] as List<dynamic>?) ?? const <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(AgencyWorker.fromJson)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<MintedInvite>> createInviteBatch({
+    required int count,
+    String? campaign,
+  }) async {
+    // Faceless: count + an optional non-PII campaign tag only. NEVER a body
+    // payer_id (the server derives the agency from the bearer).
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/agency/invites/batch',
+      body: <String, dynamic>{
+        'count': count,
+        if (campaign != null) 'campaign': campaign,
+      },
+    );
+    // 403 company session · 429 mint cap · 5xx → typed error (never an empty
+    // batch shown as success).
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final List<dynamic> rows =
+        (res.body['invites'] as List<dynamic>?) ?? const <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(MintedInvite.fromJson)
+        .toList(growable: false);
   }
 
   // --- Agency demand — jobs CRUD + lifecycle + referrals summary -------------
@@ -794,6 +912,14 @@ class HttpPayerApiClient implements PayerApiClient {
       experienceBand: row['experienceBand'] as String?,
       tradeLabel: row['tradeLabel'] as String?,
       cityLabel: row['cityLabel'] as String?,
+      // Match V1 facets (additive, nullable) — parsed from the snake_case keys
+      // the deterministic matcher emits; absent on legacy rows → null.
+      matchTier: (row['match_tier'] as num?)?.toInt(),
+      effectiveTier: (row['effective_tier'] as num?)?.toInt(),
+      skillMonths: (row['skill_months'] as num?)?.toInt(),
+      industryMonths: (row['industry_months'] as num?)?.toInt(),
+      matchedSkillLabel: row['matched_skill_label'] as String?,
+      lastWorkedAt: row['last_worked_at'] as String?,
     );
   }
 

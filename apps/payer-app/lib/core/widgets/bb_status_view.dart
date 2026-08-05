@@ -18,11 +18,13 @@ class BbStatusView extends StatelessWidget {
     this.subtitle,
     this.action,
   })  : caption = null,
+        progress = null,
         _loading = false;
 
-  /// Spinner mode: a centered [CircularProgressIndicator] with an optional
-  /// [caption] beneath it.
-  const BbStatusView.loading({super.key, this.caption})
+  /// Loading mode: a BRANDED (deep-blue) loader with an optional [caption]. Pass
+  /// [progress] (0..1) when the step count is known to get a determinate bar —
+  /// the kit prefers that over a spinner and bans bare Material spinners outright.
+  const BbStatusView.loading({super.key, this.caption, this.progress})
       : icon = null,
         title = null,
         iconColor = AppColors.textMuted,
@@ -36,19 +38,47 @@ class BbStatusView extends StatelessWidget {
   final String? subtitle;
   final Widget? action;
 
-  /// Optional text shown under the spinner in loading mode.
+  /// Optional text shown under the loader in loading mode.
   final String? caption;
+
+  /// Optional 0..1 completion for a DETERMINATE bar in loading mode. Null → an
+  /// indeterminate branded (deep-blue) spinner.
+  final double? progress;
 
   final bool _loading;
 
   @override
   Widget build(BuildContext context) {
     if (_loading) {
+      final double? fraction = progress?.clamp(0.0, 1.0).toDouble();
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const CircularProgressIndicator(),
+            if (fraction != null)
+              // Determinate bar — preferred when the step count is known.
+              SizedBox(
+                width: 160,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadii.pill),
+                  child: LinearProgressIndicator(
+                    value: fraction,
+                    minHeight: 6,
+                    backgroundColor: AppColors.surfaceInset,
+                    color: AppColors.blue,
+                  ),
+                ),
+              )
+            else
+              // Branded deep-blue spinner — never the bare default Material one.
+              const SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: AppColors.blue,
+                ),
+              ),
             if (caption != null) ...<Widget>[
               const SizedBox(height: AppSpacing.s4),
               Text(

@@ -12,6 +12,8 @@ import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
+import '../../agency/presentation/agency_engagement_screen.dart';
+import '../../agency/presentation/batch_invite_screen.dart';
 import 'cubit/referral_cubit.dart';
 
 /// Agency Refer-&-earn — the agent's shareable invite link + the referral
@@ -19,8 +21,11 @@ import 'cubit/referral_cubit.dart';
 /// a company session, so this is only reachable from the agency Account entry).
 ///
 /// PII-free: an opaque invite code + link and aggregate counts (k-anon floor
-/// applied server-side). NO per-worker rows exist on this seam. Payouts / KYC
-/// remain launch-gated and are intentionally absent here.
+/// applied server-side). The aggregate funnel here links out to two deeper
+/// agent-only surfaces — the FACELESS per-worker engagement funnel
+/// ([AgencyEngagementScreen], `GET /payer/agency/workers`) and BULK invite
+/// minting ([BatchInviteScreen], `POST /payer/agency/invites/batch`). Payouts /
+/// KYC remain launch-gated and are intentionally absent here.
 class ReferralScreen extends StatelessWidget {
   const ReferralScreen({super.key});
 
@@ -101,9 +106,109 @@ class _ReferralView extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.s2),
             if (state.summary != null) _FunnelCard(summary: state.summary!),
+            const SizedBox(height: AppSpacing.s5),
+            Text(
+              'Go deeper',
+              style: AppTypography.display(
+                size: AppTypography.sizeBase,
+                weight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s2),
+            _NavCard(
+              icon: Icons.groups_outlined,
+              title: 'Referred workers',
+              subtitle: 'See each worker you referred and how far they have got.',
+              onTap: () => _open(
+                context,
+                name: 'payer/agency/workers',
+                builder: (_) => const AgencyEngagementScreen(),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            _NavCard(
+              icon: Icons.qr_code_2,
+              title: 'Invite in bulk',
+              subtitle: 'Mint a run of codes with QR to print or forward.',
+              onTap: () => _open(
+                context,
+                name: 'payer/agency/invites',
+                builder: (_) => const BatchInviteScreen(),
+              ),
+            ),
           ],
         );
     }
+  }
+
+  /// Push a full-page agent-only surface. Named so the crash reporter's
+  /// NavigatorObserver attributes a crash to THIS screen, not the tab under it.
+  void _open(
+    BuildContext context, {
+    required String name,
+    required WidgetBuilder builder,
+  }) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: RouteSettings(name: name),
+        builder: builder,
+      ),
+    );
+  }
+}
+
+/// A tappable card that links to a deeper agent-only surface.
+class _NavCard extends StatelessWidget {
+  const _NavCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return BbCard(
+      onTap: onTap,
+      child: Row(
+        children: <Widget>[
+          // Deep blue = structure / navigation / trust. Haldi is a fill, never a
+          // foreground stroke on white (kit law).
+          Icon(icon, size: 24, color: AppColors.blue),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: AppTypography.display(
+                    size: AppTypography.sizeBase,
+                    weight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: AppTypography.body(
+                    size: AppTypography.sizeSm,
+                    color: AppColors.textMuted,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+          const Icon(Icons.chevron_right, size: 20, color: AppColors.textFaint),
+        ],
+      ),
+    );
   }
 }
 

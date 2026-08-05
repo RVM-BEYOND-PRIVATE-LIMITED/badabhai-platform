@@ -57,7 +57,7 @@ void main() {
   late MockSwipeRepository repo;
   setUp(() {
     repo = MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city')))
+    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin')))
         .thenAnswer((_) async => <FeedItem>[]);
   });
 
@@ -65,7 +65,7 @@ void main() {
     blocTest<SwipeBloc, SwipeState>(
       'loads -> ready with the queue',
       build: () {
-        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city')))
+        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin')))
             .thenAnswer((_) async => <FeedItem>[_item('j1'), _item('j2')]);
         return SwipeBloc(repo);
       },
@@ -82,7 +82,7 @@ void main() {
     blocTest<SwipeBloc, SwipeState>(
       'empty feed -> empty',
       build: () {
-        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[]);
+        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[]);
         return SwipeBloc(repo);
       },
       act: (SwipeBloc b) => b.add(const SwipeFeedRequested()),
@@ -95,7 +95,7 @@ void main() {
     blocTest<SwipeBloc, SwipeState>(
       '403 -> consentRequired',
       build: () {
-        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenThrow(const ConsentRequiredFailure());
+        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenThrow(const ConsentRequiredFailure());
         return SwipeBloc(repo);
       },
       act: (SwipeBloc b) => b.add(const SwipeFeedRequested()),
@@ -108,7 +108,7 @@ void main() {
     blocTest<SwipeBloc, SwipeState>(
       'network error -> error',
       build: () {
-        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'))).thenThrow(const NetworkFailure());
+        when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenThrow(const NetworkFailure());
         return SwipeBloc(repo);
       },
       act: (SwipeBloc b) => b.add(const SwipeFeedRequested()),

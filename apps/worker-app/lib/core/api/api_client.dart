@@ -174,6 +174,19 @@ class ApiClient {
     return ChatSessionStart.fromJson(json);
   }
 
+  /// The worker's LATEST chat session id, or null if they have none (GET
+  /// /chat/session/latest). Worker-scoped: the worker is taken from [authToken],
+  /// never a param. Lets the app re-attach to the signup profiling session after a
+  /// cold restart — the session id is in-memory only, so without this the "Bada
+  /// Bhai" tab would start a fresh empty thread and orphan the earlier Q&A. The
+  /// response is `{ session_id: <uuid> | null }`.
+  Future<String?> latestChatSessionId({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/chat/session/latest', authToken: authToken);
+    final Object? id = json['session_id'];
+    return id is String && id.isNotEmpty ? id : null;
+  }
+
   /// Posts a worker message. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token, never from the body.
   Future<ChatReply> sendMessage({
@@ -233,7 +246,7 @@ class ApiClient {
       authToken: authToken,
       sessionId: sessionId,
     );
-    return awaitProfileId(enqueued.aiJobId);
+    return awaitProfileId(enqueued.aiJobId, authToken: authToken);
   }
 
   /// Enqueues a profile-extraction job. Returns the job id to poll. Worker-scoped
@@ -252,9 +265,16 @@ class ApiClient {
     return EnqueueResult.fromJson(json);
   }
 
-  /// Fetches the current state of an async AI job.
-  Future<AiJob> getAiJob(String aiJobId) async {
-    final Map<String, dynamic> json = await _get('/ai-jobs/$aiJobId');
+  /// Fetches the current state of the worker's OWN async AI job.
+  ///
+  /// Worker-scoped: GET /profile/ai-jobs/:id (WorkerAuthGuard, owner-checked on
+  /// `ai_jobs.input_ref.worker_id`) — requires [authToken]. The ops read
+  /// (GET /ai-jobs/:id) stays behind InternalServiceGuard; a client must never
+  /// hold that token, so profile-extraction + voice-transcription polling ride
+  /// this owner-scoped route instead.
+  Future<AiJob> getAiJob(String aiJobId, {required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/profile/ai-jobs/$aiJobId', authToken: authToken);
     return AiJob.fromJson(json);
   }
 
@@ -268,6 +288,7 @@ class ApiClient {
   /// queued/running.
   Future<String> awaitProfileId(
     String aiJobId, {
+    required String authToken,
     int maxAttempts = kAiJobPollMaxAttempts,
     Duration pollInterval = kAiJobPollInterval,
   }) async {
@@ -276,7 +297,7 @@ class ApiClient {
       pollInterval: pollInterval,
     );
     for (int attempt = 0; attempt < schedule.length; attempt++) {
-      final AiJob job = await getAiJob(aiJobId);
+      final AiJob job = await getAiJob(aiJobId, authToken: authToken);
       if (job.isCompleted) {
         final String? profileId = job.profileId;
         if (profileId == null || profileId.isEmpty) {
@@ -509,16 +530,25 @@ class ApiClient {
   /// [limit] defaults to 50 (the backend's cap) so the LIBERAL alpha feed shows
   /// every open job while volume is small — the feed applies no location/trade
   /// filter server-side, so nothing is dropped between here and the deck.
+  ///
+  /// [shift] ('day' | 'night' | 'rotational') and [payMin] (a ₹/month floor) are
+  /// OPTIONAL server-side narrowing params (the ADR-0024 addendum put shift + pay
+  /// on the `/feed` wire). Each is appended only when non-null, so the call is
+  /// backward-compatible — the feed works with neither set.
   Future<List<FeedItem>> getFeed({
     required String authToken,
     int limit = 50,
     String? tradeKey,
     String? city,
+    String? shift,
+    int? payMin,
   }) async {
     final Map<String, String> queryParams = <String, String>{'limit': limit.toString()};
     if (tradeKey != null) queryParams['trade_key'] = tradeKey;
     if (city != null) queryParams['city'] = city;
-    
+    if (shift != null) queryParams['shift'] = shift;
+    if (payMin != null) queryParams['pay_min'] = payMin.toString();
+
     final Uri uri = Uri(path: '/feed', queryParameters: queryParams);
     
     final Map<String, dynamic> json =
@@ -579,6 +609,42 @@ class ApiClient {
         .whereType<Map<String, dynamic>>()
         .map(WorkerNotification.fromJson)
         .toList();
+  }
+
+  /// Marks the worker's Alerts read up to now (POST /workers/me/notifications/read —
+  /// WorkerAuthGuard + ConsentGuard). Worker-scoped: the worker is derived from
+  /// [authToken], never a body. Sets the SERVER-SIDE read watermark so read-state
+  /// is CROSS-DEVICE (a later `getMyNotifications` returns `read: true` for these
+  /// on any device). Empty body; the response is ignored. Callers invoke this
+  /// FAIL-SOFT — an older API without the route simply keeps local-only read state.
+  Future<void> markNotificationsRead({required String authToken}) async {
+    await _post('/workers/me/notifications/read', <String, dynamic>{},
+        authToken: authToken);
+  }
+
+  /// The worker's master Notifications on/off preference (GET
+  /// /workers/me/notification-prefs — WorkerAuthGuard). Worker-scoped: the worker
+  /// is derived from [authToken]. `{ notifications_enabled: bool }`. ABSENT/older
+  /// API → defaults ON (true), so the client keeps its local value — fail-soft.
+  Future<bool> getNotificationPrefs({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/notification-prefs', authToken: authToken);
+    return json['notifications_enabled'] as bool? ?? true;
+  }
+
+  /// Sets the master Notifications on/off preference (PATCH
+  /// /workers/me/notification-prefs — WorkerAuthGuard). Worker-scoped. When OFF,
+  /// the backend must SKIP every push fan-out to this worker (the gate lives in
+  /// the send path, not here). Callers invoke this best-effort.
+  Future<void> updateNotificationPrefs({
+    required bool enabled,
+    required String authToken,
+  }) async {
+    await _patch(
+      '/workers/me/notification-prefs',
+      <String, dynamic>{'notifications_enabled': enabled},
+      authToken: authToken,
+    );
   }
 
   /// Mints a signed upload slot for a voice clip (POST /voice/upload-url —
@@ -664,6 +730,7 @@ class ApiClient {
   /// AI-job timeout) if the budget is exhausted while still queued/running.
   Future<AiJob> awaitAiJob(
     String aiJobId, {
+    required String authToken,
     int maxAttempts = kAiJobPollMaxAttempts,
     Duration pollInterval = kAiJobPollInterval,
   }) async {
@@ -672,7 +739,7 @@ class ApiClient {
       pollInterval: pollInterval,
     );
     for (int attempt = 0; attempt < schedule.length; attempt++) {
-      final AiJob job = await getAiJob(aiJobId);
+      final AiJob job = await getAiJob(aiJobId, authToken: authToken);
       if (job.isTerminal) return job;
       await Future<void>.delayed(schedule[attempt]);
     }
@@ -710,13 +777,24 @@ class ApiClient {
   /// the code matched or attribution happened), so the body is ignored here.
   /// PII-FREE: the code is opaque and carries no worker identity, and is never
   /// logged.
+  ///
+  /// [source] is an OPTIONAL, observability-only install-source leg from the
+  /// closed enum `app_link` | `install_referrer` | `custom_scheme` | `unknown`:
+  /// which surface delivered the code (an https App Link, Play's install
+  /// referrer, or the `badabhai://` custom scheme). It is sent only when non-null
+  /// — the server treats a missing value as `unknown` — so the call stays
+  /// backward-compatible. Like the code it is opaque + PII-free and never logged.
   Future<void> attributeReferral({
     required String authToken,
     required String code,
+    String? source,
   }) async {
     await _post(
       '/referrals/attribute',
-      <String, dynamic>{'code': code},
+      <String, dynamic>{
+        'code': code,
+        if (source != null) 'source': source,
+      },
       authToken: authToken,
     );
   }

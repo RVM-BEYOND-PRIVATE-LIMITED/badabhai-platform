@@ -21,6 +21,10 @@ import '../../../core/widgets/bb_field.dart';
 /// bearer is stored in [PayerTokenStore] and the session is set from the server's
 /// [PayerLoginResult] (role is server-decided). In MOCK mode any email/code works
 /// and routes the same.
+///
+/// JUL31 kit: a deep-blue trust header carries the brand mark + headline, the
+/// form sits on canvas below, and the ONE haldi CTA per step is the Get-OTP /
+/// Verify button — blue for structure, haldi rationed to the action.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -161,92 +165,38 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter,
-            AppSpacing.s6,
-            AppSpacing.gutter,
-            AppSpacing.s7,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              const SizedBox(height: AppSpacing.s6),
-              Center(
-                child: Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: AppColors.brand,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: <BoxShadow>[
-                      BoxShadow(
-                        color: AppColors.brand.withValues(alpha: 0.40),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.handshake,
-                    color: AppColors.textOnBrand,
-                    size: 32,
-                  ),
-                ),
+      // Deep-blue trust header + a canvas form below — the kit's two surfaces,
+      // separated by structure, never a shadow.
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const _BrandHeader(),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.s6,
+                AppSpacing.gutter,
+                AppSpacing.s7,
               ),
-              const SizedBox(height: AppSpacing.s5),
-              Text(
-                'Hire faster,\nbada bhai ke saath.',
-                textAlign: TextAlign.center,
-                style: AppTypography.display(
-                  size: AppTypography.size2xl,
-                  weight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.s3),
-              Text(
-                'Post a job, browse verified candidates, unlock contact for ₹40. '
-                'One login for companies and agencies.',
-                textAlign: TextAlign.center,
-                style: AppTypography.body(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: AppSpacing.s7),
-              if (_step == _Step.details) ..._detailsStep() else ..._codeStep(),
-              if (_error != null) ...<Widget>[
-                const SizedBox(height: AppSpacing.s3),
-                Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeSm,
-                    color: AppColors.danger,
-                  ),
-                ),
-              ],
-              const SizedBox(height: AppSpacing.s3),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  const Icon(Icons.verified_user,
-                      size: 14, color: AppColors.success),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      'DPDP-compliant · data stored in India. '
-                      'By continuing you agree to our terms.',
-                      textAlign: TextAlign.center,
-                      style: AppTypography.body(
-                        size: AppTypography.sizeXs,
-                        color: AppColors.textFaint,
-                      ),
-                    ),
-                  ),
+                  if (_step == _Step.details)
+                    ..._detailsStep()
+                  else
+                    ..._codeStep(),
+                  if (_error != null) ...<Widget>[
+                    const SizedBox(height: AppSpacing.s3),
+                    _ErrorLine(message: _error!),
+                  ],
+                  const SizedBox(height: AppSpacing.s4),
+                  const _TrustLine(),
                 ],
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -259,14 +209,13 @@ class _LoginScreenState extends State<LoginScreen> {
             weight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: AppSpacing.s2),
+        const SizedBox(height: AppSpacing.s3),
         Row(
           children: <Widget>[
             Expanded(
               child: _RolePick(
                 pickKey: const Key('pick_company'),
                 icon: Icons.apartment,
-                iconColor: AppColors.brandPress,
                 title: 'Company',
                 subtitle: 'Hire for your plant',
                 selected: _role == PayerRole.company,
@@ -278,7 +227,6 @@ class _LoginScreenState extends State<LoginScreen> {
               child: _RolePick(
                 pickKey: const Key('pick_agency'),
                 icon: Icons.groups,
-                iconColor: AppColors.saffronDeep,
                 title: 'Agency',
                 subtitle: 'Hire + earn on supply',
                 selected: _role == PayerRole.agency,
@@ -304,6 +252,7 @@ class _LoginScreenState extends State<LoginScreen> {
           keyboardType: TextInputType.emailAddress,
         ),
         const SizedBox(height: AppSpacing.s5),
+        // The ONE haldi CTA on this step.
         BbButton(
           label: 'Get OTP',
           buttonKey: const Key('get_otp'),
@@ -318,7 +267,7 @@ class _LoginScreenState extends State<LoginScreen> {
         Text(
           'Enter the code',
           style: AppTypography.display(
-            size: AppTypography.sizeMd,
+            size: AppTypography.sizeLg,
             weight: FontWeight.w700,
           ),
         ),
@@ -344,6 +293,7 @@ class _LoginScreenState extends State<LoginScreen> {
           autofillHints: const <String>[AutofillHints.oneTimeCode],
         ),
         const SizedBox(height: AppSpacing.s5),
+        // The ONE haldi CTA on this step.
         BbButton(
           label: 'Verify & continue',
           buttonKey: const Key('verify_otp'),
@@ -364,11 +314,140 @@ class _LoginScreenState extends State<LoginScreen> {
       ];
 }
 
+/// The deep-blue trust band: haldi brand mark, headline, and the value line —
+/// blue is the kit's structure/trust surface, so the sign-in opens on it.
+class _BrandHeader extends StatelessWidget {
+  const _BrandHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: AppColors.blue,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s7,
+            AppSpacing.gutter,
+            AppSpacing.s7,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              // Haldi brand mark — a brand moment, not a CTA. Text/icon on haldi
+              // is ALWAYS deep blue. Radius stays inside the kit's 12 cap.
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: AppColors.haldi,
+                  borderRadius: BorderRadius.circular(AppRadii.xl),
+                ),
+                child: const Icon(
+                  Icons.handshake,
+                  color: AppColors.onHaldi,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s5),
+              Text(
+                'Hire faster,\nbada bhai ke saath.',
+                style: AppTypography.display(
+                  size: AppTypography.size2xl,
+                  weight: FontWeight.w800,
+                  color: AppColors.onBlue,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s3),
+              Text(
+                'Post a job, browse verified candidates, unlock contact for ₹40. '
+                'One login for companies and agencies.',
+                style: AppTypography.body(
+                  size: AppTypography.sizeSm,
+                  color: AppColors.onBlueMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The DPDP trust line — a green verified mark (semantic: verified) + the
+/// data-residency assurance.
+class _TrustLine extends StatelessWidget {
+  const _TrustLine();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        const Icon(Icons.verified_user, size: 16, color: AppColors.success),
+        const SizedBox(width: AppSpacing.s2),
+        Expanded(
+          child: Text(
+            'DPDP-compliant · data stored in India. '
+            'By continuing you agree to our terms.',
+            style: AppTypography.body(
+              size: AppTypography.sizeXs,
+              color: AppColors.textMuted,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A failure line — red only, states what happened (kit copy law).
+class _ErrorLine extends StatelessWidget {
+  const _ErrorLine({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s3,
+        vertical: AppSpacing.s3,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.dangerTint,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.red100),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Icon(Icons.error_outline, size: 16, color: AppColors.danger),
+          const SizedBox(width: AppSpacing.s2),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.danger,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A role tile — paper card, 1px hairline; selected reads in deep-blue structure
+/// (2px blue edge + haldi tint), never a shadow (kit: shadows banned).
 class _RolePick extends StatelessWidget {
   const _RolePick({
     required this.pickKey,
     required this.icon,
-    required this.iconColor,
     required this.title,
     required this.subtitle,
     required this.selected,
@@ -377,7 +456,6 @@ class _RolePick extends StatelessWidget {
 
   final Key pickKey;
   final IconData icon;
-  final Color iconColor;
   final String title;
   final String subtitle;
   final bool selected;
@@ -394,28 +472,27 @@ class _RolePick extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadii.md),
         child: Container(
           padding: const EdgeInsets.all(AppSpacing.s3),
-          constraints: const BoxConstraints(minHeight: 92),
+          constraints: const BoxConstraints(minHeight: 96),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(AppRadii.md),
             border: Border.all(
-              color: selected ? AppColors.brand : AppColors.borderDefault,
-              width: 2,
+              color: selected ? AppColors.blue : AppColors.border,
+              width: selected ? 2 : 1,
             ),
-            boxShadow: selected
-                ? <BoxShadow>[
-                    BoxShadow(
-                      color: AppColors.ring,
-                      blurRadius: 0,
-                      spreadRadius: 3,
-                    ),
-                  ]
-                : null,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(icon, size: 24, color: iconColor),
+              Row(
+                children: <Widget>[
+                  Icon(icon, size: 24, color: AppColors.blue),
+                  const Spacer(),
+                  if (selected)
+                    const Icon(Icons.check_circle,
+                        size: 18, color: AppColors.blue),
+                ],
+              ),
               const SizedBox(height: AppSpacing.s2),
               Text(
                 title,

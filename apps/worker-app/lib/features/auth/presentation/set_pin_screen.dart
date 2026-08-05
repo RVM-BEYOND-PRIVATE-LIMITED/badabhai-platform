@@ -6,8 +6,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_app_bar.dart';
-import '../../../core/widgets/bb_scaffold.dart';
+import '../../../core/widgets/bb_blue_header.dart';
 import '../../../router.dart';
 import '../domain/weak_pin.dart';
 import 'cubit/set_pin_cubit.dart';
@@ -130,60 +129,66 @@ class _SetPinViewState extends State<_SetPinView> {
       },
       builder: (BuildContext context, SetPinState state) {
         final bool weak = _error != null;
-        return BbScaffold(
-          appBar: BbAppBar(title: widget.isReset ? 'Naya PIN' : 'PIN banayein'),
+        // Kit auth chrome: the blue header carries the step title/subtitle; the
+        // light body holds the masked dots + on-screen keypad. Reached via `go`
+        // (new-user onboarding or reset), so no back affordance.
+        return Scaffold(
           body: Column(
             children: <Widget>[
-              const Spacer(flex: 1),
-              Icon(
-                confirming ? Icons.check_circle_outline : Icons.pin_outlined,
-                size: 40,
-                color: AppColors.brand,
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              Text(
-                confirming ? 'PIN dobara daalein' : '4-digit PIN banayein',
-                style: AppTypography.display(size: AppTypography.sizeXl),
-              ),
-              const SizedBox(height: AppSpacing.s2),
-              Text(
-                confirming
+              BbBlueHeader(
+                // Enter-step title kept EXACT ('PIN banayein' / reset 'Naya PIN')
+                // — it is the set-PIN screen's identity in auth_routing_test.
+                title: confirming
+                    ? 'PIN dobara daalein'
+                    : (widget.isReset ? 'Naya PIN' : 'PIN banayein'),
+                subtitle: confirming
                     ? 'Confirm karne ke liye wahi PIN dobara daalein.'
                     : 'Har baar isi PIN se aap login karenge.',
-                textAlign: TextAlign.center,
-                style: AppTypography.body(color: AppColors.textSecondary),
               ),
-              const SizedBox(height: AppSpacing.s7),
-              BbPinView(
-                length: kPinLength,
-                filled: _buffer.length,
-                error: weak && !confirming ? false : weak,
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              SizedBox(
-                height: AppSpacing.s8,
-                child: _error != null
-                    ? Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.s4),
-                        child: Text(
-                          _error!,
-                          textAlign: TextAlign.center,
-                          style: AppTypography.body(
-                            size: AppTypography.sizeSm,
-                            color: AppColors.warning,
-                          ),
+              Expanded(
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.gutter),
+                    child: Column(
+                      children: <Widget>[
+                        const Spacer(flex: 1),
+                        BbPinView(
+                          length: kPinLength,
+                          filled: _buffer.length,
+                          error: weak && !confirming ? false : weak,
                         ),
-                      )
-                    : null,
+                        const SizedBox(height: AppSpacing.s4),
+                        SizedBox(
+                          height: AppSpacing.s8,
+                          child: _error != null
+                              ? Text(
+                                  _error!,
+                                  textAlign: TextAlign.center,
+                                  style: AppTypography.body(
+                                    size: AppTypography.sizeSm,
+                                    // Was AppColors.warning (haldi) — ~1.4:1 on
+                                    // white, effectively invisible. A weak-PIN
+                                    // caution is an error cue → red (legible + law:
+                                    // haldi is a fill, never body text).
+                                    color: AppColors.danger,
+                                  ),
+                                )
+                              : null,
+                        ),
+                        const SizedBox(height: AppSpacing.s2),
+                        BbPinKeypad(
+                          enabled: !state.isSubmitting,
+                          onDigit: _onDigit,
+                          onBackspace: _onBackspace,
+                        ),
+                        const Spacer(flex: 2),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(height: AppSpacing.s2),
-              BbPinKeypad(
-                enabled: !state.isSubmitting,
-                onDigit: _onDigit,
-                onBackspace: _onBackspace,
-              ),
-              const Spacer(flex: 2),
             ],
           ),
         );

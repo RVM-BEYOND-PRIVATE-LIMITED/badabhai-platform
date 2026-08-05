@@ -74,13 +74,16 @@ class _KitDetailView extends StatelessWidget {
           vertical: AppSpacing.s4,
         ),
         children: <Widget>[
-          if (kit.overview.isNotEmpty) ...<Widget>[
-            Text(
-              kit.overview,
-              style: AppTypography.body(color: AppColors.textSecondary),
+          if (kit.overview.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(bottom: AppSpacing.s4),
+              padding: const EdgeInsets.all(AppSpacing.s4),
+              decoration: _cardDecoration,
+              child: Text(
+                kit.overview,
+                style: AppTypography.body(color: AppColors.textSecondary),
+              ),
             ),
-            const SizedBox(height: AppSpacing.s5),
-          ],
           // The four question LISTS (no model answers on the wire — a prep pack).
           _questionSection('Aam sawaal', kit.commonQuestions),
           _questionSection('Practical sawaal', kit.practicalQuestions),
@@ -101,6 +104,13 @@ class _KitDetailView extends StatelessWidget {
     );
   }
 
+  /// White paper card with a 1px hairline border (kit separation — no shadows).
+  BoxDecoration get _cardDecoration => BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(color: AppColors.borderSubtle),
+      );
+
   Widget _sectionTitle(String title) => Padding(
         padding: const EdgeInsets.only(bottom: AppSpacing.s3),
         child: Text(
@@ -113,8 +123,10 @@ class _KitDetailView extends StatelessWidget {
   /// A numbered list of interview questions for a category (omitted if empty).
   Widget _questionSection(String title, List<String> items) {
     if (items.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.s5),
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.s4),
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      decoration: _cardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -135,8 +147,10 @@ class _KitDetailView extends StatelessWidget {
   /// An icon-bulleted list (checklist / documents / mistakes; omitted if empty).
   Widget _listSection(String title, List<String> items, IconData icon) {
     if (items.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.s5),
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.s4),
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      decoration: _cardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -147,7 +161,10 @@ class _KitDetailView extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Icon(icon, size: 18, color: AppColors.success),
+                  // Neutral, not green: these lists include "Aam galtiyan" (common
+                  // mistakes) — green is reserved for success/money/WhatsApp, so a
+                  // mistakes bullet in green is off-law. Secondary ink is category-safe.
+                  Icon(icon, size: 18, color: AppColors.textSecondary),
                   const SizedBox(width: AppSpacing.s2),
                   Expanded(
                     child: Text(
@@ -170,6 +187,7 @@ class _KitDetailView extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.successTint,
           borderRadius: BorderRadius.circular(AppRadii.lg),
+          border: Border.all(color: AppColors.greenTintBorder),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,

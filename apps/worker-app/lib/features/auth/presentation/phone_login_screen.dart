@@ -8,9 +8,8 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/widgets/bb_blue_header.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
 import 'cubit/phone_login_cubit.dart';
 import 'otp_verify_screen.dart';
@@ -93,69 +92,89 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
         }
       },
       builder: (BuildContext context, PhoneLoginState state) {
-        return BbScaffold(
-          appBar: const BbAppBar(title: 'Login'),
+        // Kit 02 (top half): full-bleed blue header + a dense, labelled body.
+        // Not [BbScaffold] — the header must bleed to the status bar.
+        return Scaffold(
           body: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const SizedBox(height: AppSpacing.s7),
-              Text('Enter your phone number',
-                  style: AppTypography.display(size: AppTypography.sizeXl)),
-              const SizedBox(height: AppSpacing.s2),
-              Text(
-                'We send a one-time code to log you in.',
-                style: AppTypography.body(color: AppColors.textSecondary),
+              const BbBlueHeader(
+                title: 'Enter your phone number',
+                subtitle: 'We send a one-time code to log you in.',
               ),
-              const SizedBox(height: AppSpacing.s6),
-              TextField(
-                controller: _controller,
-                keyboardType: TextInputType.phone,
-                style: AppTypography.mono(size: AppTypography.sizeLg),
-                // Digits only, capped at 10: the field cannot hold a country
-                // code, spaces, or punctuation, so there is nothing to strip and
-                // nothing malformed to send.
-                inputFormatters: <TextInputFormatter>[
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(kNationalNumberDigits),
-                ],
-                decoration: InputDecoration(
-                  // Fixed chrome — rendered by the field, not stored in the
-                  // controller, so it cannot be selected or backspaced away.
-                  prefixText: '$kIndiaDialCode ',
-                  prefixStyle: AppTypography.mono(size: AppTypography.sizeLg),
-                  hintText: 'XXXXXXXXXX',
-                  prefixIcon: const Icon(Icons.phone_outlined),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              Row(
-                children: <Widget>[
-                  const Icon(Icons.lock_outline,
-                      size: 18, color: AppColors.textMuted),
-                  const SizedBox(width: AppSpacing.s2),
-                  Expanded(
-                    child: Text(
-                      'Your number stays private. We never show it to anyone.',
-                      style: AppTypography.body(
-                        size: AppTypography.sizeSm,
-                        color: AppColors.textMuted,
-                      ),
+              Expanded(
+                child: SafeArea(
+                  top: false,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.gutter,
+                      AppSpacing.s6,
+                      AppSpacing.gutter,
+                      AppSpacing.s6,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        Text('MOBILE NUMBER',
+                            style:
+                                AppTypography.eyebrow(color: AppColors.textMuted)),
+                        const SizedBox(height: AppSpacing.s2),
+                        TextField(
+                          controller: _controller,
+                          keyboardType: TextInputType.phone,
+                          style: AppTypography.mono(size: AppTypography.sizeLg),
+                          // Digits only, capped at 10: the field cannot hold a
+                          // country code, spaces, or punctuation, so there is
+                          // nothing to strip and nothing malformed to send.
+                          inputFormatters: <TextInputFormatter>[
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(
+                                kNationalNumberDigits),
+                          ],
+                          decoration: InputDecoration(
+                            // Fixed chrome — rendered by the field, not stored in
+                            // the controller, so it cannot be selected or
+                            // backspaced away.
+                            prefixText: '$kIndiaDialCode ',
+                            prefixStyle:
+                                AppTypography.mono(size: AppTypography.sizeLg),
+                            hintText: 'XXXXXXXXXX',
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.s4),
+                        Row(
+                          children: <Widget>[
+                            const Icon(Icons.lock_outline,
+                                size: 18, color: AppColors.textMuted),
+                            const SizedBox(width: AppSpacing.s2),
+                            Expanded(
+                              child: Text(
+                                'Your number stays private. We never show it to anyone.',
+                                style: AppTypography.body(
+                                  size: AppTypography.sizeSm,
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.s7),
+                        BbButton(
+                          label:
+                              state.isSubmitting ? 'Sending OTP…' : 'Send OTP',
+                          block: true,
+                          loading: state.isSubmitting,
+                          // Disabled until 10 digits — the cubit/manager contract
+                          // is E.164, and a half-typed number can only ever fail.
+                          onPressed: state.isSubmitting || !_isComplete
+                              ? null
+                              : () => context
+                                  .read<PhoneLoginCubit>()
+                                  .submit(toE164(_controller.text)),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.s7),
-              BbButton(
-                label: state.isSubmitting ? 'Sending OTP…' : 'Send OTP',
-                block: true,
-                loading: state.isSubmitting,
-                // Disabled until 10 digits — the cubit/manager contract is
-                // E.164, and a half-typed number can only ever fail.
-                onPressed: state.isSubmitting || !_isComplete
-                    ? null
-                    : () => context
-                        .read<PhoneLoginCubit>()
-                        .submit(toE164(_controller.text)),
+                ),
               ),
             ],
           ),

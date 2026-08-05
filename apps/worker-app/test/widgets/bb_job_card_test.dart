@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:badabhai_worker_app/core/theme/app_spacing.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_job_card.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_tag.dart';
 
 Widget _host(Widget child) => MaterialApp(
       theme: AppTheme.light(),
@@ -23,15 +24,62 @@ void main() {
       spotsLeft: 4,
     );
 
-    testWidgets('renders title, company, pay, tag and the spots line',
+    testWidgets('renders title, the company·location line and the salary',
         (tester) async {
       await tester.pumpWidget(_host(const BbJobCard(data: data)));
 
       expect(find.text('CNC Operator'), findsOneWidget);
-      expect(find.text('Sharma Works'), findsOneWidget);
+      // Company and location now share ONE line (kit "company · location").
+      expect(find.textContaining('Sharma Works'), findsOneWidget);
+      expect(find.textContaining('Pimpri'), findsOneWidget);
+      // Salary renders the bare pay string alongside a muted "/mah".
       expect(find.text('22-28k'), findsOneWidget);
-      expect(find.text('Fanuc'), findsOneWidget);
-      expect(find.textContaining('spots'), findsOneWidget);
+      expect(find.text(' /mah'), findsOneWidget);
+    });
+
+    testWidgets('a featured card earns the HOT tag; a plain one does not',
+        (tester) async {
+      await tester.pumpWidget(_host(const BbJobCard(data: data)));
+      expect(find.byType(BbHotTag), findsNothing);
+
+      await tester.pumpWidget(_host(const BbJobCard(
+        data: BbJobCardData(
+          title: 'VMC Operator',
+          place: 'Chakan',
+          hot: true,
+        ),
+      )));
+      expect(find.byType(BbHotTag), findsOneWidget);
+      expect(find.text('HOT'), findsOneWidget);
+    });
+
+    testWidgets('fires onApply when the APPLY action is tapped', (tester) async {
+      int applied = 0;
+      await tester.pumpWidget(_host(BbJobCard(
+        data: const BbJobCardData(
+          title: 'VMC Operator',
+          place: 'Chakan',
+          payBand: '18-22k',
+        ),
+        onApply: () => applied++,
+      )));
+
+      await tester.tap(find.byKey(const Key('jobCardApplyButton')));
+      expect(applied, 1);
+    });
+
+    testWidgets('shows metaRight when there is no apply action',
+        (tester) async {
+      await tester.pumpWidget(_host(const BbJobCard(
+        data: BbJobCardData(
+          title: 'CNC Setter',
+          place: 'Bhosari',
+          metaRight: 'General shift',
+        ),
+      )));
+
+      expect(find.text('General shift'), findsOneWidget);
+      expect(find.byKey(const Key('jobCardApplyButton')), findsNothing);
     });
 
     // `verified` now defaults to FALSE: the seal must be an explicit opt-in for

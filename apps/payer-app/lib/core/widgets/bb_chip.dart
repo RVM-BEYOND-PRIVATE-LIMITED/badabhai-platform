@@ -7,8 +7,9 @@ import '../theme/app_typography.dart';
 /// A pill-shaped selectable chip — the design system's `.aw-chip` (ui.css
 /// 46–47). Used for skills/tags and single-select filters in the worker app.
 ///
-/// Default sits quiet on a card (warm hairline border); [selected] flips to the
-/// vermilion brand tint. Optional leading [icon] follows the text colour.
+/// Default sits quiet on a card (paper + hairline border); [selected] flips to a
+/// SOLID haldi fill with a deep-blue Anek label — the kit's `BBFilterChip`. A
+/// soft 14px pill (JUL31 `rChip`). Optional leading [icon] follows the text colour.
 class BbChip extends StatelessWidget {
   const BbChip({
     super.key,
@@ -25,18 +26,33 @@ class BbChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // JUL31 kit: a selected filter chip is a SOLID haldi pill (not a tint) with
+    // a deep-blue label; unselected sits on paper behind a hairline.
     final Color background =
-        selected ? AppColors.vermilion50 : AppColors.surfaceCard;
+        selected ? AppColors.brand : AppColors.surfaceCard;
     final Color borderColor =
         selected ? AppColors.brand : AppColors.borderStrong;
     final Color foreground =
-        selected ? AppColors.brandPress : AppColors.textPrimary;
+        selected ? AppColors.onHaldi : AppColors.textPrimary;
+
+    // Selected chips speak in Anek (the kit's `bbDisplay`); unselected stay Roboto.
+    final TextStyle labelStyle = selected
+        ? AppTypography.display(
+            size: AppTypography.sizeSm,
+            weight: FontWeight.w700,
+            color: foreground,
+          )
+        : AppTypography.body(
+            size: AppTypography.sizeSm,
+            weight: FontWeight.w700,
+            color: foreground,
+          );
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.pill),
+        borderRadius: BorderRadius.circular(AppRadii.chip),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: AppSpacing.tap),
           child: Container(
@@ -47,7 +63,7 @@ class BbChip extends StatelessWidget {
             ),
             decoration: BoxDecoration(
               color: background,
-              borderRadius: BorderRadius.circular(AppRadii.pill),
+              borderRadius: BorderRadius.circular(AppRadii.chip),
               border: Border.all(color: borderColor, width: 1.5),
             ),
             child: Row(
@@ -59,11 +75,7 @@ class BbChip extends StatelessWidget {
                 ],
                 Text(
                   label,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeSm,
-                    weight: FontWeight.w700,
-                    color: foreground,
-                  ),
+                  style: labelStyle,
                 ),
               ],
             ),

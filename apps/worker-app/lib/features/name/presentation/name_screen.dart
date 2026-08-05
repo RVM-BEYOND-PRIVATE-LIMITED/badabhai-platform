@@ -6,9 +6,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
 import 'cubit/name_cubit.dart';
 
@@ -84,53 +82,89 @@ class _NameViewState extends State<_NameView> {
         }
       },
       builder: (BuildContext context, NameState state) {
-        return BbScaffold(
-          appBar: const BbAppBar(title: 'Your name'),
-          bottomBar: BbButton(
-            label: state.isSubmitting ? 'Saving…' : 'Continue',
-            block: true,
-            loading: state.isSubmitting,
-            iconRight: Icons.arrow_forward_rounded,
-            onPressed:
-                (_hasText && !state.isSubmitting) ? () => _submit(context, state) : null,
-          ),
-          body: ListView(
-            padding: const EdgeInsets.only(top: AppSpacing.s6),
+        // Kit onboarding pattern (screens 02/06): a full-bleed deep-blue header
+        // band (haldi title + muted subtitle) over a padded body with a single
+        // labelled field and the primary CTA.
+        return Scaffold(
+          body: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: AppColors.saffron100,
-                  borderRadius: BorderRadius.circular(AppRadii.md),
+                width: double.infinity,
+                color: AppColors.blue,
+                padding: EdgeInsets.fromLTRB(
+                  AppSpacing.gutter,
+                  MediaQuery.of(context).padding.top + AppSpacing.s5,
+                  AppSpacing.gutter,
+                  AppSpacing.s5,
                 ),
-                child: const Icon(Icons.badge_outlined,
-                    color: AppColors.saffron700, size: 30),
-              ),
-              const SizedBox(height: AppSpacing.s4),
-              Text('Aapka naam?',
-                  style: AppTypography.display(size: AppTypography.sizeXl)),
-              const SizedBox(height: AppSpacing.s3),
-              Text(
-                'Yeh sirf aapke resume par chhapega. Hum ise kisi aur ko nahi '
-                'dikhate.',
-                style: AppTypography.body(
-                  size: AppTypography.sizeMd,
-                  color: AppColors.textSecondary,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text('Aapka naam?',
+                        style: AppTypography.display(
+                            size: AppTypography.sizeXl,
+                            color: AppColors.haldi)),
+                    const SizedBox(height: AppSpacing.s1),
+                    Text(
+                      'Yeh sirf aapke resume par chhapega. Hum ise kisi aur ko '
+                      'nahi dikhate.',
+                      style: AppTypography.body(
+                        size: AppTypography.sizeSm,
+                        color: AppColors.onBlueMuted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: AppSpacing.s5),
-              TextField(
-                controller: _controller,
-                textCapitalization: TextCapitalization.words,
-                textInputAction: TextInputAction.done,
-                maxLength: 80,
-                autofocus: true,
-                onSubmitted: (_) => _submit(context, state),
-                decoration: const InputDecoration(
-                  labelText: 'Poora naam',
-                  hintText: 'Jaise: Asha Kumari',
-                  border: OutlineInputBorder(),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.all(AppSpacing.gutter),
+                  children: <Widget>[
+                    Text('POORA NAAM',
+                        style: AppTypography.eyebrow(
+                            color: AppColors.textMuted)),
+                    const SizedBox(height: AppSpacing.s2),
+                    TextField(
+                      controller: _controller,
+                      textCapitalization: TextCapitalization.words,
+                      textInputAction: TextInputAction.done,
+                      maxLength: 80,
+                      autofocus: true,
+                      onSubmitted: (_) => _submit(context, state),
+                      style: AppTypography.body(size: AppTypography.sizeMd),
+                      decoration: InputDecoration(
+                        hintText: 'Jaise: Asha Kumari',
+                        counterText: '',
+                        filled: true,
+                        fillColor: AppColors.paper,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.s3,
+                          vertical: 14,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(AppRadii.sm),
+                          borderSide:
+                              const BorderSide(color: AppColors.borderSubtle),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(AppRadii.sm),
+                          borderSide: const BorderSide(
+                              color: AppColors.blue, width: 1.5),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.s6),
+                    BbButton(
+                      label: state.isSubmitting ? 'Saving…' : 'Continue',
+                      block: true,
+                      loading: state.isSubmitting,
+                      iconRight: Icons.arrow_forward_rounded,
+                      onPressed: (_hasText && !state.isSubmitting)
+                          ? () => _submit(context, state)
+                          : null,
+                    ),
+                  ],
                 ),
               ),
             ],

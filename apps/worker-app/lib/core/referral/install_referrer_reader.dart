@@ -125,8 +125,9 @@ class InstallReferrerReader {
       final String? code = referralCodeFromInstallReferrer(referrer);
       if (code == null) return;
       // `capture` is the single shape validator and never throws — junk is
-      // dropped there rather than stored.
-      await _store.capture(code);
+      // dropped there rather than stored. Tag the leg so post-consent attribution
+      // records this code arrived via Play's install referrer (observability).
+      await _store.capture(code, source: ReferralSource.installReferrer);
     } catch (_) {
       // Best-effort by contract (rule 1). A missing plugin, an unavailable Play
       // Store, or a prefs error simply means "not attributed".

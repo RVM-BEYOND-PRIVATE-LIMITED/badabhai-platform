@@ -47,16 +47,12 @@ class BbToggle extends StatelessWidget {
               child: Container(
                 width: _knobSize,
                 height: _knobSize,
-                decoration: BoxDecoration(
+                // Elevation 0 — the design system BANS shadows (separation is by
+                // color/hairline, never a drop shadow). The white knob reads fine
+                // on both the green (on) and ink (off) track without one.
+                decoration: const BoxDecoration(
                   color: AppColors.surfaceCard,
                   shape: BoxShape.circle,
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: AppColors.ink900.withValues(alpha: 0.12),
-                      blurRadius: 4,
-                      offset: const Offset(0, 1),
-                    ),
-                  ],
                 ),
               ),
             ),

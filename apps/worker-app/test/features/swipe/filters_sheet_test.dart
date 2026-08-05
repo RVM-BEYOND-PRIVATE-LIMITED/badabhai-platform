@@ -14,6 +14,9 @@ FeedItem _job(
   String city = 'Pune',
   int? minYears,
   int? maxYears,
+  String? shift,
+  int? payMin,
+  int? payMax,
 }) =>
     FeedItem(
       jobId: id,
@@ -23,6 +26,9 @@ FeedItem _job(
       area: null,
       minExperienceYears: minYears,
       maxExperienceYears: maxYears,
+      shift: shift,
+      payMin: payMin,
+      payMax: payMax,
       rank: 1,
     );
 
@@ -105,26 +111,69 @@ void main() {
   );
 
   testWidgets(
-    'offers NO Shift group — shift is not on the /feed wire (mock-only display '
-    'data per ADR-0024), so filtering on it was dead',
+    'offers a Shift group + Minimum pay group (both are REAL /feed fields per '
+    'the ADR-0024 addendum) that narrow the count and pop the selection',
     (WidgetTester tester) async {
       _tallSurface(tester);
-      await _mountSheet(
-          tester, <FeedItem>[_job('c1', 'cnc_operator', 'CNC Operator')]);
+      // Two jobs on different shifts and pay ceilings so each filter narrows.
+      final List<FeedItem> jobs = <FeedItem>[
+        _job('c1', 'cnc_operator', 'CNC Operator',
+            shift: 'day', payMin: 15000, payMax: 18000),
+        _job('c2', 'cnc_operator', 'CNC Machinist',
+            shift: 'night', payMin: 22000, payMax: 26000),
+      ];
+      final FilterSelection? Function() result = await _mountSheet(tester, jobs);
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      expect(find.text('SHIFT'), findsNothing);
-      expect(find.text('Night'), findsNothing);
-      expect(find.text('Rotational'), findsNothing);
-      // 'Day' must not survive as a shift chip either.
-      expect(find.text('Day'), findsNothing);
+      // The Shift group + its three chips render (was deleted while shift was
+      // mock-only; the ADR-0024 addendum put it on the wire, so it is back).
+      expect(find.text('SHIFT'), findsOneWidget);
+      expect(find.text('Day'), findsOneWidget);
+      expect(find.text('Night'), findsOneWidget);
+      expect(find.text('Rotational'), findsOneWidget);
+
+      // The Minimum pay group renders with preset floors.
+      expect(find.text('MINIMUM PAY'), findsOneWidget);
+      expect(find.text('₹20,000+'), findsOneWidget);
+
+      // Night narrows to the one night job (day is a KNOWN-different shift).
+      await tester.tap(find.text('Night'));
+      await tester.pumpAndSettle();
+      expect(find.text('Show 1 jobs'), findsOneWidget);
+
+      await tester.tap(find.text('Show 1 jobs'));
+      await tester.pumpAndSettle();
+      expect(result()!.shift, 'night');
 
       // The feed is LIBERAL (no location filter) — the sheet must NOT offer a
       // Distance group or any distance chip that would falsely imply filtering.
       expect(find.text('Distance'), findsNothing);
       expect(find.text('15 km'), findsNothing);
       expect(find.text('30 km'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'the Minimum pay floor drops only jobs whose KNOWN ceiling is below it',
+    (WidgetTester tester) async {
+      _tallSurface(tester);
+      final List<FeedItem> jobs = <FeedItem>[
+        _job('c1', 'cnc_operator', 'CNC Operator', payMin: 15000, payMax: 18000),
+        _job('c2', 'cnc_operator', 'CNC Machinist', payMin: 22000, payMax: 26000),
+      ];
+      final FilterSelection? Function() result = await _mountSheet(tester, jobs);
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // ₹20,000+ keeps only the job whose ceiling reaches the floor.
+      await tester.tap(find.text('₹20,000+'));
+      await tester.pumpAndSettle();
+      expect(find.text('Show 1 jobs'), findsOneWidget);
+
+      await tester.tap(find.text('Show 1 jobs'));
+      await tester.pumpAndSettle();
+      expect(result()!.payMin, 20000);
     },
   );
 

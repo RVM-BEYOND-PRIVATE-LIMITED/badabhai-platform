@@ -55,7 +55,7 @@ void main() {
     await pump(tester, TabIndex.resume);
 
     focus.value = TabIndex.profile;
-    focus.value = TabIndex.alerts;
+    focus.value = TabIndex.chat;
     await tester.pump();
 
     expect(calls, 0, reason: 'only this tab’s own focus counts');
@@ -64,11 +64,11 @@ void main() {
   testWidgets('fires again on every RE-focus, not just the first', (
     WidgetTester tester,
   ) async {
-    await pump(tester, TabIndex.alerts);
+    await pump(tester, TabIndex.chat);
 
-    focus.value = TabIndex.alerts; // away → here
+    focus.value = TabIndex.chat; // away → here
     focus.value = TabIndex.jobs;
-    focus.value = TabIndex.alerts;
+    focus.value = TabIndex.chat;
     await tester.pump();
 
     expect(calls, 2, reason: 'a mounted branch must refetch on each return');
@@ -85,10 +85,10 @@ void main() {
   });
 
   test('the tab indices match the shell branch order', () {
-    // Jobs / Resume / Profile / Alerts — the order in router.dart's branches and
-    // in BbBottomNav. A silent reorder here would refetch the wrong tab.
+    // Jobs / Resume / Bada Bhai / Profile — the order in router.dart's branches
+    // and in BbBottomNav. A silent reorder here would refetch the wrong tab.
     expect(
-      <int>[TabIndex.jobs, TabIndex.resume, TabIndex.profile, TabIndex.alerts],
+      <int>[TabIndex.jobs, TabIndex.resume, TabIndex.chat, TabIndex.profile],
       <int>[0, 1, 2, 3],
     );
   });

@@ -45,10 +45,21 @@ class SwipeRepositoryImpl implements SwipeRepository {
   /// starves the deck, and the decisions read is itself capped — both are
   /// recorded as a mandatory backend follow-up.
   @override
-  Future<List<FeedItem>> getFeed({String? tradeKey, String? city}) async {
+  Future<List<FeedItem>> getFeed({
+    String? tradeKey,
+    String? city,
+    String? shift,
+    int? payMin,
+  }) async {
     final String token = _requireToken();
     try {
-      return await _api.getFeed(authToken: token, tradeKey: tradeKey, city: city);
+      return await _api.getFeed(
+        authToken: token,
+        tradeKey: tradeKey,
+        city: city,
+        shift: shift,
+        payMin: payMin,
+      );
     } catch (error) {
       throw mapError(error);
     }

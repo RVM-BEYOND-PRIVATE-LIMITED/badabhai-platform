@@ -6,6 +6,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
@@ -258,6 +259,15 @@ class _MemberRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
       child: Row(
         children: <Widget>[
+          // Identity anchor — a brand avatar keyed off the masked handle. Its
+          // green seal marks an active teammate (verified/present); an invited
+          // or removed member stays unsealed.
+          BbAvatar(
+            initials: _memberInitials(member.emailMasked),
+            size: 40,
+            sealed: member.isActive,
+          ),
+          const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -313,6 +323,14 @@ class _MemberRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// One uppercase initial for a member's avatar, taken from the FIRST letter or
+/// digit of the server-masked handle ("r•••@acme.in" → "R"). PII-safe: only the
+/// masked handle is ever read, never a raw email.
+String _memberInitials(String masked) {
+  final Match? m = RegExp(r'[A-Za-z0-9]').firstMatch(masked.trim());
+  return (m?.group(0) ?? '?').toUpperCase();
 }
 
 /// Invite sheet — the ONE place a raw email is accepted, handed straight to the

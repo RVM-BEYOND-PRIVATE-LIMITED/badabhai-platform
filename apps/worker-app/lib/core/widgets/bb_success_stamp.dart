@@ -71,7 +71,7 @@ class _BbSuccessStampState extends State<BbSuccessStamp>
           child: Icon(
             widget.icon,
             size: widget.size * 0.54,
-            color: AppColors.textOnBrand,
+            color: AppColors.textInverse,
           ),
         ),
       ),

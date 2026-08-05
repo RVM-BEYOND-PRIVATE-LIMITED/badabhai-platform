@@ -34,3 +34,31 @@ class BbTag extends StatelessWidget {
     );
   }
 }
+
+/// The kit's `BBHotTag` — a small solid-haldi pill reading **HOT** in the Anek
+/// display voice, deep-blue on the yellow (text on haldi is ALWAYS deep blue).
+///
+/// EARNED, never uniform: shown only on a featured/urgent job card (paired with
+/// the haldi left rail). Static; not a control.
+class BbHotTag extends StatelessWidget {
+  const BbHotTag({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: const BoxDecoration(
+        color: AppColors.haldi,
+        borderRadius: BorderRadius.all(Radius.circular(AppRadii.xs)),
+      ),
+      child: Text(
+        'HOT',
+        style: AppTypography.display(
+          size: 10,
+          weight: FontWeight.w800,
+          color: AppColors.onHaldi,
+        ),
+      ),
+    );
+  }
+}

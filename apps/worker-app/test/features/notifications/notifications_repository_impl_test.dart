@@ -48,6 +48,9 @@ class _FakeReadStore implements NotificationReadStore {
       ..clear()
       ..addAll(next);
   }
+
+  @override
+  Future<void> clear() async => ids.clear();
 }
 
 /// A store that fails every call — a corrupt prefs XML from a restored backup,
@@ -62,6 +65,9 @@ class _BrokenReadStore implements NotificationReadStore {
   @override
   Future<void> write(List<String> ids) async =>
       throw Exception('prefs unavailable');
+
+  @override
+  Future<void> clear() async => throw Exception('prefs unavailable');
 }
 
 Map<String, dynamic> _noti({
@@ -70,6 +76,7 @@ Map<String, dynamic> _noti({
   required String title,
   required String body,
   required String createdAt,
+  bool? read,
 }) =>
     <String, dynamic>{
       'id': id,
@@ -77,6 +84,7 @@ Map<String, dynamic> _noti({
       'title': title,
       'body': body,
       'created_at': createdAt,
+      if (read != null) 'read': read,
     };
 
 /// A 200 JSON response with an explicit utf-8 charset (as real NestJS sends) —
@@ -268,6 +276,96 @@ void main() {
 
     final List<AppNotification> after = await repo.list();
     expect(after.every((AppNotification n) => n.read), isTrue);
+  });
+
+  test(
+      'server read flag is honoured (cross-device): a row the API marks read is '
+      'NOT counted unread even with an empty local read store', () async {
+    final NotificationsRepositoryImpl repo =
+        _repo(MockClient((http.Request req) async {
+      return _ok(<String, dynamic>{
+        'notifications': <Map<String, dynamic>>[
+          _noti(
+            id: 'read-on-other-device',
+            type: 'resume_ready',
+            title: 'Resume taiyaar hai',
+            body: 'x',
+            createdAt: DateTime.now().toUtc().toIso8601String(),
+            read: true, // marked read on ANOTHER device (server watermark)
+          ),
+          _noti(
+            id: 'still-unread',
+            type: 'profile_ready',
+            title: 'Profile ready',
+            body: 'y',
+            createdAt: DateTime.now().toUtc().toIso8601String(),
+            read: false,
+          ),
+        ],
+      });
+    }));
+
+    final List<AppNotification> items = await repo.list();
+    // The server-read row is read here despite NO local read id for it.
+    expect(items.firstWhere((AppNotification n) => n.id == 'read-on-other-device').read, isTrue);
+    // Only the genuinely-unread one is counted.
+    expect(repo.unreadCount.value, 1);
+  });
+
+  test('markAllRead POSTs the server read watermark (cross-device), fail-soft',
+      () async {
+    final List<String> posted = <String>[];
+    final NotificationsRepositoryImpl repo =
+        _repo(MockClient((http.Request req) async {
+      if (req.method == 'POST') posted.add(req.url.path);
+      return _ok(<String, dynamic>{
+        'notifications': <Map<String, dynamic>>[
+          _noti(
+            id: 'e1',
+            type: 'resume_ready',
+            title: 'Resume taiyaar hai',
+            body: 'x',
+            createdAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+        ],
+      });
+    }));
+
+    await repo.list();
+    await repo.markAllRead();
+    // The fire-and-forget POST is scheduled on markAllRead; let the microtask run.
+    await Future<void>.delayed(Duration.zero);
+    expect(posted, contains('/workers/me/notifications/read'));
+  });
+
+  test('onLogout() zeros the badge and wipes the read store — the next worker '
+      'inherits neither the unread count nor the read ids (cross-user)', () async {
+    // Rishi already has read-state persisted on disk.
+    final _FakeReadStore store = _FakeReadStore(<String>['old-read-id']);
+    final NotificationsRepositoryImpl repo = _repo(
+      MockClient((http.Request req) async => _ok(<String, dynamic>{
+            'notifications': <Map<String, dynamic>>[
+              _noti(
+                id: 'e1',
+                type: 'resume_ready',
+                title: 'Resume taiyaar hai',
+                body: 'Aapka naya resume ban gaya.',
+                createdAt: DateTime.now().toUtc().toIso8601String(),
+              ),
+            ],
+          })),
+      store: store,
+    );
+
+    await repo.list();
+    expect(repo.unreadCount.value, 1); // badge lit for Rishi
+    expect(store.ids, isNotEmpty);
+
+    repo.onLogout();
+    await Future<void>.delayed(Duration.zero); // let the fire-and-forget clear() run
+
+    expect(repo.unreadCount.value, 0, reason: 'badge reset for the next worker');
+    expect(store.ids, isEmpty, reason: 'Rishi read-ids wiped from disk on logout');
   });
 
   test('no session token fails closed with UnauthorizedFailure', () {

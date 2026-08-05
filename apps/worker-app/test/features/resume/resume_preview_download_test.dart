@@ -152,7 +152,7 @@ Current location: Faridabad''';
     final Completer<String> urlGate = Completer<String>();
     when(() => repo.resumeDownloadUrl()).thenAnswer((_) => urlGate.future);
 
-    await tester.tap(find.text('Download Resume'));
+    await tester.tap(find.text('PDF download karein'));
     await tester.pump();
 
     // Still on the resume screen (no navigation), started notice + busy CTA.
@@ -160,14 +160,14 @@ Current location: Faridabad''';
     expect(find.text(kDownloadStartedNotice), findsOneWidget);
     expect(
       tester
-          .widget<BbButton>(find.widgetWithText(BbButton, 'Download Resume'))
+          .widget<BbButton>(find.widgetWithText(BbButton, 'PDF download karein'))
           .loading,
       isTrue,
     );
 
     // A second tap while busy is inert (BbButton disables onPressed) — no
     // double download, no double file.
-    await tester.tap(find.text('Download Resume'), warnIfMissed: false);
+    await tester.tap(find.text('PDF download karein'), warnIfMissed: false);
     await tester.pump();
 
     urlGate.complete('mock://downloads/resume/mock-resume-0001.pdf');
@@ -188,7 +188,7 @@ Current location: Faridabad''';
     // Button is usable again once the download finished.
     expect(
       tester
-          .widget<BbButton>(find.widgetWithText(BbButton, 'Download Resume'))
+          .widget<BbButton>(find.widgetWithText(BbButton, 'PDF download karein'))
           .loading,
       isFalse,
     );
@@ -211,7 +211,7 @@ Current location: Faridabad''';
     when(() => repo.resumeDownloadUrl())
         .thenAnswer((_) async => 'mock://downloads/resume/mock-resume-0001.pdf');
 
-    await tester.tap(find.text('Download Resume'));
+    await tester.tap(find.text('PDF download karein'));
     await tester.pump();
     await tester.pump();
 

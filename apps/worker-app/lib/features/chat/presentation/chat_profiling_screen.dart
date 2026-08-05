@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,7 +9,6 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
@@ -384,16 +384,48 @@ class _ChatViewState extends State<_ChatView> {
     // default, so nothing renders unless ops set one.
     final String maintenance = BbRemoteConfig.instance.chatMaintenanceNotice;
     return Scaffold(
-      appBar: BbAppBar(
-        title: 'Profiling',
-        actions: <Widget>[
-          if (showVoice)
-            IconButton(
-              tooltip: 'Voice note bhejein',
-              icon: const Icon(Icons.mic_none, color: AppColors.brand),
-              onPressed: _openVoiceNote,
+      appBar: AppBar(
+        // Kit 03 chat header: a DEEP-BLUE bar with a haldi 'BB' avatar + 'Bada
+        // Bhai / online'. The voice-note entry moved OUT of the app bar and INTO
+        // the composer (the haldi mic), per the kit — its kill switch
+        // (`showVoice`) still governs it.
+        backgroundColor: AppColors.surfaceInk,
+        foregroundColor: AppColors.onBlue,
+        iconTheme: const IconThemeData(color: AppColors.onBlue),
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        titleSpacing: 0,
+        title: Row(
+          children: <Widget>[
+            Container(
+              width: 32,
+              height: 32,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: AppColors.haldi,
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Text('BB',
+                  style: AppTypography.display(
+                      size: AppTypography.sizeSm, color: AppColors.onHaldi)),
             ),
-        ],
+            const SizedBox(width: AppSpacing.s2),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Text('Bada Bhai',
+                    style: AppTypography.body(
+                        size: AppTypography.sizeSm,
+                        weight: FontWeight.w700,
+                        color: AppColors.onBlue)),
+                Text('online',
+                    style: AppTypography.body(
+                        size: AppTypography.size2xs,
+                        color: AppColors.green300)),
+              ],
+            ),
+          ],
+        ),
       ),
       body: BlocListener<ChatBloc, ChatState>(
         // Fire only when a message is appended (length grows), not on every
@@ -466,7 +498,7 @@ class _ChatViewState extends State<_ChatView> {
                       color: AppColors.textMuted,
                       text: maintenance,
                     ),
-                  _inputBar(),
+                  _inputBar(showVoice),
                   _doneCta(state),
                 ],
               ),
@@ -477,14 +509,27 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
-  Widget _inputBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s4,
-        vertical: AppSpacing.s1,
+  /// Kit 03 composer: a haldi circular MIC (voice-note entry, when [showVoice])
+  /// + a rounded pill input + a blue send icon — a paper bar hairline-separated
+  /// from the transcript. NOT a floating pill bar.
+  Widget _inputBar(bool showVoice) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceCard,
+        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+      ),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s3,
+        AppSpacing.s2,
+        AppSpacing.s3,
+        AppSpacing.s2,
       ),
       child: Row(
         children: <Widget>[
+          if (showVoice) ...<Widget>[
+            _composerMic(),
+            const SizedBox(width: AppSpacing.s2),
+          ],
           Expanded(
             child: TextField(
               controller: _controller,
@@ -496,32 +541,58 @@ class _ChatViewState extends State<_ChatView> {
               // the field is shorter and leaves more transcript visible with the
               // keyboard open. Matches the chat bubble size (sizeSm).
               style: AppTypography.body(size: AppTypography.sizeSm),
-              decoration: const InputDecoration(
-                hintText: 'Type your answer…',
+              decoration: InputDecoration(
+                hintText: 'Boliye ya likhiye…',
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(
+                filled: true,
+                fillColor: AppColors.canvas,
+                contentPadding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.s3,
-                  vertical: AppSpacing.s2,
+                  vertical: 10,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.pill),
+                  borderSide: const BorderSide(color: AppColors.borderSubtle),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.pill),
+                  borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
                 ),
               ),
             ),
           ),
-          const SizedBox(width: AppSpacing.s2),
-          Material(
-            color: AppColors.success,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: _send,
-              child: const SizedBox(
-                width: AppSpacing.tap,
-                height: AppSpacing.tap,
-                child: Icon(Icons.send_rounded,
-                    color: AppColors.textOnBrand, size: 22),
-              ),
-            ),
+          const SizedBox(width: AppSpacing.s1),
+          IconButton(
+            tooltip: 'Bhejein',
+            onPressed: _send,
+            icon: const Icon(Icons.send_rounded, color: AppColors.blue, size: 24),
           ),
         ],
+      ),
+    );
+  }
+
+  /// The haldi circular mic in the composer — opens the voice-note flow (kit 03).
+  /// Blue glyph on haldi (text/icon on haldi is always deep blue).
+  Widget _composerMic() {
+    return Semantics(
+      button: true,
+      label: 'Voice note bhejein',
+      child: Tooltip(
+        message: 'Voice note bhejein',
+        child: Material(
+          color: AppColors.haldi,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: _openVoiceNote,
+            child: const SizedBox(
+              width: AppSpacing.tap,
+              height: AppSpacing.tap,
+              child: Icon(Icons.mic, color: AppColors.onHaldi, size: 22),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -628,9 +699,12 @@ class _ChatViewState extends State<_ChatView> {
   Widget _jumpPill() {
     return Material(
       color: AppColors.surfaceCard,
-      elevation: 3,
-      borderRadius: BorderRadius.circular(AppRadii.pill),
-      shadowColor: AppColors.scrim,
+      elevation: 0,
+      // Flat pill (JUL31 system): a hairline border, not a shadow, lifts it off
+      // the chat.
+      shape: const StadiumBorder(
+        side: BorderSide(color: AppColors.borderSubtle),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadii.pill),
         onTap: _jumpToBottom,

@@ -97,6 +97,7 @@ void main() {
       await expectLater(
         api.awaitProfileId(
           'job-1',
+          authToken: 'tok',
           maxAttempts: 40,
           pollInterval: const Duration(milliseconds: 1),
         ),
@@ -128,6 +129,7 @@ void main() {
       await expectLater(
         api.awaitAiJob(
           'job-9',
+          authToken: 'tok',
           maxAttempts: 40,
           pollInterval: const Duration(milliseconds: 1),
         ),
@@ -148,6 +150,7 @@ void main() {
       await expectLater(
         api.awaitProfileId(
           'job-1',
+          authToken: 'tok',
           maxAttempts: 20,
           pollInterval: const Duration(milliseconds: 5),
         ),
@@ -180,7 +183,7 @@ void main() {
       );
 
       final Stopwatch sw = Stopwatch()..start();
-      final String profileId = await api.awaitProfileId('job-1');
+      final String profileId = await api.awaitProfileId('job-1', authToken: 'tok');
       sw.stop();
 
       expect(profileId, 'p1');

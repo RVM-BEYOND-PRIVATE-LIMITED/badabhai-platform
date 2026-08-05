@@ -4,40 +4,41 @@ import 'app_colors.dart';
 import 'app_spacing.dart';
 import 'app_typography.dart';
 
-/// The BadaBhai **"Desi Vernacular Pop"** theme, assembled from the design
-/// tokens ([AppColors], [AppTypography], [AppSpacing], [AppRadii]).
+/// The BadaBhai **JUL31 "JOSH"** theme, assembled from the design tokens
+/// ([AppColors], [AppTypography], [AppSpacing], [AppRadii]).
 ///
 /// Material 3, skinned to the tokens — we do **not** ship default Material
 /// colours. Build the whole app from [AppTheme.light]; never hard-code a colour,
 /// radius, or text style in a widget.
 ///
-/// Colour intent: **green is the action / "go" colour** (primary CTAs: Apply,
-/// Continue, consent) and **vermilion is the brand** (logo, highlights). So the
-/// Material `primary` slot is green and `secondary` is the vermilion brand —
-/// reach the brand colour via [AppColors.brand] / [AppButtonStyles.brand].
+/// Colour intent: **haldi is the primary CTA** (ONE per screen) and **blue is
+/// structure / trust / headers / links**; green is reserved for success·money.
+/// So the Material `primary` slot is haldi (text on it is ALWAYS deep blue) and
+/// `secondary` is blue. **Elevation is always 0** — surfaces are separated by
+/// 1px hairline borders, never shadows or gradients.
 class AppTheme {
   AppTheme._();
 
   static ThemeData light() {
     const ColorScheme scheme = ColorScheme(
       brightness: Brightness.light,
-      // primary = the green action colour
-      primary: AppColors.success,
+      // primary = haldi (the hero CTA); text on haldi is deep blue
+      primary: AppColors.brand,
       onPrimary: AppColors.textOnBrand,
-      primaryContainer: AppColors.green100,
-      onPrimaryContainer: AppColors.green700,
-      // secondary = the vermilion brand
-      secondary: AppColors.brand,
-      onSecondary: AppColors.textOnBrand,
-      secondaryContainer: AppColors.vermilion50,
-      onSecondaryContainer: AppColors.vermilion700,
-      // tertiary = saffron warmth
-      tertiary: AppColors.saffron,
-      onTertiary: AppColors.ink900,
-      tertiaryContainer: AppColors.saffron50,
-      onTertiaryContainer: AppColors.saffron700,
+      primaryContainer: AppColors.brandTint,
+      onPrimaryContainer: AppColors.blue,
+      // secondary = deep-blue structure / trust
+      secondary: AppColors.blue,
+      onSecondary: AppColors.onBlue,
+      secondaryContainer: AppColors.blueTintChat,
+      onSecondaryContainer: AppColors.bluePressed,
+      // tertiary = green (success / money)
+      tertiary: AppColors.success,
+      onTertiary: AppColors.textInverse,
+      tertiaryContainer: AppColors.successTint,
+      onTertiaryContainer: AppColors.green700,
       error: AppColors.danger,
-      onError: AppColors.textOnBrand,
+      onError: AppColors.textInverse,
       errorContainer: AppColors.dangerTint,
       onErrorContainer: AppColors.red700,
       surface: AppColors.surfaceCard,
@@ -50,11 +51,11 @@ class AppTheme {
       surfaceContainerHighest: AppColors.paper3,
       outline: AppColors.borderStrong,
       outlineVariant: AppColors.borderSubtle,
-      shadow: AppColors.ink950,
+      shadow: Colors.transparent,
       scrim: AppColors.scrim,
-      inverseSurface: AppColors.ink900,
-      onInverseSurface: AppColors.paper1,
-      inversePrimary: AppColors.green300,
+      inverseSurface: AppColors.blue,
+      onInverseSurface: AppColors.onBlue,
+      inversePrimary: AppColors.haldi,
     );
 
     final TextTheme textTheme = AppTypography.textTheme();
@@ -75,53 +76,51 @@ class AppTheme {
 
       iconTheme: const IconThemeData(color: AppColors.ink700, size: 24),
 
+      // Flat header — canvas surface, ink foreground, no shadow.
       appBarTheme: AppBarTheme(
         backgroundColor: AppColors.surfacePage,
         foregroundColor: AppColors.textPrimary,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        scrolledUnderElevation: 2,
-        shadowColor: AppColors.borderSubtle,
+        scrolledUnderElevation: 0,
+        shadowColor: Colors.transparent,
         centerTitle: true,
         titleTextStyle: textTheme.titleLarge,
         iconTheme: const IconThemeData(color: AppColors.ink700),
       ),
 
-      // Primary worker CTA — GREEN action button.
+      // Primary CTA — HALDI button, deep-blue label, flat.
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: AppColors.success,
+          backgroundColor: AppColors.brand,
           foregroundColor: AppColors.textOnBrand,
-          disabledBackgroundColor: AppColors.green100,
-          disabledForegroundColor: AppColors.paper1,
+          disabledBackgroundColor: AppColors.disabled,
+          disabledForegroundColor: AppColors.textSecondary,
           minimumSize: const Size(64, AppSpacing.controlLg),
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
           textStyle: textTheme.labelLarge,
           shape: controlShape,
-          elevation: 2,
-          shadowColor: AppColors.green500.withValues(alpha: 0.45),
-        ).copyWith(
-          // Tactile press: scale-like darken via overlay + green-tinted shadow.
-          overlayColor: const WidgetStatePropertyAll<Color>(
-            Color(0x1AFFFFFF),
-          ),
+          elevation: 0,
+          shadowColor: Colors.transparent,
         ),
       ),
 
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.success,
+          backgroundColor: AppColors.brand,
           foregroundColor: AppColors.textOnBrand,
+          disabledBackgroundColor: AppColors.disabled,
+          disabledForegroundColor: AppColors.textSecondary,
           minimumSize: const Size(64, AppSpacing.controlLg),
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
           textStyle: textTheme.labelLarge,
           shape: controlShape,
-          elevation: 2,
-          shadowColor: AppColors.green500.withValues(alpha: 0.45),
+          elevation: 0,
+          shadowColor: Colors.transparent,
         ),
       ),
 
-      // Secondary — outlined, ink on white.
+      // Secondary — outlined, ink on white, 1px hairline.
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           backgroundColor: AppColors.surfaceCard,
@@ -129,15 +128,15 @@ class AppTheme {
           minimumSize: const Size(64, AppSpacing.controlLg),
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
           textStyle: textTheme.labelLarge,
-          side: const BorderSide(color: AppColors.borderStrong, width: 1.5),
+          side: const BorderSide(color: AppColors.borderStrong, width: 1),
           shape: controlShape,
         ),
       ),
 
-      // Ghost — text only.
+      // Ghost — text only, reads as a blue link.
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.textBrand,
+          foregroundColor: AppColors.textLink,
           textStyle: textTheme.labelLarge,
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.s4,
@@ -159,10 +158,10 @@ class AppTheme {
           color: AppColors.textPrimary,
           weight: FontWeight.w600,
         ),
-        enabledBorder: _inputBorder(AppColors.borderStrong, 1.5),
-        border: _inputBorder(AppColors.borderStrong, 1.5),
+        enabledBorder: _inputBorder(AppColors.borderStrong, 1),
+        border: _inputBorder(AppColors.borderStrong, 1),
         focusedBorder: _inputBorder(AppColors.brand, 2),
-        errorBorder: _inputBorder(AppColors.danger, 1.5),
+        errorBorder: _inputBorder(AppColors.danger, 1),
         focusedErrorBorder: _inputBorder(AppColors.danger, 2),
         errorStyle: AppTypography.body(
           size: AppTypography.sizeSm,
@@ -171,14 +170,16 @@ class AppTheme {
         ),
       ),
 
-      cardTheme: CardThemeData(
+      // Cards — flat, separated by a 1px hairline (never a shadow).
+      cardTheme: const CardThemeData(
         color: AppColors.surfaceCard,
         surfaceTintColor: Colors.transparent,
-        shadowColor: AppColors.ink900.withValues(alpha: 0.10),
-        elevation: 2,
+        shadowColor: Colors.transparent,
+        elevation: 0,
         margin: EdgeInsets.zero,
-        shape: const RoundedRectangleBorder(
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(AppRadii.lg)),
+          side: BorderSide(color: AppColors.border, width: 1),
         ),
       ),
 
@@ -193,18 +194,20 @@ class AppTheme {
           if (states.contains(WidgetState.selected)) return AppColors.success;
           return AppColors.surfaceCard;
         }),
-        checkColor: const WidgetStatePropertyAll<Color>(AppColors.textOnBrand),
+        checkColor: const WidgetStatePropertyAll<Color>(AppColors.textInverse),
         side: const BorderSide(color: AppColors.borderStrong, width: 2),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadii.xs),
         ),
       ),
 
+      // Dark surface = blue; action pops in haldi. Flat.
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.ink900,
-        contentTextStyle: AppTypography.body(color: AppColors.paper1),
-        actionTextColor: AppColors.green300,
+        backgroundColor: AppColors.surfaceInk,
+        contentTextStyle: AppTypography.body(color: AppColors.onBlue),
+        actionTextColor: AppColors.haldi,
         behavior: SnackBarBehavior.floating,
+        elevation: 0,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(AppRadii.md)),
         ),
@@ -222,7 +225,7 @@ class AppTheme {
 
       chipTheme: ChipThemeData(
         backgroundColor: AppColors.surfaceSunken,
-        side: const BorderSide(color: AppColors.borderSubtle),
+        side: const BorderSide(color: AppColors.border),
         labelStyle: AppTypography.body(
           size: AppTypography.sizeSm,
           weight: FontWeight.w600,
@@ -245,14 +248,13 @@ class AppTheme {
 }
 
 /// Shared button [ButtonStyle]s for the variants the design system defines but
-/// Material doesn't theme by default — chiefly the **vermilion brand** button.
-/// Plain green [FilledButton]s already pick up the theme; use these for brand
-/// or status-specific actions.
+/// Material doesn't theme by default — chiefly the **haldi brand** button and
+/// the **red danger** action. Plain [FilledButton]s already pick up the haldi
+/// theme; use these for brand emphasis or destructive actions. All flat.
 class AppButtonStyles {
   AppButtonStyles._();
 
-  /// Vermilion **brand** CTA — logo moments, brand highlights. Used sparingly;
-  /// the everyday worker action is the green primary.
+  /// Haldi **brand / primary** CTA — deep-blue label, flat. ONE per screen.
   static ButtonStyle brand = FilledButton.styleFrom(
     backgroundColor: AppColors.brand,
     foregroundColor: AppColors.textOnBrand,
@@ -262,16 +264,18 @@ class AppButtonStyles {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.all(Radius.circular(AppRadii.md)),
     ),
-    elevation: 3,
-    shadowColor: AppColors.brand.withValues(alpha: 0.40),
+    elevation: 0,
+    shadowColor: Colors.transparent,
   );
 
-  /// Crimson danger action (delete account, destructive).
+  /// Red danger action (delete account, destructive) — white label, flat.
   static ButtonStyle danger = FilledButton.styleFrom(
     backgroundColor: AppColors.danger,
-    foregroundColor: AppColors.textOnBrand,
+    foregroundColor: AppColors.textInverse,
     minimumSize: const Size(64, AppSpacing.controlLg),
     padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
+    elevation: 0,
+    shadowColor: Colors.transparent,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.all(Radius.circular(AppRadii.md)),
     ),

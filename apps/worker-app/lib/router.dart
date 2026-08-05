@@ -75,8 +75,18 @@ class Routes {
   // --- Shell branch roots (persistent bottom nav) ---
   static const String jobs = '/jobs'; // Feed (Jobs tab)
   static const String resume = '/resume'; // Resume ready (Resume tab root + onboarding endpoint)
+
+  /// Bada Bhai chat tab — reuses [ChatProfilingScreen] as the persistent
+  /// assistant. A DISTINCT path from the onboarding chat route [chatProfiling]
+  /// ('/chat'), which stays a top-level full-screen step so onboarding never
+  /// shows the bottom nav.
+  static const String badaBhai = '/bada-bhai';
   static const String profile = '/profile'; // Profile tab
-  static const String alerts = '/alerts'; // Notifications (Alerts tab)
+
+  /// Notifications — NO longer a bottom-nav tab (kit 4-tab set). Pushed
+  /// full-screen from a header bell ([BbAlertsAction]); the screen carries its
+  /// own back affordance.
+  static const String alerts = '/alerts';
 
   // --- Shell sub-routes (append the id where noted) ---
   static const String jobDetail = '/jobs/detail'; // + '/<jobId>'  (no bar)
@@ -102,10 +112,10 @@ final GlobalKey<NavigatorState> _jobsNavKey =
     GlobalKey<NavigatorState>(debugLabel: 'jobs');
 final GlobalKey<NavigatorState> _resumeNavKey =
     GlobalKey<NavigatorState>(debugLabel: 'resume');
+final GlobalKey<NavigatorState> _chatNavKey =
+    GlobalKey<NavigatorState>(debugLabel: 'chat');
 final GlobalKey<NavigatorState> _profileNavKey =
     GlobalKey<NavigatorState>(debugLabel: 'profile');
-final GlobalKey<NavigatorState> _alertsNavKey =
-    GlobalKey<NavigatorState>(debugLabel: 'alerts');
 
 /// Builds a router bound to the CURRENTLY-registered [AuthSessionManager] (its
 /// `refreshListenable`). Built once per [BadaBhaiApp] instance in `initState`
@@ -160,6 +170,24 @@ String? referralCodeFromUri(Uri uri) {
   return null;
 }
 
+/// The install-source leg a referral deep link arrived on, for attribution
+/// observability (the `source` sent to `POST /referrals/attribute`): an `https`
+/// App Link is [ReferralSource.appLink], the `badabhai://` custom scheme is
+/// [ReferralSource.customScheme]. Anything else — notably an in-app
+/// `go('/i/<code>')` whose URI has no scheme — returns null so the leg is OMITTED
+/// and the server records it as `unknown`. PII-free: the scheme carries no
+/// identity, only which surface delivered the opaque code.
+String? referralSourceFromUri(Uri uri) {
+  switch (uri.scheme) {
+    case 'https':
+      return ReferralSource.appLink;
+    case 'badabhai':
+      return ReferralSource.customScheme;
+    default:
+      return null;
+  }
+}
+
 /// The router's single top-level redirect. Runs the deep-link referral capture
 /// FIRST — before [_authRedirect] can bounce an unauthenticated worker to /login
 /// and strand the code — then delegates everything else to the auth gate.
@@ -175,9 +203,13 @@ String? referralCodeFromUri(Uri uri) {
 String? _rootRedirect(BuildContext context, GoRouterState state) {
   final String? code = referralCodeFromUri(state.uri);
   if (code != null) {
-    // Fire-and-forget; the store validates the shape and never throws.
+    // Fire-and-forget; the store validates the shape and never throws. The
+    // install-source leg (https app-link vs badabhai:// custom scheme) rides
+    // along for attribution observability — omitted when undetermined.
     final PendingReferralStore? store = _maybeReferralStore();
-    if (store != null) unawaited(store.capture(code));
+    if (store != null) {
+      unawaited(store.capture(code, source: referralSourceFromUri(state.uri)));
+    }
     return Routes.splash;
   }
   return _authRedirect(context, state);
@@ -297,7 +329,10 @@ GoRouter _buildRouter() {
         redirect: (BuildContext context, GoRouterState state) {
           final PendingReferralStore? store = _maybeReferralStore();
           if (store != null) {
-            unawaited(store.capture(state.pathParameters['code']));
+            unawaited(store.capture(
+              state.pathParameters['code'],
+              source: referralSourceFromUri(state.uri),
+            ));
           }
           return Routes.splash;
         },
@@ -365,6 +400,15 @@ GoRouter _buildRouter() {
         path: Routes.building,
         builder: (_, __) => const BuildingScreen(),
       ),
+      // Notifications / Alerts — pushed FULL-SCREEN from a header bell
+      // ([BbAlertsAction]). It lost its bottom-nav tab in the kit's 4-tab set
+      // (Jobs · Resume · Bada Bhai · Profile). Declared on the ROOT navigator so
+      // `context.push(Routes.alerts)` from any tab covers the shell (no bottom
+      // bar); NotificationsScreen's BbAppBar supplies the back affordance.
+      GoRoute(
+        path: Routes.alerts,
+        builder: (_, __) => const NotificationsScreen(),
+      ),
 
       // ---------------- Shell (persistent 4-tab bottom nav) ----------------
       StatefulShellRoute.indexedStack(
@@ -430,6 +474,20 @@ GoRouter _buildRouter() {
               ),
             ],
           ),
+          // ---- Bada Bhai (chat) ----
+          // Reuses the existing profiling chat screen as the persistent
+          // assistant tab. A DISTINCT branch path (Routes.badaBhai) so the
+          // onboarding chat (Routes.chatProfiling — a top-level full-screen
+          // step) is untouched: onboarding never shows the bottom nav.
+          StatefulShellBranch(
+            navigatorKey: _chatNavKey,
+            routes: <RouteBase>[
+              GoRoute(
+                path: Routes.badaBhai,
+                builder: (_, __) => const ChatProfilingScreen(),
+              ),
+            ],
+          ),
           // ---- Profile ----
           StatefulShellBranch(
             navigatorKey: _profileNavKey,
@@ -479,24 +537,16 @@ GoRouter _buildRouter() {
               ),
             ],
           ),
-          // ---- Alerts ----
-          StatefulShellBranch(
-            navigatorKey: _alertsNavKey,
-            routes: <RouteBase>[
-              GoRoute(
-                path: Routes.alerts,
-                builder: (_, __) => const NotificationsScreen(),
-              ),
-            ],
-          ),
         ],
       ),
     ],
   );
 }
 
-/// The persistent shell: tab bodies + the spec 4-tab [BbBottomNav]. The Alerts
-/// unread badge tracks the shared [NotificationsRepository]'s reactive count.
+/// The persistent shell: tab bodies + the kit 4-tab [BbBottomNav]
+/// (Jobs · Resume · Bada Bhai · Profile). Alerts is no longer a tab — its
+/// unread badge lives on the header bell ([BbAlertsAction]); the shell only
+/// warms that shared [NotificationsRepository] count on open.
 class _ShellScaffold extends StatefulWidget {
   const _ShellScaffold({required this.shell});
 
@@ -506,15 +556,69 @@ class _ShellScaffold extends StatefulWidget {
   State<_ShellScaffold> createState() => _ShellScaffoldState();
 }
 
-class _ShellScaffoldState extends State<_ShellScaffold> {
+class _ShellScaffoldState extends State<_ShellScaffold>
+    with WidgetsBindingObserver {
   TabFocus get _tabFocus => locator<TabFocus>();
+
+  /// Foreground poll for the bell badge. FCM is delivered NATIVELY (no Dart
+  /// `onMessage` seam), so an alert that lands WHILE the worker is looking at the
+  /// app cannot push the count up on its own. A light 60s poll — only while the
+  /// shell is mounted + foregrounded — keeps the badge honest for that case; the
+  /// resume + cold-start + Alerts-open refreshes cover the rest.
+  static const Duration _pollInterval = Duration(seconds: 60);
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
-    // Populate the Alerts badge on app open (before the Alerts tab is opened).
+    // Warm the alerts unread count on app open so the header bell badge
+    // ([BbAlertsAction]) is populated before the worker opens Alerts.
     // Best-effort + fire-and-forget — refresh() never throws.
-    locator<NotificationsRepository>().refresh();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshBadge();
+    _startPoll();
+  }
+
+  @override
+  void dispose() {
+    _stopPoll();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void _refreshBadge() {
+    if (locator.isRegistered<NotificationsRepository>()) {
+      locator<NotificationsRepository>().refresh();
+    }
+  }
+
+  void _startPoll() {
+    _pollTimer ??= Timer.periodic(_pollInterval, (_) => _refreshBadge());
+  }
+
+  void _stopPoll() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  /// Keep the bell badge honest across the lifecycle. The initState warm only
+  /// fires on the FIRST shell mount (cold start); without this, an alert that
+  /// arrived while the app was backgrounded — including a pushed one the worker
+  /// just tapped away from — would leave the badge STALE (too low) until the next
+  /// cold open. On resume we re-warm immediately AND restart the foreground poll;
+  /// on pause we stop the poll (no point polling a backgrounded app).
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _refreshBadge();
+        _startPoll();
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _stopPoll();
+    }
   }
 
   /// Publishes the visible tab so each root can refetch when it comes back into
@@ -550,13 +654,11 @@ class _ShellScaffoldState extends State<_ShellScaffold> {
     _syncActiveTabAfterBuild();
     return Scaffold(
       body: widget.shell,
-      bottomNavigationBar: ValueListenableBuilder<int>(
-        valueListenable: locator<NotificationsRepository>().unreadCount,
-        builder: (BuildContext context, int unread, Widget? _) => BbBottomNav(
-          currentIndex: widget.shell.currentIndex,
-          onTap: _onTabTapped,
-          alertsUnread: unread,
-        ),
+      // The kit nav carries no badge (Alerts moved to the header bell), so the
+      // bar renders directly — no ValueListenableBuilder around it.
+      bottomNavigationBar: BbBottomNav(
+        currentIndex: widget.shell.currentIndex,
+        onTap: _onTabTapped,
       ),
     );
   }

@@ -21,6 +21,10 @@ import '../../../core/widgets/bb_stat.dart';
 /// route — they were served by a mock the real HTTP client delegated to — so
 /// they are REMOVED rather than empty-stated. The balance below is server-truth
 /// from `GET /payer/credits` via the shared [CreditsCubit].
+///
+/// JUL31 kit: a deep-blue identity header (blue-dominant structure) sits over a
+/// canvas dashboard of paper cards; haldi is rationed to the single Post-a-job
+/// action.
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     super.key,
@@ -37,43 +41,67 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s2,
-        AppSpacing.gutter,
-        AppSpacing.s6,
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         _Header(acct: session.account),
-        const SizedBox(height: AppSpacing.s5),
-        _CreditBalanceCard(onOpenCredits: onOpenCredits),
-        const SizedBox(height: AppSpacing.s5),
-        Row(
-          children: <Widget>[
-            Expanded(
-              child: BbButton(
-                label: 'Post a job',
-                iconLeft: Icons.add_circle_outline,
-                onPressed: onPost,
-              ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.gutter,
+              AppSpacing.s5,
+              AppSpacing.gutter,
+              AppSpacing.s6,
             ),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: BbButton(
-                label: 'Browse',
-                variant: BbButtonVariant.secondary,
-                iconLeft: Icons.search,
-                onPressed: onBrowse,
+            children: <Widget>[
+              _SectionLabel('OVERVIEW'),
+              const SizedBox(height: AppSpacing.s2),
+              _CreditBalanceCard(onOpenCredits: onOpenCredits),
+              const SizedBox(height: AppSpacing.s5),
+              _SectionLabel('QUICK ACTIONS'),
+              const SizedBox(height: AppSpacing.s2),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    // The ONE haldi CTA on Home.
+                    child: BbButton(
+                      label: 'Post a job',
+                      iconLeft: Icons.add_circle_outline,
+                      onPressed: onPost,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.s3),
+                  Expanded(
+                    child: BbButton(
+                      label: 'Browse',
+                      variant: BbButtonVariant.secondary,
+                      iconLeft: Icons.search,
+                      onPressed: onBrowse,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
   }
 }
 
+/// A tracked eyebrow that heads a dashboard section (kit label voice).
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) =>
+      Text(text, style: AppTypography.eyebrow(color: AppColors.textMuted));
+}
+
+/// The deep-blue identity band — org name + plan over the account avatar. Blue
+/// carries the structure; the haldi-tinted avatar is the one brand pop.
 class _Header extends StatelessWidget {
   const _Header({required this.acct});
 
@@ -81,32 +109,43 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        BbAvatar(initials: acct.initials, size: 44),
-        const SizedBox(width: AppSpacing.s3),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                acct.name,
-                style: AppTypography.display(
-                  size: AppTypography.sizeMd,
-                  weight: FontWeight.w700,
+    return Container(
+      width: double.infinity,
+      color: AppColors.blue,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.gutter,
+        AppSpacing.s5,
+        AppSpacing.gutter,
+        AppSpacing.s5,
+      ),
+      child: Row(
+        children: <Widget>[
+          BbAvatar(initials: acct.initials, size: 48),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  acct.name,
+                  style: AppTypography.display(
+                    size: AppTypography.sizeMd,
+                    weight: FontWeight.w700,
+                    color: AppColors.onBlue,
+                  ),
                 ),
-              ),
-              Text(
-                acct.plan,
-                style: AppTypography.body(
-                  size: AppTypography.sizeXs,
-                  color: AppColors.textMuted,
+                Text(
+                  acct.plan,
+                  style: AppTypography.body(
+                    size: AppTypography.sizeXs,
+                    color: AppColors.onBlueMuted,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
