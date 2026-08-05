@@ -139,18 +139,127 @@ async function main(): Promise<void> {
       ),
     });
 
+    // ── Retrieval surface (migration 0067) ───────────────────────────────────────────
+    // `text_norm` and `is_searchable` are written by `pnpm db:normalize:aliases`, never by
+    // the seeder. Every check below counts BAD ROWS, per the convention above.
+
+    // Un-normalized aliases are invisible to L0 (exact) and L2 (trigram) retrieval. Like
+    // the embedding check this is a known intermediate state right after a seed, not a
+    // defect — but it means the two FREE retrieval layers return nothing and every turn
+    // falls through to a paid embedding call, so it is loud.
+    checks.push({
+      name: "aliases with no text_norm",
+      level: "warn",
+      detail: "invisible to L0/L2 retrieval — run `pnpm db:normalize:aliases --apply`",
+      count: await one(dsql`SELECT count(*) AS n FROM "job_domain_alias" WHERE "text_norm" IS NULL`),
+    });
+
+    // A row cannot be searchable without the key retrieval searches ON. The runner clears
+    // this pair, so a non-zero count means something wrote `is_searchable` directly.
+    checks.push({
+      name: "searchable aliases with no text_norm",
+      level: "fail",
+      detail: "is_searchable was set without a normalized key — retrieval would never match them",
+      count: await one(
+        dsql`SELECT count(*) AS n FROM "job_domain_alias" WHERE "is_searchable" AND "text_norm" IS NULL`,
+      ),
+    });
+
+    // THE UNIQUE-INDEX INVARIANT, asserted independently of the index itself. The index is
+    // PARTIAL on `is_searchable`, so it can only reject a duplicate at write time; this
+    // proves the dedupe pass actually elected ONE winner per normalized form. If the
+    // runner's `row_number()` partition and the index's `NULLS NOT DISTINCT` grouping ever
+    // disagree, this is the check that says so.
+    checks.push({
+      name: "duplicate (job_domain_id, text_norm, lang) among searchable aliases",
+      level: "fail",
+      detail: "the dedupe pass elected more than one winner — re-run `db:normalize:aliases --apply`",
+      count: await one(dsql`
+        SELECT coalesce(sum(c - 1), 0) AS n FROM (
+          SELECT count(*) AS c FROM "job_domain_alias"
+           WHERE "is_searchable"
+           GROUP BY "job_domain_id", "text_norm", "lang"
+          HAVING count(*) > 1
+        ) d
+      `),
+    });
+
+    // A searchable alias on a domain a worker may not hold. `is_searchable` is a
+    // MATERIALIZED projection — it goes stale the moment a domain is deprecated, and
+    // nothing recomputes it automatically.
+    checks.push({
+      name: "searchable aliases on non-selectable or inactive domains",
+      level: "fail",
+      detail: "stale is_searchable — a worker could be matched to a bucket or a retired domain",
+      count: await one(dsql`
+        SELECT count(*) AS n FROM "job_domain_alias" a
+          JOIN "job_domain" d ON d."job_domain_id" = a."job_domain_id"
+         WHERE a."is_searchable" AND NOT (d."selectable" AND d."status" = 'active')
+      `),
+    });
+
+    // The F4 fix, asserted. All 436 ISCO unit groups are seeded `selectable` alongside
+    // 3,449 NCO occupations; the 370 with selectable NCO children must not compete with
+    // their own children in one shortlist. The 66 UNSHADOWED units stay searchable,
+    // because for those the unit group IS the leaf.
+    checks.push({
+      name: "searchable aliases on SHADOWED ISCO unit groups",
+      level: "fail",
+      detail:
+        "mixed granularity — the shortlist would offer both an ISCO unit and its own NCO children",
+      count: await one(dsql`
+        SELECT count(*) AS n FROM "job_domain_alias" a
+          JOIN "job_domain" d ON d."job_domain_id" = a."job_domain_id"
+         WHERE a."is_searchable" AND d."source" = 'isco08'
+           AND EXISTS (
+             SELECT 1 FROM "job_domain" c
+              WHERE c."parent_job_domain_id" = d."job_domain_id"
+                AND c."selectable" AND c."status" = 'active'
+           )
+      `),
+    });
+
+    // A selectable domain with aliases but NO searchable one is unreachable by retrieval —
+    // the same class of silent coverage hole as "selectable with zero aliases" above, but
+    // introduced by the normalization pass rather than by the corpus.
+    checks.push({
+      name: "selectable domains with aliases but none searchable",
+      level: "fail",
+      detail: "unreachable by retrieval — the normalization pass excluded every alias they have",
+      count: await one(dsql`
+        SELECT count(*) AS n FROM "job_domain" d
+         WHERE d."selectable" AND d."status" = 'active'
+           AND NOT (
+             d."source" = 'isco08'
+             AND EXISTS (
+               SELECT 1 FROM "job_domain" c
+                WHERE c."parent_job_domain_id" = d."job_domain_id"
+                  AND c."selectable" AND c."status" = 'active'
+             )
+           )
+           AND EXISTS (SELECT 1 FROM "job_domain_alias" a WHERE a."job_domain_id" = d."job_domain_id")
+           AND NOT EXISTS (
+             SELECT 1 FROM "job_domain_alias" a
+              WHERE a."job_domain_id" = d."job_domain_id" AND a."is_searchable"
+           )
+      `),
+    });
+
     // Embeddings. NOT a failure — an unembedded catalog is the expected state straight
     // after seeding — but retrieval returns NOTHING until it is fixed, so it is loud.
-    const unembeddedSelectable = await one(dsql`
-      SELECT count(*) AS n FROM "job_domain_alias" a
-        JOIN "job_domain" d ON d."job_domain_id" = a."job_domain_id"
-       WHERE a."embedding" IS NULL AND d."selectable" AND d."status" = 'active'
+    // Scoped to SEARCHABLE aliases since 0067: those are the rows the ANN index actually
+    // covers (it is partial on `is_searchable`). Counting every selectable-domain alias
+    // instead would report thousands of rows that retrieval was never going to read —
+    // a warning nobody can act on is a warning everybody learns to ignore.
+    const unembeddedSearchable = await one(dsql`
+      SELECT count(*) AS n FROM "job_domain_alias"
+       WHERE "embedding" IS NULL AND "is_searchable"
     `);
     checks.push({
-      name: "selectable-domain aliases with no embedding",
+      name: "searchable aliases with no embedding",
       level: "warn",
-      detail: "retrieval cannot see these — run `pnpm db:embed:domains --only-selectable`",
-      count: unembeddedSelectable,
+      detail: "L3 vector retrieval cannot see these — run `pnpm db:embed:domains --only-selectable`",
+      count: unembeddedSearchable,
     });
 
     const mockEmbeddings = await one(
@@ -181,11 +290,24 @@ async function main(): Promise<void> {
       dsql`SELECT count(*) AS n FROM "job_domain" WHERE "canonical_role_id" IS NOT NULL`,
     );
 
+    // The retrieval surface as actually built (migration 0067). Printed rather than
+    // checked: there is no single correct value, and the useful signal is the SHAPE —
+    // searchable aliases far below `aliases`, and searchable domains close to
+    // `selectable (active)` minus the shadowed ISCO units.
+    const searchableAliases = await one(
+      dsql`SELECT count(*) AS n FROM "job_domain_alias" WHERE "is_searchable"`,
+    );
+    const searchableDomains = await one(
+      dsql`SELECT count(DISTINCT "job_domain_id") AS n FROM "job_domain_alias" WHERE "is_searchable"`,
+    );
+
     console.log(`[${SCRIPT}] catalog:`);
     console.log(`  domains                    = ${domains}`);
     console.log(`  selectable (active)        = ${selectable}`);
     console.log(`  aliases                    = ${aliases}`);
     console.log(`  crosswalked to a role      = ${crosswalked}`);
+    console.log(`  searchable aliases         = ${searchableAliases}`);
+    console.log(`  searchable domains         = ${searchableDomains}`);
     console.log(`[${SCRIPT}] checks:`);
 
     let failed = 0;

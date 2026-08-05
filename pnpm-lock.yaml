@@ -252,6 +252,9 @@ importers:
       '@badabhai/match-engine':
         specifier: workspace:*
         version: link:../match-engine
+      '@badabhai/profiling-lexicon':
+        specifier: workspace:*
+        version: link:../profiling-lexicon
       '@badabhai/reach-engine':
         specifier: workspace:*
         version: link:../reach-engine

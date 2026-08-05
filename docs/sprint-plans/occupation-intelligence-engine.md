@@ -415,6 +415,57 @@ Complexity: S ≤2d, M 3–5d, L 6–10d, XL >10d.
 
 **Rollback.** Drop 0068 then 0067 indexes/columns; restore the previous `nearestDomains` body (kept in git history, not behind a flag).
 
+#### AS BUILT — five deltas, each forced by a measurement
+
+Phase 1 shipped in migration **`0067_slim_hawkeye`**. Every acceptance criterion is met, but five
+things differ from the scope above. Each was driven by running the plan against the live catalogue,
+not by preference.
+
+1. **`0068` was folded into `0067`, and is released back to the pool.** The split existed because a
+   unique index on `(job_domain_id, text_norm, lang) NULLS NOT DISTINCT` cannot be created while
+   `text_norm` is still NULL — verified: `Key (job_domain_id, text_norm, lang)=(jd_isco_8111, null,
+   en) is duplicated`. On a FRESH database the failure lands somewhere worse than an upgrade: the
+   migrations apply cleanly against an empty table and then `db:seed:domains` aborts mid-chunk, so
+   CI and every new developer hit it. Making the index **partial on `is_searchable`** (default
+   `false`) removes the ordering dependency entirely — it is empty at creation and cannot fail.
+
+2. **`is_searchable` gained a third determinant: dedupe.** The plan's formula has two clauses
+   (selectable+active, not-shadowed). A third is required, because the plan's duplicate count was
+   measured on RAW text. Running the real normalizer over all 8,695 aliases finds **70** within-domain
+   collisions, not 1 — pairs differing only in punctuation (`"Signaller (railway)"` vs
+   `"Signaller, railway"`). Rather than delete rows (they carry stable ids and paid embeddings) or
+   NULL the loser's `text_norm` (which would break the runner's `IS NULL` resumability predicate and
+   loop forever), `is_searchable` elects exactly one representative per normalized form. All three
+   clauses answer the same question — "should retrieval see this row?".
+
+3. **The overfetch is `clamp(k*8, 50, 100)`, not `…, 400`.** Postgres costs an HNSW scan against a
+   sequential scan and silently picks the scan past a threshold, returning identical rows more
+   slowly. Measured on the partial index: `LIMIT 100` → Index Scan 4.1 ms, `LIMIT 150` → **Seq Scan**
+   13.5 ms. An overfetch of 400 is therefore strictly worse than no rewrite at all. Separately,
+   `hnsw.ef_search = 800` loses the index at *every* limit including 50 — widening for recall is not
+   free. Both thresholds move with corpus size, so **re-measure after Phase 2** rather than trusting
+   the constants.
+
+4. **`skeletonKey` is a consonant skeleton, not the vowel substitutions the Phase 0 contract
+   described.** Those rules score 2/5 on their own stated examples (they miss
+   `welder/waelder/velder`, `mistri/mistry`, `driver/draiver`). The consonant skeleton scores 5/5 for
+   a measured 0.9% collision cost. Signature unchanged.
+
+5. **The inert "catalog is empty" check was already fixed on `main`** (it landed via #583), so Phase 1
+   only had to prove it: `db:verify:domains` on an empty catalogue exits 1. Six NEW checks were added
+   for the `text_norm`/`is_searchable` invariants, and each was proven to fire on injected corruption
+   rather than merely to pass.
+
+**Verified:** `is_searchable` → **4,660 aliases across 3,515 domains** — exactly the planned
+`3,885 − 370`. `EXPLAIN` shows `Index Scan using job_domain_alias_embedding_hnsw`; the query went
+from a 8,695-row Seq Scan + full sort at **44.8 ms** to **10.2 ms**, and from O(n) to O(log n) in
+alias count. Fresh-DB rehearsal (migrate → seed → normalize) and rollback → re-apply both clean.
+
+**Not done, deliberately:** the plan's `job_domain_active_selectable_idx` covering index. The outer
+join is a PK probe over ≤100 candidate rows and already shows `Index Scan using job_domain_pkey`; a
+redundant covering index would cost write amplification on every catalogue seed for no measured gain.
+Revisit if the candidate set grows.
+
 ---
 
 ### Phase 2 — Vernacular Alias Corpus  *(Owner: Divyanshu · XL · after P1)*

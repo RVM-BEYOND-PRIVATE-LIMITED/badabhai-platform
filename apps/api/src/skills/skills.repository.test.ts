@@ -7,62 +7,135 @@ import { SkillsRepository } from "./skills.repository";
  * DB-free unit of the raw SQL behind the generalized-profiling RAG retrieval.
  *
  * `nearestDomains` is the whole first stage of the match: it decides which occupations
- * the model is even allowed to choose between, and four independent decisions live ONLY
+ * the model is even allowed to choose between, and five independent decisions live ONLY
  * in that one statement —
  *
- *   - `DISTINCT ON (a.job_domain_id)` with the dedupe key LEADING the ORDER BY, so a
- *     domain with forty aliases contributes its best one instead of filling the whole
- *     shortlist with itself and crowding out the alternatives;
- *   - `d.selectable = true`, so an ISCO organising node ("Craft and Related Trades
- *     Workers" — nobody's actual trade) can never be matched to a worker;
- *   - `d.status = 'active'`, so a deprecated row stays resolvable by id but is never
- *     re-matched;
- *   - the JS-side re-sort + `.slice(0, k)`, which is the ONLY thing bounding the result
- *     (there is deliberately no SQL LIMIT — DISTINCT ON must see every alias first).
+ *   - the ANN stage is a bare `ORDER BY <=> ... LIMIT n`, the ONLY shape an HNSW index can
+ *     serve. The previous form led its ORDER BY with the dedupe key (which `DISTINCT ON`
+ *     requires) and carried no SQL LIMIT, so it could never use the index it was built
+ *     for: EXPLAIN showed a Seq Scan + full sort of all 8,695 aliases on every turn;
+ *   - `WHERE a.is_searchable`, which the PARTIAL HNSW index needs in the query before
+ *     Postgres will use it — dropping it returns the SAME ROWS via a sequential scan, a
+ *     regression with no symptom other than latency;
+ *   - `DISTINCT ON (job_domain_id)`, so a domain with forty aliases contributes its best
+ *     one instead of filling the whole shortlist with itself and crowding out the
+ *     alternatives;
+ *   - `d.selectable = true` and `d.status = 'active'`, re-checked against the source of
+ *     truth even though `is_searchable` implies both — that flag is a materialized
+ *     projection and goes stale between `db:normalize:aliases` runs;
+ *   - the SQL `LIMIT k`, which now bounds the result (the JS `.sort().slice()` is gone —
+ *     the ORDER BY on distance does that work in the database).
  *
  * The ai-service cannot compensate for any of them: it only re-checks the model's pick
  * against the shortlist it was handed, so anything wrongly IN that shortlist is a
  * legitimate answer as far as it can tell.
  */
 function makeCapturingDb(rows: unknown[] = []) {
-  const captured: { sql?: unknown } = {};
+  const captured: { sql?: unknown; statements: unknown[] } = { statements: [] };
+  const exec = vi.fn((statement: unknown) => {
+    captured.statements.push(statement);
+    // The last statement of the transaction is the retrieval query; `SET LOCAL` precedes it.
+    captured.sql = statement;
+    return Promise.resolve(rows);
+  });
   const db = {
-    execute: vi.fn((statement: unknown) => {
-      captured.sql = statement;
-      return Promise.resolve(rows);
-    }),
+    execute: exec,
+    // `nearestDomains` runs inside a transaction so `SET LOCAL hnsw.ef_search` applies.
+    transaction: vi.fn((fn: (tx: unknown) => unknown) => Promise.resolve(fn({ execute: exec }))),
   };
   return { db, captured };
 }
 
 const render = (statement: unknown) => new PgDialect().sqlToQuery(statement as never);
 
+/**
+ * The rendered statement, with `--` comments REMOVED and whitespace collapsed.
+ *
+ * Stripping the comments is not cosmetic. These statements are heavily commented, and
+ * collapsing whitespace first would fold that prose into the asserted string — at which
+ * point `toContain("a.is_searchable")` passes on a comment that merely mentions
+ * `is_searchable` while the actual predicate is gone. Every structural assertion below
+ * would become vacuous in exactly the case it exists to catch.
+ */
+function sqlText(statement: unknown): string {
+  return render(statement)
+    .sql.split("\n")
+    .map((line) => {
+      const comment = line.indexOf("--");
+      return comment === -1 ? line : line.slice(0, comment);
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .trim();
+}
+
 const VECTOR = Array.from({ length: 768 }, (_, i) => i / 768);
 
 describe("SkillsRepository.nearestDomains — the retrieval SQL", () => {
+  it("stages the ANN as a bare ORDER BY <=> ... LIMIT, the only shape HNSW serves", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestDomains(VECTOR, 10);
+
+    const sql = sqlText(captured.sql);
+    const ann = sql.slice(sql.indexOf("with ann as"), sql.indexOf(", best as"));
+
+    // Inside the ANN CTE the distance must be the FIRST thing ordered on. Anything ahead
+    // of it (as `DISTINCT ON` used to force) makes the index unusable.
+    const annOrderBy = ann.slice(ann.indexOf("order by"));
+    expect(annOrderBy).toContain("<=>");
+    expect(annOrderBy.indexOf("<=>")).toBeLessThan(
+      annOrderBy.indexOf("job_domain_id") === -1 ? Infinity : annOrderBy.indexOf("job_domain_id"),
+    );
+    // And it must be bounded, or HNSW has nothing to stop at.
+    expect(ann).toContain("limit");
+  });
+
+  it("carries `is_searchable`, without which the PARTIAL index is silently unusable", async () => {
+    // This is the assertion with the least obvious failure mode in the file. Postgres only
+    // uses a partial index when the query repeats its predicate; drop this WHERE and the
+    // query still returns the correct rows, just via a full scan. Nothing else catches it.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestDomains(VECTOR, 10);
+
+    const sql = sqlText(captured.sql);
+    expect(sql).toContain("a.is_searchable");
+  });
+
+  it("widens hnsw.ef_search inside a transaction, so it cannot leak across the pool", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestDomains(VECTOR, 10);
+
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    const setLocal = sqlText(captured.statements[0]);
+    // `SET LOCAL`, never a bare `SET`: this connection is pooled and the next borrower
+    // must not inherit a wider search.
+    expect(setLocal).toContain("set local hnsw.ef_search");
+  });
+
   it("dedupes to one row per domain, with the distance choosing which alias survives", async () => {
     const { db, captured } = makeCapturingDb();
     await new SkillsRepository(db as never).nearestDomains(VECTOR, 10);
 
-    const sql = render(captured.sql).sql.replace(/\s+/g, " ").toLowerCase();
-    expect(sql).toContain("distinct on (a.job_domain_id)");
-    // The DISTINCT ON key must LEAD the ORDER BY — Postgres requires it, and it is what
-    // makes "best alias per domain" true rather than "arbitrary alias per domain".
-    const orderBy = sql.slice(sql.lastIndexOf("order by"));
-    expect(orderBy.indexOf("a.job_domain_id")).toBeGreaterThanOrEqual(0);
-    expect(orderBy.indexOf("a.job_domain_id")).toBeLessThan(orderBy.indexOf("<=>"));
+    const sql = sqlText(captured.sql);
+    expect(sql).toContain("distinct on (job_domain_id)");
+    // Within the dedupe CTE the key still has to lead — Postgres requires it, and it is
+    // what makes "best alias per domain" true rather than "arbitrary alias per domain".
+    const best = sql.slice(sql.indexOf(", best as"), sql.indexOf("select b.job_domain_id"));
+    const bestOrderBy = best.slice(best.indexOf("order by"));
+    expect(bestOrderBy.indexOf("job_domain_id")).toBeLessThan(bestOrderBy.indexOf("dist"));
   });
 
-  it("searches ONLY selectable, active domains", async () => {
+  it("re-checks selectable + active against the catalogue, not just the cached flag", async () => {
     const { db, captured } = makeCapturingDb();
     await new SkillsRepository(db as never).nearestDomains(VECTOR, 10);
 
-    const sql = render(captured.sql).sql.replace(/\s+/g, " ").toLowerCase();
+    const sql = sqlText(captured.sql);
+    // `is_searchable` already implies both, but it is a materialized projection refreshed
+    // by `db:normalize:aliases`. Between runs it can be stale, and a stale flag must never
+    // be able to put a worker in a deprecated domain.
     expect(sql).toContain("selectable = true");
     expect(sql).toContain("status = 'active'");
-    // Un-embedded aliases can never match — a NULL vector would otherwise sort first
-    // under some operator classes.
-    expect(sql).toContain("embedding is not null");
   });
 
   it("binds the query vector as a pgvector literal parameter, never inlined", async () => {
@@ -76,21 +149,41 @@ describe("SkillsRepository.nearestDomains — the retrieval SQL", () => {
     expect(params).toContain(JSON.stringify(VECTOR));
   });
 
-  it("returns the k HIGHEST-scoring domains, in descending score order", async () => {
-    // The SQL orders by DISTANCE within each domain; the cross-domain ranking is done
-    // here, because DISTINCT ON forces its own ORDER BY. Without this re-sort the
-    // shortlist would be in job_domain_id order, and `.slice` would keep the wrong ten.
+  it("bounds the result with a SQL LIMIT k, and overfetches within the measured envelope", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestDomains(VECTOR, 8);
+
+    const { params } = render(captured.sql);
+    // k reaches SQL rather than a JS `.slice` — the old form had NO SQL limit at all.
+    expect(params).toContain(8);
+    // Overfetch = clamp(k*8, 50, 100). 100 is the largest LIMIT measured to still use the
+    // index; above it the planner switches to a sequential scan and returns the same rows
+    // more slowly. A change here MUST be re-measured, not reasoned about.
+    expect(params).toContain(64);
+  });
+
+  it("clamps the overfetch at both ends", async () => {
+    const small = makeCapturingDb();
+    await new SkillsRepository(small.db as never).nearestDomains(VECTOR, 1);
+    expect(render(small.captured.sql).params).toContain(50);
+
+    const large = makeCapturingDb();
+    await new SkillsRepository(large.db as never).nearestDomains(VECTOR, 50);
+    expect(render(large.captured.sql).params).toContain(100);
+  });
+
+  it("returns rows in the order SQL produced, with numeric scores", async () => {
+    // The ORDER BY on distance now happens in the database, so this must NOT re-sort —
+    // a JS re-sort would silently mask a broken SQL ordering.
     const { db } = makeCapturingDb([
-      { job_domain_id: "isco_a", label: "A", score: "0.40" },
       { job_domain_id: "isco_b", label: "B", score: "0.95" },
       { job_domain_id: "isco_c", label: "C", score: "0.72" },
     ]);
     const out = await new SkillsRepository(db as never).nearestDomains(VECTOR, 2);
 
     expect(out.map((c) => c.job_domain_id)).toEqual(["isco_b", "isco_c"]);
-    // Postgres returns numerics as strings over the wire; a string score would sort
-    // lexicographically ("0.9" < "0.40" is false, but "0.40" < "0.95" is true only by
-    // luck) and would break the ai-service's floor comparison outright.
+    // Postgres returns numerics as strings over the wire; a string score would break the
+    // ai-service's floor comparison outright.
     expect(out.every((c) => typeof c.score === "number")).toBe(true);
     expect(out[0]!.score).toBeCloseTo(0.95);
   });
@@ -110,7 +203,7 @@ describe("SkillsRepository.isSelectableDomain — the last hallucination wall", 
     const ok = await new SkillsRepository(db as never).isSelectableDomain("isco_7223");
 
     expect(ok).toBe(true);
-    const sql = render(captured.sql).sql.replace(/\s+/g, " ").toLowerCase();
+    const sql = sqlText(captured.sql);
     expect(sql).toContain("selectable = true");
     expect(sql).toContain("status = 'active'");
     expect(render(captured.sql).params).toContain("isco_7223");

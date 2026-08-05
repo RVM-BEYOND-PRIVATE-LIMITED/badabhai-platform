@@ -46,6 +46,25 @@ This is the same mechanism, and the same reasoning, as
 
 ## Status
 
-Phase 0 froze the **contracts** in `src/`. Phase 3 performs the extraction: moving the data out of
-`signals.py` into `data/`, implementing the readers, and populating the ≥300-case parity corpus.
-Until Phase 3 lands, `signals.py` remains the sole implementation and nothing imports this package.
+Phase 0 froze the **contracts** in `src/`.
+
+**`src/normalize/` is IMPLEMENTED** (Phase 1, Divyanshu). `normalizeOccupationText`,
+`normalizeOccupationTextTraced` and `skeletonKey` are real, `data/particles.json` is populated, and
+`@badabhai/db` consumes them from `db:normalize:aliases` to build `job_domain_alias.text_norm`. This
+is the occupation-text half of the lexicon only — the particle list wraps a TRADE NAME and is
+deliberately scoped to that; conversational cues (don't-know, correction, negation) are not here.
+
+`src/predicates/` and `src/values/` are still `export declare` stubs. Phase 3 (Prakash) performs that
+extraction: moving the conversational data out of `signals.py` into `data/`, implementing the readers,
+and populating the ≥300-case parity corpus. Until then `signals.py` remains the sole implementation of
+those, and `__fixtures__/utterances.jsonl` does not exist yet.
+
+### A note on `skeletonKey`, for whoever reads it next
+
+The Phase 0 contract described the fold as vowel substitution (`aa→a`, `ee→i`, `oo→u`, drop trailing
+`-a`). Measured against all 8,695 seeded aliases, those rules scored **2/5 on their own stated
+examples** — they miss the headline case `welder/waelder/velder`, and also `mistri/mistry` and
+`driver/draiver`. The shipped implementation is a **consonant skeleton**, which scores 5/5 for a
+measured collision cost of 0.9% (37 keys shared by 75 of 8,695 texts, most of them foldings we want:
+`glazier|glazer`, `waitress|waiters`, `brakes man|breaks man`). The signature is unchanged; the doc
+comment on the function carries the full reasoning.

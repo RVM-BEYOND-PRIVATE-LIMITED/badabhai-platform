@@ -2,6 +2,7 @@
  * Occupation domain — the generalized-profiling JOB DOMAIN catalog and its aliases.
  */
 import { sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   pgTable,
@@ -109,6 +110,21 @@ export const jobDomains = pgTable(
     // silently breaks equality against a trimmed value.
     iscoMajorCode: text("isco_major_code"),
     iscoUnitCode: text("isco_unit_code"),
+    // The two INTERMEDIATE ISCO levels, DERIVED from `isco_unit_code` rather than stored
+    // independently (migration 0067). ISCO-08 codes are strictly positional — unit `7223`
+    // is minor `722` is sub-major `72` — so these can never disagree with the unit code,
+    // and GENERATED ALWAYS makes that structural instead of a seeder promise.
+    //
+    // WHY THEY EXIST: family bindings resolve most-specific-first across five levels
+    // (unit -> minor -> sub-major -> major -> universal). Without these two columns the
+    // middle two levels need `left(isco_unit_code, 3)` in the predicate, which is not
+    // sargable and cannot use an index.
+    iscoMinorCode: text("isco_minor_code").generatedAlwaysAs(
+      (): SQL => sql`left(${jobDomains.iscoUnitCode}, 3)`,
+    ),
+    iscoSubmajorCode: text("isco_submajor_code").generatedAlwaysAs(
+      (): SQL => sql`left(${jobDomains.iscoUnitCode}, 2)`,
+    ),
     // ISCO-08 skill level 1..4. DESCRIPTIVE ONLY — never an input to ranking
     // (invariant #4: rank is deterministic and lives in the match engine).
     skillLevel: smallint("skill_level"),
@@ -142,6 +158,9 @@ export const jobDomains = pgTable(
     index("job_domain_selectable_idx").on(t.selectable, t.status),
     // Branch-scoped retrieval without a recursive CTE.
     index("job_domain_isco_unit_idx").on(t.iscoUnitCode),
+    // The two intermediate rungs of the family-binding fallback chain (migration 0067).
+    index("job_domain_isco_minor_idx").on(t.iscoMinorCode),
+    index("job_domain_isco_submajor_idx").on(t.iscoSubmajorCode),
     check("job_domain_source_chk", sql`${t.source} IN ('isco08', 'nco2015', 'rvm')`),
     check("job_domain_status_chk", sql`${t.status} IN ('active', 'provisional', 'deprecated')`),
     check("job_domain_level_chk", sql`${t.level} BETWEEN 1 AND 5`),
@@ -188,6 +207,39 @@ export const jobDomainAliases = pgTable(
       .notNull()
       .references(() => jobDomains.jobDomainId, { onDelete: "cascade" }),
     text: text("text").notNull(),
+    // THE L0/L2 SEARCH KEY (migration 0067). `normalizeOccupationText` applied to `text`:
+    // NFKC, lowercased, punctuation stripped, Indian occupational particles removed. Both
+    // the seeder AND the query path call that one function, which is the whole point — two
+    // normalizers that drift make exact-match retrieval silently return nothing.
+    //
+    // NOT a GENERATED column, deliberately: the particle list is DATA
+    // (`@badabhai/profiling-lexicon` `data/particles.json`) and changes without a deploy,
+    // a generated column would force a full table rewrite on every rule change, and
+    // Postgres forbids a non-IMMUTABLE expression there anyway.
+    //
+    // NULL means "not normalized yet" and is the runner's resumability predicate
+    // (`WHERE text_norm IS NULL`). It is never used to mean "excluded" — that is
+    // `is_searchable`'s job, precisely so the runner terminates.
+    textNorm: text("text_norm"),
+    // IS THIS ROW PART OF THE RETRIEVAL SURFACE? Three independent reasons it may not be,
+    // all of them the same question, all set by `pnpm db:normalize:aliases`:
+    //   1. the domain is not `selectable AND status='active'`;
+    //   2. the domain is an ISCO unit group SHADOWED by selectable NCO children — 370 of
+    //      the 436 units. Both granularities are seeded and both are `selectable`, so
+    //      without this the shortlist mixes "Welders and Flame Cutters" with 44 specific
+    //      NCO welding occupations. `selectable` itself is left ALONE: it is referenced by
+    //      a CHECK and by written `worker_profiles.job_domain_id` values;
+    //   3. this alias is not the canonical representative of its `text_norm` within the
+    //      domain. 70 alias pairs differ only in punctuation ("Signaller (railway)" vs
+    //      "Signaller, railway") and collapse onto one `text_norm`.
+    //
+    // Reason 3 is why the 0068 unique index is PARTIAL on this column instead of covering
+    // the table: a losing duplicate keeps its row, its stable id and its paid embedding,
+    // and simply stops being retrievable. Nothing is deleted (CLAUDE.md §10).
+    //
+    // Constant DEFAULT false => metadata-only on PG11+, no table rewrite. Same argument
+    // `skill.kind` already makes.
+    isSearchable: boolean("is_searchable").notNull().default(false),
     lang: text("lang").$type<LanguageCode>(),
     source: text("source").$type<JobDomainSource>().notNull(),
     // 768-dim to match the existing corpus (gemini-embedding-001 @ 768, L2-normalized
@@ -205,8 +257,37 @@ export const jobDomainAliases = pgTable(
   (t) => [
     // FK-referencing column; the ON DELETE cascade needs it.
     index("job_domain_alias_job_domain_id_idx").on(t.jobDomainId),
-    // The ANN index the retrieval query orders on.
-    index("job_domain_alias_embedding_hnsw").using("hnsw", t.embedding.op("vector_cosine_ops")),
+    // L0 — exact normalized lookup. Plain btree; the query is an equality probe.
+    index("job_domain_alias_text_norm_idx").on(t.textNorm),
+    // L2 — fuzzy lookup via pg_trgm `word_similarity`. The extension is installed by
+    // migration 0067 (hand-prepended `CREATE EXTENSION`, the 0001 pgvector precedent).
+    index("job_domain_alias_text_norm_trgm_idx").using("gin", t.textNorm.op("gin_trgm_ops")),
+    // L3 — the ANN index the retrieval query orders on.
+    //
+    // PARTIAL + RETUNED in migration 0068 (`m=16, ef_construction=128, WHERE is_searchable`).
+    // Doing it in Phase 1 is close to free: the index is empty of real vectors today, so
+    // the rebuild costs nothing, whereas retuning after the Phase 2 backfill would mean
+    // re-indexing a paid-for corpus.
+    //
+    // The partial predicate is load-bearing for the QUERY, not just for size: Postgres only
+    // uses a partial index when the query carries a matching predicate, so
+    // `nearestDomains` MUST say `WHERE is_searchable` or it silently falls back to a
+    // sequential scan and returns identical rows, only slower.
+    index("job_domain_alias_embedding_hnsw")
+      .using("hnsw", t.embedding.op("vector_cosine_ops"))
+      .with({ m: 16, ef_construction: 128 })
+      .where(sql`${t.isSearchable}`),
+    // The L0/L2 uniqueness guarantee, PARTIAL so that un-normalized and duplicate rows can
+    // coexist with it.
+    //
+    // Migration 0067 adds `NULLS NOT DISTINCT` (PG15) BY HAND — this drizzle version can
+    // model that clause only on a table CONSTRAINT, never on an INDEX, so the model below
+    // is knowingly a subset of what is deployed. Same drift, same reason, and the same
+    // both-ends documentation as `unresolved_phrase_uq` (see skill.ts). Without the clause
+    // a NULL `lang` would make two otherwise-identical aliases count as distinct.
+    uniqueIndex("job_domain_alias_domain_norm_lang_uq")
+      .on(t.jobDomainId, t.textNorm, t.lang)
+      .where(sql`${t.isSearchable}`),
     check("job_domain_alias_source_chk", sql`${t.source} IN ('isco08', 'nco2015', 'rvm')`),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0066
