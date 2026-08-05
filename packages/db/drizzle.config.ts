@@ -17,7 +17,7 @@ config({ path: "../../.env" });
  * infra/supabase/local-dev.md.
  */
 export default defineConfig({
-  schema: "./src/schema.ts",
+  schema: "./src/schema/index.ts",
   out: "./migrations",
   dialect: "postgresql",
   dbCredentials: {

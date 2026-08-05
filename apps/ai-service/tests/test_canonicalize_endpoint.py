@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app import main as app_main
 from app.ai.canonicalize import canonicalize_skill
 from app.config import Settings
+from app.routers import skills as skills_router
 
 client = TestClient(app_main.app)
 
@@ -28,7 +29,8 @@ class OneHitStore:
 
 
 def test_flag_off_is_inert_unresolved(monkeypatch):
-    monkeypatch.setattr(app_main, "get_settings", lambda: Settings())  # flag OFF default
+    # flag OFF default
+    monkeypatch.setattr(skills_router, "get_settings", lambda: Settings(_env_file=None))
     resp = client.post(
         "/skills/canonicalize",
         json={"phrase": "lathe operation", "domain_id": "cnc-machining"},
@@ -39,9 +41,9 @@ def test_flag_off_is_inert_unresolved(monkeypatch):
 
 
 def test_matched_id_comes_only_from_the_store(monkeypatch):
-    enabled = Settings(skill_canonicalize_enabled=True)
-    monkeypatch.setattr(app_main, "get_settings", lambda: enabled)
-    monkeypatch.setattr(app_main, "get_skill_store", lambda s: OneHitStore())
+    enabled = Settings(_env_file=None, skill_canonicalize_enabled=True)
+    monkeypatch.setattr(skills_router, "get_settings", lambda: enabled)
+    monkeypatch.setattr(skills_router, "get_skill_store", lambda s: OneHitStore())
 
     resp = client.post(
         "/skills/canonicalize",
@@ -51,7 +53,7 @@ def test_matched_id_comes_only_from_the_store(monkeypatch):
     body = resp.json()
     assert body["status"] == "matched"
     assert body["skill_id"] == "skill_turning"  # the store's closed set — never invented
-    assert body["score"] >= Settings().skill_canonicalize_floor
+    assert body["score"] >= Settings(_env_file=None).skill_canonicalize_floor
 
     # Wrong domain -> the store returns nothing -> UNRESOLVED (domain scoping holds).
     resp2 = client.post(
@@ -65,15 +67,15 @@ def test_worker_and_job_paths_share_one_id_space(monkeypatch):
     """The shared-id proof (TAX-6 acceptance): the WORKER side calls canonicalize_skill
     directly (via canonicalize_labels in extract); the JOB side reaches it through this
     endpoint. Same phrase + same store ⇒ the SAME skill_id on both sides."""
-    enabled = Settings(skill_canonicalize_enabled=True)
+    enabled = Settings(_env_file=None, skill_canonicalize_enabled=True)
     store = OneHitStore()
 
     # Worker-side result (direct library call — what the extract wiring runs).
     worker_side = canonicalize_skill("lathe operation", "cnc-machining", store, enabled)
 
     # Job-side result (the HTTP seam the api uses at posting create/update).
-    monkeypatch.setattr(app_main, "get_settings", lambda: enabled)
-    monkeypatch.setattr(app_main, "get_skill_store", lambda s: store)
+    monkeypatch.setattr(skills_router, "get_settings", lambda: enabled)
+    monkeypatch.setattr(skills_router, "get_skill_store", lambda s: store)
     job_side = client.post(
         "/skills/canonicalize",
         json={"phrase": "lathe operation", "domain_id": "cnc-machining"},
@@ -112,13 +114,14 @@ def test_real_embed_ledger_block_returns_unresolved_without_embedding(monkeypatc
     from app.ai import embeddings
 
     enabled = Settings(
+        _env_file=None,
         skill_canonicalize_enabled=True,
         ai_enable_real_calls=True,
         gemini_flash_api_key="k",
         ai_real_call_tasks="skill_embedding",
     )
-    monkeypatch.setattr(app_main, "get_settings", lambda: enabled)
-    monkeypatch.setattr(app_main, "get_skill_store", lambda s: OneHitStore())
+    monkeypatch.setattr(skills_router, "get_settings", lambda: enabled)
+    monkeypatch.setattr(skills_router, "get_skill_store", lambda s: OneHitStore())
     fake = _install_ledger(monkeypatch, block_reason="cumulative_cap_exceeded")
     embed_calls: list[str] = []
     monkeypatch.setattr(
@@ -138,9 +141,10 @@ def test_real_embed_ledger_block_returns_unresolved_without_embedding(monkeypatc
 
 def test_mock_embed_path_never_touches_the_ledger(monkeypatch):
     # TD68: mock embeds (real_call_enabled_for false) make ZERO ledger traffic.
-    enabled = Settings(skill_canonicalize_enabled=True)  # no real flag/key -> mock embed
-    monkeypatch.setattr(app_main, "get_settings", lambda: enabled)
-    monkeypatch.setattr(app_main, "get_skill_store", lambda s: OneHitStore())
+    # no real flag/key -> mock embed
+    enabled = Settings(_env_file=None, skill_canonicalize_enabled=True)
+    monkeypatch.setattr(skills_router, "get_settings", lambda: enabled)
+    monkeypatch.setattr(skills_router, "get_skill_store", lambda s: OneHitStore())
     fake = _install_ledger(monkeypatch)
 
     resp = client.post(

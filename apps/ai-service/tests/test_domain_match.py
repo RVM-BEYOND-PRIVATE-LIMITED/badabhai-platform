@@ -253,7 +253,7 @@ class TestDegradation:
 
 
 def test_every_status_matches_the_worker_profiles_CHECK_constraint():
-    # These five strings are duplicated in packages/db/src/schema.ts as the
+    # These five strings are duplicated in packages/db/src/schema/worker.ts as the
     # `job_domain_match_status` CHECK. A value invented here would be rejected at write
     # time, at the end of a long async pipeline, for one worker at a time.
     assert {
@@ -302,14 +302,19 @@ class TestExtractEndpointWiring:
         from fastapi.testclient import TestClient
 
         from app import main
+        from app.routers import profile as profile_router
 
-        enabled = main.settings.model_copy(update={"domain_match_enabled": True})
-        monkeypatch.setattr(main, "settings", enabled)
-        monkeypatch.setattr(main, "get_settings", lambda: enabled)
-        monkeypatch.setattr(main, "get_domain_store", lambda _s: store)
-        monkeypatch.setattr(main, "embed_text", embed)
+        # POST /profile/extract now lives in app.routers.profile and resolves
+        # `settings` / `get_domain_store` / `embed_text` / `router` from THAT module's
+        # globals, so the seams have to be patched there rather than on app.main.
+        # (`get_settings` is deliberately not patched: the extract handler never reads
+        # it — only app.main's service-auth middleware does.)
+        enabled = profile_router.settings.model_copy(update={"domain_match_enabled": True})
+        monkeypatch.setattr(profile_router, "settings", enabled)
+        monkeypatch.setattr(profile_router, "get_domain_store", lambda _s: store)
+        monkeypatch.setattr(profile_router, "embed_text", embed)
         if router is not None:
-            monkeypatch.setattr(main, "router", router)
+            monkeypatch.setattr(profile_router, "router", router)
         return TestClient(main.app)
 
     async def test_a_match_reaches_the_response(self, monkeypatch):
