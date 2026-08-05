@@ -353,7 +353,15 @@ def test_startup_log_fires_even_under_the_td67_locked_posture(caplog, monkeypatc
     ledger — so the boot log is the ONLY signal of which backend is live."""
     from fastapi.testclient import TestClient
 
+    from app.routers import health as health_router
+
     locked = Settings(_env_file=None, ai_internal_token="x" * 16)
+    # GET /health now lives in app.routers.health and reads `get_settings` / `settings`
+    # from THAT module's globals — patch it there or the handler never sees the locked
+    # posture. app.main is still patched because its service-auth middleware resolves
+    # `get_settings` from app.main, so both halves of the locked posture stay real.
+    monkeypatch.setattr(health_router, "settings", locked)
+    monkeypatch.setattr(health_router, "get_settings", lambda: locked)
     monkeypatch.setattr(app_main, "settings", locked)
     monkeypatch.setattr(app_main, "get_settings", lambda: locked)
     monkeypatch.setattr(cost_tracker, "_ledger", None)

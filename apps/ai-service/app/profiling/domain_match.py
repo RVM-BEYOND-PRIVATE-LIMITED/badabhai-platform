@@ -57,7 +57,7 @@ from ..logging_config import get_logger
 logger = get_logger("profiling.domain_match")
 
 # Match statuses. These are the SAME closed vocabulary as the `job_domain_match_status`
-# CHECK constraint on `worker_profiles` (packages/db/src/schema.ts) — the column is what
+# CHECK constraint on `worker_profiles` (packages/db/src/schema/worker.ts) — the column is what
 # ops and the learn layer read, so a value invented here would be rejected at write time.
 MATCHED_AUTO = "matched_auto"
 MATCHED_LLM = "matched_llm"

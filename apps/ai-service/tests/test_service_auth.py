@@ -23,6 +23,33 @@ TOKEN = "test-service-token-0123456789abcdef"
 HEADER = "x-ai-internal-token"
 
 
+def _served_paths_with_method(router: object, method: str) -> set[str]:
+    """Every path the app actually SERVES for ``method``, including undocumented ones.
+
+    ``include_router`` does not flatten its routes into ``app.routes`` on this FastAPI
+    (0.140.x): it leaves a wrapper object whose own ``.path`` / ``.methods`` are absent,
+    so a flat filter finds nothing. Recurse through the wrapper to the router it holds.
+
+    Written defensively against the wrapper's private shape — it is an internal, and the
+    attribute name has changed across releases. If a future upgrade renames BOTH probes,
+    this returns fewer paths and the exact-count assertion in the caller fails loudly,
+    which is the correct outcome: a route enumeration that silently finds nothing is the
+    failure this helper exists to prevent.
+    """
+    found: set[str] = set()
+    for route in getattr(router, "routes", []):
+        methods = getattr(route, "methods", None)
+        path = getattr(route, "path", None)
+        if methods and path and method in methods:
+            found.add(path)
+            continue
+        # An include_router wrapper: descend into the router it carries.
+        inner = getattr(route, "original_router", None) or getattr(route, "app", None)
+        if inner is not None and hasattr(inner, "routes"):
+            found |= _served_paths_with_method(inner, method)
+    return found
+
+
 @pytest.fixture
 def auth_enabled() -> Iterator[None]:
     """Point the module-global settings at a token-bearing Settings, restore after."""
@@ -103,14 +130,27 @@ class TestServiceAuthEnabled:
         assert client.get("/docs").status_code == 401
 
     def test_every_post_route_is_gated(self, auth_enabled):
-        """No route can silently opt out: every POST path in the app 401s tokenless."""
+        """No route can silently opt out: every POST path the app SERVES 401s tokenless.
+
+        Enumerated by walking the real route tree, which since the handlers moved into
+        ``app/routers/*.py`` requires recursing THROUGH the ``include_router`` wrappers:
+        ``app.routes`` holds opaque objects with no ``.path`` / ``.methods``, so a flat
+        filter over it silently yields ZERO paths — the floor below was the only thing
+        standing between that and a vacuous pass.
+
+        Deliberately NOT enumerated from ``app.openapi()``. The OpenAPI document is the
+        DOCUMENTED surface, not the SERVED one: ``include_in_schema=False`` routes are
+        absent from it, and this app already serves four of them (``/docs``,
+        ``/openapi.json``, ``/docs/oauth2-redirect``, ``/redoc``). A route added with
+        ``include_in_schema=False`` and quietly added to ``_AUTH_EXEMPT_PATHS`` would
+        therefore be INVISIBLE to an OpenAPI-based check while serving traffic tokenless
+        — which is the exact failure mode this test exists to prevent.
+        """
         client = TestClient(app)
-        post_paths = [
-            route.path
-            for route in app.routes
-            if getattr(route, "methods", None) and "POST" in route.methods
-        ]
-        assert len(post_paths) >= 8  # the service's POST surface (sanity floor)
+        post_paths = sorted(_served_paths_with_method(app.router, "POST"))
+        # Pinned to the ACTUAL surface, not a loose floor: this count is the only
+        # structural defense against the enumeration silently shrinking again.
+        assert len(post_paths) == 12, f"POST surface changed: {post_paths}"
         for path in post_paths:
             resp = client.post(path, json={})
             assert resp.status_code == 401, f"{path} not gated"

@@ -120,16 +120,21 @@ def test_real_provider_never_called_by_default(monkeypatch):
 
 def _force_real(monkeypatch):
     """Make the endpoint's get_settings() return REAL-enabled settings (module-level
-    monkeypatch — the endpoint resolves settings per request)."""
-    from app import main as app_main
+    monkeypatch — the endpoint resolves settings per request).
+
+    Patched on ``app.routers.embeddings``: POST /embeddings/skill-alias now lives there
+    and resolves ``get_settings`` from ITS OWN module globals, so patching ``app.main``
+    (where the handler used to live) no longer reaches the handler."""
     from app.config import Settings
+    from app.routers import embeddings as embeddings_router
 
     real = Settings(
+        _env_file=None,
         ai_enable_real_calls=True,
         gemini_flash_api_key="test-key",
         ai_real_call_tasks="skill_embedding",
     )
-    monkeypatch.setattr(app_main, "get_settings", lambda: real)
+    monkeypatch.setattr(embeddings_router, "get_settings", lambda: real)
     return real
 
 

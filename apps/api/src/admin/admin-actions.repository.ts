@@ -193,7 +193,7 @@ export class AdminActionsRepository {
    * same fail-quiet direction as `reinstatePayer`'s coalesce to `pending`.
    *
    * `jobs` restores `suspended -> open` directly: that table has one live state, so there
-   * is nothing to remember (see the `JobStatus` note in packages/db/src/schema.ts).
+   * is nothing to remember (see the `JobStatus` note in packages/db/src/schema/job.ts).
    *
    * ONLY `suspended` rows move. A posting CLOSED by an admin (force-close) or expired while
    * the payer was suspended is no longer `suspended`, so it stays closed — reinstatement
