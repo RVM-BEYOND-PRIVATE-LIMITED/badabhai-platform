@@ -3510,6 +3510,8 @@ export const schema = {
   skillRelated,
   workerSkills,
   workerIndustryTenure,
+  jobDomains,
+  jobDomainAliases,
   jobReach,
   matchConfig,
   paymentOrders,
