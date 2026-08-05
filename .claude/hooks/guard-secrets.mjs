@@ -103,7 +103,7 @@ export function dangerousCommandReason(cmd) {
   // Destructive DDL issued as a shell command (psql -c, etc.). Only inspects
   // the command line — migration .sql FILES are never read by this guard.
   if (/\b(DROP\s+(DATABASE|SCHEMA|TABLE)|TRUNCATE\s+(TABLE\s+)?\w)/i.test(c)) {
-    return "Refusing destructive DDL (DROP/TRUNCATE) from the shell. Route schema changes through a reviewed Drizzle migration (bb-database-design / safe-db-migration).";
+    return "Refusing destructive DDL (DROP/TRUNCATE) from the shell. Route schema changes through a reviewed, expand-only Drizzle migration authored by the backend-platform-engineer.";
   }
 
   // Printing a real .env via the shell (cat/type/Get-Content/less/more/head/tail).
