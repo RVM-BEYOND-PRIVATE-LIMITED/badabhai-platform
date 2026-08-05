@@ -1,293 +1,387 @@
-# CLAUDE.md — BadaBhai Operating Contract
+# CLAUDE.md — BadaBhai Engineering Operating Contract
 
-> This file is the contract every Claude Code session and every project agent reads
-> first. It is intentionally short and authoritative. When something here conflicts
-> with a casual instruction, **the invariants below win** — surface the conflict
-> instead of silently breaking one.
-
----
-
-## 1. What BadaBhai is
-
-**BadaBhai** is an AI "placement-team" product for blue/grey-collar India, launching
-with industrial manufacturing (CNC/VMC) roles. It turns workers into live, profiled,
-contactable candidates through a **chat-first worker app**.
-
-**Phase 1 scope is narrow and locked: Worker Profiling + Profile Generation.**
-Employer posting, unlock, payments, payouts, boosts, ranking/matching (the Reach
-Engine), and production legal flows are **out of scope for Phase 1**. See
-[docs/sprint-plans/phase-1-worker-profiling.md](docs/sprint-plans/phase-1-worker-profiling.md).
-
-> **Phase-2 alpha-gate streams have since landed additively, each by its own ADR and behind
-> launch gates — they do NOT relax the §2 invariants:** swipe-to-apply
-> ([ADR-0009](docs/decisions/0009-alpha-swipe-to-apply-seeded-jobs.md)), Reach feed serving
-> ([ADR-0011](docs/decisions/0011-reach-feed-serving.md) / [ADR-0015](docs/decisions/0015-reach-feed-on-real-jobs.md)),
-> ops job postings ([ADR-0012](docs/decisions/0012-ops-job-postings-banded-stored-only.md)),
-> monetization + config-driven pricing ([ADR-0013](docs/decisions/0013-monetization-and-config-driven-pricing-engine.md)),
-> per-payer hiring capacity ([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md):
-> faceless concurrent-active-vacancy cap, mock payments, **enforcement INERT by default**),
-> and **Contact Unlock + Reveal — "Stream A"** ([ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md):
-> mock credits + in-app relay, built + verified 2026-06-17). Further streams have since landed (each its own ADR — full set in [docs/decisions/](docs/decisions/) through ADR-0030; ADR-0023..0030 cover: go_router nav, worker-visible job fields, admin portal, worker PIN+session, payer org tenancy, taxonomy adoption, voice audio, skill canonicalization): the **self-serve payer/agency portal** ([ADR-0019](docs/decisions/0019-self-serve-payer-portal.md) → [`apps/payer-web`](apps/payer-web); agency = `payers.role='agent'`, [ADR-0022](docs/decisions/0022-agency-supply-portal.md)), the **WhatsApp invite funnel** ([ADR-0020](docs/decisions/0020-whatsapp-invite-funnel-and-reengagement.md), MOCK provider), **PACE supply-widening + ops alert** ([ADR-0021](docs/decisions/0021-pace-supply-widening-and-ops-alert.md)), and the **OFFLINE-only** learn layer ([ADR-0017](docs/decisions/0017-learn-layer-offline-rank-calibration.md)) + model-training corpus ([ADR-0018](docs/decisions/0018-model-training-corpus-and-finetune.md)) — both **offline-built / live-deferred**, so no learned ranking touches the live path (**invariant #4 holds**). The **real-money / real-provider /
-> per-payer-auth / production-legal** portions of these remain **deferred / launch-gated** (§8).
-
-**Phase 1 exit criteria (what we are optimizing for right now):**
-A worker can log in (real OTP via Fast2SMS — `SMS_PROVIDER: z.literal("fast2sms")`, no console/mock path) → give consent → chat → get an extracted, confirmed
-profile → get a generated resume — with **every step emitting a validated event** and
-**no PII ever reaching an LLM**. Ops can view workers / events / AI jobs (read-only).
+> This document is the operating contract for every Claude Code session and engineering agent.
+> It defines the permanent engineering principles of the project.
+> If any casual instruction conflicts with this document, this document wins unless explicitly overridden by a human.
 
 ---
 
-## 2. Non-negotiable invariants (do not break these)
+# 1. Project Philosophy
 
-These are architecture, not preference. A change that violates one is a bug even if it
-compiles and tests pass. If a task requires breaking one, **stop and escalate** (§7).
+BadaBhai is an AI-first hiring platform built for blue-collar, grey-collar, industrial manufacturing, construction, and skilled trade workers.
 
-1. **Event-first.** Every important endpoint emits an event built with `createEvent`
-   and validated against [`@badabhai/event-schema`](packages/event-schema). The
-   `events` table is the audit spine. No important state change without an event.
-2. **No raw PII leaves its boundary.** Phone, full name, address, employer names, and
-   ID-doc tokens **must never** appear in: LLM input, event payloads, `ai_jobs`,
-   `audit_logs`, or logs. Use `*_hash` or opaque UUIDs. Raw worker PII lives **only** in
-   the `workers` table; other PII at rest is **encrypted** payer contact in
-   `payers` (TD21) and **encrypted agency financial KYC** (PAN/bank) in `agency_kyc`
-   (ADR-0022 Amdt 2, launch-gated OFF) — and PII still **never** reaches LLM input, events,
-   `ai_jobs`, `audit_logs`, or logs.
-3. **Pseudonymization runs before every LLM call and fails closed.** It lives in
-   [`apps/ai-service/app/pseudonymize.py`](apps/ai-service/app/pseudonymize.py). If it
-   blocks (oversize input, parse error, residual digit run), the LLM is **never called**
-   and a safe fallback is returned. Never add an LLM path that bypasses it.
-4. **LLMs assist; they never decide.** LLMs profile, canonicalize, and explain. They
-   **never rank, reject, score, or decide a match.** Those are deterministic and live
-   in the (deferred) Reach Engine.
-5. **Real LLM calls are gated and off by default.** `AI_ENABLE_REAL_CALLS=false` is the
-   default. Real calls require the flag **and** a key, and only ever in staging first.
-6. **DPDP consent is a gate.** No profiling/AI processing of a worker before
-   `consent.accepted` is captured.
-7. **Typed contracts at every boundary.** Zod (TS) + Pydantic (Python). AI I/O
-   contracts in [`packages/ai-contracts`](packages/ai-contracts) must stay mirrored in
-   [`apps/ai-service/app/contracts.py`](apps/ai-service/app/contracts.py).
-8. **Backward compatibility.** Never mutate a shipped event payload schema or drop a DB
-   column in use — version it (the `bb-database-design` + `migration` skills).
+Unlike traditional hiring platforms, most workers do not possess resumes or structured professional profiles.
+
+The primary objective of the platform is to:
+
+- Digitize workers through AI-assisted profiling
+- Generate high-quality professional profiles and resumes
+- Connect workers with the most relevant employers
+- Improve hiring quality using deterministic engineering and AI assistance
+
+Always make engineering decisions from the perspective of workers, employers, and recruiters who rely on accurate matching.
 
 ---
 
-## 3. Locked tech stack
+# 2. Product Principles
 
-| Layer               | Tech                                                                                                                                            | Location                             |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
-| Monorepo            | pnpm + Turborepo                                                                                                                                | root                                 |
-| Backend API         | NestJS (TS strict)                                                                                                                              | [`apps/api`](apps/api)               |
-| AI service          | Python FastAPI                                                                                                                                  | [`apps/ai-service`](apps/ai-service) |
-| Web ops console     | Next.js (internal only)                                                                                                                         | [`apps/web`](apps/web)               |
-| Payer/Agency portal | Next.js (external, self-serve — [ADR-0019](docs/decisions/0019-self-serve-payer-portal.md)/[0022](docs/decisions/0022-agency-supply-portal.md)) | [`apps/payer-web`](apps/payer-web)   |
-| Worker app          | Flutter (Android-first)                                                                                                                         | [`apps/worker-app`](apps/worker-app) |
-| Database            | Supabase Postgres + Drizzle                                                                                                                     | [`packages/db`](packages/db)         |
-| Queue/cache         | Redis + BullMQ (live — extraction/transcription/deletion sweeps queued)                                                                        | [`infra/redis`](infra/redis)         |
-| AI routing          | Direct Gemini + Claude ([ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md))                                                         | `apps/ai-service/app/ai/router.py`   |
+Engineering decisions should optimize for:
 
-Stack is **locked** for Phase 1 (see [ADR-0001](docs/decisions/0001-mvp-infra-decision.md),
-[ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md)). The AI service calls
-Gemini (primary) + Claude Haiku (fallback) directly behind the `LlmAdapter`/`AIRouter`
-seam — there is no LiteLLM proxy.
-Proposing a new framework/library/datastore is an architecture decision → ADR + escalate.
+1. Matching quality over matching quantity.
+2. Never show irrelevant candidates for a job.
+3. Always rank the most relevant workers first.
+4. Worker engagement is a first-class ranking signal.
+5. Application volume is one of the platform's primary growth metrics.
+6. Recommendations should consider:
+   - Skills
+   - Domain relevance
+   - Total experience
+   - Role-specific experience
+   - Worker activity
+7. AI assists users; deterministic business rules make business decisions.
 
 ---
 
-## 4. Repository map
+# 3. Non-Negotiable Engineering Principles
 
-```
-apps/
-  api/         NestJS — auth, consent, chat, voice, profiles, resume, events, workers, ai, health
-  ai-service/  FastAPI — pseudonymize.py, contracts.py, llm.py, extraction.py, stt.py, config.py + ai/ (router.py, model_config.py, cost_tracker.py)
-  web/         Next.js ops console — workers / events / ai-jobs (read-only)
-  payer-web/   Next.js — external self-serve payer + agency portal (ADR-0019/0022)
-  worker-app/  Flutter scaffold — Splash → … → ResumePreview, ApiClient
-packages/
-  event-schema/  Artifact #1 — envelope, registry, payloads, validate
-  db/            Drizzle schema + migrations + client (43 tables — full set in schema.ts)
-  config/        Typed env (server vs public split)
-  pricing/       config-driven pricing + credit-pack catalog (ADR-0013)
-  reach-engine/  BUILT — deterministic RANK core (scoring.ts / types.ts / ranking.ts, ADR-0011/0015)
-  reach-learn/   OFFLINE learn layer — calibration only, NOT live ranking (ADR-0017)
-  types/ validators/ taxonomy/ ai-contracts/   shared contracts
-docs/        decisions(ADRs) · sprint-plans · architecture · ai · schema · bible · registers
-infra/       docker · supabase(migration/RLS plans) · redis · monitoring
-.claude/     agents/ · skills/   (this engineering org)
-tests/       contract / e2e / security (cross-cutting)
-```
+These are architecture rules, not preferences.
 
-**API module convention** (every domain follows it): `<domain>.controller.ts` (thin,
-HTTP only) → `<domain>.service.ts` (business logic, emits events) →
-`<domain>.repository.ts` (Drizzle data access) + `<domain>.dto.ts` (Zod) +
-`<domain>.module.ts` (DI wiring). Do not put data access in controllers or business
-logic in repositories.
+## Event First
 
-**DB tables (43):** the full set is the source of truth in
-[`packages/db/src/schema.ts`](packages/db/src/schema.ts). Raw worker PII lives **only**
-in `workers`; PII at rest also includes **encrypted** payer contact in `payers` (TD21) and
-**encrypted agency financial KYC** (PAN/bank) in `agency_kyc` (ADR-0022 Amdt 2, ADR-0004
-discipline, launch-gated OFF) — still **never** to LLM/events/`ai_jobs`/`audit_logs`/logs.
+Every important business action must emit a validated event.
+
+Events are the audit trail of the platform.
 
 ---
 
-## 5. Commands (verified)
+## Privacy First
 
-```bash
-pnpm install            # install workspace
-pnpm build              # build all (Turbo dependency order) — run before typecheck if @badabhai/* errors
-pnpm dev                # dev across apps
-pnpm lint               # eslint .
-pnpm typecheck          # tsc --noEmit per package
-pnpm test               # all TS suites
-pnpm format             # prettier --write
-pnpm db:generate        # drizzle: author migration from schema.ts
-pnpm db:migrate         # apply migrations
-pnpm db:seed:demand     # BUG-2 demand-loop fixture (idempotent, prod-guarded)
-pnpm db:verify:demand   # assert the demand loop emits its six events
-pnpm --filter @badabhai/db db:seed:jobs   # seed ADR-0009 swipe jobs (package-scoped)
-pnpm db:up / db:down    # docker postgres+redis
+Raw PII must never appear in:
 
-# AI service (from apps/ai-service)
-ruff check .            # lint   (CI gate)
-pytest                  # tests  (CI gate)
+- LLM prompts
+- Logs
+- Events
+- Audit records
+- Analytics
 
-# Worker app (from apps/worker-app)
-flutter analyze && flutter test   # CI gate (currently non-blocking)
-```
-
-Single package: `pnpm --filter @badabhai/<name> <script>`.
+Only pseudonymized data may cross AI boundaries.
 
 ---
 
-## 6. Quality gates — nothing merges unless all pass
+## AI Never Owns Business Decisions
 
-Mirror of [.github/pull_request_template.md](.github/pull_request_template.md), enforced
-by [CI](.github/workflows/ci.yml). The `bb-feature-planning` skill is the runnable checklist.
+LLMs may:
 
-- [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` green
-- [ ] AI service `ruff check .` + `pytest` green (if touched)
-- [ ] **No raw PII** in LLM input, events, `ai_jobs`, `audit_logs`, or logs
-- [ ] Every important new endpoint emits a **validated** event
-- [ ] DB change is backward-compatible + has a migration + rollback note
-- [ ] Event payload change is **versioned**, not mutated in place
-- [ ] AI-contract change kept in parity (Zod ↔ Pydantic)
-- [ ] No secrets / `.env` committed
-- [ ] Docs/registers updated (decisions, risks, tech-debt as relevant)
-- [ ] Reviewed (`/code-review`) and, for any PII/AI/auth change, `/security-review`
+- Extract
+- Summarize
+- Generate
+- Explain
+- Classify
 
----
+LLMs must never:
 
-## 7. How we work (small team, low ceremony)
-
-**Feature workflow** (the `bb-feature-planning` skill encodes this):
-Idea → Requirements → Architecture (ADR if structural) → DB → API/Events → Implementation
-→ Tests → Security/Privacy review → Performance sanity → Deploy → Monitor.
-
-**Engineering org** — invoke the specialist for the layer you're in:
-
-| Agent                                                      | Owns                                   | Use the Task tool with subagent |
-| ---------------------------------------------------------- | -------------------------------------- | ------------------------------- |
-| [backend-engineer](.claude/agents/backend-engineer.md)     | NestJS API, events                     | `backend-engineer`              |
-| [ai-engineer](.claude/agents/ai-engineer.md)               | FastAPI, privacy gateway, AI contracts | `ai-engineer`                   |
-| [database-architect](.claude/agents/database-architect.md) | Drizzle schema + migrations            | `database-architect`            |
-| [frontend-engineer](.claude/agents/frontend-engineer.md)   | Payer/agency portal + ops console      | `frontend-engineer`             |
-| [design-engineer](.claude/agents/design-engineer.md)       | Design-system fidelity + UI/UX         | `design-engineer`               |
-| [mobile-engineer](.claude/agents/mobile-engineer.md)       | Flutter worker app                     | `mobile-engineer`               |
-| [security-engineer](.claude/agents/security-engineer.md)   | PII/event/DPDP gate                    | `security-engineer`             |
-
-The seven builders above include **design-engineer** (UI/UX + design-system fidelity across
-apps/payer-web, apps/web, and the worker app); the **full roster (19) lives in
-[`.claude/agents/`](.claude/agents/)** (also system-architect, devops, performance, qa,
-product-manager, technical-writer, refactoring, debugging, the reviewers, test-planner).
-
-Skills (run with the Skill tool): see [`.claude/skills/`](.claude/skills/) — `bb-api-design`,
-`bb-database-design` / `migration`, `bb-security-review`, `bb-feature-planning`,
-`bb-architecture-review`, `bb-testing`, `bb-design-system`, `bb-ui-review`, `pr-review`.
-
-**Escalate (stop and ask the human) when:** an invariant in §2 must change; the stack
-(§3) must change; a migration is destructive/irreversible; real LLM/OTP/STT/payment
-provider keys or spend are involved; or anything touches production data.
-
-**Project memory** lives in [docs/registers/](docs/registers/) — update the relevant
-register in the same PR as the change that motivated it. Decisions of record are ADRs in
-[docs/decisions/](docs/decisions/).
+- Rank candidates
+- Reject applicants
+- Make hiring decisions
+- Replace deterministic business logic
 
 ---
 
-## 8. Deferred (do not build in Phase 1 without an explicit decision)
+## Fail Closed
 
-Reach Engine **learned** ranking, advanced matching, finalized RLS (backend uses the service
-role today — see [infra/supabase/rls-plan.md](infra/supabase/rls-plan.md)), BullMQ job queues,
-real OTP/STT/LLM/payment providers, real telephony/proxy + raw-phone reveal, production DPDP
-legal copy. **Note:** the _alpha-gate_ forms of employer postings, contact unlock (mock credits
+If validation, privacy, authentication, or AI safety fails,
 
-- in-app relay, [ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md) Stream A), Reach
-  feed serving, config-driven pricing/boosts, **per-payer hiring capacity**
-  ([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md): faceless cap, mock payments,
-  **enforcement INERT by default** behind `CAPACITY_ENFORCEMENT_ENABLED`), the **self-serve
-  payer/agency portal** (ADR-0019/0022) and the **WhatsApp invite funnel** (ADR-0020, mock), plus
-  the **agency supply-money loop** — KYC gate + payout ledger + earnings, mock + `AGENCY_PAYOUTS_ENABLED`-OFF
-  ([ADR-0022 Amdt 2](docs/decisions/0022-agency-supply-portal.md), PR #508; migration 0048; TD39) — have
-  **landed additively behind launch gates** (§1) — it is their **real-money / real-provider /
-  production-legal** portions (tracked: TD33/TD34/TD35/TD39/TD43 + the threat-model LC items) that
-  remain deferred here.
+stop processing.
 
-**`PayerAuthGuard` is the payer-facing auth gate.** `POST /payer/unlocks`, `POST /payer/unlocks/:id/reveal`, `GET /payer/unlocks`, `GET /payer/credits`, `POST /payer/credits` — all at [`payer-portal/payer-unlocks.controller.ts`](apps/api/src/payer-portal/payer-unlocks.controller.ts) — ride `PayerAuthGuard` with `payer_id` from the **session**, not the body (XB-A, verified PR #110/#119). `POST /payer/job-postings/:id/plan|boost` likewise `PayerAuthGuard` (PR #179). **LC-1 is CLOSED on the payer-facing surface.** The residual is OPS-INTERNAL only: the ops [`unlocks.controller.ts`](apps/api/src/unlocks/unlocks.controller.ts) (`POST /unlocks`, `POST /unlocks/:id/reveal`) keeps `InternalServiceGuard` as a deliberate safe-interim (TD33/TD50) — it is NOT called by payer-web; retiring it is blocked on ADMIN-4..8. **Still pending:** a **cost** strategy doc + a **disaster-recovery** plan (monitoring/rollback have runbooks — [observability-runbook.md](docs/observability-runbook.md), [rollback-guide.md](docs/rollback-guide.md)).
+Never continue with partial failures.
 
-## 9. Claude Efficiency Rules
+---
 
-Before repository exploration:
+## Backward Compatibility
 
-1. Read `.claude/project-memory.md`
-2. Read `.claude/team-memory.md`
-3. Read [`docs/claude-working-guide.md`](docs/claude-working-guide.md) — the working protocol + guardrails
+Never:
 
-Treat all three as authoritative. `.claude/settings.json` enforces hard guardrails — no reading
-secret files, no destructive shell — via permission rules + a `PreToolUse` hook
-(`.claude/hooks/guard.mjs`, self-test `node .claude/hooks/guard.selftest.mjs`).
+- Break APIs
+- Mutate event schemas
+- Remove production database columns
+- Introduce breaking changes without versioning
 
-Do not rediscover architecture, ownership, business rules, or active workstreams already documented there.
+---
 
-Search code only when:
+# 4. Architecture Principles
 
-- implementation details are needed
-- memory files are outdated
-- information is missing
+Maintain strict separation of responsibilities.
 
-### Evidence-Based Work
+Controllers
 
-Never invent:
+- HTTP only
 
-- architecture
+Services
+
+- Business logic
+
+Repositories
+
+- Database access only
+
+Shared packages
+
+- Shared logic only
+
+Business logic must never exist inside controllers or repositories.
+
+---
+
+# 5. Engineering Ownership
+
+Each team owns only its own layer.
+
+Backend Platform
+
 - APIs
-- database schema
-- event types
-- business rules
+- Database
+- AI
+- Infrastructure
 
-When information is missing:
+Frontend Platform
 
-1. Check memory files
-2. Search the repository
+- Mobile
+- Web
+- UI
+- UX
 
-If still unknown:
+Current ownership
 
-- mark it as UNKNOWN
-- ask for clarification
-- do not assume
+Backend Platform
 
-### Response Style
+- Prakash
+- Divyanshu
 
-Assume experienced backend engineers.
+Frontend Platform
 
-Preferred format:
+- Rishi
 
-- Status
+---
+
+# 6. Cross-Team Workflow
+
+Never perform work outside your ownership.
+
+If Backend work requires Frontend changes:
+
+- Complete only Backend work.
+- Raise a GitHub Issue for Frontend.
+
+If Frontend work requires Backend changes:
+
+- Complete only Frontend work.
+- Raise a GitHub Issue for Backend.
+
+Do not mix responsibilities.
+
+---
+
+# 7. Engineering Organization
+
+Specialized engineering agents exist for specific domains.
+
+Always select agents based on ownership.
+
+Never assign:
+
+- Frontend work to Backend agents.
+- Backend work to Frontend agents.
+- AI work to UI agents.
+
+Respect engineering boundaries.
+
+---
+
+# 8. Coding Standards
+
+Write software that is maintainable for years.
+
+Always prefer:
+
+- SOLID principles
+- Composition over inheritance
+- Dependency Injection
+- Reusable abstractions
+- High cohesion
+- Low coupling
+- Strict typing
+- Small functions
+- Clear naming
+- Modular architecture
+
+Avoid:
+
+- Duplicate logic
+- Large services
+- Large controllers
+- Magic strings
+- Hardcoded values
+- God classes
+- Premature optimization
+
+Code should resemble production-quality FAANG engineering.
+
+---
+
+# 9. API Standards
+
+Every API should have:
+
+- Validation
+- Authentication
+- Authorization
+- Logging
+- Event emission
+- Documentation
+- Tests
+- Typed contracts
+
+Prefer REST consistency.
+
+Never expose unnecessary data.
+
+---
+
+# 10. Database Standards
+
+Every schema change should be:
+
+- Backward compatible
+- Versioned
+- Reviewable
+- Reversible
+
+Never:
+
+- Drop production columns
+- Rename fields without migrations
+- Break existing consumers
+
+Prefer additive changes.
+
+---
+
+# 11. AI Standards
+
+Before every LLM call:
+
+- Remove PII
+- Validate input
+- Validate output
+- Apply safety checks
+
+Treat every LLM response as untrusted input.
+
+Always validate AI output before business logic consumes it.
+
+---
+
+# 12. Mobile Platform Rules
+
+Worker App
+
+- Android
+- iOS
+
+Payer/Agent App
+
+- Android
+- iOS
+
+No payment workflows or payment UI may exist inside mobile applications.
+
+Payment flows belong exclusively to web applications.
+
+---
+
+# 13. Before Starting Any Task
+
+Always:
+
+1. Understand the real business problem.
+2. Understand the end goal.
+3. Read the relevant architecture if necessary.
+4. Clarify ambiguous requirements.
+5. Never assume business logic.
+6. Implement only the requested scope.
+
+Think before coding.
+
+---
+
+# 14. Quality Gates
+
+Before considering any work complete:
+
+- Code builds
+- Lint passes
+- Type checks pass
+- Tests pass
+- Privacy maintained
+- Events emitted
+- Documentation updated
+- No breaking changes introduced
+
+---
+
+# 15. Response Style
+
+Assume the reader is an experienced engineer.
+
+Responses should be:
+
+- Concise
+- Technical
+- Actionable
+
+Avoid:
+
+- Long tutorials
+- Repeating obvious concepts
+- Unnecessary explanations
+
+Whenever a task is completed, always provide:
+
+- Summary
 - Files Changed
-- Issues
+- Issues (if any)
 - Next Steps
 
-Keep responses concise.
-Prefer bullets over paragraphs.
-Avoid tutorials, framework explanations, and unnecessary reasoning.
+Keep output minimal while remaining complete.
 
-Update memory files when project knowledge, ownership, or workstreams change.
+---
+
+# 16. Escalation Rules
+
+Stop and request clarification when:
+
+- Requirements are ambiguous.
+- Business logic is undefined.
+- Multiple valid implementations exist.
+- The task requires breaking an engineering principle.
+- The task crosses team ownership.
+- The task affects security, privacy, or production data.
+
+Never assume critical business behaviour.
+
+Ask first.
+
+# 17. Long-Term Engineering Philosophy
+
+Every implementation should improve the repository.
+
+When touching existing code:
+
+- Leave it cleaner than you found it.
+- Reduce duplication where safe.
+- Improve readability.
+- Improve observability.
+- Improve testability.
+- Improve documentation when needed.
+
+Never increase technical debt without explicit justification.
