@@ -1,15 +1,23 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
-import type { DraftProfile, AICallMetadata, ConversationMessage } from "@badabhai/ai-contracts";
+import type {
+  DraftProfile,
+  AICallMetadata,
+  ConversationMessage,
+  ProfileExtractionOutput,
+} from "@badabhai/ai-contracts";
+import type { NewWorkerProfile } from "@badabhai/db";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { EventsService } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
 import { ChatRepository } from "../chat/chat.repository";
+import { ChatTranscriptBuffer } from "../chat/chat-transcript.buffer";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { redactKnownName } from "../common/redact-known-name";
 import { WorkerSkillsService } from "../match/worker-skills.service";
+import { SkillsRepository } from "../skills/skills.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository, type AiJobUsageMetadata } from "./ai-jobs.repository";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
@@ -46,6 +54,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
     private readonly profiles: ProfilesRepository,
     private readonly aiJobs: AiJobsRepository,
     private readonly chat: ChatRepository,
+    // The in-flight transcript, for the early-finish path — see `buildMessages`. Comes
+    // from ChatModule, which ProfilesModule already imports for ChatRepository.
+    private readonly buffer: ChatTranscriptBuffer,
     private readonly events: EventsService,
     private readonly ai: AiService,
     // R32 — the two collaborators needed to remove the worker's OWN name from the
@@ -58,6 +69,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // `MatchModule` is @Global, so ProfilesModule needs no new import edge (same shape
     // as WorkersRepository/PiiCryptoService above).
     private readonly matchSkills: WorkerSkillsService,
+    // Generalized profiling: re-validates the RAG-matched `job_domain_id` against the
+    // catalog before it is written. `SkillsModule` exports this repository; the query
+    // has to run on the api's owner connection because `job_domain` is RLS-locked.
+    private readonly skills: SkillsRepository,
   ) {
     super();
   }
@@ -120,6 +135,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
         );
       }
       const aiMeta = result.ai_metadata; // operational usage/cost (null on the mock/AI-down path)
+      const domain = await this.resolveJobDomain(result.job_domain_match, aiJobId);
 
       const saved = await this.profiles.create({
         workerId,
@@ -148,6 +164,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // nullable in the contract (the mock/AI-down path returns none), and NULL is the
         // honest value for "this extraction produced no rich draft".
         richProfileDraft,
+        // Generalized profiling: the RAG job-domain classification, spread so that a
+        // pass which did not run writes NOTHING (the columns stay NULL) rather than
+        // writing a "degraded" status that would be indistinguishable from a real
+        // failed match. See `resolveJobDomain`.
+        ...domain,
       });
 
       await this.aiJobs.markCompleted(aiJobId, { profile_id: saved.id }, toAiJobUsage(aiMeta));
@@ -296,6 +317,70 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * question exactly ONE definition, so the status stamped here and the dedupe/retry
    * decision taken later can never drift apart and disagree about the same row.
    */
+  /**
+   * The `job_domain_*` columns to write for this extraction — the persistence half of
+   * the generalized-profiling RAG match.
+   *
+   * THREE OUTCOMES, and keeping them apart is the whole job of this method:
+   *
+   *   - `{}` — the pass DID NOT RUN (the ai-service returned no match object, because
+   *     `DOMAIN_MATCH_ENABLED` is off or the extraction was blocked). Nothing is
+   *     written, so the columns stay NULL. This must NOT be recorded as "degraded": a
+   *     disabled feature and a workforce the catalog cannot describe are different
+   *     facts, and only one of them is worth investigating.
+   *   - a matched id + score + timestamp — the classification succeeded and survived
+   *     re-validation.
+   *   - a status with a NULL id — the pass ran and honestly failed, with the reason
+   *     kept so ops can tell "nothing close in the catalog" from "the seam was down".
+   *
+   * THE RE-VALIDATION, and why it exists in a THIRD place. The ai-service already
+   * checks the model's pick against the shortlist it was given, and that shortlist came
+   * from this database — so this looks redundant. It is not: the shortlist travelled
+   * over HTTP, and `job_domain_id` carries a foreign key. An id that does not resolve
+   * would fail the INSERT, and that INSERT is the worker's entire extracted profile. A
+   * cheap SELECT here means a bad label costs the label; skipping it means a bad label
+   * costs the profile.
+   *
+   * Never throws. A validation query that itself fails degrades to "no domain" — this
+   * method exists to protect the extraction, so it must not become a way to break one.
+   */
+  private async resolveJobDomain(
+    match: ProfileExtractionOutput["job_domain_match"],
+    aiJobId: string,
+  ): Promise<Partial<NewWorkerProfile>> {
+    if (!match) return {};
+
+    const base = {
+      jobDomainMatchStatus: match.status,
+      jobDomainMatchedAt: new Date(),
+    } satisfies Partial<NewWorkerProfile>;
+
+    if (!match.job_domain_id) return base;
+
+    try {
+      if (!(await this.skills.isSelectableDomain(match.job_domain_id))) {
+        this.logger.warn(
+          `extraction job ${aiJobId} matched a job_domain that is not selectable or no ` +
+            `longer exists; recording the profile UNMATCHED rather than failing the insert`,
+        );
+        return { ...base, jobDomainMatchStatus: "unmatched_llm_declined" };
+      }
+    } catch (err) {
+      const cls = err instanceof Error ? err.name : "UnknownError";
+      this.logger.warn(
+        `extraction job ${aiJobId} could not validate the matched job_domain (${cls}); ` +
+          `recording the profile UNMATCHED (the label is never worth the extraction)`,
+      );
+      return { ...base, jobDomainMatchStatus: "unmatched_degraded" };
+    }
+
+    return {
+      ...base,
+      jobDomainId: match.job_domain_id,
+      jobDomainMatchScore: match.score,
+    };
+  }
+
   private decideProfileStatus(
     blocked: boolean,
     profile: DraftProfile,
@@ -437,16 +522,57 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * The conversation as role-tagged lines. `inbound` is the worker; everything
    * else is us. Same `bodyText` filter the flat transcript has always used, so
    * the two shapes always describe the same set of lines.
+   *
+   * POSTGRES FIRST, THEN THE REDIS BUFFER — and the fallback is not an optimization,
+   * it is what keeps the early-finish escape hatch honest.
+   *
+   * The worker app offers "Phir bhi profile banaiye" ("make the profile anyway") at any
+   * point before the interview completes, promising an INCOMPLETE profile. It posts
+   * `/profile/extract` mid-interview. Under the flush-at-end design there are no
+   * `chat_messages` rows yet — the transcript is still buffered — so a Postgres-only
+   * read handed the AI service the literal "(no conversation captured)" and produced an
+   * EMPTY profile every single time. Worse than useless: `latestProfile` orders by
+   * `created_at DESC`, so a worker who already had a good profile and tapped this had
+   * their summary replaced by the empty one.
+   *
+   * The two sources are never both populated for a session — the buffer is dropped in
+   * the same breath as the flush — so there is nothing to merge and no ordering to
+   * reconcile. Postgres leads because after the flush it is authoritative and the
+   * buffer is gone.
    */
   private async buildMessages(sessionId: string | null): Promise<ConversationMessage[]> {
     if (!sessionId) return [];
-    const messages = await this.chat.listMessages(sessionId);
-    return messages
-      .filter((m) => m.bodyText)
-      .map((m) => ({
-        role: m.direction === "inbound" ? ("worker" as const) : ("assistant" as const),
-        text: m.bodyText as string,
-      }));
+    const rows = await this.chat.listMessages(sessionId);
+    if (rows.length > 0) {
+      return rows
+        .filter((m) => m.bodyText)
+        .map((m) => ({
+          role: m.direction === "inbound" ? ("worker" as const) : ("assistant" as const),
+          text: m.bodyText as string,
+        }));
+    }
+
+    // Mid-interview. Never throws: `buffer.load` fails CLOSED with a 503 because a chat
+    // TURN must not silently restart an interview, but an EXTRACTION is a different
+    // trade — if Redis is unreachable we genuinely have no transcript, and degrading to
+    // the empty one (exactly today's behaviour) beats failing the job.
+    try {
+      const buffered = await this.buffer.load(sessionId);
+      const lines = buffered?.messages ?? [];
+      if (lines.length > 0) {
+        this.logger.log(
+          `session ${sessionId} not yet flushed; extracting from the ` +
+            `${lines.length}-line transcript buffer (early-finish path)`,
+        );
+      }
+      return lines.map((m) => ({ role: m.role, text: m.text }));
+    } catch (err) {
+      this.logger.warn(
+        `could not read the transcript buffer for session ${sessionId}; extracting ` +
+          `from an empty transcript: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return [];
+    }
   }
 
   /**

@@ -108,7 +108,7 @@ class AIRouter:
         real_call_allowed: bool = True,
         user_ref: str | None = None,
     ) -> tuple[str, AICallMetadata]:
-        route = get_route(task_type)
+        route = get_route(task_type, self._settings)
         primary_model = resolve_model(task_type, self._settings)
         # Per-task gating: real only if the master flag + key are set AND this
         # task is allowlisted (empty allowlist = NO tasks; fail-closed). Lets

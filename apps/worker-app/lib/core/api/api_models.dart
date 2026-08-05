@@ -354,6 +354,7 @@ class ChatReply extends Equatable {
     this.extractionReady = false,
     this.askedQuestionId,
     this.unansweredEssentials = const <String>[],
+    this.sessionEnded = false,
   });
 
   final String reply;
@@ -373,16 +374,20 @@ class ChatReply extends Equatable {
   /// extra confirmation tap and can never trap them in the chat.
   final bool extractionReady;
 
-  /// The topic id the engine is asking THIS turn (`asked_question_id`, e.g.
-  /// 'role', 'machines', 'education') — `null` on the wrap-up/complete turn. The
+  /// The Resume Field Set id this turn is asking about (`asked_question_id`, e.g.
+  /// 'trade', 'skills', 'salary_expected') — `null` on the wrap-up turn. The
   /// `suggested_followups` chips are the tap-to-answer options for exactly this
   /// question. Additive/optional: absent on an older API build. The client does
   /// NOT echo it back (the POST body stays `{session_id, text}`); it is a
-  /// question-attribution signal only.
+  /// question-attribution signal only, and nothing in the app matches on its value.
+  ///
+  /// These used to be question-bank ids ('q_role', 'q_machines') chosen by a
+  /// deterministic engine. That engine is gone — the model asks its own questions and
+  /// reports which field it was after — so the VALUES changed while the field did not.
   final String? askedQuestionId;
 
-  /// ESSENTIAL topic ids the worker has NOT answered yet (`unanswered_essentials`,
-  /// #478 CHAT-UE-1), in ESSENTIAL_TOPICS order. Topic ids only, never PII.
+  /// REQUIRED Resume Field Set ids the worker has NOT answered yet
+  /// (`unanswered_essentials`) — field ids only, never PII.
   ///
   /// TRUST ONLY WHEN [blocked] IS FALSE. A blocked turn (pseudonymize
   /// fail-closed) carries no interview state and the server degrades this to
@@ -391,6 +396,21 @@ class ChatReply extends Equatable {
   /// genuinely complete. Distinct from [extractionReady]: this is the
   /// completeness detail, [extractionReady] is the CTA gate.
   final List<String> unansweredEssentials;
+
+  /// This session is FINISHED and will accept no further messages (`session_ended`).
+  ///
+  /// The server flushes the whole interview in one transaction at completion and marks
+  /// the session `ended`; every later POST gets a closing line instead of a turn. The
+  /// app caches its session id in memory, so without this signal it would keep posting
+  /// into a dead session for the rest of the process — silently breaking the "start a
+  /// fresh chat" button on the Resume and Profile tabs, and the "Chat pe wapas jaayein"
+  /// the profile preview offers when a profile comes out thin. The worker would be told
+  /// to go say more, and be unable to.
+  ///
+  /// DEFAULT `false` when absent, and that is the safe direction: a parse miss leaves
+  /// the session cached, which is exactly today's behaviour. `true` on a miss would
+  /// throw away a live session mid-interview.
+  final bool sessionEnded;
 
   factory ChatReply.fromJson(Map<String, dynamic> json) => ChatReply(
         reply: json['reply'] as String? ?? '',
@@ -419,6 +439,9 @@ class ChatReply extends Equatable {
         unansweredEssentials:
             (json['unanswered_essentials'] as List<dynamic>?)?.whereType<String>().toList() ??
                 const <String>[],
+        // `is bool` not a cast, for the same #371 reason as extractionReady: a 0/1 or a
+        // string from a future contract change must not throw the whole reply away.
+        sessionEnded: json['session_ended'] is bool ? json['session_ended'] as bool : false,
       );
 
   @override
@@ -430,6 +453,7 @@ class ChatReply extends Equatable {
         extractionReady,
         askedQuestionId,
         unansweredEssentials,
+        sessionEnded,
       ];
 }
 

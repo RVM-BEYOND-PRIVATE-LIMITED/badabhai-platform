@@ -88,6 +88,20 @@ class ChatRepositoryImpl implements ChatRepository {
       // (#421) — it gates the "build my profile" CTA downstream.
       // `unansweredEssentials` (#478) drives the named "what's still missing"
       // helper; `blocked`/`isMock` drive the honesty cues (see [ChatTurn]).
+      // The interview is over and the server has flushed it. FORGET the session id so
+      // the next entry into chat opens a fresh one instead of posting into a session
+      // that can only ever reply "Aapki baat poori ho chuki hai".
+      //
+      // Done HERE, not in the bloc, because the cached id lives in SessionRepository and
+      // every entry point goes through `ensureSession()` — the "start a new chat" button
+      // on the Resume/Profile tabs, and the "Chat pe wapas jaayein" the profile preview
+      // offers when a profile comes out thin. Leaving it cached silently disables both:
+      // the app tells the worker to go say more, and they cannot.
+      //
+      // The worker stays logged in — only the chat session id is dropped.
+      if (reply.sessionEnded) {
+        _session.clearChatSession();
+      }
       return ChatTurn(
         reply: reply.reply,
         followups: reply.suggestedFollowups,

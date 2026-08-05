@@ -213,11 +213,17 @@ describe("AiService", () => {
         history: [],
         role_family: "cnc_vmc",
       });
-      expect(result.reply_text).toBe("Tell me about your experience");
-      expect(result.is_mock).toBe(false);
+      expect(result?.reply_text).toBe("Tell me about your experience");
+      expect(result?.is_mock).toBe(false);
     });
 
-    it("falls back to mock when remote unreachable", async () => {
+    it("returns NULL rather than a fabricated turn when the AI service is unreachable", async () => {
+      // This used to fall back to `mockProfilingTurn`, a second interview engine in TS.
+      // That engine is deleted: the interview is now conducted by a model that adapts to
+      // the worker's actual trade, and a local stand-in would ask CNC questions to a cook
+      // and write the answers into the same captured state the model owns. An honest
+      // "no turn happened" is the only safe degradation — ChatService serves the worker
+      // a degraded line and leaves the transcript buffer's assistant side untouched.
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
 
       const result = await ai.profilingRespond({
@@ -226,8 +232,7 @@ describe("AiService", () => {
         history: [],
         role_family: "cnc_vmc",
       });
-      expect(result.is_mock).toBe(true);
-      expect(result.reply_text).toBeTruthy();
+      expect(result).toBeNull();
     });
   });
 

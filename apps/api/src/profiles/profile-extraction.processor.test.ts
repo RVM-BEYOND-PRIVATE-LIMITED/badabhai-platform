@@ -45,6 +45,15 @@ function make(
     workerName?: string | null;
     /** R32 — a rotated/tampered key: `pii.decrypt` throws. */
     decryptThrows?: boolean;
+    /** The in-flight Redis transcript (the early-finish path, before any flush). */
+    buffered?: { messages: { role: "worker" | "assistant"; text: string; at: string }[] } | null;
+    /** Redis is unreachable when the extraction tries to read the buffer. */
+    bufferThrows?: boolean;
+    /** Generalized profiling — the RAG match the ai-service returned (omit = pass off). */
+    domainMatch?: unknown;
+    /** The catalog re-validation verdict, or a throw to simulate a failing check. */
+    domainSelectable?: boolean;
+    domainCheckThrows?: boolean;
   } = {},
 ) {
   const draft = opts.profile ?? DraftProfileSchema.parse({});
@@ -57,6 +66,13 @@ function make(
   };
   const chat = {
     listMessages: vi.fn().mockResolvedValue(opts.messages ?? []),
+  };
+  // The in-flight transcript, for the early-finish path. `undefined` = no buffer (the
+  // normal post-flush case, where Postgres is authoritative).
+  const buffer = {
+    load: opts.bufferThrows
+      ? vi.fn().mockRejectedValue(new Error("redis down"))
+      : vi.fn().mockResolvedValue(opts.buffered ?? null),
   };
   const events = { emit: vi.fn().mockResolvedValue(undefined) };
   // R32 — full_name is stored ENCRYPTED (TD21); the plaintext lives only behind decrypt.
@@ -89,7 +105,15 @@ function make(
             // Issue #419 — the response has always carried the rich draft; `undefined`
             // here reproduces an AI service that omits it entirely.
             worker_profile_draft: opts.richDraft,
+            // `undefined` reproduces an ai-service with DOMAIN_MATCH_ENABLED off:
+            // the key is absent, which the processor must read as "did not run".
+            job_domain_match: opts.domainMatch,
           }),
+  };
+  const skills = {
+    isSelectableDomain: opts.domainCheckThrows
+      ? vi.fn().mockRejectedValue(new Error("db down"))
+      : vi.fn().mockResolvedValue(opts.domainSelectable ?? true),
   };
   // ADR-0036 moments ①/②. `rebuildQuietly` is the ONLY method the processor calls, and
   // it is contractually never-throwing — so a stub that resolves is the honest double.
@@ -100,13 +124,15 @@ function make(
     profiles as never,
     aiJobs as never,
     chat as never,
+    buffer as never,
     events as never,
     ai as never,
     workers as never,
     pii as never,
     matchSkills as never,
+    skills as never,
   );
-  return { proc, profiles, aiJobs, chat, events, ai, workers, pii, matchSkills };
+  return { proc, profiles, aiJobs, chat, buffer, events, ai, workers, pii, matchSkills, skills };
 }
 
 describe("ProfileExtractionProcessor", () => {
@@ -631,5 +657,187 @@ describe("ProfileExtractionProcessor — R32 known-name redaction on the transcr
     await proc.process(makeJob());
     const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
     expect(sent.transcript).toBe("Worker: Wire EDM, Jyoti CNC, ITI fitter 2018-2020");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Generalized profiling — persisting the RAG job-domain match.
+// ---------------------------------------------------------------------------
+
+/** The `job_domain_*` columns as they would be written for this extraction. */
+const domainCols = (profiles: { create: ReturnType<typeof vi.fn> }) => {
+  const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+  return {
+    jobDomainId: row.jobDomainId,
+    jobDomainMatchStatus: row.jobDomainMatchStatus,
+    jobDomainMatchScore: row.jobDomainMatchScore,
+    hasMatchedAt: row.jobDomainMatchedAt !== undefined,
+  };
+};
+
+describe("ProfileExtractionProcessor — the job-domain match", () => {
+  it("writes NOTHING when the pass did not run (the flag is off)", async () => {
+    // A disabled feature and a workforce the catalog cannot describe are different
+    // facts. Recording "degraded" here would make the first look like the second, and
+    // an ops query for unmatchable workers would return everyone.
+    const { proc, profiles, skills } = make({ domainMatch: undefined });
+    await proc.process(makeJob());
+    expect(domainCols(profiles)).toEqual({
+      jobDomainId: undefined,
+      jobDomainMatchStatus: undefined,
+      jobDomainMatchScore: undefined,
+      hasMatchedAt: false,
+    });
+    expect(skills.isSelectableDomain).not.toHaveBeenCalled();
+  });
+
+  it("persists a validated match with its retrieval score", async () => {
+    const { proc, profiles, skills } = make({
+      domainMatch: { status: "matched_llm", job_domain_id: "isco_7223", score: 0.82, considered: [] },
+      domainSelectable: true,
+    });
+    await proc.process(makeJob());
+    expect(skills.isSelectableDomain).toHaveBeenCalledWith("isco_7223");
+    expect(domainCols(profiles)).toEqual({
+      jobDomainId: "isco_7223",
+      jobDomainMatchStatus: "matched_llm",
+      jobDomainMatchScore: 0.82,
+      hasMatchedAt: true,
+    });
+  });
+
+  it("records the REASON when the pass ran and honestly found nothing", async () => {
+    // The status is kept and the id stays NULL, so "nothing close in the catalog" is
+    // distinguishable from "the AI seam was down" — different operational facts.
+    const { proc, profiles, skills } = make({
+      domainMatch: { status: "unmatched_below_floor", job_domain_id: null, score: null, considered: [] },
+    });
+    await proc.process(makeJob());
+    expect(domainCols(profiles)).toEqual({
+      jobDomainId: undefined,
+      jobDomainMatchStatus: "unmatched_below_floor",
+      jobDomainMatchScore: undefined,
+      hasMatchedAt: true,
+    });
+    // No id to check, so no query is spent.
+    expect(skills.isSelectableDomain).not.toHaveBeenCalled();
+  });
+
+  it("REJECTS an id the catalog does not recognise — the label never costs the profile", async () => {
+    // `job_domain_id` carries a foreign key, so an unresolvable id would fail the INSERT
+    // and take the worker's entire extracted profile with it. A cheap SELECT means a bad
+    // label costs the label.
+    const { proc, profiles } = make({
+      domainMatch: { status: "matched_llm", job_domain_id: "isco_invented", score: 0.9, considered: [] },
+      domainSelectable: false,
+    });
+    await proc.process(makeJob());
+    expect(domainCols(profiles)).toMatchObject({
+      jobDomainId: undefined,
+      jobDomainMatchStatus: "unmatched_llm_declined",
+    });
+  });
+
+  it("a FAILING validation query degrades to unmatched, never throws", async () => {
+    const { proc, profiles } = make({
+      domainMatch: { status: "matched_auto", job_domain_id: "isco_7223", score: 0.95, considered: [] },
+      domainCheckThrows: true,
+    });
+    await expect(proc.process(makeJob())).resolves.toEqual({ profile_id: PROFILE });
+    expect(domainCols(profiles)).toMatchObject({
+      jobDomainId: undefined,
+      jobDomainMatchStatus: "unmatched_degraded",
+    });
+  });
+
+  it("the match never changes profile_status — a label is not extracted content", async () => {
+    const { proc, profiles } = make({
+      domainMatch: { status: "matched_llm", job_domain_id: "isco_7223", score: 0.82, considered: [] },
+    });
+    await proc.process(makeJob());
+    const row = profiles.create.mock.calls[0]![0] as { profileStatus: string };
+    // The default fixture is the empty placeholder draft, so the status must still be
+    // "draft": a domain classification says what KIND of worker this is, never that the
+    // interview produced anything.
+    expect(row.profileStatus).toBe("draft");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The early-finish path — extracting an interview that has not been flushed yet.
+// ---------------------------------------------------------------------------
+
+describe("ProfileExtractionProcessor — transcript source", () => {
+  const BUFFERED = {
+    messages: [
+      { role: "worker" as const, text: "VMC chalata hun", at: "2026-07-22T00:00:00.000Z" },
+      { role: "assistant" as const, text: "Achha. Kitne saal se?", at: "2026-07-22T00:00:01.000Z" },
+      { role: "worker" as const, text: "5 saal", at: "2026-07-22T00:00:02.000Z" },
+    ],
+  };
+
+  it("extracts from the REDIS BUFFER when the interview has not been flushed", async () => {
+    // THE REGRESSION. The worker app offers "Phir bhi profile banaiye" at any point
+    // before completion, promising an incomplete profile. It posts /profile/extract
+    // mid-interview, when there are zero chat_messages rows — so a Postgres-only read
+    // handed the AI service "(no conversation captured)" and produced an EMPTY profile
+    // every time. And because `latestProfile` orders by created_at DESC, a worker who
+    // already had a good profile and tapped this had their summary replaced by it.
+    const { proc, ai, chat, buffer } = make({ messages: [], buffered: BUFFERED });
+    await proc.process(makeJob());
+
+    expect(chat.listMessages).toHaveBeenCalledTimes(1); // Postgres asked first
+    expect(buffer.load).toHaveBeenCalledTimes(1); // …then the buffer
+    const sent = ai.extractProfile.mock.calls[0]![0] as {
+      transcript: string;
+      messages: { role: string; text: string }[];
+    };
+    expect(sent.transcript).toBe(
+      "Worker: VMC chalata hun\nBada Bhai: Achha. Kitne saal se?\nWorker: 5 saal",
+    );
+    expect(sent.messages).toHaveLength(3);
+    expect(sent.transcript).not.toContain("no conversation captured");
+  });
+
+  it("prefers POSTGRES once the interview is flushed, and never reads the buffer", async () => {
+    // After the flush the buffer is dropped in the same breath, so the two sources are
+    // never both populated. Postgres leads because it is authoritative from then on.
+    const { proc, ai, buffer } = make({
+      messages: [{ direction: "inbound", bodyText: "flushed line" }],
+      buffered: BUFFERED,
+    });
+    await proc.process(makeJob());
+    expect(buffer.load).not.toHaveBeenCalled();
+    const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
+    expect(sent.transcript).toBe("Worker: flushed line");
+  });
+
+  it("a Redis outage degrades to the empty transcript rather than failing the job", async () => {
+    // `buffer.load` fails CLOSED with a 503 for a chat TURN, because silently restarting
+    // an interview is worse than an error the worker can retry. An EXTRACTION is the
+    // opposite trade: if Redis is unreachable we genuinely have no transcript, and
+    // degrading to today's behaviour beats failing the job.
+    const { proc, ai } = make({ messages: [], bufferThrows: true });
+    await expect(proc.process(makeJob())).resolves.toEqual({ profile_id: PROFILE });
+    const sent = ai.extractProfile.mock.calls[0]![0] as { transcript: string };
+    expect(sent.transcript).toBe("(no conversation captured)");
+  });
+
+  it("still redacts the worker's own name out of a BUFFERED transcript (R32)", async () => {
+    // The buffer holds the worker's raw words by design, so the redaction that has
+    // always guarded the Postgres path must guard this one identically.
+    const { proc, ai } = make({
+      messages: [],
+      workerName: "Suresh Kumar",
+      buffered: {
+        messages: [
+          { role: "worker", text: "Suresh Kumar, VMC operator", at: "2026-07-22T00:00:00.000Z" },
+        ],
+      },
+    });
+    await proc.process(makeJob());
+    const sent = ai.extractProfile.mock.calls[0]![0];
+    expect(JSON.stringify(sent)).not.toContain("Suresh");
+    expect((sent as { transcript: string }).transcript).toBe("Worker: [NAME], VMC operator");
   });
 });

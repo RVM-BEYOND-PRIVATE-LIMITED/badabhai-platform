@@ -13,5 +13,9 @@ import { SkillsInternalGuard } from "./skills-internal.guard";
 @Module({
   controllers: [SkillsController],
   providers: [SkillsService, SkillsRepository, SkillsInternalGuard],
+  // The extraction processor re-validates the RAG-matched `job_domain_id` against the
+  // catalog before persisting it. That check has to run on the api's owner connection
+  // (same reason the lookups above do), and this repository already owns those queries.
+  exports: [SkillsRepository],
 })
 export class SkillsModule {}

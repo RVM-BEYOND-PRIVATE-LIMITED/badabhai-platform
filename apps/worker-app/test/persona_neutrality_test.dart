@@ -1,10 +1,16 @@
 // Permanent persona-neutrality regression net for the WORKER APP.
 //
-// The Dart mirror of `apps/ai-service/tests/test_persona_neutrality.py`. That
-// test locks the bot's SERVER-generated copy; this one locks the copy the client
-// ships — the openers, nudges, chips, error strings and share text that live as
-// Dart string literals and never pass through the ai-service at all. Both halves
-// are needed: a worker cannot tell which side a sentence came from.
+// This locks the copy the CLIENT ships — the openers, nudges, chips, error strings and
+// share text that live as Dart string literals and never pass through the ai-service at
+// all. A worker cannot tell which side a sentence came from, so both sides need a net.
+//
+// It used to be described as the Dart mirror of a Python sibling
+// (`tests/test_persona_neutrality.py`). That sibling is gone: the server half of the
+// persona is no longer a set of hand-written strings to scan but a model output, and it
+// is enforced at RUNTIME instead — `app/profiling/persona_guard.py` checks every
+// generated reply against the same Ten Laws encoded below, repairs once, then falls back.
+// This file is therefore not a mirror any more; it is the half that a runtime guard
+// cannot reach, because these strings never pass through it.
 //
 // WHY THIS FILE EXISTS. `kChatNudgeTitle` shipped as 'Ek minute, bhai' and the
 // splash tagline as 'Your placement bhai for factory jobs'. `bhai` as a VOCATIVE
@@ -69,7 +75,8 @@ const List<String> kBannedGush = <String>[
 /// byte-identical to the ai-service's `ONE_SHOT_OPENER` (drift S4). Banning it
 /// here would force the client copy to diverge from the server's — trading a
 /// real bug for a cosmetic one. If the persona sheet ever rules on `chalo`, it
-/// must change in `question_bank.py` FIRST and here second.
+/// must change in `app/profiling/persona.py` FIRST and here second — that module is
+/// now the single source the server prompt and the server-side guard both read.
 const List<String> kBannedTumForm = <String>[
   'karte ho',
   'karoge',

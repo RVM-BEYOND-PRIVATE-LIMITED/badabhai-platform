@@ -26,7 +26,6 @@ import {
   type TranscriptionOutput,
 } from "@badabhai/ai-contracts";
 import { SERVER_CONFIG } from "../config/config.module";
-import { mockProfilingTurn } from "./mock-interview";
 
 /**
  * TD81 — what the api can learn about the ai-service from ITS `GET /health`.
@@ -86,24 +85,32 @@ export class AiService {
 
   constructor(@Inject(SERVER_CONFIG) private readonly config: ServerConfig) {}
 
-  async profilingRespond(input: ProfilingTurnInput): Promise<ProfilingTurnOutput> {
-    // `input` carries the loaded conversation_state + role_family, so the remote
-    // service progresses the interview statefully.
-    const remote = await this.post("/profiling/respond", input, ProfilingTurnOutputSchema);
-    if (remote) return remote;
-
-    // Mock fallback: advance the interview locally (stateful) so it does not
-    // restart from Q1 when the AI service is unreachable.
-    const turn = mockProfilingTurn(input.conversation_state ?? null, input.role_family);
-    return ProfilingTurnOutputSchema.parse({
-      reply_text: turn.reply_text,
-      blocked: false,
-      suggested_followups: turn.suggested_followups,
-      is_mock: true,
-      asked_question_id: turn.asked_question_id,
-      extraction_ready: turn.extraction_ready,
-      updated_state: turn.updated_state,
-    });
+  /**
+   * One LLM-driven interview turn, or `null` when the AI service is unreachable or
+   * rejects the call.
+   *
+   * NO MOCK FALLBACK ANY MORE, and the deletion is the point. This used to advance a
+   * local `mockProfilingTurn` — 287 lines of TS that walked a hardcoded topic order so
+   * a worker mid-interview kept moving during an outage. That was defensible only while
+   * the ai-service ran the SAME deterministic script: the two engines asked the same
+   * questions in the same order, so the local one was a copy rather than a rival.
+   *
+   * It is not a copy now. The interview is conducted by a model that adapts to whatever
+   * trade the worker actually does, reads the transcript, and fills a Resume Field Set.
+   * A TS stand-in could not do any of that — it would ask CNC questions to a cook and
+   * write its answers into the same `captured` map the model owns, which is worse than
+   * an honest outage: the worker gets a profile the real engine would never have
+   * produced, and nothing marks it as degraded.
+   *
+   * `null` therefore means "no turn happened". {@link ChatService} serves its own
+   * degraded line and leaves the transcript buffer's assistant side untouched, so the
+   * outage costs one turn and never a topic. Identical reasoning to
+   * {@link jobPostingChatRespond}, which has always worked this way.
+   */
+  async profilingRespond(input: ProfilingTurnInput): Promise<ProfilingTurnOutput | null> {
+    // `input` carries the buffered history + the captured RFS state, so the remote
+    // service can conduct the interview without holding any per-session state itself.
+    return this.post("/profiling/respond", input, ProfilingTurnOutputSchema);
   }
 
   /**
@@ -138,7 +145,7 @@ export class AiService {
    * ADR-0035 — the payer-facing job-posting chat opener, or `null` when the AI service
    * cannot supply it.
    *
-   * NO MOCK FALLBACK, on the same reasoning as {@link profilingOpening}: a local copy
+   * NO MOCK FALLBACK, on the same reasoning as {@link profilingOpening}: a second copy
    * would be a second copy of the opener copy and the two would drift. `null` means
    * "the client renders its own constant", which is what it already does.
    *
@@ -165,10 +172,11 @@ export class AiService {
    * ADR-0035 — one payer turn of the deterministic job-posting interview. Returns
    * `null` when the AI service is unreachable or rejects the call.
    *
-   * NO MOCK FALLBACK, and this is the deliberate difference from
-   * {@link profilingRespond} (which advances a local `mockProfilingTurn` so a worker
-   * mid-interview keeps moving). The job-posting engine — its topic bank, its ordering,
-   * its banding — lives ONLY in `apps/ai-service/app/job_posting_chat/`. A TS mock here
+   * NO MOCK FALLBACK — the posture {@link profilingRespond} has now adopted too, for
+   * the same reason stated first here. The job-posting engine — its topic bank, its
+   * ordering, its banding — lives ONLY in `apps/ai-service/app/job_posting_chat/`,
+   * where it remains deterministic (that is the difference: the WORKER interview is
+   * now model-driven, this payer one is not). A TS mock here
    * would be a second interview engine for the same conversation, free to drift on
    * topic order, banding boundaries, or which fields it fills; a payer would then get a
    * draft the real engine would never have produced. Returning `null` lets the caller

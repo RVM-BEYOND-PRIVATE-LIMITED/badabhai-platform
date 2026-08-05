@@ -7,6 +7,7 @@ Studio (Gemini) reached over REST — there is NO LiteLLM proxy. Default mock-on
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from pydantic import Field, field_validator
@@ -17,6 +18,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # otherwise surface as a bare ValueError from deep inside the redis lib that never
 # names the variable that is actually wrong.
 _REDIS_URL_SCHEMES = ("redis://", "rediss://", "unix://")
+
+
+def _parse_csv(value: str) -> tuple[str, ...]:
+    """Split a comma-separated setting into an ordered, de-duplicated tuple.
+
+    Order-preserving (``dict.fromkeys``, not ``set``) because the RFS lists encode
+    a priority the model is told to work through. Blanks are dropped, so a trailing
+    comma or a wrapped multi-line template value parses cleanly.
+    """
+    return tuple(dict.fromkeys(part.strip() for part in value.split(",") if part.strip()))
 
 
 class ConfigError(Exception):
@@ -76,6 +87,135 @@ class Settings(BaseSettings):
     # spend one real LLM call to phrase a contextual reply — still gated by the
     # master real-call flag + key. Off by default: templated-only, no chat LLM call.
     ai_profiling_rephrase_enabled: bool = False
+
+    # Send EVERY profiling chat turn to the model, not just clarifying ones.
+    #
+    # This deliberately overrides the COST-4 straight-line optimisation above: with it
+    # on, each turn spends one real call so the model phrases the engine's question
+    # instead of serving the templated string verbatim. Off by default — turning it on
+    # multiplies chat cost by roughly the number of questions in the interview.
+    #
+    # WHAT IT DOES NOT CHANGE, and this is the point: the ENGINE still chooses which
+    # topic is asked and in what order (interview_engine._next_topic). The model only
+    # rephrases the chosen question. LLMs assist, they never decide (CLAUDE.md §2 #4).
+    #
+    # The job-prospect exclusion is NOT relaxed by this flag. That turn serves the §5
+    # guarantee line — a fixed, sanctioned refusal ("Guarantee nahi de sakta — ...")
+    # that a rephrase could soften into the promise §2 Law 9 forbids. It stays
+    # templated on every path.
+    ai_profiling_llm_every_turn: bool = False
+
+    # =========================================================================
+    # GENERALIZED PROFILING — the LLM-driven chat path
+    # =========================================================================
+    # The old flow chose questions from a hardcoded Python question bank keyed to
+    # 7 hardcoded role families, so supporting a new trade meant editing code. In
+    # the new flow the LLM asks its own questions and the only thing fixed is WHAT
+    # IT MUST COME AWAY WITH — the Resume Field Set below. That set is DATA: adding
+    # a field, or changing what gates completion, is an env edit, never a code edit.
+    # This is the whole point of "generalized profiling".
+
+    # --- The Resume Field Set (RFS) -----------------------------------------
+    # REQUIRED gates `is_complete`: the interview is not done until every one of
+    # these is captured (or the worker declined it, or the turn cap fires). These
+    # are persona Law 4's six askable fields with location split in two, exactly as
+    # the law itself demands ("current AND preferred, never conflated").
+    profiling_required_fields: str = (
+        "trade,skills,experience_years,current_city,"
+        "preferred_locations,salary_expected,availability"
+    )
+    # OPTIONAL is CAPTURED-IF-VOLUNTEERED, never asked. Law 4 governs what the model
+    # may ASK, not what it may RECORD — a worker who mentions ITI or a licence
+    # unprompted gets it on their resume without the model ever having to ask.
+    # Trade-agnostic by construction: `tools_equipment` is a VMC + Fanuc for a
+    # machinist, an overlock for a tailor, a tandoor for a cook, an LMV class for a
+    # driver. No per-trade code anywhere.
+    profiling_optional_fields: str = (
+        "tools_equipment,salary_current,education_level,education_field,"
+        "certifications,work_history,languages,relocation_willingness"
+    )
+
+    # --- Interview bounds ----------------------------------------------------
+    # HARD turn cap. The interview ends when the model self-declares complete OR
+    # this fires, whichever comes first. With a real LLM call per turn this is the
+    # per-worker cost ceiling, so it is deliberately env-tunable: the deleted engine
+    # carried the same bound as a source constant (MAX_ENGINE_ASKS) whose history
+    # records it being changed 15->20->22->24 by code edit each time.
+    profiling_max_turns: int = Field(default=30, ge=1, le=200)
+    # Rolling history window sent to the model, in TURNS (a turn = worker + reply).
+    # Re-sending the whole transcript every turn makes input cost grow O(n^2); the
+    # previous design dodged that by sending NO history at all, which is why the
+    # model could not ask a follow-up. A window keeps context without the quadratic:
+    # cost becomes O(n * window) instead of O(n^2). 0 = unbounded (send everything).
+    profiling_history_max_turns: int = Field(default=20, ge=0, le=200)
+
+    # --- Persona guard -------------------------------------------------------
+    # The persona spec is unusually mechanical (one "?", <=20 words, a CLOSED
+    # acknowledgement set, an explicit banned-word list, no "!", no emoji), so most
+    # of it is ENFORCEABLE rather than merely requested. The guard checks each reply
+    # and, on a violation, retries once quoting the specific broken rule; if that
+    # also fails it serves a safe templated question. Off => prompt-only (the model's
+    # word is taken as final), which is a drift risk a real worker would see.
+    profiling_persona_guard_enabled: bool = True
+    profiling_max_reply_words: int = Field(default=20, ge=1, le=200)
+    # Repair attempts per turn on a guard violation. Each one is a real LLM call, so
+    # this trades money for on-spec replies. 0 = detect and fall back, never repair.
+    profiling_persona_repair_retries: int = Field(default=1, ge=0, le=3)
+
+    # --- Job-domain RAG match (runs ONCE, at the end, never per turn) ---------
+    # After the chat completes, the summary is embedded and matched against the
+    # job_domain catalog: ANN -> top-K shortlist -> the model picks one -> the id is
+    # RE-VALIDATED against the DB before anything is persisted. Below the floor the
+    # profile is stored UNRESOLVED — a wrong domain is worse than no domain, so a
+    # match is never forced. Wiring flag off until the catalog is seeded (Phase 1).
+    domain_match_enabled: bool = False
+    domain_match_top_k: int = Field(default=10, ge=1, le=50)
+    domain_match_floor: float = Field(default=0.55, ge=0.0, le=1.0)
+    # The NO-MODEL shortcut. When one candidate is both very close AND clearly ahead of
+    # the runner-up, there is nothing for a model to weigh: it is picked directly,
+    # deterministically, for free, and recorded as `matched_auto` so the two paths stay
+    # distinguishable in the data. Both conditions are required — a high score with a
+    # near-tied runner-up ("Lathe Operator" 0.87 vs "Lathe Maintenance Fitter" 0.86) is
+    # exactly the case that NEEDS judgement, and is precisely where a score-only rule
+    # would get it wrong most confidently.
+    domain_match_auto_floor: float = Field(default=0.88, ge=0.0, le=1.0)
+    domain_match_auto_margin: float = Field(default=0.08, ge=0.0, le=1.0)
+
+    # --- Per-task model routing overrides ------------------------------------
+    # model_config.py used to hardcode these. They are the levers that decide both
+    # answer quality and per-turn cost, so they belong in env.
+    #
+    # CHAT TIER moves cheap -> capable. The cheap tier was correct when the model
+    # only had to REPHRASE a question the engine had already chosen; it now has to
+    # conduct the interview, track the RFS, and emit strict JSON in Hinglish.
+    ai_chat_model_tier: str = "capable"
+    # 48 was sized for the SHIPPED MOCK path (model_config.py's own note: "Raise the
+    # cap then if it bites"). The new turn returns a JSON object carrying reply_text
+    # + chips + missing_fields + captured values, so 48 would truncate every reply.
+    ai_chat_max_output_tokens: int = Field(default=512, ge=16, le=8192)
+    ai_chat_temperature: float = Field(default=0.3, ge=0.0, le=2.0)
+    ai_chat_max_retries: int = Field(default=1, ge=0, le=5)
+
+    ai_extraction_max_output_tokens: int = Field(default=1024, ge=16, le=8192)
+    ai_extraction_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    ai_extraction_max_retries: int = Field(default=2, ge=0, le=5)
+
+    ai_resume_max_output_tokens: int = Field(default=512, ge=16, le=8192)
+    ai_resume_temperature: float = Field(default=0.4, ge=0.0, le=2.0)
+    ai_resume_max_retries: int = Field(default=1, ge=0, le=5)
+
+    # --- Gemini transport ----------------------------------------------------
+    # Previously module constants in ai/gemini_client.py. Worst case today is
+    # max_rate_limit_retries * max_backoff_seconds = 4 * 20s = 80s stalled INSIDE a
+    # single request, which is not a number that should need a deploy to change.
+    gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta/models"
+    gemini_timeout_seconds: float = Field(default=30.0, gt=0.0, le=600.0)
+    gemini_max_rate_limit_retries: int = Field(default=4, ge=0, le=10)
+    gemini_max_backoff_seconds: float = Field(default=20.0, gt=0.0, le=300.0)
+    gemini_backoff_base: float = Field(default=2.0, gt=1.0, le=10.0)
+    # Gemini "thinking" tokens. 0 = off, the cost decision for a chat turn. A future
+    # capable-tier extraction may want >0 without a code change.
+    gemini_thinking_budget: int = Field(default=0, ge=0, le=32768)
 
     # Direct Google AI Studio (Gemini) API key. The PRIMARY real-call credential
     # and the master gate for real calls (see real_calls_blocked_reason). The
@@ -183,8 +323,19 @@ class Settings(BaseSettings):
     ai_internal_token: str | None = Field(default=None, min_length=16)
 
     # Per-profile cost guardrails (INR). Used for alerting only in Phase 1.
-    ai_cost_alert_profile_inr: float = 6.0
-    ai_target_profile_cost_inr: float = 4.0
+    #
+    # RAISED for the generalized profiling flow (Rs 4/6 -> Rs 15/20). The old numbers
+    # were sized for a chat that spent ZERO output tokens on the straight-line path —
+    # the engine served its templated question and the LLM was never called. Every
+    # turn is now a real call, so a full interview is ~1 call per turn plus the
+    # summarize + domain-match + extraction + resume calls at the end. Rs 4 was not a
+    # budget for that shape of work; it was a budget for not doing it.
+    #
+    # These remain ALERT/TARGET values, not enforcement. The hard stops are
+    # ai_max_call_cost_inr (per call), ai_max_user_daily_cost_inr (per worker/day)
+    # and the process caps below.
+    ai_cost_alert_profile_inr: float = 20.0
+    ai_target_profile_cost_inr: float = 15.0
     # Hard per-call spend ceiling (INR). A real call whose worst-case cost would
     # exceed this is refused (falls back to mock) — a stateless runaway guard.
     ai_max_call_cost_inr: float = 10.0
@@ -204,8 +355,13 @@ class Settings(BaseSettings):
     # bounds ALL real AI spend for one worker per day (profiling chat + extraction
     # + resume combined), keyed by the opaque ``worker_ref`` (PII-free). Checked
     # only when a worker_ref is supplied; the process-level caps above remain the
-    # backstop for any call without one. Default Rs 6/user/day.
-    ai_max_user_daily_cost_inr: float = 6.0
+    # backstop for any call without one.
+    #
+    # RAISED Rs 6 -> Rs 25 alongside the per-profile target above: this cap is the
+    # HARD per-worker stop, so leaving it at Rs 6 while targeting Rs 15/profile would
+    # halt a legitimate interview partway through. Sized at ~1 completed profile per
+    # worker per day plus headroom for a retry, NOT at N profiles.
+    ai_max_user_daily_cost_inr: float = 25.0
     # Max RETRY attempts (attempt > 0) across ALL requests within a rolling
     # window — cuts retry multiplication against a failing provider.
     ai_retry_budget_per_window: int = 20
@@ -351,6 +507,92 @@ class Settings(BaseSettings):
         if not self.real_calls_enabled:
             return False
         return task_type in self.real_call_task_allowlist
+
+    @field_validator("profiling_required_fields")
+    @classmethod
+    def _validate_required_fields(cls, value: str) -> str:
+        """Reject an EMPTY required set at STARTUP.
+
+        This one is worth a startup check rather than a runtime surprise: the
+        required set is what gates ``is_complete``, so an empty value (a blank
+        template line, a trailing-comma typo that parses to nothing) makes every
+        interview "complete" on turn one. The worker would be handed an empty
+        resume and the failure would look like a model problem, not a config one.
+
+        Raises ``ConfigError`` — not ValueError — purely for consistency with this
+        file's other validator; see ConfigError's docstring for why that matters
+        where the value could be a credential. This value is not secret, but one
+        error style per module beats two.
+        """
+        if not _parse_csv(value):
+            raise ConfigError(
+                "PROFILING_REQUIRED_FIELDS must list at least one field. It gates "
+                "interview completion, and an empty set completes every interview "
+                "on the first turn."
+            )
+        return value
+
+    @field_validator("profiling_required_fields", "profiling_optional_fields")
+    @classmethod
+    def _validate_field_id_shape(cls, value: str) -> str:
+        """Every RFS id must be a lowercase slug, and there must not be too many.
+
+        NOT cosmetic — this enforces a contract that is checked much later, much further
+        away, and much more expensively. The api derives ``answered_topics`` from these
+        very ids and puts them in the ``profile.extraction_ready`` event, whose payload
+        schema enforces ``^[a-z_]+$``, ``max 40`` chars and ``max 50`` entries. That emit
+        happens INSIDE the flush transaction, so one bad id — a capital letter, a hyphen,
+        a stray space that survived the split — does not produce a validation warning: it
+        throws, rolls back the whole transaction, and DISCARDS the worker's entire
+        completed interview while they see a normal closing reply.
+
+        The whole point of the RFS is that changing it is an env edit, never a code edit
+        (see the field docs above). That makes an env typo a first-class failure mode, so
+        it fails at STARTUP, loudly, before any worker is affected — rather than per
+        worker, silently, at the very end of a successful conversation.
+        """
+        fields = _parse_csv(value)
+        bad = [f for f in fields if not re.fullmatch(r"[a-z_]{1,40}", f)]
+        if bad:
+            raise ConfigError(
+                "RFS field ids must be lowercase slugs matching [a-z_]{1,40} — the "
+                "profile.extraction_ready event payload enforces that regex INSIDE the "
+                f"flush transaction, so a bad id discards a completed interview. Bad: {bad}"
+            )
+        if len(fields) > 50:
+            raise ConfigError(
+                f"RFS declares {len(fields)} fields; the profile.extraction_ready "
+                "payload caps answered_topics at 50."
+            )
+        return value
+
+    @property
+    def profiling_required_field_list(self) -> tuple[str, ...]:
+        """Ordered RFS fields that gate ``is_complete``.
+
+        A TUPLE, not a frozenset (unlike ``real_call_task_allowlist``): order is
+        meaningful here — it is the priority the model is told to work through, and
+        the order missing fields are reported back in.
+        """
+        return _parse_csv(self.profiling_required_fields)
+
+    @property
+    def profiling_optional_field_list(self) -> tuple[str, ...]:
+        """RFS fields captured if volunteered but NEVER asked (persona Law 4).
+
+        Anything also present in the required list is dropped here, so a field
+        listed in both is REQUIRED. That direction is deliberate: the failure mode
+        of asking about something we would have taken anyway is a slightly longer
+        interview, whereas silently demoting a required field to optional produces
+        an incomplete resume with no error anywhere.
+        """
+        required = set(self.profiling_required_field_list)
+        return tuple(f for f in _parse_csv(self.profiling_optional_fields) if f not in required)
+
+    @property
+    def profiling_all_fields(self) -> tuple[str, ...]:
+        """Every RFS field, required first. The full vocabulary the model may fill."""
+        return self.profiling_required_field_list + self.profiling_optional_field_list
 
     def has_credential_for(self, provider: str) -> bool:
         """Whether the API credential for a provider label (as returned by

@@ -15,7 +15,10 @@
       "default": "./dist/schema.js"
     }
   },
-  "files": ["dist", "migrations"],
+  "files": [
+    "dist",
+    "migrations"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
@@ -30,6 +33,9 @@
     "db:seed:demand": "tsx src/seed-demand.ts",
     "db:seed:skills": "tsx src/seed-skills.ts",
     "db:embed:skills": "tsx src/embed-skill-aliases.ts",
+    "db:seed:domains": "tsx src/seed-job-domains.ts",
+    "db:embed:domains": "tsx src/embed-job-domain-aliases.ts",
+    "db:verify:domains": "tsx src/verify-job-domains.ts",
     "db:growth:cluster": "tsx src/growth-cluster.ts",
     "db:retag:skills": "tsx src/retag-skills.ts",
     "db:reencrypt:pii": "tsx src/reencrypt-pii-backfill.ts",
@@ -47,7 +53,8 @@
     "db:bootstrap:admin": "tsx src/bootstrap-admin.ts",
     "db:admin:reset-mfa": "tsx src/reset-admin-mfa.ts",
     "db:verify:match-v1": "tsx src/verify-match-v1.ts",
-    "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
+    "clean": "rimraf --glob dist .turbo *.tsbuildinfo",
+    "db:audit:domains": "tsx src/audit-job-domains.ts"
   },
   "dependencies": {
     "@badabhai/match-engine": "workspace:*",

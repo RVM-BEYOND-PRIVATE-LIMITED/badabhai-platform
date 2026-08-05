@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { EventsService } from "../events/events.service";
 import { SkillsRepository } from "./skills.repository";
-import type { AliasCandidate } from "./skills.dto";
+import type { AliasCandidate, DomainCandidate } from "./skills.dto";
 
 /**
  * Skill-canonicalization support service (ADR-0030 / FORK-B-1 seam A).
@@ -24,6 +24,18 @@ export class SkillsService {
     k: number,
   ): Promise<AliasCandidate[]> {
     return this.repo.nearestAliases(domainId, vector, k);
+  }
+
+  /**
+   * Read-only job-domain shortlist for the RAG pass — no event, same as above.
+   *
+   * The MATCH decision (which candidate, and whether any of them clears the floor) is
+   * the ai-service's, exactly as the skill floor gate is: this side only runs the
+   * authorized query. Keeping the two halves split the same way means there is one
+   * place to look for "how did it choose", and it is never here.
+   */
+  async nearestDomains(vector: number[], k: number): Promise<DomainCandidate[]> {
+    return this.repo.nearestDomains(vector, k);
   }
 
   /**

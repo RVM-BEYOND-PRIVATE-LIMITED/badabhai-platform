@@ -55,7 +55,7 @@ def test_profiling_respond_blocks_unsafe_input():
     body = res.json()
     assert body["blocked"] is True
     # The blocked reply is now persona Hinglish (it is STORED as a chat message, so it
-    # enters the transcript and the extraction corpus). test_persona_neutrality owns
+    # enters the transcript and the extraction corpus). `app/profiling/persona.py` owns
     # the copy rules; this asserts the ROUTE serves the worker-facing constant.
     from app.main import _BLOCKED_REPLY
 
@@ -68,7 +68,16 @@ def test_profiling_respond_salary_amount_does_not_block_the_turn():
     a worker answering the salary question with "1000000" used to get the whole
     turn blocked ("please rephrase..."). The in-range amount is now masked to
     [AMOUNT_n] pre-LLM while the raw turn still reaches the local signal
-    detectors — so the interview advances and the salary topic is recorded."""
+    detectors — so the interview advances instead of dead-ending on a real answer.
+
+    WHAT MOVED, AND WHAT DID NOT. The original assertion was
+    ``"salary_current" in updated_state["answered_topics"]``, which the deterministic
+    engine populated. That engine is deleted and ``answered_topics`` is now permanently
+    [] on this path — the model owns what was learned and records it in ``captured``.
+    The D-1 property itself is unchanged and is the assertions below: an in-range rupee
+    amount must be MASKED, not BLOCKED. Which field the model files it under is the
+    model's business now, so asserting a specific key here would pin the model rather
+    than the privacy gate this test exists for."""
     res = client.post(
         "/profiling/respond",
         json={"session_id": "s1", "message_text": "meri salary 1000000 hai"},
@@ -77,7 +86,10 @@ def test_profiling_respond_salary_amount_does_not_block_the_turn():
     body = res.json()
     assert body["blocked"] is False
     assert "rephrase" not in body["reply_text"].lower()
-    assert "salary_current" in body["updated_state"]["answered_topics"]
+    # The turn ADVANCED: state came back and the counter moved. That — not a particular
+    # topic id — is what "the amount did not block the turn" means now.
+    assert body["updated_state"] is not None
+    assert body["updated_state"]["turn_count"] == 1
     # The masked text (what could reach an LLM) carries no digits.
     meta = body["pseudonymization_metadata"]
     assert meta["blocked"] is False
@@ -201,11 +213,18 @@ def test_voice_transcribe_accepts_and_forwards_the_opaque_worker_ref(monkeypatch
     assert seen["duration_seconds"] == 120
 
 
-def test_chat_turn_sends_no_history_so_history_pii_cannot_reach_the_llm(monkeypatch):
-    # Privacy (COST-3): the chat turn is stateless — prior history is never sent to
-    # the model. This is STRONGER than pseudonymizing history: even a raw phone in a
-    # prior turn cannot reach LLM input / a Langfuse trace, because history is not in
-    # the assembled messages at all. Capture what the endpoint hands the model.
+def test_chat_turn_masks_history_so_history_pii_cannot_reach_the_llm(monkeypatch):
+    # Privacy. HISTORY IS THREADED NOW, which REVERSES the COST-3 posture this test was
+    # written for. It used to assert the strongest possible property — the transcript is
+    # not in the assembled messages AT ALL, so a raw phone in an earlier turn is
+    # unreachable by construction. That is no longer available to us: a model conducting
+    # its own interview cannot ask a follow-up to a conversation it cannot see.
+    #
+    # So the guarantee moves from "not sent" to "sent, masked, and fail-closed", and this
+    # test moves with it. It is the ONLY endpoint-level assertion of that property — the
+    # per-leg pseudonymize loop in profiling_respond is what stands between an old turn's
+    # phone number and a provider, and if that loop is ever removed this is what catches
+    # it. Capture what the endpoint actually hands the model.
     from app import main
     from app.contracts import AICallMetadata
 
@@ -232,6 +251,16 @@ def test_chat_turn_sends_no_history_so_history_pii_cannot_reach_the_llm(monkeypa
         },
     )
     assert res.status_code == 200
-    blob = " ".join(m["content"] for m in captured["profiling_chat_turn"])
-    assert "9876543210" not in blob  # the history phone never reaches the model
-    assert len(captured["profiling_chat_turn"]) == 3  # flat: no history threaded
+    messages = captured["profiling_chat_turn"]
+    blob = " ".join(m["content"] for m in messages)
+    # THE assertion. The history leg reaches the model, but the phone in it does not.
+    assert "9876543210" not in blob
+    assert "[PHONE_1]" in blob  # masked, not dropped — the turn still has its context
+    # Four messages: [0] the byte-stable static block, [1] the per-turn context,
+    # [2] the masked history leg, [3] this turn's message. Pinned as a COUNT because
+    # the ordering is load-bearing for prompt caching (messages[0] must stay stable)
+    # and because a history leg silently vanishing would make the privacy assertion
+    # above pass for the wrong reason.
+    assert len(messages) == 4
+    assert messages[2]["role"] == "user"
+    assert "[PHONE_1]" in messages[2]["content"]

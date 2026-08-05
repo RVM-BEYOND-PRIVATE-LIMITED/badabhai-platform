@@ -103,11 +103,41 @@ def test_real_call_can_be_disabled_per_request():
     assert meta.real_call is False
 
 
-def test_routing_picks_capable_model_for_extraction():
+def test_routing_picks_capable_model_for_extraction_and_chat():
+    """Extraction AND the chat turn both resolve to the CAPABLE model.
+
+    The chat turn moved cheap -> capable with the generalized profiling flow. The
+    cheap tier was right when the model only had to REPHRASE a question a
+    deterministic engine had already chosen; it now conducts the interview, tracks
+    the Resume Field Set, and emits strict JSON in Hinglish.
+
+    Resume generation stays CHEAP — asserted here so a future tier edit cannot
+    quietly promote it and multiply resume cost, which is the collateral this
+    change was careful to avoid.
+    """
     settings = Settings(default_cheap_model="cheap-x", default_capable_model="capable-y")
     assert resolve_model("profile_extraction", settings) == "capable-y"
-    assert resolve_model("profiling_chat_turn", settings) == "cheap-x"
+    assert resolve_model("profiling_chat_turn", settings) == "capable-y"
+    assert resolve_model("resume_generation", settings) == "cheap-x"
     assert get_route("profile_extraction").json_mode is True
+
+
+def test_chat_tier_is_env_tunable_and_falls_back_safely():
+    """AI_CHAT_MODEL_TIER moves the chat turn between tiers without a deploy, and
+    an unrecognised value falls back to CAPABLE rather than raising.
+
+    Failing soft matters here: this is read on the request path, so a typo in the
+    environment must not take chat down mid-interview — and falling back to the
+    better model is the safe direction to be wrong in."""
+    base = dict(default_cheap_model="cheap-x", default_capable_model="capable-y")
+
+    def chat_model(tier: str) -> str:
+        return resolve_model("profiling_chat_turn", Settings(ai_chat_model_tier=tier, **base))
+
+    assert chat_model("cheap") == "cheap-x"
+    assert chat_model("CAPABLE") == "capable-y"  # case-insensitive
+    assert chat_model("  capable  ") == "capable-y"  # whitespace-tolerant
+    assert chat_model("nonsense") == "capable-y"  # unrecognised -> safe fallback
 
 
 def test_cost_alert_thresholds():
