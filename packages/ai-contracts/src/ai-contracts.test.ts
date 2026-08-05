@@ -1,10 +1,16 @@
 import { describe, it, expect } from "vitest";
 import openingKeys from "./__fixtures__/profiling-opening.keys.json";
 import jobPostingChatKeys from "./__fixtures__/job-posting-chat.keys.json";
+import profilingKeys from "./__fixtures__/profiling.keys.json";
 import {
   AICallMetadataSchema,
+  ConversationMessageSchema,
   ConversationStateSchema,
   DraftProfileSchema,
+  JobDomainMatchSchema,
+  JOB_DOMAIN_MATCH_STATUSES,
+  ProfilingTurnInputSchema,
+  ProfilingTurnOutputSchema,
   JobPostingChatOpeningInputSchema,
   JobPostingChatOpeningOutputSchema,
   JobPostingChatStateSchema,
@@ -565,5 +571,107 @@ describe("Job-posting chat contract parity (ADR-0035 — contracts.py mirror)", 
     expect(out.updated_state).toBeNull();
     expect(out.draft_ready).toBe(false);
     expect(out.is_mock).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Generalized profiling — Zod <-> Pydantic parity, asserted against a golden file
+// that apps/ai-service/tests/test_contract_parity.py reads too.
+// ---------------------------------------------------------------------------
+
+describe("Generalized profiling contract parity (contracts.py mirror)", () => {
+  // WHY A SHARED FILE AND NOT TWO LISTS. CI runs the node job and the ai-service job
+  // independently and neither compares the two, so a field added on ONE side only
+  // passes both suites — Pydantic IGNORES unknown request keys and a Zod object STRIPS
+  // unknown response keys, and neither says a word.
+  //
+  // Measured during this refactor: `captured` (the Resume Field Set the entire
+  // LLM-driven interview accumulates) existed only in Pydantic, so
+  // `ProfilingTurnOutputSchema.parse` silently discarded every answer the model
+  // collected on the way back into the API. No error, no failing test, just an
+  // interview that re-asks the same seven questions until the turn cap fires. These
+  // assertions are what turn that into a red build.
+  const shapes: Array<[string, Record<string, unknown>]> = [
+    ["ConversationMessage", ConversationMessageSchema.shape],
+    ["ConversationState", ConversationStateSchema.shape],
+    ["ProfilingTurnInput", ProfilingTurnInputSchema.shape],
+    ["ProfilingTurnOutput", ProfilingTurnOutputSchema.shape],
+    // `.innerType()` because ProfileExtractionInputSchema carries a `.refine`
+    // ("transcript OR a non-empty messages array"), which wraps the object in a
+    // ZodEffects whose `.shape` is undefined. Reaching through it keeps the refinement
+    // — the thing that makes an empty extraction request invalid — rather than
+    // deleting it to make the shape reachable.
+    ["ProfileExtractionInput", ProfileExtractionInputSchema.innerType().shape],
+    ["ProfileExtractionOutput", ProfileExtractionOutputSchema.shape],
+    ["JobDomainMatch", JobDomainMatchSchema.shape],
+  ];
+
+  it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {
+    // Keys starting `_` are prose documentation in the fixture, so the record is not
+    // uniformly string[] — narrow the one entry we read.
+    const golden = (profilingKeys as unknown as Record<string, string[] | string>)[name];
+    expect(golden, `fixture is missing ${name}`).toBeDefined();
+    expect(Array.isArray(golden)).toBe(true);
+    expect(Object.keys(shape).sort()).toEqual([...(golden as string[])].sort());
+  });
+
+  it("the fixture declares no contract the TypeScript side lacks", () => {
+    // The mirror of the Python suite's equivalent check. Together they mean a contract
+    // can only be added to the fixture if BOTH sides define it.
+    const declared = Object.keys(profilingKeys).filter((k) => !k.startsWith("_"));
+    expect(declared.sort()).toEqual(shapes.map(([n]) => n).sort());
+  });
+
+  it("the RFS `captured` map survives a round trip through the output schema", () => {
+    // The specific regression above, pinned by behaviour rather than by key list: a
+    // stripped field would leave `captured` as `{}` here while every other assertion
+    // stayed green.
+    const parsed = ProfilingTurnOutputSchema.parse({
+      reply_text: "Achha. Kitni salary chahiye?",
+      updated_state: {
+        role_family: "cnc_vmc",
+        turn_count: 3,
+        captured: { trade: "VMC operator", experience_years: "5 saal" },
+        completion_reason: null,
+      },
+    });
+    expect(parsed.updated_state?.captured).toEqual({
+      trade: "VMC operator",
+      experience_years: "5 saal",
+    });
+  });
+
+  it("an older state with no `captured` still parses — additive, backward compatible", () => {
+    // A session mid-flight at deploy time carries the pre-refactor JSONB shape. It must
+    // degrade to an empty RFS, not throw and strand the worker.
+    const parsed = ConversationStateSchema.parse({ role_family: "cnc_vmc", turn_count: 2 });
+    expect(parsed.captured).toEqual({});
+    expect(parsed.completion_reason).toBeNull();
+  });
+
+  it("the profiling contracts carry NO identity PII field, by construction", () => {
+    // Mechanical, so the rule survives an edit that does not read the comment. There is
+    // nowhere in this contract to put a name, phone, address or employer — which is why
+    // `captured` cannot hold one even if a worker volunteers it (§2 #2).
+    const banned = ["worker_name", "name", "phone", "phone_number", "address", "employer"];
+    for (const [contractName, shape] of shapes) {
+      for (const field of banned) {
+        expect(Object.keys(shape), `${contractName} must not carry ${field}`).not.toContain(field);
+      }
+    }
+  });
+
+  it("JobDomainMatch statuses are exactly the DB CHECK vocabulary", () => {
+    // These five strings are also the `job_domain_match_status` CHECK on
+    // `worker_profiles` (packages/db/src/schema.ts). A sixth added here without the
+    // migration would be rejected at write time, at the end of a long async pipeline,
+    // one worker at a time.
+    expect([...JOB_DOMAIN_MATCH_STATUSES].sort()).toEqual([
+      "matched_auto",
+      "matched_llm",
+      "unmatched_below_floor",
+      "unmatched_degraded",
+      "unmatched_llm_declined",
+    ]);
   });
 });

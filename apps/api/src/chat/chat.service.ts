@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
-import { ConversationStateSchema, type ConversationState } from "@badabhai/ai-contracts";
+import { ConversationStateSchema } from "@badabhai/ai-contracts";
 import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -13,6 +13,11 @@ import { ProfilesService } from "../profiles/profiles.service";
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
 import { hasExtractedContent } from "../profiles/profile-content";
 import { ChatRepository } from "./chat.repository";
+import {
+  ChatTranscriptBuffer,
+  type BufferedMessage,
+  type TranscriptBuffer,
+} from "./chat-transcript.buffer";
 import {
   PostMessageResponseSchema,
   StartSessionResponseSchema,
@@ -29,6 +34,26 @@ const DEFAULT_ROLE_FAMILY = "cnc_vmc";
 // POST-emit, only in the value returned to the client — see renderWorkerName.
 const WORKER_NAME_PLACEHOLDER = "{{worker_name}}";
 
+/**
+ * Served when the AI service is unreachable and no turn happened.
+ *
+ * DELIBERATELY NOT a copy of the ai-service's own degraded line, and deliberately not a
+ * question. This is the same split the codebase already makes between Python's
+ * `_BLOCKED_REPLY` and Flutter's `kChatBlockedNotice`: each surface says the thing IT
+ * knows. The ai-service's fallback continues an interview it is still conducting; this
+ * one is served when there is no interview happening at all, so asking a question here
+ * would invite an answer nothing is listening for.
+ *
+ * On-persona by the same rules the guard enforces on the far side: "aap", no vocative,
+ * no exclamation mark, no emoji, two short lines.
+ */
+const CHAT_UNAVAILABLE_REPLY =
+  "Abhi thodi dikkat aa rahi hai. Ek minute baad dobara bhejiye.";
+
+/** Served on a message posted to an interview that has already been finalized. */
+const CHAT_ALREADY_COMPLETE_REPLY =
+  "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
+
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
@@ -40,6 +65,7 @@ export class ChatService {
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
     private readonly ai: AiService,
+    private readonly buffer: ChatTranscriptBuffer,
     // forwardRef: ProfilesModule imports ChatModule (for the transcript), so the
     // dependency is circular. Used to auto-trigger extraction on the readiness flip.
     @Inject(forwardRef(() => ProfilesService)) private readonly profiles: ProfilesService,
@@ -112,6 +138,27 @@ export class ChatService {
     return response;
   }
 
+  /**
+   * One interview turn. NOTHING IS WRITTEN TO POSTGRES HERE — that is the change.
+   *
+   * The turn used to cost five Postgres writes: an inbound message, a
+   * `chat.message_received`, an outbound message, a `chat.message_sent`, and a
+   * `conversation_state` UPDATE. Over a thirty-turn interview that is ~150 rows
+   * recording a conversation nothing downstream reads until it is finished, and a
+   * worker who abandons on turn three leaves three permanent rows describing nothing.
+   * The whole conversation now buffers in Redis and flushes ONCE, transactionally, in
+   * {@link finalizeInterview}.
+   *
+   * WHAT DID NOT CHANGE, because it is the security spine:
+   *   - the worker id comes from `@CurrentWorker`, never the body;
+   *   - a session that is missing OR not yours is **404, never 403** (a 403 confirms
+   *     the id exists and turns this route into an existence oracle);
+   *   - the ownership check reads the `chat_sessions` ROW, never the buffer — an
+   *     absent cache key must never be able to answer an authorization question;
+   *   - `redactKnownName` strips the worker's own name from everything crossing the
+   *     ai-service boundary, and now from every HISTORY leg too, not just this turn;
+   *   - `renderWorkerName` runs LAST, on the client-returned string only.
+   */
   async postMessage(
     workerId: string,
     dto: PostMessageDto,
@@ -124,253 +171,457 @@ export class ChatService {
       throw new NotFoundException(`Session ${dto.session_id} not found`);
     }
 
-    // 1. Store inbound message + emit.
-    const inbound = await this.chat.insertMessage({
-      sessionId: dto.session_id,
-      workerId: workerId,
-      direction: "inbound",
-      messageType: "text",
-      bodyText: dto.text,
-    });
-    await this.events.emit({
-      event_name: "chat.message_received",
-      actor: { actor_type: "worker", actor_id: workerId },
-      subject: { subject_type: "chat_message", subject_id: inbound.id },
-      payload: {
-        session_id: dto.session_id,
-        worker_id: workerId,
-        message_id: inbound.id,
-        message_type: "text",
-        has_voice_note: false,
-      },
-      // One received-event per stored inbound message. (A full-turn HTTP retry
-      // creates a NEW message row → new id → distinct event; deduping THAT needs a
-      // client-supplied request key threaded to insertMessage — out of TD18 scope.)
-      idempotencyKey: `chat.message_received:${inbound.id}`,
-      correlationId: ctx.correlationId,
-      requestId: ctx.requestId,
-    });
-
-    // 2. Load the persisted interview state (carried across turns) + role family.
-    //    This is what keeps the interview from restarting at Q1 every message.
-    //    Re-validate at the boundary: a malformed/stale JSONB row degrades to a
-    //    fresh interview instead of throwing (defaults are filled for partial rows).
-    const loaded = ConversationStateSchema.nullable().safeParse(session.conversationState ?? null);
-    if (!loaded.success) {
-      this.logger.warn(
-        `session ${dto.session_id} had an invalid conversation_state; restarting interview`,
-      );
+    // A finalized interview is TERMINAL. Serve a closing line rather than throwing:
+    // the flush already happened, the profile is being built, and a 409 here would
+    // surface to the worker as an error for something that actually succeeded. No LLM
+    // call, no writes — a late duplicate POST costs nothing.
+    if (session.status !== "active") {
+      return this.terminalResponse(dto.session_id);
     }
-    const priorState: ConversationState | null = loaded.success ? loaded.data : null;
-    const roleFamily = priorState?.role_family ?? DEFAULT_ROLE_FAMILY;
-    // Idempotency marker for profile.extraction_ready: read from the RAW JSONB
-    // (ConversationStateSchema strips this key, so the interview engine never
-    // sees it). Lets us emit the readiness event once — on the flip — instead of
-    // on every turn after the interview becomes extraction-ready.
-    const priorReadyEmitted = Boolean(
-      (session.conversationState as { extraction_ready_emitted?: boolean } | null)
-        ?.extraction_ready_emitted,
-    );
-    this.logger.log(
-      `state loaded session=${dto.session_id} turn=${priorState?.turn_count ?? 0} ` +
-        `role_family=${roleFamily} asked=[${priorState?.asked_question_ids?.join(",") ?? ""}]`,
-    );
 
-    // 3. Ask the AI service, PASSING the loaded state (pseudonymizes internally;
-    //    stateful mock fallback if the service is down).
-    //    PERF-2: `history` ships EMPTY on purpose — the turn is stateless on the
-    //    ai-service side (COST-3): /profiling/respond keys off message_text +
-    //    conversation_state only, build_chat_messages already ignores history, and
-    //    a null-state turn mints a FRESH ConversationState (it never reconstructs
-    //    state from history). The field itself STAYS in the payload — it is part
-    //    of the shipped ProfilingTurnInput contract (invariant #8) — only its
-    //    contents were dead weight. Extraction is unaffected: it assembles the
-    //    FULL transcript itself (profile-extraction.processor.ts buildTranscript),
-    //    not via this path.
-    this.logger.log(
-      `state sent session=${dto.session_id} conversation_state=${priorState ? "present" : "null"} role_family=${roleFamily}`,
-    );
-    // R32 — strip the worker's OWN name out of the turn before it crosses the
-    // ai-service boundary. Read ONCE per turn and reused by `renderWorkerName` in
-    // step 7, so this costs no extra DB hop over what the vocative already needed.
-    // `null` (no name set, or an undecryptable token) means "send it as it was":
-    // fail SAFE, because the ai-service's fail-closed pseudonymize gate is still in
-    // front of the LLM and a decrypt failure must never make chat unusable.
-    // NOTE the redaction applies ONLY to what is SENT — the row inserted in step 1
-    // above already holds `dto.text` verbatim, which is the audit spine and must
-    // stay the worker's actual words.
+    // 1. The buffered interview. Fails CLOSED (503) rather than silently restarting at
+    //    question one — see ChatTranscriptBuffer.
+    const now = new Date();
+    let buffer = await this.buffer.load(dto.session_id);
+    if (buffer && buffer.workerId !== workerId) {
+      // Tripwire, not an expected branch: the session row already proved ownership, so
+      // a buffer naming a different worker means key reuse or a bad write. Discard it
+      // rather than mixing two workers' answers into one transcript.
+      this.logger.error(
+        `transcript buffer for session ${dto.session_id} named a different worker; ` +
+          `discarding it and restarting the interview`,
+      );
+      buffer = null;
+    }
+    if (buffer === null) {
+      // No buffer. Usually turn one — but it is ALSO what a lapsed TTL looks like on
+      // turn twelve, and the two are otherwise indistinguishable: `turnCount` resets to
+      // 0, `captured` empties, and eleven turns of the worker's answers are simply gone
+      // with nothing in the log to say so.
+      //
+      // The session row is the only evidence available (nothing else is written
+      // mid-interview), so the test is conservative: a session OLDER than the TTL cannot
+      // still have a buffer, so its absence is certainly an expiry, never a first turn.
+      // A lapse inside the window stays ambiguous and is not guessed at.
+      const ageMs = now.getTime() - new Date(session.startedAt).getTime();
+      if (ageMs > this.config.CHAT_TRANSCRIPT_TTL_SECONDS * 1000) {
+        this.logger.warn(
+          `session ${dto.session_id} is older than CHAT_TRANSCRIPT_TTL_SECONDS and has ` +
+            `no buffer; its earlier turns have expired and the interview restarts from ` +
+            `zero (age=${Math.round(ageMs / 1000)}s)`,
+        );
+      }
+      buffer = ChatTranscriptBuffer.create(workerId, DEFAULT_ROLE_FAMILY, now);
+    }
+
+    // 2. The turn budget. API-AUTHORITATIVE: the model is still called on the final
+    //    turn (one code path), but it is told to close rather than ask, and completion
+    //    is forced whatever comes back. A model must never extend its own interview.
+    const turnIndex = buffer.turnCount + 1;
+    const forceComplete = turnIndex >= this.config.CHAT_MAX_TURNS;
+
+    // 3. R32 — strip the worker's OWN name from everything crossing the boundary. Read
+    //    ONCE per turn and reused by `renderWorkerName` below, so it costs no extra DB
+    //    hop over what the vocative already needed. `null` (no name, or an
+    //    undecryptable token) means "send it as it was": fail SAFE, because the
+    //    ai-service's fail-closed pseudonymize gate is still in front of the LLM and a
+    //    key rotation must never make chat unusable.
+    //
+    //    HISTORY IS REDACTED TOO, and that is new. History used to ship empty (PERF-2),
+    //    so `message_text` was the only egress leg. Re-arming history widened the
+    //    surface: a name the worker typed on turn two would otherwise ride to the
+    //    provider on turn twenty. The buffer keeps their actual words; only the copy
+    //    that leaves is redacted.
     const workerFullName = await this.workerFullName(workerId);
+    const window = this.config.CHAT_HISTORY_WINDOW_TURNS;
+    // A turn is a worker+assistant pair, so the window is doubled into messages.
+    const recent = window > 0 ? buffer.messages.slice(-(window * 2)) : buffer.messages;
+    const history = recent.map((m) => ({
+      role: m.role,
+      text: redactKnownName(m.text, workerFullName),
+    }));
+
     const aiResult = await this.ai.profilingRespond({
       session_id: dto.session_id,
       worker_ref: workerId,
       message_text: redactKnownName(dto.text, workerFullName),
-      history: [],
-      conversation_state: priorState,
-      role_family: roleFamily,
+      history,
+      conversation_state: {
+        ...ConversationStateSchema.parse({}),
+        role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
+        turn_count: buffer.turnCount,
+        captured: buffer.captured,
+      },
+      role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
+      force_complete: forceComplete,
     });
-    this.logger.log(
-      `state received session=${dto.session_id} asked_question_id=${aiResult.asked_question_id ?? "-"} ` +
-        `turn=${aiResult.updated_state?.turn_count ?? "-"} extraction_ready=${aiResult.extraction_ready}`,
+
+    // 4. AI service unreachable. NO TURN HAPPENED — the buffer is not touched at all,
+    //    so a retry is exactly safe: no duplicated worker line, no orphan half-turn,
+    //    no topic lost. This is why `profilingRespond` returns null instead of
+    //    fabricating a turn (the old `mockProfilingTurn`, now deleted).
+    if (aiResult === null) {
+      this.logger.warn(
+        `chat turn dropped session=${dto.session_id} turn=${turnIndex}: AI service ` +
+          `unreachable; buffer left untouched so the worker can retry`,
+      );
+      return this.degradedResponse(dto.session_id, CHAT_UNAVAILABLE_REPLY);
+    }
+
+    // 5. Pseudonymization failed closed on the far side. Also a no-op, and here that is
+    //    a PRIVACY WIN over the old flow rather than just a symmetry: the previous
+    //    design stored the inbound row BEFORE calling the AI service, so the very
+    //    message that was blocked for carrying a phone number still landed verbatim in
+    //    `chat_messages` and rode into the extraction corpus. Buffering means it never
+    //    enters the transcript at all — the worker rephrases, and only the rephrasing
+    //    is kept.
+    if (aiResult.blocked) {
+      return this.degradedResponse(
+        dto.session_id,
+        this.renderWorkerName(aiResult.reply_text, workerFullName),
+        { blocked: true },
+      );
+    }
+
+    // 6. Append BOTH sides, verbatim. `dto.text` is the worker's actual words (the
+    //    audit spine), and the assistant line is the RAW reply carrying the literal
+    //    `{{worker_name}}` placeholder — NEVER the interpolated name (SG-1). These are
+    //    the exact strings the flush will write to `chat_messages`, so interpolating
+    //    here would put a real name in the audit spine and in the extraction corpus.
+    const stamp = now.toISOString();
+    buffer.messages.push({ role: "worker", text: dto.text, at: stamp });
+    buffer.messages.push({ role: "assistant", text: aiResult.reply_text, at: stamp });
+
+    const st = aiResult.updated_state;
+    buffer.turnCount = st?.turn_count ?? turnIndex;
+    buffer.captured = st?.captured ?? buffer.captured;
+    buffer.roleFamily = st?.role_family || buffer.roleFamily || DEFAULT_ROLE_FAMILY;
+
+    const unansweredEssentials = this.coerceStringList(
+      st?.unanswered_essentials,
+      dto.session_id,
     );
 
-    // 4. Store outbound message + emit. (unchanged — events keep flowing)
-    const outbound = await this.chat.insertMessage({
-      sessionId: dto.session_id,
-      workerId: workerId,
-      direction: "outbound",
-      messageType: "text",
-      // ⚠️ SG-1 / PII-TRAP (AI-PERSONA-2): store the RAW reply_text — it carries the
-      // literal {{worker_name}} placeholder, NEVER the worker's real name. Do NOT
-      // interpolate the name before this insert or before the event emit below:
-      // this row is the audit spine (its history feeds the EXTRACTION transcript —
-      // since PERF-2, stored messages no longer reach the next AI turn at all) and
-      // must stay PII-free. The real name is stitched in ONLY at the client return
-      // (step 7, renderWorkerName). Keep interpolation OUT of this path.
-      bodyText: aiResult.reply_text,
-      metadata: { is_mock: aiResult.is_mock, blocked: aiResult.blocked },
-    });
-    await this.events.emit({
-      event_name: "chat.message_sent",
-      actor: { actor_type: "ai_service" },
-      subject: { subject_type: "chat_message", subject_id: outbound.id },
-      payload: {
-        session_id: dto.session_id,
-        worker_id: workerId,
-        message_id: outbound.id,
-        message_type: "text",
-      },
-      idempotencyKey: `chat.message_sent:${outbound.id}`,
-      correlationId: ctx.correlationId,
-      requestId: ctx.requestId,
-    });
-
-    // 5. Emit profile.extraction_ready ONCE — on the turn the engine flips
-    //    `extraction_ready` (the frozen v1 contract this signal was added for).
-    //    Lets the backend gate extraction on a worker signal instead of guessing.
-    //    PII-free: ids, role-family slug, interview topic ids + counts only.
-    //    Require updated_state: the contract permits extraction_ready WITHOUT
-    //    updated_state, but emitting then would be an empty/misleading signal AND
-    //    would skip the marker in step 6 (→ re-emit next turn). Flip == ready now,
-    //    not previously emitted, and we have the state to describe it.
-    const st = aiResult.updated_state;
-    const becameReady = aiResult.extraction_ready && st != null && !priorReadyEmitted;
-    if (becameReady && st) {
-      await this.events.emit({
-        event_name: "profile.extraction_ready",
-        actor: { actor_type: "worker", actor_id: workerId },
-        subject: { subject_type: "chat_session", subject_id: dto.session_id },
-        payload: {
-          worker_id: workerId,
-          session_id: dto.session_id,
-          role_family: st.role_family,
-          turn_count: st.turn_count,
-          answered_topics: st.answered_topics,
-        },
-        // Exactly one readiness signal per session, even if the marker-write below
-        // is lost and the same turn is retried (TD18 — DB-enforced, not just the
-        // in-state marker).
-        idempotencyKey: `profile.extraction_ready:${dto.session_id}`,
-        correlationId: ctx.correlationId,
-        requestId: ctx.requestId,
-      });
-      this.logger.log(
-        `extraction_ready emitted session=${dto.session_id} turn=${st.turn_count} ` +
-          `answered=[${st.answered_topics.join(",")}]`,
-      );
-
-      // Auto-trigger profile extraction on the flip — no manual /profile/extract
-      // needed. Fires on the SAME once-per-session guard as the event above.
-      await this.autoTriggerExtraction(workerId, dto.session_id, ctx);
+    // 7. Save BEFORE finalizing, never after. If the flush then fails, the completed
+    //    buffer survives and the next POST (or a retry) re-attempts it; if we dropped
+    //    the key first, a failed flush would destroy the only copy of the interview.
+    // The cap is ORed in, not merely SENT. The ai-service applies it too (its own
+    // `cap_fired` includes `force_complete`), so today this is redundant — but the
+    // comment at step 2 promises "completion is forced whatever comes back", and this is
+    // the line that makes that true. Without it, an ai-service that returned
+    // `extraction_ready: false` on the capped turn would leave the worker chatting past
+    // the budget forever: one real LLM call per turn, no completion, no flush, no
+    // profile, and no error to notice. Defence in depth on the per-worker cost ceiling.
+    const complete = aiResult.extraction_ready || forceComplete;
+    if (complete) {
+      buffer.completedAt = stamp;
+      buffer.completionReason = st?.completion_reason ?? (forceComplete ? "turn_cap" : null) ?? undefined;
     }
+    await this.buffer.save(dto.session_id, buffer);
 
-    // 6. Persist the UPDATED interview state so the next turn continues from here
-    //    (never restarts). Falls back to a plain touch when no state was returned.
-    //    NOTE: this read-modify-write is intentionally last-write-wins — a session
-    //    has a single author (one worker typing sequentially). Revisit if a session
-    //    ever gets concurrent writers (multi-device / async voice notes).
-    const now = new Date();
-    if (aiResult.updated_state) {
-      const stateToPersist: Record<string, unknown> = {
-        ...(aiResult.updated_state as unknown as Record<string, unknown>),
-      };
-      // Carry the readiness marker forward once ready so step 5 does not re-emit
-      // on EVERY later turn. The marker is the FAST path (skips work next turn);
-      // it is NOT the correctness guarantee. If this marker-write is lost and the
-      // SAME turn is retried, the readiness emit in step 5 is still exactly-once
-      // because it carries an `idempotencyKey` and the events table enforces
-      // dedup at insert (ON CONFLICT DO NOTHING) — the TD18 fix, now applied
-      // platform-wide at every emit site with a stable key.
-      if (aiResult.extraction_ready || priorReadyEmitted) {
-        stateToPersist.extraction_ready_emitted = true;
-      }
-      await this.chat.saveConversationState(dto.session_id, stateToPersist, now);
-      this.logger.log(
-        `state persisted session=${dto.session_id} turn=${aiResult.updated_state.turn_count} ` +
-          `asked=[${aiResult.updated_state.asked_question_ids.join(",")}] ` +
-          `answered=[${aiResult.updated_state.answered_topics.join(",")}]`,
-      );
-    } else {
-      await this.chat.touchSession(dto.session_id, now);
-    }
+    this.logger.log(
+      `turn buffered session=${dto.session_id} turn=${buffer.turnCount} ` +
+        `captured=${Object.keys(buffer.captured).length} missing=${unansweredEssentials.length} ` +
+        `complete=${complete}`,
+    );
 
-    // 7. Personalize ONLY the client-returned reply — post-store, post-emit — by
-    //    interpolating the worker's real first name over the {{worker_name}} token.
-    //    The stored message (step 4) + every event above still hold the placeholder.
-    //
-    //    CHAT-UE-1: surface the engine's completeness signal on the reply.
-    //    `updated_state` is GENUINELY null on the REAL service's blocked leg
-    //    (pseudonymize fails closed → ProfilingTurnOutput.updated_state None; the
-    //    contract is `.nullable()`) → `?? []` (never throw). The mock/AI-down
-    //    fallback is NOT that leg: it always returns a full state, whose
-    //    unanswered_essentials mockProfilingTurn recomputes every turn. A malformed
-    //    VALUE from a future engine bug (non-string member / non-array) is coerced
-    //    to its string members here, BEFORE the outbound check — a chat turn must
-    //    never 500 on a progress field.
-    const rawUnanswered: unknown = aiResult.updated_state?.unanswered_essentials ?? [];
-    const unansweredEssentials = Array.isArray(rawUnanswered)
-      ? rawUnanswered.filter((t): t is string => typeof t === "string")
-      : [];
-    // This coercion is EXPECTED dead code behind the AiService typed seam (post()
-    // schema-parses both legs, so step 7 only ever sees string[] or null) - but if a
-    // future refactor makes it reachable, the degrade must be OBSERVABLE, not silent:
-    // field name + drop count only, never the values (SG-2 / no-PII-in-logs).
-    if (!Array.isArray(rawUnanswered)) {
-      this.logger.warn(
-        `postMessage coerced unanswered_essentials session=${dto.session_id} non-array -> []`,
-      );
-    } else if (unansweredEssentials.length !== rawUnanswered.length) {
-      this.logger.warn(
-        `postMessage coerced unanswered_essentials session=${dto.session_id} ` +
-          `dropped=${rawUnanswered.length - unansweredEssentials.length} non-string member(s)`,
-      );
-    }
+    if (complete) await this.finalizeInterview(workerId, dto.session_id, buffer, ctx);
+
+    // 8. Personalize ONLY the client-returned reply — post-buffer, post-flush, post-emit
+    //    — by interpolating the worker's real first name over the `{{worker_name}}`
+    //    token. Everything durable still holds the placeholder.
     const response: PostMessageResponse = {
       session_id: dto.session_id,
-      reply: this.renderWorkerName(aiResult.reply_text, workerFullName).replace(/\{\{[^}]*\}\}/g, ""),
-      blocked: aiResult.blocked,
+      reply: this.renderWorkerName(aiResult.reply_text, workerFullName).replace(
+        /\{\{[^}]*\}\}/g,
+        "",
+      ),
+      blocked: false,
       is_mock: aiResult.is_mock,
+      // THE CHIPS. Same field the deterministic bank filled from a hardcoded per-topic
+      // list, so the Flutter client renders them unchanged — but they are now written
+      // by the model for the question it actually asked, which is what makes
+      // tap-to-answer work for a trade nobody wrote a question pack for.
       suggested_followups: aiResult.suggested_followups,
-      // Additive (backward compatible): lets the client/test see interview progress.
+      // Now the Resume Field Set id this turn asked about, not a question-bank id.
       asked_question_id: aiResult.asked_question_id,
-      extraction_ready: aiResult.extraction_ready,
-      // CHAT-UE-1 (additive): ESSENTIAL topics not yet answered, in ESSENTIAL_TOPICS
-      // order; empty = complete; topic ids only, never PII.
+      extraction_ready: complete,
+      // Required RFS fields still missing. Empty = complete. Field ids only, never PII.
       unanswered_essentials: unansweredEssentials,
+      // The session just became terminal. Telling the client is what lets it drop its
+      // cached session id and open a fresh one next time — without this it posts into a
+      // dead session for the rest of the process.
+      session_ended: complete,
     };
-    // Outbound boundary check (belt-and-braces): the object above is constructed
-    // field-by-field, so unknown engine fields cannot leak in; safeParse guards the
-    // VALUES. On failure, log field PATHS only — never values (the reply carries the
-    // worker's real name post-render; §2 no-PII-in-logs) — and fall back to the
-    // explicitly constructed object. Outbound validation must NEVER 500 a chat turn.
+    return this.checkedResponse(response, dto.session_id);
+  }
+
+  /**
+   * THE ONLY WRITE. Flush the buffered interview to Postgres in ONE transaction:
+   * every message, the final state, and every event land together or not at all.
+   *
+   * IDEMPOTENCY, in two layers with different jobs.
+   *   1. `endSession` is a CONDITIONAL update (`... AND status = 'active'`) and reports
+   *      whether it won. That is the real guard, and it must be conditional rather than
+   *      a prior read: two concurrent finalizations both pass a read, but only one wins
+   *      the write, and the loser aborts before inserting anything. `chat_messages` has
+   *      no unique key, so nothing else could stop a duplicated transcript.
+   *   2. Every event carries a stable `idempotency_key`, which the `events` table
+   *      enforces at insert (TD18). That covers the narrower case of the transaction
+   *      committing and a retry arriving anyway.
+   *
+   * ORDER: the Redis key is dropped only AFTER the transaction commits, and never in a
+   * `finally`. Postgres is what makes the transcript durable; dropping the key on a
+   * failed flush would destroy the only copy of the interview.
+   */
+  private async finalizeInterview(
+    workerId: string,
+    sessionId: string,
+    buffer: TranscriptBuffer,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const at = new Date();
+    // The state snapshot that lands in `chat_sessions.conversation_state`. Built
+    // field-by-field from the buffer rather than spread, so nothing Redis-shaped
+    // (`messages`, `workerId`) can ride into the JSONB column.
+    const finalState: Record<string, unknown> = {
+      role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
+      turn_count: buffer.turnCount,
+      captured: buffer.captured,
+      completion_reason: buffer.completionReason ?? null,
+      // The RFS field ids the worker actually answered.
+      //
+      // FILTERED, not trusted. The event payload enforces `^[a-z_]+$`, max 40 chars and
+      // max 50 entries — and that emit happens INSIDE this transaction, so one bad id
+      // would throw, roll back the flush, and discard the worker's whole completed
+      // interview while they saw a normal closing reply. The vocabulary is now DATA
+      // (PROFILING_REQUIRED_FIELDS on the ai-service), so "lowercase slug by
+      // construction" is a property of today's config, not of the mechanism. The
+      // ai-service validates the same shape at startup; this is the second wall, so a
+      // version-skewed deployment costs an observability field instead of an interview.
+      answered_topics: this.slugFieldIds(Object.keys(buffer.captured).sort(), sessionId),
+      extraction_ready_emitted: true,
+    };
+
+    let won = false;
+    try {
+      won = await this.chat.withTransaction(async (tx) => {
+        if (!(await this.chat.endSession(tx, sessionId, finalState, at))) {
+          this.logger.log(`flush skipped session=${sessionId}: already finalized`);
+          return false;
+        }
+
+        const rows = await this.chat.insertMessages(
+          tx,
+          buffer.messages.map((m) => this.toMessageRow(sessionId, workerId, m)),
+        );
+
+        // One event per stored message, exactly as the per-turn flow emitted them —
+        // same names, same payloads, same key shape. Only the TIMING moved: the audit
+        // spine records the whole conversation at once instead of a row at a time.
+        for (const row of rows) {
+          const inbound = row.direction === "inbound";
+          await this.events.emit({
+            event_name: inbound ? "chat.message_received" : "chat.message_sent",
+            actor: inbound
+              ? { actor_type: "worker", actor_id: workerId }
+              : { actor_type: "ai_service" },
+            subject: { subject_type: "chat_message", subject_id: row.id },
+            payload: {
+              session_id: sessionId,
+              worker_id: workerId,
+              message_id: row.id,
+              message_type: "text",
+              ...(inbound ? { has_voice_note: false } : {}),
+            },
+            idempotencyKey: `${inbound ? "chat.message_received" : "chat.message_sent"}:${row.id}`,
+            correlationId: ctx.correlationId,
+            requestId: ctx.requestId,
+            tx,
+          });
+        }
+
+        await this.events.emit({
+          event_name: "profile.extraction_ready",
+          actor: { actor_type: "worker", actor_id: workerId },
+          subject: { subject_type: "chat_session", subject_id: sessionId },
+          payload: {
+            worker_id: workerId,
+            session_id: sessionId,
+            role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
+            turn_count: buffer.turnCount,
+            answered_topics: finalState.answered_topics as string[],
+          },
+          idempotencyKey: `profile.extraction_ready:${sessionId}`,
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+          tx,
+        });
+        return true;
+      });
+    } catch (err) {
+      // The transaction rolled back, so nothing was written AND the buffer is still in
+      // Redis with `completedAt` set. Do NOT rethrow: the worker's final message was
+      // answered and the reply is already built, so 500-ing here would tell them their
+      // completed interview failed when the only thing that failed is a write we can
+      // retry. Loud in the log, invisible to them.
+      this.logger.error(
+        `transcript flush FAILED session=${sessionId}; the buffer is intact and the ` +
+          `flush will be retried: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+
+    if (!won) {
+      // Another request finalized this session. The transcript is durable, so the key
+      // is ours to clear.
+      await this.buffer.drop(sessionId);
+      return;
+    }
+
+    this.logger.log(
+      `transcript flushed session=${sessionId} messages=${buffer.messages.length} ` +
+        `turns=${buffer.turnCount} reason=${buffer.completionReason ?? "-"}`,
+    );
+    await this.buffer.drop(sessionId);
+    await this.autoTriggerExtraction(workerId, sessionId, ctx);
+  }
+
+  /**
+   * RFS field ids narrowed to what `ProfileExtractionReadyPayload` will actually
+   * accept: lowercase slugs, at most 40 characters, at most 50 of them.
+   *
+   * Dropping a field id costs one entry in an observability array. NOT dropping it, if
+   * the ai-service's configured vocabulary ever disagrees with the payload's regex,
+   * costs the worker their entire completed interview — the emit is inside the flush
+   * transaction. The asymmetry is the whole argument for filtering here.
+   */
+  private slugFieldIds(ids: string[], sessionId: string): string[] {
+    const kept = ids.filter((id) => /^[a-z_]{1,40}$/.test(id)).slice(0, 50);
+    if (kept.length !== ids.length) {
+      // Count only, never the ids themselves — a rejected id is by definition not from
+      // the vocabulary we vouch for, so it is not known to be PII-free.
+      this.logger.warn(
+        `dropped ${ids.length - kept.length} field id(s) from answered_topics for ` +
+          `session ${sessionId}: not [a-z_]{1,40}, or over the 50-entry payload cap`,
+      );
+    }
+    return kept;
+  }
+
+  /** A buffered line as the `chat_messages` row it becomes at flush. */
+  private toMessageRow(sessionId: string, workerId: string, m: BufferedMessage) {
+    return {
+      sessionId,
+      workerId,
+      direction: m.role === "worker" ? ("inbound" as const) : ("outbound" as const),
+      messageType: "text" as const,
+      // Verbatim. An assistant line still carries the literal `{{worker_name}}`
+      // placeholder here — the real name is interpolated ONLY into the live reply.
+      bodyText: m.text,
+      // `created_at` is EXPLICIT: these rows are written at flush but happened over the
+      // preceding minutes, and defaulting would stamp a thirty-turn interview as thirty
+      // simultaneous messages, destroying the order `listMessages` and the extraction
+      // transcript both read.
+      createdAt: new Date(m.at),
+    };
+  }
+
+  /** A turn that did not happen: nothing buffered, nothing written, safe to retry. */
+  private degradedResponse(
+    sessionId: string,
+    reply: string,
+    opts: { blocked?: boolean } = {},
+  ): PostMessageResponse {
+    return this.checkedResponse(
+      {
+        session_id: sessionId,
+        reply: reply.replace(/\{\{[^}]*\}\}/g, ""),
+        blocked: opts.blocked ?? false,
+        is_mock: true,
+        suggested_followups: [],
+        asked_question_id: null,
+        extraction_ready: false,
+        // EMPTY MEANS "UNKNOWN" HERE, not "complete" — no turn happened, so there is no
+        // progress to report. Clients must gate on `blocked` / `is_mock` before reading
+        // it, exactly as the DTO documents.
+        unanswered_essentials: [],
+        // The session is still very much alive; the worker should retry into it.
+        session_ended: false,
+      },
+      sessionId,
+    );
+  }
+
+  /**
+   * A message posted after the interview was finalized. Terminal, idempotent, free.
+   *
+   * Also the RECOVERY path: a client that missed the `session_ended` flag on the
+   * completing turn (an old build, a dropped response, a fresh process reusing a
+   * persisted id) is told again here, on every subsequent message, rather than being
+   * left to post into a dead session forever.
+   */
+  private terminalResponse(sessionId: string): PostMessageResponse {
+    return this.checkedResponse(
+      {
+        session_id: sessionId,
+        reply: CHAT_ALREADY_COMPLETE_REPLY,
+        blocked: false,
+        is_mock: true,
+        suggested_followups: [],
+        asked_question_id: null,
+        extraction_ready: true,
+        unanswered_essentials: [],
+        session_ended: true,
+      },
+      sessionId,
+    );
+  }
+
+  /**
+   * Outbound boundary check (belt-and-braces): every response above is constructed
+   * field-by-field, so unknown fields cannot leak in; `safeParse` guards the VALUES. On
+   * failure, log field PATHS only — never values (the reply carries the worker's real
+   * name post-render; §2 no-PII-in-logs) — and return the constructed object. Outbound
+   * validation must NEVER 500 a chat turn.
+   */
+  private checkedResponse(
+    response: PostMessageResponse,
+    sessionId: string,
+  ): PostMessageResponse {
     const checked = PostMessageResponseSchema.safeParse(response);
     if (!checked.success) {
       this.logger.warn(
-        `postMessage outbound validation failed session=${dto.session_id} ` +
+        `postMessage outbound validation failed session=${sessionId} ` +
           `paths=[${checked.error.issues.map((i) => i.path.join(".")).join(",")}]`,
       );
       return response;
     }
     return checked.data;
+  }
+
+  /**
+   * Coerce a progress list to its string members. EXPECTED dead code behind the
+   * `AiService` typed seam (the response is schema-parsed, so this only ever sees
+   * `string[]` or null) — but if a future refactor makes it reachable, the degrade must
+   * be OBSERVABLE rather than silent: field name + drop count only, never the values.
+   */
+  private coerceStringList(raw: unknown, sessionId: string): string[] {
+    const list = raw ?? [];
+    if (!Array.isArray(list)) {
+      this.logger.warn(
+        `postMessage coerced unanswered_essentials session=${sessionId} non-array -> []`,
+      );
+      return [];
+    }
+    const strings = list.filter((t): t is string => typeof t === "string");
+    if (strings.length !== list.length) {
+      this.logger.warn(
+        `postMessage coerced unanswered_essentials session=${sessionId} ` +
+          `dropped=${list.length - strings.length} non-string member(s)`,
+      );
+    }
+    return strings;
   }
 
   /**
@@ -398,11 +649,35 @@ export class ChatService {
    * Hydration therefore returns the placeholder rather than the name. That is
    * the safe direction: the alternative is decrypting the worker's name into a
    * bulk read. Tracked as a known cosmetic gap, not a leak.
+   *
+   * REDIS FIRST, POSTGRES FALLBACK — and this route is now the ONLY way to redraw a
+   * live interview. Mid-chat there are no `chat_messages` rows at all: the transcript
+   * lives in the buffer until the flush, so a Postgres-only read would hand a worker
+   * an empty thread — the exact bug #349 exists to fix, reintroduced by the buffer.
+   * After the flush the buffer is gone and Postgres is authoritative. The two are never
+   * both populated for the same session, so there is nothing to merge and no ordering
+   * to reconcile: the buffer's presence IS the "interview still in flight" signal.
+   *
+   * FAIL-CLOSED INHERITED: a Redis outage throws 503 from `buffer.load` rather than
+   * falling through to Postgres. Falling through would look like success and show the
+   * worker an empty transcript for an interview that is very much still alive.
    */
   async listMessages(workerId: string, sessionId: string): Promise<SessionMessagesResponse> {
     const session = await this.chat.findSession(sessionId);
     if (!session || session.workerId !== workerId) {
       throw new NotFoundException(`Session ${sessionId} not found`);
+    }
+
+    const buffered = await this.buffer.load(sessionId);
+    if (buffered && buffered.workerId === workerId && buffered.messages.length > 0) {
+      // Oldest-first already: the buffer is append-only. Do NOT re-sort.
+      return {
+        messages: buffered.messages.map((m) => ({
+          direction: m.role === "worker" ? ("inbound" as const) : ("outbound" as const),
+          body_text: m.text,
+          created_at: m.at,
+        })),
+      };
     }
 
     // Already oldest-first: the repository takes the newest CHAT_HISTORY_MAX and

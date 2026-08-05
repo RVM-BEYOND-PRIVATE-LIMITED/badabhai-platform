@@ -100,6 +100,37 @@ export const ConversationStateSchema = z.object({
    * outcome. Topic ids only — no PII. The API-side consumer is a follow-up task.
    */
   unanswered_essentials: z.array(z.string()).default([]),
+
+  // --- Generalized profiling (the LLM-driven interview) ---------------------
+  // ADDITIVE + defaulted => backward compatible, and mirrored in
+  // apps/ai-service/app/contracts.py ConversationState.
+  /**
+   * The Resume Field Set as filled so far: `{field_id: short value}`.
+   *
+   * It REPLACES `collected` as the thing that matters, and it is what makes "never ask
+   * what has already been answered" work with no deterministic engine tracking it — the
+   * ai-service feeds it back to the model every turn. Keys are the closed RFS
+   * vocabulary (PROFILING_REQUIRED_FIELDS + PROFILING_OPTIONAL_FIELDS); an id the
+   * model invents is dropped on the far side and never lands here.
+   *
+   * DEFINED HERE AND NOT ONLY IN PYDANTIC, and that is load-bearing rather than tidy:
+   * `AiService.profilingRespond` runs the response through
+   * `ProfilingTurnOutputSchema.parse`, and a Zod object STRIPS keys it does not
+   * declare. Omitting this field would silently discard every captured answer on the
+   * way back into the API — no error, no failing test on either side, and an interview
+   * that re-asks the same seven questions until the turn cap fires.
+   *
+   * PRIVACY: profile signals only, exactly like `collected` beside it. There is no RFS
+   * field for a name, phone, address, employer or ID; the persona forbids asking, and
+   * pseudonymize blocks upstream.
+   */
+  captured: z.record(z.string(), z.string()).default({}),
+  /**
+   * WHY the interview ended (`fields_complete` | `turn_cap`), for observability.
+   * Never model-supplied — the ai-service assigns it, because a model does not get to
+   * decide that it is finished.
+   */
+  completion_reason: z.string().nullable().default(null),
 });
 export type ConversationState = z.infer<typeof ConversationStateSchema>;
 
@@ -118,6 +149,18 @@ export const ProfilingTurnInputSchema = z.object({
   role_family: z.string().optional(),
   conversation_state: ConversationStateSchema.nullable().optional(),
   real_call_allowed: z.boolean().optional(),
+  /**
+   * The API's turn cap fired. The model is still called (ONE code path), but it is told
+   * to close warmly rather than ask, and completion is forced on the way out whatever
+   * comes back.
+   *
+   * THE CAP IS API-AUTHORITATIVE, and that is the point of sending it rather than
+   * letting the ai-service count. A model must never be able to extend its own
+   * interview, and the ai-service holds no per-session state to count turns with — the
+   * API owns the Redis buffer, so the API owns the budget. `PROFILING_MAX_TURNS` on
+   * the far side is a second, independent clamp, not the primary one.
+   */
+  force_complete: z.boolean().optional(),
 });
 export type ProfilingTurnInput = z.infer<typeof ProfilingTurnInputSchema>;
 
@@ -152,6 +195,50 @@ export const ProfilingTurnOutputSchema = z.object({
   pseudonymization_metadata: PseudonymizationMetaSchema.nullable().default(null),
 });
 export type ProfilingTurnOutput = z.infer<typeof ProfilingTurnOutputSchema>;
+
+// ---------------------------------------------------------------------------
+// Job-domain RAG match (generalized profiling)
+// ---------------------------------------------------------------------------
+
+/**
+ * The closed status vocabulary, shared by three places that must agree: this schema, the
+ * Pydantic `JobDomainMatch`, and the `job_domain_match_status` CHECK constraint on
+ * `worker_profiles`. Exported so the persistence side can reuse it rather than
+ * hand-copying the strings a fourth time.
+ *
+ * The three UNMATCHED reasons are kept DISTINCT on purpose. "No domain" is a legitimate
+ * outcome, but "the catalog had nothing close" and "the AI seam was down" are entirely
+ * different operational facts, and collapsing them would make a broken retrieval look
+ * like a genuinely unclassifiable workforce.
+ */
+export const JOB_DOMAIN_MATCH_STATUSES = [
+  /** One candidate was so far ahead that no model was asked. Deterministic. */
+  "matched_auto",
+  /** The model chose from the retrieved shortlist, and the id re-validated. */
+  "matched_llm",
+  /** The best candidate in the whole catalog was below the similarity floor. */
+  "unmatched_below_floor",
+  /** The model declined, was unreadable, or named an id that was not retrieved. */
+  "unmatched_llm_declined",
+  /** The flag is off, the query was empty, pseudonymization blocked, or the seam failed. */
+  "unmatched_degraded",
+] as const;
+export type JobDomainMatchStatus = (typeof JOB_DOMAIN_MATCH_STATUSES)[number];
+
+export const JobDomainMatchSchema = z.object({
+  status: z.enum(JOB_DOMAIN_MATCH_STATUSES).default("unmatched_degraded"),
+  /** Non-null ONLY on a matched status. Always a `job_domain` id the search returned. */
+  job_domain_id: z.string().nullable().default(null),
+  /**
+   * The RETRIEVAL cosine similarity — never the model's self-reported confidence. One is
+   * measured, the other asserted, and only the measured one belongs in a column that
+   * later analysis will threshold on.
+   */
+  score: z.number().nullable().default(null),
+  /** The shortlist that was considered, ids only. Observability; never worker text. */
+  considered: z.array(z.string()).default([]),
+});
+export type JobDomainMatch = z.infer<typeof JobDomainMatchSchema>;
 
 // ---------------------------------------------------------------------------
 // Pseudonymization
@@ -190,8 +277,10 @@ export const SalaryExpectationSchema = z.object({
 
 export const LocationPreferenceSchema = z.object({
   // Issue #423 — where the worker IS, kept separate from where they WANT to work.
-  // The interview engine has always treated these as distinct topics
-  // (question_bank.py: "current AND preferred location, never conflated"), but the
+  // The interview has always treated these as distinct topics — the Resume Field Set
+  // keeps `current_city` and `preferred_locations` as two separate REQUIRED fields, for
+  // the same reason the persona asks them as two questions ("Abhi kahan rehte hain?" vs
+  // "Kaam kahan karna chahte hain?") — but the
   // legacy shape had nowhere to put the current city, so `_build_legacy` prepended it
   // to `preferred_cities` — turning "I live in Pune" into "I want to work in Pune".
   //
@@ -666,6 +755,14 @@ export const ProfileExtractionOutputSchema = z.object({
   extraction_status: z.enum(["completed", "blocked"]).default("completed"),
   worker_profile_draft: WorkerProfileDraftSchema.nullable().default(null),
   ai_metadata: AICallMetadataSchema.nullable().default(null),
+  /**
+   * The RAG job-domain classification. `null` = the pass DID NOT RUN (the flag is off,
+   * or the extraction was blocked), which is deliberately distinct from a pass that ran
+   * and came back unmatched: the first writes nothing, the second records the reason.
+   * Collapsing the two would make a disabled feature indistinguishable from a workforce
+   * the catalog cannot describe.
+   */
+  job_domain_match: JobDomainMatchSchema.nullable().default(null),
 });
 export type ProfileExtractionOutput = z.infer<typeof ProfileExtractionOutputSchema>;
 

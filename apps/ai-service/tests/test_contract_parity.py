@@ -19,14 +19,21 @@ from pathlib import Path
 import pytest
 
 from app.contracts import (
+    ConversationMessage,
+    ConversationState,
+    JobDomainMatch,
     JobPostingChatOpeningInput,
     JobPostingChatOpeningOutput,
     JobPostingChatState,
     JobPostingChatTurnInput,
     JobPostingChatTurnOutput,
     JobPostingDraft,
+    ProfileExtractionInput,
+    ProfileExtractionOutput,
     ProfilingOpeningInput,
     ProfilingOpeningOutput,
+    ProfilingTurnInput,
+    ProfilingTurnOutput,
 )
 
 _FIXTURE_DIR = (
@@ -118,6 +125,83 @@ def test_opening_endpoint_contract_is_pii_free_by_construction():
 
 
 def test_turn_input_carries_no_history_so_a_transcript_cannot_be_re_sent():
-    """COST-3: the profiling input keeps a vestigial `history` it must never thread
-    into a model call. A new contract simply does not accept one."""
+    """The PAYER interview is deterministic and stateless per turn, so its contract
+    simply does not accept a transcript — the engine keys off the message plus the
+    stored state and has nothing to do with a history.
+
+    Deliberately NOT true of the worker-side ProfilingTurnInput any more: that one
+    threads history on purpose, because a model conducting the interview cannot ask a
+    follow-up to a conversation it cannot see. The asymmetry is the point, so this
+    assertion is scoped to the payer model and must not be "made consistent"."""
     assert "history" not in JobPostingChatTurnInput.model_fields
+
+
+# --- Generalized profiling (the LLM-driven chat + the RAG domain match) -----
+_PROFILING_FIXTURE = _FIXTURE_DIR / "profiling.keys.json"
+
+_PROFILING_MODELS = {
+    "ConversationMessage": ConversationMessage,
+    "ConversationState": ConversationState,
+    "ProfilingTurnInput": ProfilingTurnInput,
+    "ProfilingTurnOutput": ProfilingTurnOutput,
+    "ProfileExtractionInput": ProfileExtractionInput,
+    "ProfileExtractionOutput": ProfileExtractionOutput,
+    "JobDomainMatch": JobDomainMatch,
+}
+
+
+@pytest.mark.parametrize("name", sorted(_PROFILING_MODELS))
+def test_profiling_models_match_the_zod_shape(name: str):
+    golden = _read_golden(_PROFILING_FIXTURE)
+    assert name in golden, f"fixture is missing {name}"
+    assert sorted(_PROFILING_MODELS[name].model_fields) == sorted(golden[name])
+
+
+def test_the_profiling_fixture_declares_no_model_the_python_side_lacks():
+    golden = _read_golden(_PROFILING_FIXTURE)
+    declared = {k for k in golden if not k.startswith("_")}
+    assert declared == set(_PROFILING_MODELS)
+
+
+def test_captured_is_present_so_the_rfs_is_not_stripped_in_flight():
+    """THE regression this fixture exists for.
+
+    `captured` is the Resume Field Set the whole LLM-driven interview accumulates, and
+    it lived only here during the rewrite. A Zod object STRIPS keys it does not declare,
+    so `ProfilingTurnOutputSchema.parse` on the api side was discarding every answer the
+    model collected — with no error, no failing test on either side, and an interview
+    that re-asks the same seven questions until the turn cap fires.
+
+    Asserted as BEHAVIOUR as well as a key list: the key check above would pass if the
+    field were renamed on both sides at once, this one pins what it must actually do.
+    """
+    state = ConversationState(captured={"trade": "VMC operator", "experience_years": "5 saal"})
+    assert state.captured["trade"] == "VMC operator"
+    # And an OLD state (a session mid-flight at deploy time) must degrade, never throw.
+    assert ConversationState().captured == {}
+    assert ConversationState().completion_reason is None
+
+
+def test_force_complete_defaults_false_so_the_api_owns_the_turn_cap():
+    """The cap is API-authoritative: this service holds no per-session state to count
+    turns with, so it can only enforce what it is told. Defaulting TRUE would end every
+    interview from a caller that predates the field."""
+    assert ProfilingTurnInput(session_id="s", message_text="hi").force_complete is False
+
+
+def test_the_profiling_contracts_carry_no_identity_pii_field():
+    """Mechanical, so the rule survives an edit that does not read the comment. There is
+    nowhere in these contracts to put a name, phone, address or employer — which is why
+    `captured` cannot hold one even if a worker volunteers it (§2 #2)."""
+    banned = {"worker_name", "name", "phone", "phone_number", "address", "employer"}
+    for model_name, model in _PROFILING_MODELS.items():
+        assert banned.isdisjoint(set(model.model_fields)), model_name
+
+
+def test_job_domain_match_defaults_to_unmatched():
+    """Fail-safe direction: a match object that arrives empty must mean "no domain",
+    never a silently-matched one. A wrong domain is worse than no domain."""
+    m = JobDomainMatch()
+    assert m.status == "unmatched_degraded"
+    assert m.job_domain_id is None
+    assert m.score is None

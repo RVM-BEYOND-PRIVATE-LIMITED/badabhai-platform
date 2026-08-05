@@ -1,15 +1,42 @@
-"""Prompt templates for the worker interview + extraction.
+"""Prompt assembly for the worker interview + extraction.
 
-Tone: "Bada Bhai" — an efficient senior from the shop floor. Warm but
-not gushing: at most a two-word acknowledgement, one question at a time under 20
-words, never praise, never restate the answer, never explain why. Always "aap".
+THE CHAT TURN IS NO LONGER A REPHRASE. It used to be: a deterministic engine chose the
+question from a hardcoded bank and the model, when it was called at all, only put the
+chosen question into nicer words. The engine is gone. The model now conducts the whole
+interview for whatever trade the worker actually does, and everything it needs to do
+that lives in the static block below.
 
-All text fed to these builders for an LLM call is already pseudonymized.
+MESSAGE LAYOUT, AND WHY THE ORDER IS LOAD-BEARING:
+
+  [0] STATIC  - persona + field set + JSON schema. BYTE-IDENTICAL for every worker and
+                every turn, because Gemini's implicit cache only applies to a stable
+                PREFIX and bills a hit at ~10% of the normal rate. This block is ~1.6k
+                estimated tokens, which clears the 1024-token floor for the first time
+                (the old ~200-token persona never did, and model_config.py documents
+                caching as a no-op because of it). Interpolating ANYTHING per-worker
+                here - a trade name, a turn counter, a session id - silently costs the
+                whole discount, with no error and no test failure. Do not do it.
+  [1] DYNAMIC - trade hint, progress, what is still missing. Everything variable.
+  [2] HISTORY - the recent transcript, oldest to newest.
+  [3] TURN    - the worker's message.
+
+HISTORY IS THREADED AGAIN, DELIBERATELY REVERSING COST-3. It used to be dropped: the
+engine already knew what to ask, so the model needed no memory, and re-sending the
+transcript made input cost grow O(n^2). Neither half holds now - a model that cannot
+see the conversation cannot ask a follow-up, which is the entire point of the change.
+The quadratic is bounded instead by PROFILING_HISTORY_MAX_TURNS, making it
+O(n * window), and the static prefix is cached.
+
+Every string reaching these builders is already pseudonymized.
 """
 
 from __future__ import annotations
 
+from ..config import Settings
 from ..contracts import ConversationMessage
+from .persona import PERSONA_SYSTEM_BLOCK
+from .rfs import FIELD_LABEL, field_brief
+from .turn_schema import SCHEMA_HINT
 
 _TRADE_LABEL: dict[str, str] = {
     "cnc_vmc": "CNC/VMC manufacturing",
@@ -25,28 +52,134 @@ def _trade_name(role_family: str) -> str:
     return _TRADE_LABEL.get(role_family, "CNC/VMC manufacturing")
 
 
-def bada_bhai_system_prompt(role_family: str = "cnc_vmc") -> str:
-    trade = _trade_name(role_family)
-    return (
-        f"You are 'Bada Bhai', a senior who has worked in {trade} and is "
-        "helping this worker build their job profile. You are on their side — not an "
-        "examiner, not a salesman.\n"
-        "\n"
-        'Address the worker by name + "ji" ONLY when a name is given, and only at '
-        "the start/close — never every turn. If no name, use no vocative.\n"
-        "NEVER use bhai, bhaiya, beta, behen, yaar. Never assume gender. Always use "
-        '"aap". Prefer present tense.\n'
-        "Simple spoken Hinglish, short sentences.\n"
-        'You know the trade: ask like an insider ("Fanuc ya Siemens?"), not an '
-        "examiner.\n"
-        'ONE question per turn, under 20 words. Never test, never judge — "nahi '
-        'pata" is always fine.\n'
-        'Acknowledge in MAX 2 words ("Theek hai." / "Achha."), then move. NEVER '
-        'praise or gush — no "waah", "zabardast", "bahut acha", "bilkul".\n'
-        "NEVER repeat, restate, or summarise what they just said. Never explain why "
-        "you are asking.\n"
-        "Make the next step clear; close by telling them their resume is being made.\n"
-    )
+# ---------------------------------------------------------------------------
+# The chat turn
+# ---------------------------------------------------------------------------
+
+
+def static_system_block(settings: Settings) -> str:
+    """messages[0]. MUST be byte-stable for a given configuration - see the header.
+
+    Depends only on `Settings` (the field set), never on the worker, the session, the
+    turn, or the trade. `test_prompt_cache` pins that property, because losing it costs
+    the caching discount silently.
+    """
+    return "\n\n".join((PERSONA_SYSTEM_BLOCK, field_brief(settings), SCHEMA_HINT))
+
+
+def turn_context_message(
+    *,
+    role_family: str | None,
+    captured: dict[str, str],
+    missing: list[str],
+    turn_index: int,
+    max_turns: int,
+    force_complete: bool,
+) -> str:
+    """messages[1]. Everything that varies - kept OUT of the cached prefix.
+
+    Telling the model what it already has is what implements "never ask what has already
+    been answered" (Law 8) without a deterministic engine tracking it. Telling it what
+    is missing is what keeps a free-form interview converging instead of wandering.
+    """
+    lines: list[str] = []
+
+    # A HINT, not an instruction. The worker's actual trade is whatever they say it is;
+    # this only helps the model pitch its vocabulary on turn one, and it must feel free
+    # to abandon it the moment the worker says something else.
+    if role_family:
+        lines.append(
+            "Likely trade (a hint only — believe the worker over this): "
+            f"{_trade_name(role_family)}."
+        )
+
+    if captured:
+        known = "; ".join(f"{FIELD_LABEL.get(k, k)}: {v}" for k, v in captured.items())
+        lines.append(f"ALREADY ANSWERED — never ask about these again: {known}")
+    else:
+        lines.append("Nothing collected yet. This is the start of the conversation.")
+
+    if missing:
+        lines.append(
+            "STILL MISSING: " + ", ".join(FIELD_LABEL.get(m, m) for m in missing) + "."
+        )
+
+    lines.append(f"This is turn {turn_index} of at most {max_turns}.")
+
+    if force_complete:
+        # The hard cap fired. The endpoint will force completion regardless of what
+        # comes back, so the model's only remaining job is to close warmly.
+        lines.append(
+            "FINAL TURN. Do not ask a question. Thank them in one short line and tell "
+            'them their resume is being made. Set "is_complete": true.'
+        )
+    elif not missing:
+        lines.append(
+            'Everything required is collected. Close warmly and set "is_complete": true.'
+        )
+
+    return "\n".join(lines)
+
+
+def build_chat_messages(
+    *,
+    settings: Settings,
+    history: list[ConversationMessage],
+    worker_message: str,
+    role_family: str | None,
+    captured: dict[str, str],
+    missing: list[str],
+    turn_index: int,
+    force_complete: bool = False,
+    repair: str | None = None,
+) -> list[dict[str, str]]:
+    """Assemble one chat turn.
+
+    `history` is expected PRE-WINDOWED by the caller (the API owns the buffer and the
+    window size), so this function does not truncate: a builder that silently dropped
+    turns would make the window invisible at the call site where the cost decision is
+    actually made.
+
+    `repair` carries the persona guard's correction on the single retry. It goes LAST,
+    after the offending exchange, so the model sees what it wrote and why it was wrong.
+    """
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": static_system_block(settings)},
+        {
+            "role": "system",
+            "content": turn_context_message(
+                role_family=role_family,
+                captured=captured,
+                missing=missing,
+                turn_index=turn_index,
+                max_turns=settings.profiling_max_turns,
+                force_complete=force_complete,
+            ),
+        },
+    ]
+
+    for msg in history:
+        if msg.role == "assistant":
+            messages.append({"role": "assistant", "content": msg.text})
+        elif msg.role == "worker":
+            messages.append({"role": "user", "content": msg.text})
+        # `system` history entries are dropped: they were never worker-visible and
+        # re-feeding them would let an old instruction outrank the current turn.
+
+    messages.append({"role": "user", "content": worker_message})
+
+    if repair:
+        messages.append({"role": "system", "content": repair})
+
+    return messages
+
+
+# ---------------------------------------------------------------------------
+# Extraction + resume — UNCHANGED by the chat rewrite.
+# ---------------------------------------------------------------------------
+# These run on the whole transcript AFTER the interview, are a different task type with
+# their own route and token budget, and are not affected by how the questions were
+# chosen. Left exactly as they were.
 
 
 def extraction_system_prompt(role_family: str = "cnc_vmc") -> str:
@@ -55,10 +188,6 @@ def extraction_system_prompt(role_family: str = "cnc_vmc") -> str:
         f"You convert a messy Hinglish worker chat transcript into a STRICT JSON "
         f"worker profile for {trade}. Output JSON ONLY, using the schema "
         "keys provided. Use null or empty arrays where unknown — never invent values. "
-        # [CITY_1] was listed here until 2026-07-31. The gateway no longer mints it
-        # (owner ruling: a city is a matching input, never PII), so naming it taught
-        # the model to expect a token it can never see — and, worse, invited it to
-        # treat a REAL city name as a placeholder to be ignored.
         "The transcript is pseudonymized: tokens like [PERSON_1], [EMPLOYER_1], "
         "[PHONE_1], [ID_1], [AMOUNT_1] are placeholders; never guess the real values "
         "behind them. City names are NOT placeholders — they are real and may be used.\n"
@@ -74,60 +203,46 @@ def extraction_system_prompt(role_family: str = "cnc_vmc") -> str:
         "their stream/branch of study ('Electronics', 'Mechanical', 'Computer Science', "
         "'Electrical'). Fill each ONLY from what the worker actually says about their "
         "studies; use null when they did not mention it.\n"
-    "CAPTURE what the worker DID say, even if rough — null is only for what they "
-    "genuinely did not mention (this applies to the fields below; for the role, "
-    "follow the canonical-role rules):\n"
-    "- A stated duration of work -> experience_years (even if the work sounds "
-    "basic, e.g. 'button dabate the dedh saal' -> 1.5).\n"
-    "- Operating ANY machine, even generic 'CNC' with no specific type -> add 'CNC' "
-    "to machines (use 'VMC'/'CNC Lathe'/etc. only when the worker names it).\n"
-    "- 'chalata tha'/'operate karta tha'/'button dabata tha' -> operation_knowledge "
-    "at least 'basic'.\n"
-    "Lines starting 'Bada Bhai:' are OUR OWN questions to the worker, not their "
-    "answers. Read them for context only. Never take a value from them: if our "
-    "question lists options ('Fanuc, Siemens, Mitsubishi?') and the worker names "
-    "one, record ONLY the one they named. If our question gives an example "
-    "('jaise 2 saal ya 5 saal') the example is not their answer. If a topic was "
-    "asked but not answered, it stays null/empty.\n"
-    # ADR-0030 SG-3 (docs/decisions/0030-embedding-skill-canonicalization.md:140):
-    # "The LLM emits phrases; the vector layer assigns the skill_id; the model NEVER
-    # invents a skill_id" — and §(d):65: "There is no path from a model string to a
-    # matchable skill_id except through the embed→match→floor→validate pipeline."
-    # Nothing in this prompt used to say so, and `skills`/`machines`/`controllers`
-    # were copied verbatim onto the draft (profile_extractor.merge_model_draft), so a
-    # model that answered `"skills": ["skill_mig_welding"]` had that id-shaped string
-    # persisted as DraftProfile.skill_labels and RENDERED ON THE RÉSUMÉ as if the
-    # worker had said it. This block is the prompt half of the fix; the enforcement
-    # half (a drop filter, because a prompt is a request and not a guarantee) lives in
-    # profile_extractor._is_taxonomy_id_shaped / drop_model_taxonomy_ids.
-    #
-    # THE BOUNDARY, stated inside the prompt on purpose: the ROLE arm DELIBERATELY
-    # asks for one id from a closed set (canonical_roles.canonicalization_instruction,
-    # ADR-0028's separate ratified design, validated by normalize_role_id) and
-    # main.py appends that rubric IMMEDIATELY AFTER this text — so the two rules would
-    # read as contradictory unless the carve-out is spelled out here. It is.
-    "PHRASES, NOT IDS. In `skills`, `machines` and `controllers` write the words a "
-    "shop-floor worker would actually say — 'MIG welding', 'tool offset setting', "
-    "'drawing reading', 'VMC', 'CNC Lathe', 'Fanuc'. NEVER write a taxonomy or "
-    "database id in those three arrays: nothing shaped like skill_mig_welding, "
-    "mach_vmc, dom_welding or role_welder, and no lower_snake_case code word of any "
-    "kind. If you do not know the English term, KEEP THE WORKER'S OWN HINGLISH WORD "
-    "('kharad', 'chhilai', 'ghisai', 'setting', 'ghisai ka kaam') — a rough phrase is "
-    "useful to us, an invented id is not, and any id you write there is DISCARDED.\n"
-    "The ONE exception is the `canonical_role_id` field described below: that field, "
-    "and only that field, takes exactly one id from the closed list given there. The "
-    "rule above governs the skills/machines/controllers arrays only — it does not "
-    "apply to canonical_role_id.\n"
-)
+        "CAPTURE what the worker DID say, even if rough — null is only for what they "
+        "genuinely did not mention (this applies to the fields below; for the role, "
+        "follow the canonical-role rules):\n"
+        "- A stated duration of work -> experience_years (even if the work sounds "
+        "basic, e.g. 'button dabate the dedh saal' -> 1.5).\n"
+        "- Operating ANY machine, even generic 'CNC' with no specific type -> add 'CNC' "
+        "to machines (use 'VMC'/'CNC Lathe'/etc. only when the worker names it).\n"
+        "- 'chalata tha'/'operate karta tha'/'button dabata tha' -> operation_knowledge "
+        "at least 'basic'.\n"
+        "Lines starting 'Bada Bhai:' are OUR OWN questions to the worker, not their "
+        "answers. Read them for context only. Never take a value from them: if our "
+        "question lists options ('Fanuc, Siemens, Mitsubishi?') and the worker names "
+        "one, record ONLY the one they named. If our question gives an example "
+        "('jaise 2 saal ya 5 saal') the example is not their answer. If a topic was "
+        "asked but not answered, it stays null/empty.\n"
+        # The LLM emits PHRASES; the vector layer assigns ids. A model that answered
+        # `"skills": ["skill_mig_welding"]` had that id-shaped string persisted and
+        # RENDERED ON THE RESUME as if the worker had said it. This block is the prompt
+        # half of the fix; the enforcement half (a drop filter, because a prompt is a
+        # request and not a guarantee) lives in profile_extractor.
+        "PHRASES, NOT IDS. In `skills`, `machines` and `controllers` write the words a "
+        "shop-floor worker would actually say — 'MIG welding', 'tool offset setting', "
+        "'drawing reading', 'VMC', 'CNC Lathe', 'Fanuc'. NEVER write a taxonomy or "
+        "database id in those three arrays: nothing shaped like skill_mig_welding, "
+        "mach_vmc, dom_welding or role_welder, and no lower_snake_case code word of any "
+        "kind. If you do not know the English term, KEEP THE WORKER'S OWN HINGLISH WORD "
+        "('kharad', 'chhilai', 'ghisai', 'setting', 'ghisai ka kaam') — a rough phrase is "
+        "useful to us, an invented id is not, and any id you write there is DISCARDED.\n"
+        "The ONE exception is the `canonical_role_id` field described below: that field, "
+        "and only that field, takes exactly one id from the closed list given there. The "
+        "rule above governs the skills/machines/controllers arrays only — it does not "
+        "apply to canonical_role_id.\n"
+    )
 
 
-# Backward-compatible constants — delegate to the functions with the default.
-BADA_BHAI_SYSTEM_PROMPT = bada_bhai_system_prompt()
 EXTRACTION_SYSTEM_PROMPT = extraction_system_prompt()
 
 
 RESUME_SYSTEM_PROMPT = (
-    "You write a short, plain worker summary from a structured CNC/VMC profile. "
+    "You write a short, plain worker summary from a structured profile. "
     "2-4 sentences, factual, no buzzwords, no invented details, and no personal "
     "identity data (the backend adds the name separately). "
     "If the profile lists education or certifications (e.g. ITI, Diploma, NCVT), "
@@ -136,43 +251,3 @@ RESUME_SYSTEM_PROMPT = (
     "taxonomy IDs. Use the labels exactly as given — do not write raw IDs "
     "like skill_milling or role_vmc_operator.\n"
 )
-
-
-def build_chat_messages(
-    history: list[ConversationMessage],
-    next_question: str,
-    pseudonymized_message: str,
-    role_family: str = "cnc_vmc",
-) -> list[dict[str, str]]:
-    """Build OpenAI-style messages for one chat turn (mapped to Gemini downstream).
-
-    STATELESS BY DESIGN (COST-3). The chat turn does NOT re-send prior history.
-    `interview_engine` already chose the next question from LOCAL signals, so the
-    model only has to *phrase* one templated question — it needs no cross-turn
-    memory. Re-sending the whole transcript every turn made per-interview input
-    cost grow O(n²) across a ~9-question interview; sending only
-    {system persona, this message, this question} makes it O(n).
-
-    `history` is kept in the signature for caller compatibility but is
-    INTENTIONALLY UNUSED here — do not re-thread it into the chat turn. The full
-    transcript still reaches the model on the EXTRACTION path (a separate
-    assembly), which genuinely needs the whole conversation.
-
-    Every string here is pseudonymized.
-    """
-    # NOTE: `history` deliberately not iterated — see the stateless-by-design note.
-    return [
-        {"role": "system", "content": bada_bhai_system_prompt(role_family)},
-        {"role": "user", "content": pseudonymized_message},
-        {
-            "role": "system",
-            "content": (
-                "Reply in under 20 words: at most a 2-word acknowledgement, then "
-                'ask exactly this question. No praise, no "waah", do not restate '
-                "their answer, do not explain why. If the question contains a "
-                "literal {{worker_name}} token, keep it EXACTLY as-is — do not "
-                "translate, fill, or drop it (it is filled in downstream): "
-                f"{next_question}"
-            ),
-        },
-    ]

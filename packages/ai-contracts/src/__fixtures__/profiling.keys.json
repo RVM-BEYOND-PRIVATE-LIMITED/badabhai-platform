@@ -1,0 +1,64 @@
+{
+  "_why": "Golden Zod<->Pydantic parity fixture for the GENERALIZED PROFILING contracts. Asserted from BOTH suites — packages/ai-contracts/src/ai-contracts.test.ts and apps/ai-service/tests/test_contract_parity.py — against this one file, so adding, renaming or removing a field on either side turns the OTHER side red. Without it both suites stay green while data is silently dropped in flight, because Pydantic IGNORES unknown request keys and Zod objects STRIP unknown response keys. That is not hypothetical here: `captured` (the Resume Field Set the whole LLM-driven interview accumulates) existed only in Pydantic during this refactor, so ProfilingTurnOutputSchema.parse was discarding every answer the model collected on the way back into the API — no error, no failing test on either side, just an interview that re-asks the same seven questions until the turn cap fires. This fixture is the thing that would have caught it.",
+  "_scope": "The chat-profiling + extraction path only. The ProfilingOpening pair lives in profiling-opening.keys.json and the ADR-0035 payer models in job-posting-chat.keys.json; they are kept separate so a change to one surface cannot quietly rewrite another's contract.",
+
+  "ConversationMessage": ["role", "text"],
+
+  "_ConversationState": "`captured` is the Resume Field Set as filled so far and is the field that actually matters now; `collected`, `answered_topics`, `asked_question_ids`, `ask_counts` and `clarify_count` are the deterministic engine's vestigial state, kept ONLY because dropping a shipped field would break invariant #8 for any session mid-flight at deploy time. They are no longer populated.",
+  "ConversationState": [
+    "role_family",
+    "turn_count",
+    "answered_topics",
+    "asked_question_ids",
+    "collected",
+    "clarify_count",
+    "ask_counts",
+    "unanswered_essentials",
+    "captured",
+    "completion_reason"
+  ],
+
+  "_ProfilingTurnInput": "`history` is populated again (it shipped empty under COST-3/PERF-2) because a model that cannot see the conversation cannot ask a follow-up. `force_complete` is the API's turn cap: the cap is API-authoritative because the ai-service holds no per-session state to count turns with, and a model must never be able to extend its own interview.",
+  "ProfilingTurnInput": [
+    "session_id",
+    "worker_ref",
+    "language",
+    "message_text",
+    "history",
+    "role_family",
+    "conversation_state",
+    "real_call_allowed",
+    "force_complete"
+  ],
+
+  "_ProfilingTurnOutput": "`asked_question_id` now carries a Resume Field Set id (\"skills\") rather than a question-bank id (\"q_machines\"), and `suggested_followups` now carries model-written chips rather than a hardcoded per-topic list. Both keep their names: the Flutter client reads them and the shapes are unchanged, so this is a value change, not a contract change.",
+  "ProfilingTurnOutput": [
+    "reply_text",
+    "blocked",
+    "blocked_reason",
+    "suggested_followups",
+    "is_mock",
+    "asked_question_id",
+    "extraction_ready",
+    "updated_state",
+    "ai_metadata",
+    "pseudonymization_metadata"
+  ],
+
+  "ProfileExtractionInput": ["worker_ref", "language", "transcript", "messages", "role_family"],
+
+  "_ProfileExtractionOutput": "`job_domain_match` is null when the RAG pass DID NOT RUN (flag off, or a blocked extraction), which is deliberately distinct from a pass that ran and returned an unmatched status. The persistence side writes nothing in the first case and records the reason in the second.",
+  "ProfileExtractionOutput": [
+    "profile",
+    "blocked",
+    "blocked_reason",
+    "is_mock",
+    "extraction_status",
+    "worker_profile_draft",
+    "ai_metadata",
+    "job_domain_match"
+  ],
+
+  "_JobDomainMatch": "`score` is the RETRIEVAL cosine similarity, never the model's self-reported confidence — one is measured, the other asserted, and only the measured one belongs in a column later analysis will threshold on. `status` is the same closed vocabulary as the job_domain_match_status CHECK on worker_profiles.",
+  "JobDomainMatch": ["status", "job_domain_id", "score", "considered"]
+}

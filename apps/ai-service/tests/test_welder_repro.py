@@ -146,8 +146,10 @@ def test_repro_storm_reconciles_attempts_and_surfaces_reason(monkeypatch, caplog
 
 
 def test_repro_storm_chat_turn_also_reconciles(monkeypatch):
-    # The same reconciliation holds for the high-volume chat task (cheap primary,
-    # max_retries=1 -> 2 attempts/candidate).
+    # The same reconciliation holds for the high-volume chat task. The primary is
+    # the CAPABLE model now (the chat turn moved cheap -> capable with generalized
+    # profiling); max_retries=1 -> 2 attempts/candidate is unchanged, and that
+    # attempt arithmetic is what this test is actually about.
     _patch_anthropic_sdk(monkeypatch, installed=True)
     seen = _storm_dispatcher(monkeypatch)
     router = AIRouter(_storm_settings())
@@ -155,7 +157,7 @@ def test_repro_storm_chat_turn_also_reconciles(monkeypatch):
     _content, meta = _run(
         router.run("profiling_chat_turn", messages=_MESSAGES, mock_response="MOCK")
     )
-    assert meta.candidates_tried == ["gemini-2.5-flash-lite", "claude-haiku-4-5"]
+    assert meta.candidates_tried == ["gemini-2.5-flash", "claude-haiku-4-5"]
     assert meta.attempt_count == len(seen) == 4  # 2 Gemini + 2 Haiku
     assert meta.failure_reason == "no_text_content"
 

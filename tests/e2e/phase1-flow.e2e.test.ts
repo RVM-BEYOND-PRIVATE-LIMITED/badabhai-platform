@@ -168,14 +168,26 @@ describe.skip("Phase 1 worker-profiling flow (e2e) — real OTP provider require
     }
     expect(ready).toBe(true);
 
-    // 4. State persisted across turns: at least 3 turns, advancing (never restart Q1).
+    // 4. The FLUSH. State is written to Postgres exactly once, at completion — not per
+    //    turn. `asked_question_ids` is gone as a signal: the deterministic engine that
+    //    populated it is deleted, and the interview's progress now lives in `captured`,
+    //    the Resume Field Set the model filled in the worker's own words.
     const sessionRow = (await client.db.select().from(chatSessions)).find((s) => s.id === ids.sessionId);
     const state = sessionRow?.conversationState as
-      | { turn_count?: number; asked_question_ids?: string[] }
+      | { turn_count?: number; captured?: Record<string, string>; completion_reason?: string }
       | null;
     expect(state?.turn_count ?? 0).toBeGreaterThanOrEqual(3);
-    expect(new Set(state?.asked_question_ids ?? []).size).toBeGreaterThanOrEqual(3);
-    expect(state?.asked_question_ids?.[0]).toBe("role"); // advanced from the first topic, not stuck
+    // The model asked its own questions, so WHICH fields it filled is not fixed — but it
+    // must have converged on several, and `trade` is the one field no interview can end
+    // without (it gates completion and it is what the resume is built around).
+    expect(Object.keys(state?.captured ?? {}).length).toBeGreaterThanOrEqual(3);
+    expect(state?.captured?.trade).toBeTruthy();
+    // Why it ended, recorded rather than inferred: `fields_complete` means the RFS
+    // filled up, `turn_cap` means we ran out of budget. Both are legitimate; a null
+    // here would mean the session was marked ended without either.
+    expect(["fields_complete", "turn_cap"]).toContain(state?.completion_reason);
+    // The session is TERMINAL, which is what makes the flush idempotent.
+    expect(sessionRow?.status).toBe("ended");
 
     // 5. AUTO extraction (no manual /profile/extract). Poll until 'extracted'.
     await pollExtractedProfile();
@@ -271,7 +283,14 @@ describe.skip("Phase 1 worker-profiling flow (e2e) — real OTP provider require
     expect(JSON.stringify(me)).not.toContain(NATIONAL);
   });
 
-  it("keeps the interview stateful across turns (advances, never repeats Q1)", async () => {
+  it("writes NOTHING to Postgres mid-interview, then flushes the whole transcript at once", async () => {
+    // THE headline property of the rewrite, and the one worth proving end to end rather
+    // than with mocks. The chat turn used to cost five Postgres writes (two message
+    // rows, two events, a conversation_state UPDATE); over a thirty-turn interview that
+    // is ~150 rows recording a conversation nothing downstream reads until it is
+    // finished. Now every turn buffers in Redis and the whole thing lands in ONE
+    // transaction at completion.
+    //
     // Fresh worker + session so we start the interview from turn 0.
     const phone = `+9197${String(Date.now()).slice(-8)}`;
     const reqOtp = await post("/auth/otp/request", { phone });

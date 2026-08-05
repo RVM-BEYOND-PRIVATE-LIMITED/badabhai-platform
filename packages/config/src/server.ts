@@ -624,6 +624,32 @@ export const serverEnvSchema = z.object({
   // falsey string stays OFF — fail-safe to today's behaviour.
   CHAT_ONE_SHOT_OPENER_ENABLED: booleanFromString,
 
+  // ── The Redis transcript buffer (generalized LLM-driven profiling) ──────────────
+  // The interview no longer writes to Postgres per turn. Every message buffers under
+  // `chat:transcript:<sessionId>` and the whole conversation flushes ONCE, in one
+  // transaction, when the interview completes.
+  //
+  // TTL, and the blast radius it defines. Redis is the ONLY home of an in-flight
+  // interview, so this is precisely how long a worker may leave a half-finished chat
+  // and still come back to it. 24h is deliberately generous for the target user: a
+  // shop-floor worker starts the chat in a break, the phone dies, they resume that
+  // evening. It resets on EVERY turn, so it bounds idleness, never total length. A
+  // lapsed buffer loses that interview's messages — accepted, and the reason the key
+  // is re-set rather than left to age from creation.
+  CHAT_TRANSCRIPT_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
+  // The hard turn cap — the API side of it, and the AUTHORITATIVE one. The ai-service
+  // has the same number in PROFILING_MAX_TURNS, but it holds no per-session state,
+  // so it can only enforce what it is told: this is the count that actually fires,
+  // sent as `force_complete` on the final turn. A model must never be able to extend
+  // its own interview, which is why the budget lives on the side that owns the buffer.
+  CHAT_MAX_TURNS: z.coerce.number().int().positive().max(200).default(30),
+  // How many prior turns (worker+assistant pairs) travel to the model each turn.
+  // Re-sending the transcript is O(n²) input cost; the window makes it O(n·window).
+  // Kept BELOW CHAT_MAX_TURNS on purpose — the model gets recent context, never the
+  // whole interview — and mirrored by PROFILING_HISTORY_MAX_TURNS, which clamps
+  // again on the far side (defence in depth: neither side trusts the other's bound).
+  CHAT_HISTORY_WINDOW_TURNS: z.coerce.number().int().nonnegative().max(200).default(20),
+
   // ── Agency payout ledger (ADR-0022 module 3+7, Amendment 2, owner-ratified 2026-07-23) ──
   // Master switch for the agency SUPPLY payout surface. Default OFF = inert: the payout
   // request/earnings routes return a neutral 404 and NO accrual is ever claimed into a
