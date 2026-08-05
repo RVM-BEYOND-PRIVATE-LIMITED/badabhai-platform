@@ -534,6 +534,60 @@ class Settings(BaseSettings):
 
     @field_validator("profiling_required_fields", "profiling_optional_fields")
     @classmethod
+    def _reject_identity_field_ids(cls, value: str) -> str:
+        """No RFS field may be an IDENTITY slot. Structural, not documentary.
+
+        ``rfs.py`` states that there is deliberately no field for a name, phone, address,
+        employer or id — but that is only true of the hand-written ``FIELD_GUIDE``. The
+        vocabulary the model may actually write into is ``settings.profiling_all_fields``,
+        i.e. whatever these two env vars say, checked only for slug SHAPE. So
+        ``PROFILING_OPTIONAL_FIELDS=...,full_name,employer_name`` passes startup and mints
+        identity slots that persist into ``chat_sessions.conversation_state`` and ride
+        back into the prompt every turn — the gateway masks message TEXT, it does not stop
+        us from asking for a name in a field we invented.
+
+        Kept as a DENY-LIST rather than an intersection with ``FIELD_GUIDE`` on purpose:
+        "adding a resume field is an env edit, never a code edit" is the whole point of
+        the generalized design, and an allow-list would take that away. This forbids only
+        the classes that must never be collected.
+        """
+        # Long, unambiguous tokens match anywhere in the id.
+        substrings = (
+            "name",
+            "phone",
+            "mobile",
+            "email",
+            "address",
+            "aadhaar",
+            "aadhar",
+            "employer",
+            "passport",
+            "father",
+            "husband",
+            "birth",
+        )
+        # Short tokens match a whole underscore-separated PART only. This is a trades
+        # platform: `pan` is a government id, but it is also a substring of `panel_wiring`
+        # and `expansion`, and `dob` of nothing useful yet. A false positive here refuses
+        # to boot the service, so the ambiguous ones are held to an exact part match.
+        exact_parts = {"pan", "dob", "uan", "esic", "id", "nominee"}
+        banned = {
+            f
+            for f in _parse_csv(value)
+            if any(t in f for t in substrings) or (set(f.split("_")) & exact_parts)
+        }
+        if banned:
+            raise ConfigError(
+                "PROFILING_REQUIRED_FIELDS/PROFILING_OPTIONAL_FIELDS must not define "
+                f"identity fields: {sorted(banned)}. The Resume Field Set collects what a "
+                "resume needs about the WORK; a field for a name, contact detail, address, "
+                "government id or employer creates a slot for PII the privacy gate is not "
+                "designed to keep out of the conversation state."
+            )
+        return value
+
+    @field_validator("profiling_required_fields", "profiling_optional_fields")
+    @classmethod
     def _validate_field_id_shape(cls, value: str) -> str:
         """Every RFS id must be a lowercase slug, and there must not be too many.
 

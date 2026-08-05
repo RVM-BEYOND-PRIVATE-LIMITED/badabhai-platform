@@ -120,12 +120,22 @@ def check_turn(
     worker_said_dont_know: bool = False,
     already_captured: frozenset[str] | None = None,
     asked_field: str | None = None,
+    is_final: bool = False,
 ) -> GuardResult:
     """Check one reply against the enforceable persona laws.
 
     Every argument beyond `reply` exists for a STATEFUL law - the appreciation budget
     and the never-re-ask rule cannot be judged from a single line in isolation, which
     is precisely why they were the rules most likely to drift.
+
+    `is_final` INVERTS Law 1's question rule. On the closing turn `prompts.py` tells the
+    model "FINAL TURN. Do not ask a question" (and, on the fields-complete path, "Close
+    warmly"). Without this flag the guard still demanded a question, so the prompt and
+    the guard gave contradictory orders on the one turn that matters most: the model had
+    NO legal move, every interview burned a repair call, and the closing line the worker
+    actually saw was the fallback - "Thoda aur bataiye - aap kya kaam karte hain?" -
+    delivered with session_ended: true. A closing turn must ask NOTHING; every other turn
+    must ask exactly one thing.
     """
     violations: list[str] = []
     codes: list[str] = []
@@ -140,9 +150,18 @@ def check_turn(
     text = _scannable(reply)
     words = text.split()
 
-    # Law 1 - one question, one mark, bounded length, no preamble.
+    # Law 1 - one question, one mark, bounded length, no preamble. On the closing turn
+    # the rule inverts: the interview is over, so a question the worker can never answer
+    # is the violation.
     marks = text.count("?")
-    if marks == 0:
+    if is_final:
+        if marks > 0:
+            _add(
+                "asks_on_final_turn",
+                f"{marks} question mark(s) on the CLOSING turn (it must ask nothing - "
+                "acknowledge, say the resume is being made, and stop)",
+            )
+    elif marks == 0:
         _add("no_question", "no question was asked (every turn must ask exactly one)")
     elif marks > MAX_QUESTION_MARKS:
         _add("multi_question", f"{marks} question marks (exactly {MAX_QUESTION_MARKS} allowed)")

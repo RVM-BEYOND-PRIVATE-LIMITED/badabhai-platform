@@ -120,6 +120,28 @@ def normalize_captured(
 _MAX_VALUE_CHARS = 120
 
 
+def normalize_asked_field(value: object, settings: Settings) -> str | None:
+    """The field id the turn claims to have ASKED about, held to the same closed
+    vocabulary as `captured`. Returns the id, or None if it is not one of ours.
+
+    WHY THIS MATTERS MORE THAN IT LOOKS. `asked_field` is not merely echoed to the
+    client — `persona_guard.check_turn` tests it for membership in `already_captured` to
+    enforce Law 8 ("never re-ask a field the worker already answered"). An unvalidated
+    id makes that test miss silently: a model that has `experience_years` captured, asks
+    it again, and reports `asked_field="experience"` passes the guard, and the single
+    most product-visible persona rule goes unenforced with nothing logged. Dropping the
+    id to None is the honest answer — it says "we do not know what this turn asked",
+    which is true, rather than asserting a field it did not ask about.
+
+    Secondary: it stops an unbounded, model-authored string being echoed to the client
+    under a field the contract documents as a closed-vocabulary id.
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text if text in known_fields(settings) else None
+
+
 def missing_required(captured: dict[str, str], settings: Settings) -> list[str]:
     """Required fields with nothing captured yet, in the configured order.
 

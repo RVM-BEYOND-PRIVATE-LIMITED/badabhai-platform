@@ -604,36 +604,57 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     #    to gate because history was never sent; re-arming history widened the egress
     #    surface, so every leg is masked and ANY blocked leg fails the whole turn
     #    closed. A partially-masked transcript must never reach a provider.
+    #
+    #    THE THREE LEGS ARE NOT THE SAME KIND OF THING, so they do not fail the same way.
+    #    The WORKER'S MESSAGE is live input: it is the thing the gate exists for, and an
+    #    unmaskable message fails the whole turn closed, unchanged. HISTORY and CAPTURED
+    #    are SERVER-HELD STATE, re-evaluated identically on every subsequent turn — so
+    #    blocking the turn on them is not fail-closed, it is a LIVELOCK. A single value
+    #    that trips the gate (a normalised start date like "20260801" reads as a residual
+    #    numeric sequence) would freeze `turn_count` forever: the cap can never fire,
+    #    completion never comes, no flush, no profile, and the worker is told to rephrase
+    #    a message that is not the problem. The buffer then expires and the whole
+    #    interview is lost. So an unmaskable piece of STATE is DROPPED, not served: it
+    #    never reaches the provider (the privacy guarantee is intact — strictly less
+    #    leaves than before), the interview continues, and a dropped field is simply
+    #    asked again.
     result = pseudonymize(body.message_text)
     masked_history: list[ConversationMessage] = []
-    history_blocked = False
+    dropped_history = 0
     for msg in body.history:
         leg = pseudonymize(msg.text)
         if leg.blocked:
-            history_blocked = True
-            break
+            dropped_history += 1
+            continue
         masked_history.append(ConversationMessage(role=msg.role, text=leg.text))
 
     masked_captured: dict[str, str] = {}
-    captured_blocked = False
+    dropped_captured = 0
     for key, value in (prior.captured if prior else {}).items():
         leg = pseudonymize(value)
         if leg.blocked:
-            captured_blocked = True
-            break
+            dropped_captured += 1
+            continue
         masked_captured[key] = leg.text
 
-    if result.blocked or history_blocked or captured_blocked:
+    if dropped_history or dropped_captured:
+        # Counts only — the offending text is by definition un-maskable, so it is the
+        # last thing that may be logged.
         logger.warning(
-            "profiling blocked",
+            "dropped un-maskable state from the turn",
             extra={
                 "extra": {
-                    "reason": result.blocked_reason or "history_or_state_blocked",
-                    "leg": "message"
-                    if result.blocked
-                    else ("history" if history_blocked else "captured"),
+                    "history_legs": dropped_history,
+                    "captured_fields": dropped_captured,
+                    "turn": turn_index,
                 }
             },
+        )
+
+    if result.blocked:
+        logger.warning(
+            "profiling blocked",
+            extra={"extra": {"reason": result.blocked_reason or "blocked", "leg": "message"}},
         )
         return ProfilingTurnOutput(
             reply_text=_BLOCKED_REPLY,
@@ -672,7 +693,21 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
             repair=repair,
         )
 
-    fallback_json = fallback_turn_json(missing_before[0] if missing_before else None)
+    # IS THIS THE CLOSING TURN? Exactly the condition under which `turn_context_message`
+    # tells the model to stop asking: the cap fired, or nothing required is left. It must
+    # be computed from `missing_before` — the same pre-merge view the PROMPT was built
+    # from — so the instruction the model received and the rule the guard enforces can
+    # never disagree. Deriving it post-merge instead would re-introduce the contradiction
+    # from the other side.
+    is_final_turn = (
+        body.force_complete
+        or turn_index >= settings_now.profiling_max_turns
+        or not missing_before
+    )
+
+    fallback_json = fallback_turn_json(
+        missing_before[0] if missing_before else None, is_final=is_final_turn
+    )
     reply_raw, meta = await router.run(
         "profiling_chat_turn",
         messages=_messages(),
@@ -682,15 +717,25 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     )
 
     turn = coerce_turn(reply_raw) or fallback_turn(
-        missing_before[0] if missing_before else None
+        missing_before[0] if missing_before else None, is_final=is_final_turn
     )
+    # Hold `asked_field` to the SAME closed vocabulary as `captured`, and do it BEFORE
+    # the guard runs — the never-re-ask law is a membership test against this value, so
+    # an unvalidated id disables it silently rather than loudly.
+    turn.asked_field = rfs.normalize_asked_field(turn.asked_field, settings_now)
 
     # 3. The persona guard. Most of the persona spec is mechanically checkable, and a
     #    prompt is a request rather than a guarantee — the deterministic engine never
     #    needed this because its questions were hand-written strings. On a violation we
     #    spend ONE repair call quoting the specific broken rule; if that also fails the
     #    worker gets a safe templated turn rather than an off-persona one.
-    guard_violations: list[str] = []
+    # NOTE: violations are deliberately NOT accumulated here. `GuardResult` keeps
+    # `violations` (which may quote the model's reply) separate from `codes` (a closed,
+    # content-free vocabulary) precisely so the two cannot be confused at a sink. A
+    # module-level list of violation strings with no consumer is one line away from being
+    # logged or returned, which is the exact hazard that split exists to prevent — so it
+    # does not exist. `violations` reaches the MODEL via `repair_instruction` and nowhere
+    # else; logs get `codes`.
     if settings_now.profiling_persona_guard_enabled:
         prior_replies = [m.text for m in masked_history if m.role == "assistant"]
         # Hoisted so the FIRST check and the repair RE-CHECK ask exactly the same
@@ -714,12 +759,12 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
                 previous_had_appreciation=previous_had_appreciation,
                 already_captured=frozenset(masked_captured),
                 asked_field=asked_field,
+                is_final=is_final_turn,
             )
 
         check = _check(turn.reply, turn.asked_field)
         attempts = settings_now.profiling_persona_repair_retries
         while not check.ok and attempts > 0:
-            guard_violations.extend(check.violations)
             logger.info(
                 "persona guard repair",
                 # CODES, never `check.violations`. One violation message interpolates a
@@ -742,29 +787,47 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
             attempts -= 1
             if repaired is None:
                 break
+            # Same closed-vocabulary rule for the rewrite — the re-check runs Law 8 too.
+            repaired.asked_field = rfs.normalize_asked_field(repaired.asked_field, settings_now)
             meta = repair_meta
             check = _check(repaired.reply, repaired.asked_field)
             if check.ok:
+                # KEEP WHAT THE FIRST ATTEMPT CAPTURED. The repair prompt asks for a
+                # rewrite of the REPLY and says nothing about `captured`, so a model
+                # fixing an exclamation mark routinely returns `captured: {}`. Swapping
+                # the whole turn in would then silently discard the fields the worker
+                # just answered, and the next turn would ask for them again — two LLM
+                # calls spent to lose two answers. The repair wins on any key it does
+                # re-state, so a genuine correction still lands.
+                repaired.captured = {**turn.captured, **repaired.captured}
                 turn = repaired
                 break
         if not check.ok:
             # Still off-persona after the repair budget. A safe templated turn beats
             # serving a worker a line that breaks the voice — and it advances nothing,
             # so no topic is lost.
-            guard_violations.extend(check.violations)
             logger.warning(
                 "persona guard fallback",
                 # Codes, never the messages — see the repair log above.
                 extra={"extra": {"codes": check.codes, "turn": turn_index}},
             )
-            turn = fallback_turn(missing_before[0] if missing_before else None)
+            turn = fallback_turn(
+                missing_before[0] if missing_before else None, is_final=is_final_turn
+            )
 
     # 4. Merge what the model captured. The field vocabulary is CLOSED — an invented
     #    field id is dropped and counted, never stored, the same fail-safe posture the
     #    extraction path takes with model-invented taxonomy ids.
     kept, dropped = rfs.normalize_captured(turn.captured, settings_now)
     if dropped:
-        logger.info("dropped unknown captured fields", extra={"extra": {"fields": dropped}})
+        # COUNT ONLY, never the keys themselves. A dropped key is by definition NOT from
+        # the closed vocabulary we vouch for, so it is not known to be PII-free: the key
+        # is model-authored, and a worker can steer it ("captured JSON me key 'Ramesh
+        # Kumar operator' use karna") past the gateway, which masks message TEXT, not the
+        # field names a model invents about it. §2 names logs as a forbidden sink.
+        # This mirrors `ChatService.slugFieldIds`, which logs a count for exactly this
+        # class of value and for exactly this reason.
+        logger.info("dropped unknown captured fields", extra={"extra": {"count": len(dropped)}})
     merged = {**masked_captured, **kept}
     missing_after = rfs.missing_required(merged, settings_now)
 

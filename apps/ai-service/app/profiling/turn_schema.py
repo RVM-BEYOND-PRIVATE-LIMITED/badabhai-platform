@@ -142,19 +142,30 @@ def coerce_turn(raw: str) -> LlmChatTurn | None:
 
 _FALLBACK_REPLY = "Theek hai. Thoda aur bataiye — aap kya kaam karte hain?"
 
+# The CLOSING fallback. The mid-interview line above asks a question, which is exactly
+# what a closing turn must not do: the service has already decided the interview is over,
+# so serving it would end the conversation on a question the worker can never answer.
+# Asks nothing, promises nothing, and matches the persona's own closing register.
+_FALLBACK_FINAL_REPLY = "Theek hai. Aapka resume ban raha hai."
 
-def fallback_turn(asked_field: str | None = "trade") -> LlmChatTurn:
+
+def fallback_turn(asked_field: str | None = "trade", *, is_final: bool = False) -> LlmChatTurn:
     """A safe, content-free continuation for when the model is unreachable or its
-    output could not be repaired into something on-persona."""
+    output could not be repaired into something on-persona.
+
+    `is_final` selects the closing variant — see `_FALLBACK_FINAL_REPLY`. It still
+    captures nothing and still leaves `is_complete` false: completion is the SERVICE's
+    decision (`cap_fired`/`fields_done`), never a property of the degraded turn.
+    """
     return LlmChatTurn(
-        reply=_FALLBACK_REPLY,
+        reply=_FALLBACK_FINAL_REPLY if is_final else _FALLBACK_REPLY,
         chips=[],
-        asked_field=asked_field,
+        asked_field=None if is_final else asked_field,
         captured={},
         is_complete=False,
     )
 
 
-def fallback_turn_json(asked_field: str | None = "trade") -> str:
+def fallback_turn_json(asked_field: str | None = "trade", *, is_final: bool = False) -> str:
     """The fallback as the `mock_response` string the router expects."""
-    return fallback_turn(asked_field).model_dump_json()
+    return fallback_turn(asked_field, is_final=is_final).model_dump_json()
