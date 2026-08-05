@@ -24,11 +24,10 @@ apps/ai-service/**/__pycache__/**
 packages/db/migrations/**
 
 # ---------------------------------------------------------------------------
-# AGENT + SKILL DEFINITIONS — config that happens to be markdown.
+# AGENT DEFINITIONS — config that happens to be markdown.
 #
-# `.claude/agents/*.md` and `.claude/skills/**/SKILL.md` are read by tooling, not by
-# people browsing docs. Prettier rewrites their emphasis markers (`*x*` -> `_x_`) and
-# inserts blank lines around list blocks, producing 35 files of diff that changes no
-# meaning and buries real edits to an agent's actual instructions in review.
+# `.claude/agents/*.md` is read by tooling, not by people browsing docs. Prettier
+# rewrites their emphasis markers (`*x*` -> `_x_`), reflows the ownership and
+# collaboration tables, and inserts blank lines around list blocks — a large diff that
+# changes no meaning and buries real edits to an agent's actual instructions in review.
 .claude/agents/**
-.claude/skills/**

@@ -18,12 +18,12 @@ const MFA_PENDING_TTL_SECONDS = 300;
  * Stores an admin's TOTP secret ENCRYPTED at rest (ADR-0025 ADMIN-1).
  *
  * DEVIATION (noted): the shipped `admin_users` table (migration 0026) has `mfa_enrolled` but
- * NO column for the TOTP secret, and adding one is a migration (→ database-architect, NOT in
+ * NO column for the TOTP secret, and adding one is a migration (→ backend-platform-engineer, NOT in
  * ADMIN-1 scope / HARD CONSTRAINT: no db:migrate). To keep the second factor functional WITHOUT
  * a schema change, the secret is persisted in the existing Redis store, **encrypted with the
  * SAME AES-256-GCM PiiCryptoService** used for at-rest PII (the plaintext secret never touches
  * Redis, a log, or an event), in its own namespace `admin_mfa_secret:<admin_id>`. A follow-up
- * (with the database-architect) should add an encrypted `mfa_secret_enc` column to
+ * (with the backend-platform-engineer) should add an encrypted `mfa_secret_enc` column to
  * `admin_users` and migrate this; the auth flow reads/writes only through this seam, so that
  * swap is local. The secret is NEVER logged and NEVER returned except once at enrollment.
  */

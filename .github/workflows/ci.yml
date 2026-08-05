@@ -87,8 +87,8 @@ jobs:
       # Design-system adherence (DS4.3): the token gate — NO raw hex/px in payer-web UI
       # source — is enforced by the Lint step above (ESLint `no-restricted-syntax`, since
       # oxlint does not implement that rule). This is the fast oxlint supplementary pass
-      # (correctness) over apps/payer-web/src. Any payer-web UI change should also run the
-      # `bb-ui-review` skill (see the PR checklist).
+      # (correctness) over apps/payer-web/src. Any payer-web UI change is additionally
+      # reviewed against the frontend-product-engineer checklist (see the PR checklist).
       - name: Design-system adherence — oxlint (payer-web)
         run: pnpm lint:oxlint
 

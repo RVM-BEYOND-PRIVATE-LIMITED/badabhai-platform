@@ -9,7 +9,7 @@ coverage/
 
 # ---- Claude Code ----
 # Background-agent run transcripts — never commit these. The tracked engineering
-# org (.claude/agents, .claude/skills, .claude/hooks, settings) is NOT ignored.
+# org (.claude/agents, .claude/hooks, settings.json) is NOT ignored.
 .claude/tasks/
 
 # ---- Next.js ----

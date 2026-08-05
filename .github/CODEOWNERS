@@ -1,7 +1,6 @@
 # CODEOWNERS — BadaBhai
 #
 # Maps repo paths to the engineer(s) who must review changes there.
-# Source of truth for ownership: ../.claude/team-memory.md (Developer A / B sections).
 #
 # ENFORCEMENT: This file is ADDITIVE and harmless on its own. It only enforces
 # required review once a GitHub branch-protection rule on `main` enables
@@ -62,7 +61,7 @@
 # ---------------------------------------------------------------------------
 # Shared packages — BOTH must review. Event payloads must be versioned (never
 # mutated); ai-contracts Zod<->Pydantic parity; db migration numbers must not
-# collide. See ../.claude/team-memory.md "Shared packages" + CLAUDE.md §2.
+# collide. See CLAUDE.md §2.
 # ---------------------------------------------------------------------------
 /packages/db/                       @prakashkantumutchu @divyuuu
 /packages/event-schema/             @prakashkantumutchu @divyuuu
