@@ -101,6 +101,7 @@ The Architect synthesizes them into one strategy; the owners then build in paral
   change, a destructive migration, real provider keys or spend, production data, or a launch-gate flip.
 - Optimize for long-term maintainability over short-term speed.
 
-> **Skills.** The `.claude/skills/` directory is currently **absent from the working tree** (all
-> 24 files deleted; still present in git history). Agent files therefore carry no links into it.
-> If the skills are restored, re-add the procedure references then — do not invent replacements.
+> **Skills.** The `.claude/skills/` directory was **retired on 2026-08-05** (owner decision; 24
+> skills across 25 files, recoverable from git history). Agent files carry no links into it. Each
+> agent's own **Review checklist** is now the procedure — do not re-introduce a skills layer
+> without an explicit decision.

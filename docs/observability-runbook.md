@@ -14,7 +14,7 @@
 
 Companion docs (link, don't duplicate):
 [infra/monitoring/README.md](../infra/monitoring/README.md) ·
-[bb-monitoring skill](../.claude/skills/bb-monitoring/SKILL.md) ·
+bb-monitoring skill ·
 [docs/ai/phase-1-ai-privacy-review.md](ai/phase-1-ai-privacy-review.md) ·
 [.env.example](../.env.example) (template; placeholders only).
 
@@ -169,7 +169,7 @@ Examples are specific to this system.
 | Sev      | Meaning                                | Examples (this system)                                                                                                                                                                                                                        | Response                                                                                                                                                          |
 | -------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **SEV1** | PII exposure or platform down          | Raw PII (phone/name/address/employer) found in a log, event, `ai_jobs`, `audit_logs`, or an LLM input; pseudonymization bypass; API down / `/health` failing; DB unreachable.                                                                 | Page immediately, stop the bleed, **escalate to human** (CLAUDE.md §7). Treat any PII exposure as a privacy incident.                                             |
-| **SEV2** | Core worker flow broken, no PII breach | Profiling chat / extraction failing for all workers; consent gate failing open or shut; events not emitting for a key flow; AI spend **daily/cumulative cap exceeded** (real calls now blocked); kill-switch unexpectedly engaged in staging. | Urgent triage same shift; mitigate (e.g. confirm gate defaults safe); root-cause via [bb-root-cause-analysis](../.claude/skills/bb-root-cause-analysis/SKILL.md). |
+| **SEV2** | Core worker flow broken, no PII breach | Profiling chat / extraction failing for all workers; consent gate failing open or shut; events not emitting for a key flow; AI spend **daily/cumulative cap exceeded** (real calls now blocked); kill-switch unexpectedly engaged in staging. | Urgent triage same shift; mitigate (e.g. confirm gate defaults safe); root-cause via bb-root-cause-analysis. |
 | **SEV3** | Degraded / partial, with fallback      | Elevated `5xx` on a non-core endpoint; AI provider fallback (Gemini → Claude) firing repeatedly; pseudonymization `blocked=True` rate elevated (workers get safe fallback, not failure); failed BullMQ jobs accumulating but retrying.        | Investigate within the day; log as tech-debt if structural.                                                                                                       |
 | **SEV4** | Cosmetic / informational               | Single transient `4xx`; one-off provider timeout that retried green; `cost_alert` / `above_target` flags on individual AI calls (within caps); noisy but harmless log.                                                                        | Batch; note trends; no immediate action.                                                                                                                          |
 

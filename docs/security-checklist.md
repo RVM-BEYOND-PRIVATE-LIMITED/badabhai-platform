@@ -2,7 +2,7 @@
 
 A consolidated, runnable gate for the BadaBhai invariants. Tick every box that the
 diff touches before requesting review; a privacy/AI/auth change also runs the
-[`bb-security-review`](../.claude/skills/bb-security-review/SKILL.md) skill (distinct
+`bb-security-review` skill (distinct
 from the built-in `/security-review`).
 
 This file does **not** restate the rules — it points at the file/skill that
@@ -101,7 +101,7 @@ fine, values never.
 - [ ] Ops / backend-internal routes are behind
       [`apps/api/src/common/guards/internal-service.guard.ts`](../apps/api/src/common/guards/internal-service.guard.ts)
       (fail-closed when `INTERNAL_SERVICE_TOKEN` is unset).
-- [ ] **Payer-authenticated routes** use [`apps/api/src/payer-portal/payer-auth.guard.ts`](../apps/api/src/payer-portal/payer-auth.guard.ts) (`PayerAuthGuard` — derives `payer_id` from session, XB-A; horizontal authz test in `payer-unlocks.controller.test.ts`).
+- [ ] **Payer-authenticated routes** use [`apps/api/src/payers/payer-auth.guard.ts`](../apps/api/src/payers/payer-auth.guard.ts) (`PayerAuthGuard` — derives `payer_id` from session, XB-A; horizontal authz test in `payer-unlocks.controller.test.ts`).
 - [ ] **Agent-only routes** use `PayerRoleGuard` + `@PayerRoles('agent')` (ADR-0022 vertical authz).
 
 ## 6. RLS posture (TD4 — backend still BYPASSRLS)

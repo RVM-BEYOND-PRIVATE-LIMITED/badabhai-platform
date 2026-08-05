@@ -81,7 +81,7 @@ Rule: **`docs/<area>/` is owned by the engineer who owns the code that area docu
 | ---- | ----- | ----- |
 | `CLAUDE.md` · `README.md` · `SECURITY.md` | **ARCH** | CLAUDE.md changes are an architecture action. |
 | `.claude/agents/**` · `.claude/*.md` (project/team memory) | **ARCH** | The org definition itself. |
-| `.claude/skills/**` | **ARCH** | ⚠️ **Currently deleted from the working tree** — see below. |
+| ~~`.claude/skills/**`~~ | — | **Retired 2026-08-05** (owner decision). Path no longer exists; no owner. Each agent's Review checklist carries its procedure. |
 | `issues.txt` | **ARCH** | Tracked scratch file; candidate for removal. |
 | `dump.rdb` · `edge.log` · `coverage/` · `node_modules/` | *unowned* | Untracked runtime/build artifacts. Should be gitignored, not owned. |
 
@@ -100,13 +100,13 @@ engineer; each attaches to an existing domain.
 
 ## Open ownership issues (assigned, not yet resolved)
 
-1. ⚠️ **`.claude/skills/` is deleted in the working tree** — all 24 skill files show as `D` in
-   `git status`, and the directory is gone from disk (still present in git history). The agent
-   files no longer link into it: all six broken references were removed on 2026-08-05, so the
-   org is internally consistent either way. **[CLAUDE.md §7](../../CLAUDE.md) still references
-   the skills** and is deliberately untouched. **Owner: ARCH** — restore
-   (`git restore .claude/skills/`) and re-add the procedure references, or land the removal
-   deliberately and update CLAUDE.md §7.
+1. ✅ **`.claude/skills/` — RESOLVED (retired 2026-08-05, owner decision).** All 24 skills
+   (25 files) were removed from the repository, and every reference to them was cleaned up in
+   the same change: 18 links in the agent + engineering-org docs, and 22 links across six
+   operational docs (`rollback-guide`, `release-checklist`, `observability-runbook`,
+   `security-checklist`, `testing-guide`, `claude-working-guide`). Skill names survive as plain
+   text where they carried meaning. Recoverable from git history. Each agent's **Review
+   checklist** is now the procedure of record.
 2. **`.github/CODEOWNERS` is human-keyed, this map is role-keyed.** They currently disagree
    (CODEOWNERS splits `apps/api` between two humans and marks `packages/db` dual-owned).
    **Owner: OPS**, with ARCH — reconcile CODEOWNERS to this map so the automated reviewer
