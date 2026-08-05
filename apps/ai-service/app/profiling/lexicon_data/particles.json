@@ -1,0 +1,85 @@
+{
+  "_why": "Indian occupational particles. A worker does not say 'welder' -- they say 'welding ka kaam karta hun' or 'silai wala'. Stripping these is what lets one catalogue alias match many phrasings. Applied SYMMETRICALLY to catalogue aliases and to worker utterances, which is why stripping can never break a match: it can only conflate two aliases, and that is measured (see _collision_budget).",
+
+  "_regex_rule": "No regex sources live here -- these are literal token strings, compared by equality after normalization. That is deliberate: a literal list has no JS/Python regex-dialect risk at all, so the common-subset rule in ../README.md cannot be violated by editing this file.",
+
+  "_scope": "OCCUPATION TEXT ONLY. These are the particles that wrap a trade name. Conversational cues (dont-know, correction, negation) are NOT here -- they belong in predicates.json and negation.json, owned by the orchestrator side.",
+
+  "_measured_against_corpus": "Checked against all 8695 seeded job_domain_alias rows (NCO-2015 + ISCO-08, all lang=en). Every token below occurs ZERO times in that corpus except 'wala' (1 row, 'Paper Wala delivers newspapers, periodicals etc'), so stripping them cannot damage a catalogue title. Deliberately EXCLUDED for that reason: 'main' (Hindi 'I', but also English 'primary' -- it appears in 'Main Header Colliery'), and 'me'/'mein' (prepositions, not occupational particles). Add them only with a fresh collision measurement.",
+
+  "_collision_budget": "Adding a particle can make two DIFFERENT aliases of the SAME domain normalize identically, which the 0068 unique index on (job_domain_id, text_norm, lang) turns into a seed failure. After editing this file, re-run `pnpm db:normalize:aliases` and `pnpm db:verify:domains`; the verifier counts within-domain text_norm collisions.",
+
+  "minStemLength": 3,
+
+  "phrases": [
+    ["ka", "kaam"],
+    ["ki", "kaam"],
+    ["ke", "kaam"],
+    ["ka", "kam"],
+    ["ka", "काम"],
+    ["karta", "hun"],
+    ["karta", "hoon"],
+    ["karti", "hun"],
+    ["karti", "hoon"],
+    ["karte", "hain"],
+    ["kar", "raha", "hun"],
+    ["kar", "rahi", "hun"],
+    ["ka", "kaam", "karta", "hun"]
+  ],
+
+  "tokens": [
+    "ka",
+    "ki",
+    "ke",
+    "kaam",
+    "kam",
+    "karta",
+    "karti",
+    "karte",
+    "kar",
+    "raha",
+    "rahi",
+    "rahe",
+    "hun",
+    "hoon",
+    "hu",
+    "hain",
+    "hai",
+    "का",
+    "की",
+    "के",
+    "काम",
+    "करता",
+    "करती",
+    "करते",
+    "हूं",
+    "हूँ",
+    "हैं",
+    "है",
+    "wala",
+    "waala",
+    "walah",
+    "wale",
+    "waale",
+    "wali",
+    "waali",
+    "वाला",
+    "वाले",
+    "वाली"
+  ],
+
+  "_suffixes_are_also_tokens": "The `wala` family appears in BOTH lists on purpose. As a token it strips the spaced form ('silai wala'); as a suffix it strips the glued form ('silaiwala'). Listing it only as a suffix leaves the spaced form standing, because the standalone token's stem is empty and fails minStemLength. Listing it only as a token leaves the glued form standing. A bare 'wala' with nothing else survives via the normalizer's empty-guard, which is the desired outcome -- it is not an occupation, but it is also not nothing.",
+
+  "suffixes": [
+    "wala",
+    "waala",
+    "walah",
+    "wale",
+    "waale",
+    "wali",
+    "waali",
+    "वाला",
+    "वाले",
+    "वाली"
+  ]
+}

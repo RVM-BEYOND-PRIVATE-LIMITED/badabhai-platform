@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 
 from ..pseudonymize import CITY_ALIASES, KNOWN_CITIES, MAX_PLAUSIBLE_SALARY_INR
+from . import lexicon
 
 KnowledgeLevel = str  # "none" | "basic" | "strong" | "unknown"
 
@@ -455,19 +456,11 @@ _INTERIOR_DESIGN_RE: list[tuple[re.Pattern[str], str, str]] = [
 ]
 
 # Operational skills: (keyword, label, skill_id).
+# Shared with the TypeScript orchestrator via packages/profiling-lexicon (Phase 3). Order is
+# load-bearing — "tool offset" must precede "offset" — and the JSON preserves it; see
+# lexicon_data/skills.json for the rationale that used to sit here.
 _SKILLS: list[tuple[str, str, str]] = [
-    ("tool offset", "tool offset setting", "skill_tool_offset_setting"),
-    ("offset", "tool offset setting", "skill_tool_offset_setting"),
-    ("g code", "G-code/M-code editing", "skill_program_editing"),
-    ("g-code", "G-code/M-code editing", "skill_program_editing"),
-    ("m code", "G-code/M-code editing", "skill_program_editing"),
-    ("program", "program editing", "skill_program_editing"),
-    ("gd&t", "drawing reading", "skill_gdt_reading"),
-    ("gdt", "drawing reading", "skill_gdt_reading"),
-    ("drawing", "drawing reading", "skill_gdt_reading"),
-    ("fixture", "fixture setup", "skill_fixture_setup"),
-    ("mastercam", "CAM software", "skill_cam_software"),
-    ("fusion", "CAM software", "skill_cam_software"),
+    (entry["keyword"], entry["label"], entry["id"]) for entry in lexicon.load("skills")["skills"]
 ]
 
 
@@ -1407,14 +1400,8 @@ _SELF_STATE_BEFORE_RE = tuple(
 _SELF_STATE_AFTER_RE = tuple(
     re.compile(p, re.IGNORECASE) for p in (_SELF_STATE_PAST_AFTER, _SELF_STATE_RESOLVED)
 )
-_FIRST_PERSON_CLAIM_RE = re.compile(
-    r"\b(?:hu|hun|hoon|hoo|main|mai|maine|mera|mere|meri|mujhe|apna|apne|karta|karti|chalata|chalati|chalaya|chalayi|aata|aati|kiya)\b",
-    re.IGNORECASE,
-)
-_CLAIM_BLOCKERS_RE = re.compile(
-    r"\b(?:bhai|baap|papa|pitaji|chacha|dost|friend|pati|husband|patni|biwi|wife|chahta|chahti|seekh|training|banna)\b",
-    re.IGNORECASE,
-)
+_FIRST_PERSON_CLAIM_RE = lexicon.compile_named("predicates", "firstPersonClaim")
+_CLAIM_BLOCKERS_RE = lexicon.compile_named("predicates", "claimBlockers")
 
 
 def has_first_person_claim(text: str) -> bool:
@@ -1783,109 +1770,36 @@ _ASKED_IMMEDIATE_RE: tuple[re.Pattern[str], ...] = tuple(
 # ("na ITI na diploma", "no ITI") is not suppressed. That direction is the safe
 # one to miss: we prefer MISSING data (the topic gets re-asked / stays empty) over
 # WRONG data, which is the whole point of this fix.
-_NEGATION_BACK_WORDS = 3
+# --- The negation engine, now DATA -------------------------------------------
+# Every constant in this block is read from packages/profiling-lexicon/data/negation.json
+# (mirrored into lexicon_data/ — see lexicon.py for why the mirror exists) so that the
+# TypeScript orchestrator's per-turn detectors and these cannot disagree. Drift here is
+# SILENT: a detector that stops firing produces a slightly worse profile, not an error.
+#
+# The rationale for each value travels WITH the data, in that file's `$comment` keys —
+# including the two that cost the most to learn: why bare English "no" is not a negator,
+# and why clause-final "na" is an affirmative tag rather than a denial.
+_NEGATION = lexicon.load("negation")
 
-# Clause boundaries. Punctuation (incl. the Devanagari danda) plus the contrastive
-# connectors that start a NEW assertion — "setting nahi aati, sirf chalata hu".
-# A spurious split only ever SHRINKS a negation scope, which is the safe direction.
-_CLAUSE_SPLIT_RE = re.compile(
-    r"[,;:.!?|/\n\r।]+|\s(?:lekin|magar|balki|but|sirf|only|bas|kintu|parantu)\s",
-    re.IGNORECASE,
-)
+_NEGATION_BACK_WORDS: int = _NEGATION["backWords"]
+_CLAUSE_SPLIT_RE = lexicon.compile_pattern(_NEGATION["clauseSplit"])
 
-# Unambiguous negators: these are never a tag/affirmation in worker speech.
-_NEGATORS: frozenset[str] = frozenset(
-    {
-        "nahi",
-        "nahin",
-        "nahee",
-        "nahii",
-        "nai",
-        "nhi",
-        "nahiin",
-        "mat",
-        "not",
-        "never",
-        "नहीं",
-        "नही",
-        "नहि",
-        "मत",
-        "न",
-    }
-)
-# NOT included: bare English "no". In this domain it is far more often the
-# ABBREVIATION ("part no. 12", "drawing no. 45") than a denial, and as a negator it
-# would blank the three words before it — deleting "drawing" from a worker who
-# reads drawings. "nahi" and its spellings carry the real load in worker replies.
+_NEGATORS: frozenset[str] = frozenset(_NEGATION["negators"])
+_TAG_ONLY_NEGATORS: frozenset[str] = frozenset(_NEGATION["tagOnlyNegators"])
+_TAG_PRECEDERS: frozenset[str] = frozenset(_NEGATION["tagPreceders"])
 
-# "na" / "ना" are negators ONLY sometimes: Hinglish also uses a CLAUSE-FINAL "na"
-# as an affirmative tag ("VMC chalata hu na" = "I do run VMC, right?"). Treating
-# that as a denial would delete the very machine the worker just claimed, so "na"
-# only negates when it is followed by more words in its clause AND is not sitting
-# right after a verb/copula (the tag position).
-_TAG_ONLY_NEGATORS: frozenset[str] = frozenset({"na", "ना"})
-_TAG_PRECEDERS: frozenset[str] = frozenset(
-    {
-        "hu",
-        "hun",
-        "hoon",
-        "hai",
-        "hain",
-        "ho",
-        "hota",
-        "hoti",
-        "tha",
-        "the",
-        "thi",
-        "karta",
-        "karte",
-        "karti",
-        "aata",
-        "aati",
-        "aate",
-        "chalata",
-        "chalate",
-        "chalati",
-        "theek",
-        "thik",
-        "haan",
-        "han",
-        "sahi",
-        "ok",
-    }
-)
-
-_WORD_RE = re.compile(r"\S+")
+_WORD_RE = lexicon.compile_pattern(_NEGATION["wordScan"])
 # Trim leading/trailing punctuation so "nahi," tokenizes as "nahi".
-_TOKEN_TRIM = " \t\r\n.,;:!?\"'()[]{}-–—।|/"
+_TOKEN_TRIM: str = _NEGATION["tokenTrim"]
 
-# Which TOPIC a negated cue belongs to. Only cue families whose denial is itself a
-# complete answer are listed (see detect_answered_topics) — deliberately NOT
-# machines/role/location/salary, where "VMC nahi" is a denial, not an answer.
-_NEGATABLE_TOPIC_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
-    (
-        "education",
-        re.compile(r"\biti\b|diploma|\b(?:b\.?tech|be|degree|engineering)\b|nsdc|rvm", re.I),
-    ),
-    (
-        "certifications",
-        re.compile(r"\bncvt\b|\bscvt\b|\bnsqf\b|apprentice|certificate|certification", re.I),
-    ),
-    (
-        "skills",
-        re.compile(
-            r"setting|set\s?up|" + "|".join(re.escape(kw) for kw, _label, _sid in _SKILLS),
-            re.IGNORECASE,
-        ),
-    ),
+# Which TOPIC a negated cue belongs to. The `skills` entry splices in the keyword table via
+# the `{SKILL_KEYWORDS}` macro, so it cannot drift out of skills.json the way an inline copy
+# of the same list would.
+_NEGATABLE_TOPIC_CUES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (cue["topic"], lexicon.compile_pattern(cue)) for cue in _NEGATION["negatableTopicCues"]
 )
 
-# Topics for which a DENIAL is a COMPLETE answer, so the ask is satisfied ("kya
-# training li hai?" -> "ITI nahi kiya"; "kya aata hai?" -> "setting nahi aati").
-# Deliberately excludes the essentials (role/machines/current_location) and salary:
-# "VMC nahi chalaya" is a denial, not an answer, and closing those asks on it would
-# ship an incomplete profile silently — the engine must still ask them.
-_NEGATION_ANSWERS_TOPICS: frozenset[str] = frozenset({"education", "skills", "certifications"})
+_NEGATION_ANSWERS_TOPICS: frozenset[str] = frozenset(_NEGATION["negationAnswersTopics"])
 
 # --- Law 8: "nahi pata" is a COMPLETE answer --------------------------------
 # PERSONA v3.2 §2 Law 8, under a heading that reads "absolute, no exceptions":
@@ -1919,18 +1833,9 @@ _NEGATION_ANSWERS_TOPICS: frozenset[str] = frozenset({"education", "skills", "ce
 # Verified against the 314-fixture answer corpus: 3 hits, all of them fixtures a human
 # already labelled `reject` as pure don't-knows ("pata nahi naam kya hai",
 # "controller ka naam nahi pata", "pata nahi konsa hai"). Zero `accept` fixtures hit.
-_DONT_KNOW_RE = re.compile(
-    r"\b(?:"
-    r"pata\s*nahi+n?|nahi+n?\s*pata|pta\s*nahi+n?|nahi+n?\s*pta|"
-    r"patta\s*nahi+n?|nahi+n?\s*patta|"
-    r"maloom\s*nahi+n?|nahi+n?\s*maloom|malum\s*nahi+n?|nahi+n?\s*malum|"
-    r"maalum\s*nahi+n?|nahi+n?\s*maalum|"
-    r"nahi+n?\s*jaanta|nahi+n?\s*janta|nahi+n?\s*jaanti|nahi+n?\s*janti|"
-    r"idk|dunno|"
-    r"(?:i\s*)?(?:do\s*not|don'?t)\s*know|no\s*idea"
-    r")\b",
-    re.IGNORECASE,
-)
+_PREDICATES = lexicon.load("predicates")
+
+_DONT_KNOW_RE = lexicon.compile_pattern(_PREDICATES["dontKnow"])
 
 
 def is_dont_know(text: str) -> bool:
@@ -1960,26 +1865,7 @@ def is_dont_know(text: str) -> bool:
 # paise ki tang), an explicit not-getting-work shape (with or without a duration), or
 # an explicit job-loss verb. Measured: 0 hits across the 314-fixture answer corpus and
 # 0 hits across a hand-written achievement/difficult-work adversarial set.
-_HARDSHIP_RE = re.compile(
-    # subsistence: "ghar chalana mushkil hai", "ghar kaise chalaun"
-    r"ghar\s*(?:kaise\s*)?chal(?:ana|ta|ega|aun|au)?\s*(?:mushkil|muskil|nahi+n?)|"
-    r"\bghar\s*kaise\s*chal(?:ega|aun|au)\b|"
-    # duration + no work: "6 mahine se kaam nahi mila"
-    r"\d+\s*(?:mahine|mahina|saal|sal|din|month|months|year|years)\s*se\s*(?:koi\s*)?"
-    r"(?:kaam|job|naukri|nokri)\s*(?:nahi+n?|nhi)\b|"
-    # not getting work, no duration: "kaam nahi mil raha"
-    r"\b(?:kaam|job|naukri|nokri)\s*(?:nahi+n?|nhi)\s*mil\s*(?:raha|rahi|rha|rhi)\b|"
-    r"\b(?:kaam|job|naukri|nokri)\s*(?:nahi+n?|nhi)\s*mil(?:i|a)\b|"
-    # distress, explicit
-    r"\bbahut\s*(?:pareshan|preshan|dikkat|tang)\b|"
-    r"\bpareshan\s*(?:hu|hoon|hun|hai)\b|"
-    r"\bguzara\s*(?:nahi+n?|mushkil|muskil)\b|"
-    r"\bpaise?\s*ki\s*(?:tang|tangi|dikkat|kami)\b|"
-    # job loss
-    r"\b(?:nikal|nikaal)\s*diya\s*(?:gaya|tha)?\b|"
-    r"\b(?:job|naukri|nokri|kaam)\s*(?:chali|chala|chhut|chhoot|chut)\s*ga(?:yi|ya|ee)\b",
-    re.IGNORECASE,
-)
+_HARDSHIP_RE = lexicon.compile_pattern(_PREDICATES["hardship"])
 
 
 def is_hardship(text: str) -> bool:
@@ -2000,15 +1886,8 @@ def is_hardship(text: str) -> bool:
 # phrasings ("Sir job milegi kya?" and "Job mil jayegi na?").
 #
 # A statement uses the present tense ("kaam milta hai") and cannot match either half.
-_JOB_PROSPECT_RE = re.compile(
-    r"\b(?:job|naukri|nokri|kaam|placement|selection)\b[^.?!]{0,24}?"
-    r"\b(?:mil\s*(?:jaye|jayegi|jayega|jaega|jaegi)|milegi|milega|"
-    r"lag\s*(?:jaye|jayegi|jayega)|lagegi|lagega)\b|"
-    r"\b(?:mil\s*(?:jayegi|jayega)|milegi|milega|lagegi|lagega)\b[^.?!]{0,24}?"
-    r"\b(?:job|naukri|nokri|kaam|placement)\b",
-    re.IGNORECASE,
-)
-_JOB_INTERROGATIVE_RE = re.compile(r"\?|\bkya\b|\bkab\b|\bna\b\s*[.!?]*\s*$", re.IGNORECASE)
+_JOB_PROSPECT_RE = lexicon.compile_pattern(_PREDICATES["jobProspect"])
+_JOB_INTERROGATIVE_RE = lexicon.compile_pattern(_PREDICATES["jobInterrogative"])
 
 
 def asks_about_job_prospects(text: str) -> bool:
@@ -2037,12 +1916,7 @@ def asks_about_job_prospects(text: str) -> bool:
 #              every experience answer). Measured: "kutta nahi" matched. Excluded —
 #              silence is preferable to a wrong line.
 # Measured: 0 hits across the 314-fixture answer corpus.
-_ABUSE_RE = re.compile(
-    r"\b(?:chutiy[ae]|chutiye|bhosdi\w*|bhosad\w*|madarchod\w*|maderchod\w*|"
-    r"behenchod\w*|bhenchod\w*|benchod\w*|gaandu|gandu|"
-    r"fuck\w*|bitch|asshole)\b",
-    re.IGNORECASE,
-)
+_ABUSE_RE = lexicon.compile_pattern(_PREDICATES["abuse"])
 
 
 def is_abusive(text: str) -> bool:
@@ -2052,25 +1926,7 @@ def is_abusive(text: str) -> bool:
 
 # P1-1: an EXPLICIT self-correction. Only these let a value for a topic that is NOT
 # the one being asked overwrite an already-collected value (see interview_engine).
-_CORRECTION_MARKERS: tuple[str, ...] = (
-    "nahi nahi",
-    "nahin nahin",
-    "nhi nhi",
-    "nahi nhi",
-    "nai nai",
-    "galat",
-    "ghalat",
-    "sorry",
-    "correction",
-    "correct kar",
-    "actually",
-    "asal mein",
-    "asal me",
-    "sudhar",
-    "wapas se",
-    "नहीं नहीं",
-    "गलत",
-)
+_CORRECTION_MARKERS: tuple[str, ...] = tuple(_PREDICATES["correctionMarkers"])
 
 
 def _clause_bounds(text: str) -> list[tuple[int, int]]:

@@ -25,6 +25,17 @@ jobs:
           filters: |
             ai-service:
               - 'apps/ai-service/**'
+              # The shared profiling lexicon. `apps/ai-service/app/profiling/lexicon_data/`
+              # is a byte-identical MIRROR of `packages/profiling-lexicon/data/`, which is
+              # canonical (the image is built from the apps/ai-service context, so the
+              # package does not exist at runtime in the container).
+              #
+              # Without this line, editing the canonical data would skip the ENTIRE Python
+              # suite — including test_lexicon_parity.py, the check that the mirror still
+              # matches and that both languages still agree. The change would report green
+              # while shipping a stale mirror to production. A green check is not evidence
+              # that the gate for the thing you changed actually ran.
+              - 'packages/profiling-lexicon/**'
             e2e:
               - 'apps/api/**'
               - 'packages/**'

@@ -20,7 +20,9 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "node scripts/sync-mirror.mjs --check && vitest run --passWithNoTests",
+    "lexicon:sync": "node scripts/sync-mirror.mjs",
+    "lexicon:verify": "node scripts/sync-mirror.mjs --check",
     "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
   }
 }

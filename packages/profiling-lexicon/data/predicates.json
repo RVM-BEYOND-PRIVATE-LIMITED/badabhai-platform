@@ -1,0 +1,175 @@
+{
+  "$comment": [
+    "Conversational predicates, lifted from apps/ai-service/app/profiling/signals.py.",
+    "",
+    "Every exclusion below was paid for by a MEASUREMENT against the 314-fixture answer corpus,",
+    "not by taste. The rationale travels with the data because this file is where someone will",
+    "come to add a token, and the reason a token is missing is the single most valuable thing",
+    "they can read first.",
+    "",
+    "All patterns obey the JS/Python-common subset (see data/README.md): no \\d, no \\w, no \\b."
+  ],
+
+  "dontKnow": {
+    "source": "{WB}(?:pata\\s*nahi+n?|nahi+n?\\s*pata|pta\\s*nahi+n?|nahi+n?\\s*pta|patta\\s*nahi+n?|nahi+n?\\s*patta|maloom\\s*nahi+n?|nahi+n?\\s*maloom|malum\\s*nahi+n?|nahi+n?\\s*malum|maalum\\s*nahi+n?|nahi+n?\\s*maalum|nahi+n?\\s*jaanta|nahi+n?\\s*janta|nahi+n?\\s*jaanti|nahi+n?\\s*janti|idk|dunno|(?:i\\s*)?(?:do\\s*not|don'?t)\\s*know|no\\s*idea){WE}",
+    "flags": "i"
+  },
+  "$comment_dontKnow": [
+    "PERSONA v3.2 §2 Law 8, under a heading that reads 'absolute, no exceptions': \"'Nahi pata'",
+    "is a complete answer. Accept it, move on, never re-ask, never teach, never sound let down.\"",
+    "Owner ruling 2026-07-31 separated the two cases that used to be conflated:",
+    "  * an EXPLICIT don't-know is an ANSWER — the answer being 'unknown' — and closes ANY topic,",
+    "    not just the three in negation.json's negationAnswersTopics;",
+    "  * a reply the detector simply could not KEY is a different situation, and INTERVIEW-1's",
+    "    bounded re-ask (with the topic's retry_question) still owns it.",
+    "",
+    "DELIBERATELY NOT IN HERE. The cost is asymmetric — a missed close is recoverable (the worker",
+    "is asked once more), a wrongly-closed essential is not (the topic is never re-asked and the",
+    "value is lost) — so every ambiguous form is left out.",
+    "",
+    "  'yaad nahi' / 'yad nahi' ('don't remember'). EXCLUDED. It reads as a don't-know in",
+    "      isolation, but the corpus contains certifications: 'certificate hai par naam yaad nahi'",
+    "      — a worker who HAS a certificate and cannot recall its name — and that string keys",
+    "      NOTHING today (measured: {}), so the `not in answered` guard would not have saved it.",
+    "      Including it would have closed the certifications topic for a worker who explicitly",
+    "      said they hold one. Not remembering the NAME of a thing you have is not the same as",
+    "      not knowing.",
+    "  bare 'nahi'. EXCLUDED, and the task explicitly allowed leaving it out. To an open question",
+    "      ('Kaunsi machine?') it is not a don't-know at all, and to a yes/no question it is a",
+    "      DENIAL, which negation.json's negatableTopicCues already handles for the topics where a",
+    "      denial is a complete answer. There is no reading of a bare 'nahi' that is safe across",
+    "      all fourteen topics.",
+    "",
+    "Verified against the 314-fixture answer corpus: 3 hits, all of them fixtures a human already",
+    "labelled `reject` as pure don't-knows. Zero `accept` fixtures hit."
+  ],
+
+  "hardship": {
+    "source": "ghar\\s*(?:kaise\\s*)?chal(?:ana|ta|ega|aun|au)?\\s*(?:mushkil|muskil|nahi+n?)|{WB}ghar\\s*kaise\\s*chal(?:ega|aun|au){WE}|[0-9\\u0966-\\u096F]+\\s*(?:mahine|mahina|saal|sal|din|month|months|year|years)\\s*se\\s*(?:koi\\s*)?(?:kaam|job|naukri|nokri)\\s*(?:nahi+n?|nhi){WE}|{WB}(?:kaam|job|naukri|nokri)\\s*(?:nahi+n?|nhi)\\s*mil\\s*(?:raha|rahi|rha|rhi){WE}|{WB}(?:kaam|job|naukri|nokri)\\s*(?:nahi+n?|nhi)\\s*mil(?:i|a){WE}|{WB}bahut\\s*(?:pareshan|preshan|dikkat|tang){WE}|{WB}pareshan\\s*(?:hu|hoon|hun|hai){WE}|{WB}guzara\\s*(?:nahi+n?|mushkil|muskil){WE}|{WB}paise?\\s*ki\\s*(?:tang|tangi|dikkat|kami){WE}|{WB}(?:nikal|nikaal)\\s*diya\\s*(?:gaya|tha)?{WE}|{WB}(?:job|naukri|nokri|kaam)\\s*(?:chali|chala|chhut|chhoot|chut)\\s*ga(?:yi|ya|ee){WE}",
+    "flags": "i"
+  },
+  "$comment_hardship": [
+    "§5: 'Says work has been hard -> One line, <=8 words, no advice: \"Samajh sakta hoon.\"",
+    " **Fires on hardship, never on achievement.**'",
+    "",
+    "THE HARD PART IS THE FALSE POSITIVE, not the match. Consoling a worker who just told you",
+    "about a promotion is a worse failure than saying nothing, and the sheet's own logic applies",
+    "('faked fluency is worse than plainness'). So this is a list of PHRASES that can only be",
+    "about personal hardship, never single words:",
+    "",
+    "  'mushkil' alone is unusable — 'setting mushkil hoti hai par kar leta hu' is a worker",
+    "  describing DIFFICULT WORK, which is closer to a capability claim than to hardship. Only",
+    "  'ghar chalana mushkil' (and its variants) is anchored to the person.",
+    "",
+    "Every branch requires either a household/subsistence anchor (ghar chalana, guzara, paise ki",
+    "tang), an explicit not-getting-work shape (with or without a duration), or an explicit",
+    "job-loss verb. Measured: 0 hits across the 314-fixture answer corpus and 0 across a",
+    "hand-written achievement/difficult-work adversarial set.",
+    "",
+    "The original used \\d+ for the duration. Python's \\d is Unicode-aware and JavaScript's is",
+    "ASCII-only, so it is spelled out as ASCII digits PLUS the Devanagari digit range",
+    "(U+0966-U+096F) — the only other digit set this corpus contains."
+  ],
+
+  "jobProspect": {
+    "source": "{WB}(?:job|naukri|nokri|kaam|placement|selection){WE}[^.?!]{0,24}?{WB}(?:mil\\s*(?:jaye|jayegi|jayega|jaega|jaegi)|milegi|milega|lag\\s*(?:jaye|jayegi|jayega)|lagegi|lagega){WE}|{WB}(?:mil\\s*(?:jayegi|jayega)|milegi|milega|lagegi|lagega){WE}[^.?!]{0,24}?{WB}(?:job|naukri|nokri|kaam|placement){WE}",
+    "flags": "i"
+  },
+  "jobInterrogative": {
+    "source": "\\?|{WB}kya{WE}|{WB}kab{WE}|{WB}na{WE}\\s*[.!?]*\\s*$",
+    "flags": "i"
+  },
+  "$comment_jobProspect": [
+    "§5: 'Asks \"job milegi?\" -> \"Guarantee nahi de sakta — profile poora hoga toh companies",
+    " dekhengi.\" -> back to the open question. No reassurance, no promise.'",
+    "",
+    "TWO conjuncts, and the second is what makes it safe. `jobProspect` alone (a job noun near a",
+    "future-tense get/land verb) fires on the corpus fixture 'abhi job kar raha hu, 1 mahina",
+    "lagega' — a worker ANSWERING the availability question, measured. Also requiring",
+    "`jobInterrogative` ('?', 'kya', 'kab', or a trailing 'na') drops that to zero corpus hits",
+    "with no loss on the positives, including the sheet's own two phrasings ('Sir job milegi",
+    "kya?' and 'Job mil jayegi na?').",
+    "",
+    "A statement uses the present tense ('kaam milta hai') and cannot match either half.",
+    "BOTH must match — see `asksQuestionBack`."
+  ],
+
+  "abuse": {
+    "source": "{WB}(?:chutiy[ae]|chutiye|bhosdi[a-z0-9_]*|bhosad[a-z0-9_]*|madarchod[a-z0-9_]*|maderchod[a-z0-9_]*|behenchod[a-z0-9_]*|bhenchod[a-z0-9_]*|benchod[a-z0-9_]*|gaandu|gandu|fuck[a-z0-9_]*|bitch|asshole){WE}",
+    "flags": "i"
+  },
+  "$comment_abuse": [
+    "§5: 'Is abusive -> One neutral line, continues. Never mirrors tone, never moralises.'",
+    "",
+    "HIGH PRECISION ONLY. This gazetteer changes the bot's tone, so a false positive is a",
+    "gratuitous tonal shift on an innocent worker; the whole benefit is small (one neutral",
+    "acknowledgement instead of the default one), so the bar for inclusion is that the token",
+    "cannot plausibly occur in shop-floor text.",
+    "",
+    "EXCLUDED ON MEASUREMENT — the reason this list is short:",
+    "  'bastard'  A BASTARD FILE IS A REAL TOOL — the coarse-cut hand file every fitter owns.",
+    "             Measured: 'bastard file' matched. Removed outright.",
+    "  'mc', 'bc' The abbreviations. 'm/c' is the standard shop-floor shorthand for MACHINE and",
+    "             appears constantly ('m/c chalata hu'). No abbreviation is safe here.",
+    "  'kutta/kutte', 'saala/saale', 'harami', 'kamina/kamine', 'randi', 'lodu', 'lauda'",
+    "             Mild, context-dependent, or overlapping ('saal' = years is in almost every",
+    "             experience answer). Measured: 'kutta nahi' matched. Excluded — silence is",
+    "             preferable to a wrong line.",
+    "Measured: 0 hits across the 314-fixture answer corpus.",
+    "",
+    "The original used \\w* for the inflection tail. Spelled out as [a-z0-9_]* under the `i` flag,",
+    "which is \\w's ASCII behaviour in both engines. These roots are Latin-script, so a Devanagari",
+    "suffix glued directly onto one is not a form that occurs."
+  ],
+
+  "firstPersonClaim": {
+    "source": "{WB}(?:hu|hun|hoon|hoo|main|mai|maine|mera|mere|meri|mujhe|apna|apne|karta|karti|chalata|chalati|chalaya|chalayi|aata|aati|kiya){WE}",
+    "flags": "i"
+  },
+  "claimBlockers": {
+    "source": "{WB}(?:bhai|baap|papa|pitaji|chacha|dost|friend|pati|husband|patni|biwi|wife|chahta|chahti|seekh|training|banna){WE}",
+    "flags": "i"
+  },
+  "$comment_firstPersonClaim": [
+    "TD98 / TD101. Does the worker claim this of THEMSELVES, or are they describing a workplace,",
+    "a relative, or an ambition? `hasFirstPersonClaim` is true when `firstPersonClaim` matches",
+    "and `claimBlockers` does NOT.",
+    "",
+    "This is what stops 'humare yahan CNC hai' becoming trade: CNC operator, and 'bhai welder",
+    "hai' becoming a welder profile. The blockers cover three distinct false-positive families",
+    "and all three were real: THIRD PARTIES (bhai, baap, dost, pati, biwi), ASPIRATION (chahta,",
+    "banna — wanting to become something is not being it), and TRAINING (seekh, training — 'CNC",
+    "seekh raha hu' carries a first-person marker AND is not a capability claim).",
+    "",
+    "Blocker-wins is deliberate and asymmetric: writing a machine the worker never claimed into",
+    "their profile sends them to the wrong job, while dropping one costs a follow-up question."
+  ],
+
+  "correctionMarkers": [
+    "nahi nahi",
+    "nahin nahin",
+    "nhi nhi",
+    "nahi nhi",
+    "nai nai",
+    "galat",
+    "ghalat",
+    "sorry",
+    "correction",
+    "correct kar",
+    "actually",
+    "asal mein",
+    "asal me",
+    "sudhar",
+    "wapas se",
+    "नहीं नहीं",
+    "गलत"
+  ],
+  "$comment_correctionMarkers": [
+    "P1-1: an EXPLICIT self-correction. Only these let a value for a topic that is NOT the one",
+    "being asked overwrite an already-collected value (see interview_engine's _may_commit).",
+    "",
+    "Plain lowercase SUBSTRINGS, not regexes — matched with a case-folded `in` check, so",
+    "'correct kar' also covers 'correct karo' / 'correct karna'. Substring semantics are load",
+    "-bearing here and must not be quietly upgraded to word-boundary matching."
+  ]
+}
