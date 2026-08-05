@@ -98,7 +98,9 @@ Use these — do not create duplicates:
 | API endpoint design                | `bb-api-design`                                 | `backend-engineer`                          |
 | AI / pseudonymization path         | `bb-security-review` + `bb-architecture-review` | `ai-engineer` (mandatory near pseudonymize) |
 
-Full lists: [.claude/skills/](../.claude/skills/) and [.claude/agents/](../.claude/agents/).
+Full list: [.claude/agents/](../.claude/agents/). The `.claude/skills/` procedures were
+**retired on 2026-08-05** (owner decision); their checklists now live in the agent
+definitions and the runbooks under [docs/](../docs/).
 
 ## 7. Escalate (stop and ask a human) when
 

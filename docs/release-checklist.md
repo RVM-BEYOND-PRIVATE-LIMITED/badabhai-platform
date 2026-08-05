@@ -4,7 +4,7 @@
 > **before** you deploy. It is the release-level companion to the per-PR
 > [pull request template](../.github/pull_request_template.md), the
 > [quality gates](engineering-org/quality-gates.md), and the
-> [`bb-deployment`](../.claude/skills/bb-deployment/SKILL.md) skill — it does not
+> `bb-deployment` skill — it does not
 > replace them, it confirms they held across everything in the cut.
 >
 > Rollback mechanics live in **[rollback-guide.md](rollback-guide.md)** — link the
@@ -47,7 +47,7 @@ Drizzle is the schema source of truth ([`packages/db/src/schema.ts`](../packages
 migrations live in [`packages/db/migrations/`](../packages/db/migrations/) (latest on
 `main`: **0017** — re-confirm against the directory; team-memory's "next number"
 counter [lags](../.claude/team-memory.md#migration-sequencing-critical--avoid-collision)).
-See [`safe-db-migration`](../.claude/skills/bb-database-design/SKILL.md) and
+See `safe-db-migration` and
 [ADR-0004](decisions/0004-pii-at-rest-and-rls.md).
 
 - [ ] **Migration ships BEFORE the code that needs it.** Deploy order is
@@ -107,7 +107,7 @@ half-configured real path. Never flip one on shared infra without human sign-off
 - [ ] **Event payloads versioned, not mutated.** Any change to a shipped event is a
       new field (additive) or a new `event_name` — never an in-place shape change
       ([`packages/event-schema`](../packages/event-schema), CLAUDE.md §2.8,
-      [`event-schema-change`](../.claude/skills/bb-api-design/SKILL.md)).
+      `event-schema-change`).
 - [ ] **Every important new endpoint emits a validated event** built with
       `createEvent` (CLAUDE.md §2.1) — the `events` table is the audit spine.
 - [ ] **AI contracts mirrored Zod ↔ Pydantic.** Any
@@ -131,7 +131,7 @@ half-configured real path. Never flip one on shared infra without human sign-off
 - [ ] **DPDP consent gate** precedes any profiling/AI processing (`consent.accepted`
       captured first — CLAUDE.md §2.6).
 - [ ] **Security/privacy review done** for any change touching PII, AI, auth, RLS, or
-      secrets — `/security-review` (or [`bb-security-review`](../.claude/skills/bb-security-review/SKILL.md))
+      secrets — `/security-review` (or `bb-security-review`)
       run and findings resolved (quality-gate 2). A Critical finding **blocks the
       cut**; it is never deferred to tech-debt.
 
@@ -152,7 +152,7 @@ half-configured real path. Never flip one on shared infra without human sign-off
 
 ## 7. Deploy + post-deploy verification
 
-Per [`bb-deployment`](../.claude/skills/bb-deployment/SKILL.md):
+Per `bb-deployment`:
 
 - [ ] Deploy order respected: **migrate → deploy code** (never code-before-migration).
 - [ ] **Rollback path is written and at hand** for this cut — see

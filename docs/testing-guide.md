@@ -5,7 +5,7 @@
 > every test must carry. This documents the system **as it actually is**; gaps are
 > called out as gaps, not papered over.
 >
-> Companion skill: [`.claude/skills/bb-testing/SKILL.md`](../.claude/skills/bb-testing/SKILL.md)
+> Companion skill: `.claude/skills/bb-testing/SKILL.md`
 > (the runnable checklist for _what_ to test and at which layer).
 > Operating contract: [`CLAUDE.md`](../CLAUDE.md) §2 (invariants) and §6 (quality gates).
 
@@ -111,7 +111,7 @@ can exercise `SET ROLE` denials.
 ## 4. The two assertions every BadaBhai test must carry
 
 These are not optional extras — they lock the invariants in [`CLAUDE.md`](../CLAUDE.md)
-§2. The [`bb-testing`](../.claude/skills/bb-testing/SKILL.md) skill requires both.
+§2. The `bb-testing` skill requires both.
 
 ### (a) No raw PII leaves the `workers` table
 
@@ -246,7 +246,7 @@ that the front of the flow is wired.
 
 ## 7. Conventions for new tests
 
-- **Pick the layer** the [`bb-testing`](../.claude/skills/bb-testing/SKILL.md) skill
+- **Pick the layer** the `bb-testing` skill
   prescribes: unit for logic, contract for boundaries, e2e for the worker-profiling
   happy path.
 - **New behavior ⇒ a new test.** Privacy/event paths get **explicit** assertions
