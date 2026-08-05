@@ -128,7 +128,7 @@ export default async function DashboardPage() {
       <section className="dash-section">
         <div className="dash-section__head">
           <h2>Recent unlocks</h2>
-          <Link className="bb-btn bb-btn--success bb-btn--sm dash-action" href="/postings">
+          <Link className="bb-btn bb-btn--secondary bb-btn--sm dash-action" href="/postings">
             <span>{isAgency ? "Manage vacancies" : "Manage postings"}</span>
             <i className="ph ph-arrow-right" aria-hidden="true" />
           </Link>
@@ -174,7 +174,7 @@ export default async function DashboardPage() {
         <section className="dash-section">
           <div className="dash-section__head">
             <h2>Your postings</h2>
-            <Link className="bb-btn bb-btn--success bb-btn--sm dash-action" href="/postings/new">
+            <Link className="bb-btn bb-btn--primary bb-btn--sm dash-action" href="/postings/new">
               <span>Post a job</span>
               <i className="ph ph-arrow-right" aria-hidden="true" />
             </Link>

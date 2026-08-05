@@ -383,10 +383,10 @@
 :root {
   --radius-xs: 6px;
   --radius-sm: 10px;
-  --radius-md: 14px; /* default control: button, input */
-  --radius-lg: 18px; /* card */
-  --radius-xl: 24px; /* sheet / large card */
-  --radius-2xl: 32px; /* hero / bottom sheet */
+  --radius-md: 10px; /* JUL31: button / input / control (kit rButton = 10) */
+  --radius-lg: 10px; /* JUL31: card (kit rCard = 10) */
+  --radius-xl: 12px; /* JUL31: dialog / large card — hard cap 12 */
+  --radius-2xl: 12px; /* JUL31: sheet / hero — hard cap 12 */
   --radius-pill: 999px;
   --radius-round: 50%;
 }
