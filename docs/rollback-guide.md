@@ -1,9 +1,9 @@
 # Rollback Guide
 
 > How to back out a bad change in BadaBhai with the smallest blast radius and no
-> data loss. This is the companion to the [`bb-deployment`](../.claude/skills/bb-deployment/SKILL.md)
+> data loss. This is the companion to the `bb-deployment`
 > skill (which requires a written rollback per change) and the
-> [`bb-root-cause-analysis`](../.claude/skills/bb-root-cause-analysis/SKILL.md)
+> `bb-root-cause-analysis`
 > skill (which runs _after_ the system is stable again).
 
 **First principle.** Stabilize first, diagnose later. Pick the fastest safe lever
@@ -23,7 +23,7 @@ safer than touching the **database**.
 ## The first 15 minutes (incident sequence)
 
 1. **0–2 min — Detect & declare.** Note the symptom, the time, and the last deploy
-   (the [`bb-deployment`](../.claude/skills/bb-deployment/SKILL.md) "watch logs in
+   (the `bb-deployment` "watch logs in
    the first window" step usually surfaces this). The `events` table is the audit
    spine — use it plus structured logs (request id / correlation id from
    `apps/api/src/common/middleware/request-id.middleware.ts`) to scope blast radius.
@@ -37,7 +37,7 @@ safer than touching the **database**.
 4. **10–15 min — Confirm no PII leaked.** If the incident touched the AI boundary,
    events, `ai_jobs`, `audit_logs`, or logs, verify no raw PII escaped the `workers`
    table (CLAUDE.md §2). A privacy incident is escalated immediately, not after.
-5. **After stable — RCA.** Run [`bb-root-cause-analysis`](../.claude/skills/bb-root-cause-analysis/SKILL.md):
+5. **After stable — RCA.** Run `bb-root-cause-analysis`:
    reconstruct the timeline from events/logs/deploys, reach the systemic cause, and
    record the prevention in [`docs/registers/`](registers/) (risks / tech-debt /
    decisions).
@@ -61,7 +61,7 @@ still reads the new schema.
   force-push history), open a PR, let CI go green, merge, redeploy. One logical
   change per revert PR — same mechanics as [development-workflow.md](engineering-org/development-workflow.md#branch--pr-mechanics).
 - **Ordering vs. the DB:** code that depends on a migration must be deployed _after_
-  it (the [`bb-deployment`](../.claude/skills/bb-deployment/SKILL.md) rule). On
+  it (the `bb-deployment` rule). On
   rollback this is automatically safe **because migrations are additive** — the old
   code does not need the new column and simply ignores it. Do **not** also revert the
   migration (see §2).
@@ -121,7 +121,7 @@ new column. You almost never drop anything.
    or table you just added will delete data written _after_ the migration shipped and
    breaks any code (old or new) still reading it. There is no automatic Drizzle
    "down" here, and hand-writing a `DROP` is exactly the failure mode the
-   [`bb-database-design`](../.claude/skills/bb-database-design/SKILL.md) skill calls
+   `bb-database-design` skill calls
    out ("destructive/irreversible change with no plan").
 3. **Risky changes use expand → migrate → contract.** If a change cannot be made
    purely additively, it ships as three separate migrations across releases:
@@ -148,7 +148,7 @@ is destructive and **must be escalated to a human before it runs** (CLAUDE.md §
 Never apply a migration — forward-fix or down — to a shared/remote DB (Supabase)
 without sign-off. If a forward-fix is not possible and data must change, write the
 data plan first (what changes, how it's reversible, who approved it) per the
-[`bb-database-design`](../.claude/skills/bb-database-design/SKILL.md) "reversible, or
+`bb-database-design` "reversible, or
 a written data plan" standard.
 
 ---
@@ -221,9 +221,9 @@ event** (revert the emitting code, §1). You do **not**:
 
 ## Related
 
-- [`bb-deployment`](../.claude/skills/bb-deployment/SKILL.md) — ship with a rollback ready (this guide is that rollback).
-- [`bb-root-cause-analysis`](../.claude/skills/bb-root-cause-analysis/SKILL.md) — run after the system is stable.
-- [`bb-database-design`](../.claude/skills/bb-database-design/SKILL.md) — backward-compatible migrations + data plans.
+- `bb-deployment` — ship with a rollback ready (this guide is that rollback).
+- `bb-root-cause-analysis` — run after the system is stable.
+- `bb-database-design` — backward-compatible migrations + data plans.
 - [infra/supabase/migration-plan.md](../infra/supabase/migration-plan.md) — migration source of truth + forward-only rule.
 - [infra/supabase/rls-plan.md](../infra/supabase/rls-plan.md) — RLS not finalized; service role today.
 - [engineering-org/quality-gates.md](engineering-org/quality-gates.md) · [engineering-org/development-workflow.md](engineering-org/development-workflow.md) — the gates a rollback PR still clears.

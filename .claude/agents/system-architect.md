@@ -29,7 +29,7 @@ budgets · security architecture · the engineering organization itself.
 - `docs/decisions/`, `docs/architecture/`, `docs/engineering-org/`, `docs/registers/`,
   `docs/bible/`, `docs/specs/`, `docs/product/`, `docs/sprint-plans/`, `docs/tracker/`,
   `docs/security/`, `docs/legal-later/`, `docs/reports/`.
-- `CLAUDE.md`, `README.md`, `SECURITY.md`, `.claude/agents/**`, `.claude/*.md`, `.claude/skills/**`.
+- `CLAUDE.md`, `README.md`, `SECURITY.md`, `.claude/agents/**`, `.claude/*.md`.
 
 Full map: [ownership-map.md](../../docs/engineering-org/ownership-map.md).
 

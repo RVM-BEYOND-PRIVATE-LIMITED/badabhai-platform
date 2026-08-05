@@ -20,7 +20,7 @@ team needs to keep that foundation intact as the product grows.
 | **Organization** | [organization.md](./organization.md) | **The org of record.** Seven permanent engineers, each owning exactly one domain end-to-end, plus the non-owning gate bench. Start here. |
 | **Ownership** | [ownership-map.md](./ownership-map.md) | Every repository path → exactly one primary owner. |
 | **Agents** | [`.claude/agents/`](../../.claude/agents/) | The agent definitions: 7 domain owners + the gate/advisory bench, each with decision boundaries and escalation rules. |
-| **Skills** | `.claude/skills/` | Reusable, checklist-driven procedures (review, design, debug, deploy, …), mostly namespaced `bb-*`. ⚠️ **Currently absent from the working tree** (all 24 files deleted; present in git history). Docs reference them by name only until they are restored. |
+| ~~**Skills**~~ | ~~`.claude/skills/`~~ | **Retired 2026-08-05** (owner decision). The 24 `bb-*` procedure files were removed; each agent's **Review checklist** now carries its procedure, and the operational runbooks under [docs/](../) carry the rest. Recoverable from git history if ever needed. |
 | **Workflow** | [development-workflow.md](./development-workflow.md) | The path every change travels: idea → requirements → architecture → DB → API → build → test → security → performance → deploy → monitor. |
 | **Quality gates** | [quality-gates.md](./quality-gates.md) | The non-negotiable checks before merge, calibrated for a small team (automation-first, one human reviewer). |
 | **Registers** | [`docs/registers/`](../registers/) | Living memory: decisions, architecture, risks, tech debt, future work, open questions, team decisions. |
