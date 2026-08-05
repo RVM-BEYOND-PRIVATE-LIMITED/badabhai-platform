@@ -214,6 +214,36 @@ export class ChatService {
       buffer = ChatTranscriptBuffer.create(workerId, DEFAULT_ROLE_FAMILY, now);
     }
 
+    // 1b. RETRY A COMPLETED-BUT-UNFLUSHED INTERVIEW. `completedAt` is set only just
+    //     before the flush, so finding it still set on a fresh POST means the previous
+    //     flush transaction rolled back and the buffer survived. Re-drive it HERE,
+    //     before the AI call: the interview is already over, so spending another real
+    //     LLM turn on it would be pure waste, and the worker's message needs no reply
+    //     beyond the closing one. Without this the buffer is only ever re-flushed if a
+    //     LATER turn happens to complete again — which, for an interview the client
+    //     believes is finished, is never.
+    if (buffer.completedAt) {
+      const reflushed = await this.finalizeInterview(workerId, dto.session_id, buffer, ctx);
+      this.logger.warn(
+        `session ${dto.session_id} had a completed-but-unflushed buffer; ` +
+          `re-flush ${reflushed ? "succeeded" : "FAILED again"}`,
+      );
+      return this.checkedResponse(
+        {
+          session_id: dto.session_id,
+          reply: CHAT_ALREADY_COMPLETE_REPLY,
+          blocked: false,
+          is_mock: true,
+          suggested_followups: [],
+          asked_question_id: null,
+          extraction_ready: reflushed,
+          unanswered_essentials: [],
+          session_ended: reflushed,
+        },
+        dto.session_id,
+      );
+    }
+
     // 2. The turn budget. API-AUTHORITATIVE: the model is still called on the final
     //    turn (one code path), but it is told to close rather than ask, and completion
     //    is forced whatever comes back. A model must never extend its own interview.
@@ -293,7 +323,13 @@ export class ChatService {
     buffer.messages.push({ role: "assistant", text: aiResult.reply_text, at: stamp });
 
     const st = aiResult.updated_state;
-    buffer.turnCount = st?.turn_count ?? turnIndex;
+    // NEVER below the API's own arithmetic. `turn_count` is echoed by the ai-service and
+    // is only schema-checked as a non-negative int, so a version-skewed or buggy service
+    // returning a stalled value (0, or the same number every turn) would freeze the
+    // counter — `forceComplete` could then never fire and the interview would run
+    // unbounded, one real LLM call per turn, with no completion and no flush. The cap is
+    // documented as API-authoritative; `Math.max` is what makes that true.
+    buffer.turnCount = Math.max(turnIndex, st?.turn_count ?? 0);
     buffer.captured = st?.captured ?? buffer.captured;
     buffer.roleFamily = st?.role_family || buffer.roleFamily || DEFAULT_ROLE_FAMILY;
 
@@ -325,7 +361,12 @@ export class ChatService {
         `complete=${complete}`,
     );
 
-    if (complete) await this.finalizeInterview(workerId, dto.session_id, buffer, ctx);
+    // TERMINAL ONLY IF IT ACTUALLY LANDED. `complete` says the interview should end;
+    // `flushed` says the transcript is durable. They differ exactly when the flush
+    // transaction rolled back, and conflating them loses the whole interview — see
+    // finalizeInterview's catch.
+    const flushed = complete ? await this.finalizeInterview(workerId, dto.session_id, buffer, ctx) : false;
+    const terminal = complete && flushed;
 
     // 8. Personalize ONLY the client-returned reply — post-buffer, post-flush, post-emit
     //    — by interpolating the worker's real first name over the `{{worker_name}}`
@@ -345,13 +386,14 @@ export class ChatService {
       suggested_followups: aiResult.suggested_followups,
       // Now the Resume Field Set id this turn asked about, not a question-bank id.
       asked_question_id: aiResult.asked_question_id,
-      extraction_ready: complete,
+      extraction_ready: terminal,
       // Required RFS fields still missing. Empty = complete. Field ids only, never PII.
       unanswered_essentials: unansweredEssentials,
       // The session just became terminal. Telling the client is what lets it drop its
       // cached session id and open a fresh one next time — without this it posts into a
-      // dead session for the rest of the process.
-      session_ended: complete,
+      // dead session for the rest of the process. Withheld when the flush failed, so the
+      // client keeps the session and its next POST re-drives the flush.
+      session_ended: terminal,
     };
     return this.checkedResponse(response, dto.session_id);
   }
@@ -379,7 +421,7 @@ export class ChatService {
     sessionId: string,
     buffer: TranscriptBuffer,
     ctx: RequestContext,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const at = new Date();
     // The state snapshot that lands in `chat_sessions.conversation_state`. Built
     // field-by-field from the buffer rather than spread, so nothing Redis-shaped
@@ -465,18 +507,27 @@ export class ChatService {
       // answered and the reply is already built, so 500-ing here would tell them their
       // completed interview failed when the only thing that failed is a write we can
       // retry. Loud in the log, invisible to them.
+      //
+      // Returning FALSE is what makes that retry reachable. The caller uses it to keep
+      // `session_ended` false, so the client does NOT drop its session id — and
+      // `postMessage` re-attempts the flush from the intact buffer on the next POST
+      // (see the completed-but-unflushed short-circuit at step 1b). Reporting success
+      // here instead would end the session client-side, strand `chat_sessions` at
+      // `status='active'` forever, and let the whole interview expire with the buffer:
+      // zero messages, zero events, no profile.
       this.logger.error(
         `transcript flush FAILED session=${sessionId}; the buffer is intact and the ` +
           `flush will be retried: ${err instanceof Error ? err.message : String(err)}`,
       );
-      return;
+      return false;
     }
 
     if (!won) {
       // Another request finalized this session. The transcript is durable, so the key
-      // is ours to clear.
+      // is ours to clear — and durable is durable no matter who wrote it, so this counts
+      // as flushed for the caller.
       await this.buffer.drop(sessionId);
-      return;
+      return true;
     }
 
     this.logger.log(
@@ -485,6 +536,7 @@ export class ChatService {
     );
     await this.buffer.drop(sessionId);
     await this.autoTriggerExtraction(workerId, sessionId, ctx);
+    return true;
   }
 
   /**

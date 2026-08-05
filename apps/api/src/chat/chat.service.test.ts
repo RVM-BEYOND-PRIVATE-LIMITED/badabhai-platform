@@ -491,6 +491,30 @@ describe("ChatService — flush at end", () => {
     ],
   };
 
+  it("the turn counter NEVER goes below the API's own arithmetic", async () => {
+    // The cap is documented API-AUTHORITATIVE, but the counter it is computed from was
+    // adopted verbatim from the ai-service response. `turn_count` is only schema-checked
+    // as a non-negative int, so a version-skewed or buggy service returning a STALLED
+    // value freezes the counter: `forceComplete` can then never fire and the interview
+    // runs unbounded — one real LLM call per turn, no completion, no flush, no profile,
+    // and no error to notice.
+    const { stored } = await run({
+      buffer: readyBuffer, // turnCount 3 → this turn is 4
+      updatedState: { ...READY_STATE, turn_count: 0, completion_reason: null },
+    });
+    expect(stored.current!.turnCount).toBe(4);
+  });
+
+  it("still honours a LARGER counter from the ai-service", async () => {
+    // Math.max, not "ignore the far side": if the service legitimately advanced further
+    // (its own clamp, a resumed session), that is the number to keep.
+    const { stored } = await run({
+      buffer: readyBuffer,
+      updatedState: { ...READY_STATE, turn_count: 9, completion_reason: null },
+    });
+    expect(stored.current!.turnCount).toBe(9);
+  });
+
   it("writes the WHOLE transcript in one transaction, then drops the buffer", async () => {
     const { chat, buffer } = await run({ buffer: readyBuffer, extractionReady: true });
 
@@ -593,13 +617,58 @@ describe("ChatService — flush at end", () => {
       });
       // The reply was already built; failing the request would tell the worker their
       // completed interview failed when the only thing that failed is a retryable write.
-      expect(res.extraction_ready).toBe(true);
+      // So: no 500 — but the session is NOT reported terminal, because it is not.
+      //
+      // `session_ended: true` is what makes the Flutter client drop its cached session
+      // id. Sending it after a rolled-back flush stranded the interview permanently: no
+      // messages, no events, no profile, a `chat_sessions` row stuck at 'active', and a
+      // client that would never post to that session again. The retry the comment
+      // promises is only reachable if the client keeps the session.
+      expect(res.extraction_ready).toBe(false);
+      expect(res.session_ended).toBe(false);
       // The buffer survives, `completedAt` set, so the flush can be retried.
       expect(buffer.drop).not.toHaveBeenCalled();
       expect(stored.current!.completedAt).toBeTruthy();
       expect(errSpy).toHaveBeenCalled();
     } finally {
       errSpy.mockRestore();
+    }
+  });
+
+  it("RETRIES a completed-but-unflushed buffer on the next POST, with NO new AI call", async () => {
+    // `completedAt` is set only just before the flush, so finding it still set on a
+    // fresh POST means the previous flush rolled back and the buffer survived. The
+    // interview is already over — spending another real LLM turn on it is pure waste,
+    // and without this short-circuit the buffer is only ever re-flushed if a LATER turn
+    // happens to complete again, which for a finished interview is never.
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { res, ai, chat, buffer } = await run({
+        buffer: { ...readyBuffer, completedAt: "2026-07-22T00:00:02.000Z" },
+      });
+      expect(ai.profilingRespond).not.toHaveBeenCalled();
+      expect(chat.insertMessages).toHaveBeenCalledTimes(1);
+      expect(buffer.drop).toHaveBeenCalledTimes(1);
+      expect(res.session_ended).toBe(true);
+      expect(res.extraction_ready).toBe(true);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("a re-flush that fails AGAIN still does not end the session", async () => {
+    const errSpy = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { res, buffer } = await run({
+        buffer: { ...readyBuffer, completedAt: "2026-07-22T00:00:02.000Z" },
+        flushThrows: true,
+      });
+      expect(res.session_ended).toBe(false);
+      expect(buffer.drop).not.toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
     }
   });
 
