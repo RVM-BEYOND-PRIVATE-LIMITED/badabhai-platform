@@ -117,6 +117,26 @@ class ConversationState(BaseModel):
     # outcome. Topic ids only — no PII. The API-side consumer is a follow-up task.
     unanswered_essentials: list[str] = Field(default_factory=list)
 
+    # --- Generalized profiling (the LLM-driven interview) -------------------
+    # ADDITIVE + defaulted => backward compatible, and mirrored in
+    # @badabhai/ai-contracts ConversationStateSchema.
+    #
+    # `captured` is the Resume Field Set as filled so far: {field_id: short value}.
+    # It REPLACES `collected` as the thing that matters, and it is what makes "never
+    # ask what has already been answered" work without a deterministic engine — the
+    # endpoint feeds it back to the model every turn. Keys are the closed RFS
+    # vocabulary (PROFILING_REQUIRED_FIELDS + PROFILING_OPTIONAL_FIELDS); anything
+    # else the model invents is dropped before it ever lands here.
+    #
+    # PRIVACY: profile signals only, exactly like `collected` beside it. There is no
+    # RFS field for name, phone, address, employer or any ID, the persona forbids
+    # asking for them, and pseudonymize blocks them upstream — so this dict has
+    # nowhere to put identity PII even if a worker volunteered some.
+    captured: dict[str, str] = Field(default_factory=dict)
+    # WHY the interview ended, for observability. Never model-supplied — the endpoint
+    # assigns it, because the model does not get to decide that it is finished.
+    completion_reason: str | None = None
+
 
 # --- Profiling turn --------------------------------------------------------
 class ProfilingTurnInput(BaseModel):
@@ -129,6 +149,12 @@ class ProfilingTurnInput(BaseModel):
     role_family: str = "cnc_vmc"
     conversation_state: ConversationState | None = None
     real_call_allowed: bool = True
+    # The API's turn cap fired. The model is still called (ONE code path), but it is
+    # told to close rather than ask, and completion is forced on the way out whatever
+    # comes back. The cap is API-authoritative on purpose: a model must never be able
+    # to extend its own interview, and the ai-service holds no per-session state to
+    # count turns with.
+    force_complete: bool = False
 
 
 class ProfilingOpeningInput(BaseModel):
@@ -508,6 +534,45 @@ class ProfileExtractionInput(BaseModel):
     role_family: str = "cnc_vmc"  # Phase-1 addition (optional → backward compatible)
 
 
+#: The closed match-status vocabulary. A `Literal`, not a bare `str`, and that matters:
+#: every OTHER closed set in this file is a Literal, the Zod mirror is a `z.enum`, and
+#: the same five strings are a CHECK constraint on `worker_profiles`. Left open, an
+#: out-of-set code would sail through Pydantic and Zod and only fail at the INSERT — at
+#: the end of a long async pipeline, one worker at a time, discarding that extraction.
+JobDomainMatchStatus = Literal[
+    "matched_auto",
+    "matched_llm",
+    "unmatched_below_floor",
+    "unmatched_llm_declined",
+    "unmatched_degraded",
+]
+
+
+class JobDomainMatch(BaseModel):
+    """The RAG job-domain classification (generalized profiling).
+
+    ADDITIVE + fully defaulted, so a caller that predates it is unaffected and the whole
+    feature stays inert behind ``DOMAIN_MATCH_ENABLED``. Mirrored in
+    ``@badabhai/ai-contracts`` ``JobDomainMatchSchema``.
+
+    ``status`` is the SAME closed vocabulary as the ``job_domain_match_status`` CHECK on
+    ``worker_profiles``, so an unmatched profile records WHY — below the floor, the model
+    declined, or the pass degraded — instead of looking identical to one never attempted.
+
+    ``score`` is the RETRIEVAL cosine similarity, never the model's self-reported
+    confidence: one is measured, the other asserted, and only the measured one belongs in
+    a column that later analysis will threshold on.
+
+    PII-FREE: a catalog id, a closed-set status, a float, and the shortlist of ids that
+    were considered. No worker text, ever.
+    """
+
+    status: JobDomainMatchStatus = "unmatched_degraded"
+    job_domain_id: str | None = None
+    score: float | None = None
+    considered: list[str] = Field(default_factory=list)
+
+
 class ProfileExtractionOutput(BaseModel):
     profile: DraftProfile
     blocked: bool = False
@@ -517,6 +582,11 @@ class ProfileExtractionOutput(BaseModel):
     extraction_status: Literal["completed", "blocked"] = "completed"
     worker_profile_draft: WorkerProfileDraft | None = None
     ai_metadata: AICallMetadata | None = None
+    # Generalized profiling: the RAG domain match. `None` = the pass did not run at all
+    # (flag off, or a blocked extraction), which is DISTINCT from a match that ran and
+    # came back unmatched — the caller writes nothing in the first case and records the
+    # reason in the second.
+    job_domain_match: JobDomainMatch | None = None
 
 
 # --- Resume generation -----------------------------------------------------

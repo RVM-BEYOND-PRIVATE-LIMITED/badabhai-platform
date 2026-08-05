@@ -28,62 +28,110 @@ class TaskRoute:
     max_retries: int
 
 
-# Routing rules per the Phase-1 spec.
-_ROUTES: dict[str, TaskRoute] = {
-    # High-volume chat: cheap model, short + efficient. The persona MUST return
-    # strict JSON ({"message", "ready_to_extract"}), so json_mode is ON — without
-    # it the model writes a chatty prose preamble BEFORE the JSON and
-    # intermittently exhausts the token budget (MAX_TOKENS -> empty/truncated
-    # candidate -> the whole turn fails over to the fallback). json_mode forces a
-    # pure JSON object (the reply lives INSIDE "message"). The mentor persona caps
-    # a turn at a 2-word ack + one <=20-word question, so 48 output tokens is
-    # ~80% cheaper per turn than the old 512 (COST-1); low temperature 0.3 keeps
-    # the terse voice on-rails; one retry smooths a transient blip before the
-    # router escalates to the next provider. NOTE: 48 is sized for the SHIPPED
-    # mock path (no real call → cap unused). Before enabling real
-    # profiling_chat_turn, validate the headroom against a live Gemini tokenizer:
-    # the JSON envelope (~12-15 tok) + a worst-case 20-word Hinglish line (subword
-    # splits ~2 tok/word) can approach the cap → MAX_TOKENS → graceful mock
-    # fallback (never a leak). Raise the cap then if it bites.
-    "profiling_chat_turn": TaskRoute(
-        "profiling_chat_turn",
-        "cheap",
-        max_output_tokens=48,
-        temperature=0.3,
-        json_mode=True,
-        max_retries=1,
-    ),
-    # Extraction: capable model, strict JSON, retries allowed.
-    "profile_extraction": TaskRoute(
-        "profile_extraction",
-        "capable",
-        max_output_tokens=1024,
-        temperature=0.0,
-        json_mode=True,
-        max_retries=2,
-    ),
-    # Resume: cheap by default, can run in mock mode.
-    "resume_generation": TaskRoute(
-        "resume_generation",
-        "cheap",
-        max_output_tokens=512,
-        temperature=0.4,
-        json_mode=False,
-        max_retries=1,
-    ),
+# Routing rules. The SHAPE of a route is code (which tasks exist, whether each
+# needs strict JSON); the NUMBERS are config, because they are the levers that
+# decide answer quality and per-turn cost and they should not need a deploy.
+#
+# json_mode is deliberately NOT configurable. It is a correctness requirement, not
+# a tuning knob: the chat turn and the extraction both parse the response as a JSON
+# object, and without json_mode the model writes a prose preamble BEFORE the JSON,
+# intermittently exhausting the token budget (MAX_TOKENS -> truncated candidate ->
+# the whole turn fails over). An operator who could switch it off would be able to
+# break parsing from the environment.
+#
+# tier is configurable for the chat turn only, and it defaults to CAPABLE now. The
+# cheap tier was right when the model merely REPHRASED a question the deterministic
+# engine had already chosen; it now conducts the interview, tracks the Resume Field
+# Set, and emits strict JSON in Hinglish.
+_ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
+    # (default tier, json_mode)
+    "profiling_chat_turn": ("capable", True),
+    "profile_extraction": ("capable", True),
+    "resume_generation": ("cheap", False),
+    # The RAG job-domain pick. CHEAP on purpose, and it is not a cost compromise: the
+    # retrieval has already narrowed thousands of occupations to ten labelled lines, so
+    # the model's whole job is to choose one of ten — a task a cheap model does as well
+    # as a capable one. `json_mode` because the answer is `{job_domain_id, confidence}`
+    # and a prose answer would have to be regex-scraped for an id, which is precisely
+    # how a hallucinated id gets past a parser.
+    "domain_match": ("cheap", True),
 }
 
 
-def get_route(task_type: str) -> TaskRoute:
-    route = _ROUTES.get(task_type)
-    if route is None:
+def _chat_tier(settings: Settings) -> ModelTier:
+    """Chat tier from config, falling back to the shape default on a bad value.
+
+    Fails SOFT rather than raising: an unrecognised AI_CHAT_MODEL_TIER should not
+    take the service down at request time, and "capable" is the safe direction to
+    fall back in (a better model, not a worse one).
+    """
+    tier = settings.ai_chat_model_tier.strip().lower()
+    return tier if tier in ("cheap", "capable") else _ROUTE_SHAPES["profiling_chat_turn"][0]  # type: ignore[return-value]
+
+
+def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
+    """Resolve a task's route, reading the tunable numbers from settings.
+
+    ``settings`` is optional so existing callers and tests that only need the
+    static shape (``get_route("profile_extraction").json_mode``) keep working; when
+    omitted the committed defaults are used.
+    """
+    shape = _ROUTE_SHAPES.get(task_type)
+    if shape is None:
         raise ValueError(f"Unknown AI task type: {task_type!r}")
-    return route
+
+    if settings is None:
+        from ..config import get_settings
+
+        settings = get_settings()
+
+    default_tier, json_mode = shape
+    if task_type == "profiling_chat_turn":
+        return TaskRoute(
+            task_type,
+            _chat_tier(settings),
+            max_output_tokens=settings.ai_chat_max_output_tokens,
+            temperature=settings.ai_chat_temperature,
+            json_mode=json_mode,
+            max_retries=settings.ai_chat_max_retries,
+        )
+    if task_type == "profile_extraction":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            temperature=settings.ai_extraction_temperature,
+            json_mode=json_mode,
+            max_retries=settings.ai_extraction_max_retries,
+        )
+    if task_type == "domain_match":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # 64 tokens is the whole answer: `{"job_domain_id": "...", "confidence": 0.9}`.
+            # Tight on purpose — this route has nothing to say beyond the choice, and a
+            # budget that permits an explanation invites one.
+            max_output_tokens=64,
+            # TEMPERATURE ZERO. A classification against a fixed list must give the same
+            # answer for the same worker every time; sampling here would mean a re-run
+            # could re-file a worker into a different occupation with no input change.
+            temperature=0.0,
+            json_mode=json_mode,
+            max_retries=settings.ai_extraction_max_retries,
+        )
+    return TaskRoute(
+        task_type,
+        default_tier,
+        max_output_tokens=settings.ai_resume_max_output_tokens,
+        temperature=settings.ai_resume_temperature,
+        json_mode=json_mode,
+        max_retries=settings.ai_resume_max_retries,
+    )
 
 
 def resolve_model(task_type: str, settings: Settings) -> str:
     """Resolve the concrete model id for a task from current settings."""
-    route = get_route(task_type)
+    route = get_route(task_type, settings)
     if route.tier == "capable":
         return settings.default_capable_model
     return settings.default_cheap_model

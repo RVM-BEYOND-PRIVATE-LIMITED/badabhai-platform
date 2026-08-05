@@ -5,6 +5,8 @@ import { SkillsService } from "./skills.service";
 import {
   NearestAliasesDtoSchema,
   type NearestAliasesDto,
+  NearestDomainsDtoSchema,
+  type NearestDomainsDto,
   RecordUnresolvedDtoSchema,
   type RecordUnresolvedDto,
 } from "./skills.dto";
@@ -32,6 +34,23 @@ export class SkillsController {
     @Body(new ZodValidationPipe(NearestAliasesDtoSchema)) dto: NearestAliasesDto,
   ) {
     const candidates = await this.skills.nearestAliases(dto.domain_id, dto.vector, dto.k);
+    return { candidates };
+  }
+
+  /**
+   * Job-domain shortlist for the generalized-profiling RAG pass. Read-only — no event.
+   *
+   * Rides the SAME scoped credential as the alias lookup rather than minting a second
+   * one: both are the same principal (the ai-service), the same class of read (a vector
+   * search over a public reference catalog), and the catalog carries no worker data at
+   * all — so a separate token would add ceremony without narrowing anything.
+   */
+  @Post("nearest-domains")
+  @HttpCode(200)
+  async nearestDomains(
+    @Body(new ZodValidationPipe(NearestDomainsDtoSchema)) dto: NearestDomainsDto,
+  ) {
+    const candidates = await this.skills.nearestDomains(dto.vector, dto.k);
     return { candidates };
   }
 

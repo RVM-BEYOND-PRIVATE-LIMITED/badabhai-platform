@@ -78,6 +78,30 @@ class SessionRepository {
     _session = _session.copyWith(sessionId: sessionId);
   }
 
+  /// Forgets the CHAT session id only — the worker stays logged in.
+  ///
+  /// Called when the server reports the profiling session has ended (`session_ended`).
+  /// The backend now flushes the whole interview in one transaction at completion and
+  /// marks the session terminal; posting into it again only ever returns a closing line.
+  /// Dropping the cached id is what lets the next entry into chat open a FRESH session,
+  /// which is what the "start a new chat" button on the Resume/Profile tabs and the
+  /// "Chat pe wapas jaayein" recovery on a thin profile both depend on.
+  ///
+  /// Rebuilt explicitly rather than via [Session.copyWith] for the same reason
+  /// [setDeletionScheduledFor] is: `copyWith` swallows a null behind `??`, so it cannot
+  /// CLEAR a field. Everything else — token, worker id, profile/resume ids, the
+  /// deletion flag — is carried over untouched.
+  void clearChatSession() {
+    _session = Session(
+      phoneE164: _session.phoneE164,
+      workerId: _session.workerId,
+      sessionToken: _session.sessionToken,
+      profileId: _session.profileId,
+      resumeId: _session.resumeId,
+      deletionScheduledFor: _session.deletionScheduledFor,
+    );
+  }
+
   void setProfile(String profileId) {
     _session = _session.copyWith(profileId: profileId);
   }

@@ -29,6 +29,11 @@ from .model_config import GEMINI_CACHE_MIN_TOKENS, should_cache_system
 
 logger = get_logger("ai.gemini")
 
+# FALLBACK DEFAULTS ONLY. The live values come from ``Settings`` (GEMINI_API_BASE,
+# GEMINI_TIMEOUT_SECONDS, GEMINI_MAX_RATE_LIMIT_RETRIES, GEMINI_MAX_BACKOFF_SECONDS,
+# GEMINI_BACKOFF_BASE) and are threaded through ``acomplete``. These constants stay
+# so the module's helpers remain callable without a Settings instance; they must
+# keep mirroring the committed defaults in config.py.
 _GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 _TIMEOUT_SECONDS = 30.0
 # On HTTP 429 (rate limit) we wait and retry IN-CALL so a per-minute (RPM) cap
@@ -36,21 +41,32 @@ _TIMEOUT_SECONDS = 30.0
 # (``_is_daily_quota_429``) and fail FAST so the router escalates to the next
 # provider (Claude Haiku) immediately instead of burning the backoff budget.
 # Bounded so even an undetected hard cap can't hang the request for long.
+#
+# Worst case is retries * backoff = 4 * 20s = 80s stalled INSIDE one request, which
+# is why these are env-tunable: a free tier wants 0-1 retries, a paid one wants 4,
+# and neither should need a deploy.
 _MAX_RATE_LIMIT_RETRIES = 4
 _MAX_BACKOFF_SECONDS = 20.0
+_BACKOFF_BASE = 2.0
 
 
-def _retry_after_seconds(resp: httpx.Response, attempt: int) -> float:
+def _retry_after_seconds(
+    resp: httpx.Response,
+    attempt: int,
+    *,
+    max_backoff: float = _MAX_BACKOFF_SECONDS,
+    backoff_base: float = _BACKOFF_BASE,
+) -> float:
     """Seconds to wait before retrying a 429: the server's RetryInfo if present,
-    else capped exponential backoff. Never longer than ``_MAX_BACKOFF_SECONDS``."""
+    else capped exponential backoff. Never longer than ``max_backoff``."""
     try:
         for detail in resp.json().get("error", {}).get("details", []):
             delay = detail.get("retryDelay")  # e.g. "21s"
             if isinstance(delay, str) and delay.endswith("s"):
-                return min(float(delay[:-1] or 0), _MAX_BACKOFF_SECONDS)
+                return min(float(delay[:-1] or 0), max_backoff)
     except (ValueError, KeyError, TypeError):
         pass
-    return min(2.0**attempt, _MAX_BACKOFF_SECONDS)
+    return min(backoff_base**attempt, max_backoff)
 
 
 def _is_daily_quota_429(resp: httpx.Response) -> bool:
@@ -88,6 +104,7 @@ def _to_gemini_request(
     max_output_tokens: int,
     temperature: float,
     json_mode: bool,
+    thinking_budget: int = 0,
 ) -> dict:
     """Map OpenAI-style messages to a Gemini ``generateContent`` request body.
 
@@ -117,7 +134,9 @@ def _to_gemini_request(
         # JSON extraction, warm question rephrase, resume prose — need no chain of
         # thought, so disable thinking entirely: every output token goes to the
         # answer, cost is predictable, and the per-call ceiling stays meaningful.
-        "thinkingConfig": {"thinkingBudget": 0},
+        # Env-tunable (GEMINI_THINKING_BUDGET) because that trade-off is a cost
+        # decision, and a future capable-tier task may be worth spending it on.
+        "thinkingConfig": {"thinkingBudget": thinking_budget},
     }
     if json_mode:
         generation_config["responseMimeType"] = "application/json"
@@ -200,28 +219,37 @@ async def acomplete(
         raise LlmTransportError(REASON_MISSING_KEY)
 
     model_id = _bare_model_id(model)
-    url = f"{_GEMINI_API_BASE}/{model_id}:generateContent"
+    url = f"{settings.gemini_api_base.rstrip('/')}/{model_id}:generateContent"
     body = _to_gemini_request(
         messages,
         max_output_tokens=max_output_tokens,
         temperature=temperature,
         json_mode=json_mode,
+        thinking_budget=settings.gemini_thinking_budget,
     )
 
     # Pass the key as a HEADER, not a ?key= query param: httpx/uvicorn log request
     # URLs at INFO, so a query-param key would leak into logs. The header form is
     # the documented Google AI Studio auth and keeps the secret out of any URL.
     headers = {"x-goog-api-key": api_key}
-    async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
-        for attempt in range(_MAX_RATE_LIMIT_RETRIES + 1):
+    max_retries = settings.gemini_max_rate_limit_retries
+    async with httpx.AsyncClient(timeout=settings.gemini_timeout_seconds) as client:
+        for attempt in range(max_retries + 1):
             resp = await client.post(url, headers=headers, json=body)
-            if resp.status_code != 429 or attempt == _MAX_RATE_LIMIT_RETRIES:
+            if resp.status_code != 429 or attempt == max_retries:
                 break
             # A per-day cap won't clear within this request — don't wait it out;
             # break so the call raises and the router escalates to the fallback.
             if _is_daily_quota_429(resp):
                 break
-            await asyncio.sleep(_retry_after_seconds(resp, attempt))
+            await asyncio.sleep(
+                _retry_after_seconds(
+                    resp,
+                    attempt,
+                    max_backoff=settings.gemini_max_backoff_seconds,
+                    backoff_base=settings.gemini_backoff_base,
+                )
+            )
 
     if resp.status_code < 200 or resp.status_code >= 300:
         # Do NOT include the body (may echo pseudonymized content) — a PII-free

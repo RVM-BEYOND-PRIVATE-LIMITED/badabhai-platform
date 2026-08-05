@@ -123,9 +123,17 @@ def test_resume_system_prompt_baseline_unchanged():
 
     Updated: added ID-avoidance instruction so the LLM never echoes raw taxonomy
     IDs (e.g. skill_milling) into the generated resume text — the profile is
-    already sanitized to labels before it reaches the LLM."""
+    already sanitized to labels before it reaches the LLM.
+
+    Updated again (generalized profiling): dropped the hardcoded "CNC/VMC" from
+    "a structured CNC/VMC profile". That was already wrong for the plumber,
+    carpenter, designer and interior-designer roles that had shipped, and it is
+    actively misleading now that the interview covers any trade a worker names —
+    telling the model it is summarising a CNC profile for a cook or a tailor
+    invites it to reach for machining vocabulary that is not in the profile. One
+    word removed; every other instruction is byte-identical."""
     digest = hashlib.sha256(RESUME_SYSTEM_PROMPT.encode("utf-8")).hexdigest()[:16]
-    assert digest == "b84ca1aeaad67668"
+    assert digest == "b29d82a2b26f7ea2"
     assert len(RESUME_SYSTEM_PROMPT) > 50  # non-empty, real prompt
 
 

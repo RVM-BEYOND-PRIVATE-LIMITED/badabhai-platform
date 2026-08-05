@@ -108,8 +108,10 @@ def test_issue_423_current_city_is_not_emitted_as_a_preferred_location():
     _MESSY says "faridabad me hu, pune bhi chalega" — I am IN Faridabad, Pune ALSO
     works. Before the split, _build_legacy prepended the current city to
     preferred_cities, so Faridabad was recorded as somewhere the worker had asked
-    to be placed. The engine never conflated them (question_bank: "current AND
-    preferred location, never conflated"); only the legacy projection did.
+    to be placed. The two have never been one topic — the Resume Field Set still splits
+    them (`current_city` and `preferred_locations` are separate REQUIRED fields, and the
+    persona's phrasing table asks them as two different questions); only the legacy
+    projection conflated them.
     """
     _rich, legacy = profile_extractor.extract(_MESSY, "cnc_vmc")
     loc = legacy.location_preference

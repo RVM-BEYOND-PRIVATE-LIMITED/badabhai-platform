@@ -37,6 +37,23 @@ export const PostMessageResponseSchema = z.object({
   // fails closed with updated_state null) and degrades to [], which means
   // "unknown", not "complete". Clients must gate on `blocked` before reading it.
   unanswered_essentials: z.array(z.string()).default([]),
+  /**
+   * This session is FINISHED and will accept no further messages.
+   *
+   * WHY THE CLIENT NEEDS TO BE TOLD. Flush-at-end introduced a terminal session state
+   * that did not exist before: `finalizeInterview` sets `chat_sessions.status = 'ended'`,
+   * and every later POST gets a closing line instead of a turn. The app caches its
+   * session id in memory and `ensureSession()` short-circuits on it, so without a signal
+   * it keeps posting into a dead session for the rest of the process — which silently
+   * kills two shipped affordances: the "start a fresh chat" button on the Resume and
+   * Profile tabs, and the "Chat pe wapas jaayein" the profile preview offers when a
+   * profile comes out thin. The worker is told to go say more, and cannot.
+   *
+   * ADDITIVE + defaulted false, so a client that predates it sees no change. The client
+   * contract is: on `true`, drop the cached session id — the next entry into chat opens
+   * a new session rather than posting into the ended one.
+   */
+  session_ended: z.boolean().default(false),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;
 

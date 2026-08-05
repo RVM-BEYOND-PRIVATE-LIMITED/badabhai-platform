@@ -91,6 +91,57 @@ def _force_mock_only_env() -> None:
     # Supabase storage (voice-note object downloads).
     os.environ["SUPABASE_URL"] = ""
     os.environ["SUPABASE_SERVICE_ROLE_KEY"] = ""
+    # Two PRE-EXISTING holes in this denylist, closed here. Both flags send a chat
+    # turn to a provider — AI_PROFILING_LLM_EVERY_TURN does it on EVERY turn — so a
+    # developer .env setting either one flowed into every bare ``Settings()`` and
+    # armed the rephrase branch under pytest. The master gate happens to save us
+    # today, but this list's stated principle is "pin every setting that can arm an
+    # outbound call", and P1-4 is the record of what relying on the next layer costs.
+    os.environ["AI_PROFILING_REPHRASE_ENABLED"] = "false"
+    os.environ["AI_PROFILING_LLM_EVERY_TURN"] = "false"
+    # --- Generalized profiling (the LLM-driven chat path) -------------------
+    # Same P1-4 discipline as SKILL_CANONICALIZE_ENABLED above: DOMAIN_MATCH_ENABLED
+    # arms an outbound embed + a retrieval leg, so a developer .env that turns it on
+    # would flow into every bare ``Settings()`` and make the finalization path try to
+    # reach a real provider during pytest. Pin it off.
+    os.environ["DOMAIN_MATCH_ENABLED"] = "false"
+    # The match thresholds do not arm anything, but they decide WHICH branch the RAG
+    # pass takes (the no-model auto-pick vs asking the model vs below-floor), and
+    # test_domain_match asserts on all three. A developer .env that tuned them would
+    # silently move those assertions onto a different code path.
+    os.environ["DOMAIN_MATCH_TOP_K"] = "10"
+    os.environ["DOMAIN_MATCH_FLOOR"] = "0.55"
+    os.environ["DOMAIN_MATCH_AUTO_FLOOR"] = "0.88"
+    os.environ["DOMAIN_MATCH_AUTO_MARGIN"] = "0.08"
+    # Pin the routing/cost knobs to the committed defaults so tests that read them
+    # are deterministic regardless of what a developer's .env tunes. These do not
+    # arm a call by themselves, but they change WHICH model resolves and what the
+    # worst-case cost check computes — both of which tests assert on.
+    os.environ["AI_CHAT_MODEL_TIER"] = "capable"
+    os.environ["AI_CHAT_MAX_OUTPUT_TOKENS"] = "512"
+    os.environ["AI_CHAT_TEMPERATURE"] = "0.3"
+    os.environ["AI_CHAT_MAX_RETRIES"] = "1"
+    os.environ["AI_EXTRACTION_MAX_OUTPUT_TOKENS"] = "1024"
+    os.environ["AI_EXTRACTION_TEMPERATURE"] = "0.0"
+    os.environ["AI_EXTRACTION_MAX_RETRIES"] = "2"
+    os.environ["AI_RESUME_MAX_OUTPUT_TOKENS"] = "512"
+    os.environ["AI_RESUME_TEMPERATURE"] = "0.4"
+    os.environ["AI_RESUME_MAX_RETRIES"] = "1"
+    # Interview bounds + the persona guard. A developer .env with a tiny turn cap
+    # would end interviews early under test and read as a model failure.
+    os.environ["PROFILING_MAX_TURNS"] = "30"
+    os.environ["PROFILING_HISTORY_MAX_TURNS"] = "20"
+    os.environ["PROFILING_PERSONA_GUARD_ENABLED"] = "true"
+    os.environ["PROFILING_PERSONA_REPAIR_RETRIES"] = "1"
+    # Gemini transport. GEMINI_API_BASE especially: a .env pointing at a proxy would
+    # be a non-loopback host, and layer 2 would turn that into a confusing egress
+    # failure rather than an obvious config one.
+    os.environ["GEMINI_API_BASE"] = "https://generativelanguage.googleapis.com/v1beta/models"
+    os.environ["GEMINI_TIMEOUT_SECONDS"] = "30.0"
+    os.environ["GEMINI_MAX_RATE_LIMIT_RETRIES"] = "4"
+    os.environ["GEMINI_MAX_BACKOFF_SECONDS"] = "20.0"
+    os.environ["GEMINI_BACKOFF_BASE"] = "2.0"
+    os.environ["GEMINI_THINKING_BUDGET"] = "0"
 
 
 # --- Layer 2: socket-level egress guard ------------------------------------

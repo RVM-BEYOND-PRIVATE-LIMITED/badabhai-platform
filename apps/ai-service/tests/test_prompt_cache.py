@@ -98,18 +98,30 @@ def test_gemini_logs_eligible_diagnostic_over_min_and_still_adds_no_cache_field(
 # --- Regression anchor: the REAL production prompts, not just synthetic stubs -----
 def test_real_system_prompts_are_below_cache_min_today():
     # Anchors the ACTUAL persona/extraction prompts to their current classification, so
-    # a future prompt-size change that crosses a provider floor flips this test and
-    # forces a conscious review of what gets cached (the synthetic _BIG/_SMALL stubs
-    # above prove the mechanism; this proves today's honest no-op state on real text).
-    from app.profiling.prompts import BADA_BHAI_SYSTEM_PROMPT, EXTRACTION_SYSTEM_PROMPT
+    # a prompt-size change that crosses a provider floor flips this test and forces a
+    # conscious review of what gets cached (the synthetic _BIG/_SMALL stubs above prove
+    # the mechanism; this proves the honest state on real text).
+    #
+    # THE CLASSIFICATION CHANGED, AND THIS TEST IS WHY IT WAS NOTICED. The old chat
+    # persona was ~200 tokens — below EVERY floor, so caching was a documented no-op
+    # (model_config.py:140-142 says exactly that). Generalized profiling replaced it
+    # with a static block carrying the full persona, the Resume Field Set and the JSON
+    # schema, which is ~1.6k estimated tokens and CLEARS the Gemini implicit-cache
+    # floor for the first time. That is the cost win that pays for re-sending history:
+    # the prefix bills at ~10% from the second turn onward.
+    #
+    # It still does NOT clear Anthropic's 4096 floor. That is correct and deliberate —
+    # the Claude path is the rare cross-provider fallback, and padding the prompt to 4k
+    # to chase a discount there would cost real tokens on EVERY Gemini turn.
+    from app.config import Settings
+    from app.profiling.prompts import EXTRACTION_SYSTEM_PROMPT, static_system_block
 
-    # Chat persona (cached on the Anthropic path) — below EVERY floor today → no-op.
+    chat_block = static_system_block(Settings(_env_file=None))
+
     assert not model_config.should_cache_system(
-        BADA_BHAI_SYSTEM_PROMPT, model_config.ANTHROPIC_CACHE_MIN_TOKENS
+        chat_block, model_config.ANTHROPIC_CACHE_MIN_TOKENS
     )
-    assert not model_config.should_cache_system(
-        BADA_BHAI_SYSTEM_PROMPT, model_config.GEMINI_CACHE_MIN_TOKENS
-    )
+    assert model_config.should_cache_system(chat_block, model_config.GEMINI_CACHE_MIN_TOKENS)
     # Extraction base prompt — below the Anthropic floor today (the composed prompt
     # adds the canonicalization rubric + schema hint, so it starts from at least this).
     assert not model_config.should_cache_system(
