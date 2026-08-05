@@ -14,6 +14,9 @@ import { ReferralBonusRepository } from "./referral-bonus.repository";
 import { ReferralBonusController } from "./referral-bonus.controller";
 import { ReferralBonusProcessor } from "./referral-bonus.processor";
 import { WorkerActivityInterceptor } from "./worker-activity.interceptor";
+import { ReferralLinkRepository } from "./referral-link.repository";
+import { ReferralLinkService } from "./referral-link.service";
+import { ReferralResolverController } from "./referral-resolver.controller";
 
 /**
  * Referral attribution (ADR-0020 + ADR-0022) — the worker-onboarding hook that finally
@@ -43,6 +46,13 @@ import { WorkerActivityInterceptor } from "./worker-activity.interceptor";
  *    retention signal is produced for every authenticated worker request WITHOUT modifying
  *    any controller, guard, or other module. It is declared here because retention is the
  *    downstream half of the same attribution chain.
+ *  - {@link ReferralResolverController} (`GET /r/:code`) + {@link ReferralLinkService} +
+ *    {@link ReferralLinkRepository} — the B4 RESOLVER PRIMITIVE (`referral_links` /
+ *    `referral_clicks`, migration 0060). It lives here rather than in MessagingModule
+ *    because its consumer is {@link ReferralAttributionService} (the first-touch claim), and
+ *    an edge from messaging into this module would invert the existing dependency direction
+ *    and create a cycle. It needs no new imports: DatabaseModule, EventsModule, ConfigModule
+ *    and CryptoModule are all `@Global()`, and RateLimitModule is already imported above.
  */
 @Module({
   imports: [
@@ -55,12 +65,14 @@ import { WorkerActivityInterceptor } from "./worker-activity.interceptor";
     // ProfilesService (confirm) and UnlocksService (grant).
     BullModule.registerQueue({ name: REFERRAL_BONUS_QUEUE }),
   ],
-  controllers: [ReferralAttributionController, ReferralBonusController],
+  controllers: [ReferralAttributionController, ReferralBonusController, ReferralResolverController],
   providers: [
     ReferralAttributionService,
     ReferralBonusService,
     ReferralBonusRepository,
     ReferralBonusProcessor,
+    ReferralLinkRepository,
+    ReferralLinkService,
     // GLOBAL by virtue of the APP_INTERCEPTOR token (not by being in this module).
     { provide: APP_INTERCEPTOR, useClass: WorkerActivityInterceptor },
   ],

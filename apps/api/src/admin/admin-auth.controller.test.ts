@@ -181,9 +181,43 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
     await expect(d.ctrl.logout(ADMIN, CTX)).resolves.toBeUndefined();
   });
 
-  it("me is built by the controller from the GUARD admin — id + role ONLY (no service call)", () => {
+  it("me is built by the controller from the GUARD admin (no service call)", () => {
     const res = d.ctrl.me(ADMIN);
-    expect(res).toEqual({ admin_id: ADMIN_ID, role: ROLE });
+    // LITERAL, not `capabilitiesFor(ROLE)` — comparing the endpoint to the function it calls
+    // would pass no matter what either one did. ops_admin's exact grant per ADR-0025 §3.1:
+    expect(res).toEqual({
+      admin_id: ADMIN_ID,
+      role: ROLE,
+      capabilities: [
+        "read_events",
+        // BP-1 — the faceless entity reads (ADR-0025 §3.1 row 2, all four roles).
+        "read_entities",
+        "export",
+        "suspend_payer",
+        "grant_credits",
+        "force_close_posting",
+        "flag_worker",
+      ],
+    });
+  });
+
+  it("me OMITS the three capabilities ops_admin is denied — an over-grant here misleads the UI", () => {
+    const res = d.ctrl.me(ADMIN);
+    // The portal hides controls based on this list. Shipping a capability the server will
+    // then 403 is a broken screen; shipping `reveal_pii` invites a PII control that no
+    // ops_admin may actually use.
+    expect(res.capabilities).not.toContain("toggle_kill_switch");
+    expect(res.capabilities).not.toContain("reveal_pii");
+    expect(res.capabilities).not.toContain("manage_admins");
+  });
+
+  it("me reflects the SESSION's role, not a fixed list — a support admin gets a different set", () => {
+    const res = d.ctrl.me({ ...ADMIN, role: "support" });
+    // support is the mirror image of ops_admin on the two that matter: it MAY reveal PII and
+    // may NOT export (ADR-0025 §3.1 — the PII-reveal role must not also bulk-export).
+    expect(res.capabilities).toContain("reveal_pii");
+    expect(res.capabilities).not.toContain("export");
+    expect(res.capabilities).not.toContain("suspend_payer");
   });
 });
 
@@ -240,10 +274,12 @@ describe("AdminAuthController — PII-free response bodies (invariant #2)", () =
     expect(Object.keys(res).sort()).toEqual(["access_token", "expires_in_seconds", "token_type"].sort());
   });
 
-  it("me's body is the opaque id + RBAC role ONLY — no email, no sid, no token", () => {
+  it("me's body is the opaque id + RBAC role + capabilities ONLY — no email, no sid, no token", () => {
     const res = d.ctrl.me(ADMIN);
     assertPiiFree(res);
-    expect(Object.keys(res).sort()).toEqual(["admin_id", "role"]);
+    // Capability names are a closed vocabulary of role verbs; they carry no worker or admin
+    // identity, so widening the body to include them does not widen the PII surface.
+    expect(Object.keys(res).sort()).toEqual(["admin_id", "capabilities", "role"]);
     // The session id is identity-internal; it must not leak into the public identity view.
     expect(JSON.stringify(res)).not.toContain(SID);
   });

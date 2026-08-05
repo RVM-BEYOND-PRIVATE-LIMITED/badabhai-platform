@@ -1,0 +1,32 @@
+-- ---------------------------------------------------------------------------
+-- ADR-0038 — admin bootstrap + durable TOTP storage.
+--
+-- `name_enc`       the admin's display name, which the bootstrap CLI accepts. ADMIN-class
+--                  PII, so it gets the same at-rest discipline as the email (ADR-0004):
+--                  AES-256-GCM ciphertext, never a plaintext column, and deliberately NOT
+--                  hashed — it is never a lookup key, so there is no reason to make it
+--                  searchable.
+--
+-- `mfa_secret_enc` the admin's TOTP secret, MOVED HERE FROM REDIS. `AdminMfaSecretStore`
+--                  put it in Redis and its own docstring records that as a deviation forced
+--                  by "no migration in ADMIN-1 scope", asking for exactly this column. The
+--                  move is not cosmetic: the Redis key carried NO TTL and no persistence
+--                  guarantee, so a flush or eviction permanently locked out every enrolled
+--                  admin — with no recovery path at all, because the secret is displayed
+--                  once at enrolment and never returned again.
+--
+-- NO BACKFILL IS NEEDED, and that is a fact about the world rather than an omission:
+-- `admin_users` cannot contain an enrolled admin today, because no admin can authenticate
+-- (admin OTP delivery is a no-op stub, and there is no bootstrap path). Any orphaned
+-- `admin_mfa_secret:*` Redis key belongs to an account that was never able to log in.
+-- Doing this move now costs nothing; after the portal ships it would need a re-enrolment
+-- drill across every admin.
+--
+-- EXPAND-ONLY: two nullable columns, no default, no backfill, no constraint. Applies ahead
+-- of the API build with zero behaviour change, and the previous build ignores both.
+--
+-- ROLLBACK: drop the two columns. Safe whenever no admin has enrolled a second factor; if
+-- any has, they must re-enrol afterwards (the secret is recoverable from nowhere else).
+-- ---------------------------------------------------------------------------
+ALTER TABLE "admin_users" ADD COLUMN "name_enc" text;--> statement-breakpoint
+ALTER TABLE "admin_users" ADD COLUMN "mfa_secret_enc" text;

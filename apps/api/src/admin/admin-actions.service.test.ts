@@ -3,6 +3,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { createEvent, type CreateEventInput } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
+import type { PayerSessionService } from "../payers/payer-session.service";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminActionsService } from "./admin-actions.service";
@@ -54,10 +55,14 @@ const FORBIDDEN_VALUE_FRAGMENTS = [
 ];
 
 interface Mocks {
+  /** ADR-0037 — the payer session revoker suspension calls after the tx commits. */
+  sessions: { revokeAllForPayer: ReturnType<typeof vi.fn> };
   actions: {
     findPayerStatus: ReturnType<typeof vi.fn>;
     suspendPayer: ReturnType<typeof vi.fn>;
     reinstatePayer: ReturnType<typeof vi.fn>;
+    suspendPayerInventory: ReturnType<typeof vi.fn>;
+    reinstatePayerInventory: ReturnType<typeof vi.fn>;
     grantCredits: ReturnType<typeof vi.fn>;
     findPostingStatus: ReturnType<typeof vi.fn>;
     forceClosePosting: ReturnType<typeof vi.fn>;
@@ -69,6 +74,8 @@ interface Mocks {
     create: ReturnType<typeof vi.fn>;
     updateRole: ReturnType<typeof vi.fn>;
     suspend: ReturnType<typeof vi.fn>;
+    setMfaSecret: ReturnType<typeof vi.fn>;
+    setMfaEnrolled: ReturnType<typeof vi.fn>;
     findById: ReturnType<typeof vi.fn>;
     countActiveSuperAdmins: ReturnType<typeof vi.fn>;
     withTransaction: ReturnType<typeof vi.fn>;
@@ -85,6 +92,10 @@ function make(): Mocks {
     findPayerStatus: vi.fn(),
     suspendPayer: vi.fn(),
     reinstatePayer: vi.fn(),
+    // ADR-0037 Decision 1 — the inventory cascade. Default to a NON-ZERO result so a test
+    // that forgets to stub it still exercises the emit path with real counts.
+    suspendPayerInventory: vi.fn(async () => ({ postings: 3, jobs: 1 })),
+    reinstatePayerInventory: vi.fn(async () => ({ postings: 3, jobs: 1 })),
     grantCredits: vi.fn(),
     findPostingStatus: vi.fn(),
     forceClosePosting: vi.fn(),
@@ -96,17 +107,24 @@ function make(): Mocks {
     create: vi.fn(),
     updateRole: vi.fn(),
     suspend: vi.fn(),
+    // ADR-0038 — the lost-TOTP recovery writes.
+    setMfaSecret: vi.fn(),
+    setMfaEnrolled: vi.fn(),
     findById: vi.fn(),
     countActiveSuperAdmins: vi.fn(async () => 2),
     withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
   };
   const events = { emit: vi.fn(async () => undefined) };
+  // ADR-0037 — suspension revokes every live payer session. Spied so tests can assert
+  // revocation happened (and did NOT happen on the idempotent no-op path).
+  const sessions = { revokeAllForPayer: vi.fn(async () => 2) };
   const service = new AdminActionsService(
     actions as unknown as AdminActionsRepository,
     admins as unknown as AdminRepository,
     events as unknown as EventsService,
+    sessions as unknown as PayerSessionService,
   );
-  return { actions, admins, events, service };
+  return { actions, admins, events, sessions, service };
 }
 
 /** The emit params the service passed to EventsService.emit (camelCase tracing ids). */
@@ -124,6 +142,23 @@ interface CapturedEmit {
 function soleEmit(events: Mocks["events"]): CapturedEmit {
   expect(events.emit).toHaveBeenCalledTimes(1);
   return events.emit.mock.calls[0]![0] as CapturedEmit;
+}
+
+/**
+ * Pick ONE emit by event name out of a multi-emit action, asserting there is exactly one.
+ *
+ * ADR-0037 made the payer lifecycle actions emit TWO events: the value-free
+ * `admin.action_performed` (an admin did a thing) and the `payer.*` transition (the payer
+ * moved from X to Y). They answer different questions and the audit mandate needs both,
+ * so `soleEmit` no longer fits those two actions — it is deliberately kept for every
+ * other action, where "exactly one event" is still the contract.
+ */
+function emitNamed(events: Mocks["events"], eventName: string): CapturedEmit {
+  const matches = events.emit.mock.calls
+    .map((c) => c[0] as CapturedEmit)
+    .filter((e) => (e as { event_name?: string }).event_name === eventName);
+  expect(matches).toHaveLength(1);
+  return matches[0]!;
 }
 
 /** Recursively walk every primitive leaf of a value (for the no-value/no-PII scan). */
@@ -198,19 +233,127 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("suspendPayer", () => {
-  it("active payer → suspends the SoR + emits ONE value-free payer_suspended", async () => {
+  it("active payer → suspends the SoR + emits the value-free payer_suspended action", async () => {
     m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
-    m.actions.suspendPayer.mockResolvedValue({ status: "suspended" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
 
     const res = await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
 
     // SoR mutated, target from arg; the 2nd arg is the H3 transaction handle.
     expect(m.actions.suspendPayer).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: true });
-    assertValueFreeAction(soleEmit(m.events), {
+    assertValueFreeAction(emitNamed(m.events, "admin.action_performed"), {
       actionCode: "payer_suspended",
       subjectType: "payer",
       targetId: PAYER_ID,
+    });
+  });
+
+  it("ADR-0037: also emits payer.suspended carrying BOTH ends of the transition", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
+
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    const e = emitNamed(m.events, "payer.suspended") as unknown as {
+      payload: Record<string, unknown>;
+      tx?: unknown;
+    };
+    expect(e.payload).toEqual({
+      payer_id: PAYER_ID,
+      previous_status: "active",
+      new_status: "suspended",
+    });
+    // Rides the SAME transaction as the SoR write (H3) — never a separate commit.
+    expect(e.tx).toBe(FAKE_TX);
+  });
+
+  it("ADR-0037 D1: freezes the inventory and reports the counts on the same transaction", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
+    m.actions.suspendPayerInventory.mockResolvedValue({ postings: 4, jobs: 2 });
+
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    // The cascade is called with the tx handle — "cannot recruit while suspended" and
+    // "is suspended" have to become true together or neither does.
+    expect(m.actions.suspendPayerInventory).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
+
+    const e = emitNamed(m.events, "payer.inventory_suspended") as unknown as {
+      payload: Record<string, unknown>;
+      tx?: unknown;
+    };
+    expect(e.payload).toEqual({
+      payer_id: PAYER_ID,
+      postings_affected: 4,
+      jobs_affected: 2,
+    });
+    expect(e.tx).toBe(FAKE_TX);
+  });
+
+  it("ADR-0037 D1: emits the cascade event even when NOTHING was live (zero is evidence)", async () => {
+    // A zero-count event is what distinguishes "this payer had no open jobs" from "the
+    // cascade never ran" — the first question asked when a job is reported still visible
+    // after a suspension. Suppressing it would erase that distinction from the spine.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "pending" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "pending" });
+    m.actions.suspendPayerInventory.mockResolvedValue({ postings: 0, jobs: 0 });
+
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    const e = emitNamed(m.events, "payer.inventory_suspended") as unknown as {
+      payload: Record<string, unknown>;
+    };
+    expect(e.payload).toEqual({ payer_id: PAYER_ID, postings_affected: 0, jobs_affected: 0 });
+  });
+
+  it("ADR-0037 D1: an ALREADY-suspended payer runs no cascade (idempotent, no double freeze)", async () => {
+    // The re-suspend no-ops before the transaction. Re-running the cascade here would be
+    // actively harmful: the postings are already `suspended`, so a second capture would
+    // overwrite `previous_status` with 'suspended' itself and reinstatement would restore
+    // them to a frozen state — permanently invisible with no error anywhere.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+
+    const res = await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    expect(res).toEqual({ target_id: PAYER_ID, changed: false });
+    expect(m.actions.suspendPayerInventory).not.toHaveBeenCalled();
+  });
+
+  it("ADR-0037: a PENDING payer CAN now be suspended (it used to 409 for every real payer)", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "pending" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "pending" });
+
+    const res = await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    expect(res).toEqual({ target_id: PAYER_ID, changed: true });
+    // previous_status records that it was pending, so reinstate can put it BACK to pending
+    // rather than granting an activation the payer never earned.
+    const e = emitNamed(m.events, "payer.suspended") as unknown as {
+      payload: Record<string, unknown>;
+    };
+    expect(e.payload).toMatchObject({ previous_status: "pending", new_status: "suspended" });
+  });
+
+  it("ADR-0037: revokes EVERY live session after the transaction commits", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
+
+    await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
+
+    expect(m.sessions.revokeAllForPayer).toHaveBeenCalledExactlyOnceWith(PAYER_ID);
+  });
+
+  it("ADR-0037: a revoke failure does NOT fail the suspension (the row is already committed)", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    m.actions.suspendPayer.mockResolvedValue({ status: "suspended", previousStatus: "active" });
+    m.sessions.revokeAllForPayer.mockRejectedValueOnce(new Error("redis down"));
+
+    // The payer IS suspended; the per-request lifecycle gate in PayerAuthGuard closes the
+    // window on the next request. Throwing here would report a committed change as failed.
+    await expect(m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX)).resolves.toEqual({
+      target_id: PAYER_ID,
+      changed: true,
     });
   });
 
@@ -230,16 +373,21 @@ describe("suspendPayer", () => {
     expect(m.events.emit).not.toHaveBeenCalled();
   });
 
-  it("pending payer (cannot suspend) → conflict, NO event", async () => {
-    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "pending" });
+  it("a CONCURRENT writer moved the row (SoR returns undefined) → conflict, NO event", async () => {
+    // This used to be "pending payer cannot be suspended". Under ADR-0037 pending IS
+    // suspendable, so the only way the guarded update matches no row is that something
+    // else changed the status between the read and the write. Retained as that guard.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
     m.actions.suspendPayer.mockResolvedValue(undefined);
     await expect(m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX)).rejects.toThrow(ConflictException);
     expect(m.events.emit).not.toHaveBeenCalled();
+    // Nothing was suspended, so nothing may be revoked.
+    expect(m.sessions.revokeAllForPayer).not.toHaveBeenCalled();
   });
 });
 
 describe("reinstatePayer", () => {
-  it("suspended payer → reinstates + emits ONE value-free payer_reinstated", async () => {
+  it("suspended payer → reinstates + emits the value-free payer_reinstated action", async () => {
     m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
     m.actions.reinstatePayer.mockResolvedValue({ status: "active" });
 
@@ -247,11 +395,36 @@ describe("reinstatePayer", () => {
 
     expect(m.actions.reinstatePayer).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: true });
-    assertValueFreeAction(soleEmit(m.events), {
+    assertValueFreeAction(emitNamed(m.events, "admin.action_performed"), {
       actionCode: "payer_reinstated",
       subjectType: "payer",
       targetId: PAYER_ID,
     });
+  });
+
+  it("ADR-0037: reinstate reports the status it RESTORED TO, not a hardcoded active", async () => {
+    // A payer suspended while pending comes back as pending and must still verify —
+    // otherwise suspend+reinstate would be a backdoor activation.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    m.actions.reinstatePayer.mockResolvedValue({ status: "pending" });
+
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+
+    const e = emitNamed(m.events, "payer.reinstated") as unknown as {
+      payload: Record<string, unknown>;
+    };
+    expect(e.payload).toEqual({
+      payer_id: PAYER_ID,
+      previous_status: "suspended",
+      new_status: "pending",
+    });
+  });
+
+  it("ADR-0037: reinstate never revokes sessions (it restores access, it does not remove it)", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    m.actions.reinstatePayer.mockResolvedValue({ status: "active" });
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+    expect(m.sessions.revokeAllForPayer).not.toHaveBeenCalled();
   });
 
   it("already-active payer → idempotent no-op, NO event", async () => {
@@ -259,6 +432,42 @@ describe("reinstatePayer", () => {
     const res = await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: false });
     expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("ADR-0037 D1: thaws the inventory on the same transaction and reports the counts", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    m.actions.reinstatePayer.mockResolvedValue({ status: "active" });
+    m.actions.reinstatePayerInventory.mockResolvedValue({ postings: 4, jobs: 2 });
+
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+
+    expect(m.actions.reinstatePayerInventory).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
+    const e = emitNamed(m.events, "payer.inventory_reinstated") as unknown as {
+      payload: Record<string, unknown>;
+      tx?: unknown;
+    };
+    expect(e.payload).toEqual({ payer_id: PAYER_ID, postings_affected: 4, jobs_affected: 2 });
+    expect(e.tx).toBe(FAKE_TX);
+  });
+
+  it("ADR-0037 D1: thaws even when the payer is restored to PENDING (never strand the inventory)", async () => {
+    // A payer suspended while `pending` is reinstated to `pending`, not `active`. Their
+    // inventory must still be restored: they cannot authenticate to republish it
+    // themselves, so leaving it frozen would strand it with no recovery path — and the
+    // postings are harmless meanwhile, because `pending` blocks every payer route anyway.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    m.actions.reinstatePayer.mockResolvedValue({ status: "pending" });
+    m.actions.reinstatePayerInventory.mockResolvedValue({ postings: 1, jobs: 0 });
+
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+
+    expect(m.actions.reinstatePayerInventory).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
+  });
+
+  it("ADR-0037 D1: a NOT-suspended payer runs no thaw (nothing of theirs is frozen)", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
+    expect(m.actions.reinstatePayerInventory).not.toHaveBeenCalled();
   });
 });
 
@@ -321,6 +530,46 @@ describe("grantCredits", () => {
     ).rejects.toThrow(NotFoundException);
     expect(m.actions.grantCredits).not.toHaveBeenCalled();
     expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ADR-0037 — the seed finding.
+   *
+   * `grantCredits` opened with `const exists = await this.actions.findPayerStatus(payerId)`
+   * and then consumed only `!exists`. `findPayerStatus` returns `{id, status}`, so the
+   * status was SELECTED and thrown away — an admin could top up a suspended payer. The
+   * whole suite covered only `active` and `undefined`; there was no suspended case at all,
+   * which is why the gap survived. This test is that missing case.
+   */
+  it("ADR-0037: a SUSPENDED payer cannot be granted credits — no ledger write, no event", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "suspended" });
+    await expect(
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 10, reason_code: "promo", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
+    ).rejects.toThrow(ConflictException);
+    expect(m.actions.grantCredits).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a PENDING payer CAN be granted credits (pre-provisioning is legitimate)", async () => {
+    // Deliberately allowed: the credits are unspendable until the payer verifies, and
+    // blocking this would break granting a signup bonus before first login.
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "pending" });
+    m.actions.grantCredits.mockResolvedValue({ applied: true, ledgerId: "l1", balance: 10 });
+
+    await expect(
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 10, reason_code: "promo", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
+    ).resolves.toMatchObject({ target_id: PAYER_ID });
+    expect(m.actions.grantCredits).toHaveBeenCalled();
   });
 });
 
@@ -603,5 +852,69 @@ describe("emit chokepoint — exactly one event, keyed, never update/delete(even
     expect(emitted.idempotencyKey).toBe(
       `admin_action:payer_suspended:${ADMIN_ID}:${PAYER_ID}:${CTX.requestId}`,
     );
+  });
+});
+
+describe("resetAdminMfa — the lost-device recovery path (ADR-0038)", () => {
+  let m: Mocks;
+  beforeEach(() => {
+    m = make();
+  });
+
+  const TARGET = "cccccccc-0000-4000-8000-00000000000c";
+
+  it("clears the seed AND the flag TOGETHER (either alone is its own bug)", async () => {
+    // Seed-without-flag leaves an admin the MFA gate never challenges — a silent second-
+    // factor bypass. Flag-without-seed locks them out exactly as before. Only both is a reset.
+    m.admins.findById.mockResolvedValue({ id: TARGET, role: "ops_admin", mfaEnrolled: true });
+
+    const res = await m.service.resetAdminMfa(ADMIN_ID, TARGET, CTX);
+
+    expect(res).toEqual({ target_id: TARGET, changed: true });
+    expect(m.admins.setMfaSecret).toHaveBeenCalledWith(TARGET, null, FAKE_TX);
+    expect(m.admins.setMfaEnrolled).toHaveBeenCalledWith(TARGET, false, FAKE_TX);
+  });
+
+  it("REFUSES a self-reset — a stolen session must not be able to shed its own MFA", async () => {
+    // The whole point of the second factor. Recovery is another human's decision; the
+    // last-super_admin case is the break-glass CLI, not this route.
+    m.admins.findById.mockResolvedValue({ id: ADMIN_ID, role: "super_admin", mfaEnrolled: true });
+    await expect(m.service.resetAdminMfa(ADMIN_ID, ADMIN_ID, CTX)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(m.admins.setMfaSecret).not.toHaveBeenCalled();
+  });
+
+  it("404s an unknown admin (no write, no event)", async () => {
+    m.admins.findById.mockResolvedValue(undefined);
+    await expect(m.service.resetAdminMfa(ADMIN_ID, TARGET, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(m.admins.setMfaSecret).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent for an admin with no enrolled factor — no write, NO event", async () => {
+    m.admins.findById.mockResolvedValue({ id: TARGET, role: "ops_admin", mfaEnrolled: false });
+    const res = await m.service.resetAdminMfa(ADMIN_ID, TARGET, CTX);
+    expect(res).toEqual({ target_id: TARGET, changed: false });
+    expect(m.admins.setMfaSecret).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("emits the value-free admin_mfa_reset action on the SAME transaction", async () => {
+    m.admins.findById.mockResolvedValue({ id: TARGET, role: "ops_admin", mfaEnrolled: true });
+    await m.service.resetAdminMfa(ADMIN_ID, TARGET, CTX);
+
+    const evt = m.events.emit.mock.calls[0]![0] as CapturedEmit;
+    expect(evt.event_name).toBe("admin.action_performed");
+    expect(evt.payload).toEqual({
+      admin_id: ADMIN_ID,
+      action_code: "admin_mfa_reset",
+      target_type: "admin_session",
+      target_id: TARGET,
+    });
+    // The write and the record commit together — a reset that vanished from the spine is
+    // an MFA removal nobody can attribute.
+    expect((evt as unknown as { tx?: unknown }).tx).toBe(FAKE_TX);
   });
 });

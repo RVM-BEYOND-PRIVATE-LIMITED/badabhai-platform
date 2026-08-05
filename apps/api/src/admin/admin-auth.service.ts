@@ -63,7 +63,11 @@ export class AdminAuthService {
     // is reserved even for an inactive/unknown account; it is simply never delivered, and verify
     // mints nothing for it (no oracle). Delivery is a deferred stream in ADMIN-1.
     if (account && account.status === "active") {
-      await this.otp.issueAndSend(emailHash);
+      // ADR-0038 — the RAW address is passed for delivery only. It is never logged and never
+      // stored: the DTO already normalized it, and `emailHash` remains the lookup key
+      // everywhere else. A `pending` or `suspended` admin deliberately falls to the
+      // no-delivery branch — same neutral response, no mail to an account that cannot auth.
+      await this.otp.issueAndSend(emailHash, dto.email);
     } else {
       await this.otp.issueWithoutDelivery(emailHash);
     }

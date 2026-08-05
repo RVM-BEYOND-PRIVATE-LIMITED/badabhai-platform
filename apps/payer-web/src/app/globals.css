@@ -9,28 +9,29 @@
 @import "../styles/ds-components.css";
 
 /* ------------------------------------------------------------------
- * LEGACY portal COMPONENT palette (pre-design-system). Kept UNCHANGED so the
- * existing component classes (.btn / .card / .badge / .note / .input / …) keep
- * working — later tasks port each component onto the token layer above. The page
- * CHROME (body background/text/font, links, headings, focus, box-sizing) now flows
- * from the BadaBhai tokens (base layer); only these legacy COMPONENT vars remain.
+ * LEGACY portal COMPONENT palette (pre-design-system). These vars back the older
+ * component classes (.btn / .card / .badge / .note / .input / …); JUL31 re-points
+ * every one at a BadaBhai design token (no raw hex) so those legacy classes inherit
+ * the sober dial — structure = deep blue, money = green, warn/hot = haldi — and flip
+ * under [data-theme="ink"] like every DS surface. The page CHROME already flows from
+ * the token base layer; this block ports the remaining COMPONENT vars onto it.
  *
  * NOTE: `--danger` is intentionally NOT redefined here — it resolves from the token
  * layer (the single source of truth for that status semantic), so no value is hardcoded.
  * ------------------------------------------------------------------ */
 :root {
-  --bg: #f6f8fb;
-  --panel: #ffffff;
-  --panel-2: #eef2f8;
-  --border: #d8dee8;
-  --text: #1b2330;
-  --muted: #5b6678;
-  --accent: #1f6feb;
-  --accent-soft: #e7f0ff;
-  --ok: #1a7f37;
-  --ok-soft: #e6f4ea;
-  --warn: #9a6700;
-  --warn-soft: #fff4d6;
+  --bg: var(--surface-page);
+  --panel: var(--surface-card);
+  --panel-2: var(--surface-sunken);
+  --border: var(--border-default);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --accent: var(--blue-500); /* structure / link accent — deep blue */
+  --accent-soft: var(--info-tint);
+  --ok: var(--success);
+  --ok-soft: var(--success-tint);
+  --warn: var(--vermilion-800); /* dark haldi — legible warn text on --warn-soft */
+  --warn-soft: var(--warning-tint);
 }
 
 /* Sticky footer — the body is a viewport-tall flex column so `.chrome-footer` always sits at
@@ -377,7 +378,7 @@ body {
 /* Contacted — a LOCAL pipeline marker set once a routed relay is opened (no PII, no network). */
 .badge-contacted {
   background: var(--accent);
-  color: #fff;
+  color: var(--text-inverse);
 }
 
 table {
@@ -408,7 +409,7 @@ tr:last-child td {
 }
 
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -481,7 +482,7 @@ textarea.input {
 }
 .btn {
   background: var(--accent);
-  color: #fff;
+  color: var(--text-inverse);
   border: none;
   border-radius: 7px;
   padding: 9px 16px;
@@ -3404,7 +3405,7 @@ img.agency-qr__code,
   background: linear-gradient(
     110deg,
     transparent 30%,
-    rgba(255, 255, 255, 0.4) 50%,
+    color-mix(in srgb, var(--paper-1) 40%, transparent) 50%,
     transparent 70%
   );
   transform: translateX(-130%);
@@ -4055,6 +4056,17 @@ img.agency-qr__code,
 .invite-landing__note--muted {
   margin-bottom: 0;
   color: var(--text-faint);
+}
+/* B4 — the DESKTOP route's QR bridge (`/i/<code>/desktop`). A white plate behind the matrix
+   regardless of theme: scanners need the light-module/dark-module contrast the QR spec
+   assumes, and rendering it on a dark page background makes it unreadable. */
+.invite-landing__qr {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+  margin: 0 0 var(--space-4);
+  background: #fff;
+  border-radius: var(--radius-md);
 }
 /* The root layout's footer says "BadaBhai for Employers" — true everywhere else in this app,
    wrong on its one worker-facing page. There is a single root layout (a second one would mean

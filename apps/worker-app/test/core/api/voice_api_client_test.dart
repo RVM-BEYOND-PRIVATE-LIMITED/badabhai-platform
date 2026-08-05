@@ -81,8 +81,12 @@ void main() {
       expect(res.status, 'queued');
     });
 
-    test('getAiJob parses a completed transcription output_ref (worker-authed, '
-        'owner-scoped /profile/ai-jobs)', () async {
+    // REGRESSION GUARD. This test used to assert the OPPOSITE — path
+    // `/ai-jobs/job-9` and `containsKey('authorization') == false` — which pinned
+    // the broken contract in place: the route had been put behind
+    // InternalServiceGuard and every real poll 401'd, while this test stayed green
+    // because MockClient always answers 200. Both assertions are now inverted.
+    test('getAiJob hits the WORKER route WITH a bearer token', () async {
       late http.Request captured;
       final ApiClient api = ApiClient(
         baseUrl: 'http://test',
@@ -90,11 +94,9 @@ void main() {
           captured = req;
           return http.Response(
             jsonEncode(<String, dynamic>{
-              'id': 'job-9',
-              'job_type': 'transcription',
               'status': 'completed',
-              'output_ref': <String, dynamic>{'voice_note_id': 'vn1'},
-              'error_message': null,
+              'profile_id': null,
+              'voice_note_id': 'vn1',
             }),
             200,
           );
@@ -103,12 +105,35 @@ void main() {
 
       final AiJob job = await api.getAiJob('job-9', authToken: 'tok');
 
-      expect(captured.url.path, '/profile/ai-jobs/job-9');
+      expect(captured.url.path, '/workers/me/ai-jobs/job-9');
       expect(captured.headers['authorization'], 'Bearer tok');
       expect(job.isCompleted, isTrue);
       expect(job.isTerminal, isTrue);
       expect(job.voiceNoteId, 'vn1');
       expect(job.profileId, isNull);
+    });
+
+    test('getAiJob ignores ops-only fields if a server ever sent them', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{
+                'status': 'failed',
+                'profile_id': null,
+                'voice_note_id': null,
+                // None of these are on the worker contract. Parsing them back
+                // would re-create the coupling this change removed.
+                'error_message': 'write CONNECTION_CLOSED db.internal:5432',
+                'ai_usage': <String, dynamic>{'cost_inr': 0.0137},
+              }),
+              200,
+            )),
+      );
+
+      final AiJob job = await api.getAiJob('job-9', authToken: 'tok');
+
+      expect(job.isFailed, isTrue);
+      expect(job.props, <Object?>['failed', null, null]);
     });
 
     test('awaitAiJob polls until terminal and returns the job', () async {
@@ -120,12 +145,8 @@ void main() {
           final String status = calls < 3 ? 'running' : 'completed';
           return http.Response(
             jsonEncode(<String, dynamic>{
-              'id': 'job-9',
-              'job_type': 'transcription',
               'status': status,
-              'output_ref': status == 'completed'
-                  ? <String, dynamic>{'voice_note_id': 'vn1'}
-                  : null,
+              'voice_note_id': status == 'completed' ? 'vn1' : null,
             }),
             200,
           );
@@ -250,11 +271,7 @@ void main() {
       final ApiClient api = ApiClient(
         baseUrl: 'http://test',
         client: MockClient((http.Request req) async => http.Response(
-              jsonEncode(<String, dynamic>{
-                'id': 'job-9',
-                'job_type': 'transcription',
-                'status': 'queued',
-              }),
+              jsonEncode(<String, dynamic>{'status': 'queued'}),
               200,
             )),
       );

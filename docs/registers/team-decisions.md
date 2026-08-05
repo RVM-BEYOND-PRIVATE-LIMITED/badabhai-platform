@@ -165,6 +165,12 @@ queue in one pass. Recorded here so no builder re-litigates them:
 3. **B-1 (payer verification gate): DEFERRED** — "change this later when we move closer to
    absolute production; right now let it be." `payers.status="pending"` stays unenforced
    for the alpha; the register row stands as the tripwire.
+   > **SUPERSEDED 2026-08-03 by [ADR-0037](../decisions/0037-payer-lifecycle-and-suspension.md)**
+   > (owner rulings 2026-08-02/03). The tripwire fired: an audit found `payers.status` was
+   > not merely unenforced but *unwritable* — nothing ever set `active`, so the shipped
+   > admin suspend route returned 409 for 100% of real payers while no request path read
+   > the column. Deferring enforcement had left a documented admin capability that could
+   > not work. `payers.status` is now read by `PayerAuthGuard` on every payer request.
 4. **B-9/B-10 (cost target + rollup + auto-downgrade): DEFERRED** — "no change in pricing,
    decide later." Code stays ₹4/call target; the "4 paise" headline must NOT be cited
    until a per-profile rollup exists.

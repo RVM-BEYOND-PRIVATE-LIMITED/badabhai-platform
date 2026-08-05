@@ -91,6 +91,9 @@ const LOCKED_TABLES = [
   "match_config", // 0057: single-active-row rank-rule config (pricing_catalog clone — ops-editable, PII-free); RLS+FORCE+REVOKE in migration 0057
   "payment_orders", // 0058: payment intents — opaque payer/provider ids + ₹ integers, NO card/UPI/bank data; RLS+FORCE+REVOKE in migration 0058
   "referral_bonus_accruals", // 0058: one accrual per referred worker (two opaque worker ids + ₹); RLS+FORCE+REVOKE in migration 0058
+  // ── B4 attribution (migration 0060) ─────────────────────────────────────────
+  "referral_links", // 0060: the resolver primitive — `code` is a referral BEARER TOKEN (a client that could read it could claim any agent's commission); RLS+FORCE+REVOKE in migration 0060
+  "referral_clicks", // 0060: click log + first-touch claim row — bearer `code` + click_hash (keyed HMAC over ip+UA, raw never stored) + a worker-attribution handle; RLS+FORCE+REVOKE in migration 0060
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { ConsentModule } from "../consent/consent.module";
+import { PayersModule } from "../payers/payers.module";
 import { PricingModule } from "../pricing/pricing.module";
 import { REFERRAL_BONUS_QUEUE } from "../queue/queue.constants";
 import { UnlocksController } from "./unlocks.controller";
@@ -31,6 +32,10 @@ import { RazorpayWebhookGuard } from "./razorpay-webhook.guard";
   imports: [
     ConsentModule,
     PricingModule,
+    // ADR-0037 Decision 6 — the settle path reads the payer's lifecycle status to decide
+    // whether a captured payment needs a Finance/Admin alert. A one-way edge: PayersModule
+    // has no dependency on unlocks, so this cannot become a cycle.
+    PayersModule,
     // §X.6 — leg 2 of the ₹20 activation-bonus rule fires on a granted unlock. PRODUCER
     // ONLY: the processor lives in ReferralAttributionModule, so this stays a queue
     // registration and NOT a module import (no dependency from `unlocks` into `referrals`).

@@ -76,11 +76,7 @@ void main() {
 
   group('ApiClient AI-job polling uses the backoff schedule (#378)', () {
     http.Response queuedJob(String id) => http.Response(
-          jsonEncode(<String, dynamic>{
-            'id': id,
-            'job_type': 'profile_extraction',
-            'status': 'queued',
-          }),
+          jsonEncode(<String, dynamic>{'status': 'queued'}),
           200,
         );
 
@@ -116,11 +112,7 @@ void main() {
         client: MockClient((http.Request req) async {
           calls++;
           return http.Response(
-            jsonEncode(<String, dynamic>{
-              'id': 'job-9',
-              'job_type': 'transcription',
-              'status': 'running',
-            }),
+            jsonEncode(<String, dynamic>{'status': 'running'}),
             200,
           );
         }),
@@ -172,10 +164,8 @@ void main() {
           calls++;
           return http.Response(
             jsonEncode(<String, dynamic>{
-              'id': 'job-1',
-              'job_type': 'profile_extraction',
               'status': 'completed',
-              'output_ref': <String, dynamic>{'profile_id': 'p1'},
+              'profile_id': 'p1',
             }),
             200,
           );
@@ -183,7 +173,8 @@ void main() {
       );
 
       final Stopwatch sw = Stopwatch()..start();
-      final String profileId = await api.awaitProfileId('job-1', authToken: 'tok');
+      final String profileId =
+          await api.awaitProfileId('job-1', authToken: 'tok');
       sw.stop();
 
       expect(profileId, 'p1');

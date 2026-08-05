@@ -110,13 +110,43 @@ export class AdminRepository {
   }
 
   /** Flip the MFA-enrolled flag (after a successful TOTP enrollment). */
-  async setMfaEnrolled(id: string, enrolled: boolean): Promise<AdminUser | undefined> {
-    const [row] = await this.db
+  async setMfaEnrolled(
+    id: string,
+    enrolled: boolean,
+    tx: Database = this.db,
+  ): Promise<AdminUser | undefined> {
+    const [row] = await tx
       .update(adminUsers)
       .set({ mfaEnrolled: enrolled, updatedAt: new Date() })
       .where(eq(adminUsers.id, id))
       .returning();
     return row;
+  }
+
+  /**
+   * ADR-0038 — persist the admin's TOTP seed CIPHERTEXT. Encryption stays in
+   * {@link import("./admin-mfa.store").AdminMfaSecretStore}; this method only stores the
+   * token it is handed, so the repository never sees a plaintext seed.
+   */
+  async setMfaSecret(id: string, secretEnc: string | null, tx: Database = this.db): Promise<void> {
+    await tx
+      .update(adminUsers)
+      .set({ mfaSecretEnc: secretEnc, updatedAt: new Date() })
+      .where(eq(adminUsers.id, id));
+  }
+
+  /**
+   * ADR-0038 — read the TOTP seed CIPHERTEXT. A NARROW projection: `findById` returns the
+   * whole row including `email_enc`, and the second factor has no business pulling the
+   * admin's contact ciphertext into scope on every MFA verify.
+   */
+  async findMfaSecret(id: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ mfaSecretEnc: adminUsers.mfaSecretEnc })
+      .from(adminUsers)
+      .where(eq(adminUsers.id, id))
+      .limit(1);
+    return row?.mfaSecretEnc ?? null;
   }
 
   /** Stamp last_login_at (observability only). Best-effort — never blocks a login. */

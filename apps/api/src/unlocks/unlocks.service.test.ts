@@ -150,6 +150,11 @@ function setup(opts: SetupOpts = {}) {
     // The DEFAULTS are the shipped V1 values, so the stub returns them rather than a
     // fabricated number.
     { get: vi.fn().mockResolvedValue(DEFAULT_MATCH_CONFIG) } as never,
+    // ADR-0037 Decision 6 — the lifecycle read behind the suspended-capture alert. These
+    // suites exercise the UNLOCK path (spending), not a capture, so `active` keeps the
+    // alert inert; it is wired rather than stubbed out because the helper is fail-open and
+    // an undefined dependency would be silently swallowed by its catch.
+    { findAuthFacts: vi.fn(async () => ({ role: "employer", status: "active" })) } as never,
   );
   return { svc, repo, txMethods, consents, workers, pii, events, referralBonusQueue };
 }

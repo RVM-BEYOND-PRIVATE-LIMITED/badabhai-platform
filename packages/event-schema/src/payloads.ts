@@ -1499,6 +1499,127 @@ export const PayerCreatedPayload = z.object({
 export type PayerCreatedPayload = z.infer<typeof PayerCreatedPayload>;
 
 /**
+ * The payer lifecycle statuses, as they appear on the spine (ADR-0037).
+ *
+ * A CLOSED enum, and admissible under invariant #2: a lifecycle status is a bounded
+ * system value, not PII — unlike the payer's email/org-name/phone, which stay encrypted
+ * in `payers` and never reach an event. Mirrors `PayerStatus` in packages/db.
+ */
+export const PayerStatusEnum = z.enum(["pending", "active", "suspended"]);
+export type PayerStatusEnum = z.infer<typeof PayerStatusEnum>;
+
+/**
+ * A payer lifecycle transition (ADR-0037) — `payer.activated` / `payer.suspended` /
+ * `payer.reinstated`.
+ *
+ * Carries BOTH ends of the transition, which is the point: "audit every state transition"
+ * is unmet by an event that records only that something happened. `previous_status` is
+ * what makes a reinstate auditable (it says what the payer was restored TO) and what makes
+ * a suspend-from-`pending` distinguishable from a suspend-from-`active` after the fact.
+ *
+ * FACELESS: the opaque `payer_id` plus two closed enum values. Deliberately NO reason,
+ * NO actor detail beyond the envelope's own actor, and NO admin email — the admin action
+ * itself is separately recorded by the value-free `admin.action_performed`, and the reason
+ * lives on the system-of-record, not the spine.
+ */
+export const PayerLifecycleTransitionPayload = z
+  .object({
+    payer_id: uuidSchema,
+    previous_status: PayerStatusEnum,
+    new_status: PayerStatusEnum,
+  })
+  // `.strict()` is the STRUCTURAL backstop for the value-free rule, mirroring
+  // `AdminActionPerformedPayload`. Without it an extra key is silently STRIPPED rather
+  // than rejected, so a caller that started attaching a free-text `reason` (the obvious
+  // way a name/email/phone reaches the spine) would look like it was working. Strict
+  // makes that a validation failure at the boundary instead of a silent PII channel.
+  .strict();
+export type PayerLifecycleTransitionPayload = z.infer<typeof PayerLifecycleTransitionPayload>;
+
+/**
+ * The INVENTORY side of a payer suspension (ADR-0037 Decision 1) —
+ * `payer.inventory_suspended` / `payer.inventory_reinstated`.
+ *
+ * A payer suspension freezes two independent things: their SESSION (recorded by
+ * `payer.suspended` above) and their live JOB INVENTORY (recorded here). They are
+ * separate events because they can diverge — a suspension with nothing published moves
+ * zero rows — and because "why did this job vanish from the feed?" is a question the
+ * session event cannot answer.
+ *
+ * COUNTS, NOT IDS. The affected postings can number in the hundreds and a per-posting
+ * event would flood the spine on a single admin click; the per-row truth already lives on
+ * `job_postings.status` / `previous_status` (the system of record), which is where an
+ * investigator reads it from. The counts are what make the cascade auditable at a glance:
+ * a reinstate whose counts do not match its suspend is the signal that something moved in
+ * between.
+ *
+ * TWO COUNTS, NOT ONE. `job_postings` is the Matching-V1 served entity and `jobs` is the
+ * legacy entity that still backs the worker feed and the agency surface (TD37 — both are
+ * live). Summing them would hide which surface was actually affected.
+ *
+ * FACELESS: an opaque `payer_id` plus two non-negative integers. No titles, no org label,
+ * no posting ids.
+ */
+export const PayerInventoryTransitionPayload = z
+  .object({
+    payer_id: uuidSchema,
+    /** `job_postings` rows moved by this cascade (the Matching-V1 served entity). */
+    postings_affected: z.number().int().min(0),
+    /** `jobs` rows moved by this cascade (the legacy entity still serving the feed). */
+    jobs_affected: z.number().int().min(0),
+  })
+  // `.strict()` for the same reason as the transition payload above: an extra key is the
+  // obvious way a role title or org label would reach the spine. Reject, never strip.
+  .strict();
+export type PayerInventoryTransitionPayload = z.infer<typeof PayerInventoryTransitionPayload>;
+
+/**
+ * A login code was RESERVED but deliberately NOT DELIVERED (ADR-0037 Decision 5) —
+ * `payer.otp_suppressed`.
+ *
+ * This is the security/audit record for a login attempt on a suspended account. It is the
+ * ONLY place that attempt is visible: the HTTP response is deliberately identical to a
+ * normal one (no enumeration), and no `payer.login_requested` is emitted, because no login
+ * code was actually sent — counting it as one would overstate the login funnel and hide
+ * repeated probing of a banned account behind ordinary traffic.
+ *
+ * `reason` is a CLOSED enum, never free text. A free-text reason on an auth event is
+ * exactly how an operator note naming a person reaches the spine.
+ */
+export const PayerOtpSuppressedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    reason: z.enum(["account_suspended"]),
+  })
+  .strict();
+export type PayerOtpSuppressedPayload = z.infer<typeof PayerOtpSuppressedPayload>;
+
+/**
+ * A real payment was captured and credited for a SUSPENDED payer (ADR-0037 Decision 6) —
+ * `payer.suspended_payment_captured`. An OPS ALERT for Finance/Admin review, not a rejection.
+ *
+ * The money was already taken by Razorpay before this webhook arrived, and the codebase has
+ * NO refund path. Refusing to credit it would leave the platform holding funds with no
+ * ledger entry against them — a worse outcome than crediting an account that cannot spend
+ * (every spending route is behind `PayerAuthGuard`, which requires `active`). So the credit
+ * is applied as designed and a human is told.
+ *
+ * Carries the ORDER id, not the amount: the amount already lives on `payment.captured` and
+ * on the `credit_ledger` row keyed to the same order, so repeating it here would create a
+ * second place for the money to be stated — and to disagree.
+ */
+export const PayerSuspendedPaymentCapturedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    /** The internal `payment_orders` row id — the join key to the amount + pack. */
+    order_id: uuidSchema,
+  })
+  .strict();
+export type PayerSuspendedPaymentCapturedPayload = z.infer<
+  typeof PayerSuspendedPaymentCapturedPayload
+>;
+
+/**
  * A login code was issued for an EXISTING payer account (the no-account branch emits
  * nothing — the HTTP response is identical either way, so this asymmetry is not a
  * caller-observable enumeration oracle; XB-H). Resolved `payer_id` + method only —
@@ -1601,8 +1722,19 @@ export type PayerAccountUpdatedPayload = z.infer<typeof PayerAccountUpdatedPaylo
 // in any event/log. All v1 (version-never-mutate).
 // ---------------------------------------------------------------------------
 
-/** `jobs` lifecycle status (mirrors db.JobStatus — open|closed only). Enum → no PII. */
-export const JobStatusEnum = z.enum(["open", "closed"]);
+/**
+ * `jobs` lifecycle status (mirrors db.JobStatus). Enum → no PII.
+ *
+ * WIDENED, not changed (ADR-0037): `suspended` joins the existing two. Every payload that
+ * validated before still validates — this only admits a value the producers could not
+ * previously emit — so `job.*` stays v1 (invariant #8 forbids MUTATING a shipped payload,
+ * not extending an enum in the accepting direction).
+ *
+ * Keeping the mirror exact is the point: this enum's job is to be db.JobStatus, and a
+ * mirror that silently omits a value the column can hold would make a legitimate emit fail
+ * validation at runtime rather than at compile time.
+ */
+export const JobStatusEnum = z.enum(["open", "closed", "suspended"]);
 export type JobStatusEnum = z.infer<typeof JobStatusEnum>;
 
 /** Coarse city label (e.g. "Pune") — NOT an address. Short, non-PII bound. */
@@ -2080,6 +2212,89 @@ export const ReferralBonusAccruedPayload = z
   })
   .strict();
 export type ReferralBonusAccruedPayload = z.infer<typeof ReferralBonusAccruedPayload>;
+
+// ---------------------------------------------------------------------------
+// B4 ATTRIBUTION — the `referral_links` resolver primitive.
+//
+// THE `code` NEVER APPEARS IN ANY OF THESE PAYLOADS. It is a BEARER TOKEN: anyone
+// holding it can claim the referral, and the events table is read by the ops console.
+// Every payload carries the opaque `referral_link_id` row id instead — exactly the rule
+// `invite.clicked` and `InviteInstallPayload` already follow. `.strict()` on all three is
+// the structural backstop that stops a code/phone/IP being smuggled alongside.
+//
+// PII-FREE otherwise by construction: opaque uuids, closed enums, integer hours. The
+// click's `click_hash` (a keyed HMAC over ip+UA) is deliberately ALSO absent — it is a
+// storage-side de-duplication key, not something the audit spine needs.
+// ---------------------------------------------------------------------------
+
+/** The link's owner axis — which commission channel a click belongs to. */
+export const ReferralLinkKindEnum = z.enum(["agent", "worker", "campaign"]);
+
+/**
+ * ORGANIC vs PAID. Selects which match window a click is judged under (7d vs 24h by
+ * default, both config). Snapshotted onto the click so a later re-tag of the link cannot
+ * retroactively re-judge a click that already happened.
+ */
+export const ReferralLinkMediumEnum = z.enum(["organic", "paid"]);
+
+/** Coarse device class of a click. Diagnostics only — deliberately not a fingerprint. */
+export const ReferralClickPlatformEnum = z.enum(["android", "desktop", "other"]);
+
+/** A shareable referral link was minted (agent code, worker share, campaign URL, or QR). */
+export const ReferralLinkCreatedPayload = z
+  .object({
+    /** The opaque `referral_links.id` (also the event subject). NEVER the code. */
+    referral_link_id: uuidSchema,
+    kind: ReferralLinkKindEnum,
+    medium: ReferralLinkMediumEnum,
+    /** Stable non-PII campaign tag, when this is a campaign link. */
+    campaign_id: z.string().min(1).max(64).optional(),
+  })
+  .strict();
+export type ReferralLinkCreatedPayload = z.infer<typeof ReferralLinkCreatedPayload>;
+
+/**
+ * A referral link was RESOLVED by `GET /r/:code` — one row in the click log.
+ *
+ * Emitted for a link that resolved to a `referral_links` row only; a legacy
+ * `invites`/`agency_invites` code keeps emitting its own `invite.clicked` /
+ * `agency_invite.clicked` (no double-count on the spine).
+ */
+export const ReferralLinkClickedPayload = z
+  .object({
+    referral_link_id: uuidSchema,
+    medium: ReferralLinkMediumEnum,
+    platform: ReferralClickPlatformEnum,
+  })
+  .strict();
+export type ReferralLinkClickedPayload = z.infer<typeof ReferralLinkClickedPayload>;
+
+/**
+ * A click WON a worker's first-touch claim — the moment attribution actually closes.
+ *
+ * Answers the question the funnel could not answer before: not just "was this worker
+ * attributed" (`invite.accepted` already says that) but "which click earned it, how old
+ * was that click, and which window admitted it". `age_hours` + `window_hours` together
+ * make a mis-tuned window visible in the data instead of silently dropping referrals.
+ *
+ * Emitted at most ONCE per worker, ever — enforced by the partial unique index on
+ * `referral_clicks.claimed_by_worker_id`, not by this emitter.
+ */
+export const ReferralInstallClaimedPayload = z
+  .object({
+    referral_link_id: uuidSchema.nullable(),
+    /** The worker who claimed (opaque). */
+    worker_id: uuidSchema,
+    medium: ReferralLinkMediumEnum,
+    /** Which leg of the post-Dynamic-Links chain delivered the code. */
+    source: InviteInstallSource,
+    /** How old the winning click was at claim time (whole hours, floored). */
+    age_hours: z.number().int().nonnegative(),
+    /** The window that admitted it — the config value in force at claim time. */
+    window_hours: z.number().int().positive(),
+  })
+  .strict();
+export type ReferralInstallClaimedPayload = z.infer<typeof ReferralInstallClaimedPayload>;
 
 // ---------------------------------------------------------------------------
 // Matching V1 (ADR-0036, spec docs/specs/matching-algorithm-v1.md).

@@ -303,7 +303,7 @@ guard's fail-closed `role: null`).
 | Capability | `super_admin` | `ops_admin` | `support` | `analyst` |
 |---|:---:|:---:|:---:|:---:|
 | Read events (explorer, filter on the 4 indexes) | ✅ | ✅ | ✅ | ✅ |
-| Read entities (workers/payers/jobs/postings — **faceless**, no PII) | ✅ | ✅ | ✅ | ✅ |
+| Read entities (workers/payers/jobs/postings — **faceless**, no PII) — `read_entities`, implemented BP-1 (PR #574) | ✅ | ✅ | ✅ | ✅ |
 | Read metrics / dashboards | ✅ | ✅ | ✅ | ✅ |
 | Export (PII-free events / aggregates) | ✅ | ✅ | ❌ | ❌ |
 | Suspend / reinstate a payer | ✅ | ✅ | ❌ | ❌ |

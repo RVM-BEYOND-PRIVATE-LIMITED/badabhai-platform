@@ -678,5 +678,14 @@ function assertCloseable(current: JobPostingApi): "draft" | "open" {
   if (current.status === "paused") {
     throw new ConflictException("Resume the job posting before closing it");
   }
+  // ADR-0037 — a posting frozen by the payer-suspension cascade is not closeable through
+  // the ORDINARY path, for the same reason `paused` is not: closing it here would leave
+  // `previous_status` set on a non-suspended row (which the DB CHECK rejects) and would
+  // silently opt the posting out of the reinstatement restore. Deliberately reachable only
+  // by the ops surface — the owning payer cannot authenticate at all while suspended. The
+  // admin force-close (ADMIN-3a) IS allowed to take it terminal and clears the marker.
+  if (current.status === "suspended") {
+    throw new ConflictException("The owning payer is suspended; reinstate them before closing");
+  }
   return current.status;
 }

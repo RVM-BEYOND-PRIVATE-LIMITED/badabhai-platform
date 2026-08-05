@@ -20,10 +20,11 @@ close we are to alpha — **with evidence, not guesses**.
 
 | File | Purpose | Update cadence |
 | ---- | ------- | -------------- |
+| **[BACKLOG.md](BACKLOG.md)** | **Single source of truth for WHO OWNS WHAT.** Every open item in exactly one of 5 threads, with dependencies, entry/exit criteria and the dependency graph. **Check here before starting any work.** | On thread/ownership change |
 | [PROJECT_STATUS.md](PROJECT_STATUS.md) | Weighted %-progress dashboard: overall / phase / main-task / final-task, with status + evidence | Every working day |
 | [DAILY_TRACKER.md](DAILY_TRACKER.md) | Per-day movement: yesterday/today/blockers/decisions/tests + %-delta | Every working day |
 | [ROADMAP.md](ROADMAP.md) | Phase 0→7 to paid launch: goal, in/out scope, gates, test gates, owner | On milestone change |
-| [DECISION_LOG.md](DECISION_LOG.md) | Human decisions needed: options, recommendation, owner, deadline, safe default | When a decision is raised/resolved |
+| **[DECISION_LOG.md](DECISION_LOG.md)** | **Thread 0 — governance, no implementation.** Every decision under a 10-field schema (context · alternatives · decision · reason · impacted threads · ADR · reversal history) so nobody has to ask "why did we build it this way?" | When a decision is raised/resolved |
 | [BLOCKERS.md](BLOCKERS.md) | P0–P3 blockers + **how each caps progress %** | When a blocker is found/cleared |
 | [TEST_MATRIX.md](TEST_MATRIX.md) | Module × test-type × command × expected × current × owner | After each test run |
 | [RELEASE_READINESS.md](RELEASE_READINESS.md) | Go/No-Go checklist for staging & production | Before any release decision |

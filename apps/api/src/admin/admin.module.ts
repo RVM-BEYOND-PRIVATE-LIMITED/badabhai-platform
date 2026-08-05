@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
+import { PayersModule } from "../payers/payers.module";
 import { AdminRepository } from "./admin.repository";
 import { AdminSessionService } from "./admin-session.service";
 import { AdminOtpService } from "./admin-otp.service";
@@ -26,6 +27,15 @@ import { AdminPiiRevealService } from "./admin-pii-reveal.service";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchService } from "./admin-kill-switch.service";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
+import { AdminEntitiesRepository } from "./admin-entities.repository";
+import { AdminEntitiesService } from "./admin-entities.service";
+import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminFinanceRepository } from "./admin-finance.repository";
+import { AdminFinanceService } from "./admin-finance.service";
+import { AdminFinanceController } from "./admin-finance.controller";
+import { AdminDirectoryRepository } from "./admin-directory.repository";
+import { AdminDirectoryService } from "./admin-directory.service";
+import { AdminDirectoryController } from "./admin-directory.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -70,6 +80,10 @@ import { AdminKillSwitchController } from "./admin-kill-switch.controller";
   imports: [
     DatabaseModule,
     EventsModule,
+    // ADR-0037 — AdminActionsService needs PayerSessionService so suspending a payer
+    // revokes their live sessions immediately. PayersModule exports it. One-directional:
+    // PayersModule does not import AdminModule, so no forwardRef is needed.
+    PayersModule,
     // Reuse BullMQ's Redis connection (client only) for the admin session/OTP/MFA-secret stores.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
     // The admin session is signed with ITS OWN secret — distinct from the worker/payer JWT.
@@ -87,6 +101,9 @@ import { AdminKillSwitchController } from "./admin-kill-switch.controller";
     AdminActionsController,
     AdminPiiRevealController,
     AdminKillSwitchController,
+    AdminEntitiesController,
+    AdminFinanceController,
+    AdminDirectoryController,
   ],
   providers: [
     AdminRepository,
@@ -112,6 +129,21 @@ import { AdminKillSwitchController } from "./admin-kill-switch.controller";
     // existing server-config gates; emits a value-free `admin.kill_switch_pause_requested`. It NEVER
     // enables a provider (enabling stays env/deploy-gated, §2 #5) — there is no enable code path.
     AdminKillSwitchService,
+    // BP-1: faceless entity reads (workers/payers/job-postings/applications/credits) behind
+    // `read_entities`. SELECT-ONLY, explicit column projections, keyset-paginated. It does NOT
+    // widen InternalServiceGuard and does not touch the existing ops read routes.
+    AdminEntitiesRepository,
+    AdminEntitiesService,
+    // BP-2: finance reads (credit position, platform-wide ledger, payment orders) behind
+    // `read_entities`. SELECT-ONLY. Every money-bearing response carries the payments
+    // posture, so a mock rupee can never be read as a real one.
+    AdminFinanceRepository,
+    AdminFinanceService,
+    // BP-3: the FACELESS admin directory (`manage_admins`, super_admin only) + the
+    // role→capability matrix (`read_entities`), served so the portal carries no second copy
+    // of the authorization table. SELECT-ONLY; never projects email/name/mfa_secret.
+    AdminDirectoryRepository,
+    AdminDirectoryService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

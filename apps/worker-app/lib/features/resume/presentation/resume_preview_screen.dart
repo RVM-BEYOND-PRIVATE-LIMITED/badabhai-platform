@@ -246,6 +246,9 @@ class _ResumeViewState extends State<_ResumeView> {
         // card theme's hairline border separates it, never a shadow; clipped so
         // the rail follows the card's rounded top corners.
         Card(
+          // Flat card (JUL31 system): the card theme's 1px hairline border — not a
+          // shadow — separates the resume from the paper background. Clipped so the
+          // haldi top-rail follows the card's rounded top corners.
           clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,

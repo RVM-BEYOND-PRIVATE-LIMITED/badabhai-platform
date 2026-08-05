@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { ConflictException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { AgencyKyc } from "@badabhai/db";
+import type { PayersRepository } from "../payers/payers.repository";
 import { AgencyKycService } from "./agency-kyc.service";
 import { AgencyKycRepository, type AgencyKycCiphertext } from "./agency-kyc.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
@@ -41,7 +42,13 @@ function kycRow(overrides: Partial<AgencyKyc> = {}): AgencyKyc {
   } as AgencyKyc;
 }
 
-function make(opts?: { row?: AgencyKyc; verified?: boolean; rejected?: boolean }) {
+function make(opts?: {
+  row?: AgencyKyc;
+  verified?: boolean;
+  rejected?: boolean;
+  /** ADR-0037 Decision 7 — the owning agency's lifecycle status. Defaults to `active`. */
+  payerStatus?: "pending" | "active" | "suspended";
+}) {
   const emit = vi.fn().mockResolvedValue(undefined);
   const events = { emit } as unknown as EventsService;
   let captured: AgencyKycCiphertext | undefined;
@@ -55,8 +62,14 @@ function make(opts?: { row?: AgencyKyc; verified?: boolean; rejected?: boolean }
     markVerified: vi.fn().mockResolvedValue(opts?.verified === false ? null : new Date("2026-07-23T09:00:00Z")),
     markRejected: vi.fn().mockResolvedValue(opts?.rejected === false ? null : new Date("2026-07-23T09:00:00Z")),
   } as unknown as AgencyKycRepository;
-  const svc = new AgencyKycService(repo, pii, events);
-  return { svc, repo, emit, captured: () => captured };
+  // ADR-0037 Decision 7 — the lifecycle read the ops verify consults.
+  const payers = {
+    findAuthFacts: vi
+      .fn()
+      .mockResolvedValue({ role: "agent", status: opts?.payerStatus ?? "active" }),
+  } as unknown as PayersRepository;
+  const svc = new AgencyKycService(repo, pii, events, payers);
+  return { svc, repo, emit, payers, captured: () => captured };
 }
 
 describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
@@ -170,5 +183,43 @@ describe("AgencyKycService — ops verify / reject (actor = ops, event-first)", 
     await svc.reject(AGENCY, "invalid_pan");
     const call = emit.mock.calls.find((c) => (c[0] as { event_name: string }).event_name === "agency_kyc.rejected");
     expect((call![0] as { payload: { reason: string } }).payload).toEqual({ payer_id: AGENCY, reason: "invalid_pan" });
+  });
+});
+
+describe("AgencyKycService.verify — a suspended agency is frozen (ADR-0037 Decision 7)", () => {
+  it("REFUSES to verify a suspended agency's KYC", async () => {
+    const m = make({ payerStatus: "suspended" });
+    await expect(m.svc.verify(AGENCY)).rejects.toBeInstanceOf(ConflictException);
+    // The transition never runs — the row is untouched, so a later reinstate + verify is
+    // still a clean first decision rather than a replay.
+    expect(m.repo.markVerified).not.toHaveBeenCalled();
+  });
+
+  it("emits NOTHING when it refuses (no half-recorded decision on the spine)", async () => {
+    const m = make({ payerStatus: "suspended" });
+    await expect(m.svc.verify(AGENCY)).rejects.toThrow();
+    expect(m.emit).not.toHaveBeenCalled();
+  });
+
+  it("still verifies an ACTIVE agency — the freeze is targeted, not a blanket stop", async () => {
+    // The control. Without it, a mutation that refused EVERY verify would satisfy both
+    // assertions above while silently breaking the entire ops KYC queue.
+    const m = make({ payerStatus: "active" });
+    await expect(m.svc.verify(AGENCY)).resolves.toEqual({ ok: true });
+    expect(m.repo.markVerified).toHaveBeenCalledWith(AGENCY);
+  });
+
+  it("still verifies a PENDING agency (not-yet-verified is not the same as banned)", async () => {
+    const m = make({ payerStatus: "pending" });
+    await expect(m.svc.verify(AGENCY)).resolves.toEqual({ ok: true });
+  });
+
+  it("REJECT is deliberately NOT blocked for a suspended agency", async () => {
+    // Rejecting is restrictive — it takes eligibility away, never grants it. Ops must stay
+    // able to clear a fraudulent submission from the queue without first reinstating the
+    // account that made it.
+    const m = make({ payerStatus: "suspended" });
+    await expect(m.svc.reject(AGENCY, "invalid_pan")).resolves.toEqual({ ok: true });
+    expect(m.repo.markRejected).toHaveBeenCalled();
   });
 });

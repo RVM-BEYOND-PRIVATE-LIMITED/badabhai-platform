@@ -13,6 +13,7 @@ import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { MatchConfigService } from "../match/match-config.service";
+import { PayersRepository } from "../payers/payers.repository";
 import {
   UnlocksRepository,
   type Tx,
@@ -115,6 +116,10 @@ export class UnlockService {
     // ADR-0036 §7 — the free-tier grant size, for the credits_exhausted signal + the
     // signup grant. MatchModule is @Global, so no new import edge on UnlocksModule.
     private readonly matchConfig: MatchConfigService,
+    // ADR-0037 Decision 6 — the lifecycle read behind the suspended-capture alert. Reuses
+    // the narrow {role, status} projection the payer guard uses, NOT `findById` (which
+    // returns the encrypted-PII row).
+    private readonly payers: PayersRepository,
   ) {}
 
   // ===========================================================================
@@ -727,8 +732,64 @@ export class UnlockService {
         // events table would still hold exactly one capture for this order.
         idempotencyKey: `payment.captured:order:${result.order.id}`,
       });
+      await this.alertIfPayerSuspended(result.order.payerId, result.order.id, ctx);
     }
     return result;
+  }
+
+  /**
+   * ADR-0037 Decision 6 — a real payment was captured and credited for a SUSPENDED payer.
+   * Raise a Finance/Admin alert. Do NOT reject, and do NOT withhold the credit.
+   *
+   * The money is ALREADY TAKEN by the time this webhook arrives, and this codebase has no
+   * refund path of any kind. Refusing the credit would leave the platform holding funds with
+   * no ledger entry against them — strictly worse than crediting an account that cannot
+   * spend, because every spending route sits behind `PayerAuthGuard`, which requires
+   * `active`. So the grant stands, the credits are inert until reinstatement, and a human
+   * is told.
+   *
+   * Placed in `settleAndEmit`, the ONE settle path both channels share, so the alert fires
+   * whether the capture arrived by webhook or by the verified browser fallback. Putting it
+   * in the webhook controller would have covered only one of the two.
+   *
+   * FAIL-OPEN, DELIBERATELY. This is an alert about money that has already changed hands;
+   * if the status read or the emit fails, the correct outcome is still a completed,
+   * granted payment. Throwing here would turn a successful capture into a 5xx, which makes
+   * Razorpay redeliver a payment we already settled — trading a missing notification for a
+   * retry storm on the money path. The failure is logged loudly instead.
+   */
+  private async alertIfPayerSuspended(
+    payerId: string,
+    orderId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    try {
+      const facts = await this.payers.findAuthFacts(payerId);
+      if (facts?.status !== "suspended") return;
+      await this.events.emit({
+        event_name: "payer.suspended_payment_captured",
+        actor: { actor_type: "system", actor_id: null },
+        subject: { subject_type: "payer", subject_id: payerId },
+        // Keyed on the ORDER, so a redelivered webhook cannot raise a second alert for the
+        // same payment. (The capture itself is already idempotent one layer up; this keeps
+        // the alert exactly as once-only as the money it describes.)
+        idempotencyKey: `payer.suspended_payment_captured:order:${orderId}`,
+        payload: { payer_id: payerId, order_id: orderId },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+      this.logger.warn(
+        `payment captured for a SUSPENDED payer; credits granted but unspendable until ` +
+          `reinstatement — finance review needed payer=${payerId} order=${orderId}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `could not raise the suspended-payer capture alert (the payment itself SUCCEEDED ` +
+          `and is unaffected) payer=${payerId} order=${orderId} reason: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------

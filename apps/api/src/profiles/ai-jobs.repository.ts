@@ -109,6 +109,39 @@ export class AiJobsRepository {
   }
 
   /**
+   * One job, scoped to its OWNER — the worker-facing poll read.
+   *
+   * `ai_jobs` has no `worker_id` column and no FK (schema.ts:675-746); the only
+   * link to a worker is the untyped `input_ref` jsonb. So ownership is the same
+   * `input_ref->>'worker_id'` predicate `findExtractionDedupeCandidate` already
+   * relies on for cross-worker isolation (see its SCOPING note above) — which is
+   * the reason to reuse it rather than invent a second notion of ownership: there
+   * is exactly one, and it is already load-bearing and test-locked.
+   *
+   * Both job types a worker can obtain an id for write it from the authenticated
+   * principal, never from a body: `profile_extraction` from `@CurrentWorker` via
+   * `profiles.service.ts:148`, `transcription` from the already-ownership-checked
+   * `voice_notes` row via `voice.service.ts:138`.
+   *
+   * FAILS CLOSED. `->>` returns SQL NULL for a missing key, and NULL never equals
+   * a uuid string, so a row written without `worker_id` is unreachable here rather
+   * than reachable by everyone. A caller who is not the owner gets `undefined` —
+   * indistinguishable at the controller from "no such job", so this is not an
+   * enumeration oracle over a uuid.
+   *
+   * PLAN: `id` is the PK, so this is a one-row index scan with the jsonb
+   * extraction applied as a filter on that single tuple. No new index needed.
+   */
+  async findByIdForWorker(id: string, workerId: string): Promise<AiJob | undefined> {
+    const rows = await this.db
+      .select()
+      .from(aiJobs)
+      .where(and(eq(aiJobs.id, id), sql`${aiJobs.inputRef}->>'worker_id' = ${workerId}`))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
    * Newest `profile_extraction` job for a session that could make a fresh
    * extraction redundant (issue #420), together with the profile it produced.
    *

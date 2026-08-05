@@ -232,7 +232,8 @@ class ApiClient {
   /// Extracts the worker's profile from their chat answers.
   ///
   /// Extraction runs as a background job on the API. This method enqueues the
-  /// job (POST /profile/extract -> 202) and then polls GET /ai-jobs/{id} until
+  /// job (POST /profile/extract -> 202) and then polls
+  /// GET /workers/me/ai-jobs/{id} until
   /// the job completes, returning the resulting `profile_id`. Callers can treat
   /// this as a single awaitable that yields a usable profile id.
   ///
@@ -265,16 +266,19 @@ class ApiClient {
     return EnqueueResult.fromJson(json);
   }
 
-  /// Fetches the current state of the worker's OWN async AI job.
+  /// Fetches the current state of an async AI job — `GET /workers/me/ai-jobs/{id}`.
   ///
-  /// Worker-scoped: GET /profile/ai-jobs/:id (WorkerAuthGuard, owner-checked on
-  /// `ai_jobs.input_ref.worker_id`) — requires [authToken]. The ops read
-  /// (GET /ai-jobs/:id) stays behind InternalServiceGuard; a client must never
-  /// hold that token, so profile-extraction + voice-transcription polling ride
-  /// this owner-scoped route instead.
+  /// Worker-scoped and AUTHENTICATED. This used to call the ops route
+  /// `GET /ai-jobs/{id}` with no credential at all; once that route was put behind
+  /// InternalServiceGuard every poll 401'd, which broke profile extraction and voice
+  /// transcription in any real build (mocks hid it). The worker route enforces
+  /// ownership server-side, so a job belonging to someone else answers 404 — the
+  /// same answer as a job that does not exist.
   Future<AiJob> getAiJob(String aiJobId, {required String authToken}) async {
-    final Map<String, dynamic> json =
-        await _get('/profile/ai-jobs/$aiJobId', authToken: authToken);
+    final Map<String, dynamic> json = await _get(
+      '/workers/me/ai-jobs/$aiJobId',
+      authToken: authToken,
+    );
     return AiJob.fromJson(json);
   }
 
@@ -306,10 +310,10 @@ class ApiClient {
         return profileId;
       }
       if (job.isFailed) {
-        throw ApiException(
-          502,
-          job.errorMessage ?? 'profile extraction failed',
-        );
+        // The server no longer sends the raw failure reason (it can carry
+        // infrastructure detail). This message was the fallback anyway: the UI
+        // maps on status code, never on the text.
+        throw ApiException(502, 'profile extraction failed');
       }
       await Future<void>.delayed(schedule[attempt]);
     }

@@ -401,6 +401,42 @@ export const EVENT_REGISTRY = {
   "payer.created": { version: 1, domain: "payer", payload: p.PayerCreatedPayload },
   "payer.login_requested": { version: 1, domain: "payer", payload: p.PayerLoginRequestedPayload },
   "payer.session_started": { version: 1, domain: "payer", payload: p.PayerSessionStartedPayload },
+  // Payer LIFECYCLE transitions (ADR-0037): pending → active on first successful OTP
+  // verification, and the admin suspend/reinstate pair. FACELESS: opaque payer_id + the
+  // two closed status enums. These are additive and v1; `admin.action_performed` still
+  // records the ADMIN's action separately (value-free), so an admin-driven transition
+  // produces both — one says "an admin did a thing", this one says "the payer moved
+  // from X to Y". All three share one payload shape.
+  "payer.activated": { version: 1, domain: "payer", payload: p.PayerLifecycleTransitionPayload },
+  "payer.suspended": { version: 1, domain: "payer", payload: p.PayerLifecycleTransitionPayload },
+  "payer.reinstated": { version: 1, domain: "payer", payload: p.PayerLifecycleTransitionPayload },
+  // The INVENTORY half of a suspension (ADR-0037 Decision 1). Emitted alongside — never
+  // instead of — `payer.suspended`/`payer.reinstated`: the session freeze and the job
+  // freeze are separate state changes on separate tables and either can move zero rows.
+  // Counts only, so one admin click cannot emit hundreds of events. Both v1.
+  "payer.inventory_suspended": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerInventoryTransitionPayload,
+  },
+  "payer.inventory_reinstated": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerInventoryTransitionPayload,
+  },
+  // ADR-0037 Decision 5 — a login code was reserved for a SUSPENDED account but not sent.
+  // The only record of that attempt: the HTTP response stays neutral by design, and no
+  // `payer.login_requested` is emitted because no code was actually delivered. v1.
+  "payer.otp_suppressed": { version: 1, domain: "payer", payload: p.PayerOtpSuppressedPayload },
+  // ADR-0037 Decision 6 — a captured payment was credited to a SUSPENDED payer. An ops
+  // alert for Finance/Admin, NOT a rejection: the money is already taken and there is no
+  // refund path, so the credit is applied and a human is told. The credits are unspendable
+  // until reinstatement (PayerAuthGuard requires `active`). v1.
+  "payer.suspended_payment_captured": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerSuspendedPaymentCapturedPayload,
+  },
   // A payer self-edited their own account on PATCH /payer/me (PROF-3). FACELESS:
   // opaque payer_id + the changed field KEYS (subset of {org_name, phone}) ONLY —
   // never the new org-name/phone VALUES (B-R2 PII lives encrypted in `payers`). v1.
@@ -556,6 +592,27 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "referral",
     payload: p.ReferralBonusAccruedPayload,
+  },
+
+  // B4 — the `referral_links` resolver primitive. All three carry the opaque
+  // `referral_link_id`, NEVER the shareable `code` (a bearer token — same rule as
+  // `invite.clicked`). `install_claimed` is the one that closes attribution, and it is
+  // emitted at most once per worker (the partial unique index on
+  // `referral_clicks.claimed_by_worker_id` is what enforces that, not the emitter). v1.
+  "referral.link_created": {
+    version: 1,
+    domain: "referral",
+    payload: p.ReferralLinkCreatedPayload,
+  },
+  "referral.link_clicked": {
+    version: 1,
+    domain: "referral",
+    payload: p.ReferralLinkClickedPayload,
+  },
+  "referral.install_claimed": {
+    version: 1,
+    domain: "referral",
+    payload: p.ReferralInstallClaimedPayload,
   },
 
   // ── Matching V1 (ADR-0036) ────────────────────────────────────────────────

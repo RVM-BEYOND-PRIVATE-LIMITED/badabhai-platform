@@ -7,6 +7,9 @@ import { AdminEventsController } from "./admin-events.controller";
 import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
+import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminFinanceController } from "./admin-finance.controller";
+import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { type AdminCapability } from "./admin-capabilities";
@@ -190,7 +193,7 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     );
   }
 
-  it("discovers the nine entity-action routes (no route silently dropped)", () => {
+  it("discovers the ten entity-action routes (no route silently dropped)", () => {
     expect(routeMethods.sort()).toEqual(
       [
         "suspendPayer",
@@ -202,6 +205,10 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
         "inviteAdmin",
         "changeAdminRole",
         "suspendAdmin",
+        // ADR-0038 — the lost-TOTP-device recovery path. Without it a lost phone was a
+        // PERMANENT lockout: clear() had zero callers and setMfaEnrolled was only ever
+        // called with true.
+        "resetAdminMfa",
       ].sort(),
     );
   });
@@ -240,6 +247,10 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     expect(capabilityOf("inviteAdmin")).toBe("manage_admins");
     expect(capabilityOf("changeAdminRole")).toBe("manage_admins");
     expect(capabilityOf("suspendAdmin")).toBe("manage_admins");
+    // ADR-0038 — resetting someone's second factor is an admin-management act, so it sits
+    // under the SAME super_admin-only capability. A weaker one (say ops_admin) would let a
+    // lower-privileged role strip MFA off a super_admin, which inverts the whole hierarchy.
+    expect(capabilityOf("resetAdminMfa")).toBe("manage_admins");
   });
 });
 
@@ -343,5 +354,240 @@ describe("ADMIN-3c kill-switch routes — guarded + toggle_kill_switch + SAFE-DI
       expect(onMethod, `${method} must declare a method-level @RequireAdminRole`).toBeDefined();
       expect(capabilityOf(method)).toBe("toggle_kill_switch");
     }
+  });
+});
+
+describe("BP-1 entity-read routes — guarded, read-only, and read_entities-scoped (must-fix #4 extended)", () => {
+  const proto = AdminEntitiesController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminEntitiesController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  function capabilityOf(method: string): AdminCapability | undefined {
+    const fn = (proto[method] ?? undefined) as object | undefined;
+    return (
+      (fn && (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, fn) as AdminCapability | undefined)) ??
+      (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminEntitiesController) as
+        | AdminCapability
+        | undefined)
+    );
+  }
+
+  it("discovers the eight entity-read routes (no route silently dropped)", () => {
+    expect(routeMethods.sort()).toEqual(
+      [
+        "listWorkers",
+        "getWorker",
+        "listPayers",
+        "getPayer",
+        "getPayerCredits",
+        "listJobPostings",
+        "getJobPosting",
+        "listApplications",
+      ].sort(),
+    );
+  });
+
+  it("EVERY entity-read route carries AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminEntitiesController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("EVERY entity-read route declares method-level @RequireAdminRole('read_entities')", () => {
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminEntitiesController) as
+      | AdminCapability
+      | undefined;
+    expect(onClass, "AdminEntitiesController must NOT declare a class-level capability").toBeUndefined();
+    for (const method of routeMethods) {
+      const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as
+        | AdminCapability
+        | undefined;
+      expect(onMethod, `${method} must declare a method-level @RequireAdminRole`).toBeDefined();
+      expect(capabilityOf(method)).toBe("read_entities");
+    }
+  });
+
+  it("the surface is READ-ONLY by construction — every route is a GET, none is a write verb", () => {
+    // Nest stores the HTTP verb as route metadata under "method" (RequestMethod.GET === 0).
+    // Structural, not conventional: a POST/PATCH/DELETE added to this controller would bypass
+    // AdminActionsService and therefore mutate system-of-record state with NO
+    // `admin.action_performed` audit — the exact failure the admin design exists to prevent.
+    for (const method of routeMethods) {
+      const verb = Reflect.getMetadata("method", proto[method] as object) as number;
+      expect(verb, `${method} must be a GET (this controller is read-only)`).toBe(0);
+    }
+  });
+
+  it("the repository issues no write against ANY table (read-only data access)", () => {
+    // The spine guard above covers `events`. This is the wider promise for BP-1: the entity
+    // repository never writes anything at all.
+    const repo = readFileSync(join(ADMIN_DIR, "admin-entities.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
+  });
+
+  it("the repository never projects a PII column (the faceless contract, enforced on source)", () => {
+    // The projection is the boundary, so pin it where it is written. These identifiers are the
+    // encrypted/hashed/raw PII columns on `workers` and `payers`; none may appear in a select
+    // list here. A future `select()` with no projection would return them silently — that is
+    // why the whole-row form is banned on the next line rather than just these names.
+    const repo = readFileSync(join(ADMIN_DIR, "admin-entities.repository.ts"), "utf8");
+    const source = repo
+      .split("\n")
+      .filter((l) => !l.trimStart().startsWith("*") && !l.trimStart().startsWith("//"))
+      .join("\n");
+    for (const forbidden of [
+      "phoneE164",
+      "phoneHash",
+      "fullName",
+      "emailEnc",
+      "emailHash",
+      "phoneEnc",
+      "orgNameEnc",
+      "photoStorageKey:", // the boolean is fine; projecting the key under its own name is not
+      "paymentRef",
+    ]) {
+      expect(source, `admin-entities.repository must not project ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+    // No unprojected `select()` — that form returns every column, PII included.
+    expect(source).not.toMatch(/\.select\(\s*\)/);
+  });
+});
+
+describe("BP-2 finance routes — guarded, read-only, and free of external references", () => {
+  const proto = AdminFinanceController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminFinanceController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers the three finance routes (no route silently dropped)", () => {
+    expect(routeMethods.sort()).toEqual(["ledger", "orders", "summary"].sort());
+  });
+
+  it("EVERY finance route carries AdminAuthGuard AND AdminRolesGuard", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminFinanceController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("EVERY finance route declares method-level @RequireAdminRole('read_entities')", () => {
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminFinanceController) as
+      | AdminCapability
+      | undefined;
+    expect(onClass, "AdminFinanceController must NOT declare a class-level capability").toBeUndefined();
+    for (const method of routeMethods) {
+      const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as
+        | AdminCapability
+        | undefined;
+      expect(onMethod, `${method} must declare a method-level @RequireAdminRole`).toBe("read_entities");
+    }
+  });
+
+  it("the surface is READ-ONLY by construction — every route is a GET", () => {
+    // A write here would move money with no `admin.action_performed` audit. Grants go
+    // through AdminActionsService, which emits one.
+    for (const method of routeMethods) {
+      expect(Reflect.getMetadata("method", proto[method] as object) as number).toBe(0);
+    }
+  });
+
+  it("the finance repository issues no write against any table", () => {
+    const repo = readFileSync(join(ADMIN_DIR, "admin-finance.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(repo).not.toMatch(/\.select\(\s*\)/); // never an unprojected whole-row read
+  });
+
+  it("the finance repository never projects an EXTERNAL reference or a secret", () => {
+    // These originate outside this codebase (a gateway, or a caller), so their contents are
+    // the one thing we cannot vouch for. Nothing on the screens needs them.
+    // Strip comment lines before scanning: this file NAMES the forbidden fields in prose,
+    // and matching its own documentation would be a test that can never pass.
+    const src = readFileSync(join(ADMIN_DIR, "admin-finance.repository.ts"), "utf8").replace(
+      /^\s*(\/\/|\*|\/\*).*$/gm,
+      "",
+    );
+    for (const forbidden of ["paymentRef", "providerPaymentRef", "providerOrderId", "idempotencyKey"]) {
+      expect(src, `admin-finance.repository must not project ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it("the payments posture is derived from the SHARED config helper, not a second flag read", () => {
+    // Two independent readings of PAYMENTS_ENABLE_REAL would be two sources of truth about
+    // whether money is real — the Finance screen and the kill-switch screen could disagree.
+    const svc = readFileSync(join(ADMIN_DIR, "admin-finance.service.ts"), "utf8");
+    expect(svc).toContain("areRealPaymentsEnabled");
+    expect(svc).toContain("realPaymentsBlockedReason");
+    expect(svc).not.toMatch(/config\.PAYMENTS_ENABLE_REAL/);
+  });
+});
+
+describe("BP-3 administration routes — guarded, read-only, and secret-free", () => {
+  const proto = AdminDirectoryController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminDirectoryController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers the two administration routes", () => {
+    expect(routeMethods.sort()).toEqual(["capabilities", "directory"].sort());
+  });
+
+  it("BOTH routes carry AdminAuthGuard AND AdminRolesGuard", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminDirectoryController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("the directory is manage_admins; the matrix is read_entities (deliberately different)", () => {
+    const capOf = (m: string) =>
+      Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[m] as object) as AdminCapability;
+    expect(capOf("directory")).toBe("manage_admins");
+    expect(capOf("capabilities")).toBe("read_entities");
+    expect(
+      Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminDirectoryController),
+      "must NOT declare a class-level capability",
+    ).toBeUndefined();
+  });
+
+  it("the surface is READ-ONLY by construction — every route is a GET", () => {
+    for (const method of routeMethods) {
+      expect(Reflect.getMetadata("method", proto[method] as object) as number).toBe(0);
+    }
+  });
+
+  it("the directory repository issues no write and never projects a secret or identity", () => {
+    const repo = readFileSync(join(ADMIN_DIR, "admin-directory.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(repo).not.toMatch(/\.select\(\s*\)/);
+    const src = repo.replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+    // `mfaSecretEnc` is the TOTP seed: returning it is a permanent second-factor bypass.
+    for (const forbidden of ["emailEnc", "emailHash", "nameEnc", "mfaSecretEnc"]) {
+      expect(src, `admin-directory.repository must not project ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+  });
+
+  it("the served matrix is DERIVED via can(), not read off the constant a second way", () => {
+    // Reading ADMIN_CAPABILITY_MATRIX directly would let this route and the guard diverge
+    // if the lookup ever gained a rule (a deny-list, a role hierarchy).
+    const svc = readFileSync(join(ADMIN_DIR, "admin-directory.service.ts"), "utf8");
+    expect(svc).toContain("can(role, capability)");
   });
 });

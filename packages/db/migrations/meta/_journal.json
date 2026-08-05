@@ -421,6 +421,48 @@
       "when": 1785485222108,
       "tag": "0059_boost_tiers_widened",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1785580125201,
+      "tag": "0060_referral_links_and_clicks",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1785746510135,
+      "tag": "0061_glorious_pepper_potts",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1785750578288,
+      "tag": "0062_harsh_stepford_cuckoos",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1785754292455,
+      "tag": "0063_dusty_captain_universe",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1785842428887,
+      "tag": "0064_eminent_winter_soldier",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1785845388398,
+      "tag": "0065_nice_mysterio",
+      "breakpoints": true
     }
   ]
 }

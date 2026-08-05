@@ -139,7 +139,7 @@ class AppTypography {
   }
 
   /// The one Roboto resolver behind [body] + [eyebrow], so the #350 delivery
-  /// branch lives in exactly one place. Carries the Devanagari
+  /// branch lives in exactly one place per family. Carries the Devanagari
   /// fallback so regional copy renders on budget handsets.
   static TextStyle _mukta({
     required double size,

@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Inject,
@@ -147,6 +148,34 @@ export class PayerAuthService {
       await this.orgs.ensureSoloOrg(account.id);
     }
 
+    // ADR-0037 — a SUSPENDED payer proves mailbox control but gets no session.
+    //
+    // The 403 is deliberately DISTINCT from the 401 an unknown/expired code returns, and
+    // that costs no enumeration: to reach this line the caller has already presented a
+    // valid single-use code for a real account, so they have proven both that the account
+    // exists and that they control its mailbox. There is no oracle left to protect — and
+    // TD110 records what the alternative costs: payer login was down end-to-end and stayed
+    // invisible precisely because the client collapses every verify failure into one
+    // neutral message. A suspended payer must be able to learn WHY.
+    if (account.status === "suspended") {
+      throw new ForbiddenException("Account is suspended");
+    }
+
+    // First successful verification promotes the payer to `active`. The pending→active
+    // predicate lives in the WHERE clause (see PayersRepository.activate), so this is
+    // idempotent on every later login and structurally cannot resurrect a suspended row.
+    // The event fires ONLY on the transition, so it marks first-verification exactly once.
+    if (await this.payers.activate(account.id)) {
+      await this.events.emit({
+        event_name: "payer.activated",
+        actor: { actor_type: "payer", actor_id: account.id },
+        subject: { subject_type: "payer", subject_id: account.id },
+        payload: { payer_id: account.id, previous_status: "pending", new_status: "active" },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    }
+
     // Carry the role onto the session (ADR-0022) so PayerRoleGuard gates agent-only routes
     // without a DB hit; pre-ADR-0022 sessions (no role) resolve it via the guard's fallback.
     // (The session `org_id`/`org_role` claim lands with the member API + PayerOrgRoleGuard in B5.3.)
@@ -201,6 +230,42 @@ export class PayerAuthService {
     emitRequested: boolean,
   ): Promise<PayerOtpIssued> {
     const row = await this.payers.findById(payerId);
+
+    // ADR-0037 Decision 5 — RESERVE but do NOT DELIVER for a suspended account.
+    //
+    // Placed HERE, not in `requestLogin`, because this helper is the single chokepoint both
+    // doors go through: signup also lands here (an existing email `createOrGet`s back to the
+    // same account), so a suspended payer could otherwise re-trigger delivery just by
+    // "signing up" again. One check covers both.
+    //
+    // Reached BEFORE `decryptContact`: there is no reason to decrypt three PII fields for a
+    // message that will never be sent.
+    //
+    // The reserve is the SAME call the unknown-email branch makes, so the per-account
+    // cooldown, the hourly cap and the GLOBAL daily send breaker all still run and still
+    // produce the same 429s. Only the ZeptoMail send is skipped — the platform stops paying
+    // to mail an account it has banned, and a suspended account cannot be used to burn the
+    // shared daily send ceiling.
+    //
+    // The HTTP response is byte-identical to the normal one; the attempt is recorded ONLY on
+    // the spine, which is what makes repeated probing of a banned account visible to ops
+    // without being visible to the caller.
+    if (row?.status === "suspended") {
+      const issued = await this.otp.issueWithoutDelivery(this.emailHash(email));
+      // Emitted INSTEAD of `payer.login_requested`, not alongside it: no login code was
+      // delivered, so counting one would overstate the login funnel and would bury repeated
+      // probing of a banned account inside ordinary traffic.
+      await this.events.emit({
+        event_name: "payer.otp_suppressed",
+        actor: { actor_type: "payer", actor_id: payerId },
+        subject: { subject_type: "payer", subject_id: payerId },
+        payload: { payer_id: payerId, reason: "account_suspended" },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+      return issued;
+    }
+
     const contact = row ? this.payers.decryptContact(row) : null;
 
     let issued: PayerOtpIssued;

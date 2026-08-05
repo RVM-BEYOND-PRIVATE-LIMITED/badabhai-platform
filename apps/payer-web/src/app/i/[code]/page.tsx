@@ -1,5 +1,11 @@
 import type { Metadata } from "next";
-import { pingInviteClick, playStoreUrl } from "../../../lib/invite-landing";
+import {
+  intentUrl,
+  isWellFormedInviteCode,
+  pingInviteClick,
+  playStoreBrowseUrl,
+  playStoreUrl,
+} from "../../../lib/invite-landing";
 
 /**
  * PUBLIC referral landing page — `https://app.badabhai.in/i/<code>` (blocker B4).
@@ -32,11 +38,41 @@ import { pingInviteClick, playStoreUrl } from "../../../lib/invite-landing";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * OPEN GRAPH (B4). WhatsApp is the actual distribution channel here: an agent forwards a
+ * link into a group, and what recipients see is the preview card, not the URL. A link with
+ * no OG tags renders as a bare grey string, which reads as spam and materially depresses
+ * the forward→tap rate this whole commission channel depends on.
+ *
+ * STATIC, NOT PER-CODE — deliberately. Generating the card from the code would resolve the
+ * code at render time and reintroduce the existence ORACLE the page's header rules out: a
+ * valid and an invalid code must produce byte-identical output. It also means WhatsApp's
+ * crawler fetch stays a pure cache hit that touches no referral state.
+ *
+ * `og:image` is intentionally ABSENT rather than pointed at a placeholder. WhatsApp renders
+ * a clean title+description card when no image is declared, but shows a broken-image frame
+ * when one is declared and fails to load — worse than none. Add one here only alongside a
+ * real, cached, <300KB asset.
+ */
 export const metadata: Metadata = {
   title: "BadaBhai — apna profile banaiye",
   description: "BadaBhai app install karke apna profile banaiye aur naukri ke liye taiyar rahiye.",
   // A referral link is shared person-to-person; it has no business in a search index.
   robots: { index: false, follow: false },
+  openGraph: {
+    type: "website",
+    siteName: "BadaBhai",
+    title: "BadaBhai — apna profile banaiye",
+    description:
+      "CNC, VMC aur factory ke kaam ke liye. App install kijiye, apna profile aur resume bilkul free banaiye.",
+    locale: "hi_IN",
+  },
+  twitter: {
+    card: "summary",
+    title: "BadaBhai — apna profile banaiye",
+    description:
+      "CNC, VMC aur factory ke kaam ke liye. App install kijiye, apna profile aur resume bilkul free banaiye.",
+  },
 };
 
 /**
@@ -50,11 +86,7 @@ const STEPS: readonly string[] = [
   "Apna profile aur resume taiyar milega, bilkul free",
 ];
 
-export default async function InviteLandingPage({
-  params,
-}: {
-  params: Promise<{ code: string }>;
-}) {
+export default async function InviteLandingPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
 
   // Record the click server-side, best-effort. This is the ONLY thing the code is used for
@@ -62,9 +94,25 @@ export default async function InviteLandingPage({
   // failure/timeout changes nothing that a visitor can observe.
   await pingInviteClick(code);
 
+  // THE FALLBACK LEG LANDS HERE TOO (`/i/unknown`), so the code is not necessarily real.
+  // A malformed code must NOT ride to Play as `referrer=bb_code=unknown`: the app would read
+  // that junk back on first run and burn its one install-referrer claim attempt on a code
+  // that resolves to nothing. An unattributed install is the honest outcome.
+  const attributable = isWellFormedInviteCode(code);
+
   // The referral payload rides to Play as `referrer=bb_code=<code>`, which the app reads
   // back through the Install Referrer API on first run.
-  const installUrl = playStoreUrl(code);
+  const installUrl = attributable ? playStoreUrl(code) : playStoreBrowseUrl();
+
+  // Leg 2 of the fallback chain — "open the app if installed, else Play Store WITH the
+  // referrer". Rendered as a SECONDARY, user-tapped link, never an automatic redirect: the
+  // header's warning about the `badabhai://` interstitial is about auto-redirecting people
+  // who do NOT have the app, and that audience is exactly who lands here. An explicit
+  // "already have the app?" affordance costs them nothing and rescues the installed-but-
+  // App-Link-unverified case, which is EVERY Android user until P0-6 lands.
+  // Suppressed for an unusable code — a deep link into `badabhai://i/unknown` would open the
+  // app onto a code it cannot resolve, which is worse than not offering the shortcut.
+  const openInAppUrl = attributable ? intentUrl(code) : null;
 
   return (
     <main className="invite-landing">
@@ -72,8 +120,8 @@ export default async function InviteLandingPage({
         <p className="invite-landing__eyebrow">Aapko invite mila hai</p>
         <h1 className="invite-landing__title">BadaBhai par apna profile banaiye</h1>
         <p className="invite-landing__sub">
-          CNC, VMC aur factory ke kaam ke liye. Apni jaankari ek baar dijiye, aur company
-          aap tak khud pahunchegi.
+          CNC, VMC aur factory ke kaam ke liye. Apni jaankari ek baar dijiye, aur company aap tak
+          khud pahunchegi.
         </p>
 
         <a
@@ -96,12 +144,22 @@ export default async function InviteLandingPage({
         </ol>
 
         <p className="invite-landing__note">
-          Aapki jaankari aapke control me rehti hai. Aapki permission ke bina aapka number
-          kisi company ko nahi diya jata.
+          Aapki jaankari aapke control me rehti hai. Aapki permission ke bina aapka number kisi
+          company ko nahi diya jata.
         </p>
-        <p className="invite-landing__note invite-landing__note--muted">
-          App pehle se install hai, to yeh link seedhe app me khul jayega.
-        </p>
+        {openInAppUrl ? (
+          <p className="invite-landing__note invite-landing__note--muted">
+            App pehle se install hai, to{" "}
+            <a href={openInAppUrl} rel="noopener">
+              yahan se app me kholein
+            </a>
+            .
+          </p>
+        ) : (
+          <p className="invite-landing__note invite-landing__note--muted">
+            App pehle se install hai, to yeh link seedhe app me khul jayega.
+          </p>
+        )}
       </div>
     </main>
   );

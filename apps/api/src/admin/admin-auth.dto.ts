@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AdminRole } from "@badabhai/db";
+import type { AdminCapability } from "./admin-capabilities";
 
 /**
  * Admin auth DTOs (ADR-0025 ADMIN-1). The login identifier is the admin's work EMAIL (the
@@ -77,8 +78,16 @@ export interface AdminRefreshResponse {
   expires_in_seconds: number;
 }
 
-/** The authenticated admin's own identity view (GET /admin/me). PII-FREE: id + role only. */
+/**
+ * The authenticated admin's own identity view (GET /admin/me). PII-FREE: id, role and the
+ * server-resolved capability list — no name, no email, nothing derived from one.
+ *
+ * `capabilities` is what the Admin Portal renders against so it never carries its own copy of
+ * `ADMIN_CAPABILITY_MATRIX` (see `capabilitiesFor`). It is advisory to the client and
+ * authoritative nowhere: every route still enforces `@RequireAdminRole` independently.
+ */
 export interface AdminMeResponse {
   admin_id: string;
   role: AdminRole;
+  capabilities: AdminCapability[];
 }

@@ -68,6 +68,21 @@ compiles and tests pass. If a task requires breaking one, **stop and escalate** 
    [`apps/ai-service/app/contracts.py`](apps/ai-service/app/contracts.py).
 8. **Backward compatibility.** Never mutate a shipped event payload schema or drop a DB
    column in use — version it (the `bb-database-design` + `migration` skills).
+9. **Frontend code never compensates for backend inconsistencies.** (Owner, 2026-08-03 —
+   platform-wide.) Every backend defect is corrected **at its source**. UI may present errors
+   gracefully; it must **not** carry business logic that masks a server-side flaw, nor
+   re-implement a server authority (authorization tables, pricing, eligibility) as a second
+   copy. A UI workaround hides the defect from everyone else who will hit it. Found one
+   mid-build? Document it with reproducible evidence and hand it back.
+10. **No feature is complete until it can be reproduced from an EMPTY database using an
+    executable runbook.** (Owner, 2026-08-03 — every repository, every future feature.)
+    **A long-lived developer database is not evidence** — it silently carries state nobody
+    can reconstruct, so a flow that "works" there may never have worked from zero. Each
+    major feature proves the full sequence: fresh DB · fresh Redis · fresh object storage ·
+    fresh queues · bootstrap · authentication · core workflow · restart · recovery ·
+    rollback. If that sequence fails, the feature is **incomplete** — not "done with a known
+    issue". Pattern to copy:
+    [admin-foundation-verification-runbook.md](docs/admin-foundation-verification-runbook.md).
 
 ---
 
@@ -174,6 +189,26 @@ by [CI](.github/workflows/ci.yml). The `bb-feature-planning` skill is the runnab
 - [ ] No secrets / `.env` committed
 - [ ] Docs/registers updated (decisions, risks, tech-debt as relevant)
 - [ ] Reviewed (`/code-review`) and, for any PII/AI/auth change, `/security-review`
+
+### Definition of DONE for a workstream (owner, 2026-08-03)
+
+The per-PR gates above are the **merge** bar. A *workstream* (Admin Portal, and every
+future one) is **not** complete on "all tests pass". It is complete when all ten hold:
+
+Architectural verification · Security verification · **Mutation testing** ·
+**Clean-environment verification** (invariant #10) · Disaster-recovery verification ·
+Operational runbook · Rollback procedure · Performance validation · Documentation ·
+Production-readiness checklist.
+
+> **Mutation testing** is the standard this repo already holds: a passing test is evidence
+> only once you have *seen it fail*. Mutate the guard, the capability lookup, and the
+> empty/error branch; confirm each is caught; report any mutation that survived rather than
+> presenting a clean sheet.
+
+**Security tooling must be deterministic** (owner, 2026-08-03): pinned versions, pinned
+rule sets, reproducible locally *and* in CI, with a documented update cadence. A scan must
+fail because **the code changed**, never because **the rules changed overnight** — an
+always-red check trains everyone to stop reading it. Tracked as **TD131**.
 
 ---
 

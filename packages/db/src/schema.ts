@@ -113,6 +113,11 @@ export const workers = pgTable(
     index("workers_deletion_due_idx")
       .on(t.deletionScheduledAt)
       .where(sql`"deletion_scheduled_at" IS NOT NULL`),
+    // BP-1 — the admin faceless-list keyset. `(created_at DESC, id DESC)` is the EXACT sort
+    // the admin read orders by, so the page comes straight out of the index instead of
+    // sorting the table. `id` last is what makes the ordering total: without it a page
+    // boundary landing inside a bulk insert's shared timestamp silently skips or repeats.
+    index("workers_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
   ],
 ).enableRLS(); // RLS tracked in the model so db:generate keeps it (migration 0003/0004 carry the SQL)
 
@@ -150,10 +155,28 @@ export const payers = pgTable(
     // Business display name — B2B PII; ciphertext at rest (no lookup hash needed).
     orgNameEnc: text("org_name_enc").notNull(), // AES ciphertext token
     status: text("status").$type<PayerStatus>().notNull().default("pending"),
+    /**
+     * The status a SUSPEND moved the payer OUT of, so REINSTATE can restore it
+     * (ADR-0037: "reinstate restores the previous usable state").
+     *
+     * Load-bearing, not bookkeeping. Suspend accepts BOTH `pending` and `active`;
+     * without this column reinstate would have to hardcode `→ active`, which is a
+     * BACKDOOR ACTIVATION: suspend a never-verified payer, reinstate, and they land
+     * active having never passed OTP — defeating the lifecycle it implements.
+     *
+     * NULL means "never suspended" (or suspended before this column existed);
+     * reinstate then falls back to `pending`, the fail-closed direction. Cleared on
+     * reinstate so it only ever describes the CURRENT suspension.
+     */
+    previousStatus: text("previous_status").$type<PayerStatus>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("payers_email_hash_uq").on(t.emailHash)],
+  (t) => [
+    uniqueIndex("payers_email_hash_uq").on(t.emailHash),
+    // BP-1 — the admin Companies/Agencies keyset (see workers_admin_keyset_idx).
+    index("payers_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
+  ],
 ).enableRLS(); // RLS tracked in the model; REVOKE carried by the migration (ADR-0004 posture)
 
 // ---------------------------------------------------------------------------
@@ -985,10 +1008,25 @@ export const jobPostings = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
+    // ADR-0037 — the live status this posting held before the owning payer was suspended,
+    // so reinstatement restores it EXACTLY (`open` stays open, `paused` stays paused)
+    // instead of guessing. Written only by the suspension cascade and cleared by the
+    // reinstatement cascade; NULL at every other moment, so a non-NULL value on a row that
+    // is not `suspended` is a bug, not a state.
+    //
+    // Reinstating to a hardcoded `open` would silently RESUME a posting the payer had
+    // deliberately paused — publishing a job they took down, which is the one outcome a
+    // suspension must not cause.
+    previousStatus: text("previous_status").$type<JobPostingStatus>(),
   },
   (t) => [
     // Backs the ops list endpoint: filter by `status`, order by `created_at desc`.
     index("job_postings_status_created_at_idx").on(t.status, t.createdAt),
+    // ADR-0037 — backs the suspend/reinstate cascade, which is `WHERE payer_id = $1 AND
+    // status IN (...)`. `job_postings_payer_id_idx` below leads on payer_id but its second
+    // column is created_at, so the status predicate is a filter, not a seek. A payer with
+    // many postings is exactly the case where the cascade matters most.
+    index("job_postings_payer_id_status_idx").on(t.payerId, t.status),
     // Backs the payer self-serve list (own postings, newest first): WHERE payer_id, status.
     index("job_postings_payer_id_idx").on(t.payerId, t.createdAt),
     // ── Matching V1 feed + reconciliation indexes ─────────────────────────────
@@ -1009,9 +1047,22 @@ export const jobPostings = pgTable(
       "job_postings_vacancy_band_chk",
       sql`${t.vacancyBand} IN ('1', '2-5', '6-10', '11-25', '25+')`,
     ),
-    // Pin the lifecycle to the 4 allowed values (mirrors JOB_POSTING_STATUSES). `paused`
-    // (B1) is a reversible open<->paused state, additive to the original draft/open/closed.
-    check("job_postings_status_chk", sql`${t.status} IN ('draft', 'open', 'paused', 'closed')`),
+    // Pin the lifecycle to the 5 allowed values (mirrors JOB_POSTING_STATUSES). `paused`
+    // (B1) is a reversible open<->paused state, additive to the original draft/open/closed;
+    // `suspended` (ADR-0037) is the system state the payer-suspension cascade writes.
+    check(
+      "job_postings_status_chk",
+      sql`${t.status} IN ('draft', 'open', 'paused', 'suspended', 'closed')`,
+    ),
+    // ADR-0037 — `previous_status` describes a SUSPENSION and nothing else. Non-suspended
+    // rows must carry NULL, so a stale value can never be restored onto a posting that was
+    // legitimately closed or republished while the column was still set. Enforced in the DB
+    // because both the suspend and reinstate writes are one-statement cascades: there is no
+    // application-layer read to check it against.
+    check(
+      "job_postings_previous_status_chk",
+      sql`(${t.status} = 'suspended') OR (${t.previousStatus} IS NULL)`,
+    ),
     // Pin the trust review to the 3 allowed values (mirrors JOB_POSTING_VERIFICATION_STATUSES).
     check(
       "job_postings_verification_status_chk",
@@ -1074,8 +1125,21 @@ export const jobPostings = pgTable(
  * Keep this comment for historical context; the actual type is imported.
  */
 
-/** Job lifecycle — a seed job can be retired without deleting the row. */
-export type JobStatus = "open" | "closed";
+/**
+ * Job lifecycle — a seed job can be retired without deleting the row.
+ *
+ * `suspended` (ADR-0037) is the SYSTEM state written when the owning payer is suspended,
+ * and cleared when they are reinstated. It exists so the cascade does not have to overload
+ * `closed`, which is what an agency's own "pause" already maps to (pause == close on this
+ * table) and which a reinstatement must NOT reopen — closing is the payer's decision and
+ * survives a suspension.
+ *
+ * Unlike `job_postings` this table carries NO `previous_status`: it has exactly ONE live
+ * state, so a reinstatement restores `suspended -> open` deterministically and there is
+ * nothing to remember. If a third live state is ever added here, that stops being true and
+ * this table needs the column too.
+ */
+export type JobStatus = "open" | "closed" | "suspended";
 
 /**
  * When the job needs someone — the demand-side availability signal the Reach RANK
@@ -1171,6 +1235,9 @@ export const jobs = pgTable(
     index("jobs_status_created_at_idx").on(t.status, t.createdAt),
     // Covers the feed filtering (TD66) to avoid unindexed scans on trade_key/city
     index("jobs_status_trade_city_created_at_idx").on(t.status, t.tradeKey, t.city, t.createdAt),
+    // ADR-0037 — backs the payer-suspension cascade (`WHERE payer_id = $1 AND status = ...`).
+    // `payer_id` had NO index at all: every agency-owned read and the cascade were seq scans.
+    index("jobs_payer_id_status_idx").on(t.payerId, t.status),
     check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceived} >= 0`),
     // Pay/experience are non-negative when present, and the max is not below the min.
     check(
@@ -1306,6 +1373,10 @@ export const applications = pgTable(
         t.id,
       )
       .where(sql`${t.action} = 'applied'`),
+    // BP-1 — the admin applications keyset (see workers_admin_keyset_idx). The unfiltered
+    // and worker/action-filtered admin lists all order by this; the posting-scoped read is
+    // already served by applications_rank_idx / applications_job_id_idx.
+    index("applications_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
     // Exactly one job reference must be present. This is what makes "coexist" a DB
     // guarantee instead of a convention: a row with neither pointer cannot be written.
     check(
@@ -1494,6 +1565,13 @@ export const creditLedger = pgTable(
     index("credit_ledger_payer_id_idx").on(t.payerId),
     // Exactly-once: non-null keys are unique; many NULLs allowed (Postgres NULLS DISTINCT).
     uniqueIndex("credit_ledger_idempotency_key_uq").on(t.idempotencyKey),
+    // BP-1 — the admin per-payer ledger keyset. Payer-leading because the admin read is
+    // ALWAYS scoped to one payer; a bare (created_at, id) index would not serve it.
+    index("credit_ledger_payer_keyset_idx").on(t.payerId, t.createdAt.desc(), t.id.desc()),
+    // BP-2 — the PLATFORM-WIDE ledger keyset (Finance → recent movements, all payers). The
+    // payer-leading index above cannot serve an unscoped scan; this one can, and it is also
+    // what the by-reason aggregate ranges over.
+    index("credit_ledger_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
   ],
 );
 
@@ -2064,10 +2142,32 @@ export const adminUsers = pgTable(
     // login key (login finds the row without decrypting).
     emailEnc: text("email_enc").notNull(), // AES-256-GCM ciphertext token
     emailHash: text("email_hash").notNull(), // keyed HMAC-SHA256 (login lookup/dedup)
+    // Admin's display name. ADMIN-class PII, so it gets the SAME at-rest discipline as the
+    // email (ADR-0004): AES-256-GCM ciphertext, never a plaintext column. NULLABLE, because
+    // every admin created before this column existed has none and the invite flow does not
+    // collect one — a NOT NULL would have needed a fabricated backfill value.
+    //
+    // Deliberately NOT hashed: unlike the email it is never a lookup key, so there is no
+    // reason to make it searchable, and a hash would only invite someone to try.
+    nameEnc: text("name_enc"),
     role: text("role").$type<AdminRole>().notNull(),
     // Invite-then-activate (ADR-0025 OQ-2): default 'pending'. Only 'active' may auth.
     status: text("status").$type<AdminStatus>().notNull().default("pending"),
     mfaEnrolled: boolean("mfa_enrolled").notNull().default(false),
+    // The admin's TOTP secret, AES-256-GCM at rest (ADR-0038).
+    //
+    // MOVED HERE FROM REDIS, which is where `AdminMfaSecretStore` originally put it — its
+    // own docstring records that as a deviation forced by "no migration in ADMIN-1 scope"
+    // and asks for exactly this column. It is not cosmetic: the Redis key carried NO TTL and
+    // no persistence guarantee, so a flush or an eviction permanently locked out every
+    // enrolled admin, with no recovery path at all because the secret is shown once and
+    // never returned again. Done now because zero admins are enrolled (none can log in yet),
+    // so the move costs nothing; after the portal ships it would need a re-enrolment drill.
+    //
+    // NEVER logged, never evented, never returned by any read except the one-time
+    // enrolment response. The short-lived `admin_mfa_pending:<id>` flag stays in Redis —
+    // that one is genuinely ephemeral and TTL-bounded by design.
+    mfaSecretEnc: text("mfa_secret_enc"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2724,6 +2824,9 @@ export const paymentOrders = pgTable(
     uniqueIndex("payment_orders_provider_order_uq").on(t.provider, t.providerOrderId),
     // Ops/payer read: this payer's orders, newest first.
     index("payment_orders_payer_created_idx").on(t.payerId, t.createdAt),
+    // BP-2 — the admin Transactions keyset (all payers, newest first). The payer-leading
+    // index above cannot serve an unscoped scan.
+    index("payment_orders_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
     // A zero/negative-amount order is always a bug, never a real purchase.
     check("payment_orders_amount_pos_chk", sql`${t.amountInr} > 0`),
     // Same reasoning for the grant side: an order that buys zero (or negative) credits is
@@ -2950,6 +3053,182 @@ export type NewPayerJobPostingChatMessage = typeof payerJobPostingChatMessages.$
 export type PayerFormDraft = typeof payerFormDrafts.$inferSelect;
 export type NewPayerFormDraft = typeof payerFormDrafts.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// referral_links — THE RESOLVER PRIMITIVE (B4). One row per shareable link.
+//
+// WHY A THIRD TABLE AND NOT A FOURTH CODE SPACE. `invites` (worker→worker,
+// ADR-0020) and `agency_invites` (agency→worker, ADR-0022) each own an *actor*
+// relationship: who invited whom. Neither can express a campaign link, a QR at a
+// factory gate, or a link that carries deep-link CONTEXT (role/city) — and neither
+// records WHEN a link was clicked, which is what a match window needs. This table
+// is deliberately NOT a replacement for either: it is the SHARING/RESOLUTION layer
+// that sits in front of both. `GET /r/:code` resolves here first and falls through
+// to the two legacy code spaces, so there is ONE resolver, one click log, and one
+// place to audit — the growth-tech playbook's "one primitive, one attribution path".
+//
+// THE CODE IS A BEARER TOKEN. Anyone holding it can claim the referral, so it is
+// NEVER put in an event payload, a log line, or any response body beyond the
+// resolver's own redirect (the same rule `invite.clicked` already follows — see
+// InviteInstallPayload's header). Events carry `referral_link_id`, never `code`.
+//
+// PII-FREE (invariant #2): opaque UUIDs, a short opaque code, closed enums, and a
+// `payload` JSONB that is CONTRACT-BOUND to non-PII deep-link context (role slug,
+// city slug, campaign tag). No phone, no name, no employer — the same discipline
+// `invites.campaign` has held since ADR-0020.
+//
+// DPDP erasure: `owner_worker_id` is `onDelete: "set null"` (keep the PII-free
+// attribution row, drop the identity join — the ADR-0026 Phase 5 D3 posture that
+// `invites` already uses). `agent_payer_id` cascades, mirroring
+// `agency_invites.inviter_payer_id`: a payer is an internal tenant entity, not a
+// worker, and its links have no meaning once the tenant is gone.
+// ---------------------------------------------------------------------------
+
+/** Who owns a link. Drives which legacy funnel (if any) an attribution belongs to. */
+export type ReferralLinkKind = "agent" | "worker" | "campaign";
+
+/**
+ * ORGANIC vs PAID — the match-window discriminator, stamped on the LINK and
+ * snapshotted onto every click. A share forwarded on WhatsApp ("organic") is
+ * credited over a long window because the forward chain is slow; a paid click is
+ * credited over a short one because ad networks bill on last-touch and a long
+ * window would let a stale paid click steal an organic install. The two window
+ * lengths are config, never literals (REFERRAL_MATCH_WINDOW_*_HOURS).
+ */
+export type ReferralLinkMedium = "organic" | "paid";
+
+/** Coarse device class of a click. Diagnostics only — deliberately not a fingerprint. */
+export type ReferralClickPlatform = "android" | "desktop" | "other";
+
+export const referralLinks = pgTable(
+  "referral_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The opaque short token that is actually shared (`/r/<code>`). Unique.
+    code: text("code").notNull(),
+    kind: text("kind").$type<ReferralLinkKind>().notNull(),
+    medium: text("medium").$type<ReferralLinkMedium>().notNull().default("organic"),
+    // The agent/agency that owns this link (a `payers` row with role='agent').
+    // Nullable: a campaign or worker link has no agent.
+    agentPayerId: uuid("agent_payer_id").references(() => payers.id, { onDelete: "cascade" }),
+    // The worker that owns this link (a worker's own share). Nullable; SET NULL on
+    // DSAR erasure so the PII-free attribution row survives.
+    ownerWorkerId: uuid("owner_worker_id").references(() => workers.id, {
+      onDelete: "set null",
+    }),
+    // Stable, non-PII campaign tag (e.g. "gate-qr-pune-01"). Nullable.
+    campaignId: text("campaign_id"),
+    // CONTEXTUAL DEEP-LINK DATA ONLY — role slug, city slug, campaign context. The
+    // app reads this to land the worker on the right screen. Loose JSONB because
+    // each campaign owns its own shape, but see the header: NEVER PII.
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Nullable = never expires. A campaign link can be time-boxed; an agent's
+    // evergreen link is not.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("referral_links_code_uq").on(t.code),
+    // "This agent's links" — the agent dashboard read + the FK cascade's index.
+    index("referral_links_agent_payer_id_idx").on(t.agentPayerId),
+    index("referral_links_owner_worker_id_idx").on(t.ownerWorkerId),
+    // Campaign roll-ups; sparse, so partial.
+    index("referral_links_campaign_idx").on(t.campaignId).where(sql`${t.campaignId} IS NOT NULL`),
+    // Exactly one owner axis, or none (a pure campaign link). Both set would make
+    // "who gets the commission" ambiguous, which is the whole point of this table.
+    check(
+      "referral_links_single_owner_chk",
+      sql`NOT (${t.agentPayerId} IS NOT NULL AND ${t.ownerWorkerId} IS NOT NULL)`,
+    ),
+    check("referral_links_kind_chk", sql`${t.kind} IN ('agent', 'worker', 'campaign')`),
+    check("referral_links_medium_chk", sql`${t.medium} IN ('organic', 'paid')`),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0060
+
+// ---------------------------------------------------------------------------
+// referral_clicks — the CLICK LOG, and the row the first-touch claim locks.
+//
+// WHY IT EXISTS. Attribution needs a per-click TIMESTAMP to enforce a match window,
+// and neither `invites` nor `agency_invites` has one (they carry a status enum and
+// a mutable `updated_at`, which a later click overwrites). Without this row there is
+// no answer to "was the click that produced this install inside the window?".
+//
+// THE RACE, AND WHAT CLOSES IT. Two concurrent install-referrer posts for the same
+// worker used to be able to resolve two claims. The fix is BOTH halves together:
+//   1. `SELECT … FOR UPDATE` on the candidate click row inside the claim transaction
+//      (see ReferralClickRepository.claimFirstTouch), and
+//   2. `referral_clicks_claimed_worker_uq` — a PARTIAL UNIQUE index on
+//      `claimed_by_worker_id`. One claimed click per worker, EVER. The loser of a
+//      concurrent race hits a unique violation and is neutralised into a no-op.
+// (2) is the one that actually holds: a row lock alone cannot stop two transactions
+// that pick two DIFFERENT candidate rows, which is exactly what two clicks on two
+// different links produces. FIRST TOUCH WINS — the candidate query orders by
+// `clicked_at ASC`.
+//
+// EQUIVALENCE TO A PHONE-HASH KEY (deliberate): the playbook words this rule as
+// "unique on the phone hash + active window". `workers.phone_hash` is already UNIQUE,
+// so one worker id IS one phone — keying on `claimed_by_worker_id` enforces the
+// identical rule WITHOUT copying a phone-derived hash into a second table, which
+// would widen the PII surface for no gain (invariant #2). Claims are resolved
+// post-auth, so the worker id is always known at claim time.
+//
+// PII-FREE: `click_hash` is a keyed HMAC-SHA256 over (ip + user-agent) — the same
+// idiom as `workers.phone_hash` / `worker_devices.device_hash`. The raw IP and UA are
+// NEVER persisted. It exists only to de-duplicate refresh spam within a window.
+// ---------------------------------------------------------------------------
+export const referralClicks = pgTable(
+  "referral_clicks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The resolved link, when the code was one of ours. NULL for a legacy
+    // `invites`/`agency_invites` code, which the resolver still logs so the window
+    // rule covers links shared before this table existed.
+    referralLinkId: uuid("referral_link_id").references(() => referralLinks.id, {
+      onDelete: "cascade",
+    }),
+    // The code AS CLICKED. Needed to join a later claim (which arrives carrying only
+    // the code, via the install referrer) back to this row. A bearer token — never
+    // logged, never evented.
+    code: text("code").notNull(),
+    // Keyed HMAC-SHA256 over (ip + user-agent). NEVER the raw values (see header).
+    clickHash: text("click_hash").notNull(),
+    // Snapshot of the link's medium at click time — a later re-tag of the link must
+    // not retroactively change which window a past click was judged under.
+    medium: text("medium").$type<ReferralLinkMedium>().notNull().default("organic"),
+    // Coarse device class, for funnel diagnostics only. No fingerprint.
+    platform: text("platform").$type<ReferralClickPlatform>().notNull().default("other"),
+    clickedAt: timestamp("clicked_at", { withTimezone: true }).notNull().defaultNow(),
+    // Set ONCE when this click wins a worker's first-touch claim (see header).
+    claimedByWorkerId: uuid("claimed_by_worker_id").references(() => workers.id, {
+      onDelete: "set null",
+    }),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  },
+  (t) => [
+    // THE FIRST-TOUCH RULE'S TEETH. Partial: unclaimed rows are the overwhelming
+    // majority and must not contend on a unique index.
+    uniqueIndex("referral_clicks_claimed_worker_uq")
+      .on(t.claimedByWorkerId)
+      .where(sql`${t.claimedByWorkerId} IS NOT NULL`),
+    // The claim-resolution hot path: "unclaimed clicks for this code, oldest first".
+    index("referral_clicks_code_clicked_idx").on(t.code, t.clickedAt),
+    // Refresh-spam de-duplication within a window.
+    index("referral_clicks_hash_idx").on(t.clickHash, t.clickedAt),
+    // Link-scoped funnel counts + the FK cascade's index.
+    index("referral_clicks_link_idx").on(t.referralLinkId),
+    check("referral_clicks_medium_chk", sql`${t.medium} IN ('organic', 'paid')`),
+    // A claim is all-or-nothing: both columns set, or neither.
+    check(
+      "referral_clicks_claim_pair_chk",
+      sql`(${t.claimedByWorkerId} IS NULL) = (${t.claimedAt} IS NULL)`,
+    ),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0060
+
+export type ReferralLink = typeof referralLinks.$inferSelect;
+export type NewReferralLink = typeof referralLinks.$inferInsert;
+export type ReferralClick = typeof referralClicks.$inferSelect;
+export type NewReferralClick = typeof referralClicks.$inferInsert;
+
 /** All tables, handy for migrations/tests. */
 export const schema = {
   workers,
@@ -3005,4 +3284,6 @@ export const schema = {
   payerJobPostingChatSessions,
   payerJobPostingChatMessages,
   payerFormDrafts,
+  referralLinks,
+  referralClicks,
 };

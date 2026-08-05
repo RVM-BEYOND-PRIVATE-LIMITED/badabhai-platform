@@ -9,6 +9,7 @@ import {
   ADMIN_CAPABILITIES,
   ADMIN_CAPABILITY_MATRIX,
   can,
+  capabilitiesFor,
   type AdminCapability,
 } from "./admin-capabilities";
 
@@ -72,11 +73,46 @@ describe("AdminRolesGuard (ADR-0025 Decision 3 — deny-by-default)", () => {
     }
   });
 
-  it("NO-OP: a route with NO @RequireAdminRole metadata is not tightened (any admin passes)", () => {
-    expect(guard.canActivate(makeCtx({ admin: admin("analyst") }))).toBe(true);
+  // -------------------------------------------------------------------------
+  // REGRESSION: a route that mounts this guard and forgets @RequireAdminRole used to
+  // return true, exposing a privileged route to all four roles. It must now DENY.
+  // -------------------------------------------------------------------------
+  it("DENIES (403) a route with NO @RequireAdminRole metadata — for EVERY role, incl. super_admin", () => {
+    for (const role of ["super_admin", "ops_admin", "support", "analyst"] as const) {
+      expect(() => guard.canActivate(makeCtx({ admin: admin(role) }))).toThrow(ForbiddenException);
+    }
   });
 
-  it("REJECTS (401) when req.admin is absent (guards misordered / auth skipped — fail closed)", () => {
+  it("the undeclared-capability denial is INDISTINGUISHABLE from a real authz denial (no oracle)", () => {
+    // Same exception type and same message, so a caller cannot tell a misconfigured route
+    // from one they simply lack the capability for.
+    const undeclared = (() => {
+      try {
+        guard.canActivate(makeCtx({ admin: admin("analyst") }));
+      } catch (e) {
+        return e as ForbiddenException;
+      }
+    })();
+    const denied = (() => {
+      try {
+        guard.canActivate(makeCtx({ capability: "manage_admins", admin: admin("analyst") }));
+      } catch (e) {
+        return e as ForbiddenException;
+      }
+    })();
+    expect(undeclared).toBeInstanceOf(ForbiddenException);
+    expect(denied).toBeInstanceOf(ForbiddenException);
+    expect(undeclared!.getStatus()).toBe(denied!.getStatus());
+    expect(undeclared!.message).toBe(denied!.message);
+  });
+
+  it("DENIES an undeclared route even when req.admin is absent (403 before the 401 branch)", () => {
+    // The misconfiguration check runs first, so an unauthenticated probe of a mounted-but-
+    // undeclared route learns nothing about whether the route declares a capability.
+    expect(() => guard.canActivate(makeCtx({ admin: undefined }))).toThrow(ForbiddenException);
+  });
+
+  it("REJECTS (401) when req.admin is absent on a DECLARED route (guards misordered — fail closed)", () => {
     expect(() => guard.canActivate(makeCtx({ capability: "read_events", admin: undefined }))).toThrow(
       UnauthorizedException,
     );
@@ -114,6 +150,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
   // over-grant (or accidental removal) in ADMIN_CAPABILITY_MATRIX fails this test → CI.
   const EXPECTED: Record<AdminCapability, AdminRole[]> = {
     read_events: ["super_admin", "ops_admin", "support", "analyst"],
+    read_entities: ["super_admin", "ops_admin", "support", "analyst"],
     export: ["super_admin", "ops_admin"],
     suspend_payer: ["super_admin", "ops_admin"],
     grant_credits: ["super_admin", "ops_admin"],
@@ -134,7 +171,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     }
   });
 
-  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 36 cells", () => {
+  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 40 cells", () => {
     const roles: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
     for (const cap of ADMIN_CAPABILITIES) {
       for (const role of roles) {
@@ -147,5 +184,75 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     expect(can("support", "export")).toBe(false); // the reveal role must not also bulk-export
     expect(can("ops_admin", "reveal_pii")).toBe(false); // mutations role gets no PII
     expect(can("analyst", "export")).toBe(false);
+  });
+
+  it("read_entities is a READ floor, never an implicit write grant (BP-1)", () => {
+    // The entity reads sit next to entity ACTIONS on the same paths (`GET /admin/payers/:id`
+    // beside `POST /admin/payers/:id/suspend`). Being able to see a payer must never imply
+    // being able to change one — assert the separation on the role that has the read and
+    // none of the writes.
+    expect(can("analyst", "read_entities")).toBe(true);
+    for (const write of [
+      "suspend_payer",
+      "grant_credits",
+      "force_close_posting",
+      "flag_worker",
+      "manage_admins",
+      "toggle_kill_switch",
+    ] as const) {
+      expect(can("analyst", write)).toBe(false);
+    }
+    // ...and that reading entities never smuggles in the PII capability.
+    expect(can("analyst", "reveal_pii")).toBe(false);
+    expect(can("ops_admin", "reveal_pii")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// capabilitiesFor — the list GET /admin/me hands the Admin Portal. It exists so the
+// frontend never carries a second copy of the matrix, which makes ONE property the thing
+// that matters: it must agree with the guard on every cell, forever.
+// ---------------------------------------------------------------------------
+describe("capabilitiesFor — what the UI is told matches what the server permits", () => {
+  const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
+
+  it("agrees with can() on ALL 40 cells — the UI can never show a control the guard denies", () => {
+    for (const role of ROLES) {
+      const granted = capabilitiesFor(role);
+      for (const cap of ADMIN_CAPABILITIES) {
+        // Both directions. Missing a capability hides a control the admin is entitled to;
+        // including one the guard denies renders a button that only ever 403s.
+        expect(granted.includes(cap)).toBe(can(role, cap));
+      }
+    }
+  });
+
+  it("fails CLOSED for a null/undefined role — no session, no capabilities", () => {
+    expect(capabilitiesFor(null)).toEqual([]);
+    expect(capabilitiesFor(undefined)).toEqual([]);
+  });
+
+  it("returns each role's exact ADR-0025 §3.1 grant", () => {
+    // Literal expectations: an assertion derived from the matrix would survive a matrix bug.
+    expect(capabilitiesFor("analyst")).toEqual(["read_events", "read_entities"]);
+    expect(capabilitiesFor("support")).toEqual(["read_events", "read_entities", "reveal_pii"]);
+    expect(capabilitiesFor("ops_admin")).toEqual([
+      "read_events",
+      "read_entities",
+      "export",
+      "suspend_payer",
+      "grant_credits",
+      "force_close_posting",
+      "flag_worker",
+    ]);
+    // super_admin holds everything — the one role for which the list is the whole vocabulary.
+    expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);
+  });
+
+  it("no role but super_admin is handed a break-glass capability", () => {
+    for (const role of ["ops_admin", "support", "analyst"] as AdminRole[]) {
+      expect(capabilitiesFor(role)).not.toContain("toggle_kill_switch");
+      expect(capabilitiesFor(role)).not.toContain("manage_admins");
+    }
   });
 });

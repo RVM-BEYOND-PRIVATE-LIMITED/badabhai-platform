@@ -1,8 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
-import type { Database } from "@badabhai/db";
+import type { Database, PayerStatus } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
+import { PayerSessionService } from "../payers/payer-session.service";
 import { AdminRepository } from "./admin.repository";
 import { AdminActionsRepository } from "./admin-actions.repository";
 import type {
@@ -28,6 +29,7 @@ export const ADMIN_ACTION_CODES = {
   admin_invited: "admin_invited",
   admin_role_changed: "admin_role_changed",
   admin_suspended: "admin_suspended",
+  admin_mfa_reset: "admin_mfa_reset",
 } as const;
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];
 
@@ -62,38 +64,83 @@ type AdminActionSubjectType = "payer" | "job_posting" | "worker" | "admin_sessio
  */
 @Injectable()
 export class AdminActionsService {
+  private readonly logger = new Logger(AdminActionsService.name);
+
   constructor(
     private readonly actions: AdminActionsRepository,
     private readonly admins: AdminRepository,
     private readonly events: EventsService,
+    // ADR-0037 — suspension must revoke every live payer session immediately.
+    private readonly sessions: PayerSessionService,
   ) {}
 
   // ----- payers: suspend / reinstate ----------------------------------------
 
+  /**
+   * ADR-0037 — suspend a payer from EITHER `pending` or `active`.
+   *
+   * Before ADR-0037 this required `active`, and since NOTHING ever set `active`, it threw
+   * 409 for every real payer: the action was simultaneously unreachable and unenforced.
+   *
+   * Emits TWO events, deliberately: `admin.action_performed` (value-free — "an admin did
+   * this") and `payer.suspended` (the transition itself, with both ends). They answer
+   * different questions and the audit mandate needs both.
+   *
+   * SESSION REVOCATION runs AFTER the transaction commits, not inside it. Redis is not
+   * transactional with Postgres, so revoking inside would delete sessions that a rollback
+   * then un-suspends — locking a still-active payer out with no record of why. Committing
+   * first means the worst case is the reverse: the row says suspended while a session
+   * briefly survives, and the per-request lifecycle gate in `PayerAuthGuard` closes that
+   * window on the very next request. A revoke failure is surfaced, never swallowed.
+   */
   async suspendPayer(adminId: string, payerId: string, ctx: RequestContext): Promise<AdminActionResult> {
     const current = await this.actions.findPayerStatus(payerId);
     if (!current) throw new NotFoundException("Payer not found");
-    // Idempotent: already suspended → no-op success, no event.
+    // Idempotent: already suspended → no-op success, no event, no revoke.
     if (current.status === "suspended") return { target_id: payerId, changed: false };
     let conflict = false;
     await this.actions.withTransaction(async (tx) => {
       const moved = await this.actions.suspendPayer(payerId, tx);
       if (!moved) {
-        // pending (never-active) cannot be suspended — a defined, value-free conflict.
+        // Unreachable for pending/active (both now transition); retained as the guard for
+        // a concurrent writer that moved the row between the read above and this update.
         conflict = true;
         return;
       }
       await this.emitAction(adminId, ADMIN_ACTION_CODES.payer_suspended, "payer", payerId, ctx, tx);
+      await this.emitLifecycle(
+        "payer.suspended",
+        adminId,
+        payerId,
+        moved.previousStatus ?? current.status,
+        "suspended",
+        ctx,
+        tx,
+      );
+      // Decision 1 — freeze the inventory in the SAME transaction as the status change.
+      // A suspended payer whose jobs stayed live would still be recruiting, so the two
+      // must be all-or-nothing: a failure here rolls the suspension back rather than
+      // leaving a payer marked suspended while their postings keep taking applications.
+      const inventory = await this.actions.suspendPayerInventory(payerId, tx);
+      await this.emitInventory("payer.inventory_suspended", adminId, payerId, inventory, ctx, tx);
     });
-    if (conflict) throw new ConflictException("Payer is not active and cannot be suspended");
+    if (conflict) throw new ConflictException("Payer status changed concurrently; retry");
+    await this.revokeSessions(payerId);
     return { target_id: payerId, changed: true };
   }
 
+  /**
+   * ADR-0037 — reinstate a payer to the status they held BEFORE the suspension.
+   *
+   * Not necessarily `active`: a payer suspended while `pending` returns to `pending` and
+   * must still complete OTP verification. Hardcoding `active` here would let suspend +
+   * reinstate be used as a backdoor activation.
+   */
   async reinstatePayer(adminId: string, payerId: string, ctx: RequestContext): Promise<AdminActionResult> {
     const current = await this.actions.findPayerStatus(payerId);
     if (!current) throw new NotFoundException("Payer not found");
-    // Idempotent: already active → no-op success, no event.
-    if (current.status === "active") return { target_id: payerId, changed: false };
+    // Idempotent: not suspended → no-op success, no event.
+    if (current.status !== "suspended") return { target_id: payerId, changed: false };
     let conflict = false;
     await this.actions.withTransaction(async (tx) => {
       const moved = await this.actions.reinstatePayer(payerId, tx);
@@ -102,9 +149,99 @@ export class AdminActionsService {
         return;
       }
       await this.emitAction(adminId, ADMIN_ACTION_CODES.payer_reinstated, "payer", payerId, ctx, tx);
+      await this.emitLifecycle(
+        "payer.reinstated",
+        adminId,
+        payerId,
+        "suspended",
+        moved.status,
+        ctx,
+        tx,
+      );
+      // Decision 1 — thaw the inventory in the SAME transaction, restoring each posting to
+      // the status it actually held (open stays open, paused stays paused). Runs even when
+      // the payer is reinstated to `pending`: a pending payer cannot log in to republish,
+      // so leaving their inventory frozen would strand it with no way to recover it.
+      const inventory = await this.actions.reinstatePayerInventory(payerId, tx);
+      await this.emitInventory("payer.inventory_reinstated", adminId, payerId, inventory, ctx, tx);
     });
-    if (conflict) throw new ConflictException("Payer is not suspended and cannot be reinstated");
+    if (conflict) throw new ConflictException("Payer status changed concurrently; retry");
     return { target_id: payerId, changed: true };
+  }
+
+  /**
+   * Kill every live session for a suspended payer. Logged, never silently swallowed: if
+   * this fails the payer's existing tokens are still live until their next request hits
+   * the lifecycle gate, and an operator needs to know that from the logs rather than
+   * inferring it. PII-free — the opaque payer id only.
+   */
+  private async revokeSessions(payerId: string): Promise<void> {
+    try {
+      const revoked = await this.sessions.revokeAllForPayer(payerId);
+      this.logger.log(`payer suspended; sessions revoked payer=${payerId} count=${revoked}`);
+    } catch (err) {
+      this.logger.error(
+        `payer suspended but session revocation FAILED payer=${payerId}; existing tokens stay ` +
+          `live until their next request is rejected by the lifecycle gate (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+      );
+    }
+  }
+
+  /** Emit one PII-free `payer.*` lifecycle transition on the caller's transaction. */
+  private async emitLifecycle(
+    eventName: "payer.suspended" | "payer.reinstated",
+    adminId: string,
+    payerId: string,
+    previousStatus: PayerStatus,
+    newStatus: PayerStatus,
+    ctx: RequestContext,
+    tx: Database,
+  ): Promise<void> {
+    await this.events.emit({
+      event_name: eventName,
+      actor: { actor_type: "admin", actor_id: adminId },
+      subject: { subject_type: "payer", subject_id: payerId },
+      payload: { payer_id: payerId, previous_status: previousStatus, new_status: newStatus },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+      // Keyed on the request so a retried admin call cannot double-record the transition.
+      idempotencyKey: `${eventName}:${payerId}:${ctx.requestId}`,
+      tx,
+    });
+  }
+
+  /**
+   * Emit one PII-free `payer.inventory_*` cascade record on the caller's transaction.
+   *
+   * Emitted UNCONDITIONALLY, including when both counts are zero. A zero-count event is
+   * not noise — it is the positive evidence that the cascade ran and found nothing, which
+   * is exactly what distinguishes "this payer had no live jobs" from "the cascade did not
+   * execute". Suppressing it would make the two indistinguishable on the spine.
+   */
+  private async emitInventory(
+    eventName: "payer.inventory_suspended" | "payer.inventory_reinstated",
+    adminId: string,
+    payerId: string,
+    counts: { postings: number; jobs: number },
+    ctx: RequestContext,
+    tx: Database,
+  ): Promise<void> {
+    await this.events.emit({
+      event_name: eventName,
+      actor: { actor_type: "admin", actor_id: adminId },
+      subject: { subject_type: "payer", subject_id: payerId },
+      payload: {
+        payer_id: payerId,
+        postings_affected: counts.postings,
+        jobs_affected: counts.jobs,
+      },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+      idempotencyKey: `${eventName}:${payerId}:${ctx.requestId}`,
+      tx,
+    });
   }
 
   // ----- credits: grant -----------------------------------------------------
@@ -124,8 +261,18 @@ export class AdminActionsService {
     dto: AdminGrantCreditsDto,
     ctx: RequestContext,
   ): Promise<AdminActionResult & { ledger_id: string; balance: number }> {
-    const exists = await this.actions.findPayerStatus(payerId);
-    if (!exists) throw new NotFoundException("Payer not found");
+    const payer = await this.actions.findPayerStatus(payerId);
+    if (!payer) throw new NotFoundException("Payer not found");
+    // ADR-0037 — this query already SELECTED the status; it used to bind the row to
+    // `exists` and consume only `!exists`, so the status it fetched was computed and
+    // thrown away and an admin could top up a SUSPENDED payer's balance. Granting credits
+    // to an account that is barred from spending them is at best pointless and at worst a
+    // way to pre-load a suspended account for the moment it is reinstated.
+    // `pending` is allowed: crediting a not-yet-verified account is a legitimate
+    // pre-provisioning move and it cannot be spent until they verify.
+    if (payer.status === "suspended") {
+      throw new ConflictException("Payer is suspended; credits cannot be granted");
+    }
     const result = await this.actions.withTransaction(async (tx) => {
       const grant = await this.actions.grantCredits(payerId, dto.amount, dto.idempotency_key, tx);
       // Emit ONLY when the grant actually applied (a new ledger row). A deduped replay
@@ -326,6 +473,62 @@ export class AdminActionsService {
       await this.emitAction(
         adminId,
         ADMIN_ACTION_CODES.admin_suspended,
+        "admin_session",
+        targetAdminId,
+        ctx,
+        tx,
+      );
+    });
+    return { target_id: targetAdminId, changed };
+  }
+
+  /**
+   * ADR-0038 — RESET an admin's second factor (super_admin only, `manage_admins`).
+   *
+   * WHY THIS HAS TO EXIST. A TOTP seed is shown once at enrolment and stored encrypted; it
+   * is recoverable from nowhere. Before this, an admin who lost their phone was locked out
+   * PERMANENTLY — `AdminMfaSecretStore.clear()` existed but had ZERO callers, and
+   * `setMfaEnrolled` was only ever called with `true`. There was no reset route at all.
+   *
+   * Clearing the seed AND the flag together drops the admin back to the enrolment branch of
+   * `verifyLogin`, so their next successful OTP hands them a fresh secret. Clearing only one
+   * would be worse than nothing: seed-without-flag leaves an admin the MFA gate never
+   * challenges (a silent second-factor bypass), and flag-without-seed locks them out exactly
+   * as before.
+   *
+   * NOT self-service, deliberately. A route an admin can call for THEMSELVES would let
+   * anyone holding a stolen session strip the second factor off the account they stole —
+   * which is precisely what MFA is there to stop. Recovery is another human's decision.
+   *
+   * The LAST super_admin losing their device is still unrecoverable through this route (no
+   * one is left who can call it); that case is the break-glass CLI, `db:admin:reset-mfa`.
+   */
+  async resetAdminMfa(
+    adminId: string,
+    targetAdminId: string,
+    ctx: RequestContext,
+  ): Promise<AdminActionResult> {
+    const target = await this.admins.findById(targetAdminId);
+    if (!target) throw new NotFoundException("Admin not found");
+
+    // Self-reset is refused even for a super_admin — see above. The CLI covers the case
+    // where refusing this would leave nobody able to recover the platform.
+    if (targetAdminId === adminId) {
+      throw new ConflictException(
+        "An admin cannot reset their own second factor; ask another super_admin, or use the break-glass CLI",
+      );
+    }
+
+    let changed = false;
+    await this.admins.withTransaction(async (tx) => {
+      // Idempotent: an admin with no enrolled factor is already in the state this produces.
+      if (!target.mfaEnrolled) return;
+      await this.admins.setMfaSecret(targetAdminId, null, tx);
+      await this.admins.setMfaEnrolled(targetAdminId, false, tx);
+      changed = true;
+      await this.emitAction(
+        adminId,
+        ADMIN_ACTION_CODES.admin_mfa_reset,
         "admin_session",
         targetAdminId,
         ctx,
