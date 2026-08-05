@@ -9,6 +9,7 @@ import {
   type SourceSurface,
   applications,
   jobs,
+  jobPostings,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
@@ -36,13 +37,14 @@ export interface FeedJob {
 
 /** An application row joined with its (coarse, PII-free) job fields. */
 export interface ApplicationWithJob {
-  // Nullable since migration 0056: `applications.job_id` lost its NOT NULL because a
-  // V1 application points at `job_posting_id` instead. This reader INNER JOINs `jobs`,
-  // so in practice it only ever returns non-null ids — but the column's type is the
-  // contract, and narrowing it here with a cast would be a lie that the next reader
-  // (or a LEFT JOIN refactor) inherits. Render sites handle the null honestly.
+  // Migration 0056: `applications.job_id` lost its NOT NULL because a V1 application
+  // points at `job_posting_id` instead (job_id NULL). `findApplicationsByWorker` now
+  // LEFT JOINs BOTH `jobs` (legacy) and `job_postings` (V1) and coalesces, so this is
+  // the EFFECTIVE id — `job_id` for a legacy decision, else `job_posting_id`. Always
+  // non-null for a real row (one FK is always set); typed nullable to match the column.
   jobId: string | null;
-  tradeKey: Job["tradeKey"];
+  // NULL for a V1 decision: `job_postings` has no `trade_key` (only `role_title`).
+  tradeKey: Job["tradeKey"] | null;
   title: string;
   city: string;
   area: string | null;
@@ -251,12 +253,19 @@ export class ApplicationsRepository {
    * (trade/title/city/area — never employer or pay). Oldest first.
    */
   async findApplicationsByWorker(workerId: string): Promise<ApplicationWithJob[]> {
+    // A decision points at EITHER `jobs` (legacy alpha, `job_id`) OR `job_postings`
+    // (V1, `job_posting_id`) — never both (schema.ts §applications). The old INNER JOIN
+    // on `jobs` silently dropped every V1 decision (job_id NULL), so the worker's
+    // "Applied jobs" tab looked empty even after applying from the V1 feed. LEFT JOIN
+    // both and coalesce the coarse, PII-free fields so a decision from either surface
+    // shows. `job_postings` has no `trade_key`/`area`; `city` falls back to its
+    // `location_label`.
     return this.db
       .select({
-        jobId: applications.jobId,
+        jobId: sql<string | null>`coalesce(${applications.jobId}, ${applications.jobPostingId})`,
         tradeKey: jobs.tradeKey,
-        title: jobs.title,
-        city: jobs.city,
+        title: sql<string>`coalesce(${jobs.title}, ${jobPostings.roleTitle})`,
+        city: sql<string>`coalesce(${jobs.city}, ${jobPostings.city}, ${jobPostings.locationLabel})`,
         area: jobs.area,
         action: applications.action,
         reason: applications.reason,
@@ -266,7 +275,8 @@ export class ApplicationsRepository {
         updatedAt: applications.updatedAt,
       })
       .from(applications)
-      .innerJoin(jobs, eq(applications.jobId, jobs.id))
+      .leftJoin(jobs, eq(applications.jobId, jobs.id))
+      .leftJoin(jobPostings, eq(applications.jobPostingId, jobPostings.id))
       .where(eq(applications.workerId, workerId))
       .orderBy(asc(applications.createdAt))
       .limit(OPS_LIST_CAP); // bound an otherwise-unbounded ops read

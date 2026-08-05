@@ -132,7 +132,7 @@ export class MatchFeedRepository {
              (jp.boosted_until IS NOT NULL AND jp.boosted_until > now()) AS boosted,
              jp.published_at                              AS published_at,
              jp.role_title                                AS role_title,
-             jp.city                                      AS city,
+             COALESCE(jp.city, jp.location_label)         AS city,
              jp.pay_min                                   AS pay_min,
              jp.pay_max                                   AS pay_max,
              jp.shift                                     AS shift,

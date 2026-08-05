@@ -122,6 +122,29 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
     expect(JSON.stringify(res)).not.toMatch(/ciphertext|deadbeef|phone|full_?name/i);
   });
 
+  it("getMyProfile (worker-authed) resolves the { profile, resume } bundle from the TOKEN worker id", async () => {
+    const { controller, workers } = make();
+    const profileRow = { id: "prof-1", profileStatus: "confirmed" };
+    const resumeRow = { id: "res-1", resumeText: "…" };
+    workers.latestProfile.mockResolvedValueOnce(profileRow as never);
+    workers.latestResume.mockResolvedValueOnce(resumeRow as never);
+    const worker = { id: ID, sid: "sess-1" };
+    const res = await controller.getMyProfile(worker);
+    // Worker-self read: the repo is queried with the TOKEN id (@CurrentWorker),
+    // never a path/body id — and NOT behind InternalServiceGuard. Regression guard
+    // for the bug where the app's GET /workers/me/profile fell through to the
+    // internal `:id/profile` route and 401'd, breaking resume generation.
+    expect(workers.latestProfile).toHaveBeenCalledWith(ID);
+    expect(workers.latestResume).toHaveBeenCalledWith(ID);
+    expect(res).toEqual({ profile: profileRow, resume: resumeRow });
+  });
+
+  it("getMyProfile returns nulls (not a 404) when the worker has no profile/resume yet", async () => {
+    const { controller } = make(); // latestProfile/latestResume default to null
+    const res = await controller.getMyProfile({ id: ID, sid: "sess-1" });
+    expect(res).toEqual({ profile: null, resume: null });
+  });
+
   it("setMyName takes the worker from the token (not a body/path id) and returns only { ok: true }", async () => {
     const { controller, workersService } = make();
     const worker = { id: ID, sid: "sess-1" };

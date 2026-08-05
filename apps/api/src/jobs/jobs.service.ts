@@ -16,7 +16,8 @@ import { JobsRepository } from "./jobs.repository";
  */
 export interface WorkerVisibleJob {
   job_id: string;
-  trade_key: TradeKey;
+  // NULL for a V1 posting (no `trade_key` on `job_postings`); always set for legacy jobs.
+  trade_key: TradeKey | null;
   title: string;
   city: string;
   area: string | null;

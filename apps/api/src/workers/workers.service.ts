@@ -133,6 +133,16 @@ export class WorkersService {
     });
 
     this.logger.log(`full_name recorded (encrypted) for worker ${workerId}`); // never logs the name
+
+    // TD77 parity with updateResumePrefs: the worker's real name is baked onto the
+    // resume PDF at RENDER time (decrypted live in the render worker), so a name change
+    // must re-render the latest resume IN PLACE — otherwise the downloaded PDF keeps the
+    // old name. The app defers to this server-side re-render and deliberately does NOT
+    // regenerate on edit-return (that would bin the PDF + burn the 5/day generate cap).
+    // failClosed:false — a name update is not a content REMOVAL, so a failed render just
+    // leaves the previous (old-name) PDF until the next render, never a privacy leak.
+    await this.enqueueResumeRerender(workerId, ctx, { failClosed: false });
+
     return { worker_id: workerId };
   }
 
