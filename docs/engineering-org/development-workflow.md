@@ -33,20 +33,22 @@ When unsure, treat it as the larger lane.
 - Owner: **Product Manager agent**.
 - Output: a short problem statement — who is it for (worker / ops / future
   employer), what changes for them, how we'll know it worked. For anything beyond
-  trivial, run the [`bb-feature-planning`](../../.claude/skills/bb-feature-planning/SKILL.md) skill.
+  trivial, run the `bb-feature-planning` skill.
 - Gate to proceed: the change is in (or consciously expanding) the current phase
   scope. Phase 2 work (employer/unlock/payments/Reach Engine) is **not** started
   without an explicit decision logged in [team-decisions](../registers/team-decisions.md).
 
 ### 3. Architecture
-- Owner: **System Architect agent**. Skill: [`bb-architecture-review`](../../.claude/skills/bb-architecture-review/SKILL.md).
+- Owner: **Chief Software Architect** (`system-architect`). Skill: `bb-architecture-review`.
 - Confirm the change respects the seams: event-first, repository/service
   separation, the AI privacy boundary, typed contracts. Heavyweight changes get
   an [ADR](../decisions/).
 - Output: a decision on where the change lives and which contracts it touches.
 
 ### 4. Database
-- Owner: **Database Architect agent**. Skill: [`bb-database-design`](../../.claude/skills/bb-database-design/SKILL.md).
+- Owner: **Backend Platform Engineer** (`backend-engineer`), who owns `packages/db` and authors
+  every migration; may consult the advisory `database-architect`. Gate: `migration-reviewer`.
+  Skill: `bb-database-design`.
 - Schema is authored in Drizzle (`packages/db/src/schema.ts`) — the source of
   truth. Generate the migration (`pnpm db:generate`), review the SQL, confirm
   it's backward-compatible (expand → migrate → contract for anything risky).
@@ -54,7 +56,7 @@ When unsure, treat it as the larger lane.
   and `audit_logs` carry ids/hashes only.
 
 ### 5. APIs
-- Owner: **Backend Engineer agent**. Skill: [`bb-api-design`](../../.claude/skills/bb-api-design/SKILL.md).
+- Owner: **Backend Platform Engineer** (`backend-engineer`). Skill: `bb-api-design`.
 - Contract first: Zod DTOs, repository/service split, DI. **Every important
   endpoint emits a validated event** from [`@badabhai/event-schema`](../../packages/event-schema/).
   New event? Register it in `registry.ts`, add the payload, add the test.
@@ -66,31 +68,34 @@ When unsure, treat it as the larger lane.
   pseudonymization gateway fail-closed.
 
 ### 7. Testing
-- Owner: **QA Engineer agent**. Skill: [`bb-testing`](../../.claude/skills/bb-testing/SKILL.md).
+- Owner: **QA & Verification Engineer** (`qa-engineer`) for cross-cutting suites; the domain owner
+  for co-located tests; may consult the advisory `test-planner`. Skill: `bb-testing`.
 - Unit + the relevant contract/e2e tests under [`tests/`](../../tests/). The
   privacy-critical paths (pseudonymization, event PII) get explicit assertions.
 - CI runs `pnpm lint / typecheck / test / build`, plus `pytest`/`ruff` for the AI
   service. All must be green.
 
 ### 8. Security review
-- Owner: **Security Engineer agent**. Skill: [`bb-security-review`](../../.claude/skills/bb-security-review/SKILL.md).
+- Gate: **`security-engineer`** (blocking, read-only — owns no paths). Skill: `bb-security-review`.
 - Mandatory for heavyweight changes and anything touching auth, RLS, secrets,
   PII, or the AI boundary. Confirm: no raw PII in events/logs/LLM input, no
   secrets committed, fail-closed preserved.
 
 ### 9. Performance review
-- Owner: **Performance Engineer agent**. Skill: [`bb-performance-optimization`](../../.claude/skills/bb-performance-optimization/SKILL.md).
+- Owner: **the engineer who owns the hot path**, advised by `performance-engineer` (advisory,
+  owns no paths). Skill: `bb-performance-optimization`.
 - For changes to query patterns, hot paths, the chat/AI loop, or anything that
   will run per-worker at scale. Check N+1s, indexes, payload sizes, and that slow
   work (extraction, transcription) moves to BullMQ jobs rather than blocking.
 
 ### 10. Deployment
-- Owner: **DevOps Engineer agent**. Skill: [`bb-deployment`](../../.claude/skills/bb-deployment/SKILL.md).
+- Owner: **DevOps & Reliability Engineer** (`devops-engineer`). Skill: `bb-deployment`.
 - Migrations applied before the code that needs them. Feature flags / env gates
   (`AI_ENABLE_REAL_CALLS`) default safe. Rollback path written in the PR.
 
 ### 11. Monitoring
-- Owner: **DevOps / Performance agents**. Skill: [`bb-monitoring`](../../.claude/skills/bb-monitoring/SKILL.md).
+- Owner: **DevOps & Reliability Engineer** (`devops-engineer`), advised by `performance-engineer`.
+  Skill: `bb-monitoring`.
 - Structured logs with request id; events flowing; AI jobs observable (Langfuse
   placeholder today). Confirm the change is visible in ops before calling it done.
 

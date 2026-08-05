@@ -27,7 +27,7 @@ answer but must be deliberate, not skipped.
 - No secrets or `.env` committed. New PII columns live only in `workers`.
 - Mandatory for any change touching auth, RLS, secrets, PII, or AI; recommended
   for all.
-- **Enforced by:** Security Engineer agent + [`bb-security-review`](../../.claude/skills/bb-security-review/SKILL.md);
+- **Enforced by:** the `security-engineer` gate (blocking, read-only) + the `bb-security-review` skill;
   CI secret scan; PR template privacy checklist.
 
 ### ✅ 3. Tests pass
@@ -52,7 +52,7 @@ answer but must be deliberate, not skipped.
 - **Enforced by:** Technical Writer agent + reviewer; PR template docs checkbox.
 
 ### ✅ 6. Code review passed
-- One human reviewer approves. The [`bb-code-review`](../../.claude/skills/bb-code-review/SKILL.md)
+- One human reviewer approves. The `bb-code-review`
   skill (or `/code-review`) has been run and its findings resolved.
 - Reads like the surrounding code; no `any`, no dead code, no commented-out blocks.
 - **Enforced by:** branch protection on `main` (1 approval) + Code Reviewer agent.
