@@ -1,5 +1,5 @@
 /**
- * Job-domain alias embedding runner (migration 0060).
+ * Job-domain alias embedding runner (migration 0066).
  *
  * Populates `job_domain_alias.embedding` for rows still NULL by calling the ai-service
  * embed endpoint in batches. The DB read/write lives HERE (owner connection) — the

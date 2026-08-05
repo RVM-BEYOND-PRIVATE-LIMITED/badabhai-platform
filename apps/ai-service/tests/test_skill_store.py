@@ -130,6 +130,7 @@ def test_extract_wiring_adds_vector_assigned_skill_ids(monkeypatch):
     from fastapi.testclient import TestClient
 
     from app import main as app_main
+    from app.routers import profile as profile_router  # OWNS /profile/extract
 
     class FakeStore:
         def nearest_aliases(self, domain_id, query_vector, k):
@@ -139,8 +140,8 @@ def test_extract_wiring_adds_vector_assigned_skill_ids(monkeypatch):
             raise AssertionError("no miss expected in this test")
 
     enabled = Settings(skill_canonicalize_enabled=True)
-    monkeypatch.setattr(app_main, "settings", enabled)
-    monkeypatch.setattr(app_main, "get_skill_store", lambda s: FakeStore())
+    monkeypatch.setattr(profile_router, "settings", enabled)
+    monkeypatch.setattr(profile_router, "get_skill_store", lambda s: FakeStore())
 
     client = TestClient(app_main.app)
     resp = client.post(
@@ -159,6 +160,7 @@ def test_extract_wiring_inert_when_flag_off(monkeypatch):
     from fastapi.testclient import TestClient
 
     from app import main as app_main
+    from app.routers import profile as profile_router  # OWNS /profile/extract
 
     called: list[str] = []
 
@@ -170,8 +172,8 @@ def test_extract_wiring_inert_when_flag_off(monkeypatch):
         def record_unresolved(self, phrase, domain_id, lang):
             called.append("record")
 
-    monkeypatch.setattr(app_main, "settings", Settings())  # flag OFF (default)
-    monkeypatch.setattr(app_main, "get_skill_store", lambda s: SpyStore())
+    monkeypatch.setattr(profile_router, "settings", Settings())  # flag OFF (default)
+    monkeypatch.setattr(profile_router, "get_skill_store", lambda s: SpyStore())
 
     client = TestClient(app_main.app)
     resp = client.post(
@@ -187,9 +189,10 @@ def test_extract_wiring_flag_on_but_store_unconfigured_is_inert(monkeypatch):
     from fastapi.testclient import TestClient
 
     from app import main as app_main
+    from app.routers import profile as profile_router  # OWNS /profile/extract
 
     enabled = Settings(skill_canonicalize_enabled=True)  # url + token both unset
-    monkeypatch.setattr(app_main, "settings", enabled)
+    monkeypatch.setattr(profile_router, "settings", enabled)
     # NOTE: get_skill_store deliberately NOT patched — the real factory must pick Null.
 
     client = TestClient(app_main.app)

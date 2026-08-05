@@ -103,8 +103,10 @@ def test_resume_path_is_structurally_independent_of_canonicalization(monkeypatch
     # through profile_extractor.canonicalize_labels (#227 review LOW).
     from app import main as app_main
     from app.profiling import profile_extractor
+    from app.routers import profile as profile_router
 
     monkeypatch.setattr(app_main, "canonicalize_labels", boom, raising=False)
+    monkeypatch.setattr(profile_router, "canonicalize_labels", boom, raising=False)
     monkeypatch.setattr(profile_extractor, "canonicalize_labels", boom, raising=False)
 
     resp = client.post(

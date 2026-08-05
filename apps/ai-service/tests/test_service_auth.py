@@ -105,11 +105,19 @@ class TestServiceAuthEnabled:
     def test_every_post_route_is_gated(self, auth_enabled):
         """No route can silently opt out: every POST path in the app 401s tokenless."""
         client = TestClient(app)
-        post_paths = [
-            route.path
-            for route in app.routes
-            if getattr(route, "methods", None) and "POST" in route.methods
-        ]
+
+        def walk(routes):
+            """Flatten the route table. The endpoints live on APIRouters now, and
+            ``include_router`` keeps those nested inside ``app.routes`` — so a
+            non-recursive scan would see ZERO POST routes and pass vacuously."""
+            for route in routes:
+                nested = getattr(route, "original_router", None)
+                if nested is not None:
+                    yield from walk(nested.routes)
+                elif getattr(route, "methods", None):
+                    yield route
+
+        post_paths = [route.path for route in walk(app.routes) if "POST" in route.methods]
         assert len(post_paths) >= 8  # the service's POST surface (sanity floor)
         for path in post_paths:
             resp = client.post(path, json={})

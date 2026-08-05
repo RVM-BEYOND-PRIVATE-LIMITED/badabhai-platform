@@ -353,9 +353,13 @@ def test_startup_log_fires_even_under_the_td67_locked_posture(caplog, monkeypatc
     ledger — so the boot log is the ONLY signal of which backend is live."""
     from fastapi.testclient import TestClient
 
+    from app.routers import health as health_router  # OWNS /health
+
     locked = Settings(_env_file=None, ai_internal_token="x" * 16)
     monkeypatch.setattr(app_main, "settings", locked)
-    monkeypatch.setattr(app_main, "get_settings", lambda: locked)
+    monkeypatch.setattr(app_main, "get_settings", lambda: locked)  # the auth middleware
+    monkeypatch.setattr(health_router, "settings", locked)
+    monkeypatch.setattr(health_router, "get_settings", lambda: locked)
     monkeypatch.setattr(cost_tracker, "_ledger", None)
 
     with caplog.at_level(logging.INFO, logger="ai.cost"):

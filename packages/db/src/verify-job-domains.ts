@@ -1,5 +1,5 @@
 /**
- * Job-domain catalog verifier (migration 0060) — the DEPLOY GATE.
+ * Job-domain catalog verifier (migration 0066) — the DEPLOY GATE.
  *
  *   pnpm db:verify:domains
  *

@@ -1,6 +1,6 @@
 """Pydantic contracts for the AI service.
 
-MIRRORS the Zod contracts in `packages/ai-contracts/src/index.ts`. Keep both in
+MIRRORS the Zod contracts in `packages/ai-contracts/src/`. Keep both in
 sync. PRIVACY: these never carry raw identity (no phone, name, address, employer).
 """
 
@@ -255,7 +255,7 @@ class DraftProfile(BaseModel):
     # (MUST_ASK_TOPICS) and captured on the rich draft, but were dropped at the
     # rich→legacy boundary (_build_legacy), leaving the templates' section empty.
     # Additive (default [] → old rows unchanged, invariant #8). Mirrors the Zod
-    # DraftProfileSchema in packages/ai-contracts/src/index.ts (§7 parity).
+    # DraftProfileSchema in packages/ai-contracts/src/profile.ts (§7 parity).
     education: list[str] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
     # TD-EDU — highest education LEVEL ("12th") + FIELD of study ("Electronics"),
@@ -644,7 +644,7 @@ class TranscriptionOutput(BaseModel):
 
 # --- Job-posting chat (ADR-0035) -------------------------------------------
 # The payer-facing sibling of the profiling contracts above. Mirrored field-for-field
-# in packages/ai-contracts/src/index.ts and pinned by the shared golden fixture
+# in packages/ai-contracts/src/job-posting.ts and pinned by the shared golden fixture
 # packages/ai-contracts/src/__fixtures__/job-posting-chat.keys.json, which BOTH
 # suites assert against (§7 parity — Pydantic silently drops unknown request keys,
 # so a one-sided change is otherwise green on both sides).

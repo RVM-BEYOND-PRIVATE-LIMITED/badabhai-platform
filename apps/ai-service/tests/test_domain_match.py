@@ -253,7 +253,7 @@ class TestDegradation:
 
 
 def test_every_status_matches_the_worker_profiles_CHECK_constraint():
-    # These five strings are duplicated in packages/db/src/schema.ts as the
+    # These five strings are duplicated in packages/db/src/schema/worker.ts as the
     # `job_domain_match_status` CHECK. A value invented here would be rejected at write
     # time, at the end of a long async pipeline, for one worker at a time.
     assert {
@@ -302,14 +302,17 @@ class TestExtractEndpointWiring:
         from fastapi.testclient import TestClient
 
         from app import main
+        from app.routers import profile as profile_router  # OWNS /profile/extract
 
         enabled = main.settings.model_copy(update={"domain_match_enabled": True})
-        monkeypatch.setattr(main, "settings", enabled)
+        monkeypatch.setattr(profile_router, "settings", enabled)
         monkeypatch.setattr(main, "get_settings", lambda: enabled)
-        monkeypatch.setattr(main, "get_domain_store", lambda _s: store)
-        monkeypatch.setattr(main, "embed_text", embed)
+        monkeypatch.setattr(profile_router, "get_domain_store", lambda _s: store)
+        monkeypatch.setattr(profile_router, "embed_text", embed)
         if router is not None:
-            monkeypatch.setattr(main, "router", router)
+            # the AIRouter singleton, imported as ``ai_router`` in the endpoint module
+            # (``router`` there is the APIRouter).
+            monkeypatch.setattr(profile_router, "ai_router", router)
         return TestClient(main.app)
 
     async def test_a_match_reaches_the_response(self, monkeypatch):

@@ -1,5 +1,5 @@
 /**
- * Deterministic id for a `job_domain_alias` row (migration 0060).
+ * Deterministic id for a `job_domain_alias` row (migration 0066).
  *
  * Same idempotency device as `skill-alias-id.ts`, and for the same reason:
  * `job_domain_alias` has no unique(job_domain_id, text) constraint, so the seed's

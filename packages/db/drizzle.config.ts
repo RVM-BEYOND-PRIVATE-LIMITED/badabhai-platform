@@ -9,7 +9,7 @@ config({ path: "../../.env" });
 
 /**
  * Drizzle Kit config. Used by:
- *   pnpm db:generate  -> diffs schema.ts into ./migrations/*.sql (no DB needed)
+ *   pnpm db:generate  -> diffs src/schema/ into ./migrations/*.sql (no DB needed)
  *   pnpm db:migrate   -> applies migrations to DATABASE_URL
  *   pnpm db:studio    -> opens Drizzle Studio
  *
@@ -17,7 +17,7 @@ config({ path: "../../.env" });
  * infra/supabase/local-dev.md.
  */
 export default defineConfig({
-  schema: "./src/schema.ts",
+  schema: "./src/schema/index.ts",
   out: "./migrations",
   dialect: "postgresql",
   dbCredentials: {

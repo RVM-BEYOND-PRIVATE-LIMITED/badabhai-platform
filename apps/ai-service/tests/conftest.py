@@ -11,15 +11,30 @@ without deleting it. Tests that need real mode construct ``Settings(...)`` with
 explicit kwargs, which outrank both. This guarantees the suite never reaches the
 network and the skip-gated real per-field test stays skipped.
 
-TWO layers, because the first one is a DENYLIST and a denylist is only ever as
-good as its last update — P1-4 was exactly that failure: a flag nobody had added
-here (SKILL_CANONICALIZE_ENABLED) armed a real outbound call during pytest.
+THREE layers, because layer 1 is a DENYLIST and a denylist is only ever as good
+as its last update — P1-4 was exactly that failure: a flag nobody had added here
+(SKILL_CANONICALIZE_ENABLED) armed a real outbound call during pytest.
 
 1. :func:`_force_mock_only_env` — pin every setting that can arm an outbound call.
 2. :func:`_install_egress_guard` — a socket-level backstop that makes a non-loopback
    connection IMPOSSIBLE, whatever a future flag, dotenv or code path decides.
    Tests must never spend money or hit the network; layer 2 is what makes that a
    PROPERTY of the suite instead of a promise to keep layer 1 updated.
+3. :func:`_neutralize_service_auth` — clear ``ai_internal_token`` on the SHARED
+   settings singleton. Layer 1 cannot do this one, for a structural reason worth
+   writing down: its whole technique is "set the var to '' so it outranks the dotenv
+   entry", and ``ai_internal_token`` carries ``min_length=16`` ON PURPOSE (TD67 — an
+   empty token would enter the enforcement branch where ``compare_digest(b"", b"")``
+   passes every tokenless request while /health claims the guard is on). So "" fails
+   ``Settings()`` at startup instead of neutralizing anything, and a developer `.env`
+   holding AI_INTERNAL_TOKEN armed the auth middleware for the whole suite — 401ing
+   every TestClient call across 15 modules. Same leak shape as P1-4, in a setting the
+   denylist technique structurally cannot cover.
+
+   NOT fixed by pointing ``env_file`` at None: ``test_config_env_anchor.py`` proves
+   the AI-ENV-1 anchor by planting a DECOY dotenv and by diffing two real loads. With
+   no dotenv read at all those proofs pass VACUOUSLY — the guard would look green
+   while testing nothing. The dotenv must stay live; only the token is cleared.
 """
 
 import ipaddress
@@ -222,6 +237,35 @@ def _install_egress_guard() -> None:
     socket.socket._bb_egress_guarded = True
 
 
+# --- Layer 3: the service-auth bearer --------------------------------------
+
+
+def _neutralize_service_auth() -> None:
+    """Clear ``ai_internal_token`` on the shared settings singleton.
+
+    The middleware reads ``get_settings().ai_internal_token`` PER REQUEST
+    (``app/main.py``), so seeding the singleton here governs every TestClient call
+    without touching ``env_file`` — which must stay live, or the AI-ENV-1 decoy and
+    two-cwd proofs in ``test_config_env_anchor.py`` go vacuous (see module docstring).
+
+    Deliberately narrow:
+    - ``Settings()`` still reads the real dotenv, so bare ``Settings()`` in the anchor
+      tests resolves exactly as it does in production (they compare it via
+      ``_redacted()``, which reduces the token to a set/unset boolean anyway).
+    - Tests that WANT the gate armed build ``Settings(ai_internal_token=...)`` and swap
+      the singleton themselves (``test_service_auth.py``'s ``auth_enabled`` fixture),
+      restoring it after — unaffected.
+    - A no-op in CI, which has no `.env` and therefore no token to clear.
+    """
+    import app.config as app_config
+
+    base = app_config.Settings()
+    if base.ai_internal_token is not None:
+        app_config._settings = base.model_copy(update={"ai_internal_token": None})
+
+
 # Applied at import time — before any test constructs Settings() or a client.
 _force_mock_only_env()
 _install_egress_guard()
+# Last: it constructs Settings(), so the env pinning above must already be in place.
+_neutralize_service_auth()

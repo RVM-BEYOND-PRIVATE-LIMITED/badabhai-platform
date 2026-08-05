@@ -1,6 +1,6 @@
 /**
  * The job-domain corpus — loader + validator for the seed data behind `job_domain`
- * (migration 0060).
+ * (migration 0066).
  *
  * WHY THE DATA LIVES IN packages/db/data AND NOT IN @badabhai/taxonomy.
  * `@badabhai/taxonomy` is imported by apps/web and apps/payer-web, so it must stay

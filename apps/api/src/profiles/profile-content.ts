@@ -35,7 +35,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 /**
  * `WorkerProfileDraft` list fields that are empty unless the AI extracted
  * something. Names verified against `WorkerProfileDraftSchema`
- * (packages/ai-contracts/src/index.ts) and its Pydantic mirror
+ * (packages/ai-contracts/src/profile.ts) and its Pydantic mirror
  * (apps/ai-service/app/contracts.py) — they must stay in step with both.
  *
  * `missing_fields` / `clarification_questions` are NOT here on purpose: they are

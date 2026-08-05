@@ -305,6 +305,8 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
+  packages/profiling-lexicon: {}
+
   packages/reach-engine: {}
 
   packages/reach-learn:

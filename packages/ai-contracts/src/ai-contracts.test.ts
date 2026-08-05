@@ -663,7 +663,7 @@ describe("Generalized profiling contract parity (contracts.py mirror)", () => {
 
   it("JobDomainMatch statuses are exactly the DB CHECK vocabulary", () => {
     // These five strings are also the `job_domain_match_status` CHECK on
-    // `worker_profiles` (packages/db/src/schema.ts). A sixth added here without the
+    // `worker_profiles` (packages/db/src/schema/worker.ts). A sixth added here without the
     // migration would be rejected at write time, at the end of a long async pipeline,
     // one worker at a time.
     expect([...JOB_DOMAIN_MATCH_STATUSES].sort()).toEqual([
