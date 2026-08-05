@@ -9,7 +9,9 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_stat.dart';
+import '../../../core/widgets/payer_role_badge.dart';
 
 /// Home — the identity header, the REAL credit balance, and the two real
 /// actions (Post a job · Browse candidates).
@@ -32,6 +34,7 @@ class HomeScreen extends StatelessWidget {
     required this.onPost,
     required this.onBrowse,
     required this.onOpenCredits,
+    this.onOpenReferral,
   });
 
   final AppSession session;
@@ -39,12 +42,16 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback onBrowse;
   final VoidCallback onOpenCredits;
 
+  /// Opens the agency supply hub (Refer & earn). Non-null ONLY for an agency
+  /// session — the Home agency section renders only when this is wired.
+  final VoidCallback? onOpenReferral;
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _Header(acct: session.account),
+        _Header(acct: session.account, role: session.role),
         Expanded(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(
@@ -81,6 +88,16 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ],
               ),
+              // Agency-only supply hub — makes the agency dashboard distinct and
+              // surfaces the agent-gated Refer-&-earn (funnel + referred workers
+              // + bulk invites) that a company session never sees. Renders only
+              // for an agency session (onOpenReferral is null for a company).
+              if (session.role.isAgency && onOpenReferral != null) ...<Widget>[
+                const SizedBox(height: AppSpacing.s5),
+                _SectionLabel('AGENCY'),
+                const SizedBox(height: AppSpacing.s2),
+                _AgencyHubCard(onTap: onOpenReferral!),
+              ],
             ],
           ),
         ),
@@ -103,9 +120,10 @@ class _SectionLabel extends StatelessWidget {
 /// The deep-blue identity band — org name + plan over the account avatar. Blue
 /// carries the structure; the haldi-tinted avatar is the one brand pop.
 class _Header extends StatelessWidget {
-  const _Header({required this.acct});
+  const _Header({required this.acct, required this.role});
 
   final PayerAccount acct;
+  final PayerRole role;
 
   @override
   Widget build(BuildContext context) {
@@ -144,6 +162,57 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(width: AppSpacing.s3),
+          // The unmissable role cue — COMPANY vs AGENCY — so the payer always
+          // knows which portal they are in.
+          PayerRoleBadge(role: role, onDark: true),
+        ],
+      ),
+    );
+  }
+}
+
+/// The agency Home entry into the supply hub (Refer & earn → funnel · referred
+/// workers · bulk invites). Mirrors the referral screen's nav-card so the agent
+/// sees a familiar affordance; deep blue is structure, never haldi.
+class _AgencyHubCard extends StatelessWidget {
+  const _AgencyHubCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return BbCard(
+      onTap: onTap,
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.campaign_outlined, size: 24, color: AppColors.blue),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Refer & earn',
+                  style: AppTypography.display(
+                    size: AppTypography.sizeBase,
+                    weight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Your invite link, referral funnel and referred workers.',
+                  style: AppTypography.body(
+                    size: AppTypography.sizeSm,
+                    color: AppColors.textMuted,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+          const Icon(Icons.chevron_right, size: 20, color: AppColors.textFaint),
         ],
       ),
     );

@@ -17,6 +17,7 @@ import '../../job_posting_chat/presentation/job_posting_chat_screen.dart';
 import '../../jobs/presentation/jobs_screen.dart';
 import '../../jobs/presentation/post_job_screen.dart';
 import '../../account/presentation/account_screen.dart';
+import '../../referral/presentation/referral_screen.dart';
 
 /// The signed-in shell. Holds the bottom nav and an in-shell navigation model
 /// mirroring the kit: a primary [_tab] (a nav destination) and an optional
@@ -136,6 +137,18 @@ class _AppShellState extends State<AppShell> {
         CrashReporter.setScreen('payer/reveal');
       });
 
+  /// Opens the agency supply hub (Refer & earn) as a full-page route — the same
+  /// agent-only surface the Account entry pushes. A real route (not an in-shell
+  /// overlay) so Android back pops it normally. Only wired for an agency session.
+  void _openReferral() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'payer/agency/referral'),
+        builder: (_) => const ReferralScreen(),
+      ),
+    );
+  }
+
   /// One tab branch, or an empty placeholder until that tab has been visited
   /// (see [_visited]). Every branch here builds its own `BlocProvider`, so what
   /// this returns is exactly what the IndexedStack keeps alive.
@@ -147,6 +160,9 @@ class _AppShellState extends State<AppShell> {
           onPost: () => _openSub('post'),
           onBrowse: () => _selectTab('find'),
           onOpenCredits: () => _selectTab('credits'),
+          // Agency-only: the Home supply hub. Null for a company session, so the
+          // Home agency section never renders for a company.
+          onOpenReferral: widget.session.isAgency ? _openReferral : null,
         ),
       'find' => FindScreen(onReveal: _openReveal),
       'jobs' => JobsScreen(
