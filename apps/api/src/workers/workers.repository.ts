@@ -8,6 +8,7 @@ import {
   workerDevices,
   generatedResumes,
   voiceNotes,
+  chatSessions,
   type Worker,
   type NewWorker,
   type WorkerProfile,
@@ -229,6 +230,24 @@ export class WorkersRepository {
     return rows
       .map((r) => r.key)
       .filter((k): k is string => typeof k === "string" && k.length > 0);
+  }
+
+  /** Every chat session id for the worker, captured PRE-DELETE.
+   *
+   * WHY THIS EXISTS. An in-flight interview lives in Redis (`chat:transcript:<sessionId>`),
+   * NOT in Postgres — the transcript is buffered and flushed once at completion. That
+   * buffer holds the worker's words VERBATIM and un-redacted, so a DSAR erasure that only
+   * cascades `chat_sessions`/`chat_messages` leaves the rawest copy of their conversation
+   * readable until the idle TTL lapses. The buffer is keyed by SESSION id and Redis has no
+   * worker index, so the ids must be read here, BEFORE the hard delete cascades the rows
+   * that carry them — exactly like the resume/voice object keys above.
+   */
+  async listChatSessionIds(workerId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: chatSessions.id })
+      .from(chatSessions)
+      .where(eq(chatSessions.workerId, workerId));
+    return rows.map((r) => r.id);
   }
 
   /** True if a PIN credential row exists for the worker (the `had_pin` flag, captured

@@ -29,6 +29,7 @@ interface Harness {
     findById: ReturnType<typeof vi.fn>;
     listResumeStorageKeys: ReturnType<typeof vi.fn>;
     listVoiceStorageKeys: ReturnType<typeof vi.fn>;
+    listChatSessionIds: ReturnType<typeof vi.fn>;
     hasCredentials: ReturnType<typeof vi.fn>;
     countDevices: ReturnType<typeof vi.fn>;
     hardDelete: ReturnType<typeof vi.fn>;
@@ -39,6 +40,7 @@ interface Harness {
   storage: { deletePdf: ReturnType<typeof vi.fn>; deleteByPrefix: ReturnType<typeof vi.fn> };
   events: { emit: ReturnType<typeof vi.fn> };
   redisSet: ReturnType<typeof vi.fn>;
+  redisDel: ReturnType<typeof vi.fn>;
 }
 
 function make(
@@ -46,6 +48,8 @@ function make(
     missingWorker?: boolean;
     resumeKeys?: string[];
     voiceKeys?: string[];
+    chatSessionIds?: string[];
+    redisDelThrows?: boolean;
     voiceBucket?: string;
     photoBucket?: string;
     hadPin?: boolean;
@@ -57,6 +61,10 @@ function make(
   } = {},
 ): Harness {
   const redisSet = vi.fn(async () => "OK");
+  const redisDel = vi.fn(async (...keys: string[]) => {
+    if (opts.redisDelThrows) throw new Error("redis down");
+    return keys.length;
+  });
   const workerRow = opts.missingWorker
     ? undefined
     : {
@@ -69,6 +77,7 @@ function make(
     findById: vi.fn(async (): Promise<Record<string, unknown> | undefined> => workerRow),
     listResumeStorageKeys: vi.fn(async () => opts.resumeKeys ?? []),
     listVoiceStorageKeys: vi.fn(async () => opts.voiceKeys ?? []),
+    listChatSessionIds: vi.fn(async () => opts.chatSessionIds ?? []),
     hasCredentials: vi.fn(async () => opts.hadPin ?? false),
     countDevices: vi.fn(async () => opts.devices ?? 0),
     hardDelete: vi.fn(async () => true),
@@ -88,7 +97,9 @@ function make(
     deleteByPrefix: vi.fn(async () => 0),
   };
   const events = { emit: vi.fn(async () => undefined) };
-  const queue = { client: Promise.resolve({ set: redisSet }) } as unknown as Queue;
+  const queue = {
+    client: Promise.resolve({ set: redisSet, del: redisDel }),
+  } as unknown as Queue;
   const config = {
     RESUMES_BUCKET: "worker-resumes",
     CONVERSATIONS_BUCKET: "worker-conversations",
@@ -110,7 +121,7 @@ function make(
     events as unknown as EventsService,
     queue,
   );
-  return { svc, workers, sessions, storage, events, redisSet };
+  return { svc, workers, sessions, storage, events, redisSet, redisDel };
 }
 
 describe("AccountDeletionService", () => {
@@ -152,6 +163,58 @@ describe("AccountDeletionService", () => {
     // No phone, phone_hash, name, or resume key in the event payload.
     expect(JSON.stringify(emitted.payload)).not.toContain(PHONE_HASH);
     expect(JSON.stringify(emitted.payload)).not.toMatch(/\.pdf/);
+  });
+
+  // ── In-flight interview transcripts (Redis) ─────────────────────────────────
+  //
+  // An interview that never completed was never flushed to Postgres, so the cascade
+  // erases nothing of it — but `chat:transcript:<sessionId>` holds the worker's words
+  // VERBATIM and un-redacted. Before the transcript buffer existed those words landed in
+  // `chat_messages` every turn and WERE cascade-deleted, so buffering moved a raw-PII
+  // store outside the erasure path. These pin it back inside.
+
+  it("purges every in-flight transcript buffer, keyed through ChatTranscriptBuffer.key", async () => {
+    const h = make({ chatSessionIds: ["sess-a", "sess-b"] });
+    await h.svc.execute(WORKER_ID);
+    expect(h.redisDel).toHaveBeenCalledWith("chat:transcript:sess-a", "chat:transcript:sess-b");
+  });
+
+  it("captures the session ids BEFORE hardDelete — the cascade would erase them", async () => {
+    // The buffer is keyed by SESSION id and Redis has no worker index, so reading them
+    // after the delete is impossible: the keys would be unreachable forever.
+    const order: string[] = [];
+    const h = make({ chatSessionIds: ["sess-a"] });
+    h.workers.listChatSessionIds.mockImplementation(async () => {
+      order.push("list");
+      return ["sess-a"];
+    });
+    h.workers.hardDelete.mockImplementation(async () => {
+      order.push("hardDelete");
+      return true;
+    });
+    await h.svc.execute(WORKER_ID);
+    expect(order).toEqual(["list", "hardDelete"]);
+  });
+
+  it("counts purged buffers into storage_objects_deleted", async () => {
+    const h = make({ chatSessionIds: ["sess-a", "sess-b"] });
+    await h.svc.execute(WORKER_ID);
+    expect(h.events.emit.mock.calls[0]![0].payload.storage_objects_deleted).toBe(2);
+  });
+
+  it("no sessions: Redis DEL is not called at all", async () => {
+    const h = make({ chatSessionIds: [] });
+    await h.svc.execute(WORKER_ID);
+    expect(h.redisDel).not.toHaveBeenCalled();
+  });
+
+  it("purge is fail-OPEN: a Redis error still completes the erasure, and is COUNTED", async () => {
+    // A Redis outage must not abort an erasure that has already destroyed the storage
+    // objects — but the event must still say the erasure was incomplete.
+    const h = make({ chatSessionIds: ["sess-a"], redisDelThrows: true });
+    await h.svc.execute(WORKER_ID);
+    expect(h.workers.hardDelete).toHaveBeenCalledWith(WORKER_ID);
+    expect(h.events.emit.mock.calls[0]![0].payload.storage_objects_failed).toBe(1);
   });
 
   it("idempotent: a missing worker is a clean no-op (no revoke, no delete, no event)", async () => {

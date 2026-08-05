@@ -6,18 +6,21 @@ import { conversationWorkerPrefix } from "@badabhai/validators";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
+import { ChatTranscriptBuffer } from "../chat/chat-transcript.buffer";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { StorageService } from "../storage/storage.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { SessionService } from "./session.service";
 
 /**
- * Minimal typed view of the one Redis command the deletion tombstone needs (the
- * cool-down `SET key val EX sec`). The runtime client is ioredis (obtained from the
- * BullMQ queue) — the same idiom OtpService/SessionService use.
+ * Minimal typed view of the Redis commands the erasure needs: the cool-down tombstone
+ * (`SET key val EX sec`) and the in-flight transcript purge (`DEL`). The runtime client
+ * is ioredis (obtained from the BullMQ queue) — the same idiom OtpService/SessionService
+ * use.
  */
-interface RedisTombstoneClient {
+interface RedisDeletionClient {
   set(key: string, value: string, mode: "EX", seconds: number): Promise<unknown>;
+  del(...keys: string[]): Promise<number>;
 }
 
 /**
@@ -204,6 +207,10 @@ export class AccountDeletionService {
     const voiceKeys = await this.workers.listVoiceStorageKeys(workerId);
     const hadPin = await this.workers.hasCredentials(workerId);
     const devicesRevoked = await this.workers.countDevices(workerId);
+    // Chat session ids, for the Redis transcript purge at step 2e. MUST be read here:
+    // the hard delete cascades `chat_sessions`, and the buffer is keyed by session id
+    // with no worker index in Redis — after the delete the keys are unreachable.
+    const chatSessionIds = await this.workers.listChatSessionIds(workerId);
 
     // 2b. Erase storage BEFORE the DB delete. A single object-delete failure increments the
     // failed counter and CONTINUES (never aborts the erasure — D4). Resume PDFs are keyed by
@@ -289,6 +296,38 @@ export class AccountDeletionService {
       );
     }
 
+    // 2e. Purge IN-FLIGHT interview transcripts from Redis. An interview that never
+    // completed was never flushed to Postgres, so the cascade at step 3 erases nothing of
+    // it — but `chat:transcript:<sessionId>` holds the worker's words VERBATIM and
+    // un-redacted (see BufferedMessage.text: "their actual words, un-redacted"). Before
+    // the buffer existed those words landed in `chat_messages` on every turn and were
+    // cascade-deleted; buffering moved a raw-PII store OUTSIDE the erasure path, so it has
+    // to be enrolled explicitly or a DSAR erasure is incomplete for up to the idle TTL.
+    //
+    // Keyed through `ChatTranscriptBuffer.key` rather than a local template so the format
+    // has ONE definition — a drifted copy here would silently purge nothing.
+    //
+    // Fail-OPEN, exactly like the tombstone: a Redis outage must not abort an erasure that
+    // has already destroyed the storage objects. The residual then expires by TTL. Counted
+    // into storageFailed so the emitted event still reflects an incomplete erasure.
+    if (chatSessionIds.length > 0) {
+      try {
+        const redis = (await this.queue.client) as unknown as RedisDeletionClient;
+        const dropped = await redis.del(
+          ...chatSessionIds.map((id) => ChatTranscriptBuffer.key(id)),
+        );
+        storageDeleted += dropped;
+      } catch (err) {
+        storageFailed += 1;
+        // Session ids are opaque uuids, but the transcript they key is raw PII — log the
+        // reason class and the opaque worker prefix only, never the ids.
+        this.logger.warn(
+          `account deletion transcript-buffer purge failed worker=${idPrefix} (fail-open; ` +
+            `reason: ${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+    }
+
     // 3. Hard-delete the workers row (transactional cascade). This is the atomic PII removal.
     // A false return means a concurrent run already deleted it — still proceed to tombstone +
     // event (the captured counts above remain the best available record).
@@ -303,7 +342,7 @@ export class AccountDeletionService {
     // phone derivative (§2-permitted, never reversible to a number).
     if (this.config.ACCOUNT_DELETION_COOLDOWN_SECONDS > 0) {
       try {
-        const redis = (await this.queue.client) as unknown as RedisTombstoneClient;
+        const redis = (await this.queue.client) as unknown as RedisDeletionClient;
         await redis.set(
           `deleted_phone:${phoneHash}`,
           "1",
