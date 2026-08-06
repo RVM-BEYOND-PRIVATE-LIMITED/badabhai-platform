@@ -39,6 +39,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .profiling import lexicon as _lexicon
+
 DEFAULT_MAX_LENGTH = 20_000
 
 # --- Gazetteers / patterns -------------------------------------------------
@@ -56,46 +58,16 @@ DEFAULT_MAX_LENGTH = 20_000
 # the field on every model-authored surface while protecting nothing. `signals.py`
 # imports this set (and CITY_ALIASES) to READ the city off raw text locally — that use
 # is unchanged and is why the set stays here.
-KNOWN_CITIES: frozenset[str] = frozenset(
-    {
-        "new delhi",
-        "navi mumbai",
-        "greater noida",
-        "faridabad",
-        "delhi",
-        "mumbai",
-        "pune",
-        "chennai",
-        "bengaluru",
-        "bangalore",
-        "gurgaon",
-        "gurugram",
-        "noida",
-        "hyderabad",
-        "ahmedabad",
-        "coimbatore",
-        "rajkot",
-        "ludhiana",
-        "kolkata",
-        "jaipur",
-        "surat",
-        "nashik",
-        "nagpur",
-        "indore",
-        "vadodara",
-        "aurangabad",
-        "chandigarh",
-        "kanpur",
-        "lucknow",
-        "bhopal",
-        "manesar",
-        "pithampur",
-        "hosur",
-        "peenya",
-        "bawal",
-        "sanand",
-    }
-)
+# The set itself now lives in packages/profiling-lexicon/data/cities.json (mirrored into
+# app/profiling/lexicon_data/) so the TypeScript orchestrator reads the SAME gazetteer —
+# a second copy in TS would drift, and a city that stops being recognised is a silent
+# 20-point matching loss, not an error. The import is a pure data loader with no
+# app-level dependencies of its own, so it introduces no cycle with this module.
+#
+# `lexicon.load` RAISES on a missing file rather than returning {}. That is the correct
+# failure mode here: an empty gazetteer would silently stop detecting cities, and this
+# module must fail closed (CLAUDE.md §3).
+KNOWN_CITIES: frozenset[str] = frozenset(_lexicon.load("cities")["canonical"])
 
 # STATE MASKING IS GONE TOO (owner ruling 2026-07-31, same DEAD LIST entry).
 #
@@ -114,17 +86,7 @@ KNOWN_CITIES: frozenset[str] = frozenset(
 # loosening of the closed set: an alias only ever normalizes to an EXISTING
 # canonical member (see signals._canonical_city). The pseudonymizer also matches
 # these keys so an aliased city name is still masked before any LLM call.
-CITY_ALIASES: dict[str, str] = {
-    "dilli": "delhi",
-    "dilly": "delhi",
-    "bombay": "mumbai",
-    "bengaluru": "bangalore",
-    "banglore": "bangalore",
-    "gurgaon": "gurugram",
-    "gudgaon": "gurugram",
-    "calcutta": "kolkata",
-    "poona": "pune",
-}
+CITY_ALIASES: dict[str, str] = dict(_lexicon.load("cities")["aliases"])
 # Words that look like a leading name but are greetings/fillers — do not mask.
 _NAME_STOPLIST = {
     "hello",

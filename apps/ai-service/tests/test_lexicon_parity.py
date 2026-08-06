@@ -28,6 +28,7 @@ import pytest
 
 from app.profiling import lexicon
 from app.profiling.predicates import PREDICATE_BY_NAME, classify_utterance
+from app.profiling.values import VALUE_BY_NAME
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PACKAGE = _REPO_ROOT / "packages" / "profiling-lexicon"
@@ -233,6 +234,39 @@ def test_predicates_match_the_corpus(row: dict):
         detector = PREDICATE_BY_NAME.get(name)
         assert detector is not None, f"corpus references unknown predicate {name!r}"
         assert detector(row["text"]) is expected, f"{name} — {_describe(row)}"
+
+
+# ------------------------------------------------------------------ value parity --
+def test_corpus_exercises_every_normalizer_and_the_negation_veto():
+    """Guards against a vacuously green suite: a normalizer returning None on all 409 cases would
+    satisfy every per-case assertion below."""
+    for name in VALUE_BY_NAME:
+        hits = [r for r in _CORPUS_ROWS if name in r.get("values", {})]
+        assert hits, f"{name} never produces a value anywhere in the corpus"
+    vetoed = [v for r in _CORPUS_ROWS for v in r.get("values", {}).values() if v["negationVetoed"]]
+    assert vetoed, "no fixture exercises the negation veto"
+
+
+@pytest.mark.parametrize("row", _CORPUS_ROWS, ids=_IDS)
+def test_normalizers_match_the_corpus(row: dict):
+    """Spans are asserted, not just values.
+
+    The span is what the Phase 7 parse call's provenance gate checks, so a normalizer that finds
+    the right value at the wrong offset is a real defect a value-only assertion would wave through.
+    """
+    wanted = row.get("values", {})
+    for name, normalizer in VALUE_BY_NAME.items():
+        got = normalizer(row["text"])
+        if name not in wanted:
+            # An ABSENT key means the normalizer must return None. This is the assertion that
+            # catches a detector which starts firing where it should not.
+            assert got is None, f"{name} should not fire — {_describe(row)}"
+            continue
+        assert got is not None, f"{name} returned None — {_describe(row)}"
+        want = wanted[name]
+        assert got.value == want["value"], f"{name} value — {_describe(row)}"
+        assert [got.span.start, got.span.end] == want["span"], f"{name} span — {_describe(row)}"
+        assert got.negation_vetoed is want["negationVetoed"], f"{name} veto — {_describe(row)}"
 
 
 # ----------------------------------------- semantics the corpus alone would not pin --

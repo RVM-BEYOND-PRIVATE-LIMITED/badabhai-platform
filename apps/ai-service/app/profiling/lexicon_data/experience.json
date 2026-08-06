@@ -1,0 +1,160 @@
+{
+  "$comment": [
+    "Spelled-out Hinglish numbers for experience, lifted verbatim from signals.py.",
+    "",
+    "ORDER IS LOAD-BEARING and must not be sorted: the alternation is built in this order, so",
+    "LONGEST-FIRST is what makes 'paune do' (1.75) win over 'paune' (0.75) and 'sava do' (2.25)",
+    "over 'sava' (1.25). The compounds mean different numbers; sorting this list silently",
+    "changes what a worker's answer means.",
+    "",
+    "This is a PARITY fix, not a new inference: the table is the prompt's own table plus the",
+    "plain numerals."
+  ],
+  "wordNumbers": [
+    {
+      "word": "paune do",
+      "value": 1.75
+    },
+    {
+      "word": "sava do",
+      "value": 2.25
+    },
+    {
+      "word": "dhaai",
+      "value": 2.5
+    },
+    {
+      "word": "dhai",
+      "value": 2.5
+    },
+    {
+      "word": "adhai",
+      "value": 2.5
+    },
+    {
+      "word": "dedh",
+      "value": 1.5
+    },
+    {
+      "word": "dhedh",
+      "value": 1.5
+    },
+    {
+      "word": "derh",
+      "value": 1.5
+    },
+    {
+      "word": "sava",
+      "value": 1.25
+    },
+    {
+      "word": "paune",
+      "value": 0.75
+    },
+    {
+      "word": "pauna",
+      "value": 0.75
+    },
+    {
+      "word": "aadha",
+      "value": 0.5
+    },
+    {
+      "word": "adha",
+      "value": 0.5
+    },
+    {
+      "word": "aadhe",
+      "value": 0.5
+    },
+    {
+      "word": "pandrah",
+      "value": 15.0
+    },
+    {
+      "word": "bees",
+      "value": 20.0
+    },
+    {
+      "word": "gyarah",
+      "value": 11.0
+    },
+    {
+      "word": "barah",
+      "value": 12.0
+    },
+    {
+      "word": "ek",
+      "value": 1.0
+    },
+    {
+      "word": "do",
+      "value": 2.0
+    },
+    {
+      "word": "teen",
+      "value": 3.0
+    },
+    {
+      "word": "tin",
+      "value": 3.0
+    },
+    {
+      "word": "chaar",
+      "value": 4.0
+    },
+    {
+      "word": "char",
+      "value": 4.0
+    },
+    {
+      "word": "paanch",
+      "value": 5.0
+    },
+    {
+      "word": "panch",
+      "value": 5.0
+    },
+    {
+      "word": "chhah",
+      "value": 6.0
+    },
+    {
+      "word": "chhe",
+      "value": 6.0
+    },
+    {
+      "word": "saat",
+      "value": 7.0
+    },
+    {
+      "word": "aath",
+      "value": 8.0
+    },
+    {
+      "word": "nau",
+      "value": 9.0
+    },
+    {
+      "word": "das",
+      "value": 10.0
+    }
+  ],
+  "maxPlausibleSalaryInr": 10000000,
+  "matcher": {
+    "source": "(?<![0-9०-९.])([0-9०-९]{1,2}(?:\\.[0-9०-९]+)?|{EXP_WORDS})\\s*\\+?\\s*(?:years|year|yrs|yr|saal|sal){WE}",
+    "flags": "i"
+  },
+  "$comment_matcher": [
+    "Capture group 1 is the QUANTITY — either digits or one of `wordNumbers`, spliced in by the",
+    "{EXP_WORDS} macro in file order so the longest compound wins.",
+    "",
+    "The leading lookbehind rejects a quantity glued to a preceding digit or dot, so the '5' of",
+    "'12.5' or a part number cannot be read as an experience figure on its own.",
+    "",
+    "The original used \\d, which is Unicode-aware in Python and ASCII-only in JavaScript. Spelled",
+    "out as ASCII digits PLUS the Devanagari digit range so both engines agree. Note the UNIT",
+    "alternation is deliberately Latin-only, exactly as it shipped: '५ साल' does not match today and",
+    "this extraction does not change that. Widening it is a product decision, not a refactor."
+  ]
+}

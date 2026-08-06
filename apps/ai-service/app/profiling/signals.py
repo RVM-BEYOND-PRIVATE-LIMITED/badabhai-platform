@@ -695,47 +695,16 @@ def is_curated_vocabulary_label(label: str) -> bool:
 # This is a PARITY fix, not a new inference: the table below is the prompt's own
 # table, plus the plain numerals. Ordered LONGEST-FIRST so "paune do" wins over
 # "paune" and "sava do" over "sava" — the compounds mean different numbers.
-_EXP_WORD_NUMBERS: tuple[tuple[str, float], ...] = (
-    ("paune do", 1.75),
-    ("sava do", 2.25),
-    ("dhaai", 2.5),
-    ("dhai", 2.5),
-    ("adhai", 2.5),
-    ("dedh", 1.5),
-    ("dhedh", 1.5),
-    ("derh", 1.5),
-    ("sava", 1.25),
-    ("paune", 0.75),
-    ("pauna", 0.75),
-    ("aadha", 0.5),
-    ("adha", 0.5),
-    ("aadhe", 0.5),
-    ("pandrah", 15.0),
-    ("bees", 20.0),
-    ("gyarah", 11.0),
-    ("barah", 12.0),
-    ("ek", 1.0),
-    ("do", 2.0),
-    ("teen", 3.0),
-    ("tin", 3.0),
-    ("chaar", 4.0),
-    ("char", 4.0),
-    ("paanch", 5.0),
-    ("panch", 5.0),
-    ("chhah", 6.0),
-    ("chhe", 6.0),
-    ("saat", 7.0),
-    ("aath", 8.0),
-    ("nau", 9.0),
-    ("das", 10.0),
+# Shared with the TypeScript orchestrator via packages/profiling-lexicon (Phase 3).
+# ORDER IS LOAD-BEARING — longest-first, so "paune do" beats "paune" — and the JSON
+# preserves it. See lexicon_data/experience.json for the rationale that used to sit here.
+_EXPERIENCE = lexicon.load("experience")
+_EXP_WORD_NUMBERS: tuple[tuple[str, float], ...] = tuple(
+    (entry["word"], entry["value"]) for entry in _EXPERIENCE["wordNumbers"]
 )
 _EXP_WORD_LOOKUP: dict[str, float] = {word: value for word, value in _EXP_WORD_NUMBERS}
-_EXP_WORD_ALT = "|".join(re.escape(word) for word, _ in _EXP_WORD_NUMBERS)
-_EXPERIENCE_RE = re.compile(
-    r"(?<![\d.])(\d{1,2}(?:\.\d+)?|" + _EXP_WORD_ALT + r")\s*\+?\s*"
-    r"(?:years|year|yrs|yr|saal|sal)\b",
-    re.IGNORECASE,
-)
+_EXPERIENCE_RE = lexicon.compile_pattern(_EXPERIENCE["matcher"])
+
 # Detect the canonical cities AND their Hinglish aliases (dilli, bombay, ...) so a
 # colloquial name is captured, then normalized to its canonical form.
 _CITY_TOKENS = sorted(set(KNOWN_CITIES) | set(CITY_ALIASES), key=len, reverse=True)
@@ -754,40 +723,12 @@ def _canonical_city(token: str) -> str:
 
 # --- State-level location (captured instead of dropped) --------------------
 # Full state names -> canonical Title-cased label, matched case-INSENSITIVELY.
-_STATE_NAMES: dict[str, str] = {
-    "bihar": "Bihar",
-    "uttar pradesh": "Uttar Pradesh",
-    "madhya pradesh": "Madhya Pradesh",
-    "andhra pradesh": "Andhra Pradesh",
-    "himachal pradesh": "Himachal Pradesh",
-    "arunachal pradesh": "Arunachal Pradesh",
-    "west bengal": "West Bengal",
-    "tamil nadu": "Tamil Nadu",
-    "rajasthan": "Rajasthan",
-    "punjab": "Punjab",
-    "haryana": "Haryana",
-    "gujarat": "Gujarat",
-    "maharashtra": "Maharashtra",
-    "karnataka": "Karnataka",
-    "telangana": "Telangana",
-    "kerala": "Kerala",
-    "odisha": "Odisha",
-    "jharkhand": "Jharkhand",
-    "chhattisgarh": "Chhattisgarh",
-    "uttarakhand": "Uttarakhand",
-    "assam": "Assam",
-    "goa": "Goa",
-}
-# UPPERCASE-only 2-letter abbreviations, matched CASE-SENSITIVELY. Deliberately
-# strict: a case-insensitive "up"/"mp" would collide with common CNC phrasing like
-# "set up" / "setup", corrupting the profile. "UP" written in caps is a state.
-_STATE_ABBREVS: dict[str, str] = {
-    "UP": "Uttar Pradesh",
-    "MP": "Madhya Pradesh",
-    "AP": "Andhra Pradesh",
-    "HP": "Himachal Pradesh",
-    "WB": "West Bengal",
-}
+# Shared with the TypeScript orchestrator via packages/profiling-lexicon (Phase 3).
+# Abbreviations stay CASE-SENSITIVE — see lexicon_data/states.json for why a
+# case-insensitive "up"/"mp" corrupts the profile.
+_STATES = lexicon.load("states")
+_STATE_NAMES: dict[str, str] = dict(_STATES["names"])
+_STATE_ABBREVS: dict[str, str] = dict(_STATES["abbreviations"])
 _STATE_NAME_RE = re.compile(
     r"\b(?:" + "|".join(re.escape(s) for s in sorted(_STATE_NAMES, key=len, reverse=True)) + r")\b",
     re.IGNORECASE,
@@ -814,15 +755,7 @@ def _detect_state(text: str) -> str | None:
 # Names that are neither a city nor a state but ARE how a worker states where they
 # can work: "NCR", "South India". Whole phrases only — "south" and "india" on their
 # own say nothing ("south side me rehta hu", "made in India"), so neither is a cue.
-_REGION_NAMES: dict[str, str] = {
-    "ncr": "NCR",
-    "delhi ncr": "NCR",
-    "north india": "North India",
-    "south india": "South India",
-    "east india": "East India",
-    "west india": "West India",
-    "central india": "Central India",
-}
+_REGION_NAMES: dict[str, str] = dict(_STATES["regions"])
 _REGION_RE = re.compile(
     r"\b(?:"
     + "|".join(re.escape(r) for r in sorted(_REGION_NAMES, key=len, reverse=True))

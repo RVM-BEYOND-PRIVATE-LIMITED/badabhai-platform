@@ -1,0 +1,54 @@
+{
+  "$comment": [
+    "State names, two-letter abbreviations, and multi-state regions, lifted verbatim from",
+    "signals.py. Values are the canonical Title-cased display labels.",
+    "",
+    "ABBREVIATIONS ARE MATCHED CASE-SENSITIVELY and that is load-bearing: a case-insensitive",
+    "'up'/'mp' collides with shop-floor phrasing like 'set up' / 'setup' and would corrupt the",
+    "profile. 'UP' written in caps is a state. This is why `abbreviations` carries flags \"\"",
+    "while `names` carries \"i\".",
+    "",
+    "Regions are WHOLE PHRASES only — 'south' and 'india' on their own say nothing",
+    "('south side me rehta hu', 'made in India'), so neither is a cue."
+  ],
+  "names": {
+    "andhra pradesh": "Andhra Pradesh",
+    "arunachal pradesh": "Arunachal Pradesh",
+    "assam": "Assam",
+    "bihar": "Bihar",
+    "chhattisgarh": "Chhattisgarh",
+    "goa": "Goa",
+    "gujarat": "Gujarat",
+    "haryana": "Haryana",
+    "himachal pradesh": "Himachal Pradesh",
+    "jharkhand": "Jharkhand",
+    "karnataka": "Karnataka",
+    "kerala": "Kerala",
+    "madhya pradesh": "Madhya Pradesh",
+    "maharashtra": "Maharashtra",
+    "odisha": "Odisha",
+    "punjab": "Punjab",
+    "rajasthan": "Rajasthan",
+    "tamil nadu": "Tamil Nadu",
+    "telangana": "Telangana",
+    "uttar pradesh": "Uttar Pradesh",
+    "uttarakhand": "Uttarakhand",
+    "west bengal": "West Bengal"
+  },
+  "abbreviations": {
+    "AP": "Andhra Pradesh",
+    "HP": "Himachal Pradesh",
+    "MP": "Madhya Pradesh",
+    "UP": "Uttar Pradesh",
+    "WB": "West Bengal"
+  },
+  "regions": {
+    "central india": "Central India",
+    "delhi ncr": "NCR",
+    "east india": "East India",
+    "ncr": "NCR",
+    "north india": "North India",
+    "south india": "South India",
+    "west india": "West India"
+  }
+}
