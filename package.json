@@ -29,6 +29,7 @@
     "db:embed:domains": "pnpm --filter @badabhai/db db:embed:domains",
     "db:verify:domains": "pnpm --filter @badabhai/db db:verify:domains",
     "db:normalize:aliases": "pnpm --filter @badabhai/db db:normalize:aliases",
+    "db:eval:occupation": "pnpm --filter @badabhai/db db:eval:occupation",
     "db:growth:cluster": "pnpm --filter @badabhai/db db:growth:cluster",
     "db:retag:skills": "pnpm --filter @badabhai/db db:retag:skills",
     "db:seed:reach": "pnpm --filter @badabhai/db db:seed:reach",

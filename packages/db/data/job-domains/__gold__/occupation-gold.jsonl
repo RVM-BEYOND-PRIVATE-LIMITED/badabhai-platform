@@ -1,0 +1,381 @@
+# Occupation retrieval gold set — 300 labelled worker utterances.
+#
+# WHAT THIS MEASURES. The Phase 2 acceptance criterion: with vector retrieval OFF, how
+# often do a worker's OWN WORDS reach the right occupation family through L0 (exact) and
+# L1 (skeleton) alone? Target: >= 60%.
+#
+# PROVENANCE — READ THIS BEFORE TRUSTING THE NUMBER. These utterances are AUTHORED, not
+# mined. `chat_messages` holds zero rows, so there is no production traffic to sample and
+# the plan's "from real pseudonymized chat_messages, labelled by ops" is NOT yet
+# satisfied. What this set is: realistic Hinglish phrasing written to mirror how workers
+# in these trades actually speak, including the misspellings, code-switching and
+# particle-heavy constructions the normalizer exists to handle. What it is NOT: evidence
+# about the real distribution of utterances. An authored set is biased toward what its
+# author thought to write, which is exactly the bias a gold set is supposed to remove.
+# Treat the resulting hit rate as an UPPER BOUND and re-derive it from real traffic before
+# any launch gate depends on it. Phase 9 owns that re-derivation.
+#
+# LABELS ARE ISCO UNIT CODES, not occupation ids. NCO is over-granular for conversation:
+# "Welder, Gas" vs "Welder, Electric" is a coin flip at occupation level and identical at
+# family level, because they share a question pack. Resolving to either is a SUCCESS for
+# the interview, so scoring at occupation level would report failure for an outcome the
+# product treats as correct. ISCO unit stands in for `profiling_family` until Phase 4
+# creates it.
+#
+# PRIVACY. No worker-derived text. Nothing here came from a transcript, so there is no
+# name, phone, employer or place tied to a real person to leak. When this set IS rebuilt
+# from real traffic it must go through the pseudonymizer first, and the alias validator's
+# digit/@/URL rules are the structural backstop.
+#
+# UNITS COVERED: 7212 welding · 7531 tailoring · 8153 sewing machine · 8322 light driving
+# 8332 heavy driving · 5120 cooking · 7411 electrical · 7112 masonry · 7223 machining
+# 5414 security · 9112 cleaning · 9313 construction helper · 7126 plumbing · 7131 painting
+# 7115 carpentry · 7233 fitting/mechanic · 5223 retail
+
+# ── 7212 welding ────────────────────────────────────────────────────────────
+{"utterance":"welding ka kaam karta hun","expect_unit":"7212"}
+{"utterance":"main welder hun","expect_unit":"7212"}
+{"utterance":"वेल्डिंग का काम करता हूँ","expect_unit":"7212"}
+{"utterance":"pichhle paanch saal se welding kar raha hun","expect_unit":"7212"}
+{"utterance":"gas welding aata hai mujhe","expect_unit":"7212","note":"qualifier must not be dropped for the bare stem"}
+{"utterance":"arc welding ka kaam","expect_unit":"7212"}
+{"utterance":"mig welding karta hoon factory me","expect_unit":"7212"}
+{"utterance":"tig welding ka experience hai","expect_unit":"7212"}
+{"utterance":"veldar ka kaam","expect_unit":"7212","note":"common misspelling — L1 skeleton"}
+{"utterance":"welding mistri hun main","expect_unit":"7212"}
+{"utterance":"jodai ka kaam karta hun","expect_unit":"7212"}
+{"utterance":"जोड़ाई का काम","expect_unit":"7212"}
+{"utterance":"वेल्डर","expect_unit":"7212"}
+{"utterance":"gas cutting welding dono aata hai","expect_unit":"7212"}
+{"utterance":"welding helper tha pehle","expect_unit":"7212"}
+{"utterance":"गैस वेल्डिंग","expect_unit":"7212"}
+{"utterance":"आर्क वेल्डिंग करता हूँ","expect_unit":"7212"}
+{"utterance":"welding line pe kaam kiya hai","expect_unit":"7212"}
+{"utterance":"waelding ka kaam","expect_unit":"7212","note":"vowel-insertion misspelling"}
+{"utterance":"velder hun","expect_unit":"7212","note":"w->v confusion"}
+
+# ── 7531 tailoring ──────────────────────────────────────────────────────────
+{"utterance":"silai ka kaam karta hoon","expect_unit":"7531"}
+{"utterance":"main darzi hun","expect_unit":"7531"}
+{"utterance":"दर्जी का काम","expect_unit":"7531"}
+{"utterance":"kapda silai karta hun","expect_unit":"7531"}
+{"utterance":"tailor master hun main","expect_unit":"7531"}
+{"utterance":"सिलाई का काम करता हूँ","expect_unit":"7531"}
+{"utterance":"darji ka kaam seekha hai","expect_unit":"7531","note":"darzi/darji spelling"}
+{"utterance":"ladies tailor hun","expect_unit":"7531"}
+{"utterance":"blouse silai karti hun","expect_unit":"7531"}
+{"utterance":"suit salwar silai ka kaam","expect_unit":"7531"}
+{"utterance":"shirt silai karta hun","expect_unit":"7531"}
+{"utterance":"pant silai ka kaam aata hai","expect_unit":"7531"}
+{"utterance":"कपड़ा सिलाई","expect_unit":"7531"}
+{"utterance":"लेडीज दर्जी","expect_unit":"7531"}
+{"utterance":"silaai ka kaam","expect_unit":"7531","note":"long-vowel spelling"}
+{"utterance":"main tailor ka kaam karta hun","expect_unit":"7531"}
+{"utterance":"dress silai ka kaam","expect_unit":"7531"}
+{"utterance":"kurta pyjama silai karta hun","expect_unit":"7531"}
+{"utterance":"darzi ki dukan pe kaam karta tha","expect_unit":"7531"}
+{"utterance":"sailai ka kaam","expect_unit":"7531","note":"transposed vowels"}
+
+# ── 8153 sewing machine operator ────────────────────────────────────────────
+{"utterance":"silai machine operator hun","expect_unit":"8153"}
+{"utterance":"export line pe silai machine chalata hun","expect_unit":"8153"}
+{"utterance":"garment factory silai ka kaam","expect_unit":"8153"}
+{"utterance":"सिलाई मशीन ऑपरेटर","expect_unit":"8153"}
+{"utterance":"machine silai karta hun","expect_unit":"8153"}
+{"utterance":"kadhai machine chalata hun","expect_unit":"8153"}
+{"utterance":"कढ़ाई का काम","expect_unit":"8153"}
+{"utterance":"embroidery machine operator hun","expect_unit":"8153"}
+{"utterance":"button stitching machine chalayi hai","expect_unit":"8153"}
+{"utterance":"silai mashin operator ka kaam","expect_unit":"8153","note":"machine/mashin"}
+
+# ── 8322 light vehicle driving ──────────────────────────────────────────────
+{"utterance":"gaadi chalata hun","expect_unit":"8322"}
+{"utterance":"main driver hun","expect_unit":"8322"}
+{"utterance":"ड्राइवर का काम","expect_unit":"8322"}
+{"utterance":"taxi driver hun","expect_unit":"8322"}
+{"utterance":"ola uber driver ka kaam karta hun","expect_unit":"8322"}
+{"utterance":"car driver ki job chahiye","expect_unit":"8322"}
+{"utterance":"गाड़ी चलाना आता है","expect_unit":"8322"}
+{"utterance":"cab chalata hun raat me","expect_unit":"8322"}
+{"utterance":"draiver ka kaam","expect_unit":"8322","note":"i-insertion misspelling"}
+{"utterance":"lmv driver hun","expect_unit":"8322"}
+{"utterance":"tempo driver ka kaam karta hun","expect_unit":"8322"}
+{"utterance":"chota hathi driver hun","expect_unit":"8322","note":"colloquial vehicle name"}
+{"utterance":"टैक्सी ड्राइवर","expect_unit":"8322"}
+{"utterance":"ambulance driver tha pehle","expect_unit":"8322"}
+{"utterance":"टेम्पो ड्राइवर का काम","expect_unit":"8322"}
+
+# ── 8332 heavy vehicle driving ──────────────────────────────────────────────
+{"utterance":"truck driver hun","expect_unit":"8332"}
+{"utterance":"ट्रक ड्राइवर का काम","expect_unit":"8332"}
+{"utterance":"hmv driver hun main","expect_unit":"8332"}
+{"utterance":"trailer chalana aata hai","expect_unit":"8332"}
+{"utterance":"dumper chalana ka kaam kiya hai","expect_unit":"8332"}
+{"utterance":"lorry chalak hun","expect_unit":"8332"}
+{"utterance":"truck chalata hun lambi duri","expect_unit":"8332"}
+{"utterance":"trak driver ka kaam","expect_unit":"8332","note":"truck/trak"}
+
+# ── 5120 cooking ────────────────────────────────────────────────────────────
+{"utterance":"khana banana ka kaam karta hun","expect_unit":"5120"}
+{"utterance":"main bawarchi hun","expect_unit":"5120"}
+{"utterance":"रसोइया का काम","expect_unit":"5120"}
+{"utterance":"rasoiya ka kaam karta hun","expect_unit":"5120"}
+{"utterance":"khansama tha ek hotel me","expect_unit":"5120"}
+{"utterance":"canteen cook hun","expect_unit":"5120"}
+{"utterance":"mess cook ka kaam kiya hai","expect_unit":"5120"}
+{"utterance":"खाना बनाना आता है","expect_unit":"5120"}
+{"utterance":"ghar ka cook hun","expect_unit":"5120"}
+{"utterance":"maharaj ka kaam karta hun","expect_unit":"5120","note":"respectful term for a domestic cook"}
+{"utterance":"महाराज","expect_unit":"5120"}
+{"utterance":"kitchen helper hun","expect_unit":"5120"}
+{"utterance":"रसोई हेल्पर","expect_unit":"5120"}
+{"utterance":"bartan dhona aur kitchen ka kaam","expect_unit":"5120"}
+{"utterance":"tandoor helper ka kaam kiya","expect_unit":"5120"}
+{"utterance":"बावर्ची हूँ","expect_unit":"5120"}
+{"utterance":"bawarchee ka kaam","expect_unit":"5120","note":"long-vowel spelling"}
+
+# ── 7411 electrical ─────────────────────────────────────────────────────────
+{"utterance":"bijli ka kaam karta hun","expect_unit":"7411"}
+{"utterance":"main electrician hun","expect_unit":"7411"}
+{"utterance":"बिजली मिस्त्री","expect_unit":"7411"}
+{"utterance":"bijli mistri hun","expect_unit":"7411"}
+{"utterance":"wiring ka kaam aata hai","expect_unit":"7411"}
+{"utterance":"वायरिंग का काम","expect_unit":"7411"}
+{"utterance":"electric mistri ka kaam","expect_unit":"7411"}
+{"utterance":"ilectrician ka kaam karta hun","expect_unit":"7411","note":"e/i misspelling"}
+{"utterance":"wireman hun main","expect_unit":"7411"}
+{"utterance":"वायरमैन","expect_unit":"7411"}
+{"utterance":"line man ka kaam kiya hai","expect_unit":"7411"}
+{"utterance":"cctv technician hun","expect_unit":"7411"}
+{"utterance":"camera fitting ka kaam karta hun","expect_unit":"7411"}
+{"utterance":"बिजली का काम","expect_unit":"7411"}
+{"utterance":"electrishan ka kaam","expect_unit":"7411","note":"phonetic misspelling"}
+
+# ── 7112 masonry ────────────────────────────────────────────────────────────
+{"utterance":"raj mistri hun main","expect_unit":"7112"}
+{"utterance":"राज मिस्त्री का काम","expect_unit":"7112"}
+{"utterance":"rajmistri ka kaam karta hun","expect_unit":"7112","note":"written as one word"}
+{"utterance":"chinai ka kaam aata hai","expect_unit":"7112"}
+{"utterance":"चिनाई","expect_unit":"7112"}
+{"utterance":"eint jodna ka kaam","expect_unit":"7112"}
+{"utterance":"plaster ka kaam karta hun","expect_unit":"7112"}
+{"utterance":"पलस्तर का काम","expect_unit":"7112"}
+{"utterance":"pathar mistri hun","expect_unit":"7112"}
+{"utterance":"पत्थर का काम","expect_unit":"7112"}
+{"utterance":"mistri helper tha pehle","expect_unit":"7112"}
+{"utterance":"raaj mistri ka kaam","expect_unit":"7112","note":"long-vowel spelling"}
+
+# ── 7223 machining ──────────────────────────────────────────────────────────
+{"utterance":"kharad ka kaam karta hun","expect_unit":"7223","note":"the plan's headline miss"}
+{"utterance":"खराद का काम","expect_unit":"7223"}
+{"utterance":"kharaad chalata hun","expect_unit":"7223","note":"long-vowel spelling"}
+{"utterance":"lathe machine chalata hun","expect_unit":"7223"}
+{"utterance":"लेथ मशीन","expect_unit":"7223"}
+{"utterance":"turning ka kaam aata hai","expect_unit":"7223"}
+{"utterance":"cnc operator hun","expect_unit":"7223"}
+{"utterance":"सीएनसी ऑपरेटर","expect_unit":"7223"}
+{"utterance":"cnc machine chalata hun","expect_unit":"7223"}
+{"utterance":"cnc turning ka kaam","expect_unit":"7223"}
+{"utterance":"vmc operator hun","expect_unit":"7223"}
+{"utterance":"वीएमसी ऑपरेटर","expect_unit":"7223"}
+{"utterance":"milling machine chalata hun","expect_unit":"7223"}
+{"utterance":"मिलिंग का काम","expect_unit":"7223"}
+{"utterance":"drilling machine ka kaam","expect_unit":"7223"}
+{"utterance":"grinding machine chalata hun","expect_unit":"7223"}
+{"utterance":"ghisai ka kaam karta hun","expect_unit":"7223"}
+{"utterance":"घिसाई","expect_unit":"7223"}
+{"utterance":"machine shop me kaam kiya hai","expect_unit":"7223"}
+{"utterance":"machinist hun main","expect_unit":"7223"}
+
+# ── 5414 security ───────────────────────────────────────────────────────────
+{"utterance":"chowkidar hun main","expect_unit":"5414"}
+{"utterance":"चौकीदार का काम","expect_unit":"5414"}
+{"utterance":"security guard ka kaam karta hun","expect_unit":"5414"}
+{"utterance":"सिक्योरिटी गार्ड","expect_unit":"5414"}
+{"utterance":"chaukidar ka kaam","expect_unit":"5414","note":"ow/au spelling"}
+{"utterance":"gate keeper hun","expect_unit":"5414"}
+{"utterance":"गेटमैन का काम","expect_unit":"5414"}
+{"utterance":"pahredar ka kaam karta hun","expect_unit":"5414"}
+{"utterance":"पहरेदार","expect_unit":"5414"}
+{"utterance":"night guard ki duty karta hun","expect_unit":"5414"}
+{"utterance":"रात का पहरा देता हूँ","expect_unit":"5414"}
+{"utterance":"cctv operator hun","expect_unit":"5414"}
+{"utterance":"armed guard ka kaam kiya hai","expect_unit":"5414"}
+{"utterance":"bandookdhari guard tha","expect_unit":"5414"}
+{"utterance":"chokidar ka kaam","expect_unit":"5414","note":"dropped w"}
+
+# ── 9112 cleaning / housekeeping ────────────────────────────────────────────
+{"utterance":"safai ka kaam karta hun","expect_unit":"9112"}
+{"utterance":"सफाई कर्मचारी","expect_unit":"9112"}
+{"utterance":"safai karmchari hun","expect_unit":"9112"}
+{"utterance":"housekeeping ka kaam kiya hai","expect_unit":"9112"}
+{"utterance":"हाउसकीपिंग","expect_unit":"9112"}
+{"utterance":"jhadu pocha ka kaam","expect_unit":"9112"}
+{"utterance":"झाड़ू पोछा करता हूँ","expect_unit":"9112"}
+{"utterance":"cleaner hun hospital me","expect_unit":"9112"}
+{"utterance":"hospital cleaning ka kaam","expect_unit":"9112"}
+{"utterance":"सफाई का काम","expect_unit":"9112"}
+
+# ── 9313 construction helper ────────────────────────────────────────────────
+{"utterance":"beldar ka kaam karta hun","expect_unit":"9313"}
+{"utterance":"बेलदार","expect_unit":"9313"}
+{"utterance":"raj helper hun","expect_unit":"9313"}
+{"utterance":"masala banana ka kaam","expect_unit":"9313","note":"mortar mixing, not cooking"}
+{"utterance":"helper mason ka kaam kiya hai","expect_unit":"9313"}
+{"utterance":"bijli helper hun","expect_unit":"9313"}
+{"utterance":"बिजली हेल्पर","expect_unit":"9313"}
+{"utterance":"shuttering helper ka kaam","expect_unit":"9313"}
+{"utterance":"painter helper tha","expect_unit":"9313"}
+{"utterance":"bar bender helper ka kaam","expect_unit":"9313"}
+
+# ── 7126 plumbing ───────────────────────────────────────────────────────────
+{"utterance":"plumber hun main","expect_unit":"7126"}
+{"utterance":"प्लंबर का काम","expect_unit":"7126"}
+{"utterance":"nal ka kaam karta hun","expect_unit":"7126"}
+{"utterance":"नल का काम","expect_unit":"7126"}
+{"utterance":"nalsaz hun","expect_unit":"7126"}
+{"utterance":"paani ka mistri hun","expect_unit":"7126"}
+{"utterance":"plumbing ka kaam aata hai","expect_unit":"7126"}
+{"utterance":"pipe fitting ka kaam karta hun","expect_unit":"7126"}
+{"utterance":"पाइप फिटर","expect_unit":"7126"}
+{"utterance":"plumber helper tha pehle","expect_unit":"7126"}
+{"utterance":"plamber ka kaam","expect_unit":"7126","note":"u/a misspelling"}
+
+# ── 7131 painting ───────────────────────────────────────────────────────────
+{"utterance":"painter hun main","expect_unit":"7131"}
+{"utterance":"पेंटर का काम","expect_unit":"7131"}
+{"utterance":"putai ka kaam karta hun","expect_unit":"7131"}
+{"utterance":"पुताई","expect_unit":"7131"}
+{"utterance":"rangai putai ka kaam","expect_unit":"7131"}
+{"utterance":"paint ka kaam aata hai","expect_unit":"7131"}
+{"utterance":"safedi ka kaam karta hun","expect_unit":"7131"}
+{"utterance":"सफेदी","expect_unit":"7131"}
+{"utterance":"spray painter hun","expect_unit":"7131"}
+{"utterance":"स्प्रे पेंटिंग का काम","expect_unit":"7131"}
+{"utterance":"industrial painter ka kaam kiya hai","expect_unit":"7131"}
+{"utterance":"pentar ka kaam","expect_unit":"7131","note":"phonetic misspelling"}
+
+# ── 7115 carpentry ──────────────────────────────────────────────────────────
+{"utterance":"badhai ka kaam karta hun","expect_unit":"7115"}
+{"utterance":"बढ़ई","expect_unit":"7115"}
+{"utterance":"barhai hun main","expect_unit":"7115","note":"dh/rh spelling"}
+{"utterance":"lakdi ka kaam aata hai","expect_unit":"7115"}
+{"utterance":"लकड़ी का काम","expect_unit":"7115"}
+{"utterance":"furniture banana ka kaam","expect_unit":"7115"}
+{"utterance":"carpenter mistri hun","expect_unit":"7115"}
+{"utterance":"shuttering carpenter ka kaam","expect_unit":"7115"}
+{"utterance":"शटरिंग का काम","expect_unit":"7115"}
+{"utterance":"carpenter hun main","expect_unit":"7115"}
+{"utterance":"badai ka kaam","expect_unit":"7115","note":"dropped aspiration"}
+
+# ── 7233 fitting / mechanic ─────────────────────────────────────────────────
+{"utterance":"fitter hun main","expect_unit":"7233"}
+{"utterance":"फिटर का काम","expect_unit":"7233"}
+{"utterance":"bench fitter ka kaam kiya hai","expect_unit":"7233"}
+{"utterance":"maintenance fitter hun","expect_unit":"7233"}
+{"utterance":"मेंटेनेंस फिटर","expect_unit":"7233"}
+{"utterance":"diesel mechanic hun","expect_unit":"7233"}
+{"utterance":"डीजल मैकेनिक","expect_unit":"7233"}
+{"utterance":"petrol mechanic ka kaam","expect_unit":"7233"}
+{"utterance":"silai machine repair karta hun","expect_unit":"7233","note":"must not go to 8153"}
+{"utterance":"ghar ke saman ki repairing karta hun","expect_unit":"7233"}
+{"utterance":"fiter ka kaam","expect_unit":"7233","note":"single-t misspelling"}
+
+# ── 5223 retail ─────────────────────────────────────────────────────────────
+{"utterance":"dukan par kaam karta hun","expect_unit":"5223"}
+{"utterance":"दुकान का काम","expect_unit":"5223"}
+{"utterance":"salesman hun main","expect_unit":"5223"}
+{"utterance":"सेल्समैन","expect_unit":"5223"}
+{"utterance":"counter sales ka kaam kiya hai","expect_unit":"5223"}
+{"utterance":"shop assistant hun","expect_unit":"5223"}
+{"utterance":"store helper ka kaam","expect_unit":"5223"}
+{"utterance":"dukaan pe kaam karta hun","expect_unit":"5223","note":"long-vowel spelling"}
+
+# ── Harder phrasing: the trade word buried mid-sentence ─────────────────────
+{"utterance":"main pichhle char saal se welding ka kaam kar raha hun ek factory me","expect_unit":"7212"}
+{"utterance":"abhi kaam nahi mil raha lekin silai aati hai mujhe","expect_unit":"7531","note":"negation must not veto the trade"}
+{"utterance":"gaon me raj mistri ka kaam karta tha ab shahar aaya hun","expect_unit":"7112"}
+{"utterance":"dus saal se kharad chala raha hun","expect_unit":"7223"}
+{"utterance":"papa bijli ka kaam karte the maine bhi wahi seekha","expect_unit":"7411"}
+{"utterance":"kabhi kabhi truck bhi chalata hun","expect_unit":"8332"}
+{"utterance":"raat ki duty me chowkidar ka kaam karta hun","expect_unit":"5414"}
+{"utterance":"hotel me khana banana ka kaam karta tha","expect_unit":"5120"}
+{"utterance":"building me safai ka kaam milta hai","expect_unit":"9112"}
+{"utterance":"nal ka kaam aur plumbing dono karta hun","expect_unit":"7126"}
+{"utterance":"ghar pe rehkar silai machine chalati hun","expect_unit":"8153"}
+{"utterance":"site pe beldar ka kaam karta hun","expect_unit":"9313"}
+{"utterance":"naya kaam dhundh raha hun pehle painter tha","expect_unit":"7131"}
+{"utterance":"lakdi ka kaam bachpan se aata hai","expect_unit":"7115"}
+{"utterance":"workshop me fitter ka kaam karta hun","expect_unit":"7233"}
+{"utterance":"cnc operator ki job kar raha hun abhi","expect_unit":"7223"}
+{"utterance":"maine dukan par kaam kiya hai do saal","expect_unit":"5223"}
+{"utterance":"taxi driver ka kaam karta hun subah se raat tak","expect_unit":"8322"}
+{"utterance":"gas welding ka kaam sikha hai maine iti se","expect_unit":"7212"}
+{"utterance":"ladies tailor ka kaam karti hun ghar se","expect_unit":"7531"}
+
+# ── Script mixing within one utterance ──────────────────────────────────────
+{"utterance":"main वेल्डिंग ka kaam karta hun","expect_unit":"7212"}
+{"utterance":"सिलाई machine operator hun","expect_unit":"8153"}
+{"utterance":"बिजली ka kaam aata hai","expect_unit":"7411"}
+{"utterance":"राज मिस्त्री ka kaam","expect_unit":"7112"}
+{"utterance":"ट्रक driver hun","expect_unit":"8332"}
+{"utterance":"चौकीदार ki duty","expect_unit":"5414"}
+{"utterance":"खराद ka kaam","expect_unit":"7223"}
+{"utterance":"प्लंबर ka kaam karta hun","expect_unit":"7126"}
+{"utterance":"बढ़ई ka kaam","expect_unit":"7115"}
+{"utterance":"सफाई ka kaam","expect_unit":"9112"}
+
+# ── Casing and punctuation noise ────────────────────────────────────────────
+{"utterance":"WELDING KA KAAM","expect_unit":"7212"}
+{"utterance":"Silai Ka Kaam Karta Hoon","expect_unit":"7531"}
+{"utterance":"driver...","expect_unit":"8322"}
+{"utterance":"raj-mistri","expect_unit":"7112","note":"intra-word hyphen is kept by the normalizer"}
+{"utterance":"cnc  operator","expect_unit":"7223","note":"double space"}
+{"utterance":"  chowkidar  ","expect_unit":"5414"}
+{"utterance":"bijli ka kaam!","expect_unit":"7411"}
+{"utterance":"plumber?","expect_unit":"7126"}
+{"utterance":"badhai, ji","expect_unit":"7115"}
+{"utterance":"safai karmchari.","expect_unit":"9112"}
+
+# ── Particle-heavy constructions the normalizer must strip ──────────────────
+{"utterance":"welding wala kaam","expect_unit":"7212"}
+{"utterance":"silai wala hun main","expect_unit":"7531"}
+{"utterance":"bijli wale ka kaam","expect_unit":"7411"}
+{"utterance":"gaadi wala kaam karta hun","expect_unit":"8322"}
+{"utterance":"kharad wala kaam","expect_unit":"7223"}
+{"utterance":"nal wala kaam karta hun","expect_unit":"7126"}
+{"utterance":"lakdi wala kaam","expect_unit":"7115"}
+{"utterance":"putai wala kaam karta hun","expect_unit":"7131"}
+{"utterance":"chowkidari ka kaam","expect_unit":"5414","note":"derived noun form"}
+{"utterance":"mistri wala kaam","expect_unit":"7112"}
+
+# ── First-person variants and tense ─────────────────────────────────────────
+{"utterance":"welding karta tha pehle","expect_unit":"7212"}
+{"utterance":"silai karti hun","expect_unit":"7531","note":"feminine verb form"}
+{"utterance":"driver ka kaam karunga","expect_unit":"8322"}
+{"utterance":"khana banata hun","expect_unit":"5120"}
+{"utterance":"bijli ka kaam karte hain hum","expect_unit":"7411"}
+{"utterance":"raj mistri ka kaam karte the","expect_unit":"7112"}
+{"utterance":"cnc chalata tha","expect_unit":"7223"}
+{"utterance":"chowkidar rehta hun","expect_unit":"5414"}
+{"utterance":"safai karta tha","expect_unit":"9112"}
+{"utterance":"plumber ka kaam karunga","expect_unit":"7126"}
+
+# ── Bare single words — the L1 over-folding cases ───────────────────────────
+# Each of these folds onto an unrelated occupation at L1 (driver->Drover,
+# fitter->Father, painter->Pantry Man), so each is really a test that L0 wins first.
+{"utterance":"driver","expect_unit":"8322"}
+{"utterance":"fitter","expect_unit":"7233"}
+{"utterance":"painter","expect_unit":"7131"}
+{"utterance":"welder","expect_unit":"7212"}
+{"utterance":"plumber","expect_unit":"7126"}
+{"utterance":"carpenter","expect_unit":"7115"}
+{"utterance":"electrician","expect_unit":"7411"}
+{"utterance":"cnc","expect_unit":"7223"}
+{"utterance":"chowkidar","expect_unit":"5414"}
+{"utterance":"darzi","expect_unit":"7531"}
+{"utterance":"beldar","expect_unit":"9313"}
+{"utterance":"bawarchi","expect_unit":"5120"}
+{"utterance":"truck","expect_unit":"8332"}
+{"utterance":"dukan","expect_unit":"5223"}
+{"utterance":"safai","expect_unit":"9112"}
