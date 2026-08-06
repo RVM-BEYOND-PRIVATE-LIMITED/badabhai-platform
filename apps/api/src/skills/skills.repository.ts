@@ -23,9 +23,26 @@ import type { AliasCandidate, DomainCandidate } from "./skills.dto";
  * after the Phase 2 alias backfill, not constants to trust — which is why
  * `skills.repository.e2e` asserts the EXPLAIN plan rather than the numbers.
  *
- * The overfetch only needs to be large enough that dedupe still yields k domains: at
- * ~1.33 aliases per searchable domain, 100 candidates give ~75-90 distinct domains for a
- * k of 8.
+ * ── THE OVERFETCH'S REAL BOUND, AND WHY IT IS NOT YET CALIBRATED ──
+ *
+ * Dedupe must still yield k DOMAINS. On average that is easy — 1.33 searchable aliases per
+ * domain, so 64 candidates gave 62 distinct domains when measured. But that measurement
+ * used MOCK embeddings, which are random and therefore do not cluster; real embeddings put
+ * a domain's aliases ("Welder, Gas" / "Gas Welder" / "gas welding") close together, so one
+ * domain can occupy many of the top-N slots.
+ *
+ * The worst case is not hypothetical and is worth stating: the alias-per-domain
+ * distribution is p50=1, p99=5, **max=51**. If the nearest cluster happens to be that
+ * 51-alias domain, 64 candidates can collapse to as few as **2 distinct domains** — below
+ * k=8.
+ *
+ * This is NOT tuned here on purpose. Zero aliases are embedded today, so L3 returns nothing
+ * either way, and there is no real distance distribution to calibrate against. Phase 9 owns
+ * threshold calibration against production utterances; the sprint plan says so explicitly.
+ * When embeddings land in Phase 2, re-measure BOTH the index cutover above AND the dedupe
+ * yield, and if the yield is short, the fix is a second widened ANN pass rather than a
+ * bigger single LIMIT — a bigger LIMIT loses the index, which is what this whole rewrite
+ * existed to win back.
  */
 const ANN_OVERFETCH_MIN = 50;
 const ANN_OVERFETCH_MAX = 100;

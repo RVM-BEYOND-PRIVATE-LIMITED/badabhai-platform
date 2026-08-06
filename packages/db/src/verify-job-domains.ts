@@ -222,13 +222,25 @@ async function main(): Promise<void> {
     // A selectable domain with aliases but NO searchable one is unreachable by retrieval —
     // the same class of silent coverage hole as "selectable with zero aliases" above, but
     // introduced by the normalization pass rather than by the corpus.
+    //
+    // SCOPED TO FULLY-NORMALIZED DOMAINS, and that scoping is the point. Without it this
+    // check fires on the ordinary post-seed state: straight after `db:seed:domains` every
+    // `text_norm` is NULL, so all 3,515 domains have no searchable alias and the documented
+    // `db:migrate && db:seed:domains && db:verify:domains` chain exits 1 — turning the
+    // deploy gate red for a state the deploy is supposed to pass through. The "aliases with
+    // no text_norm" WARN above is what reports that state; this FAIL is reserved for a
+    // domain the normalizer HAS processed and still left unreachable, which is a real defect.
     checks.push({
-      name: "selectable domains with aliases but none searchable",
+      name: "normalized selectable domains with aliases but none searchable",
       level: "fail",
       detail: "unreachable by retrieval — the normalization pass excluded every alias they have",
       count: await one(dsql`
         SELECT count(*) AS n FROM "job_domain" d
          WHERE d."selectable" AND d."status" = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM "job_domain_alias" a
+              WHERE a."job_domain_id" = d."job_domain_id" AND a."text_norm" IS NULL
+           )
            AND NOT (
              d."source" = 'isco08'
              AND EXISTS (

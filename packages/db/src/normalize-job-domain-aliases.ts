@@ -28,7 +28,7 @@
  * PRIVACY: the reference catalogue only. Every line printed is ids + counts.
  */
 import { config } from "dotenv";
-import { isNull, sql as dsql } from "drizzle-orm";
+import { and, isNull, notInArray, sql as dsql } from "drizzle-orm";
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
 
 import { createDbClient } from "./client";
@@ -122,28 +122,61 @@ async function main(): Promise<void> {
   printHeader(SCRIPT, opts);
   if (renormalize) {
     console.log(
-      `[${SCRIPT}] --renormalize — every text_norm will be recomputed ` +
-        "(use after editing @badabhai/profiling-lexicon data/particles.json).",
+      opts.apply
+        ? `[${SCRIPT}] --renormalize — clearing is_searchable, then recomputing EVERY text_norm ` +
+            "(use after editing @badabhai/profiling-lexicon data/particles.json)."
+        : // Say so plainly. `--renormalize` only takes effect under --apply, so without it
+          // the run inspects whatever is ALREADY un-normalized (normally nothing) and would
+          // otherwise print a reassuring "0 row change(s) planned" one line after announcing
+          // a full recompute.
+          `[${SCRIPT}] --renormalize has NO EFFECT without --apply; this dry run reports only ` +
+            "rows whose text_norm is already NULL, not the full recompute it would perform.",
     );
   }
 
   const { db, sql } = createDbClient(opts.databaseUrl, { max: 1 });
 
   let normalized = 0;
-  let unchanged = 0;
   let emptied = 0;
   let batches = 0;
 
   try {
     if (renormalize && opts.apply) {
-      await db.execute(dsql`UPDATE "job_domain_alias" SET "text_norm" = NULL`);
+      // ORDER IS LOAD-BEARING: clear `is_searchable` FIRST, in the same transaction.
+      //
+      // `job_domain_alias_domain_norm_lang_uq` is UNIQUE over
+      // (job_domain_id, text_norm, lang) WHERE is_searchable, with NULLS NOT DISTINCT. So
+      // NULLing `text_norm` while rows are still searchable collapses every searchable
+      // alias of a domain onto the key (domain, NULL, lang) — and 491 domains have two or
+      // more. Verified: the bare UPDATE fails outright with
+      //   duplicate key value violates unique constraint "job_domain_alias_domain_norm_lang_uq"
+      //   DETAIL: Key (job_domain_id, text_norm, lang)=(jd_isco_0310, null, en) already exists.
+      // which made `--renormalize --apply` dead on arrival.
+      //
+      // Emptying the partial index first makes the NULL pass unconstrained. Both statements
+      // run in ONE transaction so a crash between them cannot leave the catalogue
+      // un-normalized AND still flagged searchable.
+      await db.transaction(async (tx) => {
+        await tx.execute(dsql`UPDATE "job_domain_alias" SET "is_searchable" = false WHERE "is_searchable"`);
+        await tx.execute(dsql`UPDATE "job_domain_alias" SET "text_norm" = NULL`);
+      });
     }
+
+    // Aliases that normalize to empty text. They can never leave the `text_norm IS NULL`
+    // set, so without excluding them the next fetch returns the same rows forever. Held in
+    // memory and NOT persisted, exactly as `embed-job-domain-aliases.ts` treats its blocked
+    // ids: the row stays NULL and is re-attempted on a later run, once the corpus is fixed.
+    const blocked: string[] = [];
 
     for (;;) {
       const rows = await db
         .select({ id: jobDomainAliases.id, text: jobDomainAliases.text })
         .from(jobDomainAliases)
-        .where(isNull(jobDomainAliases.textNorm))
+        .where(
+          blocked.length === 0
+            ? isNull(jobDomainAliases.textNorm)
+            : and(isNull(jobDomainAliases.textNorm), notInArray(jobDomainAliases.id, blocked)),
+        )
         .orderBy(jobDomainAliases.id)
         .limit(opts.batchSize);
 
@@ -156,15 +189,22 @@ async function main(): Promise<void> {
       // can only happen for an alias with NO kept characters at all, which is a corpus
       // defect worth surfacing rather than silently normalizing away.
       const writable = pairs.filter((p) => p.norm.length > 0);
+      for (const p of pairs) if (p.norm.length === 0) blocked.push(p.id);
       emptied += pairs.length - writable.length;
 
       if (!opts.apply) {
-        normalized += writable.length;
-        // A dry run cannot advance the `IS NULL` window, so stop after costing one batch
-        // rather than looping forever over the same rows.
+        // A dry run cannot advance the `IS NULL` window, so it inspects one batch and
+        // stops. Report the WHOLE remaining population, not the batch: an operator reading
+        // "500 row change(s) planned" against a 8,695-row backlog would size the run wrong.
+        const pending = await db.execute(dsql`
+          SELECT count(*)::int AS n FROM "job_domain_alias" WHERE "text_norm" IS NULL
+        `);
+        const total = (pending as unknown as Array<{ n: number }>)[0]?.n ?? 0;
+        normalized = total;
         console.log(
-          `[${SCRIPT}] dry run — first ${rows.length} row(s) inspected; ` +
-            "re-run with --apply to write and continue.",
+          `[${SCRIPT}] dry run — inspected the first ${rows.length} of ${total} un-normalized ` +
+            `row(s); ${writable.length}/${rows.length} of them would be written. ` +
+            "Re-run with --apply to write them all.",
         );
         break;
       }
@@ -183,17 +223,17 @@ async function main(): Promise<void> {
         `);
         const written = (result as unknown as { count?: number }).count ?? writable.length;
         normalized += written;
-        unchanged += writable.length - written;
       }
 
-      // PROGRESS-OR-ABORT. If a batch wrote nothing AND excluded nothing, the next fetch
-      // returns the same rows — stop rather than spin. Mirrors embed-job-domain-aliases.
-      if (writable.length === 0 && rows.length > 0) {
-        throw new Error(
-          `[${SCRIPT}] batch made no progress — ${rows.length} row(s) normalized to empty ` +
-            "text. Inspect their `text` in the corpus; aborting rather than looping.",
-        );
-      }
+      // PROGRESS-OR-STOP. Every batch either writes >=1 row (leaving the IS NULL set) or
+      // adds >=1 id to `blocked` (excluded from the next fetch), so the loop always
+      // advances and cannot spin.
+      //
+      // Deliberately NOT a throw. An earlier version aborted here, which meant ONE
+      // un-normalizable alias anywhere in the corpus killed the run BEFORE the
+      // `is_searchable` recompute below — leaving the retrieval surface entirely empty over
+      // a single bad row. Excluding it and carrying on is strictly better: the bad row stays
+      // NULL and unsearchable, everything else is built, and the WARN below names the count.
     }
 
     let searchableChanged = 0;
@@ -214,7 +254,6 @@ async function main(): Promise<void> {
     printCounts(SCRIPT, {
       batches,
       text_norm_written: normalized,
-      text_norm_unchanged: unchanged,
       normalized_to_empty_skipped: emptied,
       is_searchable_flipped: searchableChanged,
       aliases_total: row.total,
