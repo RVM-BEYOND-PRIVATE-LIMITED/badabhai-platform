@@ -13,10 +13,12 @@
 import { describe, expect, it } from "vitest";
 
 import { loadUtteranceFixtures } from "../internal/fixtures.js";
+import { loadLexicon } from "../internal/regex.js";
 import type { NormalizedValue } from "./types.js";
 import { canonicalCity, canonicalRegion, canonicalState } from "./gazetteer.js";
 import { parseExperienceYears } from "./experience.js";
 import { applyNegation, isNegated } from "./negation.js";
+import { detectSalaries, parseAmount, parseSalaryMonthly } from "./salary.js";
 
 type AnyNormalizer = (text: string) => NormalizedValue<unknown> | null;
 
@@ -25,6 +27,9 @@ const NORMALIZER_BY_NAME: Readonly<Record<string, AnyNormalizer>> = {
   canonicalState,
   canonicalRegion,
   parseExperienceYears,
+  salaryExpected: (text) => detectSalaries(text).expected,
+  salaryCurrent: (text) => detectSalaries(text).current,
+  parseSalaryMonthly,
 };
 
 const fixtures = loadUtteranceFixtures();
@@ -53,9 +58,13 @@ describe("value corpus shape", () => {
     // would satisfy every per-case assertion below.
     for (const name of Object.keys(NORMALIZER_BY_NAME)) {
       const hits = fixtures.filter((f) => expected(f)[name] !== undefined);
-      expect(hits.length, `${name} never produces a value anywhere in the corpus`).toBeGreaterThan(0);
+      expect(hits.length, `${name} never produces a value anywhere in the corpus`).toBeGreaterThan(
+        0,
+      );
     }
-    const vetoed = fixtures.flatMap((f) => Object.values(expected(f))).filter((v) => v.negationVetoed);
+    const vetoed = fixtures
+      .flatMap((f) => Object.values(expected(f)))
+      .filter((v) => v.negationVetoed);
     expect(vetoed.length, "no fixture exercises the negation veto").toBeGreaterThan(0);
   });
 });
@@ -78,10 +87,7 @@ describe("normalizers match the corpus", () => {
 
       expect(got, `${name} returned null — ${where}`).not.toBeNull();
       expect(got?.value, `${name} value — ${where}`).toEqual(wanted.value);
-      expect(
-        [got?.span.start, got?.span.end],
-        `${name} span — ${where}`,
-      ).toEqual(wanted.span);
+      expect([got?.span.start, got?.span.end], `${name} span — ${where}`).toEqual(wanted.span);
       expect(got?.negationVetoed, `${name} negationVetoed — ${where}`).toBe(wanted.negationVetoed);
     }
   });
@@ -168,6 +174,103 @@ describe("gazetteer semantics", () => {
     expect(canonicalRegion("south india me kaam")?.value).toBe("South India");
     expect(canonicalRegion("south side me rehta hu")).toBeNull();
     expect(canonicalRegion("made in india")).toBeNull();
+  });
+});
+
+describe("salary semantics the corpus alone would not pin", () => {
+  it("keeps the matcher's inline units and the unit lists in step", () => {
+    // The matcher spells its units inline while parseAmount reads them from two lists, and
+    // nothing else connects the two. A unit added to one and not the other either never matches
+    // (silently dropping every "25 <unit>") or matches and then multiplies by 1. Both silent.
+    // Asserted from BOTH jobs: the node job always runs on a lexicon-only change, the
+    // ai-service job only because ci.yml lists this package in its path filter.
+    const salary = loadLexicon<{
+      matcher: { source: string };
+      thousandUnits: string[];
+      lakhUnits: string[];
+    }>("salary");
+    const units = [...salary.thousandUnits, ...salary.lakhUnits].join("|");
+    expect(salary.matcher.source).toContain(`(?:${units}){WE}`);
+  });
+
+  it("divides an annual figure down to a month, and never the reverse", () => {
+    // The 12x error this whole file exists to prevent. Both directions are asserted, because
+    // multiplying a monthly wage by twelve is just as wrong as storing an annual one raw.
+    expect(parseSalaryMonthly("2.5 lakh saal ka")?.value).toBe(20833);
+    expect(parseSalaryMonthly("2.5 lakh mahina")?.value).toBe(250000);
+  });
+
+  it("records nothing when the period cues conflict", () => {
+    // "prefer no number over a wrong number" — an unrecorded salary is re-askable next turn.
+    expect(parseSalaryMonthly("5 lakh saal ka mahina")).toBeNull();
+  });
+
+  it("reads a bare 'saal' BEFORE the amount as experience, not as a period", () => {
+    // The asymmetry between annualCuesBefore and annualCuesAfter. Treating this as annual
+    // would divide a correct monthly wage by twelve — one wrong number traded for another.
+    expect(parseSalaryMonthly("6 saal se 28000 milta hai")?.value).toBe(28000);
+    expect(parseSalaryMonthly("28000 saal ka")?.value).toBe(2333);
+  });
+
+  it("keeps a period cue on a neighbouring line from scaling the amount", () => {
+    expect(parseSalaryMonthly("4 lakh\nsaal ka")?.value).toBe(400000);
+  });
+
+  it("splits the current and expected slots, first writer wins in each", () => {
+    const both = detectSalaries("abhi 21000 milta hai, 31000 chahiye");
+    expect(both.current?.value).toBe(21000);
+    expect(both.expected?.value).toBe(31000);
+    // A second expected figure does not overwrite the first: correction handling belongs to
+    // the orchestrator, which needs to see them as two answers rather than one silent winner.
+    expect(detectSalaries("31000 chahiye, 41000 chahiye").expected?.value).toBe(31000);
+  });
+
+  it("spans the number itself, not the whitespace the matcher consumed", () => {
+    // The matcher's `\s*` eats spaces at both ends. A provenance gate quoting the match span
+    // would quote " 27000 " and fail its own substring check against the transcript.
+    const hit = parseSalaryMonthly("₹ 27000 milta hai");
+    expect(hit?.span).toEqual({ start: 2, end: 7 });
+    expect("₹ 27000 milta hai".slice(2, 7)).toBe("27000");
+    const withUnit = parseSalaryMonthly("20k mahina milta hai");
+    expect("20k mahina milta hai".slice(withUnit!.span.start, withUnit!.span.end)).toBe("20k");
+  });
+
+  it("rejects a calendar year unless the text says money", () => {
+    expect(parseSalaryMonthly("2015 se kaam kar raha hu")).toBeNull();
+    expect(parseSalaryMonthly("2015 rupaye milte hai")?.value).toBe(2015);
+  });
+
+  it("rejects a credential id sitting next to its cue, but not a later wage", () => {
+    expect(parseSalaryMonthly("roll number 987654 hai")).toBeNull();
+    // The false suppression a line scan shipped: a certificate mentioned LATER in the same
+    // message must not delete a wage stated earlier. A chat message is a single line.
+    expect(parseSalaryMonthly("abhi 25000 milta hai, NCVT certificate hai")?.value).toBe(25000);
+  });
+
+  it("requires the unit to end on a word boundary", () => {
+    // Without it the bare `k` matched the first letter of "kiya" and recorded ₹4,000.
+    expect(parseSalaryMonthly("NSQF level 4 kiya hai")).toBeNull();
+    expect(parseSalaryMonthly("level 4 kaam karta hu")).toBeNull();
+  });
+
+  it("applies the plausibility ceiling to the MONTHLY figure", () => {
+    // 100 lakh = 1 crore/month sits exactly ON the ceiling and is kept; 101 lakh is not.
+    expect(parseAmount("100", "lakh")).toBe(10_000_000);
+    expect(parseAmount("101", "lakh")).toBeNull();
+    // The same annual figure passes, because the ceiling is checked after the division.
+    expect(parseAmount("101", "lakh", 12)).toBe(841_666);
+  });
+
+  it("accepts Devanagari digits, because the shipped Python already did", () => {
+    expect(parseSalaryMonthly("२८००० मिलता है")?.value).toBe(28000);
+  });
+
+  it("reports a negated amount rather than swallowing it", () => {
+    // Reported, not vetoed: answer capture drops it, a diagnostic surface wants to know the
+    // cue was seen AND why it did not count.
+    const hit = parseSalaryMonthly("28000 nahi milta");
+    expect(hit?.value).toBe(28000);
+    expect(hit?.negationVetoed).toBe(true);
   });
 });
 

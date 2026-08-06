@@ -133,6 +133,39 @@ def parse_experience_years(text: str) -> NormalizedValue[float] | None:
     return _found(float(value), message, match.start(), match.end())
 
 
+def _salary_slot(text: str, *, expected: bool) -> NormalizedValue[int] | None:
+    """The first salary filling one slot, or None.
+
+    Reads `signals._iter_salaries` — the SAME generator `_detect_salary` consumes — so the period
+    disambiguation is asserted here in exactly the form the extraction path runs it. First hit
+    wins, matching `_detect_salary`'s first-writer-wins policy per slot.
+    """
+    message = text or ""
+    for hit in signals._iter_salaries(message, message.lower()):
+        if hit.expected == expected:
+            return _found(hit.amount, message, hit.start, hit.end)
+    return None
+
+
+def salary_expected(text: str) -> NormalizedValue[int] | None:
+    """Monthly rupees the worker is ASKING for — an expectation cue sits near the amount."""
+    return _salary_slot(text, expected=True)
+
+
+def salary_current(text: str) -> NormalizedValue[int] | None:
+    """Monthly rupees the worker earns TODAY — no expectation cue near the amount."""
+    return _salary_slot(text, expected=False)
+
+
+def parse_salary_monthly(text: str) -> NormalizedValue[int] | None:
+    """The single best monthly figure: the expected one when present, else the current one.
+
+    Every question that reaches this normalizer asks what the worker WANTS, so "abhi 25000 milta
+    hai, 35000 chahiye" answers `salary_expected` with 35000.
+    """
+    return salary_expected(text) or salary_current(text)
+
+
 #: Fixture normalizer name -> implementation. Addressed by the TypeScript export name so one
 #: corpus record reads identically from either side.
 VALUE_BY_NAME = {
@@ -140,4 +173,7 @@ VALUE_BY_NAME = {
     "canonicalState": canonical_state,
     "canonicalRegion": canonical_region,
     "parseExperienceYears": parse_experience_years,
+    "salaryExpected": salary_expected,
+    "salaryCurrent": salary_current,
+    "parseSalaryMonthly": parse_salary_monthly,
 }

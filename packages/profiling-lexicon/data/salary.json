@@ -1,0 +1,182 @@
+{
+  "$comment": [
+    "Salary detection, lifted verbatim from apps/ai-service/app/profiling/signals.py.",
+    "",
+    "WHY THIS FILE IS THE RISKIEST ONE IN THE PACKAGE: the period decides a factor of TWELVE.",
+    "'2.5 lakh saal ka' is 20,833/month; read as monthly it becomes 250,000 and lands in",
+    "salary_expectation.amount_min, on the resume, and in the deterministic ranking factor",
+    "reach.mappers.ts reads. Every window width and cue list below was tuned against a real",
+    "regression, so treat each number as measured, not as a preference.",
+    "",
+    "THE RULE THE WHOLE FILE OBEYS: prefer NO number over a WRONG number. Ambiguous period,",
+    "implausible magnitude, a bare calendar year, a credential id -> record nothing. An",
+    "unrecorded salary is re-askable next turn; a fabricated one ships."
+  ],
+
+  "matcher": {
+    "source": "(?:₹|rs\\.?|inr)?\\s*([0-9०-९]{1,3}(?:[,0-9०-९]*)(?:\\.[0-9०-९]+)?)\\s*((?:k|thousand|hazar|hzr|lakh|lac|l){WE})?",
+    "flags": "i"
+  },
+  "$comment_matcher": [
+    "THE UNIT MUST END ON A WORD BOUNDARY. Without {WE} the bare 'k' alternative matched the",
+    "FIRST LETTER of the next Hindi word, so 'NSQF level 4 kiya hai' read the 'k' of 'kiya' as",
+    "thousands and recorded a 4,000 salary. Every '<digit> kaam/karta/kiya' phrase did the same.",
+    "Identical trap for the bare 'l' in front of any l-word.",
+    "",
+    "DIGITS ARE ENUMERATED as [0-9०-९] rather than \\d. This is NOT cosmetic: Python's \\d is",
+    "Unicode-aware and already matched Devanagari, and float() parses them, so '२५०००' records",
+    "25000 on the shipped code today. Writing [0-9] would have silently dropped that; writing",
+    "\\d would break JavaScript, whose \\d is ASCII-only. The enumeration is the only form that",
+    "preserves the shipped behaviour in both engines. It does narrow Python for scripts this",
+    "corpus does not contain (Bengali, Tamil digits) — narrowing toward agreement is the safe",
+    "direction, and the differential over 500 probes shows no change.",
+    "",
+    "The unit alternation is thousandUnits ++ lakhUnits IN THAT ORDER. A test asserts it, so",
+    "the lists below and this pattern cannot drift apart."
+  ],
+
+  "thousandUnits": ["k", "thousand", "hazar", "hzr"],
+  "lakhUnits": ["lakh", "lac", "l"],
+
+  "minDigitsWithoutUnit": 3,
+  "$comment_minDigitsWithoutUnit": [
+    "A bare 1-2 digit number with no unit is almost always years, not rupees ('5 saal'), so it",
+    "is skipped before any other test runs. MEASURED CONSEQUENCE, pinned by a test: '5 lpa' and",
+    "'5 LPA chahiye' therefore record NOTHING, even though 'lpa' is an annual cue — the number",
+    "is dropped before the period is ever consulted. Widening this is a product decision with a",
+    "fabrication risk on the other side of it, not a bug fix."
+  ],
+
+  "minAmountInr": 1000,
+  "maxPlausibleInr": 10000000,
+  "$comment_maxPlausibleInr": [
+    "The ceiling is SHARED with the pseudonymizer's D-1 money carve-out. pseudonymize.py holds",
+    "MAX_PLAUSIBLE_SALARY_INR and remains the single source of truth; signals.py raises at",
+    "import if this value disagrees with it, so the copy the TypeScript side needs can never",
+    "drift into a masking decision the gateway did not make."
+  ],
+
+  "yearMin": 1900,
+  "yearMax": 2099,
+
+  "periodWindowBefore": 14,
+  "periodWindowAfter": 18,
+  "$comment_periodWindow": [
+    "Read in a TIGHT window around the amount — wide enough for '1.5 lakh saal ka', narrow",
+    "enough that the '5 saal' of an experience clause elsewhere in the same sentence cannot",
+    "mark an unrelated amount as annual."
+  ],
+
+  "expectedWindowBefore": 25,
+  "expectedWindowAfter": 10,
+  "expectedCues": ["expect", "chahiye", "chahie", "want", "expected", "demand", " chah"],
+  "$comment_expectedCues": [
+    "SUBSTRINGS, not patterns — matched with a plain containment test against the lowercased",
+    "window, exactly as signals.py does. ' chah' carries a LEADING SPACE on purpose: it is a",
+    "stem catching 'chah raha hu' / 'chahta hu' without firing inside an unrelated word."
+  ],
+
+  "annualCuesAfter": [
+    { "source": "{WB}saal{WE}", "flags": "i" },
+    { "source": "{WB}sal{WE}", "flags": "i" },
+    { "source": "{WB}saalana{WE}", "flags": "i" },
+    { "source": "{WB}salana{WE}", "flags": "i" },
+    { "source": "{WB}salaana{WE}", "flags": "i" },
+    { "source": "{WB}varsh{WE}", "flags": "i" },
+    { "source": "{WB}annum{WE}", "flags": "i" },
+    { "source": "{WB}annual{WC}*", "flags": "i" },
+    { "source": "{WB}yearly{WE}", "flags": "i" },
+    { "source": "{WB}year{WE}", "flags": "i" },
+    { "source": "{WB}per\\s*year{WE}", "flags": "i" },
+    { "source": "{WB}p\\.?\\s?a\\.?{WE}", "flags": "i" },
+    { "source": "{WB}lpa{WE}", "flags": "i" }
+  ],
+  "annualCuesBefore": [
+    { "source": "{WB}saalana{WE}", "flags": "i" },
+    { "source": "{WB}salana{WE}", "flags": "i" },
+    { "source": "{WB}salaana{WE}", "flags": "i" },
+    { "source": "{WB}varsh{WE}", "flags": "i" },
+    { "source": "{WB}annual{WC}*", "flags": "i" },
+    { "source": "{WB}yearly{WE}", "flags": "i" },
+    { "source": "{WB}per\\s*year{WE}", "flags": "i" },
+    { "source": "{WB}har\\s*saal{WE}", "flags": "i" }
+  ],
+  "$comment_annualCues": [
+    "ASYMMETRIC ON PURPOSE. AFTER the amount a bare 'saal' is the annual marker ('1.5 lakh saal",
+    "ka'). BEFORE it, a bare 'saal' is far more likely to be the EXPERIENCE clause ('5 saal se",
+    "25000 milta hai') — reading that as annual would divide a correct monthly wage by twelve,",
+    "trading one wrong number for another. So the before-set carries only unambiguously annual",
+    "words. Deleting a cue from the after-set or adding 'saal' to the before-set are both 12x",
+    "errors; the corpus pins each direction."
+  ],
+
+  "monthlyCues": [
+    { "source": "{WB}mahin[ae]{WE}", "flags": "i" },
+    { "source": "{WB}maheen[ae]{WE}", "flags": "i" },
+    { "source": "{WB}month{WC}*", "flags": "i" },
+    { "source": "{WB}masik{WE}", "flags": "i" },
+    { "source": "{WB}p\\.?\\s?m\\.?{WE}", "flags": "i" }
+  ],
+
+  "moneyCues": [
+    { "source": "₹", "flags": "i" },
+    { "source": "{WB}rs\\.?{WE}", "flags": "i" },
+    { "source": "{WB}inr{WE}", "flags": "i" },
+    { "source": "{WB}rupee{WC}*", "flags": "i" },
+    { "source": "{WB}rupa?y[ae]?{WE}", "flags": "i" },
+    { "source": "{WB}sal+ary{WE}", "flags": "i" },
+    { "source": "{WB}tanakha{WE}", "flags": "i" },
+    { "source": "{WB}tankha{WE}", "flags": "i" },
+    { "source": "{WB}paga?ar?{WE}", "flags": "i" },
+    { "source": "{WB}mil(?:ta|te|ti){WE}", "flags": "i" },
+    { "source": "{WB}kama{WC}*", "flags": "i" },
+    { "source": "{WB}pay{WC}*", "flags": "i" },
+    { "source": "{WB}wage{WC}*", "flags": "i" },
+    { "source": "{WB}stipend{WE}", "flags": "i" },
+    { "source": "{WB}income{WE}", "flags": "i" },
+    { "source": "{WB}ctc{WE}", "flags": "i" },
+    { "source": "{WB}mahin[ae]{WE}", "flags": "i" },
+    { "source": "{WB}month{WC}*", "flags": "i" },
+    { "source": "{WB}masik{WE}", "flags": "i" },
+    { "source": "{WB}expect{WC}*", "flags": "i" },
+    { "source": "{WB}chahi{WC}*", "flags": "i" }
+  ],
+  "$comment_moneyCues": [
+    "What makes a bare 4-digit number MONEY rather than a calendar year. ANCHORED patterns, not",
+    "substrings: a loose 'rs' would fire on the 'rs' inside 'years' and turn every '2012 years'",
+    "into a wage.",
+    "",
+    "KNOWN AND DELIBERATELY UNCHANGED: 'ctc' is a money cue but NOT an annual cue, so 'ctc 4",
+    "lakh' records ₹4,00,000 per MONTH. CTC is annual in ordinary Indian usage, which makes",
+    "this the 12x error this file exists to prevent, pointing the other way. It is shipped",
+    "behaviour and is pinned by a corpus case; changing it is a product call, not a port."
+  ],
+
+  "credentialBefore": {
+    "source": "(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license|ncvt|scvt|nsqf|nsdc){WE}(?:\\s+(?:ka|ki|ke|mera|meri))?\\s*(?:no\\.?|number|num|#)?\\s*[:-]?\\s*[A-Za-z0-9/-]{0,20}$",
+    "flags": "i"
+  },
+  "$comment_credentialBefore": [
+    "A number sitting immediately after a CREDENTIAL cue is not money. Measured 2026-07-22:",
+    "'NCVT hai, roll number R/2019/123456' recorded a 123,456 salary and 'certificate number",
+    "4471 hai' recorded 4,471 — both flowed to salary_expectation.amount_min and onto the",
+    "resume. The detector is topic-blind and only rejects amounts under 1,000, so a roll number",
+    "is indistinguishable from a wage to it.",
+    "",
+    "PROXIMITY, not a line scan and not a fixed character window — both looser rules shipped",
+    "false suppressions. Scanning the LINE dropped both salaries from 'abhi 25000 milta hai,",
+    "35000 chahiye, NCVT certificate hai' (one worker answering several questions in one",
+    "message, and a chat message is a single line), and a 30-character window still dropped the",
+    "salary from 'NCVT certificate hai, abhi 25000 milta hai'.",
+    "",
+    "The gap between cue and digits may be the REST OF THE IDENTIFIER — 'roll number",
+    "R/2019/123456' reaches its last digit run through 'R/2019/'. Identifier characters only,",
+    "so a space or comma ends the run and an unrelated later number is not suppressed.",
+    "",
+    "'$' IS SAFE IN BOTH ENGINES HERE. Python's '$' also matches before a trailing newline",
+    "while JavaScript's does not, but this pattern is only ever applied to the slice between",
+    "the start of the number's own line and the number, which by construction contains no",
+    "newline. The '-' sits last inside each character class so neither engine reads a range,",
+    "and so no '\\-' escape is needed (it is a SyntaxError in a JavaScript u-mode pattern)."
+  ]
+}

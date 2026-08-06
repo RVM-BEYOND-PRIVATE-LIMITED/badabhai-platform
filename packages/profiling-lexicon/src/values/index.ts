@@ -16,19 +16,16 @@
  * | negation engine (`applyNegation`, `isNegated`) | ported |
  * | `canonicalCity` / `canonicalState` / `canonicalRegion` | ported |
  * | `parseExperienceYears` | ported |
- * | `parseSalaryMonthly` | **declared only** — see below |
+ * | `parseSalaryMonthly` / `detectSalaries` | ported |
  * | `parseAvailability` / `parseRelocationWillingness` | **declared only** |
  * | `FIELD_CROSSWALK` | Phase 7 |
  *
- * The remaining three are deliberately a separate increment rather than a rushed port. Salary
- * carries the period disambiguation ("18k" is monthly, "2.5 lakh" is annual, "700 rupaye" is
- * daily) where getting it wrong is a **12x error** in the very field employers filter on, and
- * availability carries `_self_state_blocked` plus the notice-period parser. Each needs its own
- * differential against the shipped Python and its own corpus cases; landing them half-checked
- * alongside the easy ones is how a silent regression ships.
+ * Availability is a separate increment rather than a rushed port: it carries `_self_state_blocked`
+ * plus the notice-period parser, and needs its own differential against the shipped Python and its
+ * own corpus cases. Landing it half-checked alongside the rest is how a silent regression ships.
  *
- * They stay `declare`d — exactly as Phase 0 left them — so a caller that imports one gets a
- * TypeScript error at the call site rather than `undefined` at runtime.
+ * It stays `declare`d — exactly as Phase 0 left it — so a caller that imports it gets a TypeScript
+ * error at the call site rather than `undefined` at runtime.
  */
 
 export type { Availability, MonthlyInr, NormalizedValue } from "./types.js";
@@ -44,17 +41,9 @@ export { canonicalCity, canonicalRegion, canonicalState } from "./gazetteer.js";
 
 export { parseExperienceYears } from "./experience.js";
 
-import type { Availability, MonthlyInr, NormalizedValue } from "./types.js";
+export { detectSalaries, parseAmount, parseSalaryMonthly, type SalaryReading } from "./salary.js";
 
-/**
- * Expected/current salary, normalized to rupees per MONTH. `signals._SALARY_RE` plus the period
- * detection that disambiguates "18000" (month), "18k" (month), "2.5 lakh" (year), "700 rupaye"
- * (day). Getting the period wrong is a 12x error, so period detection is not optional — a bare
- * number with no period cue resolves by magnitude heuristic and records lower confidence.
- *
- * NOT YET PORTED — see the port-status table above.
- */
-export declare function parseSalaryMonthly(text: string): NormalizedValue<MonthlyInr> | null;
+import type { Availability, NormalizedValue } from "./types.js";
 
 /**
  * Availability + notice period. `signals._has_immediate_cue` / `_has_notice_cue` /
