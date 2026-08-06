@@ -283,3 +283,289 @@
 {"kind":"alias","job_domain_id":"jd_nco_5223_0100","text":"सेल्समैन","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_5223_0100","text":"counter sales","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_5223_0105","text":"store helper","lang":"en"}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BATCH A — the next 25 highest-volume Indian blue-collar trades.
+#
+# Authored on the same rules as the block above: stems rather than particle phrases (a
+# phrase collapses to the same normalized form as its stem, and only one of them can win
+# is_searchable), Devanagari and Hinglish as SEPARATE rows because the normalizer does not
+# transliterate at query time, and the misspellings workers actually type on a phone.
+#
+# Ambiguous bare words are deliberately NOT reused across domains. "mistri" already
+# reaches masonry, so the automobile trade gets "garage mistri" and "motor mechanic"
+# instead — a bare key claimed by two domains makes L0 return whichever was indexed first,
+# which is arbitrary, and arbitrary is wrong when it selects the question pack.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Automobile mechanic — 7231 ──────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"मैकेनिक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"motor mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"मोटर मैकेनिक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"auto mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"garage mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"गैराज मिस्त्री","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"car mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"bike mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"two wheeler mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"mekanik","lang":"en"}
+
+# ── AC / refrigeration mechanic — 7127 ──────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"ac mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"एसी मैकेनिक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"ac technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"fridge mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"फ्रिज मैकेनिक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"ac repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"एसी रिपेयर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"ac fitting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"refrigeration mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"cooling mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"ऐसी मैकेनिक","lang":"hi"}
+
+# ── Loader / unloader — 9333 ────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"loader","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"लोडर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"hamal","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"हमाल","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"palledar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"पल्लेदार","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"coolie","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"कुली","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"maal chadhana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0201","text":"godown","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0201","text":"गोदाम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0201","text":"warehouse","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0201","text":"वेयरहाउस","lang":"hi"}
+
+# ── Waiter / bearer — 5131 ──────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_5131_0300","text":"waiter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5131_0300","text":"वेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5131_0300","text":"बैरा","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5131_0300","text":"beyra","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5131_0300","text":"hotel waiter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5131_0300","text":"restaurant waiter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5131_0300","text":"table boy","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5131_0300","text":"wetar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5131_0200","text":"steward","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5131_0200","text":"स्टीवर्ड","lang":"hi"}
+
+# ── Beautician — 5142 ───────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_5142_0100","text":"ब्यूटीशियन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0100","text":"parlour","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0100","text":"पार्लर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0100","text":"beauty parlour","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0100","text":"byutishan","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0100","text":"makeup artist","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0100","text":"मेकअप","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0100","text":"mehndi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0100","text":"मेहंदी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0200","text":"manicure","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0200","text":"threading","lang":"en"}
+
+# ── Domestic housekeeper / maid — 5152 ──────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"bai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"बाई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"maid","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"नौकरानी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"naukrani","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"kamwali","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"कामवाली","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"ghar kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"घरेलू काम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"domestic help","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5152_0100","text":"house keeper","lang":"en"}
+
+# ── Petrol pump attendant — 5245 ────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_5245_0101","text":"petrol pump","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5245_0101","text":"पेट्रोल पंप","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5245_0101","text":"pump attendant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5245_0101","text":"petrol bharna","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5245_0101","text":"fuel attendant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5245_0101","text":"फ्यूल अटेंडेंट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5245_0101","text":"diesel bharna","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5245_0101","text":"petrol pamp","lang":"en"}
+
+# ── Farmer / cultivator — 6111 ──────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"kisan","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"किसान","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"farmer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"kheti","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"खेती","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"kheti baadi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"khet mazdoor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"खेत मजदूर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"krishak","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_6111_0101","text":"धान","lang":"hi"}
+
+# ── White washer / scaffolder / well digger — 7119 ──────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7119_0200","text":"white wash","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7119_0200","text":"चूना","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7119_0200","text":"chuna","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7119_0301","text":"scaffolder","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7119_0301","text":"स्कैफोल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7119_0100","text":"कुआं खोदना","lang":"hi"}
+
+# ── Tool maker — 7222 ───────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"टूल मेकर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"tool room","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"टूल रूम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"die maker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"डाई मेकर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7222_0300","text":"jig fixture","lang":"en"}
+
+# ── Weaver / carpet — 7318 ──────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7318_0300","text":"bunkar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7318_0300","text":"बुनकर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7318_0300","text":"julaha","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7318_0300","text":"जुलाहा","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7318_0300","text":"carpet weaver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7318_0300","text":"कालीन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7318_0300","text":"kaleen","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7318_0300","text":"handloom","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7318_0300","text":"हथकरघा","lang":"hi"}
+
+# ── Lineman — 7413 ──────────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7413_0100","text":"lineman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7413_0100","text":"लाइनमैन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7413_0100","text":"bijli line","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7413_0100","text":"बिजली लाइन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7413_0100","text":"power line","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7413_0100","text":"lainman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7413_9900","text":"cable jointer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7413_9900","text":"केबल जॉइंटर","lang":"hi"}
+
+# ── Electronics / mobile repair — 7421 ──────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7421_0100","text":"electronics","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7421_0100","text":"इलेक्ट्रॉनिक्स","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7421_0100","text":"mobile repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7421_0100","text":"मोबाइल रिपेयर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7421_0100","text":"tv mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7421_0100","text":"टीवी मैकेनिक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7421_0100","text":"electronic mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7421_0100","text":"mobile technician","lang":"en"}
+
+# ── Baker — 7512 ────────────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7512_0100","text":"बेकर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7512_0100","text":"bakery","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7512_0100","text":"बेकरी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7512_0100","text":"naanbai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7512_0100","text":"नानबाई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7512_0100","text":"bread maker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7512_0300","text":"oven man","lang":"en"}
+
+# ── Furniture / vehicle body builder — 7522 ─────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7522_0100","text":"furniture maker","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7522_0100","text":"फर्नीचर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7522_0100","text":"furniture","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7522_0600","text":"body builder","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7522_0600","text":"gaadi body","lang":"en"}
+
+# ── Cobbler — 7536 ──────────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"mochi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"मोची","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"shoe repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"जूता मरम्मत","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"chappal","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"जूता बनाना","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"shoemaker","lang":"en"}
+
+# ── Concrete / mixer operator — 8114 ────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_8114_0300","text":"mixer operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8114_0300","text":"मिक्सर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8114_0300","text":"concrete mixer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8114_0300","text":"कंक्रीट","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8114_0200","text":"batching plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8114_0100","text":"mosaic polish","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8114_0100","text":"मोजेक","lang":"hi"}
+
+# ── Furnace / rolling mill — 8121 ───────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_8121_0300","text":"bhatti","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_0300","text":"भट्टी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_0300","text":"furnace","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_0300","text":"फर्नेस","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_2300","text":"rolling mill","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_2300","text":"रोलिंग मिल","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8121_2300","text":"coil operator","lang":"en"}
+
+# ── Dairy plant — 8160 ──────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_8160_0500","text":"dairy","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8160_0500","text":"डेयरी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8160_0500","text":"doodh plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8160_0500","text":"दूध डेयरी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8160_0500","text":"milk plant","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8160_0300","text":"pasteurising","lang":"en"}
+
+# ── Assembler — 8219 ────────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"assembler","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"असेंबलर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"assembly line","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"असेंबली","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"cycle assembler","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8219_0300","text":"plastic assembly","lang":"en"}
+
+# ── Earthmoving / JCB — 8342 ────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_8342_0301","text":"jcb","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8342_0301","text":"जेसीबी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8342_0301","text":"jcb operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8342_0301","text":"जेसीबी ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8342_0301","text":"loader operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8342_0301","text":"poclain","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8342_0301","text":"पोकलेन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8342_0301","text":"excavator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8342_0101","text":"bulldozer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8342_0101","text":"बुलडोजर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8342_0101","text":"dozer","lang":"en"}
+
+# ── Packer — 9321 ───────────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_9321_0101","text":"packer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9321_0101","text":"पैकर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9321_0101","text":"packing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9321_0101","text":"पैकिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9321_0101","text":"packaging","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9321_0101","text":"paking","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9321_0201","text":"labelling","lang":"en"}
+
+# ── Rickshaw / hand cart — 9331 ─────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_9331_0100","text":"rickshaw","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9331_0100","text":"रिक्शा","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9331_0100","text":"riksha","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9331_0100","text":"cycle rickshaw","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9331_0300","text":"thela","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9331_0300","text":"ठेला","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9331_0300","text":"rehdi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9331_0300","text":"रेहड़ी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9331_0300","text":"hand cart","lang":"en"}
+
+# ── Garbage / waste collector — 9611 ────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_9611_0100","text":"kachra","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9611_0100","text":"कचरा","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9611_0100","text":"garbage collector","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9611_0100","text":"kooda","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9611_0100","text":"कूड़ा","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9611_0100","text":"waste collector","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9611_0201","text":"e waste","lang":"en"}
+
+# ── GAPS THE EVAL FOUND after batch A landed ────────────────────────────────
+# Every line here closes a measured miss, not a guessed one. "gaadi mechanic" is the
+# interesting one: the bare "gaadi" alias on the driving domain was winning
+# "gaadi ka mechanic hun" outright, because both candidates are one token and the vehicle
+# word comes first. A TWO-token alias fixes it structurally rather than by tie-breaking —
+# longest-span-first means the specific phrase beats the generic word every time.
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"gaadi mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"garage","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"गैराज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"bike repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"car repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7231_0100","text":"engine repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"fridge","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"फ्रिज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"ac installation","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7127_0100","text":"cooling","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"loading unloading","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9333_0100","text":"loading","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5142_0100","text":"makeup","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7512_0100","text":"bread","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"juta","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"जूता","lang":"hi"}
