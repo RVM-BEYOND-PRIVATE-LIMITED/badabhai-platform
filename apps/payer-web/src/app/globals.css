@@ -2774,6 +2774,28 @@ textarea.input {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
 }
+/* The per-row WhatsApp share. Pinned to the END of the row and never truncated — it is an
+   ACTION, so it must stay hittable no matter how long the url beside it is (the rule above
+   would otherwise ellipsis it away, since it matches every anchor in the row). */
+.agency-batch__share {
+  flex: 0 0 auto;
+  margin-left: auto;
+  overflow: visible;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--text-link);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  min-height: var(--control-sm);
+  display: inline-flex;
+  align-items: center;
+}
+.agency-batch__share:hover {
+  background: var(--surface-inset);
+}
 
 /* ---- 3. /agency/qr — the PRINTABLE invite sheet ------------------------------
  * This page ends up taped to a workshop wall or a chai stall, printed BLACK AND WHITE on

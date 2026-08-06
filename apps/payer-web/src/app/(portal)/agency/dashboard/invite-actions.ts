@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { looksLikeActionContextPii } from "@badabhai/validators";
 import { createAgencyInvite } from "../../../../lib/payer-api";
+import { parseInviteMeta } from "../../../../lib/invite-meta";
 import { requireAgent } from "../../../../lib/auth/roles";
 
 /**
@@ -57,6 +58,8 @@ export type CreateInviteResult =
 
 export async function createInviteAction(input: {
   campaign?: string;
+  medium?: string;
+  context?: { role?: string; city?: string };
 }): Promise<CreateInviteResult> {
   await requireAgent(); // role gate FIRST — employer → neutral notFound().
 
@@ -70,8 +73,18 @@ export async function createInviteAction(input: {
     campaign = parsed.data;
   }
 
+  // W1 metadata. A Server Action is independently invocable, so these are validated HERE
+  // and not only in the panel — an inline screen in the browser is a courtesy, never the
+  // boundary. The backend DTO re-validates both a third time.
+  const meta = parseInviteMeta(input);
+  if (!meta.ok) return { ok: false, error: meta.error };
+
   try {
-    const invite = await createAgencyInvite({ campaign });
+    const invite = await createAgencyInvite({
+      campaign,
+      medium: meta.medium,
+      context: meta.context,
+    });
     // `{ ok: false }` is the SINGLE neutral failure for BOTH the mint cap AND a Redis
     // fail-closed (identical 429, no leaked reason). Never a fake success.
     if (!invite.ok) return { ok: false, error: NEUTRAL_FAILURE };

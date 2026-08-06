@@ -94,11 +94,19 @@ describe("createInviteBatchAction — the count is a bounded cardinality", () =>
 });
 
 describe("createInviteBatchAction — the forwarded body is cardinality-shaped", () => {
-  it("sends EXACTLY { count, campaign } — no array-typed value anywhere", async () => {
+  /**
+   * The CLOSED ALLOWLIST of everything this action may forward. W1 added `medium` and
+   * `context`; both are scalars-or-a-closed-object that apply to the WHOLE batch, so the
+   * cardinality property is unchanged. Widening this list is the reviewable moment — it is
+   * the assertion that fires if a per-worker field is ever added to a faceless surface.
+   */
+  const ALLOWED_BODY_KEYS = ["campaign", "context", "count", "medium"];
+
+  it("sends EXACTLY the allowed keys — no array-typed value anywhere", async () => {
     createAgencyInviteBatch.mockResolvedValueOnce(mintedBatch(3));
     await createInviteBatchAction({ count: 3, campaign: "diwali-drive" });
     const body = createAgencyInviteBatch.mock.calls[0]![0] as Record<string, unknown>;
-    expect(Object.keys(body).sort()).toEqual(["campaign", "count"]);
+    expect(Object.keys(body).sort()).toEqual(ALLOWED_BODY_KEYS);
     for (const value of Object.values(body)) expect(Array.isArray(value)).toBe(false);
     expect(body).toEqual({ count: 3, campaign: "diwali-drive" });
   });
@@ -107,12 +115,51 @@ describe("createInviteBatchAction — the forwarded body is cardinality-shaped",
     createAgencyInviteBatch.mockResolvedValueOnce(mintedBatch(2));
     await createInviteBatchAction({
       count: 2,
-      // A hostile/extra caller field: the action reads only `count` + `campaign`.
+      // A hostile/extra caller field: the action reads only the allowlisted keys.
       labels: ["ramesh", "sunita"],
     } as unknown as { count: number });
     const body = createAgencyInviteBatch.mock.calls[0]![0] as Record<string, unknown>;
     expect(body).not.toHaveProperty("labels");
-    expect(Object.keys(body).sort()).toEqual(["campaign", "count"]);
+    expect(Object.keys(body).sort()).toEqual(ALLOWED_BODY_KEYS);
+  });
+
+  it("forwards W1 metadata as ONE value for the batch, never one per invite", async () => {
+    createAgencyInviteBatch.mockResolvedValueOnce(mintedBatch(3));
+    await createInviteBatchAction({
+      count: 3,
+      medium: "paid",
+      context: { role: "welder", city: "pune-west" },
+    });
+    const body = createAgencyInviteBatch.mock.calls[0]![0] as Record<string, unknown>;
+    expect(body.medium).toBe("paid");
+    expect(body.context).toEqual({ role: "welder", city: "pune-west" });
+    // The context object is the ONE place a per-person field could hide, so its shape is
+    // pinned too — not merely "an object was forwarded".
+    expect(Object.keys(body.context as object).sort()).toEqual(["city", "role"]);
+    for (const value of Object.values(body)) expect(Array.isArray(value)).toBe(false);
+  });
+
+  it("REFUSES a context key outside {role, city} — no free-form per-invite bag", async () => {
+    const res = await createInviteBatchAction({
+      count: 3,
+      // The bulk-upload harm wearing a different label.
+      context: { name: "Ramesh Kumar", phone: "+919812345678" },
+    } as unknown as { count: number });
+    expect(res.ok).toBe(false);
+    expect(createAgencyInviteBatch).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES a context value that is a person's name, not a slug", async () => {
+    const res = await createInviteBatchAction({ count: 3, context: { role: "Ramesh Kumar" } });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(/slug/i);
+    expect(createAgencyInviteBatch).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES an unknown medium rather than passing it through to the backend", async () => {
+    const res = await createInviteBatchAction({ count: 3, medium: "sms-blast" });
+    expect(res.ok).toBe(false);
+    expect(createAgencyInviteBatch).not.toHaveBeenCalled();
   });
 });
 

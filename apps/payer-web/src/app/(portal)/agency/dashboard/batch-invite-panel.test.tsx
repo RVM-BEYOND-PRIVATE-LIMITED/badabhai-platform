@@ -198,11 +198,21 @@ describe("AgencyBatchInvitePanel — INLINE PII screen rejects a phone/email tag
 });
 
 describe("AgencyBatchInvitePanel — no worker-identity input exists (not bulk upload)", () => {
-  it("has exactly two labelled fields: the count and the shared campaign tag", () => {
+  it("has exactly the allowed labelled fields — all batch-wide, none per worker", () => {
     const labels = collect(render("10"))
       .props.map((p) => p.label)
       .filter((l): l is string => typeof l === "string");
-    expect(labels).toEqual(["How many links", "Campaign tag"]);
+    // A CLOSED list. Every entry describes the BATCH or the JOB, never a recipient: how
+    // many links, one grouping tag, the channel they travel on, and the role/city they
+    // advertise. This assertion is the tripwire for a "worker name"/"phone" field being
+    // added to a faceless surface — widening it is the moment that gets reviewed.
+    expect(labels).toEqual([
+      "How many links",
+      "Campaign tag",
+      "Link type",
+      "Role slug",
+      "City slug",
+    ]);
   });
 
   it("has NO tel/email/file input and no per-invite list control", () => {
@@ -326,7 +336,43 @@ describe("AgencyBatchInvitePanel — the links survive a dead clipboard", () => 
     );
     expect(types).toContain("a"); // was a non-focusable <span>, unreachable by keyboard
     const hrefs = props.map((p) => p.href).filter((h): h is string => typeof h === "string");
-    expect(hrefs).toEqual(["/i/aaaaaaaaaaaa", "/i/bbbbbbbbbbbb"]);
+    // No window and no NEXT_PUBLIC_SITE_URL in this env, so no origin can be established
+    // and each row falls back to the raw mint link rather than rendering nothing.
+    const inviteHrefs = hrefs.filter((h) => !h.startsWith("https://wa.me/"));
+    expect(inviteHrefs).toEqual(["/i/aaaaaaaaaaaa", "/i/bbbbbbbbbbbb"]);
+  });
+
+  it("gives every row its own WhatsApp share carrying THAT row's link", () => {
+    const { props } = collect(renderState(["10", null, "", null, MINTED, false, null, null]));
+    const shares = props
+      .map((p) => p.href)
+      .filter((h): h is string => typeof h === "string" && h.startsWith("https://wa.me/"));
+    // One per invite — a batch exists so each link can go to a DIFFERENT worker, so the
+    // useful action is "send this one", not one message carrying every link.
+    expect(shares).toHaveLength(MINTED.length);
+    for (const [i, share] of shares.entries()) {
+      const text = new URL(share).searchParams.get("text") ?? "";
+      expect(text).toContain(MINTED[i]!.link);
+    }
+    // The contact-picker form: a number in the path would open a chat with THAT number
+    // instead of letting the agent choose who to invite.
+    for (const share of shares) expect(new URL(share).pathname).toBe("/");
+  });
+
+  it("every row's WhatsApp share opens safely in a new tab", () => {
+    const { props } = collect(renderState(["10", null, "", null, MINTED, false, null, null]));
+    const shareProps = props.filter(
+      (p) => typeof p.href === "string" && p.href.startsWith("https://wa.me/"),
+    );
+    expect(shareProps).toHaveLength(MINTED.length);
+    for (const p of shareProps) {
+      expect(p.target).toBe("_blank");
+      // Without this, wa.me receives a live `window.opener` handle to the portal tab.
+      expect(String(p.rel)).toContain("noopener");
+      expect(String(p.rel)).toContain("noreferrer");
+      // 50 near-identical "WhatsApp" links need distinguishable accessible names.
+      expect(String(p["aria-label"])).toMatch(/^Send invite \w+ on WhatsApp$/);
+    }
   });
 
   it("SAYS so when the copy fails (node has no clipboard — the same as a non-secure context)", async () => {

@@ -645,6 +645,38 @@ export async function getAgencyReferralsSummary(): Promise<AgencyReferralsSummar
   return assertNoAgencyPII(wire, "payer/agency/referrals/summary");
 }
 
+/**
+ * The optional W1 LINK METADATA both mint routes accept — the attribution `medium` and the
+ * closed non-PII deep-link `context`.
+ *
+ * REFERENT-FREE BY CONSTRUCTION, which is the only reason an agency-facing endpoint may
+ * write into `agency_invites.payload` at all: `medium` describes the CHANNEL a link travels
+ * on and `context` describes the JOB SHAPE it advertises. Neither can denote a person. The
+ * backend `InviteContextSchema` is `.strict()` with exactly these two keys, so an extra key
+ * is a loud 400 rather than a silently stored one — this type mirrors that closed shape
+ * instead of widening it to `Record<string, string>`.
+ */
+export interface AgencyInviteMetaInput {
+  medium?: "organic" | "paid";
+  context?: { role?: string; city?: string };
+}
+
+/**
+ * Copy the metadata onto a mint body, omitting anything empty.
+ *
+ * An absent key and an empty one are NOT the same to the backend: `context: {}` would pass
+ * `.strict()` and write an empty object over the column default for no reason. Only
+ * genuinely-present values are sent, so an agent who fills in nothing produces the exact
+ * body this endpoint accepted before W1.
+ */
+function applyInviteMeta(body: Record<string, unknown>, input: AgencyInviteMetaInput): void {
+  if (input.medium) body.medium = input.medium;
+  const context: Record<string, string> = {};
+  if (input.context?.role) context.role = input.context.role;
+  if (input.context?.city) context.city = input.context.city;
+  if (Object.keys(context).length > 0) body.context = context;
+}
+
 /** The seam result of an invite mint — an opaque code on success, or a NEUTRAL failure. */
 export type CreateAgencyInviteResult =
   | { ok: true; code: string; link: string }
@@ -658,11 +690,14 @@ export type CreateAgencyInviteResult =
  * NEUTRAL failure (`{ ok: false }`), never a fake success. Other transient failures
  * propagate to the caller's action, which also neutralizes them.
  */
-export async function createAgencyInvite(input: {
-  campaign?: string;
-}): Promise<CreateAgencyInviteResult> {
+export async function createAgencyInvite(
+  input: {
+    campaign?: string;
+  } & AgencyInviteMetaInput,
+): Promise<CreateAgencyInviteResult> {
   const body: Record<string, unknown> = {};
   if (input.campaign) body.campaign = input.campaign;
+  applyInviteMeta(body, input);
   try {
     const wire = assertNoAgencyPII(
       await payerFetch("/payer/agency/invites", {
@@ -698,12 +733,15 @@ export type CreateAgencyInviteBatchResult =
  * presented as complete. Other transient failures propagate to the caller's action, which
  * neutralizes them the same way the singular mint's action does.
  */
-export async function createAgencyInviteBatch(input: {
-  count: number;
-  campaign?: string;
-}): Promise<CreateAgencyInviteBatchResult> {
+export async function createAgencyInviteBatch(
+  input: {
+    count: number;
+    campaign?: string;
+  } & AgencyInviteMetaInput,
+): Promise<CreateAgencyInviteBatchResult> {
   const body: Record<string, unknown> = { count: input.count };
   if (input.campaign) body.campaign = input.campaign;
+  applyInviteMeta(body, input);
   try {
     const wire = assertNoAgencyPII(
       await payerFetch("/payer/agency/invites/batch", {

@@ -1,8 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { QRCodeSVG } from "qrcode.react";
+import { useRef, useState, useTransition } from "react";
+import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import { Badge, Button, Card } from "../../../../components/ds";
+import {
+  browsingOrigin,
+  inviteShareMessage,
+  qrDownloadFileName,
+  shareableInviteOrigin,
+  toAbsoluteInviteUrl,
+  whatsAppShareUrl,
+} from "../../../../lib/invite-share";
 import { createInviteAction } from "../dashboard/invite-actions";
 
 /**
@@ -28,60 +36,17 @@ import { createInviteAction } from "../dashboard/invite-actions";
  * `createInviteAction` — no fake code is ever rendered.
  */
 
-/**
- * Build the ABSOLUTE url a QR must encode from the RELATIVE link the mint returns ("/i/<code>").
- *
- * A camera cannot resolve a relative path: encoding "/i/abc" produces a QR that scans to
- * nothing. Pure + exported so the "is it absolute?" property is unit-pinned.
- */
-export function toAbsoluteInviteUrl(origin: string, link: string): string {
-  if (/^https?:\/\//i.test(link)) return link; // already absolute — encode as-is.
-  const base = origin.replace(/\/+$/, "");
-  return `${base}${link.startsWith("/") ? "" : "/"}${link}`;
-}
-
-/** The browser origin, or "" when there is no window (SSR) — the caller refuses to encode "". */
-function currentOrigin(): string {
-  return typeof window === "undefined" ? "" : window.location.origin;
-}
-
-/**
- * Which origin goes ON THE PAPER.
- *
- * A printed poster is PERMANENT: whatever host it encodes is the host workers scan for as
- * long as the sheet is on the wall, and it cannot be corrected after printing. Using the
- * browsing origin alone meant a staffer on a preview deploy, an IP, or localhost printed a
- * poster that dies the moment that host does.
- *
- * So: prefer the deployment's CANONICAL public site url when one is configured
- * (`NEXT_PUBLIC_SITE_URL` — an EXISTING optional payer-web variable, not a new required one;
- * public by definition and safe in the client bundle), and fall back to the browsing origin
- * when it is unset or unparseable. Only the ORIGIN is taken (`new URL(...).origin` drops any
- * path/query), and only http(s) is accepted, so a stray value can never turn the poster into
- * a link to somewhere else. Either way the sheet PRINTS the url it encoded, on screen, before
- * the print button — a wrong host is meant to be visible while it is still fixable.
- */
-export function printableInviteOrigin(
-  configured: string | undefined,
-  browsingOrigin: string,
-): string {
-  const raw = configured?.trim();
-  if (!raw) return browsingOrigin;
-  try {
-    const url = new URL(raw);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return browsingOrigin;
-    return url.origin;
-  } catch {
-    return browsingOrigin; // not a url at all — the browsing origin is the honest fallback.
-  }
-}
-
 const NEUTRAL_FAILURE = "Could not create a QR invite right now. Please try again shortly.";
 
 export function AgencyQrInvite() {
   const [sheet, setSheet] = useState<{ code: string; url: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // The OFF-SCREEN canvas twin of the printed SVG. `QRCodeSVG` prints sharply at any size
+  // but cannot be rasterised, and a downloadable image is what an agency needs to put the
+  // code into a WhatsApp broadcast or a flyer someone else lays out. Both encode the same
+  // `sheet.url`, so the file and the paper can never disagree.
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -98,7 +63,7 @@ export function AgencyQrInvite() {
       }
       // `process.env.NEXT_PUBLIC_SITE_URL` is referenced literally so Next inlines it into
       // the client bundle; it is a PUBLIC value and never a secret.
-      const origin = printableInviteOrigin(process.env.NEXT_PUBLIC_SITE_URL, currentOrigin());
+      const origin = shareableInviteOrigin(process.env.NEXT_PUBLIC_SITE_URL, browsingOrigin());
       if (!origin) {
         // Never render a QR encoding a relative path — it would print an unscannable sheet.
         setSheet(null);
@@ -111,6 +76,28 @@ export function AgencyQrInvite() {
 
   function print() {
     if (typeof window !== "undefined") window.print();
+  }
+
+  /**
+   * Save the QR as a PNG. Rasterised from the off-screen canvas IN THE BROWSER — the image
+   * never leaves the machine, which is the same reason the QR itself is not fetched from a
+   * third-party renderer: doing either would hand a live bearer code to an outside party.
+   *
+   * `toBlob` is async; the object URL is revoked once the click has been dispatched, so a
+   * long-lived blob is not left pinned in memory.
+   */
+  function downloadPng() {
+    const canvas = canvasRef.current;
+    if (!canvas || !sheet) return;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = qrDownloadFileName(sheet.code);
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+    }, "image/png");
   }
 
   return (
@@ -180,10 +167,44 @@ export function AgencyQrInvite() {
             </div>
           </div>
 
+          {/*
+            THE OFF-SCREEN TWIN. Same `value` as the printed SVG, rendered large so the
+            saved PNG stays sharp in a flyer someone else lays out. `display:none` keeps it
+            off both the screen and the paper; a canvas still rasterises while hidden, which
+            is what `toBlob` reads.
+          */}
+          <QRCodeCanvas
+            ref={canvasRef}
+            value={sheet.url}
+            size={1024}
+            level="Q"
+            marginSize={4}
+            style={{ display: "none" }}
+            aria-hidden="true"
+          />
+
           <div className="agency-qr__actions">
             <Button variant="secondary" onClick={print}>
               Print this sheet
             </Button>
+            <Button variant="secondary" onClick={downloadPng}>
+              Download PNG
+            </Button>
+            {/*
+              A real WhatsApp hand-off, not the OS share sheet: `wa.me` opens the contact
+              picker with the message already written. A plain anchor because this is a
+              navigation, not an action — it keeps middle-click / "copy link address" /
+              keyboard activation working for free. `rel="noopener noreferrer"` because
+              `target="_blank"` otherwise hands wa.me a live `window.opener` handle.
+            */}
+            <a
+              className="bb-btn bb-btn--secondary"
+              href={whatsAppShareUrl(inviteShareMessage(sheet.url))}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Send on WhatsApp
+            </a>
           </div>
         </>
       ) : null}
