@@ -117,6 +117,41 @@ async function loginWorker(): Promise<{ workerId: string; token: string }> {
   return { workerId: r.json.worker_id as string, token: r.json.access_token as string };
 }
 
+/**
+ * `POST /referrals/attribute` dispatches the claim FIRE-AND-FORGET (`void this.attribution
+ * .attribute(...)` in the controller) so the response is constant-time and carries no
+ * oracle. The 200 therefore arrives BEFORE the claim is written, and reading the row
+ * straight after the request is a race the test loses on a loaded runner.
+ *
+ * Polling here is not flake-hiding — it is the only correct way to observe a write the
+ * API deliberately does not await. A fixed sleep would be either slower than needed or,
+ * under load, still too short.
+ */
+async function waitFor<T>(
+  what: string,
+  probe: () => Promise<T>,
+  done: (value: T) => boolean,
+  timeoutMs = 10_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  let last = await probe();
+  while (!done(last) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    last = await probe();
+  }
+  expect(done(last), `timed out after ${timeoutMs}ms waiting for: ${what}`).toBe(true);
+  return last;
+}
+
+/**
+ * A bounded wait used ONLY before asserting that something did NOT happen. Absence cannot
+ * be polled for — you can only give the background work a fair chance and then look. The
+ * positive path above typically lands in tens of milliseconds, so this is generous by a
+ * wide margin while still failing the suite if the gate ever silently starts letting the
+ * claim through late.
+ */
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 2_000));
+
 async function acceptConsent(token: string): Promise<void> {
   const r = await req("POST", "/consent/accept", {
     body: { consent_version: CONSENT_VERSION, purposes: ["profiling", "resume_generation"] },
@@ -188,8 +223,11 @@ describe.skipIf(!RUN)("referral round-trip: /r/:code -> click -> attribute", () 
     // Fire-and-forget + constant-time by design: neutral regardless of outcome.
     expect(first.status).toBe(200);
 
-    const claimed = await claimsFor(w.workerId);
-    expect(claimed).toHaveLength(1);
+    const claimed = await waitFor(
+      "the fire-and-forget claim to land",
+      () => claimsFor(w.workerId),
+      (rows) => rows.length === 1,
+    );
     expect(claimed[0]!.code).toBe(code);
     expect(claimed[0]!.claimedAt).toBeTruthy();
 
@@ -200,6 +238,7 @@ describe.skipIf(!RUN)("referral round-trip: /r/:code -> click -> attribute", () 
       body: { code, source: "app_link" },
     });
     expect(second.status).toBe(200);
+    await settle();
     expect(await claimsFor(w.workerId)).toHaveLength(1);
   });
 
@@ -217,6 +256,9 @@ describe.skipIf(!RUN)("referral round-trip: /r/:code -> click -> attribute", () 
     // Same neutral response as the consented path — no oracle.
     expect(res.status).toBe(200);
 
+    // The claim is dispatched asynchronously, so "nothing was claimed" only means
+    // something once the background work has had its chance to run.
+    await settle();
     expect(await claimsFor(w.workerId)).toHaveLength(0);
     const clicks = await clicksFor(code);
     expect(clicks).toHaveLength(1);
@@ -235,13 +277,28 @@ describe.skipIf(!RUN)("referral round-trip: /r/:code -> click -> attribute", () 
     await req("GET", `/r/${code}`, { ua: ANDROID_UA, manualRedirect: true });
     const w = await loginWorker();
     await acceptConsent(w.token);
+
+    const claimedEvents = async (): Promise<number> =>
+      (await client.db.select().from(events)).filter(
+        (e) => e.eventName === "referral.install_claimed",
+      ).length;
+    // Counted BEFORE, so the "it landed" check below is tied to THIS test's attribution
+    // and cannot be satisfied by the event an earlier test left on the spine.
+    const before = await claimedEvents();
+
     await req("POST", "/referrals/attribute", {
       token: w.token,
       body: { code, source: "app_link" },
     });
+    await waitFor(
+      "this test's referral.install_claimed to reach the spine",
+      claimedEvents,
+      (count) => count > before,
+    );
 
     // EVERY event row, not just the ones we thought to look at — the code is a bearer
-    // token and a single leak anywhere on a permanent audit record is the failure.
+    // token and a single leak anywhere on a permanent audit record is the failure. Read
+    // after the wait above, so the emitted row is definitely in the set being scanned.
     const all = await client.db.select().from(events);
     expect(all.length).toBeGreaterThan(0);
     for (const e of all) {
@@ -249,9 +306,5 @@ describe.skipIf(!RUN)("referral round-trip: /r/:code -> click -> attribute", () 
         code,
       );
     }
-
-    // …and the claim DID land on the spine, so the assertion above is not vacuously true
-    // just because nothing was emitted.
-    expect(all.some((e) => e.eventName === "referral.install_claimed")).toBe(true);
   });
 });
