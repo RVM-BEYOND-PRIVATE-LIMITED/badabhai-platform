@@ -1,0 +1,94 @@
+{
+  "_why": "The reference trade pack. It exists to prove the model end-to-end — conditional questions, a depth-1 follow-up, chips that are answers, and a first question that settles the exact NCO code without a disambiguation prompt listing 44 welding titles.",
+  "_first_question": "welding_process IS the disambiguator. Retrieval pins the FAMILY (7212); this question decides between 'Welder, Gas' and 'Welder, Electric' deterministically, for free, in the worker's own vocabulary. That is the whole reason packs are bound to families instead of occupations.",
+  "pack_id": "qp_welding",
+  "version": 1,
+  "family_id": "fam_welding",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Authored as the Phase 4 reference pack. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "welding_process",
+      "prompt_text": "Aap kaunsi welding karte hain?",
+      "why_text": "Har welding alag hoti hai, isse sahi naukri milti hai.",
+      "retry_text": "Gas, arc, MIG ya TIG mein se kaunsi?",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_mandatory": true,
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "gas", "label_text": "Gas welding", "value_text": "gas" },
+        { "option_key": "arc", "label_text": "Arc welding", "value_text": "arc" },
+        { "option_key": "mig", "label_text": "MIG welding", "value_text": "mig" },
+        { "option_key": "tig", "label_text": "TIG welding", "value_text": "tig" },
+        { "option_key": "other", "label_text": "Koi aur tarah ki", "value_text": "other", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "welding_position",
+      "prompt_text": "Kya aap overhead welding kar lete hain?",
+      "why_text": "Overhead welding ka alag rate milta hai.",
+      "target_kind": "attribute",
+      "target_field": "welding_position",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "parent_item_key": "welding_process",
+      "ask_if": { "op": "answered", "args": [{ "field": "welding_process" }] },
+      "options": [
+        { "option_key": "yes", "label_text": "Haan, kar leta hoon", "value_bool": true },
+        { "option_key": "no", "label_text": "Nahi, sirf flat", "value_bool": false }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "prompt_text": "Aap kaunse material par kaam karte hain?",
+      "why_text": "Steel aur aluminium ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "mild_steel", "label_text": "Loha ya mild steel", "value_text": "mild_steel" },
+        { "option_key": "stainless", "label_text": "Stainless steel", "value_text": "stainless" },
+        { "option_key": "aluminium", "label_text": "Aluminium", "value_text": "aluminium" },
+        { "option_key": "not_sure", "label_text": "Pata nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "safety_gear",
+      "prompt_text": "Kya aapne safety training li hai?",
+      "why_text": "Factory wale safety training wale ko pehle rakhte hain.",
+      "target_kind": "attribute",
+      "target_field": "safety_training",
+      "answer_type": "boolean",
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap factory mein kaam karte hain ya site par?",
+      "why_text": "Factory aur site ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "factory", "label_text": "Factory mein", "value_text": "factory" },
+        { "option_key": "site", "label_text": "Site par", "value_text": "site" },
+        { "option_key": "both", "label_text": "Dono jagah", "value_text": "both" }
+      ]
+    },
+    {
+      "question_key": "certification",
+      "prompt_text": "Kya aapke paas welding ka certificate hai?",
+      "why_text": "Certificate se behtar vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "certification",
+      "answer_type": "boolean",
+      "max_asks": 1,
+      "skip_if": { "op": "declined", "args": [{ "field": "welding_process" }] }
+    }
+  ]
+}

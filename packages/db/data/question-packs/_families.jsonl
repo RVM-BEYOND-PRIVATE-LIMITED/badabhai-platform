@@ -1,0 +1,118 @@
+# Profiling families and their bindings — the pack owners (migration 0069).
+#
+# WHAT A FAMILY IS. The unit of CONVERSATION, not of taxonomy. NCO has 3,449 occupations
+# and unit group 7223 alone holds 44 near-identical machining titles; "Welder, Gas" and
+# "Welder, Electric" differ by ~0.02 at occupation level and by NOTHING in what you would
+# ask someone. So a family owns one question pack and claims a slice of the occupation
+# tree through a binding, and the exact NCO code is settled later by the pack's own first
+# question rather than by a disambiguation prompt listing 44 titles.
+#
+# SCOPE OF THIS FILE: the 41 highest-volume Indian blue-collar trades plus the mandatory
+# universal fallback — deliberately NOT all ~200 families the plan targets. This matches
+# the plan's own risk-register recommendation (#1: "cut a launch gate at ~40 families
+# covering the top worker volumes"), and it is safe to stop here because the universal
+# family keeps every unauthored trade working rather than dead. These 41 are exactly the
+# trades the vernacular alias corpus already covers, so retrieval and packs stay in step.
+#
+# BINDINGS ARE AT ISCO UNIT LEVEL (specificity 40). Unit is the granularity where a shared
+# question pack is honest: everyone in 7212 is welding something. Going finer would split
+# families that ask identical questions; going coarser (minor/sub-major) would merge
+# trades that do not — 72 covers welders AND toolmakers AND vehicle mechanics.
+#
+# canonical_role_id IS NULL ON MOST ROWS, and that is a finding rather than an omission.
+# The match engine's role space is 13 ids, almost all CNC/welding/plumbing/carpentry
+# (@badabhai/taxonomy ROLES), so it simply has no id for a tailor, a cook, a driver, a
+# beautician or a waiter. Forcing a wrong crosswalk would poison ranking for those trades,
+# so the column stays null until the role space is widened — a product decision, not one
+# this file gets to make. Same for industry_id, where the entire vocabulary is two values.
+#
+# PRIVACY: occupation reference data and reviewed labels. No worker data.
+
+# ── Families ────────────────────────────────────────────────────────────────
+{"kind":"family","family_id":"fam_universal","label_en":"General","label_hi":"सामान्य"}
+{"kind":"family","family_id":"fam_welding","label_en":"Welding","label_hi":"वेल्डिंग","canonical_role_id":"role_welder","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_machining","label_en":"Machining and CNC","label_hi":"खराद और सीएनसी","canonical_role_id":"role_cnc_operator","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_fitting","label_en":"Fitting and Machine Maintenance","label_hi":"फिटर और मेंटेनेंस","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_toolmaking","label_en":"Tool and Die Making","label_hi":"टूल और डाई मेकिंग","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_auto_mechanic","label_en":"Automobile Mechanic","label_hi":"गाड़ी मैकेनिक"}
+{"kind":"family","family_id":"fam_ac_refrigeration","label_en":"AC and Refrigeration","label_hi":"एसी और फ्रिज"}
+{"kind":"family","family_id":"fam_electrical","label_en":"Electrical","label_hi":"बिजली का काम"}
+{"kind":"family","family_id":"fam_lineman","label_en":"Power Line and Cable","label_hi":"लाइनमैन"}
+{"kind":"family","family_id":"fam_electronics","label_en":"Electronics and Mobile Repair","label_hi":"इलेक्ट्रॉनिक्स और मोबाइल रिपेयर"}
+{"kind":"family","family_id":"fam_plumbing","label_en":"Plumbing","label_hi":"प्लंबर का काम","canonical_role_id":"role_plumber"}
+{"kind":"family","family_id":"fam_masonry","label_en":"Masonry","label_hi":"राज मिस्त्री"}
+{"kind":"family","family_id":"fam_carpentry","label_en":"Carpentry","label_hi":"बढ़ई का काम","canonical_role_id":"role_carpenter"}
+{"kind":"family","family_id":"fam_furniture","label_en":"Furniture and Body Building","label_hi":"फर्नीचर और बॉडी बिल्डिंग"}
+{"kind":"family","family_id":"fam_painting","label_en":"Painting","label_hi":"पेंटर का काम"}
+{"kind":"family","family_id":"fam_construction_other","label_en":"Whitewashing and Scaffolding","label_hi":"सफेदी और स्कैफोल्डिंग"}
+{"kind":"family","family_id":"fam_construction_helper","label_en":"Construction Helper","label_hi":"बेलदार"}
+{"kind":"family","family_id":"fam_concrete","label_en":"Concrete and Mixer Operation","label_hi":"कंक्रीट और मिक्सर"}
+{"kind":"family","family_id":"fam_earthmoving","label_en":"Earthmoving Equipment","label_hi":"जेसीबी और मशीन"}
+{"kind":"family","family_id":"fam_tailoring","label_en":"Tailoring","label_hi":"दर्जी का काम"}
+{"kind":"family","family_id":"fam_sewing_machine","label_en":"Sewing Machine Operation","label_hi":"सिलाई मशीन"}
+{"kind":"family","family_id":"fam_weaving","label_en":"Weaving and Carpets","label_hi":"बुनकर और कालीन"}
+{"kind":"family","family_id":"fam_cobbler","label_en":"Footwear and Repair","label_hi":"मोची का काम"}
+{"kind":"family","family_id":"fam_driving_light","label_en":"Light Vehicle Driving","label_hi":"गाड़ी चलाना"}
+{"kind":"family","family_id":"fam_driving_heavy","label_en":"Heavy Vehicle Driving","label_hi":"ट्रक चलाना"}
+{"kind":"family","family_id":"fam_cart","label_en":"Rickshaw and Cart","label_hi":"रिक्शा और ठेला"}
+{"kind":"family","family_id":"fam_cooking","label_en":"Cooking","label_hi":"खाना बनाना"}
+{"kind":"family","family_id":"fam_baking","label_en":"Baking","label_hi":"बेकरी का काम"}
+{"kind":"family","family_id":"fam_waiter","label_en":"Waiting and Hospitality Service","label_hi":"वेटर का काम"}
+{"kind":"family","family_id":"fam_domestic","label_en":"Domestic Housekeeping","label_hi":"घरेलू काम"}
+{"kind":"family","family_id":"fam_cleaning","label_en":"Cleaning and Housekeeping","label_hi":"सफाई का काम"}
+{"kind":"family","family_id":"fam_waste","label_en":"Waste Collection","label_hi":"कचरा और सफाई"}
+{"kind":"family","family_id":"fam_security","label_en":"Security","label_hi":"सुरक्षा गार्ड"}
+{"kind":"family","family_id":"fam_retail","label_en":"Retail and Sales","label_hi":"दुकान का काम"}
+{"kind":"family","family_id":"fam_fuel_station","label_en":"Fuel Station Attendant","label_hi":"पेट्रोल पंप"}
+{"kind":"family","family_id":"fam_beauty","label_en":"Beauty and Grooming","label_hi":"ब्यूटी पार्लर"}
+{"kind":"family","family_id":"fam_farming","label_en":"Farming","label_hi":"खेती का काम"}
+{"kind":"family","family_id":"fam_dairy","label_en":"Dairy Processing","label_hi":"डेयरी का काम"}
+{"kind":"family","family_id":"fam_assembly","label_en":"Assembly Line","label_hi":"असेंबली का काम"}
+{"kind":"family","family_id":"fam_packing","label_en":"Packing and Labelling","label_hi":"पैकिंग का काम"}
+{"kind":"family","family_id":"fam_loading","label_en":"Loading and Warehouse","label_hi":"लोडिंग और गोदाम"}
+{"kind":"family","family_id":"fam_metal_processing","label_en":"Furnace and Rolling Mill","label_hi":"भट्टी और रोलिंग मिल","industry_id":"ind_industrial_manufacturing"}
+
+# ── Bindings ────────────────────────────────────────────────────────────────
+# One per family, at ISCO unit level (specificity 40), plus the single universal.
+{"kind":"binding","family_id":"fam_universal","is_universal":true}
+{"kind":"binding","family_id":"fam_welding","isco_unit_code":"7212"}
+{"kind":"binding","family_id":"fam_machining","isco_unit_code":"7223"}
+{"kind":"binding","family_id":"fam_fitting","isco_unit_code":"7233"}
+{"kind":"binding","family_id":"fam_toolmaking","isco_unit_code":"7222"}
+{"kind":"binding","family_id":"fam_auto_mechanic","isco_unit_code":"7231"}
+{"kind":"binding","family_id":"fam_ac_refrigeration","isco_unit_code":"7127"}
+{"kind":"binding","family_id":"fam_electrical","isco_unit_code":"7411"}
+{"kind":"binding","family_id":"fam_lineman","isco_unit_code":"7413"}
+{"kind":"binding","family_id":"fam_electronics","isco_unit_code":"7421"}
+{"kind":"binding","family_id":"fam_plumbing","isco_unit_code":"7126"}
+{"kind":"binding","family_id":"fam_masonry","isco_unit_code":"7112"}
+{"kind":"binding","family_id":"fam_carpentry","isco_unit_code":"7115"}
+{"kind":"binding","family_id":"fam_furniture","isco_unit_code":"7522"}
+{"kind":"binding","family_id":"fam_painting","isco_unit_code":"7131"}
+{"kind":"binding","family_id":"fam_construction_other","isco_unit_code":"7119"}
+{"kind":"binding","family_id":"fam_construction_helper","isco_unit_code":"9313"}
+{"kind":"binding","family_id":"fam_concrete","isco_unit_code":"8114"}
+{"kind":"binding","family_id":"fam_earthmoving","isco_unit_code":"8342"}
+{"kind":"binding","family_id":"fam_tailoring","isco_unit_code":"7531"}
+{"kind":"binding","family_id":"fam_sewing_machine","isco_unit_code":"8153"}
+{"kind":"binding","family_id":"fam_weaving","isco_unit_code":"7318"}
+{"kind":"binding","family_id":"fam_cobbler","isco_unit_code":"7536"}
+{"kind":"binding","family_id":"fam_driving_light","isco_unit_code":"8322"}
+{"kind":"binding","family_id":"fam_driving_heavy","isco_unit_code":"8332"}
+{"kind":"binding","family_id":"fam_cart","isco_unit_code":"9331"}
+{"kind":"binding","family_id":"fam_cooking","isco_unit_code":"5120"}
+{"kind":"binding","family_id":"fam_baking","isco_unit_code":"7512"}
+{"kind":"binding","family_id":"fam_waiter","isco_unit_code":"5131"}
+{"kind":"binding","family_id":"fam_domestic","isco_unit_code":"5152"}
+{"kind":"binding","family_id":"fam_cleaning","isco_unit_code":"9112"}
+{"kind":"binding","family_id":"fam_waste","isco_unit_code":"9611"}
+{"kind":"binding","family_id":"fam_security","isco_unit_code":"5414"}
+{"kind":"binding","family_id":"fam_retail","isco_unit_code":"5223"}
+{"kind":"binding","family_id":"fam_fuel_station","isco_unit_code":"5245"}
+{"kind":"binding","family_id":"fam_beauty","isco_unit_code":"5142"}
+{"kind":"binding","family_id":"fam_farming","isco_unit_code":"6111"}
+{"kind":"binding","family_id":"fam_dairy","isco_unit_code":"8160"}
+{"kind":"binding","family_id":"fam_assembly","isco_unit_code":"8219"}
+{"kind":"binding","family_id":"fam_packing","isco_unit_code":"9321"}
+{"kind":"binding","family_id":"fam_loading","isco_unit_code":"9333"}
+{"kind":"binding","family_id":"fam_metal_processing","isco_unit_code":"8121"}

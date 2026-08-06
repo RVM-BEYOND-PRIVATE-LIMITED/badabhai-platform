@@ -1,0 +1,121 @@
+{
+  "_why": "THE FALLBACK OF LAST RESORT. Every occupation with no family of its own resolves here through the universal binding, so this pack is the difference between an unauthored trade getting a degraded interview and getting NO interview at all. It is also the tail every other pack runs after its trade-specific questions — the fields that must survive abandonment because they are the strongest matching signals.",
+  "_ordering": "current_city and salary_expected are hoisted with min_turn/max_turn rather than left at the end. Occupation questions first is right (workers answer fluently about their own trade, and leading with salary has the highest abandon rate), but city and salary are what the match engine actually ranks on, so they must be asked before a worker is likely to walk. That hoist is DATA on the row, not a special case in the engine.",
+  "pack_id": "qp_universal",
+  "version": 1,
+  "family_id": "fam_universal",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Authored as the Phase 4 fallback. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "primary_trade",
+      "prompt_text": "Aap kaunsa kaam karte hain?",
+      "why_text": "Isse hum aapke kaam ke hisaab se sahi naukri dhoondh sakte hain.",
+      "retry_text": "Aap kis tarah ka kaam karte hain?",
+      "target_kind": "rfs",
+      "target_field": "trade",
+      "answer_type": "text",
+      "is_mandatory": true,
+      "is_core": true,
+      "max_asks": 2
+    },
+    {
+      "question_key": "experience_years",
+      "prompt_text": "Is kaam mein aapko kitne saal ho gaye?",
+      "why_text": "Tajurba dekhkar employer behtar offer dete hain.",
+      "retry_text": "Kitne saal se ye kaam kar rahe hain?",
+      "target_kind": "rfs",
+      "target_field": "experience",
+      "answer_type": "duration",
+      "is_core": true,
+      "max_asks": 2
+    },
+    {
+      "question_key": "current_city",
+      "prompt_text": "Abhi aap kaunse sheher mein hain?",
+      "why_text": "Aapke aas-paas ki naukri dikhane ke liye sheher zaroori hai.",
+      "retry_text": "Aap kaunse sheher mein rehte hain?",
+      "target_kind": "rfs",
+      "target_field": "city",
+      "answer_type": "city",
+      "is_mandatory": true,
+      "is_core": true,
+      "max_asks": 2,
+      "min_turn": 2,
+      "max_turn": 5
+    },
+    {
+      "question_key": "salary_expected",
+      "prompt_text": "Aap mahine ka kitna vetan chahte hain?",
+      "why_text": "Sahi vetan wali naukri hi dikhayenge.",
+      "retry_text": "Mahine ka kitna milna chahiye?",
+      "target_kind": "rfs",
+      "target_field": "salary_expected",
+      "answer_type": "salary",
+      "is_core": true,
+      "max_asks": 2,
+      "min_turn": 3,
+      "max_turn": 7
+    },
+    {
+      "question_key": "relocation",
+      "prompt_text": "Kya aap doosre sheher jaa sakte hain?",
+      "why_text": "Doosre sheher mein bhi achhi naukri mil sakti hai.",
+      "target_kind": "rfs",
+      "target_field": "relocation",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "yes", "label_text": "Haan, jaa sakta hoon", "value_bool": true },
+        { "option_key": "no", "label_text": "Nahi, yahi rehna hai", "value_bool": false },
+        { "option_key": "maybe", "label_text": "Sahi kaam mile to soch sakta hoon", "value_text": "conditional" }
+      ]
+    },
+    {
+      "question_key": "availability",
+      "prompt_text": "Aap kaam kab se shuru kar sakte hain?",
+      "why_text": "Employer ko pata hona chahiye ki aap kab mil sakte hain.",
+      "target_kind": "rfs",
+      "target_field": "availability",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "immediate", "label_text": "Abhi turant", "value_text": "immediate" },
+        { "option_key": "fifteen_days", "label_text": "Pandrah din mein", "value_text": "15_days" },
+        { "option_key": "one_month", "label_text": "Ek mahine mein", "value_text": "1_month" },
+        { "option_key": "not_sure", "label_text": "Abhi pata nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "education",
+      "prompt_text": "Aapne kahaan tak padhai ki hai?",
+      "why_text": "Kuch naukri ke liye padhai ka record maanga jaata hai.",
+      "target_kind": "rfs",
+      "target_field": "education",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "below_tenth", "label_text": "Dasvi se kam", "value_text": "below_10" },
+        { "option_key": "tenth", "label_text": "Dasvi paas", "value_text": "10" },
+        { "option_key": "twelfth", "label_text": "Barhvi paas", "value_text": "12" },
+        { "option_key": "iti_diploma", "label_text": "ITI ya diploma", "value_text": "iti_diploma" },
+        { "option_key": "graduate", "label_text": "Graduation", "value_text": "graduate" }
+      ]
+    },
+    {
+      "question_key": "shift_preference",
+      "prompt_text": "Aap din ki shift chahte hain ya raat ki?",
+      "why_text": "Shift ke hisaab se naukri chhaant kar dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "shift_preference",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "day", "label_text": "Din ki shift", "value_text": "day" },
+        { "option_key": "night", "label_text": "Raat ki shift", "value_text": "night" },
+        { "option_key": "any", "label_text": "Koi bhi chalegi", "value_text": "any", "is_none_of_above": true }
+      ]
+    }
+  ]
+}

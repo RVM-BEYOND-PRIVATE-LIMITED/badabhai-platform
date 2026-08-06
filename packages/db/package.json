@@ -38,6 +38,8 @@
     "db:verify:domains": "tsx src/verify-job-domains.ts",
     "db:normalize:aliases": "tsx src/normalize-job-domain-aliases.ts",
     "db:eval:occupation": "tsx src/eval-occupation-retrieval.ts",
+        "db:seed:packs": "tsx src/seed-question-packs.ts",
+"db:verify:packs": "tsx src/verify-question-packs.ts",
     "db:gen:aliases": "tsx src/generate-domain-aliases.ts",
     "db:mine:aliases": "tsx src/mine-chat-aliases.ts",
     "db:growth:cluster": "tsx src/growth-cluster.ts",
