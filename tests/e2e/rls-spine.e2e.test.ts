@@ -96,6 +96,18 @@ const LOCKED_TABLES = [
   // ── B4 attribution (migration 0060) ─────────────────────────────────────────
   "referral_links", // 0060: the resolver primitive — `code` is a referral BEARER TOKEN (a client that could read it could claim any agent's commission); RLS+FORCE+REVOKE in migration 0060
   "referral_clicks", // 0060: click log + first-touch claim row — bearer `code` + click_hash (keyed HMAC over ip+UA, raw never stored) + a worker-attribution handle; RLS+FORCE+REVOKE in migration 0060
+  // ── Question packs (migration 0069) ─────────────────────────────────────────
+  // No worker data in any of these five — they hold reviewed interview copy and
+  // occupation references. They are locked anyway because the posture in this database is
+  // table-DEFAULT rather than opt-in: a reference table left readable by `anon` is how a
+  // catalogue quietly becomes a public API. This is also the drift guard working as
+  // designed — adding these tables without listing them here failed CI, which is exactly
+  // what it is for.
+  "profiling_family", // 0069: the pack owner (~200 rows); RLS+FORCE+REVOKE in migration 0069
+  "profiling_family_binding", // 0069: family -> occupation-tree claim, six partial unique indexes; RLS+FORCE+REVOKE in migration 0069
+  "question_pack", // 0069: versioned container, one active per (family, locale); RLS+FORCE+REVOKE in migration 0069
+  "question_pack_item", // 0069: the question — prompt copy + ask_if/skip_if AST; RLS+FORCE+REVOKE in migration 0069
+  "question_pack_option", // 0069: the chips — label_text IS the worker's answer of record; RLS+FORCE+REVOKE in migration 0069
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.
