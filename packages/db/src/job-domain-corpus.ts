@@ -165,6 +165,20 @@ const MAX_OVERLAY_ALIAS_LEN = 60;
 const OVERLAY_FORBIDDEN_RE = /[0-9०-९@]|https?:|www\./i;
 
 /**
+ * The guard above, as a predicate, so the chat miner applies the IDENTICAL rule at mining
+ * time instead of a lookalike of its own.
+ *
+ * It matters that this is shared rather than re-expressed. The validator is the last gate
+ * before a commit, but the miner writes a REVIEW FILE first — and a mined salary figure or
+ * phone number sitting in a review file has already left the database and landed on disk,
+ * which is precisely what the guard exists to prevent. Two copies of the rule would drift,
+ * and the copy that drifts is the one nobody tests.
+ */
+export function hasForbiddenAliasChars(text: string): boolean {
+  return OVERLAY_FORBIDDEN_RE.test(text);
+}
+
+/**
  * Derive the immutable `job_domain_id`.
  *
  * IDS ARE DERIVED, NEVER STORED IN THE CORPUS, so the same source row always produces

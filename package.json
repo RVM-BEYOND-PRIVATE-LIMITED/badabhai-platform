@@ -30,6 +30,8 @@
     "db:verify:domains": "pnpm --filter @badabhai/db db:verify:domains",
     "db:normalize:aliases": "pnpm --filter @badabhai/db db:normalize:aliases",
     "db:eval:occupation": "pnpm --filter @badabhai/db db:eval:occupation",
+    "db:gen:aliases": "pnpm --filter @badabhai/db db:gen:aliases",
+    "db:mine:aliases": "pnpm --filter @badabhai/db db:mine:aliases",
     "db:growth:cluster": "pnpm --filter @badabhai/db db:growth:cluster",
     "db:retag:skills": "pnpm --filter @badabhai/db db:retag:skills",
     "db:seed:reach": "pnpm --filter @badabhai/db db:seed:reach",
