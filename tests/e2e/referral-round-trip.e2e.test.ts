@@ -186,7 +186,7 @@ describe.skipIf(!RUN)("referral round-trip: /r/:code -> click -> attribute", () 
       body: { code, source: "app_link" },
     });
     // Fire-and-forget + constant-time by design: neutral regardless of outcome.
-    expect(first.status).toBe(201);
+    expect(first.status).toBe(200);
 
     const claimed = await claimsFor(w.workerId);
     expect(claimed).toHaveLength(1);
@@ -199,7 +199,7 @@ describe.skipIf(!RUN)("referral round-trip: /r/:code -> click -> attribute", () 
       token: w.token,
       body: { code, source: "app_link" },
     });
-    expect(second.status).toBe(201);
+    expect(second.status).toBe(200);
     expect(await claimsFor(w.workerId)).toHaveLength(1);
   });
 
@@ -215,7 +215,7 @@ describe.skipIf(!RUN)("referral round-trip: /r/:code -> click -> attribute", () 
       body: { code, source: "app_link" },
     });
     // Same neutral response as the consented path — no oracle.
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(200);
 
     expect(await claimsFor(w.workerId)).toHaveLength(0);
     const clicks = await clicksFor(code);
