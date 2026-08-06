@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # INTERVIEW-1 §7 parity: Zod's `z.number().int().nonnegative()` REJECTS -1 and the
 # string "2". Plain `int` here would accept both (Pydantic coerces "2" -> 2), so the
@@ -58,6 +58,327 @@ class PseudonymizationMeta(BaseModel):
     blocked_reason: str | None = None
     replaced_entities: int = 0
     placeholder_tokens: list[str] = Field(default_factory=list)
+
+
+# ===========================================================================
+# Occupation Intelligence Engine (OIE) — the deterministic-profiling contracts.
+# ---------------------------------------------------------------------------
+# MIRRORS packages/ai-contracts/src/oie.ts, asserted key-for-key by
+# tests/test_contract_parity.py against src/__fixtures__/oie.keys.json. Part of the
+# Phase 0 contract FREEZE: any change here is a joint PR that moves the Zod side, this
+# file and the fixture in the same commit.
+#
+# PRIVACY: nothing here carries identity PII by construction. Answers are RFS profile
+# signals; question packs are reviewed static copy; evidence quotes are spans of the
+# PSEUDONYMIZED transcript — the only transcript the parse call ever sees.
+# ===========================================================================
+
+# `int().positive()` parity, same reasoning as AskCount above: Zod rejects 0 and "2".
+PositiveInt = Annotated[int, Field(ge=1, strict=True)]
+
+ProfilingPhase = Literal[
+    "identify", "disambiguate", "occupation_specific", "universal_tail", "close"
+]
+OccupationMatchLayer = Literal["l0_exact", "l1_skeleton", "l2_trigram", "l3_vector"]
+# The five job-domain statuses PLUS the two deterministic-engine outcomes migration 0076
+# adds to the worker_profiles CHECK — declared ahead of 0076 because this file freezes at
+# Phase 0 and the CHECK expansion must not need a contract change.
+OccupationMatchStatus = Literal[
+    "matched_auto",
+    "matched_llm",
+    "unmatched_below_floor",
+    "unmatched_llm_declined",
+    "unmatched_degraded",
+    "matched_lexical",
+    "matched_worker_confirmed",
+]
+AnswerStatus = Literal["answered", "declined", "unanswered", "superseded"]
+
+_SLUG_RE = re.compile(r"^[a-z_]+$")
+
+
+def _validate_slug(value: str, field_name: str) -> str:
+    """The `^[a-z_]+$` ≤40 filter every question_key / field id must pass — the same
+    filter the event-payload path applies (`slugFieldIds`), enforced at the contract
+    instead of discovered inside the flush transaction. Mirrors Zod's `slugKey`."""
+    if not value or len(value) > 40 or not _SLUG_RE.fullmatch(value):
+        raise ValueError(f"{field_name} must be a lowercase slug ([a-z_]+, <=40 chars)")
+    return value
+
+
+class EvidenceSpan(BaseModel):
+    """A literal span of the pseudonymized transcript. The provenance gate — the
+    strongest of the six parse gates — verifies `quote` is a substring of
+    `transcript[message_index].text` after whitespace normalization."""
+
+    message_index: AskCount
+    quote: str = Field(min_length=1)
+
+
+class AnswerRecordHistoryEntry(BaseModel):
+    """A superseded value, kept when a correction overwrites an answer. Load-bearing for
+    the parse call: the transcript holds both values, the history says which won."""
+
+    value_raw: str | None = None
+    value_normalized: Any | None = None
+    status: AnswerStatus = "superseded"
+    evidence: EvidenceSpan | None = None
+    turn: AskCount = 0
+
+
+class AnswerRecord(BaseModel):
+    """One captured answer — the unit of the deterministic answer map, which is the parse
+    call's PRIMARY input (the transcript is only its evidence store). `value_normalized`
+    is written at CAPTURE time by the orchestrator, never at parse time — that is what
+    makes the fail-closed projection (LLM down => profile from the map alone) real."""
+
+    question_key: str
+    target_field: str | None = None
+    value_raw: str | None = None
+    value_normalized: Any | None = None
+    status: AnswerStatus = "unanswered"
+    evidence: EvidenceSpan | None = None
+    turn: AskCount = 0
+    history: list[AnswerRecordHistoryEntry] = Field(default_factory=list)
+
+    @field_validator("question_key")
+    @classmethod
+    def _question_key_slug(cls, v: str) -> str:
+        return _validate_slug(v, "question_key")
+
+    @field_validator("target_field")
+    @classmethod
+    def _target_field_slug(cls, v: str | None) -> str | None:
+        return v if v is None else _validate_slug(v, "target_field")
+
+
+class OccupationPin(BaseModel):
+    """The identified occupation, pinned to the conversation the moment retrieval
+    resolves it. pack_id + pack_version + catalog_version are IMMUTABLE for the rest of
+    the conversation (risk #13)."""
+
+    job_domain_id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    isco_unit_code: str | None = None
+    match_status: OccupationMatchStatus = "unmatched_degraded"
+    match_score: float | None = None
+    match_layer: OccupationMatchLayer | None = None
+    pack_id: str | None = None
+    pack_version: PositiveInt | None = None
+    catalog_version: str | None = None
+
+
+class PredicateOperand(BaseModel):
+    """Exactly one of `field` (reads answers[id].value_normalized — the ONLY thing the
+    evaluator can read) or `const` (a literal). Key PRESENCE decides, mirroring the Zod
+    refine — `{"const": null}` is a valid literal null, not an absent operand."""
+
+    field: str | None = None
+    const: Any | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> PredicateOperand:
+        provided = self.model_fields_set & {"field", "const"}
+        if len(provided) != 1:
+            raise ValueError("an operand is exactly one of {field} or {const}")
+        return self
+
+
+PredicateOp = Literal[
+    "all",
+    "any",
+    "not",
+    "answered",
+    "declined",
+    "eq",
+    "neq",
+    "in",
+    "gte",
+    "lte",
+    "occupation_is",
+    "occupation_under",
+    "phase_is",
+    "turn_gte",
+]
+
+# Which optional keys each operator REQUIRES. One closed table, no other combination —
+# byte-for-byte the same table as PREDICATE_ARITY in oie.ts.
+_PREDICATE_ARITY: dict[str, tuple[str, ...]] = {
+    "all": ("predicates",),
+    "any": ("predicates",),
+    "not": ("predicate",),
+    "answered": ("field",),
+    "declined": ("field",),
+    "eq": ("left", "right"),
+    "neq": ("left", "right"),
+    "in": ("left", "right"),
+    "gte": ("left", "right"),
+    "lte": ("left", "right"),
+    "occupation_is": ("job_domain_id",),
+    "occupation_under": ("isco_code",),
+    "phase_is": ("phase",),
+    "turn_gte": ("turn",),
+}
+_PREDICATE_OPERAND_KEYS = (
+    "predicates",
+    "predicate",
+    "field",
+    "left",
+    "right",
+    "job_domain_id",
+    "isco_code",
+    "phase",
+    "turn",
+)
+
+
+class Predicate(BaseModel):
+    """The ask_if/skip_if condition — a closed JSON AST, NEVER a string, therefore no
+    expression-parser injection surface. ONE object shape with an `op` discriminant so
+    this model and the Zod side share a stable key list; the validator enforces per-op
+    arity, and the Phase 4 pack validator re-checks at boot."""
+
+    op: PredicateOp
+    predicates: list[Predicate] | None = None
+    predicate: Predicate | None = None
+    field: str | None = None
+    left: PredicateOperand | None = None
+    right: PredicateOperand | None = None
+    job_domain_id: str | None = None
+    isco_code: str | None = None
+    phase: ProfilingPhase | None = None
+    turn: AskCount | None = None
+
+    @model_validator(mode="after")
+    def _arity(self) -> Predicate:
+        required = _PREDICATE_ARITY[self.op]
+        for key in required:
+            if getattr(self, key) is None:
+                raise ValueError(f'op "{self.op}" requires "{key}"')
+        for key in _PREDICATE_OPERAND_KEYS:
+            if getattr(self, key) is not None and key not in required:
+                raise ValueError(f'op "{self.op}" does not take "{key}"')
+        return self
+
+
+Predicate.model_rebuild()
+
+
+QuestionTargetKind = Literal["rfs", "match_skill", "attribute", "none"]
+AnswerType = Literal["text", "number", "boolean", "single_select", "multi_select"]
+QuestionPackStatus = Literal["draft", "active", "deprecated"]
+
+
+class QuestionPackOption(BaseModel):
+    """A chip. The label IS the worker's answer of record verbatim when tapped — which is
+    why chips are reviewed static data and never model output."""
+
+    option_key: str
+    label_text: str = Field(min_length=1)
+    value: Any | None = None
+    implies_skill_id: str | None = None
+    is_none_of_above: bool = False
+
+    @field_validator("option_key")
+    @classmethod
+    def _option_key_slug(cls, v: str) -> str:
+        return _validate_slug(v, "option_key")
+
+
+class QuestionPackItem(BaseModel):
+    question_key: str
+    prompt_text: str = Field(min_length=1)
+    display_order: AskCount
+    target_kind: QuestionTargetKind
+    target_field: str | None = None
+    target_skill_id: str | None = None
+    answer_type: AnswerType
+    is_mandatory: bool = False
+    is_core: bool = False
+    max_asks: PositiveInt = 2
+    min_turn: AskCount | None = None
+    max_turn: AskCount | None = None
+    ask_if: Predicate | None = None
+    skip_if: Predicate | None = None
+    parent_item_key: str | None = None
+    retry_text: str | None = None
+    why_text: str | None = None
+    options: list[QuestionPackOption] = Field(default_factory=list)
+
+    @field_validator("question_key")
+    @classmethod
+    def _question_key_slug(cls, v: str) -> str:
+        return _validate_slug(v, "question_key")
+
+
+class QuestionPack(BaseModel):
+    """A resolved pack at a PINNED version — version-scoped and therefore immutable by
+    construction. Immutability IS the cache invalidation."""
+
+    pack_id: str = Field(min_length=1)
+    version: PositiveInt
+    family_id: str = Field(pattern=r"^fam_[a-z0-9_]+$")
+    locale: str = Field(min_length=2, max_length=8)
+    status: QuestionPackStatus
+    content_hash: str = Field(min_length=1)
+    items: list[QuestionPackItem] = Field(default_factory=list)
+
+
+class TranscriptLine(BaseModel):
+    """One line of the indexed evidence store. `i` is what evidence spans point at."""
+
+    i: AskCount
+    role: Literal["worker", "assistant"]
+    text: str
+
+
+class TargetField(BaseModel):
+    """A field the parse call may fill. Anything outside this closed list is dropped."""
+
+    field_id: str
+    type: str = Field(min_length=1)
+    enum: list[str] | None = None
+    unit: str | None = None
+    required: bool = False
+
+    @field_validator("field_id")
+    @classmethod
+    def _field_id_slug(cls, v: str) -> str:
+        return _validate_slug(v, "field_id")
+
+
+class ProfileParseInput(BaseModel):
+    """THE one LLM call's request. The framing is the enforcement: `answer_map` is the
+    record, `transcript` is the evidence store. The model is never asked what the
+    worker's salary is — it is asked to type and cite the answer the map already holds."""
+
+    schema_version: Literal["oie.v1"] = "oie.v1"
+    worker_ref: str = Field(min_length=1)
+    language: str | None = None
+    occupation: OccupationPin | None = None
+    answer_map: list[AnswerRecord] = Field(default_factory=list)
+    transcript: list[TranscriptLine] = Field(default_factory=list)
+    target_fields: list[TargetField] = Field(default_factory=list)
+
+
+ParseNormalization = Literal["verbatim", "spelling", "translit", "unit", "enum", "numeric"]
+
+
+class ParsedField(BaseModel):
+    """One parsed field. `evidence` is MANDATORY — a value with no span cannot even be
+    REPRESENTED, which is a stronger guarantee than rejecting it downstream."""
+
+    value: Any
+    evidence: EvidenceSpan
+    source: Literal["answer_map", "transcript"]
+    normalization: ParseNormalization
+    confidence: float = Field(ge=0, le=1)
+
+
+class ProfileParseOutput(BaseModel):
+    fields: dict[str, ParsedField | None] = Field(default_factory=dict)
+    unparsed_field_ids: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
 
 
 # --- Interview conversation state ------------------------------------------
@@ -136,6 +457,27 @@ class ConversationState(BaseModel):
     # WHY the interview ended, for observability. Never model-supplied — the endpoint
     # assigns it, because the model does not get to decide that it is finished.
     completion_reason: str | None = None
+
+    # --- Occupation Intelligence Engine (the deterministic interview) --------
+    # ADDITIVE + defaulted => backward compatible; part of the Phase 0 contract freeze
+    # and mirrored in @badabhai/ai-contracts ConversationStateSchema. `captured` above
+    # STAYS POPULATED as a flattened projection of `answer_map`, so anything still
+    # reading it keeps working. Every field here must ALSO be added to
+    # ChatTranscriptBuffer.narrow() on the api side, which silently drops unknown keys.
+    phase: ProfilingPhase = "identify"
+    occupation: OccupationPin | None = None
+    # THE record. `captured` is a projection of this; the parse call reads this.
+    answer_map: list[AnswerRecord] = Field(default_factory=list)
+    # Engine-driven ASKS (not turns) — the MAX_ENGINE_ASKS budget's counter; clarifies
+    # and re-serves consume turns, not asks, mirroring interview_engine.py.
+    engine_asks: AskCount = 0
+    # The pack pinned with the occupation — IMMUTABLE for the conversation (risk #13).
+    # Duplicated from `occupation` deliberately: a repin replaces `occupation`, but the
+    # already-answered questions keep pointing at the pack that asked them.
+    pack_id: str | None = None
+    pack_version: PositiveInt | None = None
+    # Catalogue release retrieval ran against; pins alias resolution mid-flight.
+    catalog_version: str | None = None
 
 
 # --- Profiling turn --------------------------------------------------------

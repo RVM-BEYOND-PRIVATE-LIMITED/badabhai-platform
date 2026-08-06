@@ -6,6 +6,7 @@ import {
   PseudonymizationMetaSchema,
   languageCode,
 } from "./common";
+import { AnswerRecordSchema, OccupationPinSchema, PROFILING_PHASES } from "./oie";
 
 // Worker-side chat profiling: the conversation state carried between turns, the
 // one-shot opener, and the profiling turn request/response.
@@ -81,6 +82,37 @@ export const ConversationStateSchema = z.object({
    * decide that it is finished.
    */
   completion_reason: z.string().nullable().default(null),
+
+  // --- Occupation Intelligence Engine (the deterministic interview) ---------
+  // ADDITIVE + defaulted => backward compatible; part of the Phase 0 contract freeze and
+  // mirrored in apps/ai-service/app/contracts.py ConversationState. `captured` above
+  // STAYS POPULATED as a flattened projection of `answer_map`, so anything still reading
+  // it keeps working.
+  //
+  // ⚠ EVERY field here must ALSO be added to `ChatTranscriptBuffer.narrow()`
+  // (apps/api/src/chat/chat-transcript.buffer.ts) — it rebuilds the envelope field by
+  // field and silently DROPS unknown keys on the next load. That is the single most
+  // likely implementation bug in the whole plan (risk #6).
+  /** Where the deterministic interview is. The orchestrator owns every transition. */
+  phase: z.enum(PROFILING_PHASES).default("identify"),
+  /** The pinned occupation, or null while still identifying. Immutable once set (±1 repin). */
+  occupation: OccupationPinSchema.nullable().default(null),
+  /** THE record. `captured` is a projection of this; this is what the parse call reads. */
+  answer_map: z.array(AnswerRecordSchema).default([]),
+  /**
+   * Engine-driven ASKS (not turns) — the `MAX_ENGINE_ASKS` budget's counter, mirroring
+   * `interview_engine.py`'s distinction: clarifies and re-serves consume turns, not asks.
+   */
+  engine_asks: z.number().int().nonnegative().default(0),
+  /**
+   * The pack pinned with the occupation — IMMUTABLE for the conversation (risk #13).
+   * Duplicated from `occupation` deliberately: a repin replaces `occupation`, but the
+   * already-answered questions keep pointing at the pack that asked them.
+   */
+  pack_id: z.string().nullable().default(null),
+  pack_version: z.number().int().positive().nullable().default(null),
+  /** Catalogue release the retrieval ran against; pins alias resolution mid-flight. */
+  catalog_version: z.string().nullable().default(null),
 });
 export type ConversationState = z.infer<typeof ConversationStateSchema>;
 
