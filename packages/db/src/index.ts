@@ -13,3 +13,6 @@ export * from "./crypto";
 // service can actually IMPORT it. Unexported, the guarantee it offers (one decision, SQL-parity
 // tested) is unreachable, and every consumer reimplements the chain instead.
 export * from "./question-pack-resolver";
+// The RFS vocabulary a `target_kind: "rfs"` question may write into. Exported because the
+// orchestrator keys its capture-time normalizers on these same ids.
+export * from "./rfs-vocabulary";

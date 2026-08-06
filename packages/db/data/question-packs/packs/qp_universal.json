@@ -26,7 +26,7 @@
       "why_text": "Tajurba dekhkar employer behtar offer dete hain.",
       "retry_text": "Kitne saal se ye kaam kar rahe hain?",
       "target_kind": "rfs",
-      "target_field": "experience",
+      "target_field": "experience_years",
       "answer_type": "duration",
       "is_core": true,
       "max_asks": 2
@@ -37,7 +37,7 @@
       "why_text": "Aapke aas-paas ki naukri dikhane ke liye sheher zaroori hai.",
       "retry_text": "Aap kaunse sheher mein rehte hain?",
       "target_kind": "rfs",
-      "target_field": "city",
+      "target_field": "current_city",
       "answer_type": "city",
       "is_mandatory": true,
       "is_core": true,
@@ -63,7 +63,7 @@
       "prompt_text": "Kya aap doosre sheher jaa sakte hain?",
       "why_text": "Doosre sheher mein bhi achhi naukri mil sakti hai.",
       "target_kind": "rfs",
-      "target_field": "relocation",
+      "target_field": "relocation_willingness",
       "answer_type": "single_select",
       "max_asks": 1,
       "options": [
@@ -92,7 +92,7 @@
       "prompt_text": "Aapne kahaan tak padhai ki hai?",
       "why_text": "Kuch naukri ke liye padhai ka record maanga jaata hai.",
       "target_kind": "rfs",
-      "target_field": "education",
+      "target_field": "education_level",
       "answer_type": "single_select",
       "max_asks": 1,
       "options": [

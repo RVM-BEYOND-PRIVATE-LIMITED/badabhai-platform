@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import type { QuestionPackItem } from "@badabhai/ai-contracts";
 
-import { captureAnswer, mayCommit } from "./answer-capture";
+import { RFS_FIELD_IDS } from "@badabhai/db";
+
+import {
+  NORMALIZED_FIELDS,
+  captureAnswer,
+  hasFieldNormalizer,
+  mayCommit,
+} from "./answer-capture";
 import { recordAnswer, type CapturedValue } from "./answer-map";
 
 let order = 0;
@@ -34,7 +41,7 @@ const CITY = item({ question_key: "q_city", target_field: "current_city" });
 const YEARS = item({ question_key: "q_years", target_field: "experience_years" });
 const SALARY = item({ question_key: "q_salary", target_field: "salary_expected" });
 const AVAIL = item({ question_key: "q_avail", target_field: "availability" });
-const RELOCATE = item({ question_key: "q_reloc", target_field: "willing_to_relocate" });
+const RELOCATE = item({ question_key: "q_reloc", target_field: "relocation_willingness" });
 const FREE_TEXT = item({ question_key: "q_notes" });
 
 function only(capture: { values: readonly CapturedValue[] }): CapturedValue {
@@ -247,6 +254,37 @@ describe("every typed field falls back to NO capture rather than a guess", () =>
     const current = item({ question_key: "q_now", target_field: "salary_current" });
     for (const q of [CITY, YEARS, SALARY, AVAIL, RELOCATE, notice, current]) {
       expect(captureAnswer(unreadable, q).values, q.question_key).toHaveLength(0);
+    }
+  });
+});
+
+describe("the normalizer map is keyed on REAL vocabulary ids", () => {
+  it("every rfs-facing key is in the Resume Field Set", () => {
+    // THE REGRESSION. `relocation_willingness` is the WorkerProfileDraft column; the RFS id is
+    // `relocation_willingness`. A key spelled the first way matches no pack question ever, so the
+    // field falls through to the verbatim path and stores a whole sentence where a boolean
+    // belongs — silently, because "no normalizer" is a legal state for free-text questions.
+    //
+    // `notice_period_days` is the deliberate exception and is named here rather than pattern-
+    // matched away: it is reachable only as an `attribute` target, never an `rfs` one.
+    const ATTRIBUTE_ONLY = new Set(["notice_period_days"]);
+    const offenders = NORMALIZED_FIELDS.filter(
+      (field) => !ATTRIBUTE_ONLY.has(field) && !RFS_FIELD_IDS.has(field),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("types the fields the FAIL-CLOSED profile depends on", () => {
+    // If any of these loses its normalizer, "the deterministic answer map alone is a usable
+    // profile" stops being true and nothing else in the suite notices.
+    for (const field of [
+      "current_city",
+      "experience_years",
+      "salary_expected",
+      "availability",
+      "relocation_willingness",
+    ]) {
+      expect(hasFieldNormalizer(field), field).toBe(true);
     }
   });
 });
