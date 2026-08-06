@@ -51,10 +51,10 @@ def _dev(pattern: str) -> str:
 # so a generic term ahead of a specific one shadows it ("lathe" vs "cnc lathe").
 # The rationale that used to sit in these comments now lives in data/trades.json.
 def _bounded(spec: dict[str, str]) -> re.Pattern[str]:
-    """Compile a trades pattern wrapped in word boundaries.
+    r"""Compile a trades pattern wrapped in word boundaries.
 
     The boundary lives HERE and not in the stored source, exactly as it did before the
-    extraction (`re.compile(rf"{pat}")`). That is deliberate and load-bearing twice over:
+    extraction (`re.compile(rf"\b{pat}\b")`). That is deliberate and load-bearing twice over:
 
     - `VOCABULARY_TOKENS` harvests the RAW source of these same tables to build the curated
       vocabulary the pseudonymizer's rescue reads. A stored `{WB}`/`{WE}` would be tokenized
