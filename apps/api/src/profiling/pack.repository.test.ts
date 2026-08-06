@@ -95,13 +95,13 @@ describe("findItems / findOptions", () => {
   });
 });
 
-describe("findBindings — the in-memory chain filter", () => {
+describe("findBindings — the CANDIDATE filter (which level wins is resolveFamily's call)", () => {
   const rows = [
-    { familyId: "fam_welding", specificity: 50, jobDomainId: "dom_welder", unit: null, minor: null, submajor: null, major: null, isUniversal: false },
-    { familyId: "fam_welders", specificity: 40, jobDomainId: null, unit: "7212", minor: null, submajor: null, major: null, isUniversal: false },
-    { familyId: "fam_metal", specificity: 20, jobDomainId: null, unit: null, minor: null, submajor: "72", major: null, isUniversal: false },
-    { familyId: "fam_other", specificity: 40, jobDomainId: null, unit: "9999", minor: null, submajor: null, major: null, isUniversal: false },
-    { familyId: "fam_universal", specificity: 0, jobDomainId: null, unit: null, minor: null, submajor: null, major: null, isUniversal: true },
+    { familyId: "fam_welding", specificity: 50, jobDomainId: "dom_welder", iscoUnitCode: null, iscoMinorCode: null, iscoSubmajorCode: null, iscoMajorCode: null, isUniversal: false },
+    { familyId: "fam_welders", specificity: 40, jobDomainId: null, iscoUnitCode: "7212", iscoMinorCode: null, iscoSubmajorCode: null, iscoMajorCode: null, isUniversal: false },
+    { familyId: "fam_metal", specificity: 20, jobDomainId: null, iscoUnitCode: null, iscoMinorCode: null, iscoSubmajorCode: "72", iscoMajorCode: null, isUniversal: false },
+    { familyId: "fam_other", specificity: 40, jobDomainId: null, iscoUnitCode: "9999", iscoMinorCode: null, iscoSubmajorCode: null, iscoMajorCode: null, isUniversal: false },
+    { familyId: "fam_universal", specificity: 0, jobDomainId: null, iscoUnitCode: null, iscoMinorCode: null, iscoSubmajorCode: null, iscoMajorCode: null, isUniversal: true },
   ];
 
   it("keeps every level the occupation actually sits under, and nothing else", async () => {
@@ -132,7 +132,7 @@ describe("findBindings — the in-memory chain filter", () => {
     // Without the explicit `!== null` guards, `null === null` would make every level match
     // every occupation and the whole chain would collapse to "the first row wins".
     const { db } = makeCapturingDb([
-      { familyId: "fam_null", specificity: 50, jobDomainId: null, unit: null, minor: null, submajor: null, major: null, isUniversal: false },
+      { familyId: "fam_null", specificity: 50, jobDomainId: null, iscoUnitCode: null, iscoMinorCode: null, iscoSubmajorCode: null, iscoMajorCode: null, isUniversal: false },
     ]);
     const found = await new PackRepository(db as never).findBindings({
       jobDomainId: null,

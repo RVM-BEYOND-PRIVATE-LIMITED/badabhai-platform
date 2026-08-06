@@ -3,12 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 
 import { PackRegistryService, computeContentHash } from "./pack-registry.service";
-import {
-  iscoPrefixes,
-  type PackHeadRow,
-  type PackItemRow,
-  type PackOptionRow,
-} from "./pack.repository";
+import type { PackHeadRow, PackItemRow, PackOptionRow } from "./pack.repository";
 
 const NOW = 1_700_000_000_000;
 
@@ -43,6 +38,23 @@ function head(packId: string, familyId: string, version = 1): PackHeadRow {
  * A repository fake holding whole packs, so a test states WHICH families have packs rather than
  * which four queries return what.
  */
+/**
+ * A binding as the SHARED resolver reads it. Built from the level rather than hand-written, so a
+ * test cannot accidentally describe a binding the `pfb_specificity_matches_target_chk` constraint
+ * would reject — which would make the fallback tests pass against rows the database cannot hold.
+ */
+function binding(familyId: string, specificity: number) {
+  const target: Record<number, Record<string, unknown>> = {
+    50: { jobDomainId: "dom_welder" },
+    40: { iscoUnitCode: "7212" },
+    30: { iscoMinorCode: "721" },
+    20: { iscoSubmajorCode: "72" },
+    10: { iscoMajorCode: "7" },
+    0: { isUniversal: true },
+  };
+  return { familyId, specificity, ...target[specificity] };
+}
+
 function makeRegistry(world: {
   bindings?: { familyId: string; specificity: number }[];
   packs?: Record<string, { head: PackHeadRow; items: PackItemRow[] }>;
@@ -103,32 +115,13 @@ const PIN = {
   catalog_version: null,
 };
 
-describe("the ISCO prefix chain", () => {
-  it("splits a unit code into its four hierarchical levels", () => {
-    expect(iscoPrefixes("7212")).toEqual({
-      unit: "7212",
-      minor: "721",
-      submajor: "72",
-      major: "7",
-    });
-  });
-
-  it("yields all-nulls for an absent or malformed code, matching only the universal binding", () => {
-    // An `rvm`-minted occupation has no published ISCO code. That must reach the universal pack,
-    // not an error and not a coincidental prefix match.
-    for (const code of [null, "", "72", "72123", "7a12"]) {
-      expect(iscoPrefixes(code)).toEqual({ unit: null, minor: null, submajor: null, major: null });
-    }
-  });
-});
-
 describe("the fallback chain — most specific wins", () => {
   it("takes the job-domain pack over every broader one", async () => {
     const { registry } = makeRegistry({
       bindings: [
-        { familyId: "fam_welding", specificity: 50 },
-        { familyId: "fam_metal_trades", specificity: 20 },
-        { familyId: "fam_universal", specificity: 0 },
+        binding("fam_welding", 50),
+        binding("fam_metal_trades", 20),
+        binding("fam_universal", 0),
       ],
       packs: { WELDING, METAL, UNIVERSAL },
     });
@@ -140,9 +133,9 @@ describe("the fallback chain — most specific wins", () => {
     // Aborting the chain there would leave a worker with no interview at all.
     const { registry } = makeRegistry({
       bindings: [
-        { familyId: "fam_welding", specificity: 50 },
-        { familyId: "fam_metal_trades", specificity: 20 },
-        { familyId: "fam_universal", specificity: 0 },
+        binding("fam_welding", 50),
+        binding("fam_metal_trades", 20),
+        binding("fam_universal", 0),
       ],
       packs: { METAL, UNIVERSAL },
     });
@@ -152,12 +145,25 @@ describe("the fallback chain — most specific wins", () => {
   it("lands on the universal pack when nothing more specific has one", async () => {
     const { registry } = makeRegistry({
       bindings: [
-        { familyId: "fam_welding", specificity: 50 },
-        { familyId: "fam_universal", specificity: 0 },
+        binding("fam_welding", 50),
+        binding("fam_universal", 0),
       ],
       packs: { UNIVERSAL },
     });
     expect((await registry.resolveForOccupation(PIN, NOW))?.pack_id).toBe("qp_universal");
+  });
+
+  it("resolves a SHORT ISCO code the way Postgres does, not the way a stricter rule would", async () => {
+    // REGRESSION. This service used to derive the ancestry itself behind a `^[0-9]{4}$` guard, so
+    // a 3-digit code yielded all-nulls and fell to the universal pack — while `RESOLVE_FAMILY_SQL`
+    // used `left(code, 3)` and found a real family. The engine and the deploy gate disagreed about
+    // the same worker. Deferring to the shared `resolveFamily` is what fixes it.
+    const { registry } = makeRegistry({
+      bindings: [binding("fam_metal_trades", 30), binding("fam_universal", 0)],
+      packs: { METAL, UNIVERSAL },
+    });
+    const shortCode = { ...PIN, job_domain_id: "dom_unbound", isco_unit_code: "721" };
+    expect((await registry.resolveForOccupation(shortCode, NOW))?.pack_id).toBe("qp_metal");
   });
 
   it("returns null when even the universal pack is missing", async () => {
@@ -169,7 +175,7 @@ describe("the fallback chain — most specific wins", () => {
 
   it("resolves the universal pack with no occupation at all", async () => {
     const { registry } = makeRegistry({
-      bindings: [{ familyId: "fam_universal", specificity: 0 }],
+      bindings: [binding("fam_universal", 0)],
       packs: { UNIVERSAL },
     });
     expect((await registry.loadUniversal(NOW))?.pack_id).toBe("qp_universal");
@@ -210,8 +216,8 @@ describe("validation on the way OUT of the database", () => {
     vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
     const { registry } = makeRegistry({
       bindings: [
-        { familyId: "fam_welding", specificity: 50 },
-        { familyId: "fam_universal", specificity: 0 },
+        binding("fam_welding", 50),
+        binding("fam_universal", 0),
       ],
       packs: { broken, UNIVERSAL },
     });

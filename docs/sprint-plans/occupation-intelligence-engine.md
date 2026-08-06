@@ -637,7 +637,7 @@ question is never re-served; no question exceeds `max_asks` **under a stubbed al
 
 #### AS BUILT — every scope bullet met, four deltas, three deferrals
 
-Phase 5 shipped in two increments: **#611** (the pure core) and **#612** (the runtime). Every file in
+Phase 5 shipped in two increments: **#611** (the pure core) and **#614** (the runtime). Every file in
 the Scope block exists, every hard case in the table is a test, and all six acceptance criteria are met
 — branch coverage is **100%** on all four pure modules, not the 95% the plan asks for. Four things
 differ from the scope above, each forced by running the plan against the code rather than by preference.
