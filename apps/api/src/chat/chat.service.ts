@@ -47,7 +47,7 @@ const WORKER_NAME_PLACEHOLDER = "{{worker_name}}";
  * On-persona by the same rules the guard enforces on the far side: "aap", no vocative,
  * no exclamation mark, no emoji, two short lines.
  */
-const CHAT_UNAVAILABLE_REPLY =
+export const CHAT_UNAVAILABLE_REPLY =
   "Abhi thodi dikkat aa rahi hai. Ek minute baad dobara bhejiye.";
 
 /** Served on a message posted to an interview that has already been finalized. */

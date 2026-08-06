@@ -635,6 +635,51 @@ question is never re-served; no question exceeds `max_asks` **under a stubbed al
 `MAX_ENGINE_ASKS` is pinned by a test against the arithmetic, not the constant. CAS: two concurrent writers
 → exactly one `rev` increment. `narrow()` round-trips every v2 field.
 
+#### AS BUILT — every scope bullet met, four deltas, three deferrals
+
+Phase 5 shipped in two increments: **#611** (the pure core) and **#612** (the runtime). Every file in
+the Scope block exists, every hard case in the table is a test, and all six acceptance criteria are met
+— branch coverage is **100%** on all four pure modules, not the 95% the plan asks for. Four things
+differ from the scope above, each forced by running the plan against the code rather than by preference.
+
+1. **The engine's bookkeeping is in the Redis envelope, NOT in `ConversationState`.** `servedQuestionKey`,
+   `abusiveTurns`, `silentTurns`, `hardshipTurns` and `needsDisambiguation` have no home in the frozen
+   contract, and putting them there would freeze one service's state-machine internals into a
+   cross-language schema for fields the parse call cannot use and the ai-service must never write. The
+   **seven** OIE fields the Phase 0 freeze did specify are all carried and all projected out by
+   `toConversationStatePatch`. No contract change was needed.
+
+2. **`narrow()`'s exhaustiveness is a TYPECHECK, not a checklist.** The plan asks for the `narrow()`
+   additions to go "in the PR checklist". `PROFILING_ENVELOPE_KEYS satisfies Record<keyof
+   ProfilingEnvelope, true>` makes an un-narrowed field fail the BUILD instead, and the round-trip test
+   asserts the fixture covers every key so it cannot pass vacuously. Risk #6 is closed mechanically.
+
+3. **`MAX_ENGINE_TURNS` was added, because the ask budget alone does not bound the interview.** A
+   hardship turn advances nothing — no ask, no counter, no phase — so an all-hardship conversation ran
+   forever. Closed two ways: `MAX_CONSECUTIVE_HARDSHIP = 2` (the same shape as the clarify and silence
+   bounds), and a turn backstop DERIVED from those constants rather than guessed, so tightening any one
+   of them tightens it automatically. `turn_cap` joins the completion-reason vocabulary.
+
+4. **The registry MAPS three answer types the database allows and the contract does not.** Migration
+   0069's `qpi_answer_type_chk` accepts `city | salary | duration`; `ANSWER_TYPES` does not. A reviewer
+   authoring a perfectly legal pack row would otherwise fail validation and drop the ENTIRE pack,
+   leaving that trade with no interview at all. Mapped to the input affordance each implies; what the
+   answer becomes is decided by `target_field`, so nothing is lost. **The narrower fix — aligning the
+   two vocabularies — is a joint Phase 0 contract PR and is not taken here.**
+
+**Deferred, deliberately, with owners:**
+
+- **The orchestrator is DARK.** `ChatService.postMessage` still runs the v1 model-driven path,
+  untouched; `ProfilingModule` declares no controller and a boot test pins that. Wiring it in is a
+  separate change with its own rollback lever — *Prakash, with Phase 7*.
+- **`needsDisambiguation` is honoured but never set.** The engine returns a `disambiguate` decision for
+  it and the envelope carries it; nothing writes it, because the disambiguation OFFER is built by
+  retrieval — *Divyanshu, Phase 7*.
+- **`content_hash` is DERIVED at load, not read from the column.** Nothing writes
+  `question_pack.content_hash` today, so trusting it would make a required contract field null for
+  every pack and drop all of them. A stored hash that disagrees is logged as drift and the database is
+  still served — *Divyanshu, Phase 6, when the seeder starts writing it*.
+
 ---
 
 ### Phase 6 — Pack Authoring at Scale  *(Owner: Divyanshu + content · XL · after P4, parallel with P5/P7)*

@@ -69,6 +69,7 @@ function state(overrides: Partial<EngineState> = {}): EngineState {
     clarifyCount: 0,
     abusiveTurns: 0,
     silentTurns: 0,
+    hardshipTurns: 0,
     needsDisambiguation: false,
     ...overrides,
   };

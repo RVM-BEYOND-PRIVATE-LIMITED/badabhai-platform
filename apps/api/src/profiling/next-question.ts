@@ -72,6 +72,35 @@ export const MAX_ABUSIVE_TURNS = 3;
  */
 export const MAX_SILENT_TURNS = 3;
 
+/**
+ * Max CONSECUTIVE hardship acknowledgements before the interview moves on anyway.
+ *
+ * Acknowledging hardship without pushing a question is right — a worker describing a hard month
+ * is not refusing to answer — but it is the one turn class that advances NOTHING: no ask, no
+ * counter, no phase. Left unbounded it is an interview that can never end, and the hardship
+ * detector's patterns are the most permissive in the lexicon, so reaching this bound by accident
+ * is realistic rather than theoretical.
+ */
+export const MAX_CONSECUTIVE_HARDSHIP = 2;
+
+/**
+ * The final turn backstop, DERIVED rather than guessed.
+ *
+ * Every turn is one of exactly four things: it serves an ask (bounded by MAX_ENGINE_ASKS), it is
+ * one of a bounded run of clarifies / silences / hardship acknowledgements attached to the
+ * question on screen, or it is abusive (bounded by MAX_ABUSIVE_TURNS, which closes). Multiplying
+ * the per-ask allowance by the ask budget therefore BOUNDS the whole interview — and because it
+ * is computed from those constants, tightening any one of them tightens this automatically
+ * instead of leaving a stale number behind.
+ *
+ * `MAX_SILENT_TURNS - 1`: the last silence in a run is what makes the engine ADVANCE, so it is
+ * already counted as the ask-consuming turn rather than as a free one.
+ */
+export const MAX_ENGINE_TURNS =
+  MAX_ENGINE_ASKS *
+    (1 + MAX_CONSECUTIVE_CLARIFIES + (MAX_SILENT_TURNS - 1) + MAX_CONSECUTIVE_HARDSHIP) +
+  MAX_ABUSIVE_TURNS;
+
 // ---------------------------------------------------------------------------
 // Shapes
 // ---------------------------------------------------------------------------
@@ -94,6 +123,8 @@ export interface EngineState {
   readonly clarifyCount: number;
   readonly abusiveTurns: number;
   readonly silentTurns: number;
+  /** CONSECUTIVE hardship acknowledgements. Reset by any turn that carries an answer. */
+  readonly hardshipTurns: number;
   /** True once retrieval has offered choices the worker has not yet resolved. */
   readonly needsDisambiguation: boolean;
 }
@@ -122,7 +153,13 @@ export interface Decision {
   readonly isReserve: boolean;
 }
 
-export const COMPLETION_REASONS = ["complete", "ask_budget", "abuse_cap", "no_pack"] as const;
+export const COMPLETION_REASONS = [
+  "complete",
+  "ask_budget",
+  "turn_cap",
+  "abuse_cap",
+  "no_pack",
+] as const;
 export type CompletionReason = (typeof COMPLETION_REASONS)[number];
 
 // ---------------------------------------------------------------------------
@@ -146,7 +183,7 @@ export function askCount(state: EngineState, questionKey: string): number {
 }
 
 /** The ceiling for one item: its own `max_asks`, never above the engine's. */
-function askCeiling(item: QuestionPackItem): number {
+export function askCeiling(item: QuestionPackItem): number {
   return Math.min(Math.max(1, item.max_asks), MAX_ASKS_PER_QUESTION);
 }
 
@@ -275,6 +312,11 @@ export function nextQuestion(state: EngineState, packs: EnginePacks): Decision {
   }
   if (state.engineAsks >= MAX_ENGINE_ASKS) {
     return close("ask_budget", total, answered);
+  }
+  // The derived turn backstop. Unreachable while every non-advancing turn class respects its own
+  // bound — which is exactly why it is here: it is the wall that holds when one of them does not.
+  if (state.turn > MAX_ENGINE_TURNS) {
+    return close("turn_cap", total, answered);
   }
 
   // --- IDENTIFY / DISAMBIGUATE -------------------------------------------
