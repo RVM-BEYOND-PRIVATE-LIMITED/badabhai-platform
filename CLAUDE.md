@@ -328,6 +328,19 @@ Before considering any work complete:
 - Documentation updated
 - No breaking changes introduced
 
+## Merged Means On main
+
+A merged PR is not proof your work shipped. Squash-merge collapses only the
+commits reachable from `headRefOid` at merge time; a closed PR never tracks
+commits pushed afterwards.
+
+- Never commit or push to a branch whose PR has already merged. That branch is
+  dead — cut a new one from fresh `main`.
+- Verify landing on `main` itself, never on the PR: `git fetch origin` then read
+  or grep `origin/main` for the actual artifact (the migration file, the changed
+  line, the new test).
+- Applies to every "commit + PR + merge" and to every phase-completion check.
+
 ---
 
 # 15. Response Style
