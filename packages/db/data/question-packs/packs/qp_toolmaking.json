@@ -1,0 +1,104 @@
+{
+  "_why": "Trade pack for Tool making. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_toolmaking",
+  "version": 1,
+  "family_id": "fam_toolmaking",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "tool_type",
+      "prompt_text": "Aap kya banate hain?",
+      "why_text": "Die aur jig ka kaam alag hota hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "die",
+          "label_text": "Die",
+          "value_text": "die"
+        },
+        {
+          "option_key": "jig",
+          "label_text": "Jig aur fixture",
+          "value_text": "jig"
+        },
+        {
+          "option_key": "mould",
+          "label_text": "Mould",
+          "value_text": "mould"
+        },
+        {
+          "option_key": "other_tool",
+          "label_text": "Koi aur",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Tool room me drawing zaroori hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "tolerance_work",
+      "prompt_text": "Kya aap fine tolerance ka kaam karte hain?",
+      "why_text": "Fine kaam wale ka rate zyada hota hai.",
+      "target_kind": "attribute",
+      "target_field": "tolerance_work",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

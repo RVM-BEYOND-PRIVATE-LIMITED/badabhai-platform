@@ -1,0 +1,88 @@
+{
+  "_why": "Trade pack for Fuel station. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_fuel_station",
+  "version": 1,
+  "family_id": "fam_fuel_station",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "station_work",
+      "prompt_text": "Aap pump par kya karte hain?",
+      "why_text": "Pump par kai tarah ke kaam hote hain.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "filling",
+          "label_text": "Fuel bharna",
+          "value_text": "filling"
+        },
+        {
+          "option_key": "cashier",
+          "label_text": "Paisa lena",
+          "value_text": "cashier"
+        },
+        {
+          "option_key": "air_water",
+          "label_text": "Hawa aur paani",
+          "value_text": "air_water"
+        }
+      ]
+    },
+    {
+      "question_key": "cash_handling",
+      "prompt_text": "Kya aap cash sambhalte hain?",
+      "why_text": "Cash wale par bharosa chahiye hota hai.",
+      "target_kind": "attribute",
+      "target_field": "cash_handling",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

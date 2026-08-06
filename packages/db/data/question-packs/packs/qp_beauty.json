@@ -1,0 +1,118 @@
+{
+  "_why": "Trade pack for Beauty and grooming. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_beauty",
+  "version": 1,
+  "family_id": "fam_beauty",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "beauty_service",
+      "prompt_text": "Aap kaunsi service dete hain?",
+      "why_text": "Har service ka alag hunar hota hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "hair",
+          "label_text": "Baal katna ya styling",
+          "value_text": "hair"
+        },
+        {
+          "option_key": "facial",
+          "label_text": "Facial",
+          "value_text": "facial"
+        },
+        {
+          "option_key": "mehndi",
+          "label_text": "Mehndi",
+          "value_text": "mehndi"
+        },
+        {
+          "option_key": "makeup",
+          "label_text": "Makeup",
+          "value_text": "makeup"
+        },
+        {
+          "option_key": "threading",
+          "label_text": "Threading aur waxing",
+          "value_text": "threading"
+        }
+      ]
+    },
+    {
+      "question_key": "bridal_work",
+      "prompt_text": "Kya aap dulhan ka makeup karte hain?",
+      "why_text": "Bridal ka paisa sabse zyada hota hai.",
+      "target_kind": "attribute",
+      "target_field": "bridal_work",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "home_service",
+      "prompt_text": "Kya aap ghar jaakar service dete hain?",
+      "why_text": "Home service ki maang badh rahi hai.",
+      "target_kind": "attribute",
+      "target_field": "home_service",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "certification",
+      "prompt_text": "Kya aapne beauty ka course kiya hai?",
+      "why_text": "Course wale ko parlour jaldi rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "certification",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}
