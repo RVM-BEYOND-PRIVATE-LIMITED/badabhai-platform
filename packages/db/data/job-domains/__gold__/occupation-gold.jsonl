@@ -379,3 +379,163 @@
 {"utterance":"truck","expect_unit":"8332"}
 {"utterance":"dukan","expect_unit":"5223"}
 {"utterance":"safai","expect_unit":"9112"}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BATCH A COVERAGE — 100 utterances for the 25 trades added in batch A.
+#
+# WRITTEN AGAINST THE TRADE, NOT AGAINST THE ALIAS LIST. The first 300 utterances were
+# authored alongside the aliases and are partly confirmatory as a result. These were
+# written by asking "how would a worker in this trade actually say it?" and deliberately
+# include phrasings that are NOT in the corpus, so the measurement can FAIL. A gold set
+# that only contains what the corpus already knows measures nothing.
+#
+# Expect a lower hit rate on this block than on the first 300. That is the honest signal.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── 7231 automobile mechanic ────────────────────────────────────────────────
+{"utterance":"gaadi ka mechanic hun","expect_unit":"7231"}
+{"utterance":"मोटर मैकेनिक का काम","expect_unit":"7231"}
+{"utterance":"garage me kaam karta hun","expect_unit":"7231"}
+{"utterance":"bike repair karta hun","expect_unit":"7231"}
+{"utterance":"car ka kaam janta hun","expect_unit":"7231"}
+{"utterance":"auto mechanic ki job","expect_unit":"7231"}
+{"utterance":"engine kholna aata hai","expect_unit":"7231"}
+
+# ── 7127 AC / refrigeration ─────────────────────────────────────────────────
+{"utterance":"ac mechanic hun","expect_unit":"7127"}
+{"utterance":"एसी रिपेयर का काम","expect_unit":"7127"}
+{"utterance":"fridge thik karta hun","expect_unit":"7127"}
+{"utterance":"ac installation ka kaam","expect_unit":"7127"}
+{"utterance":"cooling ka kaam karta hun","expect_unit":"7127"}
+
+# ── 9333 loader / unloader ──────────────────────────────────────────────────
+{"utterance":"palledar ka kaam karta hun","expect_unit":"9333"}
+{"utterance":"हमाल का काम","expect_unit":"9333"}
+{"utterance":"loading unloading karta hun","expect_unit":"9333"}
+{"utterance":"godown me kaam karta hun","expect_unit":"9333"}
+{"utterance":"कुली का काम","expect_unit":"9333"}
+{"utterance":"maal chadhane utarne ka kaam","expect_unit":"9333"}
+
+# ── 5131 waiter ─────────────────────────────────────────────────────────────
+{"utterance":"waiter ka kaam karta hun","expect_unit":"5131"}
+{"utterance":"बैरा का काम","expect_unit":"5131"}
+{"utterance":"hotel me waiter tha","expect_unit":"5131"}
+{"utterance":"restaurant me table sambhalta hun","expect_unit":"5131"}
+{"utterance":"वेटर","expect_unit":"5131"}
+
+# ── 5142 beautician ─────────────────────────────────────────────────────────
+{"utterance":"beauty parlour me kaam karti hun","expect_unit":"5142"}
+{"utterance":"ब्यूटीशियन का काम","expect_unit":"5142"}
+{"utterance":"mehndi lagati hun","expect_unit":"5142"}
+{"utterance":"parlour ka kaam aata hai","expect_unit":"5142"}
+{"utterance":"makeup ka kaam karti hun","expect_unit":"5142"}
+
+# ── 5152 domestic maid ──────────────────────────────────────────────────────
+{"utterance":"ghar ka kaam karti hun","expect_unit":"5152"}
+{"utterance":"कामवाली बाई","expect_unit":"5152"}
+{"utterance":"naukrani ka kaam","expect_unit":"5152"}
+{"utterance":"bai ka kaam karti hun","expect_unit":"5152"}
+{"utterance":"घरेलू काम","expect_unit":"5152"}
+
+# ── 5245 petrol pump ────────────────────────────────────────────────────────
+{"utterance":"petrol pump pe kaam karta hun","expect_unit":"5245"}
+{"utterance":"पेट्रोल पंप का काम","expect_unit":"5245"}
+{"utterance":"pump attendant hun","expect_unit":"5245"}
+{"utterance":"diesel bharne ka kaam","expect_unit":"5245"}
+
+# ── 6111 farmer ─────────────────────────────────────────────────────────────
+{"utterance":"kisan hun main","expect_unit":"6111"}
+{"utterance":"खेती का काम करता हूँ","expect_unit":"6111"}
+{"utterance":"kheti baadi karta hun","expect_unit":"6111"}
+{"utterance":"khet me kaam karta hun","expect_unit":"6111"}
+{"utterance":"किसान","expect_unit":"6111"}
+
+# ── 7119 white wash / scaffolding ───────────────────────────────────────────
+{"utterance":"white wash ka kaam","expect_unit":"7119"}
+{"utterance":"चूना करता हूँ","expect_unit":"7119"}
+{"utterance":"scaffolder ka kaam karta hun","expect_unit":"7119"}
+
+# ── 7222 tool maker ─────────────────────────────────────────────────────────
+{"utterance":"tool room me kaam karta hun","expect_unit":"7222"}
+{"utterance":"टूल मेकर","expect_unit":"7222"}
+{"utterance":"die maker ka kaam","expect_unit":"7222"}
+
+# ── 7318 weaver ─────────────────────────────────────────────────────────────
+{"utterance":"bunkar hun main","expect_unit":"7318"}
+{"utterance":"बुनकर का काम","expect_unit":"7318"}
+{"utterance":"kaleen bunta hun","expect_unit":"7318"}
+{"utterance":"जुलाहा","expect_unit":"7318"}
+{"utterance":"handloom ka kaam","expect_unit":"7318"}
+
+# ── 7413 lineman ────────────────────────────────────────────────────────────
+{"utterance":"lineman ka kaam karta hun","expect_unit":"7413"}
+{"utterance":"लाइनमैन","expect_unit":"7413"}
+{"utterance":"bijli line ka kaam","expect_unit":"7413"}
+{"utterance":"cable jointer hun","expect_unit":"7413"}
+
+# ── 7421 electronics / mobile ───────────────────────────────────────────────
+{"utterance":"mobile repair karta hun","expect_unit":"7421"}
+{"utterance":"मोबाइल रिपेयर का काम","expect_unit":"7421"}
+{"utterance":"tv mechanic hun","expect_unit":"7421"}
+{"utterance":"electronics ka kaam","expect_unit":"7421"}
+
+# ── 7512 baker ──────────────────────────────────────────────────────────────
+{"utterance":"bakery me kaam karta hun","expect_unit":"7512"}
+{"utterance":"बेकरी का काम","expect_unit":"7512"}
+{"utterance":"naanbai hun","expect_unit":"7512"}
+{"utterance":"bread banana ka kaam","expect_unit":"7512"}
+
+# ── 7522 furniture ──────────────────────────────────────────────────────────
+{"utterance":"furniture banata hun","expect_unit":"7522"}
+{"utterance":"फर्नीचर का काम","expect_unit":"7522"}
+{"utterance":"gaadi body banane ka kaam","expect_unit":"7522"}
+
+# ── 7536 cobbler ────────────────────────────────────────────────────────────
+{"utterance":"mochi ka kaam karta hun","expect_unit":"7536"}
+{"utterance":"मोची","expect_unit":"7536"}
+{"utterance":"juta banata hun","expect_unit":"7536"}
+{"utterance":"shoe repair ka kaam","expect_unit":"7536"}
+
+# ── 8114 concrete / mixer ───────────────────────────────────────────────────
+{"utterance":"concrete mixer chalata hun","expect_unit":"8114"}
+{"utterance":"मिक्सर ऑपरेटर","expect_unit":"8114"}
+{"utterance":"batching plant pe kaam kiya hai","expect_unit":"8114"}
+
+# ── 8121 furnace / rolling mill ─────────────────────────────────────────────
+{"utterance":"bhatti pe kaam karta hun","expect_unit":"8121"}
+{"utterance":"भट्टी का काम","expect_unit":"8121"}
+{"utterance":"rolling mill me kaam kiya hai","expect_unit":"8121"}
+
+# ── 8160 dairy ──────────────────────────────────────────────────────────────
+{"utterance":"dairy me kaam karta hun","expect_unit":"8160"}
+{"utterance":"डेयरी का काम","expect_unit":"8160"}
+{"utterance":"milk plant me kaam kiya","expect_unit":"8160"}
+
+# ── 8219 assembler ──────────────────────────────────────────────────────────
+{"utterance":"assembly line pe kaam karta hun","expect_unit":"8219"}
+{"utterance":"असेंबलर","expect_unit":"8219"}
+{"utterance":"cycle assemble karta hun","expect_unit":"8219"}
+
+# ── 8342 earthmoving / JCB ──────────────────────────────────────────────────
+{"utterance":"jcb chalata hun","expect_unit":"8342"}
+{"utterance":"जेसीबी ऑपरेटर","expect_unit":"8342"}
+{"utterance":"poclain operator hun","expect_unit":"8342"}
+{"utterance":"bulldozer chalana aata hai","expect_unit":"8342"}
+{"utterance":"excavator ka kaam","expect_unit":"8342"}
+
+# ── 9321 packer ─────────────────────────────────────────────────────────────
+{"utterance":"packing ka kaam karta hun","expect_unit":"9321"}
+{"utterance":"पैकिंग का काम","expect_unit":"9321"}
+{"utterance":"packer hun factory me","expect_unit":"9321"}
+
+# ── 9331 rickshaw / thela ───────────────────────────────────────────────────
+{"utterance":"rickshaw chalata hun","expect_unit":"9331"}
+{"utterance":"रिक्शा चलाता हूँ","expect_unit":"9331"}
+{"utterance":"thela lagata hun","expect_unit":"9331"}
+{"utterance":"रेहड़ी का काम","expect_unit":"9331"}
+
+# ── 9611 garbage / waste ────────────────────────────────────────────────────
+{"utterance":"kachra uthane ka kaam","expect_unit":"9611"}
+{"utterance":"कूड़ा उठाता हूँ","expect_unit":"9611"}
+{"utterance":"garbage collector hun","expect_unit":"9611"}
+{"utterance":"waste collection ka kaam","expect_unit":"9611"}
