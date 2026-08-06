@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",
+    "@badabhai/profiling-lexicon": "workspace:*",
     "@badabhai/config": "workspace:*",
     "@badabhai/db": "workspace:*",
     "@badabhai/event-schema": "workspace:*",

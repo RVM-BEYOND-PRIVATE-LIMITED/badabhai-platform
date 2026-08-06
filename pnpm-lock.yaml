@@ -101,6 +101,9 @@ importers:
       '@badabhai/pricing':
         specifier: workspace:*
         version: link:../../packages/pricing
+      '@badabhai/profiling-lexicon':
+        specifier: workspace:*
+        version: link:../../packages/profiling-lexicon
       '@badabhai/reach-engine':
         specifier: workspace:*
         version: link:../../packages/reach-engine
