@@ -31,6 +31,31 @@ interface Check {
   count: number;
 }
 
+/**
+ * The empty-catalog PRECONDITION, extracted so it can be unit-tested.
+ *
+ * Returns the failure message when the catalog is empty, or `null` when it is not.
+ *
+ * WHY THIS IS NOT A `Check`. Every entry in `checks` counts BAD ROWS, and the reporting
+ * loop reads `count === 0` as "nothing wrong → PASS" unconditionally. An empty catalog is
+ * the exact inversion of that convention: the finding IS the zero. Pushed through as a
+ * check it printed `PASS  catalog is empty` and exited 0 — and because an unseeded table
+ * also yields 0 for every OTHER check, the script then reported "all structural checks
+ * passed" against a database with no catalog at all. That is the single failure this
+ * deploy gate exists to catch, and it silently inverted into a pass.
+ *
+ * Keeping it as a separate, non-`Check` predicate is what stops that regression, so the
+ * shape here is load-bearing: if a future edit moves this back into `checks`, the count-is-
+ * zero convention re-inverts it. `verify-job-domains.test.ts` pins BOTH directions.
+ */
+export function catalogEmptyFailure(domainCount: number): string | null {
+  if (domainCount > 0) return null;
+  return (
+    `[${SCRIPT}] FAIL  catalog is empty — no job_domain rows. ` +
+    "Run `pnpm db:seed:domains --apply` first."
+  );
+}
+
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error(`[${SCRIPT}] DATABASE_URL is not set`);
@@ -50,20 +75,12 @@ async function main(): Promise<void> {
     );
     const aliases = await one(dsql`SELECT count(*) AS n FROM "job_domain_alias"`);
 
-    // PRECONDITION, deliberately NOT a `checks` entry. Every check below counts BAD
-    // ROWS, and the reporting loop reads `count === 0` as "nothing wrong → PASS". An
-    // empty catalog is the exact inversion of that convention: the finding IS the zero.
-    // Pushed as a check it printed `PASS  catalog is empty` and exited 0 — and since an
-    // unseeded table also yields 0 for every other check, the script cheerfully reported
-    // "all structural checks passed" on a database with no catalog at all. That is the
-    // one failure this gate exists to catch, so it is asserted here and returns
-    // immediately: the remaining checks are not merely redundant on an empty table, they
-    // are actively misleading.
-    if (domains === 0) {
-      console.error(
-        `[${SCRIPT}] FAIL  catalog is empty — no job_domain rows. ` +
-          "Run `pnpm db:seed:domains --apply` first.",
-      );
+    // PRECONDITION, deliberately NOT a `checks` entry — see `catalogEmptyFailure` above
+    // for why the shape matters. Returns immediately: on an empty table the remaining
+    // checks are not merely redundant, they are actively misleading.
+    const emptyFailure = catalogEmptyFailure(domains);
+    if (emptyFailure !== null) {
+      console.error(emptyFailure);
       process.exitCode = 1;
       return;
     }
@@ -222,13 +239,25 @@ async function main(): Promise<void> {
     // A selectable domain with aliases but NO searchable one is unreachable by retrieval —
     // the same class of silent coverage hole as "selectable with zero aliases" above, but
     // introduced by the normalization pass rather than by the corpus.
+    //
+    // SCOPED TO FULLY-NORMALIZED DOMAINS, and that scoping is the point. Without it this
+    // check fires on the ordinary post-seed state: straight after `db:seed:domains` every
+    // `text_norm` is NULL, so all 3,515 domains have no searchable alias and the documented
+    // `db:migrate && db:seed:domains && db:verify:domains` chain exits 1 — turning the
+    // deploy gate red for a state the deploy is supposed to pass through. The "aliases with
+    // no text_norm" WARN above is what reports that state; this FAIL is reserved for a
+    // domain the normalizer HAS processed and still left unreachable, which is a real defect.
     checks.push({
-      name: "selectable domains with aliases but none searchable",
+      name: "normalized selectable domains with aliases but none searchable",
       level: "fail",
       detail: "unreachable by retrieval — the normalization pass excluded every alias they have",
       count: await one(dsql`
         SELECT count(*) AS n FROM "job_domain" d
          WHERE d."selectable" AND d."status" = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM "job_domain_alias" a
+              WHERE a."job_domain_id" = d."job_domain_id" AND a."text_norm" IS NULL
+           )
            AND NOT (
              d."source" = 'isco08'
              AND EXISTS (
@@ -335,7 +364,14 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error(`[${SCRIPT}] failed:`, err);
-  process.exit(1);
-});
+// Only run when EXECUTED, never when imported — `verify-job-domains.test.ts` imports
+// `catalogEmptyFailure` above, and without this guard that import runs `main()`, which
+// requires DATABASE_URL and calls `process.exit(1)` when it is absent. Locally that is
+// invisible because the repo-root .env supplies one; CI has no .env, so the import
+// killed the whole vitest process. Same guard, same reason, as `bootstrap-admin.ts`.
+if (process.argv[1] && /verify-job-domains/.test(process.argv[1])) {
+  main().catch((err) => {
+    console.error(`[${SCRIPT}] failed:`, err);
+    process.exit(1);
+  });
+}

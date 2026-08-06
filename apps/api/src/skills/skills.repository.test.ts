@@ -111,6 +111,16 @@ describe("SkillsRepository.nearestDomains — the retrieval SQL", () => {
     // `SET LOCAL`, never a bare `SET`: this connection is pooled and the next borrower
     // must not inherit a wider search.
     expect(setLocal).toContain("set local hnsw.ef_search");
+
+    // The VALUE, not just the statement. ef_search must be >= the ANN LIMIT or pgvector
+    // cannot return that many candidates, and it must stay inside the measured envelope
+    // (800 loses the index at EVERY limit, including 50). Asserting only the statement let
+    // a mutation to ef_search = 1 pass — the setting is what decides whether the index is
+    // usable at all, so pin the range.
+    const ef = Number(/hnsw\.ef_search = ([0-9]+)/.exec(setLocal)?.[1]);
+    expect(Number.isFinite(ef)).toBe(true);
+    expect(ef).toBeGreaterThanOrEqual(100); // >= ANN_OVERFETCH_MAX
+    expect(ef).toBeLessThanOrEqual(400); // 800 measured to disable the index entirely
   });
 
   it("dedupes to one row per domain, with the distance choosing which alias survives", async () => {
@@ -170,6 +180,38 @@ describe("SkillsRepository.nearestDomains — the retrieval SQL", () => {
     const large = makeCapturingDb();
     await new SkillsRepository(large.db as never).nearestDomains(VECTOR, 50);
     expect(render(large.captured.sql).params).toContain(100);
+  });
+
+  it("ranks the final result by DISTANCE, not by the dedupe key", async () => {
+    // THE most important property in the statement, and it was untested: deleting the outer
+    // `ORDER BY b.dist` left every assertion green while the shortlist came back in
+    // job_domain_id order — so `LIMIT k` would keep the WRONG k domains, silently, forever.
+    // The dedupe CTE has its own mandatory `ORDER BY job_domain_id, dist`, so it is not
+    // enough that an ORDER BY exists somewhere; the FINAL one must lead with the distance.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestDomains(VECTOR, 10);
+
+    const sql = sqlText(captured.sql);
+    const final = sql.slice(sql.indexOf("select b.job_domain_id"));
+    const orderBy = final.slice(final.indexOf("order by"));
+    expect(orderBy, "the final SELECT has no ORDER BY").toContain("order by");
+    expect(orderBy.indexOf("dist")).toBeGreaterThanOrEqual(0);
+    // ...and nothing may be ranked ahead of the distance.
+    expect(orderBy.indexOf("dist")).toBeLessThan(
+      orderBy.indexOf("job_domain_id") === -1 ? Infinity : orderBy.indexOf("job_domain_id"),
+    );
+  });
+
+  it("returns SIMILARITY, not the raw cosine distance", async () => {
+    // pgvector's `<=>` is cosine DISTANCE (lower is better); every consumer of this
+    // shortlist compares against a similarity FLOOR (higher is better). Shipping the raw
+    // distance inverts every one of those comparisons — and mutation-testing showed all
+    // twelve tests stayed green when `1 - b.dist` became `b.dist`, so the conversion needs
+    // its own assertion rather than being implied by the numeric-score check below.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestDomains(VECTOR, 10);
+
+    expect(sqlText(captured.sql)).toContain("1 - b.dist as score");
   });
 
   it("returns rows in the order SQL produced, with numeric scores", async () => {

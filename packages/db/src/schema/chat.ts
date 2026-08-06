@@ -113,8 +113,16 @@ export const chatMessages = pgTable(
     // (`chat.repository.ts` listMessages). `chat_messages_session_id_idx` alone gets the
     // filter but leaves the sort, so every turn of every interview re-sorts the session's
     // whole history to take the tail. This composite serves filter+sort+limit from the
-    // index. Descending to match the query's own direction (migration 0067).
-    index("chat_messages_session_created_idx").on(t.sessionId, t.createdAt.desc()),
+    // index (migration 0067).
+    //
+    // `.nullsFirst()` IS LOAD-BEARING — do not "simplify" it away. Postgres reads a bare
+    // `ORDER BY created_at DESC` as DESC NULLS FIRST, and an index built DESC NULLS LAST
+    // does not satisfy that ordering. Drizzle's `.desc()` alone emits NULLS LAST, which
+    // measured as: Bitmap Index Scan + a separate top-N Sort (1.32 ms over 200k rows) —
+    // the index served the FILTER and the sort still happened, which is the entire thing
+    // this index exists to remove. With NULLS FIRST it is a plain Index Scan, no Sort,
+    // 0.17 ms. The column is NOT NULL, so this changes no result — only the plan.
+    index("chat_messages_session_created_idx").on(t.sessionId, t.createdAt.desc().nullsFirst()),
   ],
 );
 

@@ -23,6 +23,24 @@
 -- separated by a mandatory data-runner run is a deploy hazard; one order-independent
 -- migration is not. So they are merged here and 0068 is left unclaimed.
 --
+-- ── DEPLOY ORDER (THE RUNNER IS NOT OPTIONAL) ─────────────────────────────────────────
+--   pnpm db:migrate
+--   pnpm db:normalize:aliases --apply      <-- REQUIRED, part of the deploy
+--   pnpm db:verify:domains
+--
+-- This migration adds `is_searchable` with a DEFAULT of false and deliberately does NOT
+-- backfill it. Until the runner has run, `is_searchable` is false everywhere, the partial
+-- HNSW index is EMPTY, and `nearestDomains` returns nothing.
+--
+-- That is a considered trade, not an oversight: a SQL backfill would require a second
+-- implementation of `normalizeOccupationText` inside the migration, and two normalizers
+-- that drift is the precise failure this whole design exists to prevent. The cost is that
+-- the runner belongs to the deploy rather than to a follow-up. `db:verify:domains` WARNs
+-- for as long as the catalogue is un-normalized, so the state is loud rather than silent.
+--
+-- In practice this window is not a regression: zero aliases are embedded today, so L3
+-- already returns nothing.
+--
 -- ── LOCKS ─────────────────────────────────────────────────────────────────────────────
 -- `is_searchable` has a CONSTANT default, so PG11+ records it in the catalog and does NOT
 -- rewrite the table. `text_norm` is nullable with no default — also metadata-only.
@@ -48,11 +66,12 @@
 -- it grants nothing and exposes no data.
 --
 -- ── SAFE TO RE-RUN ────────────────────────────────────────────────────────────────────
--- `CREATE EXTENSION IF NOT EXISTS` is idempotent. The remaining statements are not, and do
--- not need to be — drizzle's journal applies each migration exactly once.
+-- `CREATE EXTENSION IF NOT EXISTS` and the guarded `DROP INDEX IF EXISTS` are idempotent.
+-- The remaining statements are not, and do not need to be — drizzle's journal applies each
+-- migration exactly once.
 --
 -- ── ROLLBACK ──────────────────────────────────────────────────────────────────────────
---   DROP INDEX job_domain_alias_domain_norm_lang_uq, job_domain_alias_text_norm_trgm_idx,
+--   DROP INDEX IF EXISTS job_domain_alias_domain_norm_lang_uq, job_domain_alias_text_norm_trgm_idx,
 --              job_domain_alias_text_norm_idx, job_domain_isco_minor_idx,
 --              job_domain_isco_submajor_idx, chat_messages_session_created_idx,
 --              job_domain_alias_embedding_hnsw;
@@ -68,12 +87,22 @@
 -- `job_domain_alias_text_norm_trgm_idx` below, which uses the `gin_trgm_ops` operator class.
 -- Same shape and same reason as pgvector in 0001_same_xavin.sql.
 CREATE EXTENSION IF NOT EXISTS pg_trgm;--> statement-breakpoint
-DROP INDEX "job_domain_alias_embedding_hnsw";--> statement-breakpoint
+-- HAND-EDITED: `IF EXISTS` added. Drizzle emits a bare DROP INDEX, which aborts the entire
+-- migration on any database where the 0066 index was already removed by hand — a rollback
+-- rehearsal, or a restore taken mid-repair. The recreate below is unconditional, so the end
+-- state is identical either way.
+DROP INDEX IF EXISTS "job_domain_alias_embedding_hnsw";--> statement-breakpoint
 ALTER TABLE "job_domain_alias" ADD COLUMN "text_norm" text;--> statement-breakpoint
 ALTER TABLE "job_domain_alias" ADD COLUMN "is_searchable" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "job_domain" ADD COLUMN "isco_minor_code" text GENERATED ALWAYS AS (left("job_domain"."isco_unit_code", 3)) STORED;--> statement-breakpoint
 ALTER TABLE "job_domain" ADD COLUMN "isco_submajor_code" text GENERATED ALWAYS AS (left("job_domain"."isco_unit_code", 2)) STORED;--> statement-breakpoint
-CREATE INDEX "chat_messages_session_created_idx" ON "chat_messages" USING btree ("session_id","created_at" DESC NULLS LAST);--> statement-breakpoint
+-- NULLS FIRST is load-bearing, not noise. A bare `ORDER BY created_at DESC` MEANS
+-- DESC NULLS FIRST, and an index built NULLS LAST does not satisfy that ordering. Measured
+-- over 200k rows: the NULLS LAST form gave Bitmap Index Scan + a separate top-N Sort
+-- (1.32 ms) — the index served the FILTER while the sort still happened, which is the whole
+-- thing this index exists to remove. This form gives a plain Index Scan, no Sort (0.17 ms).
+-- `created_at` is NOT NULL, so no result changes — only the plan.
+CREATE INDEX "chat_messages_session_created_idx" ON "chat_messages" USING btree ("session_id","created_at" DESC NULLS FIRST);--> statement-breakpoint
 CREATE INDEX "job_domain_alias_text_norm_idx" ON "job_domain_alias" USING btree ("text_norm");--> statement-breakpoint
 CREATE INDEX "job_domain_alias_text_norm_trgm_idx" ON "job_domain_alias" USING gin ("text_norm" gin_trgm_ops);--> statement-breakpoint
 -- HAND-EDITED: `NULLS NOT DISTINCT` appended (PG15+). This drizzle version can only model
@@ -81,9 +110,10 @@ CREATE INDEX "job_domain_alias_text_norm_trgm_idx" ON "job_domain_alias" USING g
 -- a comment at the schema-side index — exactly as `unresolved_phrase_uq` did in 0037.
 -- DO NOT REGENERATE OVER IT.
 --
--- Without it, `lang` NULL would make two otherwise-identical aliases distinct, and the
--- duplicate this index exists to prevent would slip through on any row the corpus left
--- un-tagged.
+-- Its scope, precisely, because the obvious reading is wrong: it makes two rows whose `lang`
+-- is NULL collide WITH EACH OTHER. It does NOT make a NULL `lang` collide with 'en' — those
+-- stay distinct rows, which is correct, since an untagged alias and an explicitly-English
+-- alias are different catalogue entries.
 CREATE UNIQUE INDEX "job_domain_alias_domain_norm_lang_uq" ON "job_domain_alias" USING btree ("job_domain_id","text_norm","lang") NULLS NOT DISTINCT WHERE "job_domain_alias"."is_searchable";--> statement-breakpoint
 CREATE INDEX "job_domain_isco_minor_idx" ON "job_domain" USING btree ("isco_minor_code");--> statement-breakpoint
 CREATE INDEX "job_domain_isco_submajor_idx" ON "job_domain" USING btree ("isco_submajor_code");--> statement-breakpoint
