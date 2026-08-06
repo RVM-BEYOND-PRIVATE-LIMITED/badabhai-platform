@@ -364,7 +364,14 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error(`[${SCRIPT}] failed:`, err);
-  process.exit(1);
-});
+// Only run when EXECUTED, never when imported — `verify-job-domains.test.ts` imports
+// `catalogEmptyFailure` above, and without this guard that import runs `main()`, which
+// requires DATABASE_URL and calls `process.exit(1)` when it is absent. Locally that is
+// invisible because the repo-root .env supplies one; CI has no .env, so the import
+// killed the whole vitest process. Same guard, same reason, as `bootstrap-admin.ts`.
+if (process.argv[1] && /verify-job-domains/.test(process.argv[1])) {
+  main().catch((err) => {
+    console.error(`[${SCRIPT}] failed:`, err);
+    process.exit(1);
+  });
+}
