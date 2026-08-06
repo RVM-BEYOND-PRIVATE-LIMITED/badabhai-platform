@@ -77,7 +77,7 @@ describe("AgencyInvitesController exposes NO per-invite readback (C10)", () => {
       }),
     };
     const svc = new AgencyService({} as never, invitesRepo as never, {} as never, { emit } as never);
-    const res = await svc.createInviteBatch(PAYER_A, 3, undefined, {
+    const res = await svc.createInviteBatch(PAYER_A, 3, {}, {
       correlationId: "c",
       requestId: "r",
     } as never);

@@ -1852,15 +1852,53 @@ export const ProfileViewedPayload = z.object({
 // ---------------------------------------------------------------------------
 
 /**
+ * ORGANIC vs PAID. Selects which match window a click is judged under (7d vs 24h by
+ * default, both config). Snapshotted onto the click so a later re-tag of the link cannot
+ * retroactively re-judge a click that already happened.
+ *
+ * DECLARED HERE, above its first use, because TWO payload families now share it: the
+ * agency invite funnel (`agency_invite.created`, immediately below) and the B4 referral
+ * link/click payloads further down. One declaration, so the two code spaces cannot drift
+ * into different notions of "medium" — the same reason the DB gives `agency_invites` and
+ * `referral_links` a byte-identical CHECK.
+ */
+export const ReferralLinkMediumEnum = z.enum(["organic", "paid"]);
+
+/**
  * An agency minted a referral deep-link (`/i/<code>`). `inviter_payer_id` is the opaque
  * owning agency; the opaque `code` itself is NOT carried (it is a shareable secret).
  * Optional non-PII campaign tag only.
+ *
+ * W1 ADDED `medium` AND `payload_keys` — both ADDITIVE and OPTIONAL, so this stays v1 and
+ * every existing consumer keeps parsing unchanged (invariant #8; the schema was never
+ * `.strict()`, and is deliberately left non-strict here for that same backward tolerance).
+ *
+ * `medium` is a closed enum — it is the match-window discriminator, so a funnel query has
+ * to be able to segment on it or the window arithmetic is unauditable after the fact.
+ *
+ * `payload_keys` CARRIES KEY NAMES, NEVER VALUES. The values (role/city slugs) live on
+ * `agency_invites.payload` and stop there.
+ *
+ * THE ASYMMETRY WITH `campaign` IS DELIBERATE, not an oversight: `campaign` is a single
+ * scalar with a long ADR-0020 precedent and a screen that has been tightened twice, whereas
+ * the context object is a NEW, WIDER, agency-writable jsonb surface. A wider surface starts
+ * closed on the audit spine and is widened on evidence — emitting the key names is enough
+ * to answer "is anyone actually using this, and with what fields?", which is the only
+ * question the spine needs to answer before the values are ever considered. Promoting
+ * values to the payload later is an additive change; retracting them from a permanent audit
+ * record is not.
  */
 export const AgencyInviteCreatedPayload = z.object({
   agency_invite_id: uuidSchema,
   inviter_payer_id: uuidSchema,
   channel: MessageChannelEnum,
   campaign: z.string().min(1).max(64).optional(),
+  medium: ReferralLinkMediumEnum.optional(),
+  // Sorted, deduped key names of the stored deep-link context. Bounded by the closed DTO
+  // shape (`InviteContextSchema` admits two keys), with headroom left for a reviewed
+  // widening. Omitted entirely when no context was supplied — an empty array and "no
+  // context" would otherwise be indistinguishable.
+  payload_keys: z.array(z.string().min(1).max(32)).max(8).optional(),
 });
 export type AgencyInviteCreatedPayload = z.infer<typeof AgencyInviteCreatedPayload>;
 
@@ -2230,12 +2268,9 @@ export type ReferralBonusAccruedPayload = z.infer<typeof ReferralBonusAccruedPay
 /** The link's owner axis — which commission channel a click belongs to. */
 export const ReferralLinkKindEnum = z.enum(["agent", "worker", "campaign"]);
 
-/**
- * ORGANIC vs PAID. Selects which match window a click is judged under (7d vs 24h by
- * default, both config). Snapshotted onto the click so a later re-tag of the link cannot
- * retroactively re-judge a click that already happened.
- */
-export const ReferralLinkMediumEnum = z.enum(["organic", "paid"]);
+// `ReferralLinkMediumEnum` (organic | paid) is declared ABOVE, next to
+// `AgencyInviteCreatedPayload` — the agency funnel needs it earlier in the file and both
+// families must share one declaration. It is used unchanged by the three payloads below.
 
 /** Coarse device class of a click. Diagnostics only — deliberately not a fingerprint. */
 export const ReferralClickPlatformEnum = z.enum(["android", "desktop", "other"]);

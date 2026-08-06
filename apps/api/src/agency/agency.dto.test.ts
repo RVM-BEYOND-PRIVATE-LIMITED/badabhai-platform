@@ -5,6 +5,8 @@ import {
   CreateAgencyInviteBatchSchema,
   CreateAgencyInviteSchema,
   CreateAgencyJobSchema,
+  InviteContextSchema,
+  InviteMediumSchema,
   UpdateAgencyJobSchema,
 } from "./agency.dto";
 
@@ -284,18 +286,37 @@ describe("CreateAgencyInviteBatchSchema — the body is CARDINALITY-ONLY and .st
   it("STRUCTURAL: no property of the schema is array-typed, now or after any future edit", () => {
     const shape = (CreateAgencyInviteBatchSchema as unknown as { shape: Record<string, z.ZodTypeAny> })
       .shape;
-    expect(Object.keys(shape).sort()).toEqual(["campaign", "count"]);
-    for (const [key, def] of Object.entries(shape)) {
-      // Walk through optional/default/effects wrappers to the innermost type.
-      let inner: z.ZodTypeAny = def;
+    // W1 added `medium` + `context`. Both are scalars-or-closed-object applied identically
+    // to all N; neither may ever become per-invite. Updating this list is the review moment.
+    expect(Object.keys(shape).sort()).toEqual(["campaign", "context", "count", "medium"]);
+
+    // Walk through optional/default/effects wrappers to the innermost type.
+    const unwrap = (schema: z.ZodTypeAny): z.ZodTypeAny => {
+      let inner: z.ZodTypeAny = schema;
       for (let i = 0; i < 10; i += 1) {
         const d = (inner as unknown as { _def: { innerType?: z.ZodTypeAny; schema?: z.ZodTypeAny } })._def;
         const next = d.innerType ?? d.schema;
         if (!next) break;
         inner = next;
       }
-      expect(inner, `${key} must not be an array (arity over people)`).not.toBeInstanceOf(z.ZodArray);
-    }
+      return inner;
+    };
+
+    // RECURSIVE, and that is the point. Before W1 the body was flat, so checking the top
+    // level was the whole check. `context` is a nested object, which means an array can now
+    // hide one level down — `context: { labels: [...] }` is the SAME arity-over-people
+    // violation as a top-level `labels[]`, just wearing an object. Recursing is what keeps
+    // this test's promise true after the edit that introduced the nesting.
+    const assertNoArrays = (schema: z.ZodTypeAny, path: string): void => {
+      const inner = unwrap(schema);
+      expect(inner, `${path} must not be an array (arity over people)`).not.toBeInstanceOf(z.ZodArray);
+      const nested = (inner as unknown as { shape?: Record<string, z.ZodTypeAny> }).shape;
+      if (nested) {
+        for (const [key, def] of Object.entries(nested)) assertNoArrays(def, `${path}.${key}`);
+      }
+    };
+
+    for (const [key, def] of Object.entries(shape)) assertNoArrays(def, key);
   });
 
   it("is .strict(): any unknown key at all is a rejection, not a silent strip", () => {
@@ -320,6 +341,88 @@ describe("CreateAgencyInviteSchema — .strict() parity with the batch schema (C
     ]) {
       expect(CreateAgencyInviteSchema.safeParse(body)).toMatchObject({ success: false });
     }
+  });
+});
+
+/**
+ * W1 — `context` is stored in `agency_invites.payload` (jsonb) by an AGENCY-FACING
+ * endpoint, which makes it the widest PII surface that table has. The closed shape IS the
+ * security property: two optional slug keys, `.strict()`, both screens applied.
+ */
+describe("InviteContextSchema — the deep-link context is CLOSED, not free-shape", () => {
+  it("accepts the two documented context keys, together or alone", () => {
+    for (const ctx of [{}, { role: "welder" }, { city: "pune" }, { role: "fitter", city: "pune-west" }]) {
+      expect(InviteContextSchema.safeParse(ctx).success).toBe(true);
+    }
+  });
+
+  it("REJECTS any key outside the closed set — the jsonb is not a free-text sink", () => {
+    for (const ctx of [
+      { phone: "9822000000" },
+      { name: "Ramesh Kumar" },
+      { notes: "meet at gate 2" },
+      { worker_id: "99999999-9999-4999-8999-999999999999" },
+      // The same hole wearing generic labels. Each of these is a free-form sink.
+      { meta: "x" },
+      { extra: "x" },
+      { context: "x" },
+      { ref: "x" },
+      // Arity over people, one level down — the module-2 boundary.
+      { roles: ["welder", "fitter"] },
+      { labels: ["a"] },
+    ]) {
+      expect(InviteContextSchema.safeParse(ctx), JSON.stringify(ctx)).toMatchObject({
+        success: false,
+      });
+    }
+  });
+
+  it("REJECTS a value that is not a bounded lowercase slug", () => {
+    for (const bad of [
+      "Ramesh Kumar", // space + capitals: a name cannot be spelled as a slug
+      "welder@site", // email-ish
+      "9822000000", // phone digits
+      "Pune", // capitals
+      "-leading-hyphen", // must start alphanumeric
+      "x".repeat(49), // over CONTEXT_SLUG_MAX
+      "", // empty
+      "gate 2", // space
+    ]) {
+      expect(InviteContextSchema.safeParse({ role: bad }), bad).toMatchObject({ success: false });
+      expect(InviteContextSchema.safeParse({ city: bad }), bad).toMatchObject({ success: false });
+    }
+  });
+
+  it("rides on BOTH mint paths, and is rejected there too when malformed", () => {
+    expect(CreateAgencyInviteSchema.safeParse({ context: { role: "welder" } }).success).toBe(true);
+    expect(
+      CreateAgencyInviteBatchSchema.safeParse({ count: 5, context: { city: "pune" } }).success,
+    ).toBe(true);
+    expect(
+      CreateAgencyInviteSchema.safeParse({ context: { phone: "9822000000" } }),
+    ).toMatchObject({ success: false });
+    expect(
+      CreateAgencyInviteBatchSchema.safeParse({ count: 5, context: { role: "Ramesh Kumar" } }),
+    ).toMatchObject({ success: false });
+  });
+});
+
+describe("InviteMediumSchema — the match-window discriminator is a CLOSED pair", () => {
+  it("accepts exactly organic and paid", () => {
+    expect(InviteMediumSchema.safeParse("organic").success).toBe(true);
+    expect(InviteMediumSchema.safeParse("paid").success).toBe(true);
+  });
+
+  it("rejects any third value — a stray medium would silently take the 7-day organic window", () => {
+    for (const bad of ["ORGANIC", "Paid", "referral", "qr", "", "whatsapp", null, 1]) {
+      expect(InviteMediumSchema.safeParse(bad), String(bad)).toMatchObject({ success: false });
+    }
+  });
+
+  it("rides on both mint paths", () => {
+    expect(CreateAgencyInviteSchema.safeParse({ medium: "paid" }).success).toBe(true);
+    expect(CreateAgencyInviteBatchSchema.safeParse({ count: 3, medium: "paid" }).success).toBe(true);
+    expect(CreateAgencyInviteSchema.safeParse({ medium: "qr" })).toMatchObject({ success: false });
   });
 });
 

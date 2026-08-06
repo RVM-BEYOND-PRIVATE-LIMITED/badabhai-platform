@@ -232,6 +232,72 @@ const campaignTag = z
   .refine((s) => !looksLikeActionContextPii(s), { message: "campaign must be a non-PII tag" });
 
 /**
+ * Max length of one deep-link context slug. Short on purpose: a slug is an identifier the
+ * app matches against, not prose. The moment a field is long enough to hold a sentence it
+ * is long enough to hold a name and an address, and this column would become the free-text
+ * PII sink `agency_invites` has never had.
+ */
+const CONTEXT_SLUG_MAX = 48;
+
+/**
+ * One deep-link context value: a bounded LOWERCASE SLUG (`welder`, `pune`, `pune-west`).
+ *
+ * The character class is doing security work, not tidiness. `looksLikeActionContextPii`
+ * catches name/address/phone/email SHAPES, but it is a heuristic; the slug pattern is the
+ * structural half that does not depend on a heuristic being clever enough. No spaces means
+ * no "Ramesh Kumar"; no digits-only runs of length means no phone; no `@` means no email.
+ * Both screens apply — the pattern first, then the same shared PII screen `campaign` uses,
+ * so the two metadata surfaces can never drift to different standards.
+ */
+const contextSlug = z
+  .string()
+  .min(1)
+  .max(CONTEXT_SLUG_MAX)
+  .regex(/^[a-z0-9][a-z0-9-]*$/, "must be a lowercase slug (a-z, 0-9, hyphen)")
+  .refine((s) => !looksLikeActionContextPii(s), { message: "must be a non-PII slug" });
+
+/**
+ * The invite's non-PII DEEP-LINK CONTEXT — what this link/QR was printed FOR, so the
+ * landing page and the app can open on the right screen instead of a generic install page.
+ *
+ * CLOSED SHAPE, AND THAT IS THE WHOLE SECURITY PROPERTY. This object is stored in
+ * `agency_invites.payload` (jsonb), written by an AGENCY-FACING endpoint. A free-shape
+ * jsonb there would be the widest PII surface this table has ever had — an agency could
+ * park `{name, phone, notes}` per invite and re-create the DEAD module-2 bulk upload one
+ * row at a time, which is precisely the boundary `CreateAgencyInviteBatchSchema` exists to
+ * hold. So:
+ *
+ *  - `.strict()` — an attempted `{phone}`/`{name}`/`{notes}`/`{worker_id}` key is a LOUD
+ *    400, never a silently stripped or silently stored key. Same rule, same reason, as the
+ *    two mint schemas.
+ *  - EXACTLY TWO KEYS, both optional, both `contextSlug`. Widening this set is a reviewable
+ *    change to this schema — never an incidental one, and never an array-typed key (that
+ *    re-introduces arity over people; read the note on `CreateAgencyInviteBatchSchema`).
+ *  - NO free-form key of any name. "context", "meta", "extra", "notes", "ref" are all the
+ *    same hole wearing different labels.
+ *
+ * `role` and `city` are SLUGS THE PLATFORM ALREADY SPEAKS (the occupation/city vocabularies),
+ * not agency free text — an unrecognised slug simply fails to match downstream and the
+ * worker lands on the generic page, which is the correct degradation.
+ */
+export const InviteContextSchema = z
+  .object({
+    role: contextSlug.optional(),
+    city: contextSlug.optional(),
+  })
+  .strict();
+export type InviteContextDto = z.infer<typeof InviteContextSchema>;
+
+/**
+ * The attribution MEDIUM of a minted link. Same closed pair as `referral_links.medium` and
+ * the `agency_invites_medium_chk` CHECK — it selects which match window a click is judged
+ * against (organic 168h vs paid 24h), so it is a business-meaningful enum, not a label.
+ * Optional at the boundary; the column defaults to `organic`.
+ */
+export const InviteMediumSchema = z.enum(["organic", "paid"]);
+export type InviteMediumDto = z.infer<typeof InviteMediumSchema>;
+
+/**
  * Mint an OWNED invite. NO phone / name / email / worker id input (faceless): the only
  * optional input is a non-PII campaign tag (a short, screened code). `inviter_payer_id`
  * is session-derived (XB-A), never a field.
@@ -242,6 +308,11 @@ const campaignTag = z
 export const CreateAgencyInviteSchema = z
   .object({
     campaign: campaignTag.optional(),
+    // W1 metadata. Both are REFERENT-FREE: `medium` describes the CHANNEL the link travels
+    // on and `context` describes the JOB SHAPE it advertises. Neither can denote a person,
+    // which is what keeps them on the outbound side of the module-2 boundary.
+    medium: InviteMediumSchema.optional(),
+    context: InviteContextSchema.optional(),
   })
   .strict();
 export type CreateAgencyInviteDto = z.infer<typeof CreateAgencyInviteSchema>;
@@ -274,6 +345,12 @@ export type CreateAgencyInviteDto = z.infer<typeof CreateAgencyInviteSchema>;
  *
  * `campaign` is ONE SCALAR applied identically to all N invites. It can never be
  * per-invite (that is the `labels[]` violation above, wearing a different name).
+ *
+ * THE SAME RULE GOVERNS THE W1 METADATA. `medium` and `context` are likewise ONE value
+ * each, applied identically to all N. A per-invite `contexts[]` (or a `context` whose
+ * values differed by index) would be the `labels[]` violation again — N slots that a caller
+ * can put N people's details into. If a batch needs two different contexts, that is two
+ * batches, and the cap accounts for both.
  */
 export const CreateAgencyInviteBatchSchema = z
   .object({
@@ -284,6 +361,9 @@ export const CreateAgencyInviteBatchSchema = z
     // before it is even reached.
     count: z.number().int().min(1).max(AGENCY_INVITE_BATCH_MAX),
     campaign: campaignTag.optional(),
+    // ONE scalar each, applied to all N — see the header. Never arrays, never per-index.
+    medium: InviteMediumSchema.optional(),
+    context: InviteContextSchema.optional(),
   })
   .strict();
 export type CreateAgencyInviteBatchDto = z.infer<typeof CreateAgencyInviteBatchSchema>;

@@ -99,6 +99,10 @@ export const invites = pgTable(
 // ---------------------------------------------------------------------------
 export type AgencyInviteChannel = InviteChannel; // mirror the invite channel enum ('whatsapp')
 export type AgencyInviteStatus = InviteStatus; // 'created' | 'clicked' | 'accepted'
+// The SAME closed pair as `referral_links.medium`, aliased rather than re-declared so the
+// two code spaces cannot drift into different sets by the same name (the DB CHECKs are
+// likewise byte-identical). 'organic' | 'paid'.
+export type AgencyInviteMedium = ReferralLinkMedium;
 
 export const agencyInvites = pgTable(
   "agency_invites",
@@ -128,6 +132,22 @@ export const agencyInvites = pgTable(
     // Optional non-PII campaign tag (a stable code, never free-form PII) — mirrors
     // the `invites.campaign` rule.
     campaign: text("campaign"),
+    // ── Link metadata (W1) ──────────────────────────────────────────────────
+    // The MATCH-WINDOW DISCRIMINATOR, same closed enum and same CHECK shape as
+    // `referral_links.medium` — deliberately identical so the two code spaces
+    // cannot drift into meaning different things by the same name. `organic` is
+    // the default because an agency link shared hand-to-hand IS organic; `paid`
+    // is opt-in and shortens the attribution window (see
+    // REFERRAL_MATCH_WINDOW_PAID_HOURS).
+    medium: text("medium").$type<ReferralLinkMedium>().notNull().default("organic"),
+    // CONTEXTUAL DEEP-LINK DATA ONLY — the same contract as
+    // `referral_links.payload`, but CLOSED rather than loose: the API layer
+    // (`InviteContextSchema`) admits exactly `role` and `city`, each a bounded
+    // lowercase slug run through `looksLikeActionContextPii`. A jsonb column on
+    // an agency-writable endpoint is the widest PII surface this table has, so
+    // the shape is pinned at the boundary and the column stays additive.
+    // NEVER a phone, a name, an employer, or free-form text (invariant #2).
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
     // The 90-day attribution-window anchor for the payout ledger (ADR-0022 Amendment 2).
     // Set ONCE at markAccepted, alongside invited_worker_id. Additive + nullable
     // (invariant #8): rows accepted before this column existed stay null and are excluded
@@ -142,6 +162,11 @@ export const agencyInvites = pgTable(
     index("agency_invites_inviter_payer_id_idx").on(t.inviterPayerId),
     // Reverse lookup: which invite attributed a given worker (set-once, sparse).
     index("agency_invites_invited_worker_id_idx").on(t.invitedWorkerId),
+    // Same closed set as `referral_links_medium_chk`. Enforced in the DB and not
+    // only in zod, because the match-window arithmetic downstream branches on
+    // this value — a third value would silently fall through to the organic
+    // window rather than fail.
+    check("agency_invites_medium_chk", sql`${t.medium} IN ('organic', 'paid')`),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by the migration (spine posture)
 

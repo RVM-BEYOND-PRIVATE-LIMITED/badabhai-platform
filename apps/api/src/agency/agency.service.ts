@@ -7,14 +7,14 @@ import {
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { InviteInstallSource, PayloadInputOf } from "@badabhai/event-schema";
-import type { Job, JobNeededBy, TradeKey } from "@badabhai/db";
+import type { AgencyInviteMedium, Job, JobNeededBy, TradeKey } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { readOwnedById, assertOwnedRows } from "../payers/payer-scope";
 import { AgencyJobsRepository, type AgencyJobUpdate } from "./agency-jobs.repository";
 import { AgencyInvitesRepository, type AgencyInviteStageCounts } from "./agency-invites.repository";
-import type { CreateAgencyJobDto, UpdateAgencyJobDto } from "./agency.dto";
+import type { CreateAgencyJobDto, InviteContextDto, UpdateAgencyJobDto } from "./agency.dto";
 
 /** Faceless projection of an owned job — ids / status / counts / coarse bands ONLY. */
 export interface AgencyJobView {
@@ -56,6 +56,26 @@ export interface AgencyInviteMint {
   agency_invite_id: string;
   code: string;
   link: string;
+}
+
+/**
+ * The non-PII METADATA stamped on a minted invite (W1). One object rather than three more
+ * positional parameters, because all three travel together through the whole mint path
+ * (`createInvite`/`createInviteBatch` → `mintOneInvite` → insert + emit) and a positional
+ * list of four optionals is exactly how a `campaign` ends up written into a `medium`.
+ *
+ * EVERY FIELD IS REFERENT-FREE — it describes the LINK, never a person. `campaign` is the
+ * long-standing ADR-0020 tag; `medium` is the match-window discriminator; `context` is the
+ * closed `{role?, city?}` slug object. All three are validated at the HTTP boundary
+ * (`agency.dto.ts`); this type carries already-screened values.
+ *
+ * On the BATCH path this is ONE object applied identically to all N invites — never
+ * indexed, never per-invite. That is the module-2 boundary, not a convenience.
+ */
+export interface AgencyInviteMeta {
+  campaign?: string;
+  medium?: AgencyInviteMedium;
+  context?: InviteContextDto;
 }
 
 /**
@@ -366,10 +386,10 @@ export class AgencyService {
   /** Mint an OWNED opaque invite code. Returns the code only. Emits agency_invite.created. */
   async createInvite(
     payerId: string,
-    campaign: string | undefined,
+    meta: AgencyInviteMeta,
     ctx: RequestContext,
   ): Promise<AgencyInviteMint> {
-    return this.mintOneInvite(payerId, campaign, ctx);
+    return this.mintOneInvite(payerId, meta, ctx);
   }
 
   /**
@@ -411,13 +431,15 @@ export class AgencyService {
   async createInviteBatch(
     payerId: string,
     count: number,
-    campaign: string | undefined,
+    meta: AgencyInviteMeta,
     ctx: RequestContext,
   ): Promise<{ invites: AgencyInviteMint[] }> {
     const invites: AgencyInviteMint[] = [];
     for (let i = 0; i < count; i += 1) {
       try {
-        invites.push(await this.mintOneInvite(payerId, campaign, ctx));
+        // ONE `meta` for all N — never indexed, never per-invite. See
+        // CreateAgencyInviteBatchSchema: per-invite metadata is the `labels[]` violation.
+        invites.push(await this.mintOneInvite(payerId, meta, ctx));
       } catch (err) {
         // Partial success is the CORRECT outcome: the invites already minted are durable
         // and their events are already on the spine, so we stop and return the subset.
@@ -454,11 +476,11 @@ export class AgencyService {
    */
   private async mintOneInvite(
     payerId: string,
-    campaign: string | undefined,
+    meta: AgencyInviteMeta,
     ctx: RequestContext,
   ): Promise<AgencyInviteMint> {
-    const { id, code } = await this.insertInviteWithFreshCode(payerId, campaign);
-    await this.emitInviteCreated(id, payerId, campaign, ctx);
+    const { id, code } = await this.insertInviteWithFreshCode(payerId, meta);
+    await this.emitInviteCreated(id, payerId, meta, ctx);
     return { agency_invite_id: id, code, link: `/i/${code}` };
   }
 
@@ -486,13 +508,19 @@ export class AgencyService {
    */
   private async insertInviteWithFreshCode(
     payerId: string,
-    campaign: string | undefined,
+    meta: AgencyInviteMeta,
   ): Promise<{ id: string; code: string }> {
     let lastErr: unknown;
     for (let attempt = 0; attempt < CODE_COLLISION_RETRIES; attempt += 1) {
       const code = randomUUID().replace(/-/g, "").slice(0, 12);
       try {
-        const invite = await this.invitesRepo.create({ code, inviterPayerId: payerId, campaign });
+        const invite = await this.invitesRepo.create({
+          code,
+          inviterPayerId: payerId,
+          campaign: meta.campaign,
+          medium: meta.medium,
+          payload: meta.context,
+        });
         return { id: invite.id, code };
       } catch (err) {
         // Only a CODE collision is retryable — anything else is the caller's problem.
@@ -536,14 +564,23 @@ export class AgencyService {
   private async emitInviteCreated(
     inviteId: string,
     payerId: string,
-    campaign: string | undefined,
+    meta: AgencyInviteMeta,
     ctx: RequestContext,
   ): Promise<void> {
+    // KEY NAMES ONLY — the role/city slugs stay on the row and never reach the spine (see
+    // AgencyInviteCreatedPayload for why this is asymmetric with `campaign`). Sorted so the
+    // emitted value is stable regardless of the order the client happened to send the keys
+    // in, and omitted entirely when there is no context (an empty array would be
+    // indistinguishable from "the agency sent {}").
+    const contextKeys = Object.keys(meta.context ?? {}).sort();
+
     const payload: PayloadInputOf<"agency_invite.created"> = {
       agency_invite_id: inviteId,
       inviter_payer_id: payerId,
       channel: "whatsapp",
-      campaign,
+      campaign: meta.campaign,
+      medium: meta.medium,
+      ...(contextKeys.length > 0 ? { payload_keys: contextKeys } : {}),
     };
 
     let lastErr: unknown;

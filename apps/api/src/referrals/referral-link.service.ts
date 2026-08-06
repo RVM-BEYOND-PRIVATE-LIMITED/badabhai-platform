@@ -72,7 +72,30 @@ export class ReferralLinkService {
     };
   }
 
-  /** Mint a shareable link (agent code, worker share, campaign URL, QR). */
+  /**
+   * Mint a shareable link (agent code, worker share, campaign URL, QR).
+   *
+   * ⚠️ NO HTTP CALLER, BY DECISION — not an oversight, and not a wiring TODO.
+   *
+   * `/i/<code>` (`agency_invites`) is the CANONICAL shipping code space: every QR, every
+   * copy-link and every share encodes it, the worker app's App Link filter is path-scoped to
+   * it, and it is the space `POST /referrals/attribute` resolves. Exposing a second mint
+   * route here would give an agent two kinds of link that look identical, resolve
+   * differently, and attribute to different tables — so the W1 link metadata (`medium`,
+   * deep-link context) was added to `agency_invites` instead (migration 0068), with
+   * deliberately identical column names and CHECKs so the two can be unioned later without a
+   * translation layer.
+   *
+   * `referral_links` therefore stays MEASUREMENT-ONLY: `resolve()` and `claimInstall()` below
+   * are live and carry every real click, but they run the LEGACY-CODE path
+   * (`referral_link_id IS NULL`), because no row is ever created here. That means
+   * `referral.link_created` and `referral.link_clicked` do not fire in practice today.
+   *
+   * Kept rather than deleted because the table, the resolver and the first-touch claim are
+   * the measurement spine and are all exercised; this is the one seam without a caller. If a
+   * campaign or worker-share link ever needs its own space, this is where it starts — wire a
+   * controller, do not quietly repoint the agency mint at it.
+   */
   async mintLink(input: {
     kind: ReferralLinkKind;
     medium?: ReferralLinkMedium;
