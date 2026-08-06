@@ -1,0 +1,126 @@
+{
+  "_why": "Trade pack for Electrical. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_electrical",
+  "version": 1,
+  "family_id": "fam_electrical",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "electrical_scope",
+      "prompt_text": "Aap kis tarah ka bijli kaam karte hain?",
+      "why_text": "Ghar aur factory ka kaam alag hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "house_wiring",
+          "label_text": "Ghar ki wiring",
+          "value_text": "house_wiring"
+        },
+        {
+          "option_key": "industrial",
+          "label_text": "Factory ka kaam",
+          "value_text": "industrial"
+        },
+        {
+          "option_key": "panel",
+          "label_text": "Panel aur board",
+          "value_text": "panel"
+        },
+        {
+          "option_key": "motor",
+          "label_text": "Motor winding",
+          "value_text": "motor"
+        }
+      ]
+    },
+    {
+      "question_key": "voltage_level",
+      "prompt_text": "Aap kitne volt tak ka kaam karte hain?",
+      "why_text": "High voltage ka alag rate hota hai.",
+      "target_kind": "attribute",
+      "target_field": "voltage_level",
+      "answer_type": "single_select",
+      "is_core": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "low",
+          "label_text": "Ghar wala low voltage",
+          "value_text": "low"
+        },
+        {
+          "option_key": "three_phase",
+          "label_text": "Three phase",
+          "value_text": "three_phase"
+        },
+        {
+          "option_key": "high",
+          "label_text": "High tension",
+          "value_text": "high"
+        },
+        {
+          "option_key": "unsure_volt",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "licence_held",
+      "prompt_text": "Kya aapke paas bijli ka licence hai?",
+      "why_text": "Licence wale ko badi jagah kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "licence_held",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

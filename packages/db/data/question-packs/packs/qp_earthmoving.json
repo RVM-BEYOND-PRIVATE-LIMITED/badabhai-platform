@@ -1,0 +1,108 @@
+{
+  "_why": "Trade pack for Earthmoving equipment. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_earthmoving",
+  "version": 1,
+  "family_id": "fam_earthmoving",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "machine_type",
+      "prompt_text": "Aap kaunsi machine chalate hain?",
+      "why_text": "Har machine ka licence alag hota hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "jcb",
+          "label_text": "JCB ya backhoe",
+          "value_text": "jcb"
+        },
+        {
+          "option_key": "excavator",
+          "label_text": "Poclain ya excavator",
+          "value_text": "excavator"
+        },
+        {
+          "option_key": "bulldozer",
+          "label_text": "Bulldozer",
+          "value_text": "bulldozer"
+        },
+        {
+          "option_key": "loader",
+          "label_text": "Loader",
+          "value_text": "loader"
+        },
+        {
+          "option_key": "crane",
+          "label_text": "Crane",
+          "value_text": "crane"
+        }
+      ]
+    },
+    {
+      "question_key": "licence_held",
+      "prompt_text": "Kya aapke paas licence hai?",
+      "why_text": "Bina licence badi site par kaam nahi milta.",
+      "target_kind": "attribute",
+      "target_field": "licence_held",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "night_work",
+      "prompt_text": "Kya aap raat ki shift kar sakte hain?",
+      "why_text": "Site par raat ka kaam aam hai.",
+      "target_kind": "attribute",
+      "target_field": "night_work",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

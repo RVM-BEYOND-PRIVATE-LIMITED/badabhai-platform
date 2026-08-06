@@ -1,0 +1,103 @@
+{
+  "_why": "Trade pack for Furnace and rolling mill. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_metal_processing",
+  "version": 1,
+  "family_id": "fam_metal_processing",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "plant_work",
+      "prompt_text": "Aap plant me kya karte hain?",
+      "why_text": "Bhatti aur mill ka kaam alag hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "furnace",
+          "label_text": "Bhatti",
+          "value_text": "furnace"
+        },
+        {
+          "option_key": "rolling",
+          "label_text": "Rolling mill",
+          "value_text": "rolling"
+        },
+        {
+          "option_key": "casting",
+          "label_text": "Casting",
+          "value_text": "casting"
+        },
+        {
+          "option_key": "coil",
+          "label_text": "Coil ka kaam",
+          "value_text": "coil"
+        }
+      ]
+    },
+    {
+      "question_key": "heat_work",
+      "prompt_text": "Kya aap garmi wali jagah kaam kar sakte hain?",
+      "why_text": "Bhatti ke paas kaam mushkil hota hai.",
+      "target_kind": "attribute",
+      "target_field": "heat_work",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "safety_training",
+      "prompt_text": "Kya aapne safety training li hai?",
+      "why_text": "Plant me safety zaroori hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "safety_training",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

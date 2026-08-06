@@ -1,0 +1,88 @@
+{
+  "_why": "Trade pack for Rickshaw and cart. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_cart",
+  "version": 1,
+  "family_id": "fam_cart",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "cart_type",
+      "prompt_text": "Aap kya chalate hain?",
+      "why_text": "Rickshaw aur thela alag kaam hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cycle_rickshaw",
+          "label_text": "Cycle rickshaw",
+          "value_text": "cycle_rickshaw"
+        },
+        {
+          "option_key": "e_rickshaw",
+          "label_text": "E-rickshaw",
+          "value_text": "e_rickshaw"
+        },
+        {
+          "option_key": "hand_cart",
+          "label_text": "Thela ya rehdi",
+          "value_text": "hand_cart"
+        }
+      ]
+    },
+    {
+      "question_key": "own_vehicle",
+      "prompt_text": "Kya gaadi aapki apni hai?",
+      "why_text": "Apni gaadi wale ki kamai alag hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "own_vehicle",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

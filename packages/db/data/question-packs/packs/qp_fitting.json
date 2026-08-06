@@ -1,0 +1,109 @@
+{
+  "_why": "Trade pack for Fitting. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_fitting",
+  "version": 1,
+  "family_id": "fam_fitting",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "fitting_type",
+      "prompt_text": "Aap kis tarah ka fitting kaam karte hain?",
+      "why_text": "Fitting ke kai tarah hote hain.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "bench",
+          "label_text": "Bench fitting",
+          "value_text": "bench"
+        },
+        {
+          "option_key": "maintenance",
+          "label_text": "Maintenance fitting",
+          "value_text": "maintenance"
+        },
+        {
+          "option_key": "pipe",
+          "label_text": "Pipe fitting",
+          "value_text": "pipe"
+        },
+        {
+          "option_key": "assembly",
+          "label_text": "Assembly fitting",
+          "value_text": "assembly"
+        },
+        {
+          "option_key": "other_fit",
+          "label_text": "Koi aur",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "breakdown_work",
+      "prompt_text": "Kya aap breakdown thik karte hain?",
+      "why_text": "Breakdown wale ko turant kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "breakdown_work",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "machine_familiar",
+      "prompt_text": "Aap kaunsi machine par kaam kar chuke hain?",
+      "why_text": "Machine ka tajurba employer poochte hain.",
+      "target_kind": "attribute",
+      "target_field": "machine_familiar",
+      "answer_type": "text",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

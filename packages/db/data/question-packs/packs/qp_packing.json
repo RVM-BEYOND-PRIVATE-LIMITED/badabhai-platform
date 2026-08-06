@@ -1,0 +1,93 @@
+{
+  "_why": "Trade pack for Packing. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_packing",
+  "version": 1,
+  "family_id": "fam_packing",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "packing_type",
+      "prompt_text": "Aap kaise packing karte hain?",
+      "why_text": "Hath aur machine packing alag hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "hand",
+          "label_text": "Hath se",
+          "value_text": "hand"
+        },
+        {
+          "option_key": "machine",
+          "label_text": "Machine se",
+          "value_text": "machine"
+        },
+        {
+          "option_key": "labelling",
+          "label_text": "Label lagana",
+          "value_text": "labelling"
+        },
+        {
+          "option_key": "carton",
+          "label_text": "Carton banana",
+          "value_text": "carton"
+        }
+      ]
+    },
+    {
+      "question_key": "weighing",
+      "prompt_text": "Kya aap taul ka kaam karte hain?",
+      "why_text": "Taul wale ko store me kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "weighing",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

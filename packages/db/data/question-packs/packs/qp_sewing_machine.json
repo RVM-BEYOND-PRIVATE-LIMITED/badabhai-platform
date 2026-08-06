@@ -1,0 +1,108 @@
+{
+  "_why": "Trade pack for Sewing machine operator. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_sewing_machine",
+  "version": 1,
+  "family_id": "fam_sewing_machine",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "machine_type",
+      "prompt_text": "Aap kaunsi machine chalate hain?",
+      "why_text": "Har machine ka kaam alag hota hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "single_needle",
+          "label_text": "Single needle",
+          "value_text": "single_needle"
+        },
+        {
+          "option_key": "overlock",
+          "label_text": "Overlock",
+          "value_text": "overlock"
+        },
+        {
+          "option_key": "flatlock",
+          "label_text": "Flatlock",
+          "value_text": "flatlock"
+        },
+        {
+          "option_key": "embroidery",
+          "label_text": "Kadhai machine",
+          "value_text": "embroidery"
+        },
+        {
+          "option_key": "button",
+          "label_text": "Button machine",
+          "value_text": "button"
+        }
+      ]
+    },
+    {
+      "question_key": "production_line",
+      "prompt_text": "Kya aap export line par kaam kar chuke hain?",
+      "why_text": "Export line ka tajurba zyada maanga jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "production_line",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "piece_rate",
+      "prompt_text": "Aap ek din me kitne piece kar lete hain?",
+      "why_text": "Piece rate wali jagah ye poochte hain.",
+      "target_kind": "attribute",
+      "target_field": "piece_rate",
+      "answer_type": "number",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

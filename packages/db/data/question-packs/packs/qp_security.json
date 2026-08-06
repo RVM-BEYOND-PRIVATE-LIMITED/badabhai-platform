@@ -1,0 +1,118 @@
+{
+  "_why": "Trade pack for Security. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_security",
+  "version": 1,
+  "family_id": "fam_security",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "guard_place",
+      "prompt_text": "Aap kahaan guard ka kaam karte hain?",
+      "why_text": "Har jagah ki duty alag hoti hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "society",
+          "label_text": "Society ya flat",
+          "value_text": "society"
+        },
+        {
+          "option_key": "office",
+          "label_text": "Office",
+          "value_text": "office"
+        },
+        {
+          "option_key": "factory",
+          "label_text": "Factory",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "bank",
+          "label_text": "Bank ya ATM",
+          "value_text": "bank"
+        },
+        {
+          "option_key": "event",
+          "label_text": "Event",
+          "value_text": "event"
+        }
+      ]
+    },
+    {
+      "question_key": "armed_duty",
+      "prompt_text": "Kya aap hathiyar wali duty kar sakte hain?",
+      "why_text": "Armed guard ka vetan zyada hota hai.",
+      "target_kind": "attribute",
+      "target_field": "armed_duty",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "cctv_operation",
+      "prompt_text": "Kya aap CCTV dekh sakte hain?",
+      "why_text": "CCTV wale ko control room milta hai.",
+      "target_kind": "attribute",
+      "target_field": "cctv_operation",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "psara_licence",
+      "prompt_text": "Kya aapke paas guard ka licence hai?",
+      "why_text": "Licence wale ko badi company rakhti hai.",
+      "target_kind": "attribute",
+      "target_field": "psara_licence",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "_why": "Trade pack for Carpentry. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_carpentry",
+  "version": 1,
+  "family_id": "fam_carpentry",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "carpentry_scope",
+      "prompt_text": "Aap kaunsa lakdi kaam karte hain?",
+      "why_text": "Furniture aur shuttering alag hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "furniture",
+          "label_text": "Furniture",
+          "value_text": "furniture"
+        },
+        {
+          "option_key": "shuttering",
+          "label_text": "Shuttering",
+          "value_text": "shuttering"
+        },
+        {
+          "option_key": "door_window",
+          "label_text": "Darwaza aur khidki",
+          "value_text": "door_window"
+        },
+        {
+          "option_key": "modular",
+          "label_text": "Modular kitchen",
+          "value_text": "modular"
+        }
+      ]
+    },
+    {
+      "question_key": "machine_use",
+      "prompt_text": "Kya aap lakdi ki machine chalate hain?",
+      "why_text": "Machine wale ka kaam tez hota hai.",
+      "target_kind": "attribute",
+      "target_field": "machine_use",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "polish_work",
+      "prompt_text": "Kya aap polish ka kaam karte hain?",
+      "why_text": "Polish alag se paisa deta hai.",
+      "target_kind": "attribute",
+      "target_field": "polish_work",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

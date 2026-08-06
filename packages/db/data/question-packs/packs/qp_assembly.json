@@ -1,0 +1,108 @@
+{
+  "_why": "Trade pack for Assembly line. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_assembly",
+  "version": 1,
+  "family_id": "fam_assembly",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "assembly_product",
+      "prompt_text": "Aap kya assemble karte hain?",
+      "why_text": "Har product ki line alag hoti hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "cycle",
+          "label_text": "Cycle",
+          "value_text": "cycle"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "auto_parts",
+          "label_text": "Gaadi ke parts",
+          "value_text": "auto_parts"
+        },
+        {
+          "option_key": "plastic",
+          "label_text": "Plastic saman",
+          "value_text": "plastic"
+        },
+        {
+          "option_key": "appliance",
+          "label_text": "Ghar ke saman",
+          "value_text": "appliance"
+        }
+      ]
+    },
+    {
+      "question_key": "quality_check",
+      "prompt_text": "Kya aap quality check karte hain?",
+      "why_text": "QC wale ko alag se rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_check",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "target_output",
+      "prompt_text": "Aap ek shift me kitne piece karte hain?",
+      "why_text": "Line par target poocha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "target_output",
+      "answer_type": "number",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

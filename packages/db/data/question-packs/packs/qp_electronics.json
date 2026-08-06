@@ -1,0 +1,103 @@
+{
+  "_why": "Trade pack for Electronics repair. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_electronics",
+  "version": 1,
+  "family_id": "fam_electronics",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "device_type",
+      "prompt_text": "Aap kya thik karte hain?",
+      "why_text": "Har device ka kaam alag hota hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "mobile",
+          "label_text": "Mobile",
+          "value_text": "mobile"
+        },
+        {
+          "option_key": "tv",
+          "label_text": "TV",
+          "value_text": "tv"
+        },
+        {
+          "option_key": "laptop",
+          "label_text": "Laptop",
+          "value_text": "laptop"
+        },
+        {
+          "option_key": "home_appliance",
+          "label_text": "Ghar ke bijli ke saman",
+          "value_text": "home_appliance"
+        }
+      ]
+    },
+    {
+      "question_key": "soldering",
+      "prompt_text": "Kya aap soldering kar lete hain?",
+      "why_text": "Soldering bina board ka kaam nahi hota.",
+      "target_kind": "attribute",
+      "target_field": "soldering",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "chip_level",
+      "prompt_text": "Kya aap chip level ka kaam karte hain?",
+      "why_text": "Chip level wale ka rate zyada hai.",
+      "target_kind": "attribute",
+      "target_field": "chip_level",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

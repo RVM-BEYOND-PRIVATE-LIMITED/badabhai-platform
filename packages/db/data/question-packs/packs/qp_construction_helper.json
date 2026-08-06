@@ -1,0 +1,108 @@
+{
+  "_why": "Trade pack for Construction helper. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_construction_helper",
+  "version": 1,
+  "family_id": "fam_construction_helper",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "helper_for",
+      "prompt_text": "Aap kis mistri ke saath kaam karte hain?",
+      "why_text": "Mistri ke hisaab se kaam milta hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "mason",
+          "label_text": "Raj mistri",
+          "value_text": "mason"
+        },
+        {
+          "option_key": "electrician",
+          "label_text": "Bijli mistri",
+          "value_text": "electrician"
+        },
+        {
+          "option_key": "plumber",
+          "label_text": "Plumber",
+          "value_text": "plumber"
+        },
+        {
+          "option_key": "carpenter",
+          "label_text": "Badhai",
+          "value_text": "carpenter"
+        },
+        {
+          "option_key": "painter",
+          "label_text": "Painter",
+          "value_text": "painter"
+        }
+      ]
+    },
+    {
+      "question_key": "masala_work",
+      "prompt_text": "Kya aap masala banate hain?",
+      "why_text": "Masala banane wale ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "masala_work",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "learning_trade",
+      "prompt_text": "Kya aap koi hunar seekh rahe hain?",
+      "why_text": "Seekhne walon ko training wali jagah milti hai.",
+      "target_kind": "attribute",
+      "target_field": "learning_trade",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

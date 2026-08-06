@@ -1,0 +1,108 @@
+{
+  "_why": "Trade pack for Domestic housekeeping. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_domestic",
+  "version": 1,
+  "family_id": "fam_domestic",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "household_work",
+      "prompt_text": "Aap kaunsa ghar ka kaam karte hain?",
+      "why_text": "Har ghar ka kaam alag hota hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "cleaning",
+          "label_text": "Safai",
+          "value_text": "cleaning"
+        },
+        {
+          "option_key": "cooking",
+          "label_text": "Khana banana",
+          "value_text": "cooking"
+        },
+        {
+          "option_key": "childcare",
+          "label_text": "Bacho ki dekhbhal",
+          "value_text": "childcare"
+        },
+        {
+          "option_key": "eldercare",
+          "label_text": "Buzurgon ki dekhbhal",
+          "value_text": "eldercare"
+        },
+        {
+          "option_key": "laundry",
+          "label_text": "Kapde dhona",
+          "value_text": "laundry"
+        }
+      ]
+    },
+    {
+      "question_key": "live_in",
+      "prompt_text": "Kya aap ghar par rehkar kaam kar sakte hain?",
+      "why_text": "Rehne wale ka vetan alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "live_in",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "hours_per_day",
+      "prompt_text": "Aap din me kitne ghante kaam karte hain?",
+      "why_text": "Ghante ke hisaab se vetan tay hota hai.",
+      "target_kind": "attribute",
+      "target_field": "hours_per_day",
+      "answer_type": "number",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}

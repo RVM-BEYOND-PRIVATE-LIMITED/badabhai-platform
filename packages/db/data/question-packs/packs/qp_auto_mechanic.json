@@ -1,0 +1,135 @@
+{
+  "_why": "Trade pack for Automobile mechanic. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "pack_id": "qp_auto_mechanic",
+  "version": 1,
+  "family_id": "fam_auto_mechanic",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 first-pass authoring. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "vehicle_type",
+      "prompt_text": "Aap kaunsi gaadi thik karte hain?",
+      "why_text": "Har gaadi ka kaam alag hota hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Bike aur scooter",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "car",
+          "label_text": "Car",
+          "value_text": "car"
+        },
+        {
+          "option_key": "commercial",
+          "label_text": "Truck ya bus",
+          "value_text": "commercial"
+        },
+        {
+          "option_key": "tractor",
+          "label_text": "Tractor",
+          "value_text": "tractor"
+        }
+      ]
+    },
+    {
+      "question_key": "engine_work",
+      "prompt_text": "Kya aap engine kholte hain?",
+      "why_text": "Engine ka kaam alag rate par hota hai.",
+      "target_kind": "attribute",
+      "target_field": "engine_work",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "electrical_work",
+      "prompt_text": "Kya aap gaadi ki wiring karte hain?",
+      "why_text": "Auto electrician ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "auto_electrical",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "fuel_type",
+      "prompt_text": "Aap kaunse fuel ki gaadi par kaam karte hain?",
+      "why_text": "Diesel aur petrol ka kaam alag hai.",
+      "target_kind": "attribute",
+      "target_field": "fuel_type",
+      "answer_type": "multi_select",
+      "is_core": false,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "petrol",
+          "label_text": "Petrol",
+          "value_text": "petrol"
+        },
+        {
+          "option_key": "diesel",
+          "label_text": "Diesel",
+          "value_text": "diesel"
+        },
+        {
+          "option_key": "cng",
+          "label_text": "CNG",
+          "value_text": "cng"
+        },
+        {
+          "option_key": "electric",
+          "label_text": "Electric",
+          "value_text": "electric"
+        }
+      ]
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}
