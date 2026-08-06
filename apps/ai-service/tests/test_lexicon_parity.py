@@ -326,3 +326,61 @@ def test_the_salary_unit_alternation_matches_the_unit_lists():
     salary = lexicon.load("salary")
     expected = "|".join([*salary["thousandUnits"], *salary["lakhUnits"]])
     assert f"(?:{expected}){{WE}}" in salary["matcher"]["source"]
+
+
+# ---------------------------------------------------- the curated-vocabulary privacy pin --
+def test_the_curated_vocabulary_is_pinned():
+    """VOCABULARY_TOKENS decides what the PSEUDONYMIZER un-masks. Changing it is a privacy change.
+
+    Its only consumer is `pseudonymize.certified_clean_skill_labels`, which rescues a label the
+    gateway masked as an EMPLOYER — so a token added here makes the gateway release a string it
+    was previously withholding, and a token removed silently deletes a real qualification from a
+    worker's profile ("Diploma Mechanical Engineering" was lost to exactly that collision).
+
+    The set is DERIVED from the role/machine/welding/skill/education tables in trades.json and
+    education.json, which means an innocent-looking keyword edit moves it. Pinned by checksum so
+    that movement can never be invisible: if this fails, the diff is a privacy decision and wants
+    a security review, not a re-baselined constant.
+
+    Recompute with:
+        python -c "import hashlib,sys; sys.path.insert(0,'.'); \
+from app.profiling import signals as s; \
+print(hashlib.sha256('\n'.join(sorted(s.VOCABULARY_TOKENS)).encode()).hexdigest())"
+    """
+    import hashlib
+
+    from app.profiling import signals
+
+    tokens = sorted(signals.VOCABULARY_TOKENS)
+    digest = hashlib.sha256("\n".join(tokens).encode("utf-8")).hexdigest()
+
+    assert len(tokens) == 141, (
+        f"curated vocabulary changed size ({len(tokens)}, was 141) — this moves what the "
+        "pseudonymizer un-masks"
+    )
+    assert digest == "9d6a242e311f58fb2617b26c22fb92d03e8a8e908c6b56903022414c091f380f", (
+        "curated vocabulary CONTENTS changed while staying the same size — this moves what the "
+        "pseudonymizer un-masks and needs a security review, not a new hash"
+    )
+
+
+def test_the_curated_vocabulary_still_rescues_the_label_that_forced_it():
+    """The measured case: the gateway masked 'Diploma Mechanical Engineering' as an EMPLOYER
+    because 'Engineering' is a company suffix, and nothing rescued it — a real qualification
+    vanished from a worker's profile. A behaviour assertion beside the checksum, so the pin is
+    not the only thing standing between this and a regression."""
+    from app.profiling import signals
+
+    assert signals.is_curated_vocabulary_label("Diploma Mechanical Engineering")
+    assert signals.is_curated_vocabulary_label("Mechanical")
+    assert signals.is_curated_vocabulary_label("ITI")
+    # ...and still refuses a real employer name and a person's name.
+    assert not signals.is_curated_vocabulary_label("Sharma Industries")
+    assert not signals.is_curated_vocabulary_label("Rajesh Kumar")
+
+    # MEASURED, and a real pre-existing gap rather than a design choice: the rescue requires
+    # EVERY token to be curated vocabulary, and role LABELS are not in the harvest — only the
+    # role KEYWORDS are. So "ITI Fitter" is not rescued and a masked one is simply lost, while
+    # the bare "ITI" survives. Pinned here so closing it is a deliberate, reviewed change to a
+    # privacy boundary rather than a side effect of editing a keyword table.
+    assert not signals.is_curated_vocabulary_label("ITI Fitter")

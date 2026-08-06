@@ -46,24 +46,37 @@ def _dev(pattern: str) -> str:
 # --- Keyword tables (keyword, human-label, taxonomy-id) --------------------
 # Order matters where a generic term could shadow a specific one.
 
+# Shared with the TypeScript orchestrator via packages/profiling-lexicon (Phase 3).
+# ORDER IS LOAD-BEARING in every table below: detect() takes the FIRST keyword match,
+# so a generic term ahead of a specific one shadows it ("lathe" vs "cnc lathe").
+# The rationale that used to sit in these comments now lives in data/trades.json.
+def _bounded(spec: dict[str, str]) -> re.Pattern[str]:
+    """Compile a trades pattern wrapped in word boundaries.
+
+    The boundary lives HERE and not in the stored source, exactly as it did before the
+    extraction (`re.compile(rf"{pat}")`). That is deliberate and load-bearing twice over:
+
+    - `VOCABULARY_TOKENS` harvests the RAW source of these same tables to build the curated
+      vocabulary the pseudonymizer's rescue reads. A stored `{WB}`/`{WE}` would be tokenized
+      as vocabulary, putting macro names into a PRIVACY decision.
+    - The boundary is what stops the short tokens matching inside longer words. Without it
+      "fatigue testing" and "mitigation" both record TIG welding, and "emigration" records MIG
+      — measured, and caught by `tests/test_welding_gazetteer.py` when this wrapper was
+      briefly dropped during the extraction.
+    """
+    return lexicon.compile_pattern(
+        {"source": "{WB}" + spec["source"] + "{WE}", "flags": spec.get("flags", "")}
+    )
+
+
+_TRADES = lexicon.load("trades")
 _MACHINES: list[tuple[str, str, str]] = [
-    ("vmc", "VMC", "mach_vmc"),
-    ("hmc", "HMC", "mach_hmc"),
-    ("cnc lathe", "CNC Lathe", "mach_cnc_lathe"),
-    ("lathe", "CNC Lathe", "mach_cnc_lathe"),
-    ("turning", "CNC Lathe", "mach_cnc_lathe"),
-    ("cylindrical grind", "Cylindrical Grinder", "mach_cylindrical_grinder"),
-    ("grinding", "Grinding", "mach_cnc_grinder"),
-    ("grinder", "Grinding", "mach_cnc_grinder"),
+    (e["keyword"], e["label"], e["id"]) for e in _TRADES["machines"]
 ]
 
 # Controllers map to a legacy skill id where one exists (else None).
 _CONTROLLERS: list[tuple[str, str, str | None]] = [
-    ("fanuc", "Fanuc", "skill_fanuc"),
-    ("siemens", "Siemens", "skill_siemens"),
-    ("mitsubishi", "Mitsubishi", "skill_mitsubishi"),
-    ("heidenhain", "Heidenhain", None),
-    ("haas", "Haas", None),
+    (e["keyword"], e["label"], e["skillId"]) for e in _TRADES["controllers"]
 ]
 
 # Roles, most specific first: (keyword, label, role_id, trade_id).
@@ -99,14 +112,7 @@ _CONTROLLERS: list[tuple[str, str, str | None]] = [
 # "weldingwala" and set a role while `_WELDING_RE` (word-boundary) produced NO skill
 # id. All welding role logic now runs off `_WELDING_RE`, so role and skills agree.
 _ROLES: list[tuple[str, str, str, str]] = [
-    ("cam programmer", "CAM Programmer", "role_cam_programmer", "dom_programming"),
-    ("programmer", "CNC Programmer", "role_cnc_programmer", "dom_programming"),
-    ("setter", "CNC Setter-Operator", "role_cnc_setter_operator", "dom_cnc_machining"),
-    ("vmc", "VMC Operator", "role_vmc_operator", "dom_vmc_machining"),
-    ("hmc", "HMC Operator", "role_hmc_operator", "dom_hmc_machining"),
-    ("grinding", "CNC Grinding Operator", "role_cnc_grinding_operator", "dom_grinding"),
-    ("turner", "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
-    ("turning", "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
+    (e["keyword"], e["label"], e["roleId"], e["domainId"]) for e in _TRADES["roles"]
 ]
 
 # --- Role keyword VARIANTS (parser widening) --------------------------------
@@ -178,25 +184,13 @@ _ROLES: list[tuple[str, str, str, str]] = [
 # `role` — and so does "VMC operator ki job hai kya" on `main`, through `_ROLES`. That
 # limit is real and is `_ROLES`'s, not this table's; narrowing it means narrowing
 # `_ROLES`, which is a separate change against a shipped behaviour.
-_ROLE_CUES: tuple[tuple[str, str, str, str], ...] = (
-    # Spaced acronyms — "V M C operator". The substring test in `_ROLES` sees no
-    # "vmc" here. Spaces are REQUIRED between the letters, so this can only ever
-    # match a spelled-out acronym.
-    (r"\bv\s+m\s+c\b", "VMC Operator", "role_vmc_operator", "dom_vmc_machining"),
-    (r"\bh\s+m\s+c\b", "HMC Operator", "role_hmc_operator", "dom_hmc_machining"),
-    # `setter` misspelt with one `t`. Cannot match inside "setter" itself.
-    (r"\bset[ae]r\b", "CNC Setter-Operator", "role_cnc_setter_operator", "dom_cnc_machining"),
-    # Devanagari forms of role words the Latin table already carries. TRANSLITERATION
-    # of an EXISTING gazetteer entry to the other script — no new concept, no new id,
-    # no vernacular alias (`ऑपरेटर` alone resolves nothing, exactly like `operator`).
-    (_dev("वीएमसी"), "VMC Operator", "role_vmc_operator", "dom_vmc_machining"),
-    (_dev("एचएमसी"), "HMC Operator", "role_hmc_operator", "dom_hmc_machining"),
-    (_dev("प्रोग्रामर"), "CNC Programmer", "role_cnc_programmer", "dom_programming"),
-    (_dev("सेटर"), "CNC Setter-Operator", "role_cnc_setter_operator", "dom_cnc_machining"),
-    (_dev("टर्नर"), "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
+_ROLE_CUES: tuple[tuple[str, str, str, str], ...] = tuple(
+    (e["pattern"]["source"], e["label"], e["roleId"], e["domainId"])
+    for e in _TRADES["roleCues"]
 )
 _ROLE_CUES_RE: tuple[tuple[re.Pattern[str], str, str, str], ...] = tuple(
-    (re.compile(pat, re.IGNORECASE), label, rid, tid) for pat, label, rid, tid in _ROLE_CUES
+    (lexicon.compile_pattern(e["pattern"]), e["label"], e["roleId"], e["domainId"])
+    for e in _TRADES["roleCues"]
 )
 
 
@@ -273,23 +267,11 @@ _GENERIC_CNC_ROLE_RE: tuple[re.Pattern[str], ...] = (
 # of "fatigue" and "mig" of "emigration"/"mitigate", so a bare `in` test would corrupt
 # profiles. Most specific first (mig/mag before mig).
 _WELDING: list[tuple[str, str, str]] = [
-    (r"mig\s*/\s*mag", "MIG welding", "skill_mig_welding"),
-    (r"gmaw", "MIG welding", "skill_mig_welding"),
-    (r"mig\s+welding", "MIG welding", "skill_mig_welding"),
-    (r"mig", "MIG welding", "skill_mig_welding"),
-    (r"gtaw", "TIG welding", "skill_tig_welding"),
-    (r"tig\s+welding", "TIG welding", "skill_tig_welding"),
-    (r"tig", "TIG welding", "skill_tig_welding"),
-    (r"smaw", "arc welding", "skill_arc_welding"),
-    (r"stick\s+welding", "arc welding", "skill_arc_welding"),
-    (r"arc\s+welding", "arc welding", "skill_arc_welding"),
-    (r"oxy[\s-]*fuel(?:\s+cutting)?", "gas cutting", "skill_gas_cutting"),
-    (r"gas\s+cutting", "gas cutting", "skill_gas_cutting"),
-    (r"welder", "welding", "skill_welder_occupation"),
-    (r"welding", "welding", "skill_welder_occupation"),
+    (e["pattern"]["source"], e["label"], e["skillId"]) for e in _TRADES["welding"]
 ]
 _WELDING_RE: list[tuple[re.Pattern[str], str, str]] = [
-    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _WELDING
+    (_bounded(e["pattern"]), e["label"], e["skillId"])
+    for e in _TRADES["welding"]
 ]
 
 # Welding-DOMAIN skill ids (skill_gas_cutting is domain `fabrication` — a gas cutter is
@@ -326,42 +308,15 @@ _WELDING_DOMAIN_SKILL_IDS = frozenset(
 # ordered from this dict, so every pre-existing id keeps its exact position and its
 # exact spelling (ADR-0028 — the id space is CLOSED and IMMUTABLE; this is purely
 # additive, nothing renamed, nothing reused).
-_EXTRA_ROLE_TRADES: tuple[tuple[str, str], ...] = (
-    ("role_welder", "dom_welding"),
-    ("role_cnc_operator", "dom_cnc_machining"),
-    ("role_plumber", "dom_plumbing"),
-    ("role_carpenter", "dom_carpentry"),
-    ("role_designer", "dom_design"),
-    ("role_interior_designer", "dom_interior_design"),
+_EXTRA_ROLE_TRADES: tuple[tuple[str, str], ...] = tuple(
+    (e["roleId"], e["tradeId"]) for e in _TRADES["extraRoleTrades"]
 )
 
-_MACHINING_CONTEXT: tuple[str, ...] = (
-    r"cnc",
-    r"vmc",
-    r"hmc",
-    r"lathe",
-    r"milling",
-    r"machining",
-    r"turning",
-    r"turner",
-    r"grinding",
-    r"grinder",
-    r"boring",
-    r"drilling",
-    r"setter",
-    r"programmer",
-    r"mastercam",
-    r"fanuc",
-    r"siemens",
-    r"haas",
-    r"heidenhain",
-    r"mitsubishi",
-    r"g\s*-?\s*code",
-    r"m\s*-?\s*code",
-    r"tool\s+offset",
+_MACHINING_CONTEXT: tuple[str, ...] = tuple(
+    spec["source"] for spec in _TRADES["machiningContext"]
 )
 _MACHINING_CONTEXT_RE: list[re.Pattern[str]] = [
-    re.compile(rf"\b{p}\b", re.IGNORECASE) for p in _MACHINING_CONTEXT
+    _bounded(spec) for spec in _TRADES["machiningContext"]
 ]
 
 # --- Blockers: welding words present, but the worker is NOT (claiming to be) a welder.
@@ -371,90 +326,47 @@ _MACHINING_CONTEXT_RE: list[re.Pattern[str]] = [
 # NEGATION is Hindi-word-order aware: Hindi negates AFTER the verb ("welding nahi
 # karta"), English before ("I don't do welding"), so a window on BOTH sides is checked.
 _WELDING_NEGATION = r"(?:nahi+n?|nah[ií]|mat|kabhi\s+nahi+n?|not|no|never|n't)"
-_WELDING_ROLE_BLOCKERS: tuple[str, ...] = (
-    # Explicit denial: "welding nahi karta, sirf helper hu" / "I don't do welding".
-    rf"\b(?:welder|welding)\b[^.;!?]{{0,24}}?\b{_WELDING_NEGATION}\b",
-    rf"\b{_WELDING_NEGATION}\b[^.;!?]{{0,24}}?\b(?:welder|welding)\b",
-    # Welding-ADJACENT non-welders: the welding word modifies a NOUN (a consumable or
-    # a machine being serviced/sold), it is not the work the worker performs.
-    r"\bwelding\s+(?:rod|rods|wire|electrode|electrodes|filler|gas|cylinder)s?\b",
-    r"\bwelding\s+machine\b[^.;!?]{0,24}?\b(?:repair|repairing|maintenance|service)\b",
-    r"\b(?:welder|welding)\b[^.;!?]{0,24}?"
-    r"\b(?:supply|supplier|supplies|sale|sales|sell|selling|bechta|bechti|dealer|dukan)\b",
+_WELDING_ROLE_BLOCKERS: tuple[str, ...] = tuple(
+    spec["source"] for spec in _TRADES["weldingRoleBlockers"]
 )
 _WELDING_ROLE_BLOCKERS_RE: list[re.Pattern[str]] = [
-    re.compile(p, re.IGNORECASE) for p in _WELDING_ROLE_BLOCKERS
+    lexicon.compile_pattern(spec) for spec in _TRADES["weldingRoleBlockers"]
 ]
 
 # --- Plumbing ---------------------------------------------------------------
 _PLUMBING: list[tuple[str, str, str]] = [
-    (r"plumber", "plumber", "skill_plumber_occupation"),
-    (r"plumbing", "plumber", "skill_plumber_occupation"),
-    (r"pipe\s+fitting", "pipe fitting", "skill_pipe_fitting"),
-    (r"piping", "pipe fitting", "skill_pipe_fitting"),
-    (r"drainage", "drainage systems", "skill_drainage_systems"),
-    (r"water\s+supply", "water supply systems", "skill_water_supply"),
-    (r"nalki", "plumber", "skill_plumber_occupation"),
-    (r"nalka", "plumber", "skill_plumber_occupation"),
-    (r"pipeline", "pipe fitting", "skill_pipe_fitting"),
+    (e["pattern"]["source"], e["label"], e["skillId"]) for e in _TRADES["plumbing"]
 ]
 _PLUMBING_RE: list[tuple[re.Pattern[str], str, str]] = [
-    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _PLUMBING
+    (_bounded(e["pattern"]), e["label"], e["skillId"])
+    for e in _TRADES["plumbing"]
 ]
 
 # --- Carpentry --------------------------------------------------------------
 _CARPENTRY: list[tuple[str, str, str]] = [
-    (r"carpenter", "carpenter", "skill_carpenter_occupation"),
-    (r"carpentry", "carpenter", "skill_carpenter_occupation"),
-    (r"wood\s+work", "woodworking", "skill_woodworking"),
-    (r"wood\s+working", "woodworking", "skill_woodworking"),
-    (r"furniture", "cabinet making", "skill_cabinet_making"),
-    (r"joinery", "woodworking", "skill_woodworking"),
-    (r"badtarash", "carpenter", "skill_carpenter_occupation"),
-    (r"lakdi\s+ka\s+kaam", "carpenter", "skill_carpenter_occupation"),
-    (r"lakdi\s+ke\s+kaam", "carpenter", "skill_carpenter_occupation"),
-    (r"cabinet", "cabinet making", "skill_cabinet_making"),
-    (r"polish", "furniture finishing", "skill_furniture_finishing"),
-    (r"shuttering", "carpenter", "skill_carpenter_occupation"),
+    (e["pattern"]["source"], e["label"], e["skillId"]) for e in _TRADES["carpentry"]
 ]
 _CARPENTRY_RE: list[tuple[re.Pattern[str], str, str]] = [
-    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _CARPENTRY
+    (_bounded(e["pattern"]), e["label"], e["skillId"])
+    for e in _TRADES["carpentry"]
 ]
 
 # --- Design (graphic / product / mechanical) --------------------------------
 _DESIGN: list[tuple[str, str, str]] = [
-    (r"designer", "designer", "skill_designer_occupation"),
-    (r"design\s+ka\s+kaam", "designer", "skill_designer_occupation"),
-    (r"graphic\s+design", "designer", "skill_designer_occupation"),
-    (r"product\s+design", "designer", "skill_designer_occupation"),
-    (r"fashion\s+design", "designer", "skill_designer_occupation"),
-    (r"mechanical\s+design", "designer", "skill_designer_occupation"),
-    (r"autocad", "2D CAD drafting", "skill_cad_2d_drafting"),
-    (r"solidworks", "3D modeling", "skill_3d_modeling"),
-    (r"catia", "3D modeling", "skill_3d_modeling"),
-    (r"creo", "3D modeling", "skill_3d_modeling"),
-    (r"fusion\s+360", "3D modeling", "skill_3d_modeling"),
-    (r"render", "rendering / visualization", "skill_rendering_visualization"),
-    (r"photoshop", "rendering / visualization", "skill_rendering_visualization"),
-    (r"illustrator", "rendering / visualization", "skill_rendering_visualization"),
+    (e["pattern"]["source"], e["label"], e["skillId"]) for e in _TRADES["design"]
 ]
 _DESIGN_RE: list[tuple[re.Pattern[str], str, str]] = [
-    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _DESIGN
+    (_bounded(e["pattern"]), e["label"], e["skillId"])
+    for e in _TRADES["design"]
 ]
 
 # --- Interior design --------------------------------------------------------
 _INTERIOR_DESIGN: list[tuple[str, str, str]] = [
-    (r"interior\s+design", "interior designer", "skill_interior_designer_occupation"),
-    (r"interior\s+designer", "interior designer", "skill_interior_designer_occupation"),
-    (r"interior\s+work", "interior designer", "skill_interior_designer_occupation"),
-    (r"space\s+planning", "space planning", "skill_space_planning"),
-    (r"material\s+selection", "material selection", "skill_material_selection"),
-    (r"3ds\s+max", "rendering / visualization", "skill_rendering_visualization"),
-    (r"sketchup", "3D modeling", "skill_3d_modeling"),
-    (r"revit", "3D modeling", "skill_3d_modeling"),
+    (e["pattern"]["source"], e["label"], e["skillId"]) for e in _TRADES["interiorDesign"]
 ]
 _INTERIOR_DESIGN_RE: list[tuple[re.Pattern[str], str, str]] = [
-    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _INTERIOR_DESIGN
+    (_bounded(e["pattern"]), e["label"], e["skillId"])
+    for e in _TRADES["interiorDesign"]
 ]
 
 # Operational skills: (keyword, label, skill_id).
@@ -517,28 +429,9 @@ def label_for_id(value: str) -> str:
     return value
 
 
-_INSPECTION: list[tuple[str, str]] = [
-    ("micrometer", "micrometer"),
-    ("vernier", "vernier caliper"),
-    ("caliper", "vernier caliper"),
-    ("bore gauge", "bore gauge"),
-    ("height gauge", "height gauge"),
-    ("gauge", "gauges"),
-    ("gage", "gauges"),
-    ("cmm", "CMM"),
-]
+_INSPECTION: list[tuple[str, str]] = [tuple(row) for row in _TRADES["inspection"]]
 
-_MATERIALS: list[tuple[str, str]] = [
-    ("mild steel", "Mild Steel"),
-    ("ms ", "Mild Steel"),
-    ("stainless", "Stainless Steel"),
-    ("ss ", "Stainless Steel"),
-    ("aluminium", "Aluminium"),
-    ("aluminum", "Aluminium"),
-    ("cast iron", "Cast Iron"),
-    ("brass", "Brass"),
-    ("titanium", "Titanium"),
-]
+_MATERIALS: list[tuple[str, str]] = [tuple(row) for row in _TRADES["materials"]]
 
 _ROLE_LABELS: dict[str, str] = {rid: label for _, label, rid, _ in _ROLES}
 
@@ -546,15 +439,10 @@ _ROLE_LABELS: dict[str, str] = {rid: label for _, label, rid, _ in _ROLES}
 # The exact strings `detect()` appends to `sig.education` / `sig.certifications`.
 # Lifted to module constants so the vocabulary below and the detector cannot drift:
 # there is ONE place that says what an education/certification token may read as.
-_EDUCATION_LABELS: tuple[str, ...] = ("ITI", "Diploma", "Degree")
-_CERTIFICATION_LABELS: tuple[str, ...] = (
-    "RVM CAD",
-    "NSDC",
-    "NCVT",
-    "SCVT",
-    "NSQF",
-    "Apprenticeship",
-)
+# Education/certification canonical values live in data/education.json.
+_EDUCATION = lexicon.load("education")
+_EDUCATION_LABELS: tuple[str, ...] = tuple(_EDUCATION["educationLabels"])
+_CERTIFICATION_LABELS: tuple[str, ...] = tuple(_EDUCATION["certificationLabels"])
 
 
 # --- Curated trade/education VOCABULARY (the FIX-5 data-loss guard) ----------
@@ -617,7 +505,7 @@ _REGEX_VOCAB_TABLES: tuple[tuple[tuple[str, str, str], ...], ...] = (
 # engineering)\b` arm in `detect()`): "engineering" is trade+education vocabulary in
 # this product, and is exactly the `_COMPANY_SUFFIX` collision that deleted
 # "Diploma Mechanical Engineering".
-_EDUCATION_DETECTOR_WORDS: tuple[str, ...] = ("btech", "tech", "degree", "engineering", "diploma")
+_EDUCATION_DETECTOR_WORDS: tuple[str, ...] = tuple(_EDUCATION["educationDetectorWords"])
 
 
 def _build_vocabulary_tokens() -> frozenset[str]:

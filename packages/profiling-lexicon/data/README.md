@@ -17,8 +17,25 @@ Never hand-edit the mirror: run `pnpm lexicon:sync` and commit what it writes.
 | `experience.json` | The spelled-out Hinglish quantity table + the years matcher | Phase 3 (values slice) |
 | `salary.json` | The amount matcher, the annual/monthly/money cue lists, the credential guard | Phase 3 (values slice) |
 | `availability.json` | Availability, notice-period and relocation cues, plus their blockers | Phase 3 (values slice) |
-| `trades.json` | Role / machine / controller keyword tables with spelling variants | Phase 3 (values slice) |
+| `trades.json` | Role / machine / controller / welding / trade keyword tables and their regex cues | Phase 3 (values slice) |
+| `education.json` | Education + certification canonical values and the education detector words | Phase 3 (values slice) |
 | `crosswalk.json` | RFS field id → `WorkerProfileDraft` path | Phase 7 |
+
+### One rule with a privacy consequence
+
+`trades.json` and `education.json` derive `signals.VOCABULARY_TOKENS`, whose **only** consumer is
+`pseudonymize.certified_clean_skill_labels` — the rescue that releases a label the gateway masked as
+an *employer*. A keyword added there makes the gateway release a string it was withholding; one
+removed silently deletes a real qualification from a worker's profile, which is how
+"Diploma Mechanical Engineering" was once lost.
+
+So the set is **pinned by checksum** in `tests/test_lexicon_parity.py`. If that test fails, the diff
+is a privacy decision and wants a security review — not a re-baselined hash.
+
+Note also that the stored pattern source for the welding/plumbing/carpentry/design tables is
+**unbounded**: `signals._bounded()` wraps it in `{WB}`/`{WE}` at compile time. That is deliberate,
+because `VOCABULARY_TOKENS` harvests the raw source, and a stored macro name would end up as
+vocabulary inside that privacy decision.
 
 ## Why a mirror
 
