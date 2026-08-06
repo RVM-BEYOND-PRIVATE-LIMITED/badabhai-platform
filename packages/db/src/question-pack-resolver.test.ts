@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  RESOLVE_FAMILY_SQL,
   iscoAncestry,
   resolveFamily,
   type ResolvableBinding,
@@ -159,4 +160,70 @@ describe("the real corpus resolves every bound trade to its own family", () => {
       expect(resolveFamily(realish, { jobDomainId: jd, iscoUnitCode: unit })?.familyId).toBe(expected);
     });
   }
+});
+
+// ===========================================================================
+// The parity this file's header PROMISES — previously claimed, never asserted
+// ===========================================================================
+
+/**
+ * `RESOLVE_FAMILY_SQL` had NO consumer and NO test, while two doc-comments above asserted that
+ * "the parity test runs both against the same bindings and asserts identical answers". It did not
+ * exist. A guarantee that only a comment makes is the thing the phase gate exists to catch, and
+ * the engine now depends on this one: `PackRegistryService` walks the chain by calling
+ * `resolveFamily`, so the interview and the `db:verify:packs` deploy gate agree about which family
+ * owns a trade only if these two really do.
+ *
+ * STRUCTURAL, not executed — comparing live SQL against the pure function needs a database, and
+ * this must run in the ordinary suite. It pins the four properties the equivalence actually rests
+ * on, which is the same discipline the Lua CAS contract test uses.
+ */
+describe("RESOLVE_FAMILY_SQL agrees with resolveFamily", () => {
+  it("tests the same six levels, and no others", () => {
+    for (const column of [
+      "b.job_domain_id",
+      "b.isco_unit_code",
+      "b.isco_minor_code",
+      "b.isco_submajor_code",
+      "b.isco_major_code",
+      "b.is_universal",
+    ]) {
+      expect(RESOLVE_FAMILY_SQL).toContain(column);
+    }
+    // Six OR-separated predicates: five equalities plus the universal flag.
+    expect(RESOLVE_FAMILY_SQL.match(/\bOR\b/g)).toHaveLength(5);
+  });
+
+  it("slices the ISCO code exactly as iscoAncestry does", () => {
+    // `left(code, 3|2|1)` is why `iscoAncestry` slices rather than validating a 4-digit shape: a
+    // 3-character code yields itself in Postgres, so a stricter TypeScript rule would send the
+    // engine to the universal pack while the gate found a real family.
+    expect(RESOLVE_FAMILY_SQL).toContain("left(d.isco_unit_code, 3)");
+    expect(RESOLVE_FAMILY_SQL).toContain("left(d.isco_unit_code, 2)");
+    expect(RESOLVE_FAMILY_SQL).toContain("left(d.isco_unit_code, 1)");
+    const { minor, submajor, major } = iscoAncestry("7212");
+    expect([minor, submajor, major]).toEqual(["721", "72", "7"]);
+  });
+
+  it("picks the winner by SPECIFICITY DESC, which is the pure function's level order", () => {
+    // The equivalence rests on `specificity` always describing the column that matched, which
+    // `pfb_specificity_matches_target_chk` enforces in the database.
+    expect(RESOLVE_FAMILY_SQL).toContain("ORDER BY b.specificity DESC");
+    expect(RESOLVE_FAMILY_SQL).toContain("LIMIT 1");
+  });
+
+  it("returns ONE row, matching the pure function's single result", () => {
+    const bindings = [
+      { familyId: "fam_universal", isUniversal: true },
+      { familyId: "fam_metal", iscoSubmajorCode: "72" },
+      { familyId: "fam_welders", iscoUnitCode: "7212" },
+    ];
+    // Most specific wins, exactly as `ORDER BY specificity DESC LIMIT 1` would.
+    const resolved = resolveFamily(bindings, { jobDomainId: "dom_x", iscoUnitCode: "7212" });
+    expect(resolved).toEqual({
+      familyId: "fam_welders",
+      specificity: 40,
+      matchedOn: "isco_unit",
+    });
+  });
 });

@@ -8,3 +8,8 @@ export * from "./schema";
 export * from "./client";
 export * from "./credit-packs";
 export * from "./crypto";
+// The family fallback chain. Its own header says it exists so "Phase 7's production
+// QuestionPackService" can make this decision without a database — which requires that the
+// service can actually IMPORT it. Unexported, the guarantee it offers (one decision, SQL-parity
+// tested) is unreachable, and every consumer reimplements the chain instead.
+export * from "./question-pack-resolver";

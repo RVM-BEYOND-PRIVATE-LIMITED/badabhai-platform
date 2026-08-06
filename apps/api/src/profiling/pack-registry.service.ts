@@ -27,18 +27,11 @@ import {
   type QuestionPackOption,
 } from "@badabhai/ai-contracts";
 
+import { resolveFamily } from "@badabhai/db";
+
 import { SERVER_CONFIG } from "../config/config.module";
 import { isValidPredicate } from "./predicate";
 import type { PackItemRow, PackOptionRow, PackRepository } from "./pack.repository";
-
-/**
- * The binding levels, most specific first. Mirrors the `specificity` values migration 0069's
- * CHECK constraint pins: 50 job-domain, 40 unit, 30 minor, 20 sub-major, 10 major, 0 universal.
- *
- * Declared as data rather than as a sort comparator so the chain is READABLE — a reviewer asking
- * "what is the fallback order?" reads this array, not a `sort((a,b) => b.s - a.s)`.
- */
-export const BINDING_SPECIFICITY = [50, 40, 30, 20, 10, 0] as const;
 
 /** How long a resolved pack stays in process. A pack edit is a deploy-scale event, not a turn. */
 export const PACK_CACHE_TTL_MS = 900_000;
@@ -82,16 +75,34 @@ export class PackRegistryService {
     );
     const headByFamily = new Map(heads.map((head) => [head.familyId, head]));
 
-    // MOST SPECIFIC WINS, and a family with a binding but no ACTIVE pack falls THROUGH rather
-    // than aborting the chain. A half-authored family (Phase 6 lands 200 of them incrementally)
-    // must degrade to the next level up, never to no interview.
-    for (const specificity of BINDING_SPECIFICITY) {
-      for (const binding of bindings.filter((b) => b.specificity === specificity)) {
-        const head = headByFamily.get(binding.familyId);
-        if (!head) continue;
-        const pack = await this.load(head.packId, head.version, now);
-        if (pack) return pack;
-      }
+    // WHICH LEVEL WINS IS `resolveFamily`'S CALL, not this service's.
+    //
+    // That function lives in `@badabhai/db` beside `RESOLVE_FAMILY_SQL`, and a parity test pins
+    // the two to the same six levels and the same slicing — so the interview and the
+    // `db:verify:packs` deploy gate cannot come to different conclusions about which family owns a
+    // trade. Re-deriving the chain here would give up exactly that guarantee, and did: this
+    // service's own ISCO slicing rejected 3- and 2-digit codes that Postgres `left()` accepts, so
+    // a short code resolved to the universal pack in the engine and to a real family in the gate.
+    //
+    // THE LOOP IS THE FALL-THROUGH. `resolveFamily` answers "which family", once. A family with a
+    // binding but no ACTIVE pack must not abort the chain — Phase 6 lands 200 families
+    // incrementally, so half-authored is the NORMAL state — so a family that cannot produce a
+    // usable pack is removed and the question is asked again of what remains. Bounded by the six
+    // binding levels; `remaining` strictly shrinks each pass.
+    let remaining = bindings;
+    const key = {
+      jobDomainId: occupation?.job_domain_id ?? "",
+      iscoUnitCode: occupation?.isco_unit_code ?? null,
+    };
+    while (remaining.length > 0) {
+      const resolved = resolveFamily(remaining, key);
+      if (!resolved) return null;
+
+      const head = headByFamily.get(resolved.familyId);
+      const pack = head ? await this.load(head.packId, head.version, now) : null;
+      if (pack) return pack;
+
+      remaining = remaining.filter((binding) => binding.familyId !== resolved.familyId);
     }
     return null;
   }

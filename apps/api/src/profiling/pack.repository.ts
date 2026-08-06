@@ -10,7 +10,9 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import {
+  iscoAncestry,
   type Database,
+  type ResolvableBinding,
   profilingFamilyBindings,
   questionPackItems,
   questionPackOptions,
@@ -19,11 +21,14 @@ import {
 
 import { DATABASE } from "../database/database.module";
 
-/** One row of the family-binding table, narrowed to what resolution actually needs. */
-export interface FamilyBindingRow {
-  readonly familyId: string;
-  readonly specificity: number;
-}
+/**
+ * One row of the family-binding table.
+ *
+ * Typed as the SHARED resolver's own input (`ResolvableBinding` from `@badabhai/db`) rather than
+ * a local shape, so the rows this reads and the decision `resolveFamily` makes cannot drift apart
+ * — a narrowed local row is exactly how a caller ends up re-deriving the chain it was handed.
+ */
+export type FamilyBindingRow = ResolvableBinding & { readonly specificity: number };
 
 /** A pack head — the row that says which version is live for a family. */
 export interface PackHeadRow {
@@ -86,16 +91,16 @@ export class PackRepository {
     jobDomainId: string | null;
     iscoUnitCode: string | null;
   }): Promise<FamilyBindingRow[]> {
-    const codes = iscoPrefixes(target.iscoUnitCode);
+    const { minor, submajor, major } = iscoAncestry(target.iscoUnitCode);
     const rows = await this.db
       .select({
         familyId: profilingFamilyBindings.familyId,
         specificity: profilingFamilyBindings.specificity,
         jobDomainId: profilingFamilyBindings.jobDomainId,
-        unit: profilingFamilyBindings.iscoUnitCode,
-        minor: profilingFamilyBindings.iscoMinorCode,
-        submajor: profilingFamilyBindings.iscoSubmajorCode,
-        major: profilingFamilyBindings.iscoMajorCode,
+        iscoUnitCode: profilingFamilyBindings.iscoUnitCode,
+        iscoMinorCode: profilingFamilyBindings.iscoMinorCode,
+        iscoSubmajorCode: profilingFamilyBindings.iscoSubmajorCode,
+        iscoMajorCode: profilingFamilyBindings.iscoMajorCode,
         isUniversal: profilingFamilyBindings.isUniversal,
       })
       .from(profilingFamilyBindings);
@@ -103,17 +108,19 @@ export class PackRepository {
     // Filtered in memory rather than as a six-way OR. The table is one row per family per binding
     // level (~200 families ⇒ low hundreds of rows) and is read once per cache miss, so the query
     // planner has nothing to gain here and the predicate stays readable and unit-testable.
-    return rows
-      .filter(
-        (row) =>
-          row.isUniversal ||
-          (row.jobDomainId !== null && row.jobDomainId === target.jobDomainId) ||
-          (row.unit !== null && row.unit === codes.unit) ||
-          (row.minor !== null && row.minor === codes.minor) ||
-          (row.submajor !== null && row.submajor === codes.submajor) ||
-          (row.major !== null && row.major === codes.major),
-      )
-      .map((row) => ({ familyId: row.familyId, specificity: row.specificity }));
+    //
+    // This only NARROWS the candidate set; which level actually WINS is `resolveFamily`'s call,
+    // not this filter's. The explicit `!== null` guards matter: without them `null === null`
+    // would make every level match every occupation.
+    return rows.filter(
+      (row) =>
+        row.isUniversal ||
+        (row.jobDomainId !== null && row.jobDomainId === target.jobDomainId) ||
+        (row.iscoUnitCode !== null && row.iscoUnitCode === target.iscoUnitCode) ||
+        (row.iscoMinorCode !== null && row.iscoMinorCode === minor) ||
+        (row.iscoSubmajorCode !== null && row.iscoSubmajorCode === submajor) ||
+        (row.iscoMajorCode !== null && row.iscoMajorCode === major),
+    );
   }
 
   /** The ACTIVE pack head for each of these families, in the given locale. */
@@ -206,29 +213,4 @@ export class PackRepository {
       .where(inArray(questionPackOptions.itemId, [...itemIds]))
       .orderBy(asc(questionPackOptions.displayOrder));
   }
-}
-
-/**
- * The ISCO prefixes an occupation sits under: unit → minor → sub-major → major.
- *
- * ISCO is hierarchical BY DIGIT PREFIX ("7212" welder ⊂ "721" moulders/welders ⊂ "72" metal
- * trades ⊂ "7" craft), so the whole chain is four substrings of one code. A malformed or absent
- * code yields all-nulls, which matches only the universal binding — the correct floor, not an
- * error.
- */
-export function iscoPrefixes(unitCode: string | null): {
-  unit: string | null;
-  minor: string | null;
-  submajor: string | null;
-  major: string | null;
-} {
-  if (!unitCode || !/^[0-9]{4}$/.test(unitCode)) {
-    return { unit: null, minor: null, submajor: null, major: null };
-  }
-  return {
-    unit: unitCode,
-    minor: unitCode.slice(0, 3),
-    submajor: unitCode.slice(0, 2),
-    major: unitCode.slice(0, 1),
-  };
 }
