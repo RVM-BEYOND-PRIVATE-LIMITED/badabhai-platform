@@ -1,0 +1,17 @@
+{
+  "$comment": [
+    "Education and certification canonical values, plus the id vocabulary that feeds the",
+    "curated-vocabulary rescue. GENERATED from signals.py.",
+    "",
+    "'engineering' is trade AND education vocabulary in this product, and is exactly the",
+    "_COMPANY_SUFFIX collision that once deleted 'Diploma Mechanical Engineering' from a",
+    "worker's profile — the gateway masked it as an employer and nothing rescued it.",
+    "",
+    "_ID_LABELS and _ID_ACRONYMS are deliberately NOT here: _ID_LABELS is DERIVED from the",
+    "machines/controllers/welding/skills tables, so extracting it would mint a second source",
+    "of truth for the same facts."
+  ],
+  "educationLabels": ["ITI", "Diploma", "Degree"],
+  "certificationLabels": ["RVM CAD", "NSDC", "NCVT", "SCVT", "NSQF", "Apprenticeship"],
+  "educationDetectorWords": ["btech", "tech", "degree", "engineering", "diploma"]
+}
