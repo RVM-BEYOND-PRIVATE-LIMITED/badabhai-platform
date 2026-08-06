@@ -57,7 +57,11 @@ export class AgencyInvitesController {
       scope: "agency_invite_mint",
       cap: this.config.AGENCY_INVITE_MINT_MAX_PER_HOUR,
     });
-    return this.agency.createInvite(payer.id, dto.campaign, ctx);
+    return this.agency.createInvite(
+      payer.id,
+      { campaign: dto.campaign, medium: dto.medium, context: dto.context },
+      ctx,
+    );
   }
 
   /**
@@ -74,6 +78,11 @@ export class AgencyInvitesController {
    * NO DELIVERY: this endpoint accepts no phone/email/recipient and sends nothing. Sharing
    * the links is out-of-band, by the agency. That is a permanent boundary, not a deferral —
    * the moment the platform delivers, it must be told WHERE, and that IS module 2.
+   *
+   * W1 METADATA CHANGES NOTHING ABOUT THAT. `medium` and `context` are scalars describing
+   * the LINK (which channel it travels on, which role/city it advertises), applied
+   * identically to all N. They add no recipient, no arity over people, and no delivery.
+   * A per-invite variant of either would be `labels[]` in disguise — see the DTO.
    *
    * CAP: charges `count` units of the SAME `agency_invite_mint` bucket the singular mint
    * uses (one atomic reservation, up front, fail-closed) — so a batch of N and N single
@@ -94,7 +103,14 @@ export class AgencyInvitesController {
       cap: this.config.AGENCY_INVITE_MINT_MAX_PER_HOUR,
       amount: dto.count,
     });
-    return this.agency.createInviteBatch(payer.id, dto.count, dto.campaign, ctx);
+    return this.agency.createInviteBatch(
+      payer.id,
+      dto.count,
+      // ONE metadata object for the whole batch. There is no per-invite variant of this
+      // argument and there must never be — see CreateAgencyInviteBatchSchema.
+      { campaign: dto.campaign, medium: dto.medium, context: dto.context },
+      ctx,
+    );
   }
 
   /**

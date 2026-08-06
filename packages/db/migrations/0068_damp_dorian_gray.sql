@@ -1,0 +1,74 @@
+-- W1 LINK METADATA — `agency_invites` gains `medium` + `payload`.
+--
+-- EXPAND-ONLY: two NEW nullable-by-default-value columns and one CHECK on a column that
+-- did not exist a statement earlier. Nothing existing is touched — no column dropped, no
+-- constraint altered, no row rewritten. Safe to apply while the app is serving.
+--
+-- WHY. "Referral links with metadata for agents" shipped with exactly ONE piece of
+-- metadata: `campaign`, a single scalar tag. An agent running two gates in two cities for
+-- two trades could tag them apart but could not say what a link WAS FOR, so the landing
+-- experience was identical for every code and the funnel could not be segmented.
+--
+-- WHY HERE AND NOT `referral_links`. `referral_links` already models exactly this
+-- (`medium`, `campaign_id`, `payload`) — but NOTHING MINTS IT. `ReferralLinkService.mintLink()`
+-- has no HTTP caller, by decision: `/i/<code>` (`agency_invites`) is the canonical shipping
+-- code space, every QR and every share encodes it, and `referral_links` stays the
+-- measurement-only side of the resolver. Rather than expose a second mint surface and two
+-- code spaces an agent could confuse, the metadata lands on the table that is actually
+-- written. The columns are deliberately NAME- and CHECK-IDENTICAL to their `referral_links`
+-- counterparts so the two can be unioned later without a translation layer.
+--
+-- ── medium ──────────────────────────────────────────────────────────────────
+-- The MATCH-WINDOW DISCRIMINATOR: `organic` (default, 168h) vs `paid` (24h), the same pair
+-- REFERRAL_MATCH_WINDOW_ORGANIC_HOURS / _PAID_HOURS already governs for `referral_clicks`.
+-- DEFAULT 'organic' is the correct backfill for every existing row: an agency link shared
+-- hand-to-hand at a factory gate is organic by definition, and no paid channel has ever
+-- existed on this table.
+--
+-- The CHECK is DB-side and not merely zod-side because the window arithmetic downstream
+-- BRANCHES on this value — an unrecognised third value would silently fall through to the
+-- organic window (a 7x over-long attribution window) rather than fail. A constraint turns
+-- that into an insert error at the only place that can introduce it.
+--
+-- ── payload ─────────────────────────────────────────────────────────────────
+-- Contextual deep-link data ONLY: which role and which city this link was printed for, so
+-- the landing page and the app can open on the right screen.
+--
+-- PII-FREE (invariant #2), and CLOSED rather than loose. `referral_links.payload` is
+-- documented as free-shape because only internal callers were ever meant to write it. This
+-- column is written by an AGENCY-FACING endpoint, which makes it the widest PII surface
+-- `agency_invites` has ever had — so the shape is pinned AT THE BOUNDARY
+-- (`InviteContextSchema`, apps/api/src/agency/agency.dto.ts): exactly `role` and `city`,
+-- each a bounded lowercase slug, each additionally run through the same
+-- `looksLikeActionContextPii` screen that already guards `campaign`. `.strict()`, so an
+-- attempted `{phone}`/`{name}`/`{notes}` key is a LOUD 400, not a silently stored key.
+--
+-- The column stays `jsonb` rather than two `text` columns so a third context key is an API
+-- change and not a migration — but widening the ACCEPTED key set is a reviewable change to
+-- that schema, never an incidental one. NEVER a phone, a name, an employer, free-form text,
+-- or anything with arity over people (that is the DEAD module-2 bulk-upload boundary — see
+-- the long note on CreateAgencyInviteBatchSchema before adding ANY key here).
+--
+-- NOT EMITTED AS VALUES. `agency_invite.created` carries `medium` and `payload_keys` (the
+-- KEY NAMES only). The values stay on the row. `campaign` is emitted as a value and this is
+-- not — the asymmetry is deliberate and is explained on the payload schema; a jsonb surface
+-- starts closed and is widened on evidence, not on symmetry.
+--
+-- LOCKS: both ADD COLUMNs carry a constant DEFAULT, which PostgreSQL 11+ records in
+-- catalog metadata WITHOUT rewriting the table — a brief ACCESS EXCLUSIVE lock to update
+-- pg_attribute, not a full-table rewrite. The ADD CONSTRAINT then takes its own brief
+-- ACCESS EXCLUSIVE and validates existing rows; every row was assigned 'organic' by the
+-- statement two lines above, so validation cannot fail and scans a table that is small by
+-- construction (one row per minted invite, hourly-capped per payer).
+--
+-- ROLLBACK (fully reversible; no data is derived from these columns yet):
+--   ALTER TABLE "agency_invites" DROP CONSTRAINT "agency_invites_medium_chk";
+--   ALTER TABLE "agency_invites" DROP COLUMN "payload";
+--   ALTER TABLE "agency_invites" DROP COLUMN "medium";
+--
+-- `agency_invites` is ALREADY registered in tests/e2e/rls-spine.e2e.test.ts LOCKED_TABLES
+-- (migration 0025 carries its FORCE RLS + REVOKE); adding columns does not change that
+-- posture and needs no new registration.
+ALTER TABLE "agency_invites" ADD COLUMN "medium" text DEFAULT 'organic' NOT NULL;--> statement-breakpoint
+ALTER TABLE "agency_invites" ADD COLUMN "payload" jsonb DEFAULT '{}'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "agency_invites" ADD CONSTRAINT "agency_invites_medium_chk" CHECK ("agency_invites"."medium" IN ('organic', 'paid'));

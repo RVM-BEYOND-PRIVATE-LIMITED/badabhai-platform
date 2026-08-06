@@ -323,7 +323,7 @@ describe("AgencyService.closeJob / pauseJob (pause==close, Phase-1)", () => {
 describe("AgencyService.createInvite (faceless mint)", () => {
   it("mints an opaque code and emits agency_invite.created (no PII)", async () => {
     const { svc, emit } = make();
-    const res = await svc.createInvite(PAYER_A, "spring_drive", CTX);
+    const res = await svc.createInvite(PAYER_A, { campaign: "spring_drive" }, CTX);
     expect(res.code).toMatch(/^[0-9a-f]{12}$/);
     expect(res.link).toBe(`/i/${res.code}`);
 
@@ -568,7 +568,7 @@ describe("AgencyService.referralsSummary (k-anon floor, no consent oracle)", () 
 describe("AgencyService.createInvite — mint binds to the SESSION payer (XB-A)", () => {
   it("stamps inviter_payer_id = the session payer on the row AND the event (never a body value)", async () => {
     const { svc, emit, invitesRepo } = make({});
-    await svc.createInvite(PAYER_A, "spring_drive", CTX as never);
+    await svc.createInvite(PAYER_A, { campaign: "spring_drive" }, CTX as never);
     // The row is created under the session payer, not PAYER_B.
     expect(invitesRepo.create).toHaveBeenCalledWith(
       expect.objectContaining({ inviterPayerId: PAYER_A }),

@@ -116,7 +116,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("createInviteBatch — N invites, N codes, N events (C4, C11)", () => {
   it("mints exactly `count` invites with DISTINCT opaque codes and matching links", async () => {
     const { svc } = make();
-    const { invites } = await svc.createInviteBatch(PAYER_A, 50, undefined, CTX as never);
+    const { invites } = await svc.createInviteBatch(PAYER_A, 50, {}, CTX as never);
 
     expect(invites).toHaveLength(50);
     const codes = invites.map((i) => i.code);
@@ -137,15 +137,15 @@ describe("createInviteBatch — N invites, N codes, N events (C4, C11)", () => {
    */
   it("codes are INDEPENDENTLY random — no shared/derived prefix across the batch", async () => {
     const { svc } = make();
-    const { invites } = await svc.createInviteBatch(PAYER_A, 50, undefined, CTX as never);
+    const { invites } = await svc.createInviteBatch(PAYER_A, 50, {}, CTX as never);
     const prefixes = invites.map((i) => i.code.slice(0, 4));
     expect(new Set(prefixes).size).toBeGreaterThanOrEqual(45);
   });
 
   it("codes do not repeat ACROSS batches either", async () => {
     const { svc } = make();
-    const a = await svc.createInviteBatch(PAYER_A, 25, undefined, CTX as never);
-    const b = await svc.createInviteBatch(PAYER_A, 25, undefined, CTX as never);
+    const a = await svc.createInviteBatch(PAYER_A, 25, {}, CTX as never);
+    const b = await svc.createInviteBatch(PAYER_A, 25, {}, CTX as never);
     const all = [...a.invites, ...b.invites].map((i) => i.code);
     expect(new Set(all).size).toBe(50);
   });
@@ -158,7 +158,7 @@ describe("createInviteBatch — N invites, N codes, N events (C4, C11)", () => {
    */
   it("emits exactly N agency_invite.created events with N DISTINCT idempotency keys", async () => {
     const { svc, emit } = make();
-    await svc.createInviteBatch(PAYER_A, 7, undefined, CTX as never);
+    await svc.createInviteBatch(PAYER_A, 7, {}, CTX as never);
 
     const evts = emitted(emit);
     expect(evts).toHaveLength(7);
@@ -174,7 +174,7 @@ describe("createInviteBatch — N invites, N codes, N events (C4, C11)", () => {
 
   it("uses the UNMODIFIED v1 payload — exact keys, no batch field, NO code (C4, C13)", async () => {
     const { svc, emit } = make();
-    const { invites } = await svc.createInviteBatch(PAYER_A, 5, undefined, CTX as never);
+    const { invites } = await svc.createInviteBatch(PAYER_A, 5, {}, CTX as never);
 
     for (const e of emitted(emit)) {
       expect(definedKeys(e.payload)).toEqual(
@@ -194,7 +194,7 @@ describe("createInviteBatch — N invites, N codes, N events (C4, C11)", () => {
 
   it("stamps inviter_payer_id from the SESSION payer on ALL N rows and ALL N events (C7/XB-A)", async () => {
     const { svc, emit, invitesRepo } = make();
-    await svc.createInviteBatch(PAYER_A, 6, undefined, CTX as never);
+    await svc.createInviteBatch(PAYER_A, 6, {}, CTX as never);
 
     for (const call of invitesRepo.create.mock.calls) {
       expect((call[0] as { inviterPayerId: string }).inviterPayerId).toBe(PAYER_A);
@@ -206,7 +206,7 @@ describe("createInviteBatch — N invites, N codes, N events (C4, C11)", () => {
 describe("createInviteBatch — campaign is ONE scalar for the whole batch (C9)", () => {
   it("applies the IDENTICAL campaign to every row and every emitted payload", async () => {
     const { svc, emit, invitesRepo } = make();
-    await svc.createInviteBatch(PAYER_A, 5, "diwali-drive", CTX as never);
+    await svc.createInviteBatch(PAYER_A, 5, { campaign: "diwali-drive" }, CTX as never);
 
     expect(invitesRepo.create).toHaveBeenCalledTimes(5);
     for (const call of invitesRepo.create.mock.calls) {
@@ -221,7 +221,7 @@ describe("createInviteBatch — campaign is ONE scalar for the whole batch (C9)"
 
   it("carries NO campaign value when not supplied (payload stays the v1 three on the wire)", async () => {
     const { svc, emit } = make();
-    await svc.createInviteBatch(PAYER_A, 2, undefined, CTX as never);
+    await svc.createInviteBatch(PAYER_A, 2, {}, CTX as never);
     for (const e of emitted(emit)) {
       expect(e.payload.campaign).toBeUndefined();
       expect(JSON.parse(JSON.stringify(e.payload))).not.toHaveProperty("campaign");
@@ -237,7 +237,7 @@ describe("createInviteBatch — row/event coupling under partial failure (C5)", 
    */
   it("a mid-batch repository failure returns the minted SUBSET, with rows == events == codes", async () => {
     const { svc, emit, invitesRepo } = make({ failCreateOnCall: 27 });
-    const { invites } = await svc.createInviteBatch(PAYER_A, 50, undefined, CTX as never);
+    const { invites } = await svc.createInviteBatch(PAYER_A, 50, {}, CTX as never);
 
     expect(invites).toHaveLength(26);
     expect(invitesRepo.create).toHaveBeenCalledTimes(27); // 26 successes + the throwing one
@@ -247,7 +247,7 @@ describe("createInviteBatch — row/event coupling under partial failure (C5)", 
 
   it("does NOT leak the DB error surface (no table/constraint name, no stack) on partial failure", async () => {
     const { svc } = make({ failCreateOnCall: 3 });
-    const res = await svc.createInviteBatch(PAYER_A, 10, undefined, CTX as never);
+    const res = await svc.createInviteBatch(PAYER_A, 10, {}, CTX as never);
     const body = JSON.stringify(res);
     expect(body).not.toContain("agency_invites");
     expect(body).not.toContain("duplicate key");
@@ -274,7 +274,7 @@ describe("createInviteBatch — row/event coupling under partial failure (C5)", 
     }
 
     const { svc, emit, invitesRepo } = make({ failEmitFromCall: 3 });
-    const { invites } = await svc.createInviteBatch(PAYER_A, 5, undefined, CTX as never);
+    const { invites } = await svc.createInviteBatch(PAYER_A, 5, {}, CTX as never);
 
     // The returned subset is EXACTLY the rows that made it onto the spine.
     expect(invites).toHaveLength(2);
@@ -312,7 +312,7 @@ describe("createInviteBatch — row/event coupling under partial failure (C5)", 
       failEmitOnCall: 1,
       emitError: pgUnique("events_idempotency_key_uq"),
     });
-    const { invites } = await svc.createInviteBatch(PAYER_A, 1, undefined, CTX as never);
+    const { invites } = await svc.createInviteBatch(PAYER_A, 1, {}, CTX as never);
 
     expect(invites).toHaveLength(1);
     // THE assertion: one requested invite == one row. Before the fix this was 2.
@@ -330,14 +330,14 @@ describe("createInviteBatch — row/event coupling under partial failure (C5)", 
   it("a TOTAL failure surfaces a NEUTRAL 503 — no rows, no events, no DB error text", async () => {
     const { svc, emit } = make({ failCreateOnCall: 1 });
     await expect(
-      svc.createInviteBatch(PAYER_A, 10, undefined, CTX as never),
+      svc.createInviteBatch(PAYER_A, 10, {}, CTX as never),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(emit).not.toHaveBeenCalled();
 
     // A FRESH fixture (the failure counter is per-instance) to inspect the surfaced error.
     const fresh = make({ failCreateOnCall: 1 });
     const err = (await fresh.svc
-      .createInviteBatch(PAYER_A, 10, undefined, CTX as never)
+      .createInviteBatch(PAYER_A, 10, {}, CTX as never)
       .catch((e: Error) => e)) as Error;
     expect(err.message).toBe("This is temporarily unavailable; please retry shortly");
     expect(err.message).not.toContain("agency_invites");
@@ -365,7 +365,7 @@ describe("createInviteBatch — code collision is bounded-retried, never a 500 (
       {} as never,
       { emit } as never,
     );
-    const res = await svc.createInvite(PAYER_A, undefined, CTX as never);
+    const res = await svc.createInvite(PAYER_A, {}, CTX as never);
 
     expect(calls).toBe(2);
     expect(codes[0]).not.toBe(codes[1]); // a FRESH code, not the colliding one
@@ -393,7 +393,7 @@ describe("createInviteBatch — code collision is bounded-retried, never a 500 (
     );
 
     const err = (await svc
-      .createInvite(PAYER_A, undefined, CTX as never)
+      .createInvite(PAYER_A, {}, CTX as never)
       .catch((e: Error) => e)) as Error;
     expect(err).toBeInstanceOf(ServiceUnavailableException);
     expect(err.message).toBe("This is temporarily unavailable; please retry shortly");
@@ -414,7 +414,7 @@ describe("createInviteBatch — codes are NEVER logged (C13)", () => {
     }
 
     const { svc, invitesRepo } = make({ failCreateOnCall: 40 });
-    const { invites } = await svc.createInviteBatch(PAYER_A, 50, undefined, CTX as never);
+    const { invites } = await svc.createInviteBatch(PAYER_A, 50, {}, CTX as never);
 
     expect(invites).toHaveLength(39);
     const blob = logged.join("\n");
@@ -465,7 +465,7 @@ describe("Batch mint has NO delivery capability (C8)", () => {
 
   it("a 50-invite batch touches ONLY the invites repository and the events emitter", async () => {
     const { svc, emit, invitesRepo } = make();
-    await svc.createInviteBatch(PAYER_A, 50, undefined, CTX as never);
+    await svc.createInviteBatch(PAYER_A, 50, {}, CTX as never);
     expect(invitesRepo.create).toHaveBeenCalledTimes(50);
     expect(emit).toHaveBeenCalledTimes(50);
     // No read of an invite, no status write, no attribution — a mint denotes nobody.
@@ -478,7 +478,7 @@ describe("Batch mint has NO delivery capability (C8)", () => {
 describe("The singular mint is UNCHANGED by the batch refactor", () => {
   it("still returns one invite and emits exactly one keyed agency_invite.created", async () => {
     const { svc, emit } = make();
-    const res = await svc.createInvite(PAYER_A, "spring_drive", CTX as never);
+    const res = await svc.createInvite(PAYER_A, { campaign: "spring_drive" }, CTX as never);
 
     expect(res.code).toMatch(/^[0-9a-f]{12}$/);
     expect(res.link).toBe(`/i/${res.code}`);
@@ -486,8 +486,66 @@ describe("The singular mint is UNCHANGED by the batch refactor", () => {
     expect(evts).toHaveLength(1);
     expect(evts[0]?.event_name).toBe("agency_invite.created");
     expect(evts[0]?.idempotencyKey).toBe(`agency_invite.created:${res.agency_invite_id}`);
-    expect(Object.keys(evts[0]?.payload ?? {}).sort()).toEqual(
+    // ON THE WIRE, not on the object: `medium`/`payload_keys` are present-but-undefined on
+    // the constructed payload when the agency supplied neither, and JSON drops them. That is
+    // the same convention the "carries NO campaign value" test above asserts, and it is the
+    // one that matters — the spine stores the serialized form.
+    expect(Object.keys(JSON.parse(JSON.stringify(evts[0]?.payload ?? {}))).sort()).toEqual(
       ["agency_invite_id", "campaign", "channel", "inviter_payer_id"].sort(),
     );
+  });
+});
+
+describe("W1 link metadata rides the SAME one-scalar-per-batch rule as campaign", () => {
+  it("stamps medium + context on every row, and emits medium + KEY NAMES ONLY", async () => {
+    const { svc, emit, invitesRepo } = make();
+    await svc.createInviteBatch(
+      PAYER_A,
+      4,
+      { medium: "paid", context: { role: "welder", city: "pune" } },
+      CTX as never,
+    );
+
+    expect(invitesRepo.create).toHaveBeenCalledTimes(4);
+    for (const call of invitesRepo.create.mock.calls) {
+      const arg = call[0] as { medium?: string; payload?: Record<string, unknown> };
+      expect(arg.medium).toBe("paid");
+      expect(arg.payload).toEqual({ role: "welder", city: "pune" });
+    }
+
+    const evts = emitted(emit);
+    expect(evts).toHaveLength(4);
+    for (const e of evts) {
+      expect(e.payload.medium).toBe("paid");
+      // KEY NAMES, sorted — never the slug VALUES. This is the privacy property of the
+      // asymmetry with `campaign`; if the values ever appear here it is a regression.
+      expect(e.payload.payload_keys).toEqual(["city", "role"]);
+      const wire = JSON.stringify(e.payload);
+      expect(wire).not.toContain("welder");
+      expect(wire).not.toContain("pune");
+    }
+    // One scalar for the whole batch, exactly like campaign.
+    expect(new Set(evts.map((e) => e.payload.medium)).size).toBe(1);
+  });
+
+  it("omits payload_keys entirely when no context was supplied (not an empty array)", async () => {
+    const { svc, emit } = make();
+    await svc.createInviteBatch(PAYER_A, 2, { medium: "organic" }, CTX as never);
+    for (const e of emitted(emit)) {
+      expect(JSON.parse(JSON.stringify(e.payload))).not.toHaveProperty("payload_keys");
+    }
+  });
+
+  it("defaults the row to organic/{} when the agency supplies no metadata at all", async () => {
+    const { svc, invitesRepo } = make();
+    await svc.createInvite(PAYER_A, {}, CTX as never);
+    const arg = invitesRepo.create.mock.calls[0]?.[0] as {
+      medium?: string;
+      payload?: Record<string, unknown>;
+    };
+    // The repository — not the caller — supplies the fallbacks, so a pre-W1 caller writes
+    // exactly what it always wrote.
+    expect(arg.medium).toBeUndefined();
+    expect(arg.payload).toBeUndefined();
   });
 });

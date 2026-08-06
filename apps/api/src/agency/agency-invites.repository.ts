@@ -4,6 +4,7 @@ import {
   type Database,
   agencyInvites,
   type AgencyInvite,
+  type AgencyInviteMedium,
   type AgencyInviteStatus,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
@@ -25,11 +26,21 @@ export interface AgencyInviteStageCounts {
 export class AgencyInvitesRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  /** Mint an owned invite. `inviterPayerId` is the SESSION payer (stamped server-side). */
+  /**
+   * Mint an owned invite. `inviterPayerId` is the SESSION payer (stamped server-side).
+   *
+   * `medium` and `payload` are the W1 link metadata. Both are validated at the HTTP
+   * boundary (`InviteMediumSchema` / `InviteContextSchema`) — this method takes them as
+   * already-screened values and does not re-derive them, but it does NOT trust an
+   * `undefined` into the column: both fall back to the same defaults the DB declares, so a
+   * caller that omits them writes exactly what a pre-W1 caller wrote.
+   */
   async create(input: {
     code: string;
     inviterPayerId: string;
     campaign?: string;
+    medium?: AgencyInviteMedium;
+    payload?: Record<string, unknown>;
   }): Promise<AgencyInvite> {
     const [row] = await this.db
       .insert(agencyInvites)
@@ -37,6 +48,8 @@ export class AgencyInvitesRepository {
         code: input.code,
         inviterPayerId: input.inviterPayerId,
         campaign: input.campaign ?? null,
+        medium: input.medium ?? "organic",
+        payload: input.payload ?? {},
       })
       .returning();
     if (!row) throw new Error("failed to create agency invite");
