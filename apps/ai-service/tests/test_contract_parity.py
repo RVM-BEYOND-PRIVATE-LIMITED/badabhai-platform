@@ -17,10 +17,14 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from app.contracts import (
+    AnswerRecord,
+    AnswerRecordHistoryEntry,
     ConversationMessage,
     ConversationState,
+    EvidenceSpan,
     JobDomainMatch,
     JobPostingChatOpeningInput,
     JobPostingChatOpeningOutput,
@@ -28,12 +32,23 @@ from app.contracts import (
     JobPostingChatTurnInput,
     JobPostingChatTurnOutput,
     JobPostingDraft,
+    OccupationPin,
+    ParsedField,
+    Predicate,
+    PredicateOperand,
     ProfileExtractionInput,
     ProfileExtractionOutput,
+    ProfileParseInput,
+    ProfileParseOutput,
     ProfilingOpeningInput,
     ProfilingOpeningOutput,
     ProfilingTurnInput,
     ProfilingTurnOutput,
+    QuestionPack,
+    QuestionPackItem,
+    QuestionPackOption,
+    TargetField,
+    TranscriptLine,
 )
 
 _FIXTURE_DIR = (
@@ -205,3 +220,136 @@ def test_job_domain_match_defaults_to_unmatched():
     assert m.status == "unmatched_degraded"
     assert m.job_domain_id is None
     assert m.score is None
+
+
+# --- Occupation Intelligence Engine (the Phase 0 contract freeze) -----------
+_OIE_FIXTURE = _FIXTURE_DIR / "oie.keys.json"
+
+_OIE_MODELS = {
+    "EvidenceSpan": EvidenceSpan,
+    "AnswerRecordHistoryEntry": AnswerRecordHistoryEntry,
+    "AnswerRecord": AnswerRecord,
+    "OccupationPin": OccupationPin,
+    "PredicateOperand": PredicateOperand,
+    "Predicate": Predicate,
+    "QuestionPackOption": QuestionPackOption,
+    "QuestionPackItem": QuestionPackItem,
+    "QuestionPack": QuestionPack,
+    "TranscriptLine": TranscriptLine,
+    "TargetField": TargetField,
+    "ProfileParseInput": ProfileParseInput,
+    "ParsedField": ParsedField,
+    "ProfileParseOutput": ProfileParseOutput,
+}
+
+
+@pytest.mark.parametrize("name", sorted(_OIE_MODELS))
+def test_oie_models_match_the_zod_shape(name: str):
+    golden = _read_golden(_OIE_FIXTURE)
+    assert name in golden, f"fixture is missing {name}"
+    assert sorted(_OIE_MODELS[name].model_fields) == sorted(golden[name])
+
+
+def test_the_oie_fixture_declares_no_model_the_python_side_lacks():
+    """This surface has ALREADY shipped incomplete once: the Phase 0 "contract freeze"
+    merged without these models existing at all, and every suite stayed green because a
+    parity test can only compare what exists on both sides. The closure check is what
+    makes that impossible to repeat quietly — a model added to the fixture without a
+    Pydantic twin fails HERE, not in production."""
+    golden = _read_golden(_OIE_FIXTURE)
+    declared = {k for k in golden if not k.startswith("_")}
+    assert declared == set(_OIE_MODELS)
+
+
+def test_conversation_state_carries_the_seven_oie_fields():
+    """Belt to the fixture's braces, pinned BY NAME because their absence is precisely
+    the Phase 0 gap that shipped once already. All seven default, so a state persisted
+    before this change still parses (invariant #8 for sessions mid-flight at deploy)."""
+    state = ConversationState()
+    assert state.phase == "identify"
+    assert state.occupation is None
+    assert state.answer_map == []
+    assert state.engine_asks == 0
+    assert state.pack_id is None
+    assert state.pack_version is None
+    assert state.catalog_version is None
+
+
+def test_predicate_arity_is_enforced_per_op():
+    """The evaluator is pure code that trusts its input shape; this validator is what
+    lets it. Wrong-operand predicates must fail at the contract, not at evaluation time
+    inside a live interview. Mirrors the Zod superRefine table byte for byte."""
+    # A predicate exercising every operator parses...
+    Predicate.model_validate(
+        {
+            "op": "all",
+            "predicates": [
+                {"op": "not", "predicate": {"op": "answered", "field": "trade"}},
+                {"op": "declined", "field": "salary_expected"},
+                {
+                    "op": "eq",
+                    "left": {"field": "experience_years"},
+                    "right": {"const": 5},
+                },
+                {"op": "occupation_is", "job_domain_id": "jd_nco_7212_0100"},
+                {"op": "occupation_under", "isco_code": "72"},
+                {"op": "phase_is", "phase": "occupation_specific"},
+                {"op": "turn_gte", "turn": 3},
+            ],
+        }
+    )
+    # ...while a missing or foreign operand is rejected.
+    with pytest.raises(ValidationError):
+        Predicate.model_validate({"op": "all"})
+    with pytest.raises(ValidationError):
+        Predicate.model_validate({"op": "answered"})
+    with pytest.raises(ValidationError):
+        Predicate.model_validate({"op": "answered", "field": "trade", "turn": 3})
+    with pytest.raises(ValidationError):
+        Predicate.model_validate({"op": "eq", "left": {"field": "x"}})
+
+
+def test_predicate_operand_is_exactly_one_of_field_or_const():
+    PredicateOperand.model_validate({"field": "experience_years"})
+    # `{"const": null}` is a valid literal null — key PRESENCE decides, not truthiness.
+    PredicateOperand.model_validate({"const": None})
+    with pytest.raises(ValidationError):
+        PredicateOperand.model_validate({})
+    with pytest.raises(ValidationError):
+        PredicateOperand.model_validate({"field": "x", "const": 1})
+
+
+def test_parsed_field_requires_evidence():
+    """The provenance gate's contract half: a value with no span cannot even be
+    REPRESENTED. A hallucinated value has no quote to point at (§gate 1)."""
+    with pytest.raises(ValidationError):
+        ParsedField.model_validate(
+            {"value": 15000, "source": "answer_map", "normalization": "numeric", "confidence": 0.9}
+        )
+    ParsedField.model_validate(
+        {
+            "value": 15000,
+            "evidence": {"message_index": 4, "quote": "pandrah hazaar"},
+            "source": "answer_map",
+            "normalization": "numeric",
+            "confidence": 0.9,
+        }
+    )
+
+
+def test_occupation_pin_defaults_to_unmatched():
+    """Same fail-safe direction as JobDomainMatch: an empty pin means "not identified",
+    never a silently-matched occupation. A wrong family makes every subsequent question
+    wrong, which is far worse than one extra clarifying turn."""
+    pin = OccupationPin(job_domain_id="jd_nco_7212_0100", label="Welder, Gas")
+    assert pin.match_status == "unmatched_degraded"
+    assert pin.match_score is None
+    assert pin.match_layer is None
+
+
+def test_the_oie_contracts_carry_no_identity_pii_field():
+    """Mechanical, same as the profiling models: there is nowhere in these contracts to
+    put a name, phone, address or employer (§2 #2)."""
+    banned = {"worker_name", "name", "phone", "phone_number", "address", "employer"}
+    for model_name, model in _OIE_MODELS.items():
+        assert banned.isdisjoint(set(model.model_fields)), model_name

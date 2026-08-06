@@ -4,7 +4,7 @@
 
   "ConversationMessage": ["role", "text"],
 
-  "_ConversationState": "`captured` is the Resume Field Set as filled so far and is the field that actually matters now; `collected`, `answered_topics`, `asked_question_ids`, `ask_counts` and `clarify_count` are the deterministic engine's vestigial state, kept ONLY because dropping a shipped field would break invariant #8 for any session mid-flight at deploy time. They are no longer populated.",
+  "_ConversationState": "`captured` is the Resume Field Set as filled so far; `collected`, `answered_topics`, `asked_question_ids`, `ask_counts` and `clarify_count` are the first deterministic engine's vestigial state, kept ONLY because dropping a shipped field would break invariant #8 for any session mid-flight at deploy time. The seven OIE fields (phase..catalog_version, Phase 0 contract freeze) are the SECOND deterministic engine's state: the orchestrator repopulates the six vestigial fields and keeps `captured` as a flattened projection of `answer_map`, so nothing reading the old fields breaks. Every OIE field must also be added to ChatTranscriptBuffer.narrow(), which silently drops unknown keys.",
   "ConversationState": [
     "role_family",
     "turn_count",
@@ -15,7 +15,14 @@
     "ask_counts",
     "unanswered_essentials",
     "captured",
-    "completion_reason"
+    "completion_reason",
+    "phase",
+    "occupation",
+    "answer_map",
+    "engine_asks",
+    "pack_id",
+    "pack_version",
+    "catalog_version"
   ],
 
   "_ProfilingTurnInput": "`history` is populated again (it shipped empty under COST-3/PERF-2) because a model that cannot see the conversation cannot ask a follow-up. `force_complete` is the API's turn cap: the cap is API-authoritative because the ai-service holds no per-session state to count turns with, and a model must never be able to extend its own interview.",

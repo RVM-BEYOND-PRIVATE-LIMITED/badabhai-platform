@@ -1,0 +1,86 @@
+{
+  "_why": "Golden Zod<->Pydantic parity fixture for the OCCUPATION INTELLIGENCE ENGINE contracts (the Phase 0 contract freeze). Asserted from BOTH suites — packages/ai-contracts/src/ai-contracts.test.ts and apps/ai-service/tests/test_contract_parity.py — against this one file, so adding, renaming or removing a field on either side turns the OTHER side red. Same mechanism, same reasoning, as profiling.keys.json: Pydantic IGNORES unknown request keys and Zod objects STRIP unknown response keys, so without this a field that exists on one side only passes both suites while data is silently dropped in flight.",
+  "_scope": "The deterministic-profiling surface only: the answer map, the occupation pin, question packs, the ask_if/skip_if predicate AST, and POST /profile/parse. ConversationState's seven OIE fields live in profiling.keys.json because that model belongs to the chat-profiling surface. Kept separate so a change to one surface cannot quietly rewrite another's contract.",
+
+  "EvidenceSpan": ["message_index", "quote"],
+
+  "_AnswerRecord": "The unit of the deterministic answer map — the parse call's PRIMARY input; the transcript is only its evidence store. `value_normalized` is written at CAPTURE time by the orchestrator, which is what makes the fail-closed projection (LLM down => profile from the map alone) real. `history` keeps corrected values: the transcript holds both, and the map is what tells the model which won.",
+  "AnswerRecordHistoryEntry": ["value_raw", "value_normalized", "status", "evidence", "turn"],
+  "AnswerRecord": [
+    "question_key",
+    "target_field",
+    "value_raw",
+    "value_normalized",
+    "status",
+    "evidence",
+    "turn",
+    "history"
+  ],
+
+  "_OccupationPin": "pack_id + pack_version + catalog_version are IMMUTABLE for the conversation once pinned (risk #13). match_status carries the five job-domain statuses PLUS matched_lexical / matched_worker_confirmed, declared ahead of migration 0076 because this package freezes at Phase 0.",
+  "OccupationPin": [
+    "job_domain_id",
+    "label",
+    "isco_unit_code",
+    "match_status",
+    "match_score",
+    "match_layer",
+    "pack_id",
+    "pack_version",
+    "catalog_version"
+  ],
+
+  "_Predicate": "ONE object shape with an `op` discriminant rather than a tagged union, so this key list is stable; per-op arity (exactly the operator's operand keys, nothing else) is enforced by refinement on both sides and re-checked by the Phase 4 pack validator at boot. A closed JSON AST, never a string — no expression-parser injection surface.",
+  "PredicateOperand": ["field", "const"],
+  "Predicate": [
+    "op",
+    "predicates",
+    "predicate",
+    "field",
+    "left",
+    "right",
+    "job_domain_id",
+    "isco_code",
+    "phase",
+    "turn"
+  ],
+
+  "_QuestionPack": "Version-scoped and immutable by construction — immutability IS the cache invalidation. Option labels are the worker's answer of record verbatim when tapped, which is why chips are reviewed static data and never model output.",
+  "QuestionPackOption": ["option_key", "label_text", "value", "implies_skill_id", "is_none_of_above"],
+  "QuestionPackItem": [
+    "question_key",
+    "prompt_text",
+    "display_order",
+    "target_kind",
+    "target_field",
+    "target_skill_id",
+    "answer_type",
+    "is_mandatory",
+    "is_core",
+    "max_asks",
+    "min_turn",
+    "max_turn",
+    "ask_if",
+    "skip_if",
+    "parent_item_key",
+    "retry_text",
+    "why_text",
+    "options"
+  ],
+  "QuestionPack": ["pack_id", "version", "family_id", "locale", "status", "content_hash", "items"],
+
+  "_ProfileParse": "THE one LLM call. The framing is the enforcement: the model is never asked what the worker's salary is — it is asked to type and cite the answer the map already holds. `ParsedField.evidence` is MANDATORY: a value with no span fails the provenance gate, which makes a hallucinated value structurally impossible to persist.",
+  "TranscriptLine": ["i", "role", "text"],
+  "TargetField": ["field_id", "type", "enum", "unit", "required"],
+  "ProfileParseInput": [
+    "schema_version",
+    "worker_ref",
+    "language",
+    "occupation",
+    "answer_map",
+    "transcript",
+    "target_fields"
+  ],
+  "ParsedField": ["value", "evidence", "source", "normalization", "confidence"],
+  "ProfileParseOutput": ["fields", "unparsed_field_ids", "notes"]
+}

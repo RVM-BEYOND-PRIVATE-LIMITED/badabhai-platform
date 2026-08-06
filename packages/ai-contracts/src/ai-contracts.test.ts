@@ -2,6 +2,24 @@ import { describe, it, expect } from "vitest";
 import openingKeys from "./__fixtures__/profiling-opening.keys.json";
 import jobPostingChatKeys from "./__fixtures__/job-posting-chat.keys.json";
 import profilingKeys from "./__fixtures__/profiling.keys.json";
+import oieKeys from "./__fixtures__/oie.keys.json";
+import {
+  AnswerRecordHistoryEntrySchema,
+  AnswerRecordSchema,
+  EvidenceSpanSchema,
+  OccupationPinSchema,
+  ParsedFieldSchema,
+  PredicateOperandSchema,
+  PredicateObjectShapeForParity,
+  PredicateSchema,
+  ProfileParseInputSchema,
+  ProfileParseOutputSchema,
+  QuestionPackItemSchema,
+  QuestionPackOptionSchema,
+  QuestionPackSchema,
+  TargetFieldSchema,
+  TranscriptLineSchema,
+} from "./oie";
 import {
   AICallMetadataSchema,
   ConversationMessageSchema,
@@ -622,6 +640,35 @@ describe("Generalized profiling contract parity (contracts.py mirror)", () => {
     expect(declared.sort()).toEqual(shapes.map(([n]) => n).sort());
   });
 
+  it("ConversationState carries the seven OIE fields the Phase 0 freeze requires", () => {
+    // Belt to the fixture's braces: the fixture proves TS and Python agree, but both
+    // could agree on the OLD shape. This pins the seven fields BY NAME, because their
+    // absence is precisely the Phase 0 gap that shipped once already — the PR that
+    // "froze" the contract froze it without them, and every suite stayed green.
+    const keys = Object.keys(ConversationStateSchema.shape);
+    for (const field of [
+      "phase",
+      "occupation",
+      "answer_map",
+      "engine_asks",
+      "pack_id",
+      "pack_version",
+      "catalog_version",
+    ]) {
+      expect(keys, `ConversationState is missing ${field}`).toContain(field);
+    }
+    // All seven are defaulted, so a state persisted before this change still parses —
+    // invariant #8 for sessions mid-flight at deploy time.
+    const parsed = ConversationStateSchema.parse({});
+    expect(parsed.phase).toBe("identify");
+    expect(parsed.occupation).toBeNull();
+    expect(parsed.answer_map).toEqual([]);
+    expect(parsed.engine_asks).toBe(0);
+    expect(parsed.pack_id).toBeNull();
+    expect(parsed.pack_version).toBeNull();
+    expect(parsed.catalog_version).toBeNull();
+  });
+
   it("the RFS `captured` map survives a round trip through the output schema", () => {
     // The specific regression above, pinned by behaviour rather than by key list: a
     // stripped field would leave `captured` as `{}` here while every other assertion
@@ -673,5 +720,124 @@ describe("Generalized profiling contract parity (contracts.py mirror)", () => {
       "unmatched_degraded",
       "unmatched_llm_declined",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Occupation Intelligence Engine — Zod <-> Pydantic parity, asserted against
+// oie.keys.json, which apps/ai-service/tests/test_contract_parity.py reads too.
+// ---------------------------------------------------------------------------
+
+describe("OIE contract parity (contracts.py mirror)", () => {
+  // Same mechanism, same reasoning, as the profiling block above: neither CI job
+  // compares the two languages, so a field that exists on one side only passes both
+  // suites while data is silently dropped in flight. And this surface has ALREADY
+  // shipped incomplete once — the Phase 0 "contract freeze" merged without these
+  // schemas existing at all, and every suite stayed green. This fixture is what makes
+  // that impossible to repeat quietly.
+  const shapes: Array<[string, Record<string, unknown>]> = [
+    ["EvidenceSpan", EvidenceSpanSchema.shape],
+    ["AnswerRecordHistoryEntry", AnswerRecordHistoryEntrySchema.shape],
+    ["AnswerRecord", AnswerRecordSchema.shape],
+    ["OccupationPin", OccupationPinSchema.shape],
+    // `.innerType()` because the operand carries an exactly-one-of refinement.
+    ["PredicateOperand", PredicateOperandSchema.innerType().shape],
+    // `z.lazy` has no `.shape`, so the Predicate key list is asserted via a parallel
+    // shape object; the test below proves the two cannot drift apart.
+    ["Predicate", PredicateObjectShapeForParity.shape],
+    ["QuestionPackOption", QuestionPackOptionSchema.shape],
+    ["QuestionPackItem", QuestionPackItemSchema.shape],
+    ["QuestionPack", QuestionPackSchema.shape],
+    ["TranscriptLine", TranscriptLineSchema.shape],
+    ["TargetField", TargetFieldSchema.shape],
+    ["ProfileParseInput", ProfileParseInputSchema.shape],
+    ["ParsedField", ParsedFieldSchema.shape],
+    ["ProfileParseOutput", ProfileParseOutputSchema.shape],
+  ];
+
+  it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {
+    const golden = (oieKeys as unknown as Record<string, string[] | string>)[name];
+    expect(golden, `fixture is missing ${name}`).toBeDefined();
+    expect(Array.isArray(golden)).toBe(true);
+    expect(Object.keys(shape).sort()).toEqual([...(golden as string[])].sort());
+  });
+
+  it("the fixture declares no contract the TypeScript side lacks", () => {
+    const declared = Object.keys(oieKeys).filter((k) => !k.startsWith("_"));
+    expect(declared.sort()).toEqual(shapes.map(([n]) => n).sort());
+  });
+
+  it("the parity shape object cannot drift from the real PredicateSchema", () => {
+    // The one seam in the mechanism: Predicate's keys are asserted via a parallel
+    // object because z.lazy has no .shape. Prove the real schema ACCEPTS a predicate
+    // exercising every declared key, and REJECTS one carrying a key the parity shape
+    // does not declare — so the two definitions cannot diverge silently.
+    const usesEveryKey = {
+      op: "all",
+      predicates: [
+        { op: "not", predicate: { op: "answered", field: "trade" } },
+        { op: "declined", field: "salary_expected" },
+        { op: "eq", left: { field: "experience_years" }, right: { const: 5 } },
+        { op: "occupation_is", job_domain_id: "jd_nco_7212_0100" },
+        { op: "occupation_under", isco_code: "72" },
+        { op: "phase_is", phase: "occupation_specific" },
+        { op: "turn_gte", turn: 3 },
+      ],
+    };
+    expect(PredicateSchema.safeParse(usesEveryKey).success).toBe(true);
+
+    const undeclaredKey = { op: "turn_gte", turn: 3, clock: "now" };
+    // Zod objects STRIP unknown keys rather than reject, so assert on the parsed
+    // result: the undeclared key must not survive.
+    const parsed = PredicateSchema.safeParse(undeclaredKey);
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && ("clock" in (parsed.data as object))).toBe(false);
+  });
+
+  it("per-op arity is enforced: a predicate cannot carry another op's operands", () => {
+    // The evaluator is ~120 lines of pure code that trusts its input shape; this
+    // refinement is what lets it. Wrong-operand predicates must fail at the contract,
+    // not at evaluation time inside a live interview.
+    expect(PredicateSchema.safeParse({ op: "all" }).success).toBe(false);
+    expect(PredicateSchema.safeParse({ op: "answered" }).success).toBe(false);
+    expect(
+      PredicateSchema.safeParse({ op: "answered", field: "trade", turn: 3 }).success,
+    ).toBe(false);
+    expect(PredicateSchema.safeParse({ op: "eq", left: { field: "x" } }).success).toBe(false);
+    expect(
+      PredicateSchema.safeParse({ op: "eq", left: { field: "x", const: 1 }, right: { const: 1 } })
+        .success,
+    ).toBe(false);
+  });
+
+  it("ParsedField requires evidence — the provenance gate's contract half", () => {
+    // A value with no span is a hallucination by definition. Making `evidence`
+    // non-nullable here means such a value cannot even be REPRESENTED, which is a
+    // stronger guarantee than rejecting it downstream.
+    expect(
+      ParsedFieldSchema.safeParse({
+        value: "15000",
+        source: "answer_map",
+        normalization: "numeric",
+        confidence: 0.9,
+      }).success,
+    ).toBe(false);
+    expect(
+      ParsedFieldSchema.safeParse({
+        value: 15000,
+        evidence: { message_index: 4, quote: "pandrah hazaar" },
+        source: "answer_map",
+        normalization: "numeric",
+        confidence: 0.9,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("ProfileParseInput defaults are a valid, empty request", () => {
+    const parsed = ProfileParseInputSchema.parse({ worker_ref: "w_abc123" });
+    expect(parsed.schema_version).toBe("oie.v1");
+    expect(parsed.occupation).toBeNull();
+    expect(parsed.answer_map).toEqual([]);
+    expect(parsed.transcript).toEqual([]);
   });
 });
