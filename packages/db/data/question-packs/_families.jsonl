@@ -116,3 +116,131 @@
 {"kind":"binding","family_id":"fam_packing","isco_unit_code":"9321"}
 {"kind":"binding","family_id":"fam_loading","isco_unit_code":"9333"}
 {"kind":"binding","family_id":"fam_metal_processing","isco_unit_code":"8121"}
+
+# ── TAIL: ISCO minor-group families (Phase 6) ───────────────────────────────
+# These cover the 158 unit groups with no unit-level family — 1,530 occupations of
+# narrow industrial specialisation (acid concentrator, bead maker, band builder).
+# Bound at MINOR level (specificity 30) on purpose: those workers would get
+# near-identical questions, so 158 near-duplicate packs would be padding that LOOKS
+# like coverage while being worse to review. A unit-level family always outranks a
+# minor-level one, so adding a specific family later needs no change here — that is
+# exactly what the six specificity levels are for.
+{"kind":"family","family_id":"fam_travel_service","label_en":"Travel and Transport Service","label_hi":"यात्रा सेवा"}
+{"kind":"family","family_id":"fam_bar_service","label_en":"Bar Service","label_hi":"बार सेवा"}
+{"kind":"family","family_id":"fam_hair_styling","label_en":"Hairdressing","label_hi":"बाल काटना"}
+{"kind":"family","family_id":"fam_building_supervision","label_en":"Building and Housekeeping Supervision","label_hi":"बिल्डिंग देखरेख"}
+{"kind":"family","family_id":"fam_other_personal_service","label_en":"Other Personal Services","label_hi":"अन्य निजी सेवा"}
+{"kind":"family","family_id":"fam_street_sales","label_en":"Street and Market Sales","label_hi":"रेहड़ी बिक्री"}
+{"kind":"family","family_id":"fam_shop_supervision","label_en":"Shop Supervision","label_hi":"दुकान देखरेख"}
+{"kind":"family","family_id":"fam_cashier","label_en":"Cashier and Ticketing","label_hi":"कैशियर"}
+{"kind":"family","family_id":"fam_other_sales","label_en":"Other Sales and Customer Service","label_hi":"अन्य बिक्री"}
+{"kind":"family","family_id":"fam_child_care","label_en":"Child Care","label_hi":"बच्चों की देखभाल"}
+{"kind":"family","family_id":"fam_health_care_assist","label_en":"Health Care Assistance","label_hi":"स्वास्थ्य सहायक"}
+{"kind":"family","family_id":"fam_protective_service","label_en":"Protective Services","label_hi":"सुरक्षा सेवा"}
+{"kind":"family","family_id":"fam_crop_growing","label_en":"Crop Growing","label_hi":"फसल उगाना"}
+{"kind":"family","family_id":"fam_animal_rearing","label_en":"Animal Rearing","label_hi":"पशुपालन"}
+{"kind":"family","family_id":"fam_mixed_farming","label_en":"Mixed Farming","label_hi":"मिश्रित खेती"}
+{"kind":"family","family_id":"fam_forestry","label_en":"Forestry","label_hi":"जंगल का काम"}
+{"kind":"family","family_id":"fam_fishery","label_en":"Fishery and Aquaculture","label_hi":"मछली पालन"}
+{"kind":"family","family_id":"fam_subsistence_crop","label_en":"Subsistence Crop Farming","label_hi":"अपने लिए खेती"}
+{"kind":"family","family_id":"fam_subsistence_livestock","label_en":"Subsistence Livestock","label_hi":"अपने लिए पशुपालन"}
+{"kind":"family","family_id":"fam_subsistence_mixed","label_en":"Subsistence Mixed Farming","label_hi":"अपने लिए मिश्रित खेती"}
+{"kind":"family","family_id":"fam_subsistence_fishing","label_en":"Subsistence Fishing","label_hi":"अपने लिए मछली पकड़ना"}
+{"kind":"family","family_id":"fam_building_frame","label_en":"Building Frame Work","label_hi":"ढांचे का काम"}
+{"kind":"family","family_id":"fam_building_finishing","label_en":"Building Finishing","label_hi":"फिनिशिंग का काम"}
+{"kind":"family","family_id":"fam_structure_cleaning","label_en":"Structure Painting and Cleaning","label_hi":"ढांचे की सफाई"}
+{"kind":"family","family_id":"fam_sheet_metal","label_en":"Sheet and Structural Metal Work","label_hi":"चादर और ढांचा"}
+{"kind":"family","family_id":"fam_blacksmithing","label_en":"Blacksmithing and Forging","label_hi":"लोहार का काम"}
+{"kind":"family","family_id":"fam_machinery_repair","label_en":"Machinery Repair","label_hi":"मशीन मरम्मत"}
+{"kind":"family","family_id":"fam_handicraft","label_en":"Handicraft","label_hi":"हस्तशिल्प"}
+{"kind":"family","family_id":"fam_printing","label_en":"Printing","label_hi":"छपाई का काम"}
+{"kind":"family","family_id":"fam_electrical_equipment","label_en":"Electrical Equipment Work","label_hi":"बिजली उपकरण"}
+{"kind":"family","family_id":"fam_electronics_install","label_en":"Electronics and Telecom Installation","label_hi":"इलेक्ट्रॉनिक्स लगाना"}
+{"kind":"family","family_id":"fam_food_processing","label_en":"Food Processing","label_hi":"खाद्य प्रसंस्करण"}
+{"kind":"family","family_id":"fam_wood_treating","label_en":"Wood Treating and Cabinet Making","label_hi":"लकड़ी का काम"}
+{"kind":"family","family_id":"fam_garment_trades","label_en":"Garment and Leather Trades","label_hi":"कपड़ा और चमड़ा"}
+{"kind":"family","family_id":"fam_other_craft","label_en":"Other Craft Work","label_hi":"अन्य कारीगरी"}
+{"kind":"family","family_id":"fam_mining_plant","label_en":"Mining and Mineral Plant","label_hi":"खनन प्लांट"}
+{"kind":"family","family_id":"fam_metal_plant","label_en":"Metal Processing Plant","label_hi":"धातु प्लांट"}
+{"kind":"family","family_id":"fam_chemical_plant","label_en":"Chemical and Photographic Plant","label_hi":"रसायन प्लांट"}
+{"kind":"family","family_id":"fam_rubber_plastic","label_en":"Rubber, Plastic and Paper Machines","label_hi":"रबर और प्लास्टिक"}
+{"kind":"family","family_id":"fam_textile_machines","label_en":"Textile and Leather Machines","label_hi":"कपड़ा मशीन"}
+{"kind":"family","family_id":"fam_wood_plant","label_en":"Wood and Paper Plant","label_hi":"लकड़ी प्लांट"}
+{"kind":"family","family_id":"fam_other_plant","label_en":"Other Plant and Machine Operation","label_hi":"अन्य मशीन"}
+{"kind":"family","family_id":"fam_assemblers_other","label_en":"Assembly Work","label_hi":"असेंबली का काम"}
+{"kind":"family","family_id":"fam_rail_operation","label_en":"Rail Operation","label_hi":"रेल का काम"}
+{"kind":"family","family_id":"fam_delivery_driving","label_en":"Delivery Driving","label_hi":"डिलीवरी"}
+{"kind":"family","family_id":"fam_bus_driving","label_en":"Bus Driving","label_hi":"बस चलाना"}
+{"kind":"family","family_id":"fam_mobile_plant","label_en":"Mobile Plant Operation","label_hi":"चलती मशीन"}
+{"kind":"family","family_id":"fam_ship_crew","label_en":"Ship and Boat Crew","label_hi":"नाव का काम"}
+{"kind":"family","family_id":"fam_cleaning_helpers","label_en":"Cleaning Helpers","label_hi":"सफाई सहायक"}
+{"kind":"family","family_id":"fam_hand_cleaning","label_en":"Vehicle and Window Cleaning","label_hi":"गाड़ी और शीशा सफाई"}
+{"kind":"family","family_id":"fam_farm_labour","label_en":"Farm Labour","label_hi":"खेत मजदूरी"}
+{"kind":"family","family_id":"fam_construction_labour","label_en":"Mining and Construction Labour","label_hi":"निर्माण मजदूरी"}
+{"kind":"family","family_id":"fam_manufacturing_labour","label_en":"Manufacturing Labour","label_hi":"फैक्टरी मजदूरी"}
+{"kind":"family","family_id":"fam_transport_labour","label_en":"Transport and Storage Labour","label_hi":"ढुलाई मजदूरी"}
+{"kind":"family","family_id":"fam_food_prep_assist","label_en":"Food Preparation Assistance","label_hi":"रसोई सहायक"}
+{"kind":"family","family_id":"fam_street_service","label_en":"Street Service Work","label_hi":"सड़क सेवा"}
+{"kind":"family","family_id":"fam_street_vending","label_en":"Street Vending","label_hi":"फेरी लगाना"}
+{"kind":"family","family_id":"fam_refuse_work","label_en":"Refuse and Recycling Work","label_hi":"कचरा छँटाई"}
+{"kind":"family","family_id":"fam_other_elementary","label_en":"Other Elementary Work","label_hi":"अन्य साधारण काम"}
+
+{"kind":"binding","family_id":"fam_travel_service","isco_minor_code":"511"}
+{"kind":"binding","family_id":"fam_bar_service","isco_minor_code":"513"}
+{"kind":"binding","family_id":"fam_hair_styling","isco_minor_code":"514"}
+{"kind":"binding","family_id":"fam_building_supervision","isco_minor_code":"515"}
+{"kind":"binding","family_id":"fam_other_personal_service","isco_minor_code":"516"}
+{"kind":"binding","family_id":"fam_street_sales","isco_minor_code":"521"}
+{"kind":"binding","family_id":"fam_shop_supervision","isco_minor_code":"522"}
+{"kind":"binding","family_id":"fam_cashier","isco_minor_code":"523"}
+{"kind":"binding","family_id":"fam_other_sales","isco_minor_code":"524"}
+{"kind":"binding","family_id":"fam_child_care","isco_minor_code":"531"}
+{"kind":"binding","family_id":"fam_health_care_assist","isco_minor_code":"532"}
+{"kind":"binding","family_id":"fam_protective_service","isco_minor_code":"541"}
+{"kind":"binding","family_id":"fam_crop_growing","isco_minor_code":"611"}
+{"kind":"binding","family_id":"fam_animal_rearing","isco_minor_code":"612"}
+{"kind":"binding","family_id":"fam_mixed_farming","isco_minor_code":"613"}
+{"kind":"binding","family_id":"fam_forestry","isco_minor_code":"621"}
+{"kind":"binding","family_id":"fam_fishery","isco_minor_code":"622"}
+{"kind":"binding","family_id":"fam_subsistence_crop","isco_minor_code":"631"}
+{"kind":"binding","family_id":"fam_subsistence_livestock","isco_minor_code":"632"}
+{"kind":"binding","family_id":"fam_subsistence_mixed","isco_minor_code":"633"}
+{"kind":"binding","family_id":"fam_subsistence_fishing","isco_minor_code":"634"}
+{"kind":"binding","family_id":"fam_building_frame","isco_minor_code":"711"}
+{"kind":"binding","family_id":"fam_building_finishing","isco_minor_code":"712"}
+{"kind":"binding","family_id":"fam_structure_cleaning","isco_minor_code":"713"}
+{"kind":"binding","family_id":"fam_sheet_metal","isco_minor_code":"721"}
+{"kind":"binding","family_id":"fam_blacksmithing","isco_minor_code":"722"}
+{"kind":"binding","family_id":"fam_machinery_repair","isco_minor_code":"723"}
+{"kind":"binding","family_id":"fam_handicraft","isco_minor_code":"731"}
+{"kind":"binding","family_id":"fam_printing","isco_minor_code":"732"}
+{"kind":"binding","family_id":"fam_electrical_equipment","isco_minor_code":"741"}
+{"kind":"binding","family_id":"fam_electronics_install","isco_minor_code":"742"}
+{"kind":"binding","family_id":"fam_food_processing","isco_minor_code":"751"}
+{"kind":"binding","family_id":"fam_wood_treating","isco_minor_code":"752"}
+{"kind":"binding","family_id":"fam_garment_trades","isco_minor_code":"753"}
+{"kind":"binding","family_id":"fam_other_craft","isco_minor_code":"754"}
+{"kind":"binding","family_id":"fam_mining_plant","isco_minor_code":"811"}
+{"kind":"binding","family_id":"fam_metal_plant","isco_minor_code":"812"}
+{"kind":"binding","family_id":"fam_chemical_plant","isco_minor_code":"813"}
+{"kind":"binding","family_id":"fam_rubber_plastic","isco_minor_code":"814"}
+{"kind":"binding","family_id":"fam_textile_machines","isco_minor_code":"815"}
+{"kind":"binding","family_id":"fam_wood_plant","isco_minor_code":"817"}
+{"kind":"binding","family_id":"fam_other_plant","isco_minor_code":"818"}
+{"kind":"binding","family_id":"fam_assemblers_other","isco_minor_code":"821"}
+{"kind":"binding","family_id":"fam_rail_operation","isco_minor_code":"831"}
+{"kind":"binding","family_id":"fam_delivery_driving","isco_minor_code":"832"}
+{"kind":"binding","family_id":"fam_bus_driving","isco_minor_code":"833"}
+{"kind":"binding","family_id":"fam_mobile_plant","isco_minor_code":"834"}
+{"kind":"binding","family_id":"fam_ship_crew","isco_minor_code":"835"}
+{"kind":"binding","family_id":"fam_cleaning_helpers","isco_minor_code":"911"}
+{"kind":"binding","family_id":"fam_hand_cleaning","isco_minor_code":"912"}
+{"kind":"binding","family_id":"fam_farm_labour","isco_minor_code":"921"}
+{"kind":"binding","family_id":"fam_construction_labour","isco_minor_code":"931"}
+{"kind":"binding","family_id":"fam_manufacturing_labour","isco_minor_code":"932"}
+{"kind":"binding","family_id":"fam_transport_labour","isco_minor_code":"933"}
+{"kind":"binding","family_id":"fam_food_prep_assist","isco_minor_code":"941"}
+{"kind":"binding","family_id":"fam_street_service","isco_minor_code":"951"}
+{"kind":"binding","family_id":"fam_street_vending","isco_minor_code":"952"}
+{"kind":"binding","family_id":"fam_refuse_work","isco_minor_code":"961"}
+{"kind":"binding","family_id":"fam_other_elementary","isco_minor_code":"962"}

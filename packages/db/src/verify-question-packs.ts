@@ -220,17 +220,32 @@ async function main(): Promise<void> {
             AND NOT EXISTS (SELECT 1 FROM skill s WHERE s.skill_id = i.target_skill_id)`),
       },
       {
-        name: "blue-collar unit groups with no family (coverage)",
+        // COUNTS WHAT ACTUALLY HAPPENS, not what binds at one level. The first version of
+        // this check asked "which unit groups have no UNIT-level binding" and so reported
+        // 158 uncovered even after 59 minor-level families were added that cover every one
+        // of them. A coverage number that ignores the fallback chain measures the author's
+        // filing habits rather than the worker's experience.
+        //
+        // The real question is: does this occupation reach a pack that asks about its
+        // TRADE, or does it fall all the way through to universal? So the predicate mirrors
+        // RESOLVE_FAMILY_SQL and asks whether anything above specificity 0 matches.
+        name: "blue-collar unit groups that fall through to the universal pack",
         level: "WARN",
         detail:
-          "These resolve to the universal pack, which works but asks nothing trade-specific. " +
-          "Expected while pack authoring is in progress — Phase 6 closes it.",
+          "These get a working interview that asks nothing trade-specific. Every one is a " +
+          "family worth authoring; none of them is broken.",
         count: await one(dsql`
           SELECT count(DISTINCT d.isco_unit_code)::int AS n FROM job_domain d
           WHERE d.selectable AND d.status = 'active'
             AND d.isco_major_code IN ('5','6','7','8','9')
             AND d.isco_unit_code IS NOT NULL
-            AND NOT EXISTS (SELECT 1 FROM profiling_family_binding b WHERE b.isco_unit_code = d.isco_unit_code)`),
+            AND NOT EXISTS (
+              SELECT 1 FROM profiling_family_binding b
+               WHERE (b.job_domain_id      = d.job_domain_id)
+                  OR (b.isco_unit_code     = d.isco_unit_code)
+                  OR (b.isco_minor_code    = left(d.isco_unit_code, 3))
+                  OR (b.isco_submajor_code = left(d.isco_unit_code, 2))
+                  OR (b.isco_major_code    = left(d.isco_unit_code, 1)))`),
       },
       {
         name: "families with no label_hi",
