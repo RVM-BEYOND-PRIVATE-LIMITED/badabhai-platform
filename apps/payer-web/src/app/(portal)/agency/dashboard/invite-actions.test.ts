@@ -82,3 +82,65 @@ describe("createInviteAction — happy path returns an opaque code only", () => 
     expect(createAgencyInvite).toHaveBeenCalledWith({ campaign: "diwali-drive" });
   });
 });
+
+describe("createInviteAction — W1 link metadata", () => {
+  /**
+   * The CLOSED ALLOWLIST of everything this action may forward. Widening it is the
+   * reviewable moment: it is the assertion that fires if a per-worker field is ever added
+   * to a faceless mint.
+   */
+  const ALLOWED_BODY_KEYS = ["campaign", "context", "medium"];
+
+  it("forwards a valid medium and context, and nothing else", async () => {
+    createAgencyInvite.mockResolvedValueOnce({ ok: true, code: "c", link: "/i/c" });
+    await createInviteAction({
+      campaign: "diwali-drive",
+      medium: "paid",
+      context: { role: "welder", city: "pune-west" },
+    });
+    const body = createAgencyInvite.mock.calls[0]![0] as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(ALLOWED_BODY_KEYS);
+    expect(body.medium).toBe("paid");
+    expect(body.context).toEqual({ role: "welder", city: "pune-west" });
+    // The context object is the one place a per-person field could hide.
+    expect(Object.keys(body.context as object).sort()).toEqual(["city", "role"]);
+    for (const value of Object.values(body)) expect(Array.isArray(value)).toBe(false);
+  });
+
+  it("mints exactly as it did before W1 when no metadata is supplied", async () => {
+    createAgencyInvite.mockResolvedValueOnce({ ok: true, code: "c", link: "/i/c" });
+    await createInviteAction({ campaign: "diwali-drive" });
+    const body = createAgencyInvite.mock.calls[0]![0] as Record<string, unknown>;
+    expect(body.medium).toBeUndefined();
+    expect(body.context).toBeUndefined();
+  });
+
+  it("REFUSES a context key outside {role, city} — never a silent strip", async () => {
+    const res = await createInviteAction({
+      context: { name: "Ramesh Kumar", phone: "+919812345678" },
+    } as unknown as { context: { role?: string } });
+    expect(res.ok).toBe(false);
+    expect(createAgencyInvite).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES a context value that is a person's name, without minting", async () => {
+    const res = await createInviteAction({ context: { role: "Ramesh Kumar" } });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(/slug/i);
+    expect(createAgencyInvite).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES an unknown medium rather than letting the DB CHECK reject it", async () => {
+    const res = await createInviteAction({ medium: "sms-blast" });
+    expect(res.ok).toBe(false);
+    expect(createAgencyInvite).not.toHaveBeenCalled();
+  });
+
+  it("runs the role gate BEFORE any metadata is looked at", async () => {
+    requireAgent.mockRejectedValueOnce(new Error("NEXT_NOT_FOUND"));
+    await expect(createInviteAction({ context: { role: "Ramesh Kumar" } })).rejects.toThrow(
+      "NEXT_NOT_FOUND",
+    );
+    expect(createAgencyInvite).not.toHaveBeenCalled();
+  });
+});

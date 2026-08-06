@@ -68,6 +68,13 @@ export function PortalNav({ isAgency, isOwner }: PortalNavProps) {
       label: "Revenue",
       match: (p) => p.startsWith("/agency/revenue"),
     });
+    // The printable QR sheet was reachable ONLY from a dashboard tile, so an agent who had
+    // navigated away had no way back to it except the browser's history.
+    links.push({
+      href: "/agency/qr",
+      label: "QR poster",
+      match: (p) => p.startsWith("/agency/qr"),
+    });
   }
 
   return (

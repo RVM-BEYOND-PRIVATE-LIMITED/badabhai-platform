@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { looksLikeActionContextPii } from "@badabhai/validators";
 import { createAgencyInviteBatch } from "../../../../lib/payer-api";
+import { parseInviteMeta } from "../../../../lib/invite-meta";
 import { requireAgent } from "../../../../lib/auth/roles";
 
 /**
@@ -86,6 +87,8 @@ export type CreateInviteBatchResult =
 export async function createInviteBatchAction(input: {
   count: number;
   campaign?: string;
+  medium?: string;
+  context?: { role?: string; city?: string };
 }): Promise<CreateInviteBatchResult> {
   await requireAgent(); // role gate FIRST — employer → neutral notFound().
 
@@ -102,10 +105,21 @@ export async function createInviteBatchAction(input: {
     campaign = parsed.data;
   }
 
+  // W1 metadata — ONE medium and ONE context for the whole batch, never one per invite.
+  // A per-invite array is exactly the arity-over-people this action exists to refuse, so
+  // the metadata enters through the same single-value door the campaign tag does.
+  const meta = parseInviteMeta(input);
+  if (!meta.ok) return { ok: false, error: meta.error };
+
   try {
-    // The body forwarded to the seam is EXACTLY the cardinality shape: a number and an
-    // optional scalar tag. No array, no per-invite object, no recipient — ever.
-    const batch = await createAgencyInviteBatch({ count: parsedCount.data, campaign });
+    // The body forwarded to the seam is EXACTLY the cardinality shape: a number and
+    // optional scalar metadata. No array, no per-invite object, no recipient — ever.
+    const batch = await createAgencyInviteBatch({
+      count: parsedCount.data,
+      campaign,
+      medium: meta.medium,
+      context: meta.context,
+    });
     // `{ ok: false }` is the SINGLE neutral failure for BOTH the mint cap AND a Redis
     // fail-closed (identical 429, no leaked reason). Never a fake success.
     if (!batch.ok) return { ok: false, error: NEUTRAL_FAILURE };

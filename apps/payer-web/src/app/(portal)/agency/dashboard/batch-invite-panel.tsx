@@ -2,7 +2,13 @@
 
 import { Fragment, useState, useTransition } from "react";
 import { looksLikeActionContextPii } from "@badabhai/validators";
-import { Badge, Button, Card, Input } from "../../../../components/ds";
+import { Badge, Button, Card, Input, SelectMenu } from "../../../../components/ds";
+import { inviteContextSlugError } from "../../../../lib/invite-meta";
+import {
+  inviteShareMessage,
+  shareableInviteUrl,
+  whatsAppShareUrl,
+} from "../../../../lib/invite-share";
 import { createInviteBatchAction } from "./batch-invite-actions";
 
 /**
@@ -61,7 +67,24 @@ export function AgencyBatchInvitePanel() {
   const [error, setError] = useState<string | null>(null);
   // NOTE: new state goes at the END — the unit tests seed state positionally by source order.
   const [copyError, setCopyError] = useState<string | null>(null);
+  // W1 metadata — ONE medium and ONE context for the whole batch, never one per invite.
+  // A per-invite field is exactly the arity-over-people this panel refuses to grow.
+  const [medium, setMedium] = useState("");
+  const [role, setRole] = useState("");
+  const [city, setCity] = useState("");
+  const [contextError, setContextError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  /**
+   * The ABSOLUTE urls to share. The mint returns RELATIVE "/i/<code>" paths, and "Copy all
+   * links" used to put those raw paths on the clipboard — fifty lines that resolve to
+   * nothing once pasted anywhere but a portal tab. Falls back to the raw link only when no
+   * origin can be established at all, so a link is never simply missing from the list.
+   */
+  const shareLinks = (invites ?? []).map((i) => ({
+    code: i.code,
+    url: shareableInviteUrl(i.link, process.env.NEXT_PUBLIC_SITE_URL) || i.link,
+  }));
 
   /** Inline count screen: a whole number in [1, 50]. Blank / decimal / text are rejected. */
   function countValidationError(raw: string): string | null {
@@ -92,14 +115,22 @@ export function AgencyBatchInvitePanel() {
     setCopyError(null);
     const countErr = countValidationError(count);
     const tagErr = tagError(campaign);
+    const ctxErr = inviteContextSlugError("role", role) ?? inviteContextSlugError("city", city);
     setCountError(countErr);
     setCampaignError(tagErr);
-    if (countErr || tagErr) return;
+    setContextError(ctxErr);
+    if (countErr || tagErr || ctxErr) return;
     startTransition(async () => {
       const res = await createInviteBatchAction({
-        // CARDINALITY ONLY — a number and an optional scalar tag. Never a list.
+        // CARDINALITY ONLY — a number plus optional SCALAR metadata that applies to all N.
+        // Never a list, and never one value per invite.
         count: Number(count.trim()),
         campaign: campaign.trim() || undefined,
+        medium: medium || undefined,
+        context:
+          role.trim() || city.trim()
+            ? { role: role.trim() || undefined, city: city.trim() || undefined }
+            : undefined,
       });
       if (res.ok) {
         setInvites(res.invites);
@@ -184,6 +215,51 @@ export function AgencyBatchInvitePanel() {
           }}
         />
 
+        {/*
+          LINK METADATA (W1) — ONE value each, applied to the whole batch. Referent-free by
+          construction: a channel and a job shape, never a person. Per-invite variants are
+          deliberately absent (see the note on the action).
+        */}
+        <SelectMenu
+          id="batch-medium"
+          label="Link type"
+          optional
+          value={medium}
+          placeholder="Organic (default)"
+          hint="Paid links are matched against a shorter 24-hour install window; organic gets 7 days."
+          options={[
+            { value: "organic", label: "Organic — shared by hand" },
+            { value: "paid", label: "Paid — an ad or promoted post" },
+          ]}
+          onChange={setMedium}
+        />
+        <Input
+          id="batch-role"
+          label="Role slug"
+          optional
+          placeholder="welder"
+          value={role}
+          error={contextError && role.trim() ? contextError : undefined}
+          hint="What these links advertise, as a lowercase slug. Never a person's name."
+          onChange={(e) => {
+            setRole(e.target.value);
+            if (contextError) setContextError(null);
+          }}
+        />
+        <Input
+          id="batch-city"
+          label="City slug"
+          optional
+          placeholder="pune-west"
+          value={city}
+          error={contextError && !role.trim() ? contextError : undefined}
+          hint="Where the work is, as a lowercase slug."
+          onChange={(e) => {
+            setCity(e.target.value);
+            if (contextError) setContextError(null);
+          }}
+        />
+
         <div className="agency-invite__actions">
           <Button type="submit" disabled={submitBlocked} loading={pending}>
             {pending ? "Creating…" : "Create links"}
@@ -228,7 +304,7 @@ export function AgencyBatchInvitePanel() {
             to, keep that note in your own records: BadaBhai must never hold it.
           </p>
           <ol className="agency-batch__list">
-            {invites.map((invite) => (
+            {shareLinks.map((invite) => (
               <li key={invite.code} className="agency-batch__item">
                 <span className="agency-batch__code bb-mono">{invite.code}</span>
                 {/*
@@ -237,14 +313,29 @@ export function AgencyBatchInvitePanel() {
                   without the clipboard. The href carries the FULL url (open / copy address /
                   read by a screen reader) even when the visible text is clipped.
                 */}
-                <a className="bb-mono" href={invite.link}>
-                  {invite.link}
+                <a className="bb-mono" href={invite.url}>
+                  {invite.url}
+                </a>
+                {/*
+                  PER-ROW, deliberately. A batch is minted so each link can go to a
+                  DIFFERENT worker, so the useful WhatsApp action is "send this one", not
+                  one message carrying fifty links. Still no recipient stored anywhere: the
+                  contact is picked inside WhatsApp and never returns to us.
+                */}
+                <a
+                  className="agency-batch__share"
+                  href={whatsAppShareUrl(inviteShareMessage(invite.url))}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Send invite ${invite.code} on WhatsApp`}
+                >
+                  WhatsApp
                 </a>
               </li>
             ))}
           </ol>
           <div className="agency-invite__actions">
-            <Button variant="secondary" onClick={() => copyAll(invites.map((i) => i.link))}>
+            <Button variant="secondary" onClick={() => copyAll(shareLinks.map((i) => i.url))}>
               {copied ? "Copied" : "Copy all links"}
             </Button>
           </div>
@@ -254,10 +345,10 @@ export function AgencyBatchInvitePanel() {
               {/* The single-mint fallback shape: `.agency-invite__dl dd` wraps (break-all),
                   so every url is readable in full and transcribable by hand. */}
               <dl className="agency-invite__dl">
-                {invites.map((invite) => (
+                {shareLinks.map((invite) => (
                   <Fragment key={invite.code}>
                     <dt className="bb-mono">{invite.code}</dt>
-                    <dd className="bb-mono">{invite.link}</dd>
+                    <dd className="bb-mono">{invite.url}</dd>
                   </Fragment>
                 ))}
               </dl>

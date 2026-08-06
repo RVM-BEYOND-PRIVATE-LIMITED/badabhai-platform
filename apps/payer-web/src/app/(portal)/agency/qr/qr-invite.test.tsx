@@ -38,16 +38,27 @@ const useState = vi.fn((initial: unknown) => {
   return [seeded, set] as [unknown, (v: unknown) => void];
 });
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
+// The component is CALLED as a plain function here (no renderer, no DOM), so every hook it
+// uses must be stubbed — the real dispatcher is null outside a render and throws. `useRef`
+// backs the off-screen canvas the PNG download rasterises from; a detached object is enough,
+// because these tests assert the element TREE, never a committed ref.
+const useRef = vi.fn(<T,>(initial: T) => ({ current: initial }));
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
   return {
     ...actual,
     useState: (initial: unknown) => useState(initial),
     useTransition: () => useTransition(),
+    useRef: <T,>(initial: T) => useRef(initial),
   };
 });
 
-const { AgencyQrInvite, toAbsoluteInviteUrl, printableInviteOrigin } = await import("./qr-invite");
+const { AgencyQrInvite } = await import("./qr-invite");
+// The pure url helpers moved to `lib/invite-share` so all three share surfaces (single
+// invite, batch, printable sheet) absolutise identically instead of drifting.
+const { toAbsoluteInviteUrl, shareableInviteOrigin: printableInviteOrigin } = await import(
+  "../../../../lib/invite-share"
+);
 
 interface Collected {
   forms: Array<{ onSubmit?: (e: { preventDefault: () => void }) => void }>;
@@ -374,5 +385,71 @@ describe("printableInviteOrigin — a printed poster prefers the CANONICAL host"
       code: "abc123def456",
       url: "https://app.badabhai.in/i/abc123def456",
     });
+  });
+});
+
+describe("AgencyQrInvite — sharing the sheet without printing it", () => {
+  const SHEET = { code: "abc123def456", url: `${ORIGIN}/i/abc123def456` };
+
+  it("offers a WhatsApp share carrying EXACTLY the encoded url", () => {
+    const { props } = collect(render(SHEET));
+    const share = props.find(
+      (p) => typeof p.href === "string" && (p.href as string).startsWith("https://wa.me/"),
+    );
+    expect(share).toBeDefined();
+    const url = new URL(share!.href as string);
+    // Contact-picker form: a number in the path would open a chat with THAT number rather
+    // than letting the agency choose who to send the poster to.
+    expect(url.pathname).toBe("/");
+    expect(url.searchParams.get("text")).toContain(SHEET.url);
+    expect(share!.target).toBe("_blank");
+    expect(String(share!.rel)).toContain("noopener");
+    expect(String(share!.rel)).toContain("noreferrer");
+  });
+
+  it("renders NO share affordance before a sheet exists", () => {
+    const { props } = collect(render(null));
+    const share = props.find(
+      (p) => typeof p.href === "string" && (p.href as string).startsWith("https://wa.me/"),
+    );
+    // A wa.me link built from an empty sheet would send the word "undefined" to a worker.
+    expect(share).toBeUndefined();
+  });
+
+  it("rasterises the PNG from an off-screen canvas encoding the SAME url as the paper", () => {
+    const acc = collect(render(SHEET));
+    // The canvas twin must agree with the printed SVG — a file and a poster that encode
+    // different urls is the failure that only shows up after someone has printed 200.
+    expect(acc.qrValues).toEqual([SHEET.url]); // the SVG
+    const canvas = acc.props.find((p) => p.value === SHEET.url && p.size === 1024);
+    expect(canvas).toBeDefined();
+    // Off both the screen and the paper.
+    expect((canvas!.style as { display?: string }).display).toBe("none");
+    expect(canvas!["aria-hidden"]).toBe("true");
+  });
+
+  it("downloads a PNG named after the opaque code, and never fetches one remotely", async () => {
+    const toBlob = vi.fn((cb: (b: unknown) => void) => cb({ type: "image/png" }));
+    const anchor: Record<string, unknown> = { click: vi.fn() };
+    const createObjectURL = vi.fn(() => "blob:fake");
+    const revokeObjectURL = vi.fn();
+    useRef.mockReturnValueOnce({ current: { toBlob } });
+    vi.stubGlobal("document", { createElement: vi.fn(() => anchor) });
+    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+
+    const { props } = collect(render(SHEET));
+    const download = props.find(
+      (p) => typeof p.onClick === "function" && p.children === "Download PNG",
+    );
+    expect(download).toBeDefined();
+    (download!.onClick as () => void)();
+
+    expect(toBlob).toHaveBeenCalledWith(expect.any(Function), "image/png");
+    expect(anchor.download).toBe("badabhai-invite-abc123def456.png");
+    expect(anchor.href).toBe("blob:fake");
+    expect(anchor.click).toHaveBeenCalledTimes(1);
+    // The blob is not left pinned in memory once the click has been dispatched.
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:fake");
+    vi.unstubAllGlobals();
   });
 });
