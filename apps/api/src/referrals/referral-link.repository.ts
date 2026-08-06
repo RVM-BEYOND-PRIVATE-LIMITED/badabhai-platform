@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, gte, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, ne, or, sql } from "drizzle-orm";
 import {
   type Database,
   referralClicks,
@@ -126,10 +126,31 @@ export class ReferralLinkRepository {
           and(
             eq(referralClicks.code, code),
             isNull(referralClicks.claimedByWorkerId),
-            sql`CASE ${referralClicks.medium}
-                  WHEN 'paid' THEN ${referralClicks.clickedAt} >= ${paidCutoff}
-                  ELSE ${referralClicks.clickedAt} >= ${organicCutoff}
-                END`,
+            // PER-MEDIUM WINDOW, written with drizzle's TYPED operators rather than a raw
+            // `CASE` fragment. Same rows, same index usage — but the fragment version could
+            // never execute at all.
+            //
+            // WHY: inside `sql\`…\`` drizzle hands a JS `Date` to the driver as a bare
+            // parameter with no column mapper. In a direct `clicked_at >= $2` comparison
+            // Postgres infers `timestamptz` for that parameter and postgres.js serializes
+            // the Date correctly; inside `CASE … WHEN … THEN clicked_at >= $2 …` it does
+            // not, and postgres.js then tries to serialize a Date as TEXT and throws
+            // `ERR_INVALID_ARG_TYPE` ("must be of type string or ... Received an instance
+            // of Date"). `claimInstall` catches and neutralises everything, so the throw
+            // was invisible: the claim silently returned "not resolved" EVERY TIME, no
+            // `claimed_by_worker_id` was ever written and `referral.install_claimed` never
+            // fired. Verified against a real Postgres, in isolation from the API.
+            //
+            // `eq`/`gte` on the column carry drizzle's timestamp mapper, so the Date is
+            // encoded against the column's real type and the failure cannot recur here.
+            // Prefer them over a raw fragment whenever a value is compared to a column.
+            or(
+              and(eq(referralClicks.medium, "paid"), gte(referralClicks.clickedAt, paidCutoff)),
+              and(
+                ne(referralClicks.medium, "paid"),
+                gte(referralClicks.clickedAt, organicCutoff),
+              ),
+            ),
           ),
         )
         .orderBy(asc(referralClicks.clickedAt))

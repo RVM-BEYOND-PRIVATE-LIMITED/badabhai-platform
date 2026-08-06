@@ -32,6 +32,21 @@ import { ReferralLinkRepository } from "./referral-link.repository";
 const dialect = new PgDialect();
 const compile = (cond: unknown) => dialect.sqlToQuery(cond as SQL);
 
+/**
+ * The cutoff timestamps as MILLISECONDS, whatever encoding drizzle chose.
+ *
+ * The predicate now uses `gte(column, date)`, so the cutoffs travel through the column's
+ * timestamp mapper and reach the compiled query as driver-ready STRINGS — not the raw `Date`
+ * objects a bare `sql` fragment produced. That is the entire point of the fix (a raw Date in
+ * that position is unserializable and made the claim throw on every call), so these tests
+ * must assert the VALUE, not the JS type it happens to be carried in.
+ */
+const cutoffMillis = (params: unknown[]): number[] =>
+  params
+    .filter((p): p is Date | string => p instanceof Date || typeof p === "string")
+    .map((p) => (p instanceof Date ? p.getTime() : Date.parse(p)))
+    .filter((n) => Number.isFinite(n));
+
 const CODE = "abcdef012345";
 const WORKER = "22222222-2222-4222-8222-222222222222";
 const CLICK = "33333333-3333-4333-8333-333333333333";
@@ -223,17 +238,44 @@ describe("claimFirstTouch — the MATCH WINDOW predicate", () => {
     expect(q.sql).toContain('"claimed_by_worker_id" is null');
     // The window is chosen PER CLICK from that click's own snapshotted medium, so an
     // organic and a paid click competing for one install are each judged under their rule.
-    expect(q.sql.toLowerCase()).toContain("case");
-    expect(q.sql).toContain("'paid'");
+    expect(q.sql).toContain('"medium" = ');
+    expect(q.sql).toContain('"medium" <> ');
     expect(q.sql).toContain('"clicked_at" >=');
+  });
+
+  /**
+   * THE PREDICATE MUST NOT BE A RAW `CASE` FRAGMENT — and this is a behavioural rule, not a
+   * style preference.
+   *
+   * It was one, and it made the claim IMPOSSIBLE to execute. Inside `sql`…`` drizzle hands a
+   * JS `Date` to the driver as a bare parameter with no column mapper. In a direct
+   * `clicked_at >= $2` comparison Postgres infers `timestamptz` and postgres.js serializes
+   * the Date; inside `CASE … WHEN … THEN clicked_at >= $2 …` it does not, and postgres.js
+   * throws `ERR_INVALID_ARG_TYPE` trying to write a Date as text. `claimInstall` catches and
+   * neutralises everything, so every claim silently returned "not resolved": no
+   * `claimed_by_worker_id` was ever written and `referral.install_claimed` never fired.
+   *
+   * The old assertion here REQUIRED the word "case", so it actively locked in the bug — this
+   * file compiles SQL and cannot execute it, which is exactly the blind spot its own header
+   * warns about. The behavioural proof is `tests/e2e/referral-round-trip.e2e.test.ts`; this
+   * is the cheap structural guard that keeps the shape from drifting back.
+   */
+  it("compares clicked_at DIRECTLY against each cutoff — never inside a CASE fragment", async () => {
+    const { db, c } = makeDb({ candidate: [candidateRow], updated: [{ id: CLICK }] });
+    await claim(db);
+
+    const q = compile(c.candidateWhere);
+    expect(q.sql.toLowerCase()).not.toContain("case");
+    // Both branches compare the COLUMN to a parameter, which is what lets Postgres infer
+    // timestamptz and lets drizzle's column mapper encode the Date.
+    expect(q.sql.match(/"clicked_at" >= \$/g) ?? []).toHaveLength(2);
   });
 
   it("passes BOTH cutoffs, derived from the CONFIGURED hours — never a hardcoded window", async () => {
     const { db, c } = makeDb({ candidate: [candidateRow], updated: [{ id: CLICK }] });
     await claim(db);
 
-    const q = compile(c.candidateWhere);
-    const dates = q.params.filter((p): p is Date => p instanceof Date).map((d) => d.getTime());
+    const dates = cutoffMillis(compile(c.candidateWhere).params);
     // 24h and 168h produce two DISTINCT cutoffs; a single cutoff would mean one window is
     // silently being applied to both media.
     expect(dates).toContain(PAID_CUTOFF.getTime());
@@ -250,9 +292,7 @@ describe("claimFirstTouch — the MATCH WINDOW predicate", () => {
       now: NOW,
     });
 
-    const dates = compile(c.candidateWhere)
-      .params.filter((p): p is Date => p instanceof Date)
-      .map((d) => d.getTime());
+    const dates = cutoffMillis(compile(c.candidateWhere).params);
     expect(dates).toContain(new Date(NOW.getTime() - 72 * HOUR).getTime());
     expect(dates).toContain(new Date(NOW.getTime() - 6 * HOUR).getTime());
   });
@@ -305,8 +345,21 @@ describe("claimFirstTouch — PII boundary (invariant #2)", () => {
       ...compile(c.candidateWhere).params,
       ...compile(c.updateWhere).params,
     ];
+    /** A timestamp param, in either encoding — see {@link cutoffMillis}. */
+    const isTimestamp = (p: unknown): boolean =>
+      p instanceof Date || (typeof p === "string" && Number.isFinite(Date.parse(p)));
+
     for (const p of params) {
-      const ok = p instanceof Date || p === WORKER || p === CODE || p === CLICK;
+      const ok =
+        isTimestamp(p) ||
+        p === WORKER ||
+        p === CODE ||
+        p === CLICK ||
+        // The closed `medium` enum. It became a PARAMETER when the window predicate moved
+        // from a raw CASE (where 'paid' was an inline literal) to typed operators. Still not
+        // PII by any reading — it is a two-value enum — but it must be named here rather
+        // than silently widening the allowlist to "any string".
+        p === "paid";
       expect(ok, `unexpected param in claim SQL: ${String(p)}`).toBe(true);
     }
   });
