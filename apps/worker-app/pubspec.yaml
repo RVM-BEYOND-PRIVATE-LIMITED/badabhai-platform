@@ -131,6 +131,17 @@ dependencies:
   # Referral-invite sharing (A3): hands the composed invite link to the platform
   # share sheet. No PII in the shared text — only the opaque invite code/link.
   share_plus: ^10.1.4
+  # RE-ADDED for the WhatsApp referral hand-off (`https://wa.me/?text=…`), which
+  # the share sheet cannot express — it can only offer a chooser, not target an
+  # app. Same version the payer app already pins.
+  #
+  # THE CONSTRAINT THAT REMOVED IT STILL HOLDS, and is narrower than "no
+  # url_launcher": it was dropped alongside `openSignedPdf` so that a SIGNED
+  # résumé URL never leaves the app (see the go_router note above). This
+  # re-add is for OUTBOUND PUBLIC links only — a `wa.me` share carrying an
+  # opaque invite code. Never pass a signed URL, a token, or any PII-bearing
+  # URL to `launchUrl`; résumé/kit PDFs stay in-app via pdf_downloader.dart.
+  url_launcher: ^6.3.1
   # A2 voice capture (REAL): mic recording to a temp .m4a (AAC-LC), hard 120s
   # cap (RecordPackageVoiceRecorder). The storage-upload route now exists
   # (POST /voice/upload-url → signed PUT), so the record→storage_path leg is

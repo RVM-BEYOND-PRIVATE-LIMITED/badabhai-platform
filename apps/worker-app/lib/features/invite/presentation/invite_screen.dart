@@ -144,7 +144,7 @@ class _InviteView extends StatelessWidget {
             style: AppTypography.body(color: AppColors.textMuted),
           ),
           const SizedBox(height: AppSpacing.s5),
-          _linkChip(link),
+          _linkChip(context, link),
           const Spacer(),
           // The ONE haldi CTA (kit: a single primary per screen) — opens the OS
           // share sheet with the referral link.
@@ -156,14 +156,16 @@ class _InviteView extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s2),
           // WhatsApp is the worker's default share target — GREEN is the kit's
-          // WhatsApp/success colour. Same referral logic (the platform sheet
-          // leads with WhatsApp); no new channel is invented.
+          // WhatsApp/success colour. This opens WhatsApp DIRECTLY (wa.me contact
+          // picker, message pre-filled); it used to call the same generic sheet
+          // as the button above, so the label was a promise the code did not
+          // keep. Falls back to the sheet when WhatsApp cannot be opened.
           BbButton(
             label: 'WhatsApp pe bhejein',
             block: true,
             variant: BbButtonVariant.success,
             iconLeft: Icons.chat_rounded,
-            onPressed: () => context.read<InviteCubit>().shareInvite(),
+            onPressed: () => context.read<InviteCubit>().shareInviteOnWhatsApp(),
           ),
           const SizedBox(height: AppSpacing.s3),
         ],
@@ -171,10 +173,10 @@ class _InviteView extends StatelessWidget {
     );
   }
 
-  Widget _linkChip(InviteLink link) {
+  Widget _linkChip(BuildContext context, InviteLink link) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.s4, vertical: AppSpacing.s3),
+      padding: const EdgeInsets.only(
+          left: AppSpacing.s4, right: AppSpacing.s2, top: AppSpacing.s1, bottom: AppSpacing.s1),
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
         borderRadius: BorderRadius.circular(AppRadii.md),
@@ -192,7 +194,29 @@ class _InviteView extends StatelessWidget {
               style: AppTypography.mono(size: AppTypography.sizeSm),
             ),
           ),
+          // The link was DISPLAYED but not copyable — a worker who wanted to
+          // paste it into an app the share sheet does not list had no way to
+          // get it. Ellipsised text cannot be selected out either.
+          IconButton(
+            icon: const Icon(Icons.copy_rounded, size: 20),
+            color: AppColors.textMuted,
+            tooltip: 'Link copy karein',
+            onPressed: () => _copyLink(context),
+          ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _copyLink(BuildContext context) async {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final bool copied = await context.read<InviteCubit>().copyInviteLink();
+    // The cubit reports whether the clipboard actually took the text; a refused
+    // clipboard must not be confirmed as "Copied".
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(copied ? 'Link copy ho gaya' : 'Link copy nahi ho paya'),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
