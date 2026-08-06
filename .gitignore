@@ -74,3 +74,4 @@ docker-compose.override.yml
 dump.rdb
 *.rdb
 .claude/worktrees/
+.scratch
