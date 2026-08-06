@@ -8,11 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import {
-  normalizeOccupationText,
-  normalizeOccupationTextTraced,
-  skeletonKey,
-} from "./index";
+import { normalizeOccupationText, normalizeOccupationTextTraced, skeletonKey } from "./index";
 
 describe("normalizeOccupationText", () => {
   it("lowercases, NFKC-folds and collapses whitespace", () => {

@@ -17,15 +17,12 @@
  * | `canonicalCity` / `canonicalState` / `canonicalRegion` | ported |
  * | `parseExperienceYears` | ported |
  * | `parseSalaryMonthly` / `detectSalaries` | ported |
- * | `parseAvailability` / `parseRelocationWillingness` | **declared only** |
+ * | `parseAvailability` / `parseRelocationWillingness` | ported |
  * | `FIELD_CROSSWALK` | Phase 7 |
  *
- * Availability is a separate increment rather than a rushed port: it carries `_self_state_blocked`
- * plus the notice-period parser, and needs its own differential against the shipped Python and its
- * own corpus cases. Landing it half-checked alongside the rest is how a silent regression ships.
- *
- * It stays `declare`d — exactly as Phase 0 left it — so a caller that imports it gets a TypeScript
- * error at the call site rather than `undefined` at runtime.
+ * Every normalizer Phase 3 named is now real. `FIELD_CROSSWALK` stays `declare`d because it maps
+ * RFS field ids onto `WorkerProfileDraft` paths, which is Phase 7's contract to define — a caller
+ * that imports it gets a TypeScript error at the call site rather than `undefined` at runtime.
  */
 
 export type { Availability, MonthlyInr, NormalizedValue } from "./types.js";
@@ -43,24 +40,18 @@ export { parseExperienceYears } from "./experience.js";
 
 export { detectSalaries, parseAmount, parseSalaryMonthly, type SalaryReading } from "./salary.js";
 
-import type { Availability, NormalizedValue } from "./types.js";
-
-/**
- * Availability + notice period. `signals._has_immediate_cue` / `_has_notice_cue` /
- * `_notice_period_days`, with `_apply_negation` guarding every cue.
- *
- * NOT YET PORTED — see the port-status table above.
- */
-export declare function parseAvailability(
-  text: string,
-): NormalizedValue<{ availability: Availability; noticeDays: number | null }> | null;
-
-/**
- * Willingness to relocate. `signals._has_relocate_cue`, negation-guarded.
- *
- * NOT YET PORTED — see the port-status table above.
- */
-export declare function parseRelocationWillingness(text: string): NormalizedValue<boolean> | null;
+export {
+  asksImmediateInContext,
+  askedNoticeDuration,
+  firstImmediateCue,
+  firstNoticeCue,
+  firstRelocateCue,
+  hasAnywhereCue,
+  noticePeriodDays,
+  parseAvailability,
+  parseRelocationWillingness,
+  selfStateBlocked,
+} from "./availability.js";
 
 /**
  * RFS field id → the `WorkerProfileDraft` path it lands on.

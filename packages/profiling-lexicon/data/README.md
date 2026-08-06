@@ -16,6 +16,7 @@ Never hand-edit the mirror: run `pnpm lexicon:sync` and commit what it writes.
 | `states.json` | States, abbreviations and multi-state regions | Phase 3 (values slice) |
 | `experience.json` | The spelled-out Hinglish quantity table + the years matcher | Phase 3 (values slice) |
 | `salary.json` | The amount matcher, the annual/monthly/money cue lists, the credential guard | Phase 3 (values slice) |
+| `availability.json` | Availability, notice-period and relocation cues, plus their blockers | Phase 3 (values slice) |
 | `trades.json` | Role / machine / controller keyword tables with spelling variants | Phase 3 (values slice) |
 | `crosswalk.json` | RFS field id → `WorkerProfileDraft` path | Phase 7 |
 
@@ -64,6 +65,18 @@ Use `{WC}` for `\w` itself (`annual\w*` becomes `{WB}annual{WC}*`).
 **Permitted: `\s`, `\S`.** Both engines agree on these for every character that occurs in worker
 text. Called out explicitly so the rule reads as a decision rather than an oversight.
 
+### File-local fragments
+
+A file may declare a top-level `"fragments": { "NAME": "regex source" }`. Patterns in that file
+reference them as `{NAME}`, and both readers substitute them — to a **fixed point**, so a fragment
+may itself contain another (`{PLACE}` contains `{ANYWHERE}`). They exist because the relocation and
+availability cues are built from shared pieces recombined ten different ways; inlining them would
+put ten copies of each alternation in one file, which is the drift this package exists to prevent.
+
+A fragment may not shadow a global macro — the same `{NAME}` must mean the same thing everywhere —
+and both guards check fragment sources for banned escapes too, since a `\w` hiding in a fragment
+would otherwise reach every pattern that references it.
+
 `tools/check-regex-subset` is not a separate script — the rule is asserted by
 `src/internal/regex.test.ts` and `tests/test_lexicon_parity.py`, which walk every pattern in every
 file and fail on a banned escape. A new file is covered automatically.
@@ -78,6 +91,8 @@ stays readable *and* provably identical across the two engines.
 | `{WB}` | `(?<![`*word class*`])` | Leading word boundary |
 | `{WE}` | `(?![`*word class*`])` | Trailing word boundary |
 | `{WC}` | `[`*word class*`]` | One word **character** — the replacement for a bare `\w`, for open-ended stems like `annual{WC}*` |
+| `{NWC}` | `[^`*word class*`]` | Its complement — the replacement for `\W`, for anchors like `^{NWC}*…{NWC}*$` |
+| `{DB}` / `{DE}` | `(?<![ऀ-ॿ])` / `(?![ऀ-ॿ])` | The **whole Devanagari block**, not the word class. `\b` does not work after a matra, so a Devanagari token wrapped in `{WB}`/`{WE}` is silently dead |
 | `{SKILL_KEYWORDS}` | the `skills.json` keywords, regex-escaped, `\|`-joined, in file order | Keeps the negatable-skills cue from drifting out of the skills table |
 
 The *word class* is ASCII alphanumerics + `_`, plus the Devanagari **letters and digits** —

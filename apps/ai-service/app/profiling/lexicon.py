@@ -89,11 +89,25 @@ _BOUNDARY_CLASS = (
 )
 _WB = f"(?<![{_BOUNDARY_CLASS}])"
 _WE = f"(?![{_BOUNDARY_CLASS}])"
+
+# The WHOLE Devanagari block, which is a DIFFERENT question from the word class above.
+# `{WB}`/`{WE}` stand in for `\b` and therefore want only the alphanumerics. `{DB}`/`{DE}`
+# bracket a Devanagari token to stop it matching inside a longer one, and for that the matras
+# and combining marks must count — `\b` does not work after a matra, which is why signals.py
+# grew its own `_dev()` helper rather than reusing a word boundary. Both engines need the same
+# distinction, so both macros exist.
+_DEVANAGARI_BLOCK = "ऀ-ॿ"
+_DB = f"(?<![{_DEVANAGARI_BLOCK}])"
+_DE = f"(?![{_DEVANAGARI_BLOCK}])"
 # One word CHARACTER, as opposed to the two boundary ASSERTIONS above. Stands in for a bare
 # `\w`, which the subset rule bans: the salary and availability cue lists are full of
 # open-ended stems (`annual\w*`, `month\w*`, `expect\w*`) that must keep matching the same
 # text in both engines. `{WC}*` is the direct replacement for `\w*`.
 _WC = f"[{_BOUNDARY_CLASS}]"
+#: The COMPLEMENT of `{WC}` — one non-word character. Stands in for `\W`, banned for the same
+#: reason as `\w`: Python's is Unicode-aware and JavaScript's is not, so `^\W*…\W*$` anchors on
+#: a different set of characters in each engine.
+_NWC = f"[^{_BOUNDARY_CLASS}]"
 
 # Escaped for regex-literal use inside a pattern the OTHER engine also compiles. Only the
 # characters that are a JS `SyntaxCharacter` AND a Python metacharacter. Space, "-" and "&"
@@ -155,20 +169,60 @@ def _experience_word_alternation() -> str:
     return "|".join(_escape_for_both_engines(word) for word, _value in experience_words())
 
 
-def expand(source: str) -> str:
-    """Expand the `{WB}` / `{WE}` / `{WC}` / `{SKILL_KEYWORDS}` / `{EXP_WORDS}` macros.
+#: Macro names the two readers own. A file-local fragment may not shadow one of these — that
+#: would make the same `{NAME}` mean different things in different files.
+_GLOBAL_MACROS = frozenset(
+    {"WB", "WE", "WC", "NWC", "DB", "DE", "SKILL_KEYWORDS", "EXP_WORDS"}
+)
 
-    The TypeScript reader performs the IDENTICAL substitution, which is what makes one JSON
-    file compile to the same matcher in both languages.
+#: How many fragment-substitution passes before giving up. Fragments legitimately nest one or two
+#: levels ({PLACE} contains {ANYWHERE}); a cycle would otherwise spin forever.
+_MAX_FRAGMENT_DEPTH = 8
 
-    `{WC}` is replaced BEFORE `{WB}`/`{WE}` would be — order is irrelevant here because the
-    three macro names are distinct, but the replacement values contain `[`/`]`, so a macro
-    must never be a substring of another macro's expansion. It is not.
+
+def expand(source: str, fragments: dict[str, str] | None = None) -> str:
+    """Expand the macros in one pattern source to plain regex.
+
+    Global macros: `{WB}` `{WE}` `{WC}` `{DB}` `{DE}` `{SKILL_KEYWORDS}` `{EXP_WORDS}`.
+    File-local FRAGMENTS come from the same file's optional top-level ``"fragments"`` object.
+
+    Fragments exist because the relocation and availability cues are BUILT from shared pieces —
+    a place, a going verb, an acceptance, a time adverb — recombined ten different ways. Inlining
+    them would put ten copies of each alternation in the JSON, and the whole point of this
+    package is that a cue list lives in exactly one place.
+
+    Fragments are substituted FIRST, so a fragment may itself contain `{WB}`/`{DB}`.
+
+    The TypeScript reader performs the IDENTICAL substitution, which is what makes one JSON file
+    compile to the same matcher in both languages.
     """
+    expanded = source
+    if fragments:
+        shadowed = _GLOBAL_MACROS & set(fragments)
+        if shadowed:
+            raise ValueError(
+                f"lexicon fragments may not shadow a global macro: {sorted(shadowed)}. "
+                "The same {NAME} must mean the same thing in every file."
+            )
+        # Fragments NEST — `{PLACE}` contains `{ANYWHERE}` — so this is a bounded fixed point
+        # rather than one pass. The cap turns a cyclic definition into a loud failure instead of
+        # a hang; anything still unresolved falls through to the leftover-macro guard below.
+        for _ in range(_MAX_FRAGMENT_DEPTH):
+            # Longest name first, so a fragment whose name prefixes another is not partly eaten.
+            substituted = expanded
+            for name in sorted(fragments, key=len, reverse=True):
+                substituted = substituted.replace(f"{{{name}}}", fragments[name])
+            if substituted == expanded:
+                break
+            expanded = substituted
+
     expanded = (
-        source.replace("{WB}", _WB)
+        expanded.replace("{WB}", _WB)
         .replace("{WE}", _WE)
+        .replace("{NWC}", _NWC)
         .replace("{WC}", _WC)
+        .replace("{DB}", _DB)
+        .replace("{DE}", _DE)
         .replace("{SKILL_KEYWORDS}", _skill_keyword_alternation())
         .replace("{EXP_WORDS}", _experience_word_alternation())
     )
@@ -176,7 +230,8 @@ def expand(source: str) -> str:
     if leftover:
         raise ValueError(
             f"unknown lexicon macro {leftover.group(0)} in pattern source {source!r} — "
-            "add it to BOTH lexicon.py and src/internal/regex.ts, never to one side only"
+            "add it to BOTH lexicon.py and src/internal/regex.ts, never to one side only "
+            "(or declare it in that file's own `fragments` object)"
         )
     return expanded
 
@@ -193,9 +248,30 @@ def _flags(spec_flags: str) -> int:
     return re.IGNORECASE if "i" in spec_flags else 0
 
 
-def compile_pattern(spec: dict[str, str]) -> re.Pattern[str]:
+def compile_pattern(
+    spec: dict[str, str], fragments: dict[str, str] | None = None
+) -> re.Pattern[str]:
     """Compile one ``{"source": ..., "flags": ...}`` object from a lexicon file."""
-    return re.compile(expand(spec["source"]), _flags(spec.get("flags", "")))
+    return re.compile(expand(spec["source"], fragments), _flags(spec.get("flags", "")))
+
+
+def fragments_of(file_stem: str) -> dict[str, str]:
+    """The file-local regex fragments declared by ``file_stem``.json, or an empty map."""
+    return load(file_stem).get("fragments", {})
+
+
+def compile_in(file_stem: str, key: str) -> re.Pattern[str]:
+    """Compile the single pattern at ``key``, resolving that file's own fragments."""
+    return compile_pattern(load(file_stem)[key], fragments_of(file_stem))
+
+
+def compile_list(file_stem: str, key: str) -> tuple[re.Pattern[str], ...]:
+    """Compile the LIST of patterns at ``key``, resolving that file's own fragments.
+
+    Order is preserved, because in several of these lists it is load-bearing.
+    """
+    frags = fragments_of(file_stem)
+    return tuple(compile_pattern(spec, frags) for spec in load(file_stem)[key])
 
 
 def compile_named(file_stem: str, key: str) -> re.Pattern[str]:

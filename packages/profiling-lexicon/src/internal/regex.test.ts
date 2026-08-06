@@ -9,15 +9,23 @@
 import { describe, expect, it } from "vitest";
 
 import { LEXICON_FILE_STEMS } from "./data.generated.js";
-import { compilePattern, expand, loadLexicon, skillKeywords } from "./regex.js";
+import { compilePattern, expand, fragmentsOf, loadLexicon, skillKeywords } from "./regex.js";
 
 /**
  * Every `{ source, flags }` object anywhere in a lexicon file, found structurally rather than
  * by a hardcoded list — so a NEW file or a NEW pattern is covered the day it is added, without
  * anyone remembering to extend this test.
  */
-function collectPatterns(): { path: string; source: string; flags: string }[] {
-  const found: { path: string; source: string; flags: string }[] = [];
+interface FoundPattern {
+  path: string;
+  stem: string;
+  source: string;
+  flags: string;
+}
+
+function collectPatterns(): FoundPattern[] {
+  const found: FoundPattern[] = [];
+  let stem = "";
 
   const walk = (node: unknown, path: string): void => {
     if (Array.isArray(node)) {
@@ -30,6 +38,7 @@ function collectPatterns(): { path: string; source: string; flags: string }[] {
     if (typeof record["source"] === "string") {
       found.push({
         path,
+        stem,
         source: record["source"],
         flags: typeof record["flags"] === "string" ? record["flags"] : "",
       });
@@ -38,7 +47,16 @@ function collectPatterns(): { path: string; source: string; flags: string }[] {
     for (const [key, child] of Object.entries(record)) walk(child, `${path}.${key}`);
   };
 
-  for (const stem of LEXICON_FILE_STEMS) walk(loadLexicon<unknown>(stem), stem);
+  for (const fileStem of LEXICON_FILE_STEMS) {
+    stem = fileStem;
+    walk(loadLexicon<unknown>(fileStem), fileStem);
+    // FRAGMENTS ARE PATTERN SOURCE TOO. They are bare strings rather than {source, flags}
+    // objects, so the structural walk above cannot see them — and a `\w` hiding in a fragment
+    // would reach every pattern that references it. Collected explicitly for that reason.
+    for (const [name, source] of Object.entries(fragmentsOf(fileStem))) {
+      found.push({ path: `${fileStem}.fragments.${name}`, stem: fileStem, source, flags: "" });
+    }
+  }
   return found;
 }
 
@@ -68,7 +86,8 @@ describe("the common-regex-subset rule", () => {
   );
 
   it.each(PATTERNS.map((p) => [p.path, p] as const))("%s compiles", (_path, pattern) => {
-    expect(() => compilePattern(pattern)).not.toThrow();
+    // With that file's own fragments, which is how the real readers compile it.
+    expect(() => compilePattern(pattern, fragmentsOf(pattern.stem))).not.toThrow();
   });
 
   it.each(PATTERNS.map((p) => [p.path, p] as const))(

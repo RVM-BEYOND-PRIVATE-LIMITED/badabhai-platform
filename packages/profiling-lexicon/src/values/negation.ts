@@ -18,7 +18,12 @@
  * validator enforces that at build time.
  */
 
-import { compilePattern, compilePatternGlobal, loadLexicon, type PatternSpec } from "../internal/regex.js";
+import {
+  compilePattern,
+  compilePatternGlobal,
+  loadLexicon,
+  type PatternSpec,
+} from "../internal/regex.js";
 
 interface NegationFile {
   readonly backWords: number;
@@ -45,9 +50,7 @@ const TOPIC_CUES: readonly { topic: string; re: RegExp }[] = NEGATION.negatableT
 );
 
 /** Topics where a DENIAL is itself a complete answer, so the ask is satisfied. */
-export const NEGATION_ANSWERS_TOPICS: ReadonlySet<string> = new Set(
-  NEGATION.negationAnswersTopics,
-);
+export const NEGATION_ANSWERS_TOPICS: ReadonlySet<string> = new Set(NEGATION.negationAnswersTopics);
 
 /** Result of running the negation engine over one message. */
 export interface NegationResult {
@@ -144,6 +147,37 @@ export function applyNegation(text: string): NegationResult {
   }
 
   return { masked: chars.join(""), topics, spans };
+}
+
+/**
+ * Is there a negator in the `lookback` word-tokens directly BEFORE `start`, in the same clause?
+ * Port of `signals._preceded_by_negator`.
+ *
+ * WHY IT EXISTS: {@link applyNegation} masks BACKWARD, because Hindi normally negates after what
+ * it negates ("ITI nahi kiya"). Negated ABILITY inverts that word order — "turant nahi aa sakta"
+ * puts the negator FIRST — so the backward mask covers "turant" and leaves the ability verb, which
+ * is the cue availability matches on, untouched.
+ *
+ * For most cue families missing that is the safe direction. For availability it is NOT: the cue
+ * still fires and records the OPPOSITE of what the worker said.
+ *
+ * Clause-clamped, so a negator in a previous clause cannot suppress a genuine answer —
+ * "kaam nahi kar raha, turant join kar sakta hu" keeps its cue.
+ */
+export function precededByNegator(text: string, start: number, lookback: number): boolean {
+  let clauseStart = 0;
+  for (const [cStart, cEnd] of clauseBounds(text)) {
+    if (cStart <= start && start < cEnd) {
+      clauseStart = cStart;
+      break;
+    }
+  }
+  const scanner = compilePatternGlobal(NEGATION.wordScan);
+  const before: string[] = [];
+  for (const m of text.slice(clauseStart, start).matchAll(scanner)) {
+    before.push(stripChars(m[0]).toLowerCase());
+  }
+  return before.slice(-lookback).some((token) => NEGATORS.has(token));
 }
 
 /**

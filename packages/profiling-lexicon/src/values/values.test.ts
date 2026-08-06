@@ -19,6 +19,12 @@ import { canonicalCity, canonicalRegion, canonicalState } from "./gazetteer.js";
 import { parseExperienceYears } from "./experience.js";
 import { applyNegation, isNegated } from "./negation.js";
 import { detectSalaries, parseAmount, parseSalaryMonthly } from "./salary.js";
+import {
+  hasAnywhereCue,
+  noticePeriodDays,
+  parseAvailability,
+  parseRelocationWillingness,
+} from "./availability.js";
 
 type AnyNormalizer = (text: string) => NormalizedValue<unknown> | null;
 
@@ -30,6 +36,8 @@ const NORMALIZER_BY_NAME: Readonly<Record<string, AnyNormalizer>> = {
   salaryExpected: (text) => detectSalaries(text).expected,
   salaryCurrent: (text) => detectSalaries(text).current,
   parseSalaryMonthly,
+  parseAvailability,
+  parseRelocationWillingness,
 };
 
 const fixtures = loadUtteranceFixtures();
@@ -271,6 +279,116 @@ describe("salary semantics the corpus alone would not pin", () => {
     const hit = parseSalaryMonthly("28000 nahi milta");
     expect(hit?.value).toBe(28000);
     expect(hit?.negationVetoed).toBe(true);
+  });
+});
+
+describe("availability + relocation semantics the corpus alone would not pin", () => {
+  it("does not read a bare time adverb as a start date", () => {
+    // THE FABRICATION THIS DETECTOR WAS REWRITTEN TO STOP. Our own questions open with "abhi",
+    // so the natural answer to them used to invent availability: immediate.
+    expect(parseAvailability("abhi pune me hu")).toBeNull();
+    expect(parseAvailability("abhi 25000 milte hain")).toBeNull();
+    // The adverb counts only NEXT TO a join intent.
+    expect(parseAvailability("abhi join kar sakta hun")?.value.availability).toBe("immediate");
+  });
+
+  it("requires first person, so an object is never an available worker", () => {
+    expect(parseAvailability("machine free hai")).toBeNull();
+    expect(parseAvailability("wo free hai")).toBeNull();
+    expect(parseAvailability("mera bhai berozgar hai")).toBeNull();
+    expect(parseAvailability("main free hu")?.value.availability).toBe("immediate");
+  });
+
+  it("keeps the shop-floor sense of 'job' and 'ready' out of it", () => {
+    // On a shop floor "job" is the WORKPIECE. Bare `ready` was removed for exactly this.
+    expect(parseAvailability("job abhi ready hai")).toBeNull();
+    expect(parseAvailability("tool aaj ready ho jayega")).toBeNull();
+    expect(parseAvailability("freelance kaam karta hu")).toBeNull();
+  });
+
+  it("does not read a time-scoped or past state as availability", () => {
+    expect(parseAvailability("sunday free hu")).toBeNull(); // free at a time ≠ free for a job
+    expect(parseAvailability("pichli job chhod di thi")).toBeNull(); // past
+  });
+
+  it("vetoes a negated cue, including the PRE-POSED negator", () => {
+    // Negated ability inverts Hindi's usual word order, so the backward mask alone misses it and
+    // the cue records the OPPOSITE of what the worker said.
+    expect(parseAvailability("abhi available nahi hu")).toBeNull();
+    expect(parseAvailability("turant nahi aa sakta")).toBeNull();
+    expect(parseAvailability("abhi nahi join kar sakta")).toBeNull();
+  });
+
+  it("clause-clamps the pre-posed negator so it cannot reach across a comma", () => {
+    expect(
+      parseAvailability("kaam nahi kar raha, turant join kar sakta hu")?.value.availability,
+    ).toBe("immediate");
+  });
+
+  it("exempts negation-BEARING cues, whose negator is the signal", () => {
+    // "kaam nahi kar raha" = "I am not working" = free. Vetoing it would delete the very
+    // positive the veto exists to protect.
+    expect(parseAvailability("kaam nahi kar raha")?.value.availability).toBe("immediate");
+  });
+
+  it("reads a notice duration only when it is time-UNTIL", () => {
+    expect(parseAvailability("15 din lagenge")?.value).toEqual({
+      availability: "notice_period",
+      noticeDays: 15,
+    });
+    expect(noticePeriodDays("do mahine lagenge", applyNegation("do mahine lagenge").masked)).toBe(
+      60,
+    );
+    // time AGO, a work WEEK, time SINCE, and experience — none of them a notice period.
+    expect(parseAvailability("10 din pehle join kiya tha")).toBeNull();
+    expect(parseAvailability("hafte me 6 din kaam karta hu")).toBeNull();
+    expect(parseAvailability("do mahine se salary nahi mili")).toBeNull();
+    expect(parseAvailability("6 month ka experience hai")).toBeNull();
+  });
+
+  it("never lets years become a notice period", () => {
+    // Years are experience. The old bare "month"/"days" cues were misreading exactly this.
+    expect(parseAvailability("5 saal ka tajurba")).toBeNull();
+  });
+
+  it("keeps the duration and the status from disagreeing", () => {
+    // Both read the same spans through the same blockers, so a "notice_period" can never carry a
+    // number the blockers rejected — a fabricated "15 days" on a resume is worse than a blank.
+    const denied = parseAvailability("15 din nahi lagenge");
+    expect(denied).toBeNull();
+    expect(
+      noticePeriodDays("15 din nahi lagenge", applyNegation("15 din nahi lagenge").masked),
+    ).toBeNull();
+  });
+
+  it("requires a place AND a verb before recording relocation", () => {
+    expect(parseRelocationWillingness("bahar ja sakta hu")?.value).toBe(true);
+    // "bahar KA diameter" is the outer diameter — only the verb beside it decides.
+    expect(parseRelocationWillingness("bahar ka diameter 40 hai")).toBeNull();
+    expect(parseRelocationWillingness("night shift karta hu")).toBeNull();
+    expect(parseRelocationWillingness("vmc chalega mujhe")).toBeNull();
+    expect(parseRelocationWillingness("ready hu machine ke liye")).toBeNull();
+  });
+
+  it("returns null rather than false when nothing was said", () => {
+    // "did not say" is not "said no". Recording false from silence is the same fabrication
+    // pointing the other way, and this field is payer-visible.
+    expect(parseRelocationWillingness("VMC chalata hu")).toBeNull();
+    expect(parseRelocationWillingness("bahar nahi jaunga")).toBeNull();
+  });
+
+  it("matches the Devanagari generality idiom through the block boundary", () => {
+    // {DB}/{DE}, not {WB}/{WE}: a word boundary does not work after a matra, so wrapping these
+    // in a word boundary would make them silently dead.
+    expect(parseRelocationWillingness("कहीं भी जा सकता हूँ")?.value).toBe(true);
+    expect(hasAnywhereCue("कहीं भी")).toBe(true);
+    expect(hasAnywhereCue("kahin bhi ja sakta hu")).toBe(true);
+    expect(hasAnywhereCue("pune me rehta hu")).toBe(false);
+  });
+
+  it("prefers immediate over a notice period when both fire", () => {
+    const both = parseAvailability("turant join kar sakta hu, 15 din me");
+    expect(both?.value.availability).toBe("immediate");
   });
 });
 

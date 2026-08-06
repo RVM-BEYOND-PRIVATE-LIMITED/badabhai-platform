@@ -102,13 +102,14 @@ def test_mirror_holds_no_orphan_files():
 
 
 # ------------------------------------------------------- the common-regex-subset rule --
-def _collect_patterns() -> list[tuple[str, dict]]:
+def _collect_patterns() -> list[tuple[str, dict, str]]:
     """Every ``{"source", "flags"}`` object in every lexicon file, found STRUCTURALLY.
 
     Walking rather than listing means a new file or a new pattern is covered the day it is
     added, without anyone remembering to extend this test.
     """
-    found: list[tuple[str, dict]] = []
+    found: list[tuple[str, dict, str]] = []
+    stem = ""
 
     def walk(node: object, path: str) -> None:
         if isinstance(node, list):
@@ -116,13 +117,20 @@ def _collect_patterns() -> list[tuple[str, dict]]:
                 walk(child, f"{path}[{index}]")
         elif isinstance(node, dict):
             if isinstance(node.get("source"), str):
-                found.append((path, node))
+                found.append((path, node, stem))
                 return
             for key, child in node.items():
                 walk(child, f"{path}.{key}")
 
     for path in _canonical_files():
-        walk(json.loads(path.read_text(encoding="utf-8")), path.stem)
+        stem = path.stem
+        data = json.loads(path.read_text(encoding="utf-8"))
+        walk(data, path.stem)
+        # FRAGMENTS ARE PATTERN SOURCE TOO. They are bare strings rather than {source, flags}
+        # objects, so the structural walk cannot see them — and a `\w` hiding in a fragment
+        # would reach every pattern that references it. Collected explicitly for that reason.
+        for name, source in (data.get("fragments") or {}).items():
+            found.append((f"{path.stem}.fragments.{name}", {"source": source}, path.stem))
     return found
 
 
@@ -134,23 +142,27 @@ def test_the_walker_finds_patterns_at_all():
     assert len(_PATTERNS) > 5
 
 
-@pytest.mark.parametrize("path,spec", _PATTERNS, ids=[p for p, _ in _PATTERNS])
-def test_pattern_uses_no_banned_escape(path: str, spec: dict):
+@pytest.mark.parametrize("path,spec,stem", _PATTERNS, ids=[p for p, _, _ in _PATTERNS])
+def test_pattern_uses_no_banned_escape(path: str, spec: dict, stem: str):
     """`\\d` and `\\w` mean different things in Python and JavaScript, and `\\b` is DEFINED in
     terms of `\\w`, so it inherits the same divergence. `{WB}`/`{WE}` are the replacements.
 
     Checked on the RAW source, before expansion: the expansion contains none of these, so
     checking afterwards would test the wrong string."""
-    for banned in ("\\d", "\\w", "\\b"):
+    # The COMPLEMENTS divide the same disputed character set, so they inherit the same split:
+    # `^\W*...\W*$` anchors on different characters in each engine. `{NWC}` is the replacement.
+    for banned in ("\\d", "\\w", "\\b", "\\W", "\\D"):
         assert banned not in spec["source"], (
             f"{path} uses {banned}, which the two regex engines disagree on — "
             "see packages/profiling-lexicon/data/README.md"
         )
 
 
-@pytest.mark.parametrize("path,spec", _PATTERNS, ids=[p for p, _ in _PATTERNS])
-def test_pattern_compiles(path: str, spec: dict):
-    assert isinstance(lexicon.compile_pattern(spec), re.Pattern), path
+@pytest.mark.parametrize("path,spec,stem", _PATTERNS, ids=[p for p, _, _ in _PATTERNS])
+def test_pattern_compiles(path: str, spec: dict, stem: str):
+    # With that file's own fragments, which is how the real readers compile it.
+    compiled = lexicon.compile_pattern(spec, lexicon.fragments_of(stem))
+    assert isinstance(compiled, re.Pattern), path
 
 
 def test_unknown_macro_raises_instead_of_compiling_as_a_literal():

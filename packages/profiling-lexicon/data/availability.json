@@ -1,0 +1,346 @@
+{
+  "$comment": [
+    "Availability, notice period and relocation willingness — lifted verbatim from",
+    "apps/ai-service/app/profiling/signals.py.",
+    "",
+    "BOTH FAMILIES EXIST BECAUSE THEY WERE FABRICATING. Issue #424 follow-up and issue #437,",
+    "each a measured post-merge finding, not a hypothesis:",
+    "",
+    "  availability — the cues were BARE SUBSTRINGS, and 'abhi' merely means 'right now'. The",
+    "  question bank's OWN questions open with it ('Abhi kis sheher mein hain?'), so the natural",
+    "  answer to our own question invented an availability the worker never stated:",
+    "    'abhi pune me hu'        -> {current_location: Pune, availability: immediate}",
+    "    '6 month ka experience'  -> availability: notice_period",
+    "    'freelance kaam karta hu'-> availability: immediate",
+    "",
+    "  relocation — same shape, 16/16 shop-floor phrases: 'bahar' matched 'bahar ka diameter',",
+    "  'shift' matched 'night shift', 'ready' matched 'job ready hai'.",
+    "",
+    "Both are LIVE fields: availability is a reach scoring signal (reach.job-source.ts) and both",
+    "render on the worker's resume. We were telling payers a worker could start immediately on",
+    "the strength of an adverb in our own question.",
+    "",
+    "THE RULE: a cue must be a GENUINE statement, matched with boundaries and with adjacency —",
+    "a place next to a going verb, a time adverb next to a join intent. The decision is made in",
+    "ONE place with adjacency, never by hoping a keyword list is unambiguous.",
+    "",
+    "FAIL DIRECTION IS TOWARD 'unknown'. availability is a MUST_ASK topic, so an undetected one",
+    "is simply asked. A FABRICATED one is never corrected."
+  ],
+
+  "fragments": {
+    "ANYWHERE": "(?:kah(?:in|i|ee|een)\\s+bh?i|anywhere|any\\s+where|any\\s+(?:city|place|location)|koi\\s+bh?i\\s+(?:sheher|shehar|shahar|city|jagah|state|rajya)|india\\s+me[in]?\\s+kahin|out\\s+of\\s+station)",
+    "ANYWHERE_DEV": "{DB}(?:कहीं|कही|जहाँ|जहां|जहा)\\s*भी{DE}",
+    "PLACE": "(?:{ANYWHERE}|bahar|baahar|outside|kahin\\s+aur|kahi\\s+aur|out\\s+of\\s+city|dusr[ae]\\s+(?:sheher|shehar|shahar|city|jagah|state|rajya)|doosr[ae]\\s+(?:sheher|shehar|city|jagah)|second\\s+city)",
+    "GO": "(?:ja\\s+sakta|ja\\s+sakti|ja\\s+sakte|jaa\\s+sakta|jaane|jane|jana|jaana|jaunga|jaungi|jaaunga|nikal\\s+sakta|rehne|rahne|settle|move|shift)",
+    "OK": "(?:chalega|chalegi|chal\\s+jayega|thik\\s+hai|theek\\s+hai|ok\\s+hai|koi\\s+dikkat\\s+nahi|problem\\s+nahi)",
+    "READY": "(?:ready|taiyaar|taiyar|tayyar|rajee|raji)",
+    "NOW": "(?:abhi|filhal|filhaal|turant|fauran|foran|aaj|kal|immediately|right\\s+now)",
+    "JOIN": "(?:join\\s+kar\\s+(?:sakta|sakti|sakte)|join\\s+(?:kar\\s+)?(?:lunga|loonga|luga|karunga|karoonga|sakunga)|joining\\s+(?:kar\\s+)?(?:sakta|sakti|sakte|lunga)|aa\\s+(?:sakta|sakti|sakte|jaunga|jaungi)|(?:start|shuru)\\s+kar\\s+(?:sakta|sakti|sakte|dunga))",
+    "NUM": "(?:[0-9०-९]{1,3}|ek|do|teen|tin|char|chaar|paanch|panch|chhah|chhe|saat|aath|das|pandrah|bees|tees|one|two|three|four|five|six|seven|ten|fifteen|twenty|thirty)",
+    "UNIT": "(?:din|days?|hafte|haftey|hafta|weeks?|mahin[ae]|maheen[ae]|months?)"
+  },
+  "$comment_fragments": [
+    "The cue lists are BUILT from these pieces, recombined ten different ways. Inlining them",
+    "would put ten copies of each alternation in this file, which is exactly the drift this",
+    "package exists to prevent. `{PLACE}` nests `{ANYWHERE}`, so expansion is a fixed point.",
+    "",
+    "ANYWHERE_DEV is a SEPARATE fragment from ANYWHERE and uses {DB}/{DE}, not {WB}/{WE}. A word",
+    "boundary does not work after a Devanagari matra, so wrapping these tokens in {WB}...{WE}",
+    "would make them silently dead — the exact failure mode that costs a detector with no error.",
+    "",
+    "NUM carries [0-9०-९] rather than \\d for the same reason salary.json does: Python's \\d",
+    "already matched Devanagari digits, and only the enumeration preserves that in both engines."
+  ],
+
+  "anywhereCues": [
+    { "source": "{WB}{ANYWHERE}{WE}", "flags": "i" },
+    { "source": "{ANYWHERE_DEV}", "flags": "i" }
+  ],
+  "$comment_anywhereCues": [
+    "A generality-of-place idiom gives 'anywhere' PRECEDENCE over any state named in the same",
+    "message: the worker said anywhere, so a state beside it is context, not the preference.",
+    "  'kahin bhi ja sakta hu, abhi Gujarat me kaam kar raha hu' -> ['Gujarat'] without this"
+  ],
+
+  "relocateCues": [
+    { "source": "{WB}relocat{WC}*", "flags": "i" },
+    {
+      "source": "{WB}transfer\\s+(?:le\\s+)?(?:sakta|sakti|sakte|lunga|loonga){WE}",
+      "flags": "i"
+    },
+    { "source": "{WB}{ANYWHERE}{WE}", "flags": "i" },
+    { "source": "{ANYWHERE_DEV}", "flags": "i" },
+    { "source": "{WB}{PLACE}{WE}[^.;!?]{0,24}?{WB}{GO}{WE}", "flags": "i" },
+    { "source": "{WB}{GO}{WE}[^.;!?]{0,24}?{WB}{PLACE}{WE}", "flags": "i" },
+    { "source": "{WB}{PLACE}{WE}[^.;!?]{0,24}?{WB}{OK}{WE}", "flags": "i" },
+    { "source": "{WB}{READY}{WE}[^.;!?]{0,30}?{WB}(?:{GO}|relocat{WC}*){WE}", "flags": "i" },
+    { "source": "{WB}(?:{GO}|relocat{WC}*){WE}[^.;!?]{0,30}?{WB}{READY}{WE}", "flags": "i" },
+    {
+      "source": "{WB}(?:shift|shifting)\\s+(?:ho|hona|hone|hoke|ho\\s+kar|kar\\s+sakta|kar\\s+sakti){WE}",
+      "flags": "i"
+    }
+  ],
+  "$comment_relocateCues": [
+    "ADJACENCY IS THE WHOLE DESIGN. 'bahar'/'outside' are a PLACE and never a cue alone, because",
+    "'bahar JAANA' is leaving town while 'bahar KA diameter' is the outer diameter — only the verb",
+    "beside it decides. 'dusre sheher' likewise: on its own it is as often work history as an",
+    "intention. 'chalega' alone is the machine verb ('vmc chalega mujhe'). 'ready' must attach to",
+    "a MOVE, so 'ready hu machine ke liye' has nothing to attach to and stays unset. 'shift' must",
+    "take a becoming-form, so 'night shift karta hu' and 'general shift' never fire."
+  ],
+
+  "immediateStrong": [
+    { "source": "{WB}immediate(?:ly)?{WE}", "flags": "i" },
+    { "source": "{WB}turant{WE}", "flags": "i" },
+    { "source": "{WB}faura?n{WE}", "flags": "i" },
+    { "source": "{WB}foran{WE}", "flags": "i" },
+    { "source": "{WB}ready\\s+(?:to\\s+)?join{WE}", "flags": "i" },
+    {
+      "source": "{WB}join{WC}*\\s+(?:ke\\s+liye|kar{WC}*\\s+ke\\s+liye)\\s+ready{WE}",
+      "flags": "i"
+    },
+    { "source": "{WB}{NOW}{WE}[^.;!?]{0,20}?{WB}{JOIN}{WE}", "flags": "i" },
+    { "source": "{WB}{JOIN}{WE}[^.;!?]{0,20}?{WB}{NOW}{WE}", "flags": "i" }
+  ],
+  "$comment_immediateStrong": [
+    "The word itself is the answer, whoever is speaking — no blocker needed. A time adverb next",
+    "to a join/start intent is the ONLY way 'abhi'/'aaj'/'kal' can contribute, and that is the",
+    "whole point of the fix.",
+    "",
+    "BARE `ready` IS DELIBERATELY ABSENT (adversarial review of #436, HIGH-1). An earlier cut",
+    "ended this alternation with `|ready)`, which combined with adverb-adjacency to re-create the",
+    "exact bug class in the register it most needed to protect: on a shop floor 'job' means the",
+    "WORKPIECE, and 'ready' is what you say about a part, a tool, a fixture or a drawing.",
+    "  'job abhi ready hai' / 'tool aaj ready ho jayega' -> immediate"
+  ],
+
+  "immediateSelfState": [
+    {
+      "source": "{WB}(?:free|khaali|khali|faarig|farig|fursat)\\s+(?:hu|hun|hoon){WE}",
+      "flags": "i"
+    },
+    { "source": "{WB}(?:{NOW}|main|mai|bilkul)\\s+(?:free|khaali|khali){WE}", "flags": "i" },
+    { "source": "{WB}ready\\s+(?:hu|hun|hoon){WE}", "flags": "i" },
+    { "source": "{WB}(?:main|mai|hum|i\\s*am|i'?m)\\s+ready{WE}", "flags": "i" },
+    {
+      "source": "{WB}(?:main|mai|hum|i\\s*am|i'?m|{NOW})\\s+available{WE}(?!\\s+(?:machine|machines|job|jobs|kaam|work|vacanc|position))",
+      "flags": "i"
+    },
+    { "source": "{WB}available\\s+(?:hu|hun|hoon){WE}", "flags": "i" },
+    {
+      "source": "{WB}(?:job|naukri|company|kaam)\\s+chhod\\s+(?:di|diya|dia|dii){WE}",
+      "flags": "i"
+    },
+    { "source": "{WB}berozgar\\s+(?:hu|hun|hoon){WE}", "flags": "i" }
+  ],
+  "$comment_immediateSelfState": [
+    "'I am, right now, not working / free / ready.' Real answers, but every one is SUBJECT- and",
+    "TENSE-sensitive, so each is additionally gated on the selfState blockers below.",
+    "",
+    "FIRST PERSON IS REQUIRED (review of #436, HIGH-2). An earlier cut accepted `hai`/`hain` and",
+    "justified it with 'the copula makes this safe'. That was wrong: they are THIRD person, so",
+    "objects became available workers — 'machine free hai', 'wo free hai'.",
+    "",
+    "'available' carries a trailing negative lookahead so 'koi job available hai kya?' — a",
+    "question about vacancies — is not read as a start date."
+  ],
+
+  "immediateNegationBearing": [
+    {
+      "source": "{WB}(?:kaam|job|naukri|kuch)\\s+(?:nahi+n?|nhi)\\s+(?:kar\\s+raha|kar\\s+rahi){WE}",
+      "flags": "i"
+    }
+  ],
+  "$comment_immediateNegationBearing": [
+    "These carry a negator INSIDE the phrase, and that negator is what makes them mean available",
+    "('kaam nahi kar raha' = 'I am not working' = free). They are therefore EXEMPT from the",
+    "negation veto — vetoing them would delete the very positives the veto exists to protect.",
+    "Held as their own list so the exemption is a property of the CUE, declared once, rather than",
+    "a special case buried in the matching loop.",
+    "",
+    "`hai`, `mil raha` and `milta` were DROPPED (review of #436, MEDIUM-3): 'yahan acha kaam nahi",
+    "milta' is a complaint about the current job, and 'kaam nahi hai' is as often the shop's",
+    "workload."
+  ],
+
+  "selfStateWindowBefore": 34,
+  "selfStateWindowAfter": 16,
+  "selfStateBefore": [
+    {
+      "source": "{WB}(?:machine|machines|tool|tools|fixture|jig|drawing|piece|part|parts|spindle|job|component|material|order){WE}",
+      "flags": "i"
+    },
+    {
+      "source": "{WB}(?:wo|woh|uska|uski|unka|unki|bhai|dost|saathi|beta|papa|friend|colleague|bandha|aadmi|ladka){WE}",
+      "flags": "i"
+    },
+    {
+      "source": "{WB}(?:sunday|saturday|monday|tuesday|wednesday|thursday|friday|ravivar|itwar|shanivar|weekend|chutti|holiday|lunch|shaam|subah|raat|dopahar|evening|morning|night|shift){WE}",
+      "flags": "i"
+    },
+    { "source": "{WB}(?:pehle|pichl[ae]|pichli|puran[ae]|purani|last){WE}", "flags": "i" }
+  ],
+  "selfStateAfter": [
+    { "source": "{WB}(?:tha|thi|the){WE}", "flags": "i" },
+    { "source": "{WB}(?:kaam|job|naukri)\\s+mil\\s+(?:gaya|gayi|gya|gyi){WE}", "flags": "i" }
+  ],
+  "$comment_selfState": [
+    "Three ways a self-state cue is not about the worker being free NOW, each a MEASURED failure",
+    "from the review of #436: the subject is an OBJECT ('machine free hai') or a THIRD PARTY",
+    "('mera bhai berozgar hai'); the state is TIME-SCOPED ('sunday free hu' — free at a time is",
+    "not free for a job); or it is PAST or already RESOLVED ('berozgar tha pehle ab kaam mil",
+    "gaya').",
+    "",
+    "'job' sits in the OBJECT list on purpose: on a shop floor it means the workpiece.",
+    "",
+    "WINDOWED, not whole-message, so a later unrelated clause cannot suppress a real answer."
+  ],
+
+  "preNegatorLookback": 2,
+  "$comment_preNegatorLookback": [
+    "How many word-tokens before a cue are scanned for a PRE-POSED negator. Two: enough for",
+    "'turant nahi aa sakta' and 'abhi nahi join kar sakta', tight enough that a negator elsewhere",
+    "in the clause cannot reach the cue ('kaam nahi milta isliye turant join kar sakta hu' — the",
+    "negator is three tokens back).",
+    "",
+    "WHY THIS EXISTS AT ALL: the negation engine masks BACKWARD, because Hindi normally negates",
+    "after what it negates ('ITI nahi kiya'). Negated ABILITY inverts that word order — the",
+    "negator comes FIRST — so the backward mask covers 'turant'/'abhi' and leaves the ability verb,",
+    "which is the cue we match on, untouched. For most families missing that is the safe",
+    "direction. For availability it is NOT: the cue still fires and records the OPPOSITE of what",
+    "the worker said."
+  ],
+
+  "noticeCues": [
+    { "source": "{WB}notice{WE}", "flags": "i" },
+    { "source": "{WB}resign{WE}", "flags": "i" },
+    { "source": "{WB}next\\s+month{WE}", "flags": "i" },
+    {
+      "source": "{WB}{NUM}\\s*{UNIT}{WE}[^.;!?]{0,14}?{WB}(?:lag{WC}*|baad|bad){WE}",
+      "flags": "i"
+    },
+    { "source": "{WB}lag{WC}*{WE}[^.;!?]{0,14}?{WB}{NUM}\\s*{UNIT}{WE}", "flags": "i" }
+  ],
+  "$comment_noticeCues": [
+    "Durations deliberately EXCLUDE 'saal'/'year': years are experience, never a notice period —",
+    "and the experience clause is precisely what the old bare 'month'/'mahina'/'days' cues were",
+    "misreading.",
+    "",
+    "A duration only means NOTICE when it is the time something TAKES ('15 din lagenge', '30 din",
+    "baad'). A duration on its own ('6 month ka experience hai') says nothing about availability."
+  ],
+
+  "askedNotice": { "source": "{WB}{NUM}\\s*{UNIT}{WE}", "flags": "i" },
+  "askedNoticeSpan": { "source": "{WB}({NUM})\\s*({UNIT}){WE}", "flags": "i" },
+  "$comment_askedNotice": [
+    "Read ONLY when the availability question is the one that was just asked. These phrasings are",
+    "real answers to 'join karne mein kitne din lagenge?' but say nothing on their own in the",
+    "middle of a transcript — running them context-free is how '6 month' became a notice period.",
+    "",
+    "The span variant is a SEPARATE pattern rather than groups added to the one above, because",
+    "that one is used in boolean contexts where a group change would be an invisible behaviour",
+    "change."
+  ],
+
+  "askedNoticeBlockWindow": 14,
+  "askedNoticeBlockers": [
+    { "source": "{WB}pehle{WE}", "flags": "i" },
+    { "source": "{WB}se{WE}", "flags": "i" },
+    { "source": "{WB}kaam\\s+kar", "flags": "i" },
+    { "source": "{WB}experience{WE}", "flags": "i" }
+  ],
+  "$comment_askedNoticeBlockers": [
+    "Even in availability context a duration is only a NOTICE if it is time-UNTIL, not time-since",
+    "or a work pattern (review of #436, MEDIUM-5). `last_asked` means 'the last question we",
+    "asked', NOT 'the question this message answers', so while availability is pending the worker",
+    "may still be talking about something else:",
+    "  '10 din pehle join kiya tha'   -> was notice_period (time AGO)",
+    "  'hafte me 6 din kaam karta hu' -> was notice_period (a work WEEK)",
+    "  'do mahine se salary nahi mili'-> was notice_period (time SINCE)",
+    "'X se' is 'for the last X' while 'X baad'/'X mein' is 'in X' — the distinction that separates",
+    "all three from a real notice period."
+  ],
+
+  "askedImmediate": [
+    { "source": "{WB}kabhi\\s+bhi{WE}", "flags": "i" },
+    { "source": "{WB}jab\\s+(?:bolo|bhi|kaho|chaho|bulao|bulaye){WE}", "flags": "i" },
+    { "source": "{WB}anytime{WE}", "flags": "i" },
+    { "source": "^{NWC}*{NOW}(?:\\s+(?:hi|se|tak|ko|hi\\s+se|se\\s+hi))?{NWC}*$", "flags": "i" },
+    { "source": "{WB}{JOIN}{WE}", "flags": "i" },
+    {
+      "source": "{WB}{NOW}{WE}[^.;!?]{0,20}?{WB}(?:kar|karna)\\s+(?:sakta|sakti|sakte){WE}",
+      "flags": "i"
+    }
+  ],
+  "$comment_askedImmediate": [
+    "CONTEXT-GATED: read ONLY when the availability question is the one on screen. That is what",
+    "makes the last two entries safe — they are unambiguous only in that context.",
+    "",
+    "'whenever you say' — genuinely immediate. Matched EXPLICITLY so it stops being read as",
+    "immediate for the wrong reason: the old cue found the 'abhi' inside 'kabhi', and 'kabhi",
+    "kabhi' ('sometimes') scored the same way.",
+    "",
+    "The bare time adverb IS the answer to 'how many days to join?', but only when it is the WHOLE",
+    "answer. ANCHORED AT BOTH ENDS (review of #436, HIGH-1): an earlier cut anchored only the",
+    "start, so any long sentence opening with a time word was read as a start date —",
+    "'kal meri shaadi hai to ready rahunga' -> immediate.",
+    "",
+    "{JOIN} alone is the ability to join with no immediacy adverb attached. The last entry is a",
+    "time adverb next to a bare CAN-DO verb: 'abhi kar sakta hun' answering 'join karne mein",
+    "kitne din lagenge?' means 'I can start now', while the same words answering anything else",
+    "could be about the WORK. Measured on an owner session — 'abhi kar sakta hun package de doge",
+    "toh' stays unknown, because {JOIN} requires an explicit join/start verb and this has none.",
+    "Bare 'abhi' remains barred from the CONTEXT-FREE table for the documented reason: our own",
+    "questions open with it.",
+    "",
+    "{NWC} not \\W: the anchors must bracket the same character set in both engines."
+  ],
+
+  "wordNumbers": {
+    "ek": 1,
+    "one": 1,
+    "do": 2,
+    "two": 2,
+    "teen": 3,
+    "tin": 3,
+    "three": 3,
+    "char": 4,
+    "chaar": 4,
+    "four": 4,
+    "paanch": 5,
+    "panch": 5,
+    "five": 5,
+    "chhah": 6,
+    "chhe": 6,
+    "six": 6,
+    "saat": 7,
+    "seven": 7,
+    "aath": 8,
+    "das": 10,
+    "ten": 10,
+    "pandrah": 15,
+    "fifteen": 15,
+    "bees": 20,
+    "twenty": 20,
+    "tees": 30,
+    "thirty": 30
+  },
+  "unitDays": [
+    ["din", 1],
+    ["day", 1],
+    ["hafte", 7],
+    ["haftey", 7],
+    ["hafta", 7],
+    ["week", 7],
+    ["mahin", 30],
+    ["maheen", 30],
+    ["month", 30]
+  ],
+  "$comment_unitDays": [
+    "Calendar-ish and deliberately coarse: a worker saying 'do mahine' means 'about two months',",
+    "not 61 days, and the field feeds a payer-facing band. Matched by STEM PREFIX in list order,",
+    "so 'mahine'/'mahina' both reach 'mahin'. Order is load-bearing where one stem prefixes",
+    "another."
+  ]
+}
