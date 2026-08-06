@@ -678,6 +678,14 @@ export const serverEnvSchema = z.object({
   // again on the far side (defence in depth: neither side trusts the other's bound).
   CHAT_HISTORY_WINDOW_TURNS: z.coerce.number().int().nonnegative().max(200).default(20),
 
+  // ── The deterministic profiling engine (OIE Phase 5) ───────────────────────────
+  // Which locale's question packs the orchestrator resolves. Matches `question_pack.locale`'s
+  // own default, and the partial unique index `question_pack_active_uq` is on (family, locale)
+  // — so exactly one pack per family can be active per locale, and this picks which one an
+  // interview runs. Config rather than a constant because adding a second locale must be a
+  // deploy, not a code change.
+  PROFILING_PACK_LOCALE: z.string().min(2).max(8).default("hi-IN"),
+
   // ── Agency payout ledger (ADR-0022 module 3+7, Amendment 2, owner-ratified 2026-07-23) ──
   // Master switch for the agency SUPPLY payout surface. Default OFF = inert: the payout
   // request/earnings routes return a neutral 404 and NO accrual is ever claimed into a

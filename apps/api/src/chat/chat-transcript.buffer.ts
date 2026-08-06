@@ -3,6 +3,10 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
+import {
+  narrowProfilingEnvelope,
+  type ProfilingEnvelope,
+} from "../profiling/conversation-state";
 import { PROFILE_EXTRACTION_QUEUE, type ProfileExtractionJobData } from "../queue/queue.constants";
 
 /**
@@ -88,6 +92,18 @@ export interface TranscriptBuffer {
   completedAt?: string;
   /** Why it ended — `fields_complete` | `turn_cap`. Observability only. */
   completionReason?: string;
+  /**
+   * ENVELOPE v2 — the deterministic interview's state (Phase 5).
+   *
+   * OPTIONAL, and that is load-bearing rather than tidy: a v1 model-driven interview has no
+   * envelope, and such a buffer must round-trip through {@link ChatTranscriptBuffer.narrow}
+   * byte-identically to how it did before this field existed. Adding a defaulted object here
+   * instead would rewrite every in-flight v1 buffer on its next save.
+   *
+   * ⚠ Every field INSIDE it is narrowed by `narrowProfilingEnvelope`, whose exhaustiveness is
+   * enforced at COMPILE time by `PROFILING_ENVELOPE_KEYS` — see conversation-state.ts.
+   */
+  profiling?: ProfilingEnvelope;
 }
 
 /**
@@ -100,7 +116,44 @@ interface RedisTranscriptClient {
   set(key: string, value: string, mode: "EX", seconds: number): Promise<unknown>;
   get(key: string): Promise<string | null>;
   del(...keys: string[]): Promise<number>;
+  /** `SCRIPT LOAD` — preloads the CAS script and returns its sha1. */
+  script(subcommand: "LOAD", script: string): Promise<unknown>;
+  evalsha(sha: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
+  eval(script: string, numKeys: number, ...args: (string | number)[]): Promise<unknown>;
 }
+
+/**
+ * COMPARE-AND-SET on the envelope's `rev`, executed atomically inside Redis.
+ *
+ * WHY A SCRIPT AND NOT `WATCH`/`MULTI`. The connection is BullMQ's and is SHARED — a `WATCH` on
+ * it would be visible to, and clobberable by, every other command BullMQ issues on the same
+ * socket. A script is the only way to get read-compare-write atomicity on a connection we do not
+ * exclusively own.
+ *
+ * A MISSING KEY IS `rev = 0`, so the first write of an interview (expected 0) creates the buffer
+ * and a stale second writer at the same rev loses. An UNPARSEABLE stored value also reads as 0
+ * rather than failing the write: `load` already discards such a value and restarts the interview,
+ * so refusing here would wedge the session on a key no retry can clear.
+ *
+ * COST: one `cjson.decode` of the stored buffer per turn, bounded by
+ * TRANSCRIPT_BUFFER_MAX_MESSAGES. Paid to keep `rev` in the SAME key as the data it guards — a
+ * separate rev key would be a second thing to expire, and a buffer whose rev key had lapsed would
+ * silently accept every concurrent writer.
+ */
+export const CAS_SCRIPT = `
+local current = redis.call('GET', KEYS[1])
+local rev = 0
+if current then
+  local ok, parsed = pcall(cjson.decode, current)
+  if ok and type(parsed) == 'table' and type(parsed.profiling) == 'table'
+     and type(parsed.profiling.rev) == 'number' then
+    rev = parsed.profiling.rev
+  end
+end
+if rev ~= tonumber(ARGV[1]) then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', tonumber(ARGV[3]))
+return 1
+`;
 
 /**
  * Hard ceiling on buffered lines, independent of CHAT_MAX_TURNS.
@@ -114,9 +167,17 @@ interface RedisTranscriptClient {
  */
 export const TRANSCRIPT_BUFFER_MAX_MESSAGES = 600;
 
+/** `{profiling}` when the stored value carries a readable envelope, `{}` when it does not. */
+function profilingOrNothing(raw: unknown): { profiling?: ProfilingEnvelope } {
+  const envelope = narrowProfilingEnvelope(raw);
+  return envelope ? { profiling: envelope } : {};
+}
+
 @Injectable()
 export class ChatTranscriptBuffer {
   private readonly logger = new Logger(ChatTranscriptBuffer.name);
+  /** sha1 of the preloaded CAS script. Cleared on `NOSCRIPT` so the next call re-loads it. */
+  private casSha: string | null = null;
 
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
@@ -200,6 +261,68 @@ export class ChatTranscriptBuffer {
   }
 
   /**
+   * Write the buffer ONLY IF the stored envelope is still at `expectedRev`. Returns whether it
+   * won; a loser has written nothing at all.
+   *
+   * THIS IS THE FIX FOR THE LOST UPDATE. `load → mutate → save` under a double-submit lets both
+   * writers read rev 4 and both write rev 5, and the second silently erases the first — a worker
+   * taps send twice on 2G and one of their two answers ceases to exist, with nothing anywhere
+   * saying so. The caller reloads on a `false` and re-runs the decision, which is safe precisely
+   * because the decision function is pure.
+   *
+   * `rev` IS BUMPED HERE, not by the caller. A caller that had to remember to increment it would
+   * eventually forget, and a stalled rev makes the CAS vacuous — every writer would win.
+   *
+   * NOT INTERCHANGEABLE WITH {@link save}. `save` is the v1 blind write and is correct only for a
+   * buffer with no profiling envelope; an orchestrated session must use this exclusively, or a
+   * blind write lands between a CAS reader's read and its write and is silently lost.
+   */
+  async saveWithCas(
+    sessionId: string,
+    buffer: TranscriptBuffer,
+    expectedRev: number,
+  ): Promise<boolean> {
+    if (!buffer.profiling) {
+      throw new Error("saveWithCas requires a profiling envelope; use save() for a v1 buffer");
+    }
+    const bounded: TranscriptBuffer = {
+      ...buffer,
+      messages: buffer.messages.slice(-TRANSCRIPT_BUFFER_MAX_MESSAGES),
+      profiling: { ...buffer.profiling, rev: expectedRev + 1 },
+    };
+    try {
+      const result = await this.evalCas(
+        ChatTranscriptBuffer.key(sessionId),
+        expectedRev,
+        JSON.stringify(bounded),
+      );
+      return result === 1;
+    } catch (err) {
+      throw this.unavailable("cas-save", sessionId, err);
+    }
+  }
+
+  /**
+   * Run the CAS script, preferring the PRELOADED sha and falling back to sending the body.
+   *
+   * The fallback is not belt-and-braces: `SCRIPT FLUSH`, a Redis restart, or a failover to a
+   * replica that never saw the load all invalidate the sha, and every subsequent turn would 503
+   * for as long as the cached sha survived in this process. The `NOSCRIPT` branch re-loads it.
+   */
+  private async evalCas(key: string, expectedRev: number, payload: string): Promise<unknown> {
+    const redis = await this.redis();
+    const ttl = this.config.CHAT_TRANSCRIPT_TTL_SECONDS;
+    this.casSha ??= String(await redis.script("LOAD", CAS_SCRIPT));
+    try {
+      return await redis.evalsha(this.casSha, 1, key, expectedRev, payload, ttl);
+    } catch (err) {
+      if (!(err instanceof Error) || !err.message.includes("NOSCRIPT")) throw err;
+      this.casSha = null;
+      return redis.eval(CAS_SCRIPT, 1, key, expectedRev, payload, ttl);
+    }
+  }
+
+  /**
    * Delete the buffer. Called AFTER a successful flush — never before, and never in a
    * `finally`: the Postgres transaction is what makes the transcript durable, so
    * dropping the key on a failed flush would destroy the only copy of the interview.
@@ -269,6 +392,15 @@ export class ChatTranscriptBuffer {
       ...(typeof v.completionReason === "string"
         ? { completionReason: v.completionReason }
         : {}),
+      // ⚠ THE FIELD-DROP TRAP, delegated. Every v2 field is enumerated ONCE, in
+      // `narrowProfilingEnvelope`, whose exhaustiveness is a COMPILE-TIME check
+      // (`PROFILING_ENVELOPE_KEYS satisfies Record<keyof ProfilingEnvelope, true>`). Inlining the
+      // fields here instead would reproduce exactly the bug this comment warns about: a field
+      // added to the envelope and forgotten here is destroyed on the next load, silently.
+      //
+      // Spread conditionally, like the two above: a v1 buffer has no envelope, and materializing
+      // a defaulted one would make every v1 round trip differ from what was stored.
+      ...profilingOrNothing(v.profiling),
     };
   }
 

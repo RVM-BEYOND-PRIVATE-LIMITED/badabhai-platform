@@ -83,6 +83,19 @@ const NORMALIZER_BY_FIELD: Readonly<Record<string, (text: string) => unknown>> =
 };
 
 /**
+ * Does this target field have a TYPED normalizer?
+ *
+ * The gate on cross-question capture, and it is load-bearing rather than an optimization. A
+ * free-text question's "normalizer" is the identity — the worker's whole message IS the answer —
+ * so running the cross-question path over free-text items would fill every one of them with the
+ * entire message the moment a worker said anything at all. Only fields with a real parser can
+ * claim a value they were not asked for.
+ */
+export function hasFieldNormalizer(field: string | null): boolean {
+  return field !== null && field in NORMALIZER_BY_FIELD;
+}
+
+/**
  * Was the detected value negated?
  *
  * Checked against the span the normalizer reported, not against the whole message: "Pune nahi
@@ -113,8 +126,11 @@ function normalizeFor(item: QuestionPackItem, text: string): unknown | undefined
   const normalizer = field ? NORMALIZER_BY_FIELD[field] : undefined;
   if (!normalizer) {
     // Free text: the worker's words are the answer. Trimmed, never rewritten.
-    const trimmed = text.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
+    //
+    // No empty-check, deliberately. `classifyUtterance` already returned `empty` for anything
+    // that trims to under two characters, and this line is only reached past that gate — so an
+    // `|| undefined` here would be unreachable code pretending to be a safety net.
+    return text.trim();
   }
 
   const value = normalizer(text);
