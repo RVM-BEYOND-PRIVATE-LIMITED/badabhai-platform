@@ -83,6 +83,10 @@ interface SkillsFile {
   readonly skills: readonly { readonly keyword: string; readonly label: string; readonly id: string }[];
 }
 
+interface ExperienceFile {
+  readonly wordNumbers: readonly { readonly word: string; readonly value: number }[];
+}
+
 /** Regex-escape a literal using the JS/Python-common escape set. */
 function escapeForBothEngines(literal: string): string {
   let out = "";
@@ -116,10 +120,30 @@ function skillKeywordAlternation(): string {
   return skillAlternation;
 }
 
+let expAlternation: string | undefined;
+
 /**
- * Expand the `{WB}` / `{WE}` / `{SKILL_KEYWORDS}` macros to their regex source. `lexicon.py`
- * performs the identical substitution — that is what makes one JSON file compile to the same
- * matcher in both languages.
+ * The spelled-out experience quantities, in file order. ORDER IS LOAD-BEARING: the alternation
+ * is longest-first, so "paune do" (1.75) beats "paune" (0.75) and "sava do" (2.25) beats "sava".
+ */
+export function experienceWords(): readonly { word: string; value: number }[] {
+  return loadLexicon<ExperienceFile>("experience").wordNumbers.map((e) => ({
+    word: e.word,
+    value: e.value,
+  }));
+}
+
+function experienceWordAlternation(): string {
+  expAlternation ??= experienceWords()
+    .map((e) => escapeForBothEngines(e.word))
+    .join("|");
+  return expAlternation;
+}
+
+/**
+ * Expand the `{WB}` / `{WE}` / `{SKILL_KEYWORDS}` / `{EXP_WORDS}` macros to their regex source.
+ * `lexicon.py` performs the identical substitution — that is what makes one JSON file compile to
+ * the same matcher in both languages.
  */
 export function expand(source: string): string {
   const expanded = source
@@ -128,7 +152,9 @@ export function expand(source: string): string {
     .split("{WE}")
     .join(WE)
     .split("{SKILL_KEYWORDS}")
-    .join(skillKeywordAlternation());
+    .join(skillKeywordAlternation())
+    .split("{EXP_WORDS}")
+    .join(experienceWordAlternation());
 
   const leftover = UNEXPANDED_MACRO_RE.exec(expanded);
   if (leftover) {
@@ -174,4 +200,16 @@ export function compileNamed(stem: string, key: string): RegExp {
   const spec = file[key];
   if (!spec) throw new Error(`lexicon ${stem}.json has no pattern "${key}"`);
   return compilePattern(spec);
+}
+
+/**
+ * As {@link compilePattern}, but with the `g` flag, for callers that need to walk every match
+ * with offsets (tokenizing, span extraction).
+ *
+ * Kept separate rather than adding `g` to the shared compile path: a global RegExp carries
+ * `lastIndex` between calls, so sharing one instance would make results depend on call order.
+ * Every caller here creates its own and uses it within a single function body.
+ */
+export function compilePatternGlobal(spec: PatternSpec): RegExp {
+  return new RegExp(expand(spec.source), `${toJsFlags(spec.flags ?? "")}g`);
 }

@@ -138,8 +138,20 @@ def _skill_keyword_alternation() -> str:
     return "|".join(_escape_for_both_engines(kw) for kw in skill_keywords())
 
 
+@lru_cache(maxsize=1)
+def experience_words() -> tuple[tuple[str, float], ...]:
+    """The spelled-out experience quantities, in file order. ORDER IS LOAD-BEARING: the
+    alternation is longest-first so "paune do" (1.75) beats "paune" (0.75)."""
+    return tuple((e["word"], float(e["value"])) for e in load("experience")["wordNumbers"])
+
+
+@lru_cache(maxsize=1)
+def _experience_word_alternation() -> str:
+    return "|".join(_escape_for_both_engines(word) for word, _value in experience_words())
+
+
 def expand(source: str) -> str:
-    """Expand the `{WB}` / `{WE}` / `{SKILL_KEYWORDS}` macros to their regex source.
+    """Expand the `{WB}` / `{WE}` / `{SKILL_KEYWORDS}` / `{EXP_WORDS}` macros to regex source.
 
     The TypeScript reader performs the IDENTICAL substitution, which is what makes one JSON
     file compile to the same matcher in both languages.
@@ -148,6 +160,7 @@ def expand(source: str) -> str:
         source.replace("{WB}", _WB)
         .replace("{WE}", _WE)
         .replace("{SKILL_KEYWORDS}", _skill_keyword_alternation())
+        .replace("{EXP_WORDS}", _experience_word_alternation())
     )
     leftover = _UNEXPANDED_MACRO_RE.search(expanded)
     if leftover:
