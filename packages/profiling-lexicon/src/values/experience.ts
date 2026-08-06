@@ -6,7 +6,12 @@
  * did not try the longer form first would read a worker's answer as a different number.
  */
 
-import { compilePattern, experienceWords, loadLexicon, type PatternSpec } from "../internal/regex.js";
+import {
+  compilePattern,
+  experienceWords,
+  loadLexicon,
+  type PatternSpec,
+} from "../internal/regex.js";
 import { applyNegation } from "./negation.js";
 import type { NormalizedValue } from "./types.js";
 
@@ -41,9 +46,11 @@ function toNumber(raw: string): number | null {
 /**
  * Parse years of experience from free text, or null.
  *
- * Returns the FIRST match, matching the Python detector's `search` semantics. A range like
- * "7-8 years" therefore yields 7 — the conservative end, and the same value the shipped
- * extractor produces today.
+ * Returns the FIRST match, matching the Python detector's `search` semantics. That is not the
+ * same as the first NUMBER in the string: the matcher requires the quantity to sit adjacent to
+ * the unit, so "7-8 saal" yields **8** — only the 8 touches "saal". MEASURED, not assumed, and
+ * pinned by the corpus. Whether an uncertain range should record the lower end is a product
+ * decision, not something to change inside a refactor.
  */
 export function parseExperienceYears(text: string): NormalizedValue<number> | null {
   const message = text || "";

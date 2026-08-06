@@ -521,6 +521,90 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("7 mahine", "months are not years — must NOT match"),
         ("part no 7 dekha", "a bare number with no unit must NOT match"),
     ]),
+    # ------------------------------------------------------ salary: monthly forms --
+    ("sal", [
+        ("22000 milta hai", "plain monthly, no unit"),
+        ("salary 28000 hai", None),
+        ("20k mahina milta hai", "k unit + explicit monthly cue"),
+        ("25 hazaar per month",
+         "MEASURED GAP, records NOTHING: the unit list has 'hazar' but not the very common "
+         "'hazaar' spelling, so this is a bare 2-digit number and is dropped. Pinned so "
+         "adding the spelling is a visible one-line diff with a corpus change attached"),
+        ("24 thousand milta hai", None),
+        ("2 hzr", "the abbreviated thousand unit"),
+        ("rs 32000 chahiye", "EXPECTED slot: 'chahiye' near the amount"),
+        ("₹ 27000 milta hai", "rupee sign is a money cue"),
+        ("INR 24000 monthly", None),
+        ("tankha 26000 hai", None),
+        ("pagar 19000", None),
+        ("40000 pm", "'pm' is a monthly cue"),
+        ("35000 p.m. chahiye", "monthly cue with dots + an expectation cue"),
+        ("1.5 lakh mahina", "decimal lakh, explicitly monthly"),
+        ("28000 kamata hu", None),
+        ("stipend 9000 milta hai", None),
+        ("28000 nahi milta", "NEGATED: the amount is found and vetoed, not dropped"),
+    ]),
+    # ------------------------------------------------- salary: the 12x period cases --
+    ("salp", [
+        ("3 lakh saalana milta hai", "annual cue BEFORE the amount"),
+        ("4 lakh per annum chahiye",
+         "MEASURED: annual (33,333/month) but the CURRENT slot, not expected. The "
+         "expectation window is 10 chars past the match end and 'chahiye' sits at 17, so "
+         "the cue is out of reach. The narrow window is what stops a neighbouring answer's "
+         "cue from stealing this amount"),
+        ("360000 per year milta hai", "annual, no unit word"),
+        ("3.6 lakh yearly", None),
+        ("5 lakh varsh ka", None),
+        ("4.2 lakh p.a.", "the abbreviated annual cue"),
+        ("6 saal se 28000 milta hai",
+         "THE ASYMMETRY CASE: a bare 'saal' BEFORE the amount is the EXPERIENCE clause, "
+         "not an annual marker. Reading it as annual divides a correct wage by twelve"),
+        ("5 lakh saal ka mahina",
+         "AMBIGUOUS: an annual AND a monthly cue — records NOTHING, per prefer-no-number"),
+        ("ctc 5 lakh",
+         "PINNED SHIPPED BUG: 'ctc' is a money cue but NOT an annual one, so this records "
+         "₹5,00,000 per MONTH. CTC is annual in ordinary usage. Changing it is a product "
+         "call, not a port — the corpus pins today's answer so the change is visible"),
+        ("6 lpa",
+         "PINNED: records NOTHING. A bare 1-2 digit number with no unit is dropped before "
+         "the period is ever consulted, so the 'lpa' annual cue never gets to speak"),
+    ]),
+    # --------------------------------------- salary EXCLUSIONS (must record nothing) --
+    ("salx", [
+        ("2015 se kaam kar raha hu", "a START YEAR, not a wage"),
+        ("2015 rupaye milte hai",
+         "the same 4-digit number WITH a money cue IS money — that is the whole test"),
+        ("1998 batch ka hu", "calendar year"),
+        ("roll number 987654 hai", "a credential id, not a wage"),
+        ("certificate no 3345 hai", "credential id"),
+        ("licence number 7781", "credential id"),
+        ("NCVT hai aur 26000 milta hai",
+         "the credential cue is NOT adjacent to the digits, so the wage survives — the "
+         "false-suppression regression a line scan shipped"),
+        ("NSQF level 5 kiya hai",
+         "the bare 'k'/'l' unit must not match the first letter of the next word"),
+        ("level 4 kaam karta hu", "as above — '4 k' from 'kaam' would record ₹4,000"),
+        ("800 rupaye roz", "below the ₹1,000 floor"),
+        ("950 milta hai", "below the floor"),
+        ("200 lakh chahiye", "₹2,00,00,000 is over the plausibility ceiling"),
+        ("5 crore", "'crore' is not a unit this matcher knows"),
+    ]),
+    # --------------------------------------------- salary: both slots, lines, script --
+    ("sal2", [
+        ("abhi 21000 milta hai, 31000 chahiye",
+         "one message filling BOTH slots — the current-vs-expected split"),
+        ("29000 milta hai\n39000 chahiye",
+         "LINE CLAMP: without it the second line's cue marks the first line's amount "
+         "as expected, and the real expected figure is then dropped as a duplicate"),
+        ("4 lakh\nsaal ka",
+         "the clamp again, on the PERIOD cue: 'saal' on the next line must not make "
+         "this annual"),
+        ("२८००० मिलता है",
+         "Devanagari digits — Python's \\d already matched them and float() parses "
+         "them, so [0-9०-९] is what preserves the shipped answer"),
+        ("23000 milta hai par 33000 chahiye aur ITI bhi kiya hai",
+         "a long multi-answer turn: both slots plus unrelated trailing content"),
+    ]),
 ]
 
 
@@ -569,7 +653,10 @@ def main() -> None:
             lines.append(json.dumps(record, ensure_ascii=False, sort_keys=False))
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # newline="\n" explicitly: text mode translates to os.linesep, so on Windows this file
+    # regenerates with CRLF. Git normalizes it away on commit today, which is exactly what makes
+    # the hazard easy to miss — turn that normalization off and the whole corpus reads as changed.
+    OUT.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print(f"wrote {len(lines)} cases -> {OUT}")
 
     rows = [json.loads(line) for line in lines]

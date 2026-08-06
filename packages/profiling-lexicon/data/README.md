@@ -14,6 +14,8 @@ Never hand-edit the mirror: run `pnpm lexicon:sync` and commit what it writes.
 | `particles.json` | Indian occupational particles the normalizer strips (`wala`, `ka kaam`, …) | Phase 1 (Divyanshu) |
 | `cities.json` | `KNOWN_CITIES` + `CITY_ALIASES` | Phase 3 (values slice) |
 | `states.json` | States, abbreviations and multi-state regions | Phase 3 (values slice) |
+| `experience.json` | The spelled-out Hinglish quantity table + the years matcher | Phase 3 (values slice) |
+| `salary.json` | The amount matcher, the annual/monthly/money cue lists, the credential guard | Phase 3 (values slice) |
 | `trades.json` | Role / machine / controller keyword tables with spelling variants | Phase 3 (values slice) |
 | `crosswalk.json` | RFS field id → `WorkerProfileDraft` path | Phase 7 |
 
@@ -50,6 +52,12 @@ and it is silent: a detector that stops firing produces a slightly worse profile
 Devanagari digits. `apps/api/src/skills/skills.dto.ts` documents this repo being bitten by exactly
 that, and that "this boundary must not be looser than the upstream gate".
 
+Write digits out as an explicit class — `[0-9०-९]` — rather than reaching for the shorter form.
+That is not pedantry: `signals.py`'s salary matcher used `\d` and therefore already accepted
+Devanagari, so `२५०००` records ₹25,000 on the shipped code. `[0-9]` would have silently dropped it
+and `\d` would have broken JavaScript. Only the enumeration preserves the behaviour in both engines.
+Use `{WC}` for `\w` itself (`annual\w*` becomes `{WB}annual{WC}*`).
+
 **Banned: `\b`.** It is *defined* in terms of `\w`, so it inherits the same divergence — Python sees
 `है` as a word character and JavaScript does not. Use the `{WB}` / `{WE}` macros instead.
 
@@ -69,6 +77,7 @@ stays readable *and* provably identical across the two engines.
 | ----- | ---------- | ------- |
 | `{WB}` | `(?<![`*word class*`])` | Leading word boundary |
 | `{WE}` | `(?![`*word class*`])` | Trailing word boundary |
+| `{WC}` | `[`*word class*`]` | One word **character** — the replacement for a bare `\w`, for open-ended stems like `annual{WC}*` |
 | `{SKILL_KEYWORDS}` | the `skills.json` keywords, regex-escaped, `\|`-joined, in file order | Keeps the negatable-skills cue from drifting out of the skills table |
 
 The *word class* is ASCII alphanumerics + `_`, plus the Devanagari **letters and digits** —

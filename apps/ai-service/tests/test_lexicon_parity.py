@@ -286,3 +286,31 @@ def test_devanagari_letters_and_digits_still_block_a_match():
 
     assert not signals.is_dont_know("idkहै")
     assert not signals.is_dont_know("idk५")
+
+
+def test_the_salary_ceiling_agrees_with_the_pseudonymizer():
+    """The plausibility ceiling is a MASKING decision, not just a parsing one.
+
+    What `_parse_amount` accepts as a salary, the gateway's D-1 money carve-out masks as
+    `[AMOUNT_n]` instead of blocking the turn. `pseudonymize.py` is the single source of truth;
+    the lexicon carries a copy only because TypeScript cannot import it. `signals.py` already
+    raises at import on disagreement — this asserts the guard is wired to the real constant
+    rather than to a second copy of the same literal.
+    """
+    from app.profiling import lexicon
+    from app.pseudonymize import MAX_PLAUSIBLE_SALARY_INR
+
+    assert lexicon.load("salary")["maxPlausibleInr"] == MAX_PLAUSIBLE_SALARY_INR
+
+
+def test_the_salary_unit_alternation_matches_the_unit_lists():
+    """The matcher spells its units inline while `_parse_amount` reads them from two lists.
+
+    Nothing else connects the two, so a unit added to one and not the other either never matches
+    (silently dropping every "25 <unit>") or matches and then multiplies by 1. Both are silent.
+    """
+    from app.profiling import lexicon
+
+    salary = lexicon.load("salary")
+    expected = "|".join([*salary["thousandUnits"], *salary["lakhUnits"]])
+    assert f"(?:{expected}){{WE}}" in salary["matcher"]["source"]

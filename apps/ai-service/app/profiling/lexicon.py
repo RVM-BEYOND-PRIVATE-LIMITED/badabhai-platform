@@ -89,6 +89,11 @@ _BOUNDARY_CLASS = (
 )
 _WB = f"(?<![{_BOUNDARY_CLASS}])"
 _WE = f"(?![{_BOUNDARY_CLASS}])"
+# One word CHARACTER, as opposed to the two boundary ASSERTIONS above. Stands in for a bare
+# `\w`, which the subset rule bans: the salary and availability cue lists are full of
+# open-ended stems (`annual\w*`, `month\w*`, `expect\w*`) that must keep matching the same
+# text in both engines. `{WC}*` is the direct replacement for `\w*`.
+_WC = f"[{_BOUNDARY_CLASS}]"
 
 # Escaped for regex-literal use inside a pattern the OTHER engine also compiles. Only the
 # characters that are a JS `SyntaxCharacter` AND a Python metacharacter. Space, "-" and "&"
@@ -151,14 +156,19 @@ def _experience_word_alternation() -> str:
 
 
 def expand(source: str) -> str:
-    """Expand the `{WB}` / `{WE}` / `{SKILL_KEYWORDS}` / `{EXP_WORDS}` macros to regex source.
+    """Expand the `{WB}` / `{WE}` / `{WC}` / `{SKILL_KEYWORDS}` / `{EXP_WORDS}` macros.
 
     The TypeScript reader performs the IDENTICAL substitution, which is what makes one JSON
     file compile to the same matcher in both languages.
+
+    `{WC}` is replaced BEFORE `{WB}`/`{WE}` would be — order is irrelevant here because the
+    three macro names are distinct, but the replacement values contain `[`/`]`, so a macro
+    must never be a substring of another macro's expansion. It is not.
     """
     expanded = (
         source.replace("{WB}", _WB)
         .replace("{WE}", _WE)
+        .replace("{WC}", _WC)
         .replace("{SKILL_KEYWORDS}", _skill_keyword_alternation())
         .replace("{EXP_WORDS}", _experience_word_alternation())
     )

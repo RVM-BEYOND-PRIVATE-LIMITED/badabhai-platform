@@ -56,6 +56,14 @@ const WB = `(?<![${BOUNDARY_CLASS}])`;
 const WE = `(?![${BOUNDARY_CLASS}])`;
 
 /**
+ * One word CHARACTER, as opposed to the two boundary ASSERTIONS above. Stands in for a bare
+ * `\w`, which the subset rule bans: the salary and availability cue lists are full of open-ended
+ * stems (`annual\w*`, `month\w*`, `expect\w*`) that must keep matching the same text in both
+ * engines. `{WC}*` is the direct replacement for `\w*`.
+ */
+const WC = `[${BOUNDARY_CLASS}]`;
+
+/**
  * Only the characters that are a JavaScript `SyntaxCharacter` AND a Python metacharacter.
  *
  * Space, `-` and `&` are deliberately absent: they are literal outside a character class in both
@@ -63,7 +71,22 @@ const WE = `(?![${BOUNDARY_CLASS}])`;
  * them, which is why a composed source is not byte-identical to the string `signals.py` used to
  * build inline — only semantically identical, which is what the parity corpus asserts.
  */
-const ESCAPE_CHARS = new Set([".", "*", "+", "?", "^", "$", "(", ")", "{", "}", "[", "]", "|", "\\"]);
+const ESCAPE_CHARS = new Set([
+  ".",
+  "*",
+  "+",
+  "?",
+  "^",
+  "$",
+  "(",
+  ")",
+  "{",
+  "}",
+  "[",
+  "]",
+  "|",
+  "\\",
+]);
 
 /**
  * Catches a typo'd or newly-invented macro before it reaches the regex compiler as a literal
@@ -80,7 +103,11 @@ export interface PatternSpec {
 }
 
 interface SkillsFile {
-  readonly skills: readonly { readonly keyword: string; readonly label: string; readonly id: string }[];
+  readonly skills: readonly {
+    readonly keyword: string;
+    readonly label: string;
+    readonly id: string;
+  }[];
 }
 
 interface ExperienceFile {
@@ -141,9 +168,9 @@ function experienceWordAlternation(): string {
 }
 
 /**
- * Expand the `{WB}` / `{WE}` / `{SKILL_KEYWORDS}` / `{EXP_WORDS}` macros to their regex source.
- * `lexicon.py` performs the identical substitution — that is what makes one JSON file compile to
- * the same matcher in both languages.
+ * Expand the `{WB}` / `{WE}` / `{WC}` / `{SKILL_KEYWORDS}` / `{EXP_WORDS}` macros to their regex
+ * source. `lexicon.py` performs the identical substitution — that is what makes one JSON file
+ * compile to the same matcher in both languages.
  */
 export function expand(source: string): string {
   const expanded = source
@@ -151,6 +178,8 @@ export function expand(source: string): string {
     .join(WB)
     .split("{WE}")
     .join(WE)
+    .split("{WC}")
+    .join(WC)
     .split("{SKILL_KEYWORDS}")
     .join(skillKeywordAlternation())
     .split("{EXP_WORDS}")

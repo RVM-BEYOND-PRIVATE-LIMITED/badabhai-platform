@@ -15,7 +15,9 @@ identity PII (phone/name/employer), which the pseudonymizer masks.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from ..pseudonymize import CITY_ALIASES, KNOWN_CITIES, MAX_PLAUSIBLE_SALARY_INR
 from . import lexicon
@@ -929,98 +931,50 @@ def _preferred_areas(text: str) -> list[str]:
 
 
 # Money like "22k", "22000", "22 thousand", "1.5 lakh".
-# The unit must END on a word boundary. Without it the bare `k` alternative matched
-# the FIRST LETTER of the next Hindi word, so "NSQF level 4 kiya hai" read the "k"
-# of "kiya" as thousands and recorded a 4,000 salary — and so did every "<digit>
-# kaam/karta/kiya" phrase. Same trap for the bare `l` in front of any l-word.
-_SALARY_RE = re.compile(
-    r"(?:₹|rs\.?|inr)?\s*(\d{1,3}(?:[,\d]*)(?:\.\d+)?)\s*"
-    r"((?:k|thousand|hazar|hzr|lakh|lac|l)\b)?",
-    re.IGNORECASE,
-)
-_EXPECTED_CUES = ("expect", "chahiye", "chahie", "want", "expected", "demand", " chah")
+# Shared with the TypeScript orchestrator via packages/profiling-lexicon (Phase 3).
+# Every constant in this block is read from data/salary.json (mirrored into
+# lexicon_data/ — see lexicon.py for why the mirror exists), so the rationale that
+# used to sit in these comments now lives beside the data it explains.
+_SALARY = lexicon.load("salary")
+_SALARY_RE = lexicon.compile_pattern(_SALARY["matcher"])
+_EXPECTED_CUES: tuple[str, ...] = tuple(_SALARY["expectedCues"])
+_MIN_DIGITS_WITHOUT_UNIT: int = _SALARY["minDigitsWithoutUnit"]
+_MIN_AMOUNT_INR: int = _SALARY["minAmountInr"]
+_THOUSAND_UNITS = frozenset(_SALARY["thousandUnits"])
+_LAKH_UNITS = frozenset(_SALARY["lakhUnits"])
+_YEAR_MIN: int = _SALARY["yearMin"]
+_YEAR_MAX: int = _SALARY["yearMax"]
+
+# The plausibility ceiling is SHARED with the pseudonymizer's D-1 money carve-out:
+# what this accepts as a salary, the gateway masks as [AMOUNT_n] instead of blocking
+# the turn. pseudonymize.py stays the single source of truth; the lexicon carries a
+# copy only because the TypeScript side cannot import it. Disagreement is a masking
+# decision made in two places, so it fails at import rather than at request time.
+if _SALARY["maxPlausibleInr"] != MAX_PLAUSIBLE_SALARY_INR:
+    raise ValueError(
+        "salary ceiling drift: profiling-lexicon salary.json maxPlausibleInr="
+        f"{_SALARY['maxPlausibleInr']} but pseudonymize.MAX_PLAUSIBLE_SALARY_INR="
+        f"{MAX_PLAUSIBLE_SALARY_INR}. pseudonymize.py is authoritative — fix the lexicon "
+        "and run `pnpm lexicon:sync`."
+    )
 
 # --- P1-3(b)/(c): salary PERIOD + year-vs-money cues ------------------------
-# Read in a TIGHT window around the amount — wide enough for "1.5 lakh saal ka",
-# narrow enough that the "5 saal" of an experience clause elsewhere in the same
-# sentence cannot mark an unrelated amount as annual.
-_PERIOD_WINDOW_BEFORE = 14
-_PERIOD_WINDOW_AFTER = 18
+# All four cue lists and both window widths live in data/salary.json. The asymmetry
+# between the annual before/after sets is load-bearing and documented there.
+_PERIOD_WINDOW_BEFORE: int = _SALARY["periodWindowBefore"]
+_PERIOD_WINDOW_AFTER: int = _SALARY["periodWindowAfter"]
+_EXPECTED_WINDOW_BEFORE: int = _SALARY["expectedWindowBefore"]
+_EXPECTED_WINDOW_AFTER: int = _SALARY["expectedWindowAfter"]
 
-# Annual cues are read ASYMMETRICALLY on purpose. AFTER the amount, a bare "saal"
-# is the annual marker ("1.5 lakh saal ka"). BEFORE it, a bare "saal" is far more
-# likely to be the EXPERIENCE clause ("5 saal se 25000 milta hai") — reading that
-# as annual would divide a correct monthly wage by twelve, trading one wrong number
-# for another. So the before-set carries only unambiguously annual words.
-_ANNUAL_CUES_AFTER: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"\bsaal\b",
-        r"\bsal\b",
-        r"\bsaalana\b",
-        r"\bsalana\b",
-        r"\bsalaana\b",
-        r"\bvarsh\b",
-        r"\bannum\b",
-        r"\bannual\w*",
-        r"\byearly\b",
-        r"\byear\b",
-        r"\bper\s*year\b",
-        r"\bp\.?\s?a\.?\b",
-        r"\blpa\b",
-    )
-)
-_ANNUAL_CUES_BEFORE: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"\bsaalana\b",
-        r"\bsalana\b",
-        r"\bsalaana\b",
-        r"\bvarsh\b",
-        r"\bannual\w*",
-        r"\byearly\b",
-        r"\bper\s*year\b",
-        r"\bhar\s*saal\b",
-    )
-)
-_MONTHLY_CUES: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"\bmahin[ae]\b",
-        r"\bmaheen[ae]\b",
-        r"\bmonth\w*",
-        r"\bmasik\b",
-        r"\bp\.?\s?m\.?\b",
-    )
-)
-# What makes a bare 4-digit number MONEY rather than a calendar year. Anchored
-# patterns, not substrings: a loose "rs" would fire on the "rs" inside "years".
-_MONEY_CUES: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"₹",
-        r"\brs\.?\b",
-        r"\binr\b",
-        r"\brupee\w*",
-        r"\brupa?y[ae]?\b",
-        r"\bsal+ary\b",
-        r"\btanakha\b",
-        r"\btankha\b",
-        r"\bpaga?ar?\b",
-        r"\bmil(?:ta|te|ti)\b",
-        r"\bkama\w*",
-        r"\bpay\w*",
-        r"\bwage\w*",
-        r"\bstipend\b",
-        r"\bincome\b",
-        r"\bctc\b",
-        r"\bmahin[ae]\b",
-        r"\bmonth\w*",
-        r"\bmasik\b",
-        r"\bexpect\w*",
-        r"\bchahi\w*",
-    )
-)
+
+def _compile_all(specs: list[dict[str, str]]) -> tuple[re.Pattern[str], ...]:
+    return tuple(lexicon.compile_pattern(spec) for spec in specs)
+
+
+_ANNUAL_CUES_AFTER = _compile_all(_SALARY["annualCuesAfter"])
+_ANNUAL_CUES_BEFORE = _compile_all(_SALARY["annualCuesBefore"])
+_MONTHLY_CUES = _compile_all(_SALARY["monthlyCues"])
+_MONEY_CUES = _compile_all(_SALARY["moneyCues"])
 # --- Relocation willingness (issue #437: STOP FABRICATING willing_to_relocate) ---
 #
 # THE DEFECT (measured, 16/16 shop-floor phrases). These cues were BARE SUBSTRINGS:
@@ -1993,9 +1947,9 @@ def _parse_amount(num: str, unit: str | None, months: int = 1) -> int | None:
     except ValueError:
         return None
     unit = (unit or "").lower()
-    if unit in ("k", "thousand", "hazar", "hzr"):
+    if unit in _THOUSAND_UNITS:
         value *= 1_000
-    elif unit in ("lakh", "lac", "l"):
+    elif unit in _LAKH_UNITS:
         value *= 100_000
     if months > 1:
         value /= months
@@ -2485,7 +2439,7 @@ def _looks_like_a_year(num: str, unit: str | None, near: str) -> bool:
     if unit:
         return False  # "2012 k" / "2012 lakh" is not a year
     digits = num.replace(",", "")
-    if not (len(digits) == 4 and digits.isdigit() and 1900 <= int(digits) <= 2099):
+    if not (len(digits) == 4 and digits.isdigit() and _YEAR_MIN <= int(digits) <= _YEAR_MAX):
         return False
     return not any(cue.search(near) for cue in _MONEY_CUES)
 
@@ -2509,43 +2463,40 @@ def _period_months(near_before: str, near_after: str) -> int | None:
     return 12 if annual else 1
 
 
-# A number sitting on a line that is about a CREDENTIAL is not money. Added with
-# the certifications question (2026-07-22): measured, "NCVT hai, roll number
-# R/2019/123456" recorded a 123,456 salary, and "certificate number 4471 hai"
-# recorded 4,471 — both of which flow to `salary_expectation.amount_min`, onto the
-# resume, and into the deterministic ranking factor `reach.mappers.ts` reads. The
-# detector is topic-blind and only rejects amounts under 1,000, so a roll number is
-# indistinguishable from a wage to it.
-# A number is a CREDENTIAL, not money, when a credential cue sits IMMEDIATELY
-# before it — "roll number R/2019/123456", "certificate no 45-2021-8891". Anchored
-# with `$` so the cue must be adjacent, allowing only a no/number connector and a
-# short alphanumeric ID prefix ("R/") in between.
+# A number sitting immediately after a CREDENTIAL cue is not money — "roll number
+# R/2019/123456" recorded a 123,456 salary before this existed. The pattern and the
+# full rationale (including why a line scan and a fixed character window were both
+# tried and both shipped false suppressions) live in data/salary.json.
 #
-# Proximity, not a line scan, and not a fixed character window. Both looser rules
-# shipped false suppressions: scanning the LINE dropped both salaries from "abhi
-# 25000 milta hai, 35000 chahiye, NCVT certificate hai" (one worker answering
-# several questions in one message — a chat message is a single line), and a
-# 30-character window still dropped the salary from "NCVT certificate hai, abhi
-# 25000 milta hai".
-_CREDENTIAL_BEFORE_RE = re.compile(
-    r"(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license"
-    r"|ncvt|scvt|nsqf|nsdc)\b"
-    # "certificate KA number NAPS/2020/44521" — same possessive slot the gate's
-    # _CREDENTIAL_ID_RE carries, kept in step with it.
-    r"(?:\s+(?:ka|ki|ke|mera|meri))?"
-    # The gap between the cue and the digits may be the REST OF THE IDENTIFIER —
-    # "roll number R/2019/123456" reaches its last digit run through "R/2019/", and
-    # "reg no MH2019CN4471" through "MH2019CN". Identifier characters only, so a
-    # space or comma ends the run and an unrelated later number is not suppressed.
-    r"\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*[A-Za-z0-9/\-]{0,20}$",
-    re.IGNORECASE,
-)
+# The possessive slot is kept in step with the gate's own `_CREDENTIAL_ID_RE`.
+_CREDENTIAL_BEFORE_RE = lexicon.compile_pattern(_SALARY["credentialBefore"])
 
 
-def _detect_salary(text: str, lower: str, sig: Signals) -> None:
+class SalaryHit(NamedTuple):
+    """One accepted salary: the MONTHLY amount, which slot it fills, and its evidence span.
+
+    The span runs from the first digit to the end of the unit — never the whole regex match,
+    which includes the surrounding whitespace `\\s*` consumed at both ends. `values.py` reports
+    it to the parity corpus, and the Phase 7 parse call's provenance gate quotes it back, so it
+    has to be the number the worker actually typed.
+    """
+
+    amount: int
+    expected: bool
+    start: int
+    end: int
+
+
+def _iter_salaries(text: str, lower: str) -> Iterator[SalaryHit]:
+    """Every amount in ``text`` that survives every rejection rule, in order.
+
+    Split out of :func:`_detect_salary` so the span-reporting normalizer in ``values.py`` runs
+    the SAME algorithm rather than a second copy of it. A duplicate would be free to drift, and
+    the thing it would drift on is the twelve-times period decision.
+    """
     for m in _SALARY_RE.finditer(text):
         num, unit = m.group(1), m.group(2)
-        if not unit and len(num.replace(",", "")) <= 2:
+        if not unit and len(num.replace(",", "")) < _MIN_DIGITS_WITHOUT_UNIT:
             continue  # bare 1-2 digit number with no unit -> likely years, skip
         # Every cue window is clamped to the LINE the number sits on. A cue on a
         # neighbouring line is a different utterance and says nothing about this
@@ -2580,14 +2531,30 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
         if months is None:
             continue  # ambiguous period -> record nothing
         amount = _parse_amount(num, unit, months)
-        if amount is None or amount < 1_000:
+        if amount is None or amount < _MIN_AMOUNT_INR:
             continue
-        window = lower[max(line_start, m.start() - 25) : min(line_end, m.end() + 10)]
-        if any(cue in window for cue in _EXPECTED_CUES):
+        window = lower[
+            max(line_start, m.start() - _EXPECTED_WINDOW_BEFORE) : min(
+                line_end, m.end() + _EXPECTED_WINDOW_AFTER
+            )
+        ]
+        end = m.end(2) if unit else m.end(1)
+        yield SalaryHit(amount, any(cue in window for cue in _EXPECTED_CUES), digits_at, end)
+
+
+def _detect_salary(text: str, lower: str, sig: Signals) -> None:
+    """FIRST WRITER WINS in each slot: a second expected amount does not overwrite the first.
+
+    Correction handling belongs to the orchestrator (`_may_commit` plus `AnswerRecord.history`),
+    not here — a detector that silently preferred the LAST number would make a correction
+    indistinguishable from a worker listing two figures in one breath.
+    """
+    for hit in _iter_salaries(text, lower):
+        if hit.expected:
             if sig.expected_salary is None:
-                sig.expected_salary = amount
+                sig.expected_salary = hit.amount
         elif sig.current_salary is None:
-            sig.current_salary = amount
+            sig.current_salary = hit.amount
 
 
 # --- Reverse label -> canonical id lookup (for the rich->legacy mapper) ------
