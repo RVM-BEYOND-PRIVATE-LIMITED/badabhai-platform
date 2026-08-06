@@ -80,10 +80,9 @@ function main(): void {
     console.log(`[${SCRIPT}] failures:`);
     for (const f of r.failures) {
       const got = f.got === null ? "NO MATCH" : `${f.got} via ${f.layer}`;
-      // Utterance passed as a separate argument, not interpolated — same reasoning as the
-      // miner: console.log honours format specifiers only in its first argument, and the
-      // gold set will eventually be rebuilt from real worker text.
-      console.log(`  want ${f.expected}  got ${got.padEnd(28)}  %s`, JSON.stringify(f.utterance));
+      // Fully literal format string — same reasoning as the miner, and the gold set will
+      // eventually be rebuilt from real worker utterances.
+      console.log("  want %s  got %s  %s", f.expected, got.padEnd(28), JSON.stringify(f.utterance));
     }
   }
 

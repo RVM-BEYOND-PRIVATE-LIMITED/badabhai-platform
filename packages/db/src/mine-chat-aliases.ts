@@ -304,13 +304,13 @@ async function main(): Promise<void> {
       console.log(`[${SCRIPT}] wrote ${candidates.length} candidate(s) to ${outTo}`);
     } else {
       for (const c of candidates.slice(0, 50)) {
-        // The phrase is passed as a SEPARATE ARGUMENT, never interpolated into the format
-        // string. It is worker-derived: normalized and pseudonymized, but still whatever
-        // someone typed, so a phrase containing "%s" or "%d" interpolated here would let a
-        // worker forge lines in an operator's console. console.log only applies format
-        // specifiers found in its FIRST argument, so keeping the template to numbers we
-        // computed removes the hazard rather than trusting the text.
-        console.log(`  ${String(c.sessions).padStart(4)} sessions  ${String(c.count).padStart(4)}x  %s`, c.phrase);
+        // FULLY LITERAL FORMAT STRING, every value an argument. The phrase is
+        // worker-derived — normalized and pseudonymized, but still whatever someone typed
+        // — so interpolating it would let a worker's "%s" forge lines in an operator's
+        // console. console.log honours specifiers only in its first argument, and a first
+        // argument with no interpolation at all is the only form that is both safe and
+        // obviously safe to a reader (and to semgrep, which is purely syntactic here).
+        console.log("  %s sessions  %sx  %s", String(c.sessions).padStart(4), String(c.count).padStart(4), c.phrase);
       }
     }
     console.log(
