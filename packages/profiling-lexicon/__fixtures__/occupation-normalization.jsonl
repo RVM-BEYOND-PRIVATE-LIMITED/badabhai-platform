@@ -1,0 +1,200 @@
+{"id":"corpus-001","source":"corpus","input":"2431 0671 traffic co-ordinator","normalized":"2431 0671 traffic co-ordinator","skeleton":"2431 0671 trfc c-rdntr"}
+{"id":"corpus-002","source":"corpus","input":"administrative official state government","normalized":"administrative official state government","skeleton":"admnstrtv ofcl st gvrnmnt"}
+{"id":"corpus-003","source":"corpus","input":"agricultural engineer","normalized":"agricultural engineer","skeleton":"agrcltrl engnr"}
+{"id":"corpus-004","source":"corpus","input":"aircrewman navy","normalized":"aircrewman navy","skeleton":"arcrvmn nv"}
+{"id":"corpus-005","source":"corpus","input":"anodiser","normalized":"anodiser","skeleton":"andsr"}
+{"id":"corpus-006","source":"corpus","input":"assembler ammunition","normalized":"assembler ammunition","skeleton":"asmblr amntn"}
+{"id":"corpus-007","source":"corpus","input":"assembler stationary petrol engine","normalized":"assembler stationary petrol engine","skeleton":"asmblr stnr ptrl engn"}
+{"id":"corpus-008","source":"corpus","input":"assistant pre-school","normalized":"assistant pre-school","skeleton":"astnt pr-scl"}
+{"id":"corpus-009","source":"corpus","input":"attendant dry dock","normalized":"attendant dry dock","skeleton":"atndnt dr dck"}
+{"id":"corpus-010","source":"corpus","input":"auto service technician two and three wheelers","normalized":"auto service technician two and three wheelers","skeleton":"at srvc tcncn tv and tr vhlrs"}
+{"id":"corpus-011","source":"corpus","input":"ball mill attendant","normalized":"ball mill attendant","skeleton":"bl ml atndnt"}
+{"id":"corpus-012","source":"corpus","input":"bead maker rubber tyre","normalized":"bead maker rubber tyre","skeleton":"bd mkr rbr tr"}
+{"id":"corpus-013","source":"corpus","input":"blacksmiths hammersmiths and forging press workers","normalized":"blacksmiths hammersmiths and forging press workers","skeleton":"blcksmts hmrsmts and frgng prs vrkrs"}
+{"id":"corpus-014","source":"corpus","input":"bombardier","normalized":"bombardier","skeleton":"bmbrdr"}
+{"id":"corpus-015","source":"corpus","input":"brake specialist","normalized":"brake specialist","skeleton":"brk spclst"}
+{"id":"corpus-016","source":"corpus","input":"builder plastic boat","normalized":"builder plastic boat","skeleton":"bldr plstc bt"}
+{"id":"corpus-017","source":"corpus","input":"buyer","normalized":"buyer","skeleton":"br"}
+{"id":"corpus-018","source":"corpus","input":"cane carrier driver mill house","normalized":"cane carrier driver mill house","skeleton":"cn cr drvr ml hs"}
+{"id":"corpus-019","source":"corpus","input":"carpenter village","normalized":"carpenter village","skeleton":"crpntr vlg"}
+{"id":"corpus-020","source":"corpus","input":"casting or foundry assistant/helper","normalized":"casting or foundry assistant/helper","skeleton":"cstng or fndr astnt/hlpr"}
+{"id":"corpus-021","source":"corpus","input":"charger reverberatory pulverised coal fired/reverberatory furnace operator","normalized":"charger reverberatory pulverised coal fired/reverberatory furnace operator","skeleton":"crgr rvrbrtr plvrsd cl frd/rvrbrtr frnc oprtr"}
+{"id":"corpus-022","source":"corpus","input":"chemist pharmaceuticals","normalized":"chemist pharmaceuticals","skeleton":"cmst frmctcls"}
+{"id":"corpus-023","source":"corpus","input":"cigar production machine operator","normalized":"cigar production machine operator","skeleton":"cgr prdctn mcn oprtr"}
+{"id":"corpus-024","source":"corpus","input":"clerical controller transport service","normalized":"clerical controller transport service","skeleton":"clrcl cntrlr trnsprt srvc"}
+{"id":"corpus-025","source":"corpus","input":"clerk enquiry","normalized":"clerk enquiry","skeleton":"clrk enqr"}
+{"id":"corpus-026","source":"corpus","input":"clerk production","normalized":"clerk production","skeleton":"clrk prdctn"}
+{"id":"corpus-027","source":"corpus","input":"clinical psychologist","normalized":"clinical psychologist","skeleton":"clncl psclgst"}
+{"id":"corpus-028","source":"corpus","input":"collator operator","normalized":"collator operator","skeleton":"cltr oprtr"}
+{"id":"corpus-029","source":"corpus","input":"community health care coordinator","normalized":"community health care coordinator","skeleton":"cmnt hlt cr crdntr"}
+{"id":"corpus-030","source":"corpus","input":"concrete moulder","normalized":"concrete moulder","skeleton":"cncrt mldr"}
+{"id":"corpus-031","source":"corpus","input":"consultant telesales outbound calls","normalized":"consultant telesales outbound calls","skeleton":"cnsltnt tlsls otbnd cls"}
+{"id":"corpus-032","source":"corpus","input":"coordinator community aged care","normalized":"coordinator community aged care","skeleton":"crdntr cmnt agd cr"}
+{"id":"corpus-033","source":"corpus","input":"coxswain lifeboat","normalized":"coxswain lifeboat","skeleton":"cxsvn lfbt"}
+{"id":"corpus-034","source":"corpus","input":"croupier","normalized":"croupier","skeleton":"crpr"}
+{"id":"corpus-035","source":"corpus","input":"cutter-polisher industrial diamonds","normalized":"cutter-polisher industrial diamonds","skeleton":"ctr-plsr indstrl dmnds"}
+{"id":"corpus-036","source":"corpus","input":"de-hairer hand","normalized":"de-hairer hand","skeleton":"d-hr hnd"}
+{"id":"corpus-037","source":"corpus","input":"derrickman","normalized":"derrickman","skeleton":"drckmn"}
+{"id":"corpus-038","source":"corpus","input":"die sinker hand","normalized":"die sinker hand","skeleton":"d snkr hnd"}
+{"id":"corpus-039","source":"corpus","input":"director information systems","normalized":"director information systems","skeleton":"drctr infrmtn stms"}
+{"id":"corpus-040","source":"corpus","input":"disease registry technician","normalized":"disease registry technician","skeleton":"ds rgstr tcncn"}
+{"id":"corpus-041","source":"corpus","input":"door-to-door salesperson","normalized":"door-to-door salesperson","skeleton":"dr-t-dr slsprsn"}
+{"id":"corpus-042","source":"corpus","input":"driller wood","normalized":"driller wood","skeleton":"drlr vd"}
+{"id":"corpus-043","source":"corpus","input":"driver road train","normalized":"driver road train","skeleton":"drvr rd trn"}
+{"id":"corpus-044","source":"corpus","input":"dumper operator/dumper/tipper operator","normalized":"dumper operator/dumper/tipper operator","skeleton":"dmpr oprtr/dmpr/tpr oprtr"}
+{"id":"corpus-045","source":"corpus","input":"electrical and electronic equipment assemblers other","normalized":"electrical and electronic equipment assemblers other","skeleton":"elctrcl and elctrnc eqpmnt asmblrs otr"}
+{"id":"corpus-046","source":"corpus","input":"electrotherapist","normalized":"electrotherapist","skeleton":"elctrtrpst"}
+{"id":"corpus-047","source":"corpus","input":"engineer-software transition","normalized":"engineer-software transition","skeleton":"engnr-sftvr trnstn"}
+{"id":"corpus-048","source":"corpus","input":"etc according to work performed","normalized":"etc according to work performed","skeleton":"etc acrdng t vrk prfrmd"}
+{"id":"corpus-049","source":"corpus","input":"family medical practitioner","normalized":"family medical practitioner","skeleton":"fml mdcl prctnr"}
+{"id":"corpus-050","source":"corpus","input":"field man fish","normalized":"field man fish","skeleton":"fld mn fs"}
+{"id":"corpus-051","source":"corpus","input":"financial planner","normalized":"financial planner","skeleton":"fncl plnr"}
+{"id":"corpus-052","source":"corpus","input":"fisheries adviser","normalized":"fisheries adviser","skeleton":"fsrs advsr"}
+{"id":"corpus-053","source":"corpus","input":"flotation worker mineral processing","normalized":"flotation worker mineral processing","skeleton":"fltn vrkr mnrl prcsng"}
+{"id":"corpus-054","source":"corpus","input":"frame maker cap","normalized":"frame maker cap","skeleton":"frm mkr cp"}
+{"id":"corpus-055","source":"corpus","input":"furniture production machine operator","normalized":"furniture production machine operator","skeleton":"frntr prdctn mcn oprtr"}
+{"id":"corpus-056","source":"corpus","input":"gemstone facet maker","normalized":"gemstone facet maker","skeleton":"gmstn fct mkr"}
+{"id":"corpus-057","source":"corpus","input":"gill-box-man","normalized":"gill-box-man","skeleton":"gl-bx-mn"}
+{"id":"corpus-058","source":"corpus","input":"governor prison","normalized":"governor prison","skeleton":"gvrnr prsn"}
+{"id":"corpus-059","source":"corpus","input":"guide museum","normalized":"guide museum","skeleton":"gd msm"}
+{"id":"corpus-060","source":"corpus","input":"handing out leaflets and free newspapers","normalized":"handing out leaflets and free newspapers","skeleton":"hndng ot lflts and fr nvsprs"}
+{"id":"corpus-061","source":"corpus","input":"health inspector","normalized":"health inspector","skeleton":"hlt inspctr"}
+{"id":"corpus-062","source":"corpus","input":"high school teacher","normalized":"high school teacher","skeleton":"hg scl tcr"}
+{"id":"corpus-063","source":"corpus","input":"hotel receptionist","normalized":"hotel receptionist","skeleton":"htl rcptnst"}
+{"id":"corpus-064","source":"corpus","input":"incinerator and water-treatment plant operators other","normalized":"incinerator and water-treatment plant operators other","skeleton":"incnrtr and vtr-trtmnt plnt oprtrs otr"}
+{"id":"corpus-065","source":"corpus","input":"inspector clerical railway transport service","normalized":"inspector clerical railway transport service","skeleton":"inspctr clrcl rlv trnsprt srvc"}
+{"id":"corpus-066","source":"corpus","input":"interpreter historical","normalized":"interpreter historical","skeleton":"intrprtr hstrcl"}
+{"id":"corpus-067","source":"corpus","input":"job analyst","normalized":"job analyst","skeleton":"jb anlst"}
+{"id":"corpus-068","source":"corpus","input":"kierman textile package dyeing machine operator","normalized":"kierman textile package dyeing machine operator","skeleton":"krmn txtl pckg dng mcn oprtr"}
+{"id":"corpus-069","source":"corpus","input":"labourer agriculture","normalized":"labourer agriculture","skeleton":"lbr agrcltr"}
+{"id":"corpus-070","source":"corpus","input":"layout engineer","normalized":"layout engineer","skeleton":"lt engnr"}
+{"id":"corpus-071","source":"corpus","input":"librarian film","normalized":"librarian film","skeleton":"lbrn flm"}
+{"id":"corpus-072","source":"corpus","input":"lino operator","normalized":"lino operator","skeleton":"ln oprtr"}
+{"id":"corpus-073","source":"corpus","input":"machine man hand printing","normalized":"machine man hand printing","skeleton":"mcn mn hnd prntng"}
+{"id":"corpus-074","source":"corpus","input":"maintenance technician","normalized":"maintenance technician","skeleton":"mntnc tcncn"}
+{"id":"corpus-075","source":"corpus","input":"manager boarding house","normalized":"manager boarding house","skeleton":"mngr brdng hs"}
+{"id":"corpus-076","source":"corpus","input":"manager demolition","normalized":"manager demolition","skeleton":"mngr dmltn"}
+{"id":"corpus-077","source":"corpus","input":"manager general chain store","normalized":"manager general chain store","skeleton":"mngr gnrl cn str"}
+{"id":"corpus-078","source":"corpus","input":"manager maintenance mechanical and electrical","normalized":"manager maintenance mechanical and electrical","skeleton":"mngr mntnc mcncl and elctrcl"}
+{"id":"corpus-079","source":"corpus","input":"manager production waste management","normalized":"manager production waste management","skeleton":"mngr prdctn vst mngmnt"}
+{"id":"corpus-080","source":"corpus","input":"manager theme park","normalized":"manager theme park","skeleton":"mngr tm prk"}
+{"id":"corpus-081","source":"corpus","input":"marine biologist","normalized":"marine biologist","skeleton":"mrn blgst"}
+{"id":"corpus-082","source":"corpus","input":"mathematics coach private tuition","normalized":"mathematics coach private tuition","skeleton":"mtmtcs c prvt tn"}
+{"id":"corpus-083","source":"corpus","input":"mechanical engineer refrigeration","normalized":"mechanical engineer refrigeration","skeleton":"mcncl engnr rfrgrtn"}
+{"id":"corpus-084","source":"corpus","input":"member consumer redressal forum","normalized":"member consumer redressal forum","skeleton":"mbr cnsmr rdrsl frm"}
+{"id":"corpus-085","source":"corpus","input":"metallurgists adaptive","normalized":"metallurgists adaptive","skeleton":"mtlrgsts adptv"}
+{"id":"corpus-086","source":"corpus","input":"mine under-manager","normalized":"mine under-manager","skeleton":"mn undr-mngr"}
+{"id":"corpus-087","source":"corpus","input":"mobile crane operator","normalized":"mobile crane operator","skeleton":"mbl crn oprtr"}
+{"id":"corpus-088","source":"corpus","input":"moulder machine","normalized":"moulder machine","skeleton":"mldr mcn"}
+{"id":"corpus-089","source":"corpus","input":"network analyst","normalized":"network analyst","skeleton":"ntvrk anlst"}
+{"id":"corpus-090","source":"corpus","input":"obstetrician","normalized":"obstetrician","skeleton":"obstrcn"}
+{"id":"corpus-091","source":"corpus","input":"officer police patrol","normalized":"officer police patrol","skeleton":"ofcr plc ptrl"}
+{"id":"corpus-092","source":"corpus","input":"operator bookkeeping machine","normalized":"operator bookkeeping machine","skeleton":"oprtr bkpng mcn"}
+{"id":"corpus-093","source":"corpus","input":"operator digger trench digging","normalized":"operator digger trench digging","skeleton":"oprtr dgr trnc dgng"}
+{"id":"corpus-094","source":"corpus","input":"operator hoist","normalized":"operator hoist","skeleton":"oprtr hst"}
+{"id":"corpus-095","source":"corpus","input":"operator machine blocking hats","normalized":"operator machine blocking hats","skeleton":"oprtr mcn blckng hts"}
+{"id":"corpus-096","source":"corpus","input":"operator machine confectionery production","normalized":"operator machine confectionery production","skeleton":"oprtr mcn cnfctnr prdctn"}
+{"id":"corpus-097","source":"corpus","input":"operator machine dyeing textile fibres","normalized":"operator machine dyeing textile fibres","skeleton":"oprtr mcn dng txtl fbrs"}
+{"id":"corpus-098","source":"corpus","input":"operator machine glaze production","normalized":"operator machine glaze production","skeleton":"oprtr mcn glj prdctn"}
+{"id":"corpus-099","source":"corpus","input":"operator machine mixing chemical and related processes","normalized":"operator machine mixing chemical and related processes","skeleton":"oprtr mcn mxng cmcl and rltd prcs"}
+{"id":"corpus-100","source":"corpus","input":"operator machine preserving vegetables","normalized":"operator machine preserving vegetables","skeleton":"oprtr mcn prsrvng vgtbls"}
+{"id":"corpus-101","source":"corpus","input":"operator machine twining thread and yarn","normalized":"operator machine twining thread and yarn","skeleton":"oprtr mcn tvng trd and irn"}
+{"id":"corpus-102","source":"corpus","input":"operator press edible oils","normalized":"operator press edible oils","skeleton":"oprtr prs edbl ols"}
+{"id":"corpus-103","source":"corpus","input":"operator still spirits","normalized":"operator still spirits","skeleton":"oprtr stl sprts"}
+{"id":"corpus-104","source":"corpus","input":"oral and maxillofacial surgeon","normalized":"oral and maxillofacial surgeon","skeleton":"orl and mxlfcl srgn"}
+{"id":"corpus-105","source":"corpus","input":"paediatrician","normalized":"paediatrician","skeleton":"pdtrcn"}
+{"id":"corpus-106","source":"corpus","input":"paratrooper","normalized":"paratrooper","skeleton":"prtrpr"}
+{"id":"corpus-107","source":"corpus","input":"peanut blancher","normalized":"peanut blancher","skeleton":"pnt blncr"}
+{"id":"corpus-108","source":"corpus","input":"petroleum and natural gas extraction technician","normalized":"petroleum and natural gas extraction technician","skeleton":"ptrlm and ntrl gs extrctn tcncn"}
+{"id":"corpus-109","source":"corpus","input":"physical science technicians other","normalized":"physical science technicians other","skeleton":"fscl scnc tcncns otr"}
+{"id":"corpus-110","source":"corpus","input":"pipe fitter","normalized":"pipe fitter","skeleton":"p ftr"}
+{"id":"corpus-111","source":"corpus","input":"plumber general assistant","normalized":"plumber general assistant","skeleton":"plmbr gnrl astnt"}
+{"id":"corpus-112","source":"corpus","input":"polishing machine operator mosaic","normalized":"polishing machine operator mosaic","skeleton":"plsng mcn oprtr msc"}
+{"id":"corpus-113","source":"corpus","input":"practical language teacher","normalized":"practical language teacher","skeleton":"prctcl lng tcr"}
+{"id":"corpus-114","source":"corpus","input":"pressman roto gravure","normalized":"pressman roto gravure","skeleton":"prsmn rt grvr"}
+{"id":"corpus-115","source":"corpus","input":"producer stage","normalized":"producer stage","skeleton":"prdcr stg"}
+{"id":"corpus-116","source":"corpus","input":"prosecutor","normalized":"prosecutor","skeleton":"prsctr"}
+{"id":"corpus-117","source":"corpus","input":"pulveriser operator","normalized":"pulveriser operator","skeleton":"plvrsr oprtr"}
+{"id":"corpus-118","source":"corpus","input":"quarry manager","normalized":"quarry manager","skeleton":"qr mngr"}
+{"id":"corpus-119","source":"corpus","input":"reception clerk","normalized":"reception clerk","skeleton":"rcptn clrk"}
+{"id":"corpus-120","source":"corpus","input":"removes damaged and incomplete stick","normalized":"removes damaged and incomplete stick","skeleton":"rmvs dmgd and incmplt stck"}
+{"id":"corpus-121","source":"corpus","input":"retoucher lithographic","normalized":"retoucher lithographic","skeleton":"rtcr ltgrfc"}
+{"id":"corpus-122","source":"corpus","input":"roller sheet mill","normalized":"roller sheet mill","skeleton":"rlr st ml"}
+{"id":"corpus-123","source":"corpus","input":"safety testing technician-racwo","normalized":"safety testing technician-racwo","skeleton":"sft tstng tcncn-rcv"}
+{"id":"corpus-124","source":"corpus","input":"salesperson customer contact centre","normalized":"salesperson customer contact centre","skeleton":"slsprsn cstmr cntct cntr"}
+{"id":"corpus-125","source":"corpus","input":"school counsellor","normalized":"school counsellor","skeleton":"scl cnslr"}
+{"id":"corpus-126","source":"corpus","input":"seawoman ordinary","normalized":"seawoman ordinary","skeleton":"svmn ordnr"}
+{"id":"corpus-127","source":"corpus","input":"senior officials of special-interest organizations","normalized":"senior officials of special-interest organizations","skeleton":"snr ofcls of spcl-ntrst orgnjtns"}
+{"id":"corpus-128","source":"corpus","input":"sexual assault counsellor","normalized":"sexual assault counsellor","skeleton":"sxl aslt cnslr"}
+{"id":"corpus-129","source":"corpus","input":"shoemaking and related machine operators","normalized":"shoemaking and related machine operators","skeleton":"smkng and rltd mcn oprtrs"}
+{"id":"corpus-130","source":"corpus","input":"site surveyor/r f site surveyor","normalized":"site surveyor/r f site surveyor","skeleton":"st srvr/r f st srvr"}
+{"id":"corpus-131","source":"corpus","input":"social benefits officer","normalized":"social benefits officer","skeleton":"scl bnfts ofcr"}
+{"id":"corpus-132","source":"corpus","input":"sommelier","normalized":"sommelier","skeleton":"smlr"}
+{"id":"corpus-133","source":"corpus","input":"sports coaches instructors and officials other","normalized":"sports coaches instructors and officials other","skeleton":"sprts cs instrctrs and ofcls otr"}
+{"id":"corpus-134","source":"corpus","input":"statistical finance and insurance clerks","normalized":"statistical finance and insurance clerks","skeleton":"ststcl fnc and insrnc clrks"}
+{"id":"corpus-135","source":"corpus","input":"stock filler","normalized":"stock filler","skeleton":"stck flr"}
+{"id":"corpus-136","source":"corpus","input":"street singer","normalized":"street singer","skeleton":"strt sngr"}
+{"id":"corpus-137","source":"corpus","input":"superintendent clerical wharf","normalized":"superintendent clerical wharf","skeleton":"sprntndnt clrcl vhrf"}
+{"id":"corpus-138","source":"corpus","input":"supervisor housekeeping hotel","normalized":"supervisor housekeeping hotel","skeleton":"sprvsr hskpng htl"}
+{"id":"corpus-139","source":"corpus","input":"system programmer","normalized":"system programmer","skeleton":"stm prgrmr"}
+{"id":"corpus-140","source":"corpus","input":"teacher infant school/teacher pre-primary","normalized":"teacher infant school/teacher pre-primary","skeleton":"tcr infnt scl/tcr pr-prmr"}
+{"id":"corpus-141","source":"corpus","input":"telephone switch board operators other","normalized":"telephone switch board operators other","skeleton":"tlfn svtc brd oprtrs otr"}
+{"id":"corpus-142","source":"corpus","input":"textiles handicraft worker","normalized":"textiles handicraft worker","skeleton":"txtls hndcrft vrkr"}
+{"id":"corpus-143","source":"corpus","input":"tobacco grader","normalized":"tobacco grader","skeleton":"tbc grdr"}
+{"id":"corpus-144","source":"corpus","input":"traffic time table inspector tram","normalized":"traffic time table inspector tram","skeleton":"trfc tm tbl inspctr trm"}
+{"id":"corpus-145","source":"corpus","input":"treating-plant operator","normalized":"treating-plant operator","skeleton":"trtng-plnt oprtr"}
+{"id":"corpus-146","source":"corpus","input":"undertaker","normalized":"undertaker","skeleton":"undrtkr"}
+{"id":"corpus-147","source":"corpus","input":"vegetable preserver","normalized":"vegetable preserver","skeleton":"vgtbl prsrvr"}
+{"id":"corpus-148","source":"corpus","input":"visual artists","normalized":"visual artists","skeleton":"vsl artsts"}
+{"id":"corpus-149","source":"corpus","input":"washing machine attendant cleaner food grain","normalized":"washing machine attendant cleaner food grain","skeleton":"vsng mcn atndnt clnr fd grn"}
+{"id":"corpus-150","source":"corpus","input":"weed controller","normalized":"weed controller","skeleton":"vd cntrlr"}
+{"id":"curated-151","source":"curated","input":"kharad ka kaam karta hun","normalized":"kharad","skeleton":"krd","note":"particle: full 4-token phrase"}
+{"id":"curated-152","source":"curated","input":"silai ka kaam","normalized":"silai","skeleton":"sl","note":"particle: ka kaam"}
+{"id":"curated-153","source":"curated","input":"welding karta hoon","normalized":"welding","skeleton":"vldng","note":"particle: karta hoon"}
+{"id":"curated-154","source":"curated","input":"silai wala","normalized":"silai","skeleton":"sl","note":"particle: spaced wala"}
+{"id":"curated-155","source":"curated","input":"silaiwala","normalized":"silai","skeleton":"sl","note":"particle: glued wala"}
+{"id":"curated-156","source":"curated","input":"rickshaw wali","normalized":"rickshaw","skeleton":"rcksv","note":"particle: wali"}
+{"id":"curated-157","source":"curated","input":"gaadi wale","normalized":"gaadi","skeleton":"gd","note":"particle: wale"}
+{"id":"curated-158","source":"curated","input":"main welder hun","normalized":"main welder","skeleton":"mn vldr","note":"particle: trailing hun, leading pronoun kept"}
+{"id":"curated-159","source":"curated","input":"fitter ka kaam karta hun","normalized":"fitter","skeleton":"ftr","note":"particle: phrase + trade"}
+{"id":"curated-160","source":"curated","input":"turner hu","normalized":"turner","skeleton":"trnr","note":"particle: hu"}
+{"id":"curated-161","source":"curated","input":"mistri","normalized":"mistri","skeleton":"mstr","note":"bare Hinglish trade"}
+{"id":"curated-162","source":"curated","input":"mistry","normalized":"mistry","skeleton":"mstr","note":"spelling variant of mistri"}
+{"id":"curated-163","source":"curated","input":"raj mistri","normalized":"raj mistri","skeleton":"rj mstr","note":"compound trade"}
+{"id":"curated-164","source":"curated","input":"kharad","normalized":"kharad","skeleton":"krd","note":"bare Hinglish trade"}
+{"id":"curated-165","source":"curated","input":"kharaad","normalized":"kharaad","skeleton":"krd","note":"elongated vowel variant"}
+{"id":"curated-166","source":"curated","input":"silai","normalized":"silai","skeleton":"sl","note":"bare Hinglish trade"}
+{"id":"curated-167","source":"curated","input":"silaai","normalized":"silaai","skeleton":"sl","note":"elongated vowel variant"}
+{"id":"curated-168","source":"curated","input":"welder","normalized":"welder","skeleton":"vldr","note":"baseline"}
+{"id":"curated-169","source":"curated","input":"waelder","normalized":"waelder","skeleton":"vldr","note":"misspelling"}
+{"id":"curated-170","source":"curated","input":"velder","normalized":"velder","skeleton":"vldr","note":"w/v confusion"}
+{"id":"curated-171","source":"curated","input":"draiver","normalized":"draiver","skeleton":"drvr","note":"phonetic driver"}
+{"id":"curated-172","source":"curated","input":"driver","normalized":"driver","skeleton":"drvr","note":"baseline"}
+{"id":"curated-173","source":"curated","input":"kekada","normalized":"kekada","skeleton":"kd","note":"MUST NOT lose `ke` as a substring"}
+{"id":"curated-174","source":"curated","input":"kamgar","normalized":"kamgar","skeleton":"kmgr","note":"MUST NOT lose `kam` as a substring"}
+{"id":"curated-175","source":"curated","input":"kaamwala","normalized":"kaam","skeleton":"km","note":"particle stem + suffix"}
+{"id":"curated-176","source":"curated","input":"wala","normalized":"wala","skeleton":"vl","note":"bare suffix, empty-guard must restore it"}
+{"id":"curated-177","source":"curated","input":"ka kaam","normalized":"ka kaam","skeleton":"k km","note":"all-particle, empty-guard must restore it"}
+{"id":"curated-178","source":"curated","input":"karta hun","normalized":"karta hun","skeleton":"krt hn","note":"all-particle, empty-guard must restore it"}
+{"id":"curated-179","source":"curated","input":"   ","normalized":"","skeleton":"","note":"whitespace only -> empty"}
+{"id":"curated-180","source":"curated","input":"!!!","normalized":"","skeleton":"","note":"punctuation only -> empty"}
+{"id":"curated-181","source":"curated","input":"Welder,   Gas","normalized":"welder gas","skeleton":"vldr gs","note":"punctuation + whitespace collapse"}
+{"id":"curated-182","source":"curated","input":"Gas/Arc Welder -","normalized":"gas/arc welder","skeleton":"gs/rc vldr","note":"intra-word slash kept, trailing dash dropped"}
+{"id":"curated-183","source":"curated","input":"re-roller","normalized":"re-roller","skeleton":"r-rlr","note":"intra-word hyphen kept"}
+{"id":"curated-184","source":"curated","input":"/slash/ -dash-","normalized":"slash dash","skeleton":"sls ds","note":"edge joiners stripped"}
+{"id":"curated-185","source":"curated","input":"ＷＥＬＤＥＲ","normalized":"welder","skeleton":"vldr","note":"NFKC fullwidth fold"}
+{"id":"curated-186","source":"curated","input":"CNC  Operator","normalized":"cnc operator","skeleton":"cnc oprtr","note":"double space"}
+{"id":"curated-187","source":"curated","input":"मिस्त्री","normalized":"मिस्त्री","skeleton":"मिस्त्री","note":"Devanagari, not transliterated"}
+{"id":"curated-188","source":"curated","input":"बढ़ई","normalized":"बढ़ई","skeleton":"बढ़ई","note":"Devanagari with nukta - combining mark must survive"}
+{"id":"curated-189","source":"curated","input":"बढ़ई का काम","normalized":"बढ़ई","skeleton":"बढ़ई","note":"Devanagari particle strip"}
+{"id":"curated-190","source":"curated","input":"मिस्त्री।","normalized":"मिस्त्री","skeleton":"मिस्त्री","note":"danda is punctuation, dropped"}
+{"id":"curated-191","source":"curated","input":"ग्रेड २","normalized":"ग्रेड २","skeleton":"ग्रेड २","note":"Devanagari digits kept"}
+{"id":"curated-192","source":"curated","input":"सिलाई वाला","normalized":"सिलाई","skeleton":"सिलाई","note":"Devanagari suffix particle"}
+{"id":"curated-193","source":"curated","input":"मिस्त्री welder","normalized":"मिस्त्री welder","skeleton":"मिस्त्री vldr","note":"mixed script"}
+{"id":"curated-194","source":"curated","input":"lathe operator","normalized":"lathe operator","skeleton":"lt oprtr","note":"English trade"}
+{"id":"curated-195","source":"curated","input":"turner","normalized":"turner","skeleton":"trnr","note":"English trade"}
+{"id":"curated-196","source":"curated","input":"fitter","normalized":"fitter","skeleton":"ftr","note":"English trade"}
+{"id":"curated-197","source":"curated","input":"helper","normalized":"helper","skeleton":"hlpr","note":"English trade"}
+{"id":"curated-198","source":"curated","input":"hellper","normalized":"hellper","skeleton":"hlpr","note":"doubled consonant -> same skeleton as helper"}
+{"id":"curated-199","source":"curated","input":"security guard","normalized":"security guard","skeleton":"scrt grd","note":"two-word trade"}
+{"id":"curated-200","source":"curated","input":"house keeping","normalized":"house keeping","skeleton":"hs kpng","note":"two-word trade"}

@@ -31,6 +31,31 @@ interface Check {
   count: number;
 }
 
+/**
+ * The empty-catalog PRECONDITION, extracted so it can be unit-tested.
+ *
+ * Returns the failure message when the catalog is empty, or `null` when it is not.
+ *
+ * WHY THIS IS NOT A `Check`. Every entry in `checks` counts BAD ROWS, and the reporting
+ * loop reads `count === 0` as "nothing wrong → PASS" unconditionally. An empty catalog is
+ * the exact inversion of that convention: the finding IS the zero. Pushed through as a
+ * check it printed `PASS  catalog is empty` and exited 0 — and because an unseeded table
+ * also yields 0 for every OTHER check, the script then reported "all structural checks
+ * passed" against a database with no catalog at all. That is the single failure this
+ * deploy gate exists to catch, and it silently inverted into a pass.
+ *
+ * Keeping it as a separate, non-`Check` predicate is what stops that regression, so the
+ * shape here is load-bearing: if a future edit moves this back into `checks`, the count-is-
+ * zero convention re-inverts it. `verify-job-domains.test.ts` pins BOTH directions.
+ */
+export function catalogEmptyFailure(domainCount: number): string | null {
+  if (domainCount > 0) return null;
+  return (
+    `[${SCRIPT}] FAIL  catalog is empty — no job_domain rows. ` +
+    "Run `pnpm db:seed:domains --apply` first."
+  );
+}
+
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error(`[${SCRIPT}] DATABASE_URL is not set`);
@@ -50,20 +75,12 @@ async function main(): Promise<void> {
     );
     const aliases = await one(dsql`SELECT count(*) AS n FROM "job_domain_alias"`);
 
-    // PRECONDITION, deliberately NOT a `checks` entry. Every check below counts BAD
-    // ROWS, and the reporting loop reads `count === 0` as "nothing wrong → PASS". An
-    // empty catalog is the exact inversion of that convention: the finding IS the zero.
-    // Pushed as a check it printed `PASS  catalog is empty` and exited 0 — and since an
-    // unseeded table also yields 0 for every other check, the script cheerfully reported
-    // "all structural checks passed" on a database with no catalog at all. That is the
-    // one failure this gate exists to catch, so it is asserted here and returns
-    // immediately: the remaining checks are not merely redundant on an empty table, they
-    // are actively misleading.
-    if (domains === 0) {
-      console.error(
-        `[${SCRIPT}] FAIL  catalog is empty — no job_domain rows. ` +
-          "Run `pnpm db:seed:domains --apply` first.",
-      );
+    // PRECONDITION, deliberately NOT a `checks` entry — see `catalogEmptyFailure` above
+    // for why the shape matters. Returns immediately: on an empty table the remaining
+    // checks are not merely redundant, they are actively misleading.
+    const emptyFailure = catalogEmptyFailure(domains);
+    if (emptyFailure !== null) {
+      console.error(emptyFailure);
       process.exitCode = 1;
       return;
     }
