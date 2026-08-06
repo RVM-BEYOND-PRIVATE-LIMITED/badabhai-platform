@@ -14,6 +14,8 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../agency/presentation/agency_engagement_screen.dart';
 import '../../agency/presentation/batch_invite_screen.dart';
+import '../../agency/util/invite_url.dart';
+import '../../agency/util/whatsapp_share.dart';
 import 'cubit/referral_cubit.dart';
 
 /// Agency Refer-&-earn — the agent's shareable invite link + the referral
@@ -254,9 +256,16 @@ class _LinkCard extends StatelessWidget {
 
   final ReferralLink link;
 
+  /// The wire `link.url` may be path-only (`/i/CODE`) — that is what
+  /// `POST /payer/agency/invites` actually returns. Copying it raw handed the
+  /// agent a bare path that resolves to nothing outside the app.
+  /// `BatchInviteScreen` has always normalised; this screen did not, so the
+  /// same wire value behaved two different ways.
+  String get _shareUrl => absoluteInviteUrl(link.url);
+
   Future<void> _copy(BuildContext context) async {
     final ReferralCubit cubit = context.read<ReferralCubit>();
-    await Clipboard.setData(ClipboardData(text: link.url));
+    await Clipboard.setData(ClipboardData(text: _shareUrl));
     // Record the share as a soft funnel signal (fire-and-forget).
     await cubit.recordShare();
     if (!context.mounted) return;
@@ -266,6 +275,24 @@ class _LinkCard extends StatelessWidget {
       message: 'Share it on WhatsApp with workers you trust.',
       icon: Icons.check_circle,
     );
+  }
+
+  Future<void> _whatsApp(BuildContext context) async {
+    final ReferralCubit cubit = context.read<ReferralCubit>();
+    final bool opened = await shareOnWhatsApp(inviteShareText(_shareUrl));
+    // Only count the share when WhatsApp actually opened — a failed launch that
+    // still incremented the funnel would inflate exactly the number this
+    // workstream exists to make trustworthy.
+    if (opened) await cubit.recordShare();
+    if (!context.mounted) return;
+    if (!opened) {
+      showBbToast(
+        context,
+        title: 'WhatsApp not available',
+        message: 'Copy the link instead and paste it wherever you like.',
+        icon: Icons.error_outline,
+      );
+    }
   }
 
   @override
@@ -283,7 +310,10 @@ class _LinkCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s1),
           Text(
-            link.url,
+            // Show the SAME string the copy/WhatsApp actions hand out — a
+            // display value that differs from what gets shared is a bug report
+            // waiting to happen.
+            _shareUrl,
             style: AppTypography.mono(
               size: AppTypography.sizeBase,
               weight: FontWeight.w700,
@@ -298,10 +328,24 @@ class _LinkCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
+          // WhatsApp first: it is where an agent actually sends this, and the
+          // copy toast has been telling them so all along without offering it.
+          BbButton(
+            label: 'Share on WhatsApp',
+            iconLeft: Icons.chat_rounded,
+            block: true,
+            // GREEN, matching the worker app's WhatsApp CTA — the kit's
+            // success colour is the WhatsApp colour across both apps. Neither
+            // button here is haldi, so the one-primary-per-screen rule holds.
+            variant: BbButtonVariant.success,
+            onPressed: () => _whatsApp(context),
+          ),
+          const SizedBox(height: AppSpacing.s2),
           BbButton(
             label: 'Copy link',
             iconLeft: Icons.copy,
             block: true,
+            variant: BbButtonVariant.secondary,
             onPressed: () => _copy(context),
           ),
         ],

@@ -15,6 +15,7 @@ import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/batch_invite_cubit.dart';
 import '../util/invite_url.dart';
+import '../util/whatsapp_share.dart';
 
 /// Batch invites — mint a run of agency invite codes
 /// (`POST /payer/agency/invites/batch`, AGENT-only), then print/share them. Each
@@ -413,6 +414,18 @@ class _InviteCard extends StatelessWidget {
     );
   }
 
+  Future<void> _whatsApp(BuildContext context, String url) async {
+    final bool opened = await shareOnWhatsApp(inviteShareText(url));
+    if (!context.mounted || opened) return;
+    // Stay honest when nothing could handle the link — the agent still has the
+    // QR and the copy button, and a silent no-op would look like a dead button.
+    showBbToast(
+      context,
+      title: 'WhatsApp not available',
+      message: 'Copy the link instead, or show the QR.',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final String url = absoluteInviteUrl(invite.link);
@@ -454,6 +467,17 @@ class _InviteCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: AppSpacing.s3),
+          // The card's toast has always said "share it on WhatsApp" — now it
+          // can. Green matches the worker app's WhatsApp CTA.
+          BbButton(
+            label: 'Share on WhatsApp',
+            variant: BbButtonVariant.success,
+            size: BbButtonSize.md,
+            iconLeft: Icons.chat_rounded,
+            block: true,
+            onPressed: url.isEmpty ? null : () => _whatsApp(context, url),
+          ),
+          const SizedBox(height: AppSpacing.s2),
           BbButton(
             label: 'Copy link',
             variant: BbButtonVariant.secondary,

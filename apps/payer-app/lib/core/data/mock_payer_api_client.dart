@@ -172,9 +172,16 @@ class MockPayerApiClient implements PayerApiClient {
 
   /// The agency's referral link. Mirrors `POST /payer/agency/invites` →
   /// `{code, link:"/i/<code>"}`.
+  ///
+  /// PATH-ONLY, exactly as the real endpoint returns it. It used to read
+  /// `badabhai.in/r/APEX-7K2` — scheme-less, and on the `/r/` resolver path
+  /// rather than the `/i/` space the doc comment above, the batch mock, and the
+  /// worker app's App Link intent-filter all use. A mock that disagrees with the
+  /// wire hides exactly the normalisation bug it should surface, so this now
+  /// exercises `absoluteInviteUrl`'s path-only branch the way production does.
   static const ReferralLink _referralLink = ReferralLink(
     code: 'APEX-7K2',
-    url: 'badabhai.in/r/APEX-7K2',
+    url: '/i/APEX-7K2',
   );
 
   @override
