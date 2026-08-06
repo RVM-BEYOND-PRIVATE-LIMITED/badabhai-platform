@@ -1021,20 +1021,13 @@ _MONEY_CUES = _compile_all(_SALARY["moneyCues"])
 # alternation is generated from ONE stem rather than enumerated per spelling, so a
 # spelling cannot go missing the way "kahi bhi" once did:
 #   kahin | kahi | kahee | kaheen  x  bhi | bi
-_RELOCATE_ANYWHERE = (
-    r"(?:kah(?:in|i|ee|een)\s+bh?i|anywhere|any\s+where|"
-    r"any\s+(?:city|place|location)|koi\s+bh?i\s+(?:sheher|shehar|shahar|city|jagah|"
-    r"state|rajya)|india\s+me[in]?\s+kahin|out\s+of\s+station)"
-)
-# The same GENERALITY-OF-PLACE idiom in Devanagari ("कहीं भी" = anywhere, "जहाँ भी
-# काम मिले" = wherever there is work). Kept OUT of `_RELOCATE_ANYWHERE` because that
-# string is embedded in `\b...\b` wrappers, and `\b` does not work after a Devanagari
-# matra (see :data:`_DEVANAGARI`) — wrapping these would make them silently dead.
-_RELOCATE_ANYWHERE_DEV = _dev(r"(?:कहीं|कही|जहाँ|जहां|जहा)\s*भी")
-_ANYWHERE_RE: tuple[re.Pattern[str], ...] = (
-    re.compile(rf"\b{_RELOCATE_ANYWHERE}\b", re.IGNORECASE),
-    re.compile(_RELOCATE_ANYWHERE_DEV, re.IGNORECASE),
-)
+# Shared with the TypeScript orchestrator via packages/profiling-lexicon (Phase 3).
+# Every relocation and availability constant in this file is read from
+# data/availability.json (mirrored into lexicon_data/ — see lexicon.py for why the
+# mirror exists), so the rationale that used to sit in these comments now lives beside
+# the data it explains. The building-block alternations are that file's `fragments`.
+_AVAILABILITY = lexicon.load("availability")
+_ANYWHERE_RE = lexicon.compile_list("availability", "anywhereCues")
 
 
 def _has_anywhere_cue(text: str) -> bool:
@@ -1052,56 +1045,10 @@ def _has_anywhere_cue(text: str) -> bool:
     return any(p.search(text) for p in _ANYWHERE_RE)
 
 
-# Places a move could be TO, INCLUDING the ambiguous ones. "bahar"/"outside" are here
-# and not above because "bahar JAANA" is leaving town while "bahar KA diameter" is the
-# outer diameter — only the verb beside it decides. "dusre sheher" likewise: on its own
-# it is as often work history ("dusre sheher me kaam kiya tha") as an intention.
-_RELOCATE_PLACE = (
-    rf"(?:{_RELOCATE_ANYWHERE}|bahar|baahar|outside|kahin\s+aur|kahi\s+aur|"
-    r"out\s+of\s+city|dusr[ae]\s+(?:sheher|shehar|shahar|city|jagah|state|rajya)|"
-    r"doosr[ae]\s+(?:sheher|shehar|city|jagah)|second\s+city)"
-)
-# Moving/going VERBS — the intent half of the pair.
-_RELOCATE_GO = (
-    r"(?:ja\s+sakta|ja\s+sakti|ja\s+sakte|jaa\s+sakta|jaane|jane|jana|jaana|"
-    r"jaunga|jaungi|jaaunga|nikal\s+sakta|rehne|rahne|settle|move|shift)"
-)
-# ACCEPTANCE — "that works for me". Only ever read against a PLACE.
-_RELOCATE_OK = (
-    r"(?:chalega|chalegi|chal\s+jayega|thik\s+hai|theek\s+hai|ok\s+hai|"
-    r"koi\s+dikkat\s+nahi|problem\s+nahi)"
-)
-# WILLINGNESS — "I am ready/prepared". Only ever read against a move.
-_RELOCATE_READY = r"(?:ready|taiyaar|taiyar|tayyar|rajee|raji)"
-
-_RELOCATE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        # Explicit and unambiguous in English — the word means only this.
-        r"\brelocat\w*",
-        r"\btransfer\s+(?:le\s+)?(?:sakta|sakti|sakte|lunga|loonga)\b",
-        # Generality of place — a complete flexibility answer on its own.
-        rf"\b{_RELOCATE_ANYWHERE}\b",
-        _RELOCATE_ANYWHERE_DEV,
-        # A PLACE next to a GO verb, in either order: "bahar ja sakta hu",
-        # "kahin bhi jaane ko taiyaar", "dusre sheher shift ho sakta hu".
-        rf"\b{_RELOCATE_PLACE}\b[^.;!?]{{0,24}}?\b{_RELOCATE_GO}\b",
-        rf"\b{_RELOCATE_GO}\b[^.;!?]{{0,24}}?\b{_RELOCATE_PLACE}\b",
-        # A PLACE the worker ACCEPTS: "kahin bhi chalega", "koi bhi city chalega".
-        # `chalega` alone is the machine verb ("vmc chalega mujhe") and never fires.
-        rf"\b{_RELOCATE_PLACE}\b[^.;!?]{{0,24}}?\b{_RELOCATE_OK}\b",
-        # READY/TAIYAAR attached to a MOVE, never to a machine: "bahar jaane ko
-        # taiyaar hu", "relocate karne ke liye ready hu", "shift hone ko taiyaar hu".
-        # "ready hu machine ke liye" has no move to attach to, so it stays unset.
-        rf"\b{_RELOCATE_READY}\b[^.;!?]{{0,30}}?\b(?:{_RELOCATE_GO}|relocat\w*)\b",
-        rf"\b(?:{_RELOCATE_GO}|relocat\w*)\b[^.;!?]{{0,30}}?\b{_RELOCATE_READY}\b",
-        # "shift"/"move" as a PLACE-CHANGE verb: it must take a becoming-form
-        # ("shift ho jaunga", "shift hone ko taiyaar"). "night shift karta hu",
-        # "general shift", "shift me 12 ghante" carry no such form and stay unset.
-        r"\b(?:shift|shifting)\s+(?:ho|hona|hone|hoke|ho\s+kar|kar\s+sakta|"
-        r"kar\s+sakti)\b",
-    )
-)
+# ADJACENCY IS THE WHOLE DESIGN — a PLACE next to a GO verb, a READY next to a move.
+# "bahar JAANA" is leaving town while "bahar KA diameter" is the outer diameter, and
+# only the verb beside it decides. See data/availability.json for each measured case.
+_RELOCATE_CUE_RE = lexicon.compile_list("availability", "relocateCues")
 
 
 def _has_relocate_cue(text: str, masked: str | None = None) -> bool:
@@ -1111,11 +1058,17 @@ def _has_relocate_cue(text: str, masked: str | None = None) -> bool:
     whose characters fall inside a negated span is discarded, so "bahar nahi jaunga"
     and "relocate nahi kar sakta" no longer assert the opposite of what was said.
     """
+    return _first_relocate_cue(text, masked) is not None
+
+
+def _first_relocate_cue(text: str, masked: str | None = None) -> tuple[int, int] | None:
+    """The span of the first surviving relocation cue, or None. See
+    :func:`_first_immediate_cue` for why the span variant exists."""
     for pattern in _RELOCATE_CUE_RE:
         for match in pattern.finditer(text):
             if masked is None or not _negation_vetoed(masked, text, match.start(), match.end()):
-                return True
-    return False
+                return match.start(), match.end()
+    return None
 
 
 # --- Availability (issue #424 follow-up: STOP FABRICATING "immediate") ------
@@ -1153,51 +1106,11 @@ def _has_relocate_cue(text: str, masked: str | None = None) -> bool:
 # ASKED — which is exactly what that gate is for. A FABRICATED one is never corrected:
 # nothing downstream ever re-asks a topic the detector already marked answered.
 
-# Time adverbs. NOT cues on their own — they only qualify a join/start intent.
-_AVAIL_NOW = r"(?:abhi|filhal|filhaal|turant|fauran|foran|aaj|kal|immediately|right\s+now)"
-# Joining/starting INTENT: ability or future forms only. Past-tense joins ("2019 me
-# company join ki thi", "kal join ki thi") are history, not availability, so they are
-# deliberately unmatched.
-#
-# BARE `ready` IS NOT HERE — adversarial review of #436, HIGH-1. The first cut ended
-# this alternation with `|ready)`, which combined with the adverb-adjacency rule below
-# to re-create the EXACT bug class this module exists to kill, in the register it most
-# needed to protect. On a shop floor "job" means the WORKPIECE, and "ready" is what you
-# say about a part, a tool, a fixture or a drawing:
-#
-#     "job abhi ready hai"            -> immediate   (the PART is ready)
-#     "machine abhi ready hai"        -> immediate
-#     "tool aaj ready ho jayega"      -> immediate
-#     "fixture aaj ready karna hai"   -> immediate
-#     "kal meri shaadi hai to ready rahunga" -> immediate
-#
-# `ready` now only counts when it is attributed to the WORKER (a first-person copula,
-# or an explicit "main/mai/I am"), or carries the "to join" suffix — the same
-# self-attribution test that `available` already correctly required.
-_AVAIL_JOIN = (
-    r"(?:join\s+kar\s+(?:sakta|sakti|sakte)|join\s+(?:kar\s+)?"
-    r"(?:lunga|loonga|luga|karunga|karoonga|sakunga)|joining\s+(?:kar\s+)?"
-    r"(?:sakta|sakti|sakte|lunga)|aa\s+(?:sakta|sakti|sakte|jaunga|jaungi)|"
-    r"(?:start|shuru)\s+kar\s+(?:sakta|sakti|sakte|dunga))"
-)
 
 # STRONG cues: the word itself is the answer, whoever is speaking. No blocker needed.
-_IMMEDIATE_STRONG_RE: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"\bimmediate(?:ly)?\b",
-        r"\bturant\b",
-        r"\bfaura?n\b",
-        r"\bforan\b",
-        # `ready` WITH the joining suffix — "ready to join", "join karne ke liye ready".
-        r"\bready\s+(?:to\s+)?join\b",
-        r"\bjoin\w*\s+(?:ke\s+liye|kar\w*\s+ke\s+liye)\s+ready\b",
-        # A time adverb NEXT TO a join/start intent, in either word order. This is the
-        # ONLY way "abhi"/"aaj"/"kal" can contribute, and the whole point of the fix.
-        rf"\b{_AVAIL_NOW}\b[^.;!?]{{0,20}}?\b{_AVAIL_JOIN}\b",
-        rf"\b{_AVAIL_JOIN}\b[^.;!?]{{0,20}}?\b{_AVAIL_NOW}\b",
-    )
-)
+# BARE `ready` is deliberately absent — see data/availability.json for the HIGH-1 review
+# finding that removed it ("job abhi ready hai" is a WORKPIECE, not a worker).
+_IMMEDIATE_STRONG_RE = lexicon.compile_list("availability", "immediateStrong")
 
 # SELF-STATE cues: "I am, right now, not working / free / ready". These are real
 # availability answers, but every one of them is SUBJECT- and TENSE-sensitive, so each
@@ -1208,27 +1121,8 @@ _IMMEDIATE_STRONG_RE: tuple[re.Pattern[str], ...] = tuple(
 # was wrong: `hai`/`hain` are THIRD person, so objects became available workers —
 # "machine free hai", "wo free hai". `available` in the very same tuple already demanded
 # `main|mai|hum|i am`; these cues are now consistent with it.
-_IMMEDIATE_SELF_STATE_RE: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        # Being free / idle. First-person copula ONLY, so "machine free hai" and the
-        # "freelance"/"free size job" substrings can never fire it.
-        r"\b(?:free|khaali|khali|faarig|farig|fursat)\s+(?:hu|hun|hoon)\b",
-        rf"\b(?:{_AVAIL_NOW}|main|mai|bilkul)\s+(?:free|khaali|khali)\b",
-        # `ready` attributed to the worker.
-        r"\bready\s+(?:hu|hun|hoon)\b",
-        r"\b(?:main|mai|hum|i\s*am|i'?m)\s+ready\b",
-        # "available" attributed to the WORKER, never to a job/machine — "koi job
-        # available hai kya?" is a question about vacancies, not a start date.
-        rf"\b(?:main|mai|hum|i\s*am|i'?m|{_AVAIL_NOW})\s+available\b"
-        r"(?!\s+(?:machine|machines|job|jobs|kaam|work|vacanc|position))",
-        r"\bavailable\s+(?:hu|hun|hoon)\b",
-        # Left the job. Past-perfect ("chhod di THI") is handled by the tense blocker.
-        r"\b(?:job|naukri|company|kaam)\s+chhod\s+(?:di|diya|dia|dii)\b",
-        # First person only: "mera bhai berozgar hai" is someone else's unemployment.
-        r"\bberozgar\s+(?:hu|hun|hoon)\b",
-    )
-)
+_IMMEDIATE_SELF_STATE_RE = lexicon.compile_list("availability", "immediateSelfState")
+
 
 # NEGATION-BEARING cues: these carry a negator INSIDE the phrase, and that negator is
 # what makes them mean "available" ("kaam nahi kar raha" = "I am not working" = free).
@@ -1236,57 +1130,18 @@ _IMMEDIATE_SELF_STATE_RE: tuple[re.Pattern[str], ...] = tuple(
 # the very positives the veto exists to protect. Split out of the tuple above so the
 # exemption is a property of the CUE, declared once, instead of a special case buried
 # in the matching loop.
-_IMMEDIATE_NEGATION_BEARING_RE: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        # Not currently working. `hai`, `mil raha` and `milta` were DROPPED (review of
-        # #436, MEDIUM-3): "yahan acha kaam nahi milta" is a complaint about the
-        # current job, and "kaam nahi hai" is as often about the shop's workload.
-        r"\b(?:kaam|job|naukri|kuch)\s+(?:nahi+n?|nhi)\s+(?:kar\s+raha|kar\s+rahi)\b",
-    )
+_IMMEDIATE_NEGATION_BEARING_RE = lexicon.compile_list(
+    "availability", "immediateNegationBearing"
 )
 
-# Blockers for the SELF-STATE family (adversarial review of #436, HIGH-2 + MEDIUM-3).
-# Read in a window AROUND the cue, not over the whole message, so an unrelated later
-# clause cannot suppress a genuine answer.
-_SELF_STATE_WINDOW_BEFORE = 34
-_SELF_STATE_WINDOW_AFTER = 16
 
-# The cue describes a THING, not the worker. "job" is deliberately here: on a shop
-# floor it means the workpiece.
-_SELF_STATE_OBJECT = (
-    r"\b(?:machine|machines|tool|tools|fixture|jig|drawing|piece|part|parts|spindle|"
-    r"job|component|material|order)\b"
-)
-# The cue describes SOMEONE ELSE.
-_SELF_STATE_THIRD_PARTY = (
-    r"\b(?:wo|woh|uska|uski|unka|unki|bhai|dost|saathi|beta|papa|friend|colleague|"
-    r"bandha|aadmi|ladka)\b"
-)
-# The state is TIME-SCOPED — free on Sunday / at lunch is not free for a job.
-_SELF_STATE_TIME_SCOPE = (
-    r"\b(?:sunday|saturday|monday|tuesday|wednesday|thursday|friday|ravivar|itwar|"
-    r"shanivar|weekend|chutti|holiday|lunch|shaam|subah|raat|dopahar|evening|"
-    r"morning|night|shift)\b"
-)
-# The state is in the PAST.
-_SELF_STATE_PAST_BEFORE = r"\b(?:pehle|pichl[ae]|pichli|puran[ae]|purani|last)\b"
-_SELF_STATE_PAST_AFTER = r"\b(?:tha|thi|the)\b"
-# ...or it has since been resolved: "berozgar tha pehle, ab kaam mil gaya".
-_SELF_STATE_RESOLVED = r"\b(?:kaam|job|naukri)\s+mil\s+(?:gaya|gayi|gya|gyi)\b"
+# Blockers for the SELF-STATE family. Read in a window AROUND the cue, not over the
+# whole message, so an unrelated later clause cannot suppress a genuine answer.
+_SELF_STATE_WINDOW_BEFORE: int = _AVAILABILITY["selfStateWindowBefore"]
+_SELF_STATE_WINDOW_AFTER: int = _AVAILABILITY["selfStateWindowAfter"]
+_SELF_STATE_BEFORE_RE = lexicon.compile_list("availability", "selfStateBefore")
+_SELF_STATE_AFTER_RE = lexicon.compile_list("availability", "selfStateAfter")
 
-_SELF_STATE_BEFORE_RE = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        _SELF_STATE_OBJECT,
-        _SELF_STATE_THIRD_PARTY,
-        _SELF_STATE_TIME_SCOPE,
-        _SELF_STATE_PAST_BEFORE,
-    )
-)
-_SELF_STATE_AFTER_RE = tuple(
-    re.compile(p, re.IGNORECASE) for p in (_SELF_STATE_PAST_AFTER, _SELF_STATE_RESOLVED)
-)
 _FIRST_PERSON_CLAIM_RE = lexicon.compile_named("predicates", "firstPersonClaim")
 _CLAIM_BLOCKERS_RE = lexicon.compile_named("predicates", "claimBlockers")
 
@@ -1356,11 +1211,9 @@ def _negation_vetoed(masked: str, raw: str, start: int, end: int) -> bool:
     return masked[start:end] != raw[start:end]
 
 
-# How many word-tokens before a cue are scanned for a PRE-POSED negator. Two: enough
-# for "turant nahi aa sakta" / "abhi nahi join kar sakta", tight enough that a negator
-# in an earlier, unrelated part of the same clause cannot reach the cue
-# ("kaam nahi milta isliye turant join kar sakta hu" — "nahi" is three tokens back).
-_PRE_NEGATOR_LOOKBACK = 2
+# How many word-tokens before a cue are scanned for a PRE-POSED negator. See
+# data/availability.json for why availability needs this and other families do not.
+_PRE_NEGATOR_LOOKBACK: int = _AVAILABILITY["preNegatorLookback"]
 
 
 def _preceded_by_negator(text: str, start: int) -> bool:
@@ -1410,24 +1263,35 @@ def _has_immediate_cue(text: str, masked: str | None = None) -> bool:
     never vetoed, because their negator is the signal.
     """
 
+    return _first_immediate_cue(text, masked) is not None
+
+
+def _first_immediate_cue(text: str, masked: str | None = None) -> tuple[int, int] | None:
+    """The span of the first surviving "can start now" cue, or None.
+
+    Split out of :func:`_has_immediate_cue` so `values.py` can report the SPAN to the parity
+    corpus while running this exact algorithm — a second copy would be free to drift, and what
+    it would drift on is whether a worker is recorded as available.
+    """
+
     def vetoed(start: int, end: int) -> bool:
         return masked is not None and _availability_negated(masked, text, start, end)
 
     for pattern in _IMMEDIATE_STRONG_RE:
         for match in pattern.finditer(text):
             if not vetoed(match.start(), match.end()):
-                return True
+                return match.start(), match.end()
     for pattern in _IMMEDIATE_SELF_STATE_RE:
         for match in pattern.finditer(text):
             if not _self_state_blocked(text, match.start(), match.end()) and not vetoed(
                 match.start(), match.end()
             ):
-                return True
+                return match.start(), match.end()
     for pattern in _IMMEDIATE_NEGATION_BEARING_RE:
         for match in pattern.finditer(text):
             if not _self_state_blocked(text, match.start(), match.end()):
-                return True
-    return False
+                return match.start(), match.end()
+    return None
 
 
 def _has_notice_cue(text: str, masked: str | None = None) -> bool:
@@ -1436,71 +1300,28 @@ def _has_notice_cue(text: str, masked: str | None = None) -> bool:
     Same veto as :func:`_has_immediate_cue`; no notice cue carries its own negator, so
     all of them are subject to it ("notice period nahi hai" is not a notice period).
     """
+    return _first_notice_cue(text, masked) is not None
+
+
+def _first_notice_cue(text: str, masked: str | None = None) -> tuple[int, int] | None:
+    """The span of the first surviving notice-period cue, or None. See
+    :func:`_first_immediate_cue` for why the span variant exists."""
     for pattern in _NOTICE_CUE_RE:
         for match in pattern.finditer(text):
             if masked is None or not _availability_negated(
                 masked, text, match.start(), match.end()
             ):
-                return True
-    return False
+                return match.start(), match.end()
+    return None
 
 
-# Notice-period durations. Deliberately EXCLUDES "saal"/"year": years are experience,
-# never a notice period — and the experience clause is precisely what the old bare
-# "month"/"mahina"/"days" cues were misreading.
-_AVAIL_NUM = (
-    r"(?:\d{1,3}|ek|do|teen|tin|char|chaar|paanch|panch|chhah|chhe|saat|aath|das|"
-    r"pandrah|bees|tees|one|two|three|four|five|six|seven|ten|fifteen|twenty|thirty)"
-)
-_AVAIL_UNIT = r"(?:din|days?|hafte|haftey|hafta|weeks?|mahin[ae]|maheen[ae]|months?)"
-# A duration only means NOTICE when it is the time something TAKES — "15 din lagenge",
-# "30 din baad". A duration on its own ("6 month ka experience hai") means nothing
-# about availability, so it is left to the context-gated read in
-# detect_answered_topics, where we know the availability question was the one asked.
-_NOTICE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"\bnotice\b",
-        r"\bresign\b",
-        r"\bnext\s+month\b",
-        rf"\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b[^.;!?]{{0,14}}?\b(?:lag\w*|baad|bad)\b",
-        rf"\blag\w*\b[^.;!?]{{0,14}}?\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b",
-    )
-)
-
-# Read ONLY when the availability question is the one that was just asked (see
-# detect_answered_topics). These phrasings are real answers to "join karne mein kitne
-# din lagenge?" but say nothing on their own in the middle of a transcript, so they
-# must never run context-free — that is how "6 month" became a notice period.
-_ASKED_NOTICE_RE = re.compile(rf"\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b", re.IGNORECASE)
-# The same pattern with the number and unit CAPTURED, so the duration can be read as
-# a value and not just detected. Kept as a separate compile rather than adding groups
-# to the one above, because that one is used with `finditer` in boolean contexts where
-# a group change would be an invisible behaviour change.
-_ASKED_NOTICE_SPAN_RE = re.compile(rf"\b({_AVAIL_NUM})\s*({_AVAIL_UNIT})\b", re.IGNORECASE)
-
-# ...and even in that context, a duration is only a NOTICE if it is time-until, not
-# time-since or a work pattern (adversarial review of #436, MEDIUM-5). `last_asked` is
-# ``asked_question_ids[-1]`` — "the last question we asked", NOT "the question this
-# message answers" — so while availability is pending the worker may still be talking
-# about something else:
-#
-#     "10 din pehle join kiya tha"    -> notice_period   (time AGO)
-#     "hafte me 6 din kaam karta hu"  -> notice_period   (a work WEEK)
-#     "do mahine se salary nahi mili" -> notice_period   (time SINCE)
-#
-# "X se" is "for the last X" while "X baad"/"X mein" is "in X" — the distinction that
-# separates all three of these from a real notice period.
-_ASKED_NOTICE_BLOCKERS_RE: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        r"\bpehle\b",  # "10 din pehle" — that many days AGO
-        r"\bse\b",  # "do mahine se" — FOR the last two months
-        r"\bkaam\s+kar",  # "hafte me 6 din kaam karta hu" — a work pattern
-        r"\bexperience\b",
-    )
-)
-_ASKED_NOTICE_BLOCK_WINDOW = 14
+# Notice-period durations. Deliberately EXCLUDE "saal"/"year": years are experience,
+# never a notice period. All of these live in data/availability.json.
+_NOTICE_CUE_RE = lexicon.compile_list("availability", "noticeCues")
+_ASKED_NOTICE_RE = lexicon.compile_in("availability", "askedNotice")
+_ASKED_NOTICE_SPAN_RE = lexicon.compile_in("availability", "askedNoticeSpan")
+_ASKED_NOTICE_BLOCKERS_RE = lexicon.compile_list("availability", "askedNoticeBlockers")
+_ASKED_NOTICE_BLOCK_WINDOW: int = _AVAILABILITY["askedNoticeBlockWindow"]
 
 
 def _asked_notice_blocked(text: str, start: int, end: int) -> bool:
@@ -1513,47 +1334,11 @@ def _asked_notice_blocked(text: str, start: int, end: int) -> bool:
     return any(p.search(window) for p in _ASKED_NOTICE_BLOCKERS_RE)
 
 
-_AVAIL_WORD_NUMBERS: dict[str, int] = {
-    "ek": 1,
-    "one": 1,
-    "do": 2,
-    "two": 2,
-    "teen": 3,
-    "tin": 3,
-    "three": 3,
-    "char": 4,
-    "chaar": 4,
-    "four": 4,
-    "paanch": 5,
-    "panch": 5,
-    "five": 5,
-    "chhah": 6,
-    "chhe": 6,
-    "six": 6,
-    "saat": 7,
-    "seven": 7,
-    "aath": 8,
-    "das": 10,
-    "ten": 10,
-    "pandrah": 15,
-    "fifteen": 15,
-    "bees": 20,
-    "twenty": 20,
-    "tees": 30,
-    "thirty": 30,
-}
-# Calendar-ish, deliberately coarse. A worker saying "do mahine" means "about two
-# months", not 61 days, and the field feeds a payer-facing band.
-_AVAIL_UNIT_DAYS: tuple[tuple[str, int], ...] = (
-    ("din", 1),
-    ("day", 1),
-    ("hafte", 7),
-    ("haftey", 7),
-    ("hafta", 7),
-    ("week", 7),
-    ("mahin", 30),
-    ("maheen", 30),
-    ("month", 30),
+_AVAIL_WORD_NUMBERS: dict[str, int] = dict(_AVAILABILITY["wordNumbers"])
+# Calendar-ish, deliberately coarse: "do mahine" means "about two months", not 61 days,
+# and the field feeds a payer-facing band. Matched by STEM PREFIX in list order.
+_AVAIL_UNIT_DAYS: tuple[tuple[str, int], ...] = tuple(
+    (stem, days) for stem, days in _AVAILABILITY["unitDays"]
 )
 
 
@@ -1607,35 +1392,7 @@ def _asked_notice_duration(text: str, masked: str | None = None) -> bool:
     )
 
 
-_ASKED_IMMEDIATE_RE: tuple[re.Pattern[str], ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (
-        # "whenever you say" — genuinely immediate. Matched EXPLICITLY so it stops
-        # being read as immediate for the wrong reason (the old cue found the "abhi"
-        # inside "kabhi"; "kabhi kabhi" = "sometimes" scored the same way).
-        r"\bkabhi\s+bhi\b",
-        r"\bjab\s+(?:bolo|bhi|kaho|chaho|bulao|bulaye)\b",
-        r"\banytime\b",
-        # A bare time adverb IS the answer to "how many days to join?" — but only when
-        # it is the WHOLE answer. Anchored at BOTH ends (review of #436, HIGH-1): the
-        # first cut anchored only the start, so any long sentence that happened to open
-        # with a time word was read as a start date —
-        # "kal meri shaadi hai to ready rahunga" -> immediate.
-        rf"^\W*{_AVAIL_NOW}(?:\s+(?:hi|se|tak|ko|hi\s+se|se\s+hi))?\W*$",
-        # Ability to join, with no immediacy adverb attached.
-        rf"\b{_AVAIL_JOIN}\b",
-        # A time adverb next to a bare CAN-DO verb. Only reachable here, in the
-        # context-gated table, because it is only unambiguous when the availability
-        # question is the one on screen: "abhi kar sakta hun" answering "join karne
-        # mein kitne din lagenge?" means "I can start now", while the same words
-        # answering anything else could be about the WORK. Measured on an owner
-        # session: "abhi kar sakta hun package de doge toh" -> availability unknown,
-        # because `_AVAIL_JOIN` requires an explicit join/start verb and this has
-        # none. Bare "abhi" remains barred from the context-free table for the
-        # documented reason — our own questions open with it.
-        rf"\b{_AVAIL_NOW}\b[^.;!?]{{0,20}}?\b(?:kar|karna)\s+(?:sakta|sakti|sakte)\b",
-    )
-)
+_ASKED_IMMEDIATE_RE = lexicon.compile_list("availability", "askedImmediate")
 
 
 # --- P1-2: negation ---------------------------------------------------------

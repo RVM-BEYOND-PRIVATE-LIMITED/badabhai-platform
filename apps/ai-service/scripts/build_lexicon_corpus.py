@@ -605,6 +605,114 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("23000 milta hai par 33000 chahiye aur ITI bhi kiya hai",
          "a long multi-answer turn: both slots plus unrelated trailing content"),
     ]),
+    # ---------------------------------------------------------- availability: immediate --
+    ("av", [
+        ("immediate join kar sakta hu", "STRONG cue, no blocker needed"),
+        ("turant aa sakta hu", None),
+        ("fauran join kar lunga", None),
+        ("ready to join hu", None),
+        ("abhi join kar sakta hun",
+         "time adverb NEXT TO a join intent — the only way 'abhi' can count"),
+        ("kal se start kar sakta hu", None),
+        ("aaj hi joining kar sakta hu", None),
+        ("main free hu abhi", "self-state, first person"),
+        ("khaali hu", None),
+        ("berozgar hu bhai", None),
+        ("main available hu", None),
+        ("naukri chhod di", None),
+        ("kaam nahi kar raha", "NEGATION-BEARING: the negator is what makes it mean available"),
+        ("job nahi kar raha filhal", "negation-bearing"),
+    ]),
+    # ------------------------------------- availability EXCLUSIONS (must NOT fire) --
+    ("avx", [
+        ("abhi pune me hu",
+         "THE FABRICATION THIS FIX EXISTS FOR: our own question opens with 'abhi', so the "
+         "natural answer used to invent availability: immediate"),
+        ("abhi 25000 milte hain", "as above, on the salary question"),
+        ("job abhi ready hai",
+         "on a shop floor 'job' is the WORKPIECE — bare `ready` was removed for exactly this"),
+        ("machine free hai", "an OBJECT, not the worker — third-person copula"),
+        ("tool aaj ready ho jayega", "an object"),
+        ("mera bhai berozgar hai", "a THIRD PARTY's unemployment"),
+        ("wo free hai", "third party"),
+        ("sunday free hu", "TIME-SCOPED: free at a time is not free for a job"),
+        ("lunch me free hu", "time-scoped"),
+        ("pichli job chhod di thi", "PAST — the tense blocker"),
+        ("koi job available hai kya?",
+         "a question about VACANCIES, not a start date — the trailing lookahead"),
+        ("freelance kaam karta hu", "the 'free' substring must not fire a first-person cue"),
+        ("6 month ka experience hai", "used to record notice_period"),
+        ("kal meri shaadi hai to ready rahunga",
+         "anchored at BOTH ends: a long sentence opening with a time word is not a start date"),
+    ]),
+    # ------------------------------------------ availability: negated (#441 B) --
+    ("avn", [
+        ("abhi available nahi hu", "used to record availability: immediate"),
+        ("turant join nahi kar sakta", "used to record immediate"),
+        ("abhi khaali nahi hu", "used to record immediate"),
+        ("turant nahi aa sakta",
+         "PRE-POSED negator: negated ability puts the negator FIRST, which the backward "
+         "mask alone does not cover"),
+        ("abhi nahi join kar sakta", "pre-posed negator"),
+        ("kaam nahi kar raha, turant join kar sakta hu",
+         "CLAUSE-CLAMPED: a negator in the previous clause must not suppress this answer"),
+        ("kaam nahi milta isliye turant join kar sakta hu",
+         "the negator is three tokens back — outside the 2-token lookback, so the cue survives"),
+    ]),
+    # ------------------------------------------------------------- notice period --
+    ("nt", [
+        ("notice period hai", None),
+        ("resign kar diya hai", None),
+        ("next month join karunga", None),
+        ("15 din lagenge", "a duration that is the time something TAKES"),
+        ("30 din baad aa sakta hu", None),
+        ("ek mahina lagega", "word number -> 30 days"),
+        ("do mahine lagenge", "-> 60 days"),
+        ("ek hafta lagega", "-> 7 days"),
+        ("pandrah din lagega", "word number -> 15"),
+        ("lagega 20 din", "the reversed word order"),
+        ("2 weeks baad aa jaunga", None),
+    ]),
+    # ------------------------------------------ notice EXCLUSIONS (must NOT fire) --
+    ("ntx", [
+        ("10 din pehle join kiya tha", "time AGO, not time until"),
+        ("hafte me 6 din kaam karta hu", "a work WEEK, not a notice"),
+        ("do mahine se salary nahi mili", "time SINCE — 'X se' is 'for the last X'"),
+        ("5 saal ka tajurba", "years are EXPERIENCE, never a notice period"),
+        ("notice period nahi hai", "a DENIAL of a notice period"),
+        ("15 din nahi lagenge", "a denial"),
+    ]),
+    # ------------------------------------------------------------- relocation --
+    ("rl", [
+        ("kahin bhi jaa sakta hu", "generality of place — a complete flexibility answer"),
+        ("kahi bhi bhej do", None),
+        ("koi bhi sheher chalega", "a PLACE the worker accepts"),
+        ("bahar ja sakta hu", "a PLACE next to a GO verb"),
+        ("dusre sheher shift ho sakta hu", None),
+        ("relocate kar sakta hu", "explicit and unambiguous in English"),
+        ("transfer le sakta hu", None),
+        ("bahar jaane ko taiyaar hu", "READY attached to a MOVE"),
+        ("shift hone ko taiyaar hu", None),
+        ("out of station chalega", None),
+        ("कहीं भी जा सकता हूँ",
+         "Devanagari generality-of-place — uses the {DB}/{DE} block boundary, because a word "
+         "boundary does not work after a matra and would make this silently dead"),
+    ]),
+    # ---------------------------------------- relocation EXCLUSIONS (must NOT fire) --
+    ("rlx", [
+        ("bahar ka diameter 40 hai",
+         "'bahar KA diameter' is the outer diameter — only the verb beside it decides"),
+        ("night shift karta hu", "'shift' must take a becoming-form"),
+        ("general shift me hu", "as above"),
+        ("vmc chalega mujhe", "'chalega' alone is the MACHINE verb"),
+        ("ready hu machine ke liye",
+         "'ready' with no MOVE to attach to, so relocation stays unset. It DOES record "
+         "availability: immediate — the self-state blockers look for an object BEFORE "
+         "the cue, and here 'machine' follows it. Shipped behaviour, pinned"),
+        ("dusre sheher me kaam kiya tha", "work HISTORY, not an intention"),
+        ("bahar nahi jaaunga", "NEGATED"),
+        ("relocate nahi kar paunga", "negated"),
+    ]),
 ]
 
 

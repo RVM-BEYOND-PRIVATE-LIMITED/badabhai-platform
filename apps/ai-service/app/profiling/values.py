@@ -166,6 +166,52 @@ def parse_salary_monthly(text: str) -> NormalizedValue[int] | None:
     return salary_expected(text) or salary_current(text)
 
 
+def parse_availability(text: str) -> NormalizedValue[dict[str, object]] | None:
+    """Availability plus notice period, or None when the message states neither.
+
+    IMMEDIATE WINS over a notice period when both fire: "abhi join kar sakta hu, 15 din me" is a
+    worker saying they can start now. Never returns "not_looking"/"unknown" — those are the
+    orchestrator's to record from a declined or unasked question, not inferences from free text.
+
+    `negation_vetoed` is reported False rather than recomputed: the veto already ran inside the
+    cue search, so a SURVIVING cue is by construction not negated. Recomputing it could only make
+    the two disagree.
+    """
+    message = text or ""
+    masked, _topics = signals._apply_negation(message)
+
+    immediate = signals._first_immediate_cue(message, masked)
+    if immediate is not None:
+        start, end = immediate
+        value: dict[str, object] = {"availability": "immediate", "noticeDays": None}
+        return NormalizedValue(value, Span(start, end), False)
+
+    notice = signals._first_notice_cue(message, masked)
+    if notice is not None:
+        start, end = notice
+        days = signals._notice_period_days(message, masked)
+        return NormalizedValue(
+            {"availability": "notice_period", "noticeDays": days}, Span(start, end), False
+        )
+    return None
+
+
+def parse_relocation_willingness(text: str) -> NormalizedValue[bool] | None:
+    """Willingness to relocate, or None.
+
+    Only ever returns True: a message with no cue returns None, because "did not say" is not
+    "said no". Recording False from silence is the same fabrication this detector was rewritten
+    to stop, pointing the other way.
+    """
+    message = text or ""
+    masked, _topics = signals._apply_negation(message)
+    cue = signals._first_relocate_cue(message, masked)
+    if cue is None:
+        return None
+    start, end = cue
+    return NormalizedValue(True, Span(start, end), False)
+
+
 #: Fixture normalizer name -> implementation. Addressed by the TypeScript export name so one
 #: corpus record reads identically from either side.
 VALUE_BY_NAME = {
@@ -176,4 +222,6 @@ VALUE_BY_NAME = {
     "salaryExpected": salary_expected,
     "salaryCurrent": salary_current,
     "parseSalaryMonthly": parse_salary_monthly,
+    "parseAvailability": parse_availability,
+    "parseRelocationWillingness": parse_relocation_willingness,
 }

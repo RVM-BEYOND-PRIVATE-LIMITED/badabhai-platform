@@ -52,7 +52,10 @@ const SALARY = loadLexicon<SalaryFile>("salary");
 const MATCHER = compilePattern(SALARY.matcher);
 const CREDENTIAL_BEFORE = compilePattern(SALARY.credentialBefore);
 
-const compileAll = (specs: readonly PatternSpec[]): readonly RegExp[] => specs.map(compilePattern);
+// Arrow, not a bare `specs.map(compilePattern)`: `map` passes the INDEX as the second argument,
+// which `compilePattern` now reads as its fragments map. Caught by the typechecker.
+const compileAll = (specs: readonly PatternSpec[]): readonly RegExp[] =>
+  specs.map((spec) => compilePattern(spec));
 
 const ANNUAL_AFTER = compileAll(SALARY.annualCuesAfter);
 const ANNUAL_BEFORE = compileAll(SALARY.annualCuesBefore);

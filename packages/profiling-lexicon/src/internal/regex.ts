@@ -56,12 +56,31 @@ const WB = `(?<![${BOUNDARY_CLASS}])`;
 const WE = `(?![${BOUNDARY_CLASS}])`;
 
 /**
+ * The WHOLE Devanagari block — a DIFFERENT question from the word class above.
+ *
+ * `{WB}`/`{WE}` stand in for `\b` and therefore want only the alphanumerics. `{DB}`/`{DE}`
+ * bracket a Devanagari token to stop it matching inside a longer one, and for that the matras and
+ * combining marks must count — `\b` does not work after a matra, which is why `signals.py` grew
+ * its own `_dev()` helper rather than reusing a word boundary.
+ */
+const DEVANAGARI_BLOCK = "ऀ-ॿ";
+const DB = `(?<![${DEVANAGARI_BLOCK}])`;
+const DE = `(?![${DEVANAGARI_BLOCK}])`;
+
+/**
  * One word CHARACTER, as opposed to the two boundary ASSERTIONS above. Stands in for a bare
  * `\w`, which the subset rule bans: the salary and availability cue lists are full of open-ended
  * stems (`annual\w*`, `month\w*`, `expect\w*`) that must keep matching the same text in both
  * engines. `{WC}*` is the direct replacement for `\w*`.
  */
 const WC = `[${BOUNDARY_CLASS}]`;
+
+/**
+ * The COMPLEMENT of `{WC}` — one non-word character. Stands in for `\W`, banned for the same
+ * reason as `\w`: Python's is Unicode-aware and JavaScript's is not, so `^\W*…\W*$` would anchor
+ * on a different set of characters in each engine.
+ */
+const NWC = `[^${BOUNDARY_CLASS}]`;
 
 /**
  * Only the characters that are a JavaScript `SyntaxCharacter` AND a Python metacharacter.
@@ -101,6 +120,27 @@ export interface PatternSpec {
   readonly source: string;
   readonly flags?: string;
 }
+
+/**
+ * How many fragment-substitution passes before giving up. Fragments legitimately nest one or two
+ * levels (`{PLACE}` contains `{ANYWHERE}`); a cycle would otherwise spin forever.
+ */
+const MAX_FRAGMENT_DEPTH = 8;
+
+/**
+ * Macro names the two readers own. A file-local fragment may not shadow one — that would make the
+ * same `{NAME}` mean different things in different files.
+ */
+const GLOBAL_MACROS: ReadonlySet<string> = new Set([
+  "WB",
+  "WE",
+  "WC",
+  "NWC",
+  "DB",
+  "DE",
+  "SKILL_KEYWORDS",
+  "EXP_WORDS",
+]);
 
 interface SkillsFile {
   readonly skills: readonly {
@@ -172,14 +212,44 @@ function experienceWordAlternation(): string {
  * source. `lexicon.py` performs the identical substitution — that is what makes one JSON file
  * compile to the same matcher in both languages.
  */
-export function expand(source: string): string {
-  const expanded = source
+export function expand(source: string, fragments?: Readonly<Record<string, string>>): string {
+  let working = source;
+  if (fragments) {
+    const shadowed = Object.keys(fragments).filter((name) => GLOBAL_MACROS.has(name));
+    if (shadowed.length > 0) {
+      throw new Error(
+        `lexicon fragments may not shadow a global macro: ${JSON.stringify(shadowed.sort())}. ` +
+          "The same {NAME} must mean the same thing in every file.",
+      );
+    }
+    // Fragments NEST — `{PLACE}` contains `{ANYWHERE}` — so this is a bounded fixed point rather
+    // than one pass. The cap turns a cyclic definition into a loud failure instead of a hang;
+    // anything still unresolved falls through to the leftover-macro guard below.
+    const names = Object.keys(fragments).sort((a, b) => b.length - a.length);
+    for (let pass = 0; pass < MAX_FRAGMENT_DEPTH; pass += 1) {
+      // Longest name first, so a fragment whose name prefixes another is not partly eaten.
+      let substituted = working;
+      for (const name of names) {
+        substituted = substituted.split(`{${name}}`).join(fragments[name] as string);
+      }
+      if (substituted === working) break;
+      working = substituted;
+    }
+  }
+
+  const expanded = working
     .split("{WB}")
     .join(WB)
     .split("{WE}")
     .join(WE)
+    .split("{NWC}")
+    .join(NWC)
     .split("{WC}")
     .join(WC)
+    .split("{DB}")
+    .join(DB)
+    .split("{DE}")
+    .join(DE)
     .split("{SKILL_KEYWORDS}")
     .join(skillKeywordAlternation())
     .split("{EXP_WORDS}")
@@ -219,8 +289,37 @@ function toJsFlags(flags: string): string {
  * would make these detectors stateful and their results dependent on call order — the opposite of
  * the purity the orchestrator's property tests rely on.
  */
-export function compilePattern(spec: PatternSpec): RegExp {
-  return new RegExp(expand(spec.source), toJsFlags(spec.flags ?? ""));
+export function compilePattern(
+  spec: PatternSpec,
+  fragments?: Readonly<Record<string, string>>,
+): RegExp {
+  return new RegExp(expand(spec.source, fragments), toJsFlags(spec.flags ?? ""));
+}
+
+/** The file-local regex fragments declared by `<stem>.json`, or an empty map. */
+export function fragmentsOf(stem: string): Readonly<Record<string, string>> {
+  return loadLexicon<{ fragments?: Record<string, string> }>(stem).fragments ?? {};
+}
+
+/** Compile the single pattern at `key`, resolving that file's own fragments. */
+export function compileIn(stem: string, key: string): RegExp {
+  const file = loadLexicon<Record<string, PatternSpec>>(stem);
+  const spec = file[key];
+  if (!spec) throw new Error(`lexicon ${stem}.json has no pattern "${key}"`);
+  return compilePattern(spec, fragmentsOf(stem));
+}
+
+/**
+ * Compile the LIST of patterns at `key`, resolving that file's own fragments.
+ *
+ * Order is preserved, because in several of these lists it is load-bearing.
+ */
+export function compileList(stem: string, key: string): readonly RegExp[] {
+  const file = loadLexicon<Record<string, PatternSpec[]>>(stem);
+  const specs = file[key];
+  if (!specs) throw new Error(`lexicon ${stem}.json has no pattern list "${key}"`);
+  const frags = fragmentsOf(stem);
+  return specs.map((spec) => compilePattern(spec, frags));
 }
 
 /** Compile the pattern at `key` in `stem`.json. */
