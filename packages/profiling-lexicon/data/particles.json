@@ -70,16 +70,5 @@
 
   "_suffixes_are_also_tokens": "The `wala` family appears in BOTH lists on purpose. As a token it strips the spaced form ('silai wala'); as a suffix it strips the glued form ('silaiwala'). Listing it only as a suffix leaves the spaced form standing, because the standalone token's stem is empty and fails minStemLength. Listing it only as a token leaves the glued form standing. A bare 'wala' with nothing else survives via the normalizer's empty-guard, which is the desired outcome -- it is not an occupation, but it is also not nothing.",
 
-  "suffixes": [
-    "wala",
-    "waala",
-    "walah",
-    "wale",
-    "waale",
-    "wali",
-    "waali",
-    "वाला",
-    "वाले",
-    "वाली"
-  ]
+  "suffixes": ["wala", "waala", "walah", "wale", "waale", "wali", "waali", "वाला", "वाले", "वाली"]
 }

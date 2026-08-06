@@ -1,0 +1,842 @@
+{
+  "$comment": [
+    "Role / machine / controller / welding keyword tables, GENERATED from the live",
+    "signals.py objects by scripts (see the PR that added this file) rather than",
+    "hand-transcribed. 93 patterns and ten tables retyped by hand is a transcription-error",
+    "surface with no upside.",
+    "",
+    "ORDER IS LOAD-BEARING THROUGHOUT. detect() takes the FIRST keyword match, so a generic",
+    "term placed before a specific one shadows it: 'lathe' must not win over 'cnc lathe'.",
+    "",
+    "THE FIRST COLUMN OF machines/controllers/roles IS A PLAIN KEYWORD; the first column of",
+    "roleCues/welding/machiningContext/weldingRoleBlockers/plumbing/carpentry/design/",
+    "interiorDesign IS A REGEX SOURCE.",
+    "",
+    "PRIVACY: these tables derive VOCABULARY_TOKENS, whose only consumer is",
+    "pseudonymize.certified_clean_skill_labels — it rescues a label the gateway masked as an",
+    "EMPLOYER. Changing a token here changes what the gateway un-masks. The extraction was",
+    "proven by asserting the derived frozenset is byte-identical, and a test keeps it so."
+  ],
+  "machines": [
+    {
+      "keyword": "vmc",
+      "label": "VMC",
+      "id": "mach_vmc"
+    },
+    {
+      "keyword": "hmc",
+      "label": "HMC",
+      "id": "mach_hmc"
+    },
+    {
+      "keyword": "cnc lathe",
+      "label": "CNC Lathe",
+      "id": "mach_cnc_lathe"
+    },
+    {
+      "keyword": "lathe",
+      "label": "CNC Lathe",
+      "id": "mach_cnc_lathe"
+    },
+    {
+      "keyword": "turning",
+      "label": "CNC Lathe",
+      "id": "mach_cnc_lathe"
+    },
+    {
+      "keyword": "cylindrical grind",
+      "label": "Cylindrical Grinder",
+      "id": "mach_cylindrical_grinder"
+    },
+    {
+      "keyword": "grinding",
+      "label": "Grinding",
+      "id": "mach_cnc_grinder"
+    },
+    {
+      "keyword": "grinder",
+      "label": "Grinding",
+      "id": "mach_cnc_grinder"
+    }
+  ],
+  "controllers": [
+    {
+      "keyword": "fanuc",
+      "label": "Fanuc",
+      "skillId": "skill_fanuc"
+    },
+    {
+      "keyword": "siemens",
+      "label": "Siemens",
+      "skillId": "skill_siemens"
+    },
+    {
+      "keyword": "mitsubishi",
+      "label": "Mitsubishi",
+      "skillId": "skill_mitsubishi"
+    },
+    {
+      "keyword": "heidenhain",
+      "label": "Heidenhain",
+      "skillId": null
+    },
+    {
+      "keyword": "haas",
+      "label": "Haas",
+      "skillId": null
+    }
+  ],
+  "roles": [
+    {
+      "keyword": "cam programmer",
+      "label": "CAM Programmer",
+      "roleId": "role_cam_programmer",
+      "domainId": "dom_programming"
+    },
+    {
+      "keyword": "programmer",
+      "label": "CNC Programmer",
+      "roleId": "role_cnc_programmer",
+      "domainId": "dom_programming"
+    },
+    {
+      "keyword": "setter",
+      "label": "CNC Setter-Operator",
+      "roleId": "role_cnc_setter_operator",
+      "domainId": "dom_cnc_machining"
+    },
+    {
+      "keyword": "vmc",
+      "label": "VMC Operator",
+      "roleId": "role_vmc_operator",
+      "domainId": "dom_vmc_machining"
+    },
+    {
+      "keyword": "hmc",
+      "label": "HMC Operator",
+      "roleId": "role_hmc_operator",
+      "domainId": "dom_hmc_machining"
+    },
+    {
+      "keyword": "grinding",
+      "label": "CNC Grinding Operator",
+      "roleId": "role_cnc_grinding_operator",
+      "domainId": "dom_grinding"
+    },
+    {
+      "keyword": "turner",
+      "label": "CNC Turner/Operator",
+      "roleId": "role_cnc_turner_operator",
+      "domainId": "dom_cnc_machining"
+    },
+    {
+      "keyword": "turning",
+      "label": "CNC Turner/Operator",
+      "roleId": "role_cnc_turner_operator",
+      "domainId": "dom_cnc_machining"
+    }
+  ],
+  "extraRoleTrades": [
+    {
+      "roleId": "role_welder",
+      "tradeId": "dom_welding"
+    },
+    {
+      "roleId": "role_cnc_operator",
+      "tradeId": "dom_cnc_machining"
+    },
+    {
+      "roleId": "role_plumber",
+      "tradeId": "dom_plumbing"
+    },
+    {
+      "roleId": "role_carpenter",
+      "tradeId": "dom_carpentry"
+    },
+    {
+      "roleId": "role_designer",
+      "tradeId": "dom_design"
+    },
+    {
+      "roleId": "role_interior_designer",
+      "tradeId": "dom_interior_design"
+    }
+  ],
+  "roleCues": [
+    {
+      "pattern": {
+        "source": "{WB}v\\s+m\\s+c{WE}",
+        "flags": "i"
+      },
+      "label": "VMC Operator",
+      "roleId": "role_vmc_operator",
+      "domainId": "dom_vmc_machining"
+    },
+    {
+      "pattern": {
+        "source": "{WB}h\\s+m\\s+c{WE}",
+        "flags": "i"
+      },
+      "label": "HMC Operator",
+      "roleId": "role_hmc_operator",
+      "domainId": "dom_hmc_machining"
+    },
+    {
+      "pattern": {
+        "source": "{WB}set[ae]r{WE}",
+        "flags": "i"
+      },
+      "label": "CNC Setter-Operator",
+      "roleId": "role_cnc_setter_operator",
+      "domainId": "dom_cnc_machining"
+    },
+    {
+      "pattern": {
+        "source": "(?<![ऀ-ॿ])वीएमसी(?![ऀ-ॿ])",
+        "flags": "i"
+      },
+      "label": "VMC Operator",
+      "roleId": "role_vmc_operator",
+      "domainId": "dom_vmc_machining"
+    },
+    {
+      "pattern": {
+        "source": "(?<![ऀ-ॿ])एचएमसी(?![ऀ-ॿ])",
+        "flags": "i"
+      },
+      "label": "HMC Operator",
+      "roleId": "role_hmc_operator",
+      "domainId": "dom_hmc_machining"
+    },
+    {
+      "pattern": {
+        "source": "(?<![ऀ-ॿ])प्रोग्रामर(?![ऀ-ॿ])",
+        "flags": "i"
+      },
+      "label": "CNC Programmer",
+      "roleId": "role_cnc_programmer",
+      "domainId": "dom_programming"
+    },
+    {
+      "pattern": {
+        "source": "(?<![ऀ-ॿ])सेटर(?![ऀ-ॿ])",
+        "flags": "i"
+      },
+      "label": "CNC Setter-Operator",
+      "roleId": "role_cnc_setter_operator",
+      "domainId": "dom_cnc_machining"
+    },
+    {
+      "pattern": {
+        "source": "(?<![ऀ-ॿ])टर्नर(?![ऀ-ॿ])",
+        "flags": "i"
+      },
+      "label": "CNC Turner/Operator",
+      "roleId": "role_cnc_turner_operator",
+      "domainId": "dom_cnc_machining"
+    }
+  ],
+  "welding": [
+    {
+      "pattern": {
+        "source": "mig\\s*/\\s*mag",
+        "flags": "i"
+      },
+      "label": "MIG welding",
+      "skillId": "skill_mig_welding"
+    },
+    {
+      "pattern": {
+        "source": "gmaw",
+        "flags": "i"
+      },
+      "label": "MIG welding",
+      "skillId": "skill_mig_welding"
+    },
+    {
+      "pattern": {
+        "source": "mig\\s+welding",
+        "flags": "i"
+      },
+      "label": "MIG welding",
+      "skillId": "skill_mig_welding"
+    },
+    {
+      "pattern": {
+        "source": "mig",
+        "flags": "i"
+      },
+      "label": "MIG welding",
+      "skillId": "skill_mig_welding"
+    },
+    {
+      "pattern": {
+        "source": "gtaw",
+        "flags": "i"
+      },
+      "label": "TIG welding",
+      "skillId": "skill_tig_welding"
+    },
+    {
+      "pattern": {
+        "source": "tig\\s+welding",
+        "flags": "i"
+      },
+      "label": "TIG welding",
+      "skillId": "skill_tig_welding"
+    },
+    {
+      "pattern": {
+        "source": "tig",
+        "flags": "i"
+      },
+      "label": "TIG welding",
+      "skillId": "skill_tig_welding"
+    },
+    {
+      "pattern": {
+        "source": "smaw",
+        "flags": "i"
+      },
+      "label": "arc welding",
+      "skillId": "skill_arc_welding"
+    },
+    {
+      "pattern": {
+        "source": "stick\\s+welding",
+        "flags": "i"
+      },
+      "label": "arc welding",
+      "skillId": "skill_arc_welding"
+    },
+    {
+      "pattern": {
+        "source": "arc\\s+welding",
+        "flags": "i"
+      },
+      "label": "arc welding",
+      "skillId": "skill_arc_welding"
+    },
+    {
+      "pattern": {
+        "source": "oxy[\\s-]*fuel(?:\\s+cutting)?",
+        "flags": "i"
+      },
+      "label": "gas cutting",
+      "skillId": "skill_gas_cutting"
+    },
+    {
+      "pattern": {
+        "source": "gas\\s+cutting",
+        "flags": "i"
+      },
+      "label": "gas cutting",
+      "skillId": "skill_gas_cutting"
+    },
+    {
+      "pattern": {
+        "source": "welder",
+        "flags": "i"
+      },
+      "label": "welding",
+      "skillId": "skill_welder_occupation"
+    },
+    {
+      "pattern": {
+        "source": "welding",
+        "flags": "i"
+      },
+      "label": "welding",
+      "skillId": "skill_welder_occupation"
+    }
+  ],
+  "machiningContext": [
+    {
+      "source": "cnc",
+      "flags": "i"
+    },
+    {
+      "source": "vmc",
+      "flags": "i"
+    },
+    {
+      "source": "hmc",
+      "flags": "i"
+    },
+    {
+      "source": "lathe",
+      "flags": "i"
+    },
+    {
+      "source": "milling",
+      "flags": "i"
+    },
+    {
+      "source": "machining",
+      "flags": "i"
+    },
+    {
+      "source": "turning",
+      "flags": "i"
+    },
+    {
+      "source": "turner",
+      "flags": "i"
+    },
+    {
+      "source": "grinding",
+      "flags": "i"
+    },
+    {
+      "source": "grinder",
+      "flags": "i"
+    },
+    {
+      "source": "boring",
+      "flags": "i"
+    },
+    {
+      "source": "drilling",
+      "flags": "i"
+    },
+    {
+      "source": "setter",
+      "flags": "i"
+    },
+    {
+      "source": "programmer",
+      "flags": "i"
+    },
+    {
+      "source": "mastercam",
+      "flags": "i"
+    },
+    {
+      "source": "fanuc",
+      "flags": "i"
+    },
+    {
+      "source": "siemens",
+      "flags": "i"
+    },
+    {
+      "source": "haas",
+      "flags": "i"
+    },
+    {
+      "source": "heidenhain",
+      "flags": "i"
+    },
+    {
+      "source": "mitsubishi",
+      "flags": "i"
+    },
+    {
+      "source": "g\\s*-?\\s*code",
+      "flags": "i"
+    },
+    {
+      "source": "m\\s*-?\\s*code",
+      "flags": "i"
+    },
+    {
+      "source": "tool\\s+offset",
+      "flags": "i"
+    }
+  ],
+  "weldingRoleBlockers": [
+    {
+      "source": "{WB}(?:welder|welding){WE}[^.;!?]{0,24}?{WB}(?:nahi+n?|nah[ií]|mat|kabhi\\s+nahi+n?|not|no|never|n't){WE}",
+      "flags": "i"
+    },
+    {
+      "source": "{WB}(?:nahi+n?|nah[ií]|mat|kabhi\\s+nahi+n?|not|no|never|n't){WE}[^.;!?]{0,24}?{WB}(?:welder|welding){WE}",
+      "flags": "i"
+    },
+    {
+      "source": "{WB}welding\\s+(?:rod|rods|wire|electrode|electrodes|filler|gas|cylinder)s?{WE}",
+      "flags": "i"
+    },
+    {
+      "source": "{WB}welding\\s+machine{WE}[^.;!?]{0,24}?{WB}(?:repair|repairing|maintenance|service){WE}",
+      "flags": "i"
+    },
+    {
+      "source": "{WB}(?:welder|welding){WE}[^.;!?]{0,24}?{WB}(?:supply|supplier|supplies|sale|sales|sell|selling|bechta|bechti|dealer|dukan){WE}",
+      "flags": "i"
+    }
+  ],
+  "plumbing": [
+    {
+      "pattern": {
+        "source": "plumber",
+        "flags": "i"
+      },
+      "label": "plumber",
+      "skillId": "skill_plumber_occupation"
+    },
+    {
+      "pattern": {
+        "source": "plumbing",
+        "flags": "i"
+      },
+      "label": "plumber",
+      "skillId": "skill_plumber_occupation"
+    },
+    {
+      "pattern": {
+        "source": "pipe\\s+fitting",
+        "flags": "i"
+      },
+      "label": "pipe fitting",
+      "skillId": "skill_pipe_fitting"
+    },
+    {
+      "pattern": {
+        "source": "piping",
+        "flags": "i"
+      },
+      "label": "pipe fitting",
+      "skillId": "skill_pipe_fitting"
+    },
+    {
+      "pattern": {
+        "source": "drainage",
+        "flags": "i"
+      },
+      "label": "drainage systems",
+      "skillId": "skill_drainage_systems"
+    },
+    {
+      "pattern": {
+        "source": "water\\s+supply",
+        "flags": "i"
+      },
+      "label": "water supply systems",
+      "skillId": "skill_water_supply"
+    },
+    {
+      "pattern": {
+        "source": "nalki",
+        "flags": "i"
+      },
+      "label": "plumber",
+      "skillId": "skill_plumber_occupation"
+    },
+    {
+      "pattern": {
+        "source": "nalka",
+        "flags": "i"
+      },
+      "label": "plumber",
+      "skillId": "skill_plumber_occupation"
+    },
+    {
+      "pattern": {
+        "source": "pipeline",
+        "flags": "i"
+      },
+      "label": "pipe fitting",
+      "skillId": "skill_pipe_fitting"
+    }
+  ],
+  "carpentry": [
+    {
+      "pattern": {
+        "source": "carpenter",
+        "flags": "i"
+      },
+      "label": "carpenter",
+      "skillId": "skill_carpenter_occupation"
+    },
+    {
+      "pattern": {
+        "source": "carpentry",
+        "flags": "i"
+      },
+      "label": "carpenter",
+      "skillId": "skill_carpenter_occupation"
+    },
+    {
+      "pattern": {
+        "source": "wood\\s+work",
+        "flags": "i"
+      },
+      "label": "woodworking",
+      "skillId": "skill_woodworking"
+    },
+    {
+      "pattern": {
+        "source": "wood\\s+working",
+        "flags": "i"
+      },
+      "label": "woodworking",
+      "skillId": "skill_woodworking"
+    },
+    {
+      "pattern": {
+        "source": "furniture",
+        "flags": "i"
+      },
+      "label": "cabinet making",
+      "skillId": "skill_cabinet_making"
+    },
+    {
+      "pattern": {
+        "source": "joinery",
+        "flags": "i"
+      },
+      "label": "woodworking",
+      "skillId": "skill_woodworking"
+    },
+    {
+      "pattern": {
+        "source": "badtarash",
+        "flags": "i"
+      },
+      "label": "carpenter",
+      "skillId": "skill_carpenter_occupation"
+    },
+    {
+      "pattern": {
+        "source": "lakdi\\s+ka\\s+kaam",
+        "flags": "i"
+      },
+      "label": "carpenter",
+      "skillId": "skill_carpenter_occupation"
+    },
+    {
+      "pattern": {
+        "source": "lakdi\\s+ke\\s+kaam",
+        "flags": "i"
+      },
+      "label": "carpenter",
+      "skillId": "skill_carpenter_occupation"
+    },
+    {
+      "pattern": {
+        "source": "cabinet",
+        "flags": "i"
+      },
+      "label": "cabinet making",
+      "skillId": "skill_cabinet_making"
+    },
+    {
+      "pattern": {
+        "source": "polish",
+        "flags": "i"
+      },
+      "label": "furniture finishing",
+      "skillId": "skill_furniture_finishing"
+    },
+    {
+      "pattern": {
+        "source": "shuttering",
+        "flags": "i"
+      },
+      "label": "carpenter",
+      "skillId": "skill_carpenter_occupation"
+    }
+  ],
+  "design": [
+    {
+      "pattern": {
+        "source": "designer",
+        "flags": "i"
+      },
+      "label": "designer",
+      "skillId": "skill_designer_occupation"
+    },
+    {
+      "pattern": {
+        "source": "design\\s+ka\\s+kaam",
+        "flags": "i"
+      },
+      "label": "designer",
+      "skillId": "skill_designer_occupation"
+    },
+    {
+      "pattern": {
+        "source": "graphic\\s+design",
+        "flags": "i"
+      },
+      "label": "designer",
+      "skillId": "skill_designer_occupation"
+    },
+    {
+      "pattern": {
+        "source": "product\\s+design",
+        "flags": "i"
+      },
+      "label": "designer",
+      "skillId": "skill_designer_occupation"
+    },
+    {
+      "pattern": {
+        "source": "fashion\\s+design",
+        "flags": "i"
+      },
+      "label": "designer",
+      "skillId": "skill_designer_occupation"
+    },
+    {
+      "pattern": {
+        "source": "mechanical\\s+design",
+        "flags": "i"
+      },
+      "label": "designer",
+      "skillId": "skill_designer_occupation"
+    },
+    {
+      "pattern": {
+        "source": "autocad",
+        "flags": "i"
+      },
+      "label": "2D CAD drafting",
+      "skillId": "skill_cad_2d_drafting"
+    },
+    {
+      "pattern": {
+        "source": "solidworks",
+        "flags": "i"
+      },
+      "label": "3D modeling",
+      "skillId": "skill_3d_modeling"
+    },
+    {
+      "pattern": {
+        "source": "catia",
+        "flags": "i"
+      },
+      "label": "3D modeling",
+      "skillId": "skill_3d_modeling"
+    },
+    {
+      "pattern": {
+        "source": "creo",
+        "flags": "i"
+      },
+      "label": "3D modeling",
+      "skillId": "skill_3d_modeling"
+    },
+    {
+      "pattern": {
+        "source": "fusion\\s+360",
+        "flags": "i"
+      },
+      "label": "3D modeling",
+      "skillId": "skill_3d_modeling"
+    },
+    {
+      "pattern": {
+        "source": "render",
+        "flags": "i"
+      },
+      "label": "rendering / visualization",
+      "skillId": "skill_rendering_visualization"
+    },
+    {
+      "pattern": {
+        "source": "photoshop",
+        "flags": "i"
+      },
+      "label": "rendering / visualization",
+      "skillId": "skill_rendering_visualization"
+    },
+    {
+      "pattern": {
+        "source": "illustrator",
+        "flags": "i"
+      },
+      "label": "rendering / visualization",
+      "skillId": "skill_rendering_visualization"
+    }
+  ],
+  "interiorDesign": [
+    {
+      "pattern": {
+        "source": "interior\\s+design",
+        "flags": "i"
+      },
+      "label": "interior designer",
+      "skillId": "skill_interior_designer_occupation"
+    },
+    {
+      "pattern": {
+        "source": "interior\\s+designer",
+        "flags": "i"
+      },
+      "label": "interior designer",
+      "skillId": "skill_interior_designer_occupation"
+    },
+    {
+      "pattern": {
+        "source": "interior\\s+work",
+        "flags": "i"
+      },
+      "label": "interior designer",
+      "skillId": "skill_interior_designer_occupation"
+    },
+    {
+      "pattern": {
+        "source": "space\\s+planning",
+        "flags": "i"
+      },
+      "label": "space planning",
+      "skillId": "skill_space_planning"
+    },
+    {
+      "pattern": {
+        "source": "material\\s+selection",
+        "flags": "i"
+      },
+      "label": "material selection",
+      "skillId": "skill_material_selection"
+    },
+    {
+      "pattern": {
+        "source": "3ds\\s+max",
+        "flags": "i"
+      },
+      "label": "rendering / visualization",
+      "skillId": "skill_rendering_visualization"
+    },
+    {
+      "pattern": {
+        "source": "sketchup",
+        "flags": "i"
+      },
+      "label": "3D modeling",
+      "skillId": "skill_3d_modeling"
+    },
+    {
+      "pattern": {
+        "source": "revit",
+        "flags": "i"
+      },
+      "label": "3D modeling",
+      "skillId": "skill_3d_modeling"
+    }
+  ],
+  "inspection": [
+    ["micrometer", "micrometer"],
+    ["vernier", "vernier caliper"],
+    ["caliper", "vernier caliper"],
+    ["bore gauge", "bore gauge"],
+    ["height gauge", "height gauge"],
+    ["gauge", "gauges"],
+    ["gage", "gauges"],
+    ["cmm", "CMM"]
+  ],
+  "materials": [
+    ["mild steel", "Mild Steel"],
+    ["ms ", "Mild Steel"],
+    ["stainless", "Stainless Steel"],
+    ["ss ", "Stainless Steel"],
+    ["aluminium", "Aluminium"],
+    ["aluminum", "Aluminium"],
+    ["cast iron", "Cast Iron"],
+    ["brass", "Brass"],
+    ["titanium", "Titanium"]
+  ]
+}
