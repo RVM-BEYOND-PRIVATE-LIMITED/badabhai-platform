@@ -304,7 +304,13 @@ async function main(): Promise<void> {
       console.log(`[${SCRIPT}] wrote ${candidates.length} candidate(s) to ${outTo}`);
     } else {
       for (const c of candidates.slice(0, 50)) {
-        console.log(`  ${String(c.sessions).padStart(4)} sessions  ${String(c.count).padStart(4)}x  ${c.phrase}`);
+        // The phrase is passed as a SEPARATE ARGUMENT, never interpolated into the format
+        // string. It is worker-derived: normalized and pseudonymized, but still whatever
+        // someone typed, so a phrase containing "%s" or "%d" interpolated here would let a
+        // worker forge lines in an operator's console. console.log only applies format
+        // specifiers found in its FIRST argument, so keeping the template to numbers we
+        // computed removes the hazard rather than trusting the text.
+        console.log(`  ${String(c.sessions).padStart(4)} sessions  ${String(c.count).padStart(4)}x  %s`, c.phrase);
       }
     }
     console.log(
