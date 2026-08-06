@@ -1,0 +1,285 @@
+# BadaBhai vernacular alias overlay — the words workers actually use for their trade.
+#
+# WHY THIS FILE EXISTS. The published catalogue answers "what does the Government of
+# India call this occupation". It does not answer "what does a worker call it". All 8,695
+# scraped aliases are lang='en' official titles ("Welder, Gas"; "Cook, Domestic"), and 77%
+# of selectable occupations carry exactly one. A worker who says "kharad ka kaam karta
+# hun" matches nothing in that catalogue. Every line below is a bridge from a worker's
+# own words to a published code.
+#
+# FORMAT. One alias per line, `"kind":"alias"`. `source` defaults to 'rvm' and may not be
+# anything else — an authored alias must never be able to claim it came from a standard.
+#   {"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"वेल्डर","lang":"hi"}
+#
+# REVIEW. `git blame` on a line names the reviewer who signed it. That is the entire
+# provenance mechanism and it is why this file is line-per-alias rather than a JSON array
+# — a reindented array makes blame meaningless.
+#
+# THE ONE RULE THAT IS NOT OBVIOUS: every alias must survive normalization DISTINCTLY.
+# `normalizeOccupationText` strips Indian occupational particles, so "welding wala",
+# "welding ka kaam" and "welding" all collapse to `welding`. Only one of them can win
+# `is_searchable`; the rest are unreachable rows that still cost an embedding. Author the
+# STEM, never the particle-laden phrase. `validateAliasOverlay` enforces this, so a
+# padded corpus fails the seed rather than quietly inflating the alias count.
+#
+# COVERAGE. This first tranche covers the highest worker-volume trades, in the order the
+# plan prioritises them: welding, tailoring, driving, cooking, electrical, masonry,
+# machining, security, housekeeping, construction helpers, plumbing, painting, carpentry.
+# It is deliberately NOT the full ~3,000: see the Phase 2 PR for what the remaining
+# breadth needs (a provider key for the LLM batch, and real chat_messages for the miner).
+#
+# PRIVACY. Occupation words only. No worker-derived text may enter this file without
+# going through the pseudonymizer first — the miner is the path that could carry PII, and
+# the validator rejects digits, '@' and URLs as a structural backstop.
+
+# ── BARE COMMON WORDS — these exist to WIN AT L0 BEFORE L1 IS TRIED ─────────
+# Every entry here was added because the eval harness caught the L1 skeleton folding a
+# common worker word onto an unrelated occupation. The skeleton is lossy by design
+# (kh->k, w->v, vowels dropped), and on short words it over-folds:
+#
+#   driver  -> "drvr" == Drover      (jd_isco_6121, cattle herder)
+#   fitter  -> "ftr"  == Father      (jd_nco_2636_0100, religious professional)
+#   painter -> "pntr" == Pantry Man  (jd_nco_5120_0600)
+#
+# The resolver exhausts L0 at every span length before trying L1 at any length, so an
+# EXACT alias for the bare word makes the collision unreachable rather than merely
+# unlikely. That ordering is the fix; these rows are how it gets used. Removing one of
+# these lines silently reintroduces the collision, so do not "tidy" them away as
+# redundant with the longer forms.
+{"kind":"alias","job_domain_id":"jd_nco_8322_0100","text":"driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7131_0100","text":"painter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5001","text":"cnc","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5223_0100","text":"dukan","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8332_0100","text":"truck","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8332_0100","text":"ट्रक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0100","text":"gaadi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0200","text":"khana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8153_0101","text":"silai machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9313_0201","text":"bar bender","lang":"en"}
+
+# ── Welding — ISCO 7212 ─────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"वेल्डर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"वेल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"welding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"welding mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"veldar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"jodai ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"जोड़ाई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0100","text":"gas welding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0100","text":"गैस वेल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0100","text":"gas cutting welding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0200","text":"arc welding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0200","text":"आर्क वेल्डिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0200","text":"bijli wali welding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0200","text":"mig welding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0200","text":"tig welding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0400","text":"गैस कटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0400","text":"cutting wala kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0801","text":"welding helper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0801","text":"वेल्डिंग हेल्पर","lang":"hi"}
+
+# ── Tailoring — ISCO 7531 / 8153 ────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7531_0100","text":"दर्जी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0100","text":"darzi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0100","text":"darji","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0100","text":"silai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0100","text":"सिलाई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0100","text":"tailor master","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0100","text":"kapda silai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0100","text":"कपड़ा सिलाई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0200","text":"ladies tailor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0200","text":"लेडीज दर्जी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0200","text":"blouse silai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0200","text":"suit salwar silai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0500","text":"shirt silai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7531_0400","text":"pant silai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8153_0101","text":"सिलाई मशीन ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8153_0101","text":"silai machine operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8153_0101","text":"machine silai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8153_0101","text":"export line silai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8153_0101","text":"garment factory silai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8153_0500","text":"कढ़ाई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8153_0500","text":"kadhai machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8153_0500","text":"embroidery machine","lang":"en"}
+
+# ── Driving — ISCO 8322 / 8332 ──────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_8322_0100","text":"ड्राइवर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0100","text":"gaadi chalana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0100","text":"गाड़ी चलाना","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0100","text":"car driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0100","text":"draiver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0201","text":"taxi driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0201","text":"टैक्सी ड्राइवर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0201","text":"ola uber driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0201","text":"cab chalata","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0501","text":"lmv driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0501","text":"chota hathi driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0501","text":"tempo driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0501","text":"टेम्पो ड्राइवर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8322_0301","text":"ambulance driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8332_0100","text":"truck driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8332_0100","text":"ट्रक ड्राइवर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8332_0100","text":"lorry chalak","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8332_0100","text":"hmv driver","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8332_0100","text":"trailer chalana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_8332_0100","text":"dumper chalana","lang":"en"}
+
+# ── Cooking — ISCO 5120 ─────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_5120_0200","text":"रसोइया","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0200","text":"rasoiya","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0200","text":"bawarchi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0200","text":"बावर्ची","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0200","text":"khansama","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0200","text":"khana banana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0200","text":"खाना बनाना","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0200","text":"canteen cook","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0200","text":"mess cook","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0300","text":"ghar ka cook","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0300","text":"maharaj","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0300","text":"महाराज","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0500","text":"kitchen helper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0500","text":"रसोई हेल्पर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0500","text":"bartan dhona","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5120_0500","text":"tandoor helper","lang":"en"}
+
+# ── Electrical — ISCO 7411 ──────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7411_0100","text":"बिजली मिस्त्री","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0100","text":"bijli mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0100","text":"bijli","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0100","text":"बिजली","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0100","text":"electric mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0100","text":"ilectrician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0100","text":"wiring ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0100","text":"वायरिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0301","text":"wireman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0301","text":"वायरमैन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0301","text":"line man","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0102","text":"cctv technician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7411_0102","text":"camera fitting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9313_0501","text":"bijli helper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9313_0501","text":"बिजली हेल्पर","lang":"hi"}
+
+# ── Masonry — ISCO 7112 ─────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7112_0200","text":"राज मिस्त्री","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0200","text":"raj mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0200","text":"rajmistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0200","text":"mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0200","text":"मिस्त्री","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0200","text":"chinai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0200","text":"चिनाई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0200","text":"eint jodna","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0200","text":"plaster ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0200","text":"पलस्तर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0100","text":"pathar mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0100","text":"पत्थर का काम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7112_0601","text":"mistri helper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9313_0301","text":"beldar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9313_0301","text":"बेलदार","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9313_0301","text":"raj helper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9313_0301","text":"masala banana","lang":"en"}
+
+# ── Machining / lathe — ISCO 7223 ───────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"खराद","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"kharad","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"kharaad","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"lathe","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"लेथ","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0701","text":"turning ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5001","text":"cnc operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5001","text":"सीएनसी ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5001","text":"cnc machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6002","text":"cnc turning","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5004","text":"vmc operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_5004","text":"वीएमसी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1201","text":"milling machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1201","text":"मिलिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_1500","text":"drilling machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"grinding machine","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"ghisai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"घिसाई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"machine shop","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"machinist","lang":"en"}
+
+# ── Security — ISCO 5414 ────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_5414_0501","text":"चौकीदार","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0501","text":"chowkidar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0501","text":"chaukidar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0501","text":"gate keeper","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0501","text":"गेटमैन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0501","text":"security guard","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0501","text":"सिक्योरिटी गार्ड","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0501","text":"pahredar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0501","text":"पहरेदार","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0400","text":"night guard","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0400","text":"रात का पहरा","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0121","text":"cctv operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0151","text":"armed guard","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5414_0151","text":"bandookdhari guard","lang":"en"}
+
+# ── Housekeeping / cleaning — ISCO 9112 ─────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_9112_0200","text":"सफाई कर्मचारी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9112_0200","text":"safai karmchari","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9112_0200","text":"safai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9112_0200","text":"सफाई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9112_0200","text":"housekeeping","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9112_0200","text":"हाउसकीपिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9112_0200","text":"jhadu pocha","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9112_0200","text":"झाड़ू पोछा","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9112_0200","text":"cleaner","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_9112_0200","text":"hospital cleaning","lang":"en"}
+
+# ── Plumbing — ISCO 7126 ────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7126_0101","text":"प्लंबर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7126_0101","text":"nal ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7126_0101","text":"नल का काम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7126_0101","text":"nalsaz","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7126_0101","text":"paani ka mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7126_0101","text":"plumbing","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7126_0301","text":"पाइप फिटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7126_0301","text":"pipe fitting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7126_0104","text":"plumber helper","lang":"en"}
+
+# ── Painting — ISCO 7131 ────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7131_0100","text":"पेंटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7131_0100","text":"putai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7131_0100","text":"पुताई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7131_0100","text":"rangai putai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7131_0100","text":"paint ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7131_0100","text":"safedi","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7131_0100","text":"सफेदी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7131_0300","text":"industrial painter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7131_0500","text":"spray painter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7131_0500","text":"स्प्रे पेंटिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9313_0701","text":"painter helper","lang":"en"}
+
+# ── Carpentry — ISCO 7115 ───────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7115_0100","text":"बढ़ई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7115_0100","text":"badhai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7115_0100","text":"barhai","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7115_0100","text":"lakdi ka kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7115_0100","text":"लकड़ी का काम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7115_0100","text":"furniture banana","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7115_0100","text":"carpenter mistri","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7115_0201","text":"shuttering carpenter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7115_0201","text":"शटरिंग","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_9313_0401","text":"shuttering helper","lang":"en"}
+
+# ── Fitting / mechanic — ISCO 7233 ──────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"फिटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"bench fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"maintenance fitter","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"मेंटेनेंस फिटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0400","text":"diesel mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0400","text":"डीजल मैकेनिक","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0300","text":"petrol mechanic","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_1800","text":"silai machine repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_2000","text":"ghar ke saman ki repairing","lang":"en"}
+
+# ── Retail — ISCO 5223 ──────────────────────────────────────────────────────
+{"kind":"alias","job_domain_id":"jd_nco_5223_0100","text":"dukan par kaam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5223_0100","text":"दुकान का काम","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5223_0100","text":"salesman","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5223_0100","text":"सेल्समैन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_5223_0100","text":"counter sales","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_5223_0105","text":"store helper","lang":"en"}
