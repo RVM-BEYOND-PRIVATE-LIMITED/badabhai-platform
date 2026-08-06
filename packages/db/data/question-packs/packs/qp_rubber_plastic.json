@@ -1,0 +1,79 @@
+{
+  "_why": "Tail family for ISCO minor group 814 (Rubber, Plastic and Paper Machines). Bound at MINOR level (specificity 30) rather than per unit group: the 814x units are narrow industrial specialisations whose workers would get near-identical questions, and 158 near-duplicate packs would be padding that LOOKS like coverage. A unit-level family always wins over this one — that is what the six specificity levels are for.",
+  "pack_id": "qp_rubber_plastic",
+  "version": 1,
+  "family_id": "fam_rubber_plastic",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Phase 6 tail authoring, first pass. Reviewer of record is git blame.",
+  "items": [
+    {
+      "question_key": "machine_operated",
+      "prompt_text": "Aap kaunsi machine chalate hain?",
+      "why_text": "Machine ka naam employer poochte hain.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "text",
+      "is_core": true,
+      "max_asks": 2
+    },
+    {
+      "question_key": "shift_work",
+      "prompt_text": "Kya aap rotating shift kar sakte hain?",
+      "why_text": "Plant me shift badalti rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "shift_work",
+      "answer_type": "boolean",
+      "max_asks": 1
+    },
+    {
+      "question_key": "safety_training",
+      "prompt_text": "Kya aapne safety training li hai?",
+      "why_text": "Plant me safety training zaroori hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "safety_training",
+      "answer_type": "boolean",
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "field",
+          "label_text": "Bahar ya khet me",
+          "value_text": "field"
+        }
+      ]
+    },
+    {
+      "question_key": "tools_owned",
+      "prompt_text": "Kya aapke paas apne auzaar hain?",
+      "why_text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "target_kind": "attribute",
+      "target_field": "tools_owned",
+      "answer_type": "boolean",
+      "max_asks": 1
+    }
+  ]
+}
