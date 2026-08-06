@@ -32,6 +32,13 @@ import {
   jobDomains,
 } from "./occupation";
 import {
+  profilingFamilies,
+  profilingFamilyBindings,
+  questionPackItems,
+  questionPackOptions,
+  questionPacks,
+} from "./question-pack";
+import {
   chatMessages,
   chatSessions,
   voiceNotes,
@@ -96,6 +103,7 @@ import {
 export * from "./worker";
 export * from "./skill";
 export * from "./occupation";
+export * from "./question-pack";
 export * from "./chat";
 export * from "./profile";
 export * from "./job";
@@ -207,6 +215,16 @@ export type JobDomain = typeof jobDomains.$inferSelect;
 export type NewJobDomain = typeof jobDomains.$inferInsert;
 export type JobDomainAlias = typeof jobDomainAliases.$inferSelect;
 export type NewJobDomainAlias = typeof jobDomainAliases.$inferInsert;
+export type ProfilingFamily = typeof profilingFamilies.$inferSelect;
+export type NewProfilingFamily = typeof profilingFamilies.$inferInsert;
+export type ProfilingFamilyBinding = typeof profilingFamilyBindings.$inferSelect;
+export type NewProfilingFamilyBinding = typeof profilingFamilyBindings.$inferInsert;
+export type QuestionPack = typeof questionPacks.$inferSelect;
+export type NewQuestionPack = typeof questionPacks.$inferInsert;
+export type QuestionPackItem = typeof questionPackItems.$inferSelect;
+export type NewQuestionPackItem = typeof questionPackItems.$inferInsert;
+export type QuestionPackOption = typeof questionPackOptions.$inferSelect;
+export type NewQuestionPackOption = typeof questionPackOptions.$inferInsert;
 export type NewUnresolvedPhrase = typeof unresolvedPhrases.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
@@ -258,6 +276,11 @@ export const schema = {
   workerIndustryTenure,
   jobDomains,
   jobDomainAliases,
+  profilingFamilies,
+  profilingFamilyBindings,
+  questionPacks,
+  questionPackItems,
+  questionPackOptions,
   jobReach,
   matchConfig,
   paymentOrders,
