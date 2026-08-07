@@ -28,7 +28,10 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | 16 worker-app issues, assigned RishiBamako | #624–#639 | **filed, open** |
 | **V0** — Sarvam `TtsAdapter` + `tts_smoke --matrix`, armed by nothing | PR #645 → `4d0989f8` | **on `main`** |
 | **V1** — migration 0071 data spine (`worker_attributes`, `profiling_voice_answer`, pack pin, retention index) | PR #647 → `6f33a5aa` | **on `main`, applied** |
-| **V2** — attribute projection + the yes/no lexicon + select-option capture | PR #651 | **on `main`** |
+| **V2** — attribute projection + the yes/no lexicon + select-option capture | PR #651 → `a639b7bc` | **on `main`** |
+| **V3** — the OIE Phase 8 cutover: the interview is deterministic, the LLM parses once | PR #650 → `2aa71d79` | **on `main`** |
+| Live-run fixes — `catalog_version` 500, event-validation diagnostics, compound chip labels | PR #656 → `952305ea` | **on `main`** |
+| Pack pin made durable + `profile.pack_pinned` | PR #661 | **on `main`** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -54,8 +57,10 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **B-2** | Sarvam TTS accepts **romanized** Hinglish at `hi-IN` | Unknown. 0 of 466 pack items contain a Devanagari codepoint. Resolved by V0. |
 | **B-3** | Round-trip latency for a ≤30s answer | Unmeasured. Every number in the repo is a timeout, never an observation. Resolved by V0. |
 | ~~**B-4**~~ | Where `attribute` answers land | **RESOLVED** — owner ruled `worker_attributes`; the table shipped in V1 (migration 0071). The *wiring* is V2. |
-| **B-5** | `envelope.occupation` is never written | The 100 trade packs are unreachable; every worker gets the 8-item universal tail. V3. |
-| **B-6** | The two surfaces do not share a parse/build pipeline | `/profile/parse` and `projectProfile` have zero callers; the chat uses `/profile/extract`. See §1a. V3. |
+| ~~**B-5**~~ | `envelope.occupation` is never written | **RESOLVED** by V3 (#650). Measured live: "main welder hoon" → `jd_nco_7212_0301` via `l0_exact` at 0.97 → the WELDING pack served → 13-turn interview → 10 typed rows in `worker_pack_answer`. |
+| **B-6** | The two surfaces do not share a parse/build pipeline | `/profile/parse` and `projectProfile` have zero callers; the chat uses `/profile/extract`. See §1a. **Still open after V3** — the cutover made the interview deterministic but did not move the voice side onto `ProfilesRepository.create`. |
+| ~~**B-7**~~ | The pack pin was never written to `chat_sessions` | **RESOLVED** by #661. Found by running the product, not by reading it: the live database showed `pack pinned: (none)` for a session that had just been served thirteen welding questions. The columns shipped in V1 with a comment justifying them and no writer; a Redis eviction therefore re-ran retrieval and could hand a resumed interview a different pack. Now written write-once at pin time, read back only when the envelope is gone, and recorded by `profile.pack_pinned`. |
+| **B-8** | Two live defects on `ProfilesRepository.create`, logged during the §1a survey | An unreachable ai-service fabricates an **empty draft profile**; `create` is insert-only, so a later empty extraction can shadow a good one. Neither is voice-specific — both bite the chat today. Not yet scheduled. |
 
 ### 1a. ONE PIPELINE — and the two surfaces do not share one today
 
@@ -404,7 +409,31 @@ this engine got built dark the first time; it lands with the finalize leg that c
 
 ---
 
-### Phase V3 — Orchestrator surface *(Owner: Prakash · L · after V1)*
+### Phase V3 — Orchestrator surface *(Owner: Prakash · L · **DONE**, PR #650 → `2aa71d79`)*
+
+> **Landed as the OIE Phase 8 cutover rather than as a parallel voice surface.** The plan bet on
+> shipping the voice form as OIE's *first* live consumer, in parallel to an untouched chat. Running
+> the engine proved that wrong-headed: `ChatService.postMessage` already owns the route, the auth
+> guard and the ownership check, so a second surface would have duplicated all three to reach the
+> same orchestrator. The cutover points `postMessage` at `takeTurn` and **deletes** the model-driven
+> path — the rollback unit is a `git revert` of one PR, which is why every deletion landed in it.
+> `ProfilingModule` therefore still has no controller, and the boot test now asserts that on purpose
+> rather than as a symptom of being built dark.
+>
+> **Follow-on fixes the live run forced** — none of which 3,697 unit tests caught, because every one
+> of them was found by *running the product*:
+>
+> - **#656** `catalogVersion()` is a ~75-char cache signature against a payload cap of 64, so the
+>   event failed its own schema, threw inside the emitter, and **500'd `POST /chat/message` for
+>   every worker whose trade did not resolve first try**. Also: event-validation diagnostics that
+>   name the offending field (path + code only — zod echoes the rejected *value* in `issue.message`),
+>   and compound chip labels (`"Loha ya mild steel"`) that dropped a material.
+> - **#661** the pack pin (B-7) — see the Blocked table.
+> - Two CI seed steps were passing while seeding **zero rows**: the seeders are dry-run by default
+>   and `--apply` was missing. A green tick on a step that did nothing is worse than no step.
+> - `worker_pack_answer` was never registered in the RLS drift guard's `LOCKED_TABLES`.
+
+<details><summary>Original V3 scope, as planned</summary>
 
 - `openTurn()` — a start route cannot call `takeTurn("")` (classifies `empty` → blank reply → unavailable)
 - **Occupation pinning** — `OccupationService.resolve()` on the `primary_trade` answer writes
@@ -427,6 +456,19 @@ this engine got built dark the first time; it lands with the finalize leg that c
 **Acceptance.** A welding worker's session serves `qp_welding` items. **Path-equivalence test**:
 identical text via the voice path and the chat path produces a deep-equal `TurnResult` — this makes
 "both paths write the same profile" mechanical.
+
+</details>
+
+**Acceptance — measured live, not asserted.** `"main welder hoon"` → `jd_nco_7212_0301` via `l0_exact`
+at 0.97 → `qp_welding` served → a 13-turn interview completes → **10 typed rows** in
+`worker_pack_answer` (`certification=false` from "nahi hai", `safety_gear=true` from "haan li hai",
+`workplace_type=factory`, `material_worked=["mild_steel","stainless"]`, `experience_years=8`) →
+**0 events** containing a raw utterance or a phone number. `ai_posture: mock` throughout, so not one
+word of it came from a model.
+
+**Still owed from V3's scope:** the path-equivalence test, and the §1a convergence (B-6) — the voice
+side moving onto `ProfilesRepository.create` via `ProfilesService`. `openTurn()`, the mode-lock and
+the 409-on-stale-`question_key` are moot until a second surface exists.
 
 ---
 
