@@ -28,7 +28,7 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | 16 worker-app issues, assigned RishiBamako | #624–#639 | **filed, open** |
 | **V0** — Sarvam `TtsAdapter` + `tts_smoke --matrix`, armed by nothing | PR #645 → `4d0989f8` | **on `main`** |
 | **V1** — migration 0071 data spine (`worker_attributes`, `profiling_voice_answer`, pack pin, retention index) | PR #647 → `6f33a5aa` | **on `main`, applied** |
-| **V2** — attribute projection + the yes/no lexicon + select-option capture | PR #648 | **on `main`** |
+| **V2** — attribute projection + the yes/no lexicon + select-option capture | PR #651 | **on `main`** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -364,7 +364,7 @@ no writer the schema is inert, so rollback is "revert the code, leave the schema
 
 ---
 
-### Phase V2 — Attribute projection *(Owner: Prakash · S · **DONE**, PR #648)*
+### Phase V2 — Attribute projection *(Owner: Prakash · S · **DONE**, PR #651)*
 
 Three changes, and the middle one turned out to be the largest missing piece in the whole design.
 
