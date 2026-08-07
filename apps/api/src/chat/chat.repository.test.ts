@@ -151,3 +151,60 @@ describe("ChatRepository.insertMessages", () => {
     expect(db.insert).not.toHaveBeenCalled();
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * findLatestSessionByWorker — the "resume my chat" read.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** Capture a `select().from().where().orderBy().limit()` chain. */
+function makeSelectingDb(rows: unknown[] = [{ id: SESSION }]) {
+  const captured: { from?: unknown; where?: unknown; orderBy?: unknown[]; limit?: number } = {};
+  const node: Record<string, unknown> = {
+    from: (t: unknown) => ((captured.from = t), node),
+    where: (c: unknown) => ((captured.where = c), node),
+    orderBy: (...o: unknown[]) => ((captured.orderBy = o), node),
+    limit: (n: number) => ((captured.limit = n), Promise.resolve(rows)),
+  };
+  return { db: { select: vi.fn(() => node) }, captured };
+}
+
+const renderOrderBy = (h: { captured: { orderBy?: unknown[] } }): string =>
+  (h.captured.orderBy ?? []).map((o) => renderWhere(o)).join(", ");
+
+describe("ChatRepository.findLatestSessionByWorker — WHICH session 'latest' means", () => {
+  it("orders by last_message_at DESC NULLS LAST *before* started_at", async () => {
+    const h = makeSelectingDb();
+    await new ChatRepository(h.db as never).findLatestSessionByWorker(WORKER);
+
+    // THIS ASSERTION IS THE BUG FIX. Every pre-fix app open called `startSession`, which
+    // unconditionally INSERTs, so a worker accrues empty sessions whose `started_at` is
+    // the NEWEST and whose `last_message_at` is NULL. Ordering by `started_at` alone
+    // therefore resumes an EMPTY session and the Bada Bhai tab redraws a blank thread
+    // while the real Q&A sits one session back. Postgres defaults DESC to NULLS FIRST,
+    // so dropping `NULLS LAST` reinstates exactly that bug — and every service- and
+    // controller-level test in this repo would stay green, because they mock this method.
+    const order = renderOrderBy(h);
+    expect(order).toMatch(/last_message_at"?\s+DESC\s+NULLS\s+LAST/i);
+    expect(order).toContain("started_at");
+    expect(order.indexOf("last_message_at")).toBeLessThan(order.indexOf("started_at"));
+  });
+
+  it("scopes to the worker and takes exactly one row", async () => {
+    const h = makeSelectingDb();
+    await new ChatRepository(h.db as never).findLatestSessionByWorker(WORKER);
+
+    // The worker id arrives from the bearer token (the controller passes @CurrentWorker,
+    // never a param), so this predicate is the only thing standing between one worker
+    // and another's transcript id.
+    const where = renderWhere(h.captured.where);
+    expect(where).toContain('"worker_id"');
+    expect(h.captured.limit).toBe(1);
+  });
+
+  it("returns undefined for a worker who has never started a session", async () => {
+    const h = makeSelectingDb([]);
+    const out = await new ChatRepository(h.db as never).findLatestSessionByWorker(WORKER);
+    // The service maps this to `{ session_id: null }` — a brand-new worker is not a 404.
+    expect(out).toBeUndefined();
+  });
+});

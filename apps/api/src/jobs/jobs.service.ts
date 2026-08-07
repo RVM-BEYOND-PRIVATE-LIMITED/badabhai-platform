@@ -19,7 +19,10 @@ export interface WorkerVisibleJob {
   // NULL for a V1 posting (no `trade_key` on `job_postings`); always set for legacy jobs.
   trade_key: TradeKey | null;
   title: string;
-  city: string;
+  // NULL for a V1 posting with no coarse city bucket set. NEVER back-filled from the
+  // poster's free-text `location_label` (see the repository fallback) — an absent city
+  // is honest absent data the client hides, exactly like the nulls below.
+  city: string | null;
   area: string | null;
   pay_min: number | null;
   pay_max: number | null;
@@ -49,6 +52,17 @@ export class JobsService {
    * message never echoes the id, and an unknown id and a CLOSED job are
    * byte-identical — the repository's `status='open'` WHERE folds both into
    * `undefined`, so there is no closed-vs-unknown oracle.
+   *
+   * NOT `job_reach`-GATED, deliberately — and asymmetric with apply, on purpose.
+   * `ApplicationsService.applyV1` uses the worker's `job_reach` row as BOTH the gate
+   * and the 404 oracle ("he can only apply to what the gate showed him"). This READ
+   * does not: any consented worker who holds a posting id may read its detail. The
+   * asymmetry is accepted because the projection is worker-INDEPENDENT and PII-free
+   * by construction (no employer identity, no pay exactness, no applicant counts), ids
+   * are unguessable v4 UUIDs so there is no enumeration path, and gating the read on
+   * reach would break the legitimate case this fallback exists for — reopening a job
+   * from the Applied tab after the reach row has been consumed. Apply stays gated; a
+   * read that reveals nothing reach-specific does not need to be.
    *
    * NO EVENT EMISSION — load-bearing, per the ADR-0024 final addendum §"Event
    * ruling": this is a pure read of already-served content. The impression was

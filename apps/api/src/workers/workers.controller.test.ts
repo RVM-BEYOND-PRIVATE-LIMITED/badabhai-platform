@@ -124,10 +124,13 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
 
   it("getMyProfile (worker-authed) resolves the { profile, resume } bundle from the TOKEN worker id", async () => {
     const { controller, workers } = make();
-    const profileRow = { id: "prof-1", profileStatus: "confirmed" };
-    const resumeRow = { id: "res-1", resumeText: "…" };
-    workers.latestProfile.mockResolvedValueOnce(profileRow as never);
-    workers.latestResume.mockResolvedValueOnce(resumeRow as never);
+    workers.latestProfile.mockResolvedValueOnce({ id: "prof-1", profileStatus: "confirmed" } as never);
+    workers.latestResume.mockResolvedValueOnce({
+      id: "res-1",
+      resumeText: "Asha — CNC Operator",
+      version: 2,
+      renderStatus: "rendered",
+    } as never);
     const worker = { id: ID, sid: "sess-1" };
     const res = await controller.getMyProfile(worker);
     // Worker-self read: the repo is queried with the TOKEN id (@CurrentWorker),
@@ -136,7 +139,47 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
     // internal `:id/profile` route and 401'd, breaking resume generation.
     expect(workers.latestProfile).toHaveBeenCalledWith(ID);
     expect(workers.latestResume).toHaveBeenCalledWith(ID);
-    expect(res).toEqual({ profile: profileRow, resume: resumeRow });
+    // snake_case ALLOWLIST, not the raw rows — the app reads profile.id +
+    // resume.id/resume_text.
+    expect(res).toEqual({
+      profile: { id: "prof-1", profile_status: "confirmed" },
+      resume: {
+        id: "res-1",
+        resume_text: "Asha — CNC Operator",
+        version: 2,
+        render_status: "rendered",
+      },
+    });
+  });
+
+  it("getMyProfile NEVER leaks the embedding / raw AI drafts / private-bucket key", async () => {
+    const { controller, workers } = make();
+    // The rows as `select()` actually returns them. Everything below the two
+    // projected fields is internal: a 768-dim vector is ~10-15KB of JSON on a
+    // low-bandwidth handset, `rich_profile_draft` holds model-authored free text,
+    // and `pdf_storage_key` is a private-bucket object key (the PDF is served via
+    // the ADR-0032 signed-URL route instead). Behind InternalServiceGuard the ops
+    // twin can return raw rows; a worker-authed route must not (§9).
+    workers.latestProfile.mockResolvedValueOnce({
+      id: "prof-1",
+      profileStatus: "confirmed",
+      embedding: [0.11, 0.22, 0.33],
+      rawProfile: { employer: "Tata Motors" },
+      richProfileDraft: { clarification_questions: ["which plant?"] },
+    } as never);
+    workers.latestResume.mockResolvedValueOnce({
+      id: "res-1",
+      resumeText: "…",
+      version: 1,
+      renderStatus: "rendered",
+      resumeJson: { name: "Asha" },
+      sourceProfileSnapshot: { trade: "cnc" },
+      pdfStorageKey: "resumes/9f2c/v1.pdf",
+    } as never);
+    const wire = JSON.stringify(await controller.getMyProfile({ id: ID, sid: "sess-1" }));
+    expect(wire).not.toMatch(/embedding|raw_?[Pp]rofile|rich_?[Pp]rofile/);
+    expect(wire).not.toMatch(/resume_?[Jj]son|source_?[Pp]rofile|pdf_?[Ss]torage|storage_?[Kk]ey/);
+    expect(wire).not.toContain("Tata Motors");
   });
 
   it("getMyProfile returns nulls (not a 404) when the worker has no profile/resume yet", async () => {

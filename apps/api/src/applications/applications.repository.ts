@@ -46,7 +46,10 @@ export interface ApplicationWithJob {
   // NULL for a V1 decision: `job_postings` has no `trade_key` (only `role_title`).
   tradeKey: Job["tradeKey"] | null;
   title: string;
-  city: string;
+  // NULL for a V1 decision whose posting has no coarse city bucket (`job_postings.city`
+  // is nullable). A legacy decision always has one (`jobs.city` is NOT NULL). NEVER
+  // back-filled from `job_postings.location_label` — see the query below.
+  city: string | null;
   area: string | null;
   action: ApplicationAction;
   reason: SkipReason | null;
@@ -253,19 +256,28 @@ export class ApplicationsRepository {
    * (trade/title/city/area — never employer or pay). Oldest first.
    */
   async findApplicationsByWorker(workerId: string): Promise<ApplicationWithJob[]> {
-    // A decision points at EITHER `jobs` (legacy alpha, `job_id`) OR `job_postings`
-    // (V1, `job_posting_id`) — never both (schema.ts §applications). The old INNER JOIN
-    // on `jobs` silently dropped every V1 decision (job_id NULL), so the worker's
-    // "Applied jobs" tab looked empty even after applying from the V1 feed. LEFT JOIN
-    // both and coalesce the coarse, PII-free fields so a decision from either surface
-    // shows. `job_postings` has no `trade_key`/`area`; `city` falls back to its
-    // `location_label`.
+    // A decision carries `job_id` (legacy alpha) or `job_posting_id` (V1); the DB CHECK
+    // `applications_job_ref_chk` requires AT LEAST ONE to be set (it is an OR, not an
+    // XOR — a row could in principle carry both, in which case the legacy side wins the
+    // coalesce below). The old INNER JOIN on `jobs` silently dropped every V1 decision
+    // (job_id NULL), so the worker's "Applied jobs" tab looked empty even after applying
+    // from the V1 feed. LEFT JOIN both and coalesce the coarse, PII-free fields so a
+    // decision from either surface shows. Both joins are on a PRIMARY KEY, so neither
+    // can fan a decision out into duplicate rows.
+    //
+    // `title` is sound as non-null: both source columns are NOT NULL and both FKs are
+    // ON DELETE CASCADE, so a surviving decision always has one side of the join.
+    // `city` is NOT: `job_postings.city` is nullable, and it is deliberately NOT
+    // back-filled from `job_postings.location_label` — that column is poster-typed free
+    // text, exempt from the PII heuristic, and may name the site or employer. Putting it
+    // on a worker-visible surface is the exact leak match-feed.service.ts refuses for
+    // `area`. NULL is the honest answer.
     return this.db
       .select({
         jobId: sql<string | null>`coalesce(${applications.jobId}, ${applications.jobPostingId})`,
         tradeKey: jobs.tradeKey,
         title: sql<string>`coalesce(${jobs.title}, ${jobPostings.roleTitle})`,
-        city: sql<string>`coalesce(${jobs.city}, ${jobPostings.city}, ${jobPostings.locationLabel})`,
+        city: sql<string | null>`coalesce(${jobs.city}, ${jobPostings.city})`,
         area: jobs.area,
         action: applications.action,
         reason: applications.reason,

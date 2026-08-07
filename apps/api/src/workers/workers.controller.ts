@@ -42,6 +42,7 @@ import {
   type ConfirmPhotoDto,
   type WorkerProfileSummary,
   type WorkerResumeFields,
+  type WorkerProfileBundle,
 } from "./workers.dto";
 
 @Controller("workers")
@@ -136,23 +137,38 @@ export class WorkersController {
    * POST /resume/generate). Worker from @CurrentWorker (never a path/body id —
    * no IDOR); consent-gated like every worker-self profile read.
    *
-   * Serves the SAME `{ profile, resume }` shape the ops `:id/profile` route
-   * below returns (the app parses `profile.id` + `resume.id`/`resume_text`),
-   * but WORKER-authed instead of InternalServiceGuard. Without this route the
-   * app's `GET /workers/me/profile` fell through to `:id/profile` (id="me") and
-   * 401'd on the internal-token guard, which broke resume generation entirely.
+   * Serves the same `{ profile, resume }` ENVELOPE the ops `:id/profile` route
+   * below returns (the app parses `profile.id` + `resume.id`/`resume_text`), but
+   * WORKER-authed instead of InternalServiceGuard. Without this route the app's
+   * `GET /workers/me/profile` fell through to `:id/profile` (id="me") and 401'd on
+   * the internal-token guard, which broke resume generation entirely.
+   *
+   * EXPLICIT PROJECTION, not the raw rows the ops route returns — see
+   * {@link WorkerProfileBundle} for why that distinction is load-bearing on a
+   * worker-authed path (embedding vector, raw AI drafts, private-bucket key).
    *
    * ROUTE ORDER: declared BEFORE the `:id/profile` param route so the literal
    * "me" segment is never captured as an `:id` (Nest matches in declaration order).
    */
   @Get("me/profile")
+  @Header("Cache-Control", "no-store")
   @UseGuards(WorkerAuthGuard, ConsentGuard)
-  async getMyProfile(@CurrentWorker() worker: AuthenticatedWorker) {
+  async getMyProfile(@CurrentWorker() worker: AuthenticatedWorker): Promise<WorkerProfileBundle> {
     const [profile, resume] = await Promise.all([
       this.workers.latestProfile(worker.id),
       this.workers.latestResume(worker.id),
     ]);
-    return { profile: profile ?? null, resume: resume ?? null };
+    return {
+      profile: profile ? { id: profile.id, profile_status: profile.profileStatus } : null,
+      resume: resume
+        ? {
+            id: resume.id,
+            resume_text: resume.resumeText,
+            version: resume.version,
+            render_status: resume.renderStatus,
+          }
+        : null,
+    };
   }
 
   /** Worker + latest profile + latest generated resume. Ops/internal only — no PII leaked. */

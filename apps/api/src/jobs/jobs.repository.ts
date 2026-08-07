@@ -20,7 +20,11 @@ export interface WorkerVisibleJobRow {
   // `role_title` only). Legacy `jobs` rows always have one.
   tradeKey: Job["tradeKey"] | null;
   title: string;
-  city: string;
+  // NULL for a V1 posting whose coarse `city` bucket was never filled in
+  // (`job_postings.city` is nullable). Legacy `jobs.city` is NOT NULL, so a legacy
+  // row always has one. DELIBERATELY NOT back-filled from `job_postings.location_label`
+  // — see the fallback query below.
+  city: string | null;
   area: string | null;
   payMin: number | null;
   payMax: number | null;
@@ -82,15 +86,24 @@ export class JobsRepository {
     // screen was left with only the light title/place it was handed. Fall back to the
     // OPEN posting and project the SAME worker-visible, PII-free SHOW set. Fields the
     // posting doesn't carry are NULL (never invented): `trade_key`, `area`, the
-    // experience window, `benefits`, `requirements`. `city` falls back to the free-text
-    // `location_label`. `status = 'open'` keeps the SAME neutral-404 no-oracle rule.
+    // experience window, `benefits`, `requirements`, and `city` when the coarse bucket
+    // is unset. `status = 'open'` keeps the SAME neutral-404 no-oracle rule.
     // `org_label` / `payer_id` are NEVER selected (employer identity, HIDE — ADR-0024/§2).
+    //
+    // `city` IS NOT BACK-FILLED FROM `location_label`, deliberately. `job_postings.city`
+    // is the COARSE, matchable city bucket ("Pune"); `location_label` is 200 chars of
+    // poster-typed free text that is explicitly EXEMPT from the PII heuristic
+    // (job-postings.dto.ts) and may name the site or the employer ("Near <Employer> gate
+    // 3"). Promoting it into a worker-visible field would put payer free text on the
+    // worker path — the same call match-feed.service.ts already made for `area`
+    // ("inventing one from `location_label` would put payer free text on a worker card").
+    // A NULL city is the honest answer; the client already hides the row.
     const [posting] = await this.db
       .select({
         id: jobPostings.id,
         tradeKey: sql<Job["tradeKey"] | null>`NULL`,
         title: jobPostings.roleTitle,
-        city: sql<string>`COALESCE(${jobPostings.city}, ${jobPostings.locationLabel})`,
+        city: jobPostings.city,
         area: sql<string | null>`NULL`,
         payMin: jobPostings.payMin,
         payMax: jobPostings.payMax,
