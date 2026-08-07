@@ -14,7 +14,9 @@ field on either side turns the other side red.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -22,6 +24,8 @@ from pydantic import ValidationError
 from app.contracts import (
     AnswerRecord,
     AnswerRecordHistoryEntry,
+    AnswerStatus,
+    AnswerType,
     ConversationMessage,
     ConversationState,
     EvidenceSpan,
@@ -42,11 +46,13 @@ from app.contracts import (
     ProfileParseOutput,
     ProfilingOpeningInput,
     ProfilingOpeningOutput,
+    ProfilingPhase,
     ProfilingTurnInput,
     ProfilingTurnOutput,
     QuestionPack,
     QuestionPackItem,
     QuestionPackOption,
+    QuestionPackStatus,
     TargetField,
     TranscriptLine,
 )
@@ -353,3 +359,47 @@ def test_the_oie_contracts_carry_no_identity_pii_field():
     banned = {"worker_name", "name", "phone", "phone_number", "address", "employer"}
     for model_name, model in _OIE_MODELS.items():
         assert banned.isdisjoint(set(model.model_fields)), model_name
+
+
+# ---------------------------------------------------------------------------
+# ENUM VALUES, not just key names — the gap the freeze header did not have
+# ---------------------------------------------------------------------------
+
+
+_REPO = Path(__file__).resolve().parents[3]
+
+
+def _zod_string_union(const_name: str) -> list[str]:
+    """Read a `export const X = [...] as const;` literal out of oie.ts.
+
+    Reading the SOURCE keeps this a plain pytest with no Node runtime, the same way
+    test_lexicon_parity reads the shared JSON rather than importing TypeScript.
+    """
+    source = (_REPO / "packages" / "ai-contracts" / "src" / "oie.ts").read_text(encoding="utf-8")
+    match = re.search(rf"export const {const_name} = \[(.*?)\] as const;", source, re.S)
+    assert match, f"{const_name} not found in oie.ts — the mirror has moved"
+    # COMMENTS FIRST. These arrays carry per-member doc comments that quote worker phrases
+    # ("nahi pata"), and a bare string scan happily returns those as members.
+    body = re.sub(r"/\*.*?\*/", "", match.group(1), flags=re.S)
+    body = re.sub(r"//[^\n]*", "", body)
+    return re.findall(r'"([^"]+)"', body)
+
+
+def test_oie_enum_values_match_not_just_their_key_names():
+    """The freeze header promises `test_contract_parity.py` turns red if one side moves alone.
+
+    For enum VALUES that was not true. `oie.keys.json` carries the bare string
+    ``"answer_type"`` and never its members, and both parity tests compare
+    ``sorted(model_fields)`` — key names only. Widening ANSWER_TYPES on one side, or adding
+    a phase to one and not the other, would have been invisible to every existing check.
+    """
+    assert _zod_string_union("ANSWER_TYPES") == list(get_args(AnswerType))
+    assert _zod_string_union("PROFILING_PHASES") == list(get_args(ProfilingPhase))
+    assert _zod_string_union("QUESTION_PACK_STATUSES") == list(get_args(QuestionPackStatus))
+    assert _zod_string_union("ANSWER_STATUSES") == list(get_args(AnswerStatus))
+
+
+def test_the_enum_parity_check_is_capable_of_failing():
+    """Guards against a regex that quietly matches nothing and makes the above vacuous."""
+    assert len(_zod_string_union("ANSWER_TYPES")) >= 5
+    assert "multi_select" in _zod_string_union("ANSWER_TYPES")

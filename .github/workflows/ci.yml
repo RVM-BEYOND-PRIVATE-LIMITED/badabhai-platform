@@ -112,6 +112,19 @@ jobs:
       - name: Test (with coverage thresholds)
         run: pnpm test -- --coverage
 
+      # The question-pack deploy gate, in its DB-FREE mode.
+      #
+      # IT RAN IN NO WORKFLOW AT ALL until this line, in either mode — and that is precisely how
+      # its own bug survived: `verify-question-packs.ts` called the corpus validator with no
+      # `opts`, so the "target_field is in the RFS vocabulary" rule silently did not run, and the
+      # UNIVERSAL pack shipped with four invented field ids. Library-level tests could not have
+      # caught it, because the defect was in the CLI's call, not in the validator.
+      #
+      # `--corpus` needs no Postgres, so it belongs in this job rather than the DB-backed one
+      # below; the live-database checks stay on the deploy path.
+      - name: Verify question-pack corpus (db:verify:packs --corpus)
+        run: pnpm --filter @badabhai/db db:verify:packs --corpus
+
       # Offline self-test for the staging /health + mock-OTP smoke (scripts/staging-smoke.mjs).
       # Plain node:test, NO network — locks the load-bearing dev_otp-FAIL gate + the
       # no-secret-leak guarantee so a refactor can't silently weaken them.
