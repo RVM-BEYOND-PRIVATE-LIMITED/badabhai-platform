@@ -45,7 +45,10 @@ import '../../features/voice/domain/voice_note_repository.dart';
 import '../../features/voice/domain/voice_pipeline.dart';
 import '../../features/voice/domain/voice_recorder.dart';
 import '../../features/voice/presentation/cubit/voice_note_cubit.dart';
+import '../../features/voice_form/data/silent_question_audio_player.dart';
+import '../../features/voice_form/data/tts_asset_resolver.dart';
 import '../../features/voice_form/data/voice_preflight_probe.dart';
+import '../../features/voice_form/domain/question_audio_player.dart';
 import '../../features/voice_form/domain/silence_endpointer.dart';
 import '../../features/name/data/name_repository_impl.dart';
 import '../../features/name/domain/name_repository.dart';
@@ -292,6 +295,12 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => VoicePreflightProbe(
         locator<ApiClient>(), locator<SessionRepository>()),
   );
+  // Read-aloud (#631): the ship-now default is SILENT — the session degrades to
+  // text-only until the TTS corpus (ai-service A3) and an on-device audio-focus
+  // prototype land. TTS is an enhancement, never a gate on answering.
+  locator.registerLazySingleton<QuestionAudioPlayer>(
+      () => const SilentQuestionAudioPlayer());
+  locator.registerLazySingleton<TtsAssetResolver>(() => TtsAssetResolver());
   locator.registerLazySingleton<VoiceStorageUploader>(
     () => kUseMocks
         ? const MockVoiceStorageUploader()

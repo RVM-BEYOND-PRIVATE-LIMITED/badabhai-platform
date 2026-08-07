@@ -50,10 +50,13 @@ class FakeTts implements QuestionAudioPlayer {
   Future<void> stop() async => stops++;
 }
 
+class MockTts extends Mock implements QuestionAudioPlayer {}
+
 void main() {
   setUpAll(() {
     registerFallbackValue(const RecordConfig());
     registerFallbackValue(Duration.zero);
+    registerFallbackValue(const VoiceQuestion(id: 'x', prompt: 'x'));
   });
 
   late MockAudioRecorder plugin;
@@ -171,6 +174,34 @@ void main() {
     expect(cubit.state, isA<VoiceFormError>());
     expect(gateway.submits, 0);
     verifyNever(() => plugin.start(any(), path: any(named: 'path')));
+  });
+
+  test('replay() stops the mic for the WHOLE of playback, then re-arms (#631)',
+      () async {
+    final MockTts tts = MockTts();
+    when(() => tts.play(any())).thenAnswer((_) async {});
+    when(() => tts.stop()).thenAnswer((_) async {});
+
+    final VoiceFormCubit cubit = VoiceFormCubit(
+      gateway: FakeGateway(8),
+      recorder: SessionVoiceRecorder(recorder: plugin),
+      endpointer: SilenceEndpointer(),
+      tts: tts,
+      sleep: (_) async {},
+    );
+    addTearDown(cubit.close);
+    await cubit.start(); // Q1 presented, mic armed
+    clearInteractions(plugin);
+
+    await cubit.replay();
+
+    // PROMPTING and LISTENING are mutually exclusive: the mic is cancelled
+    // BEFORE playback and only re-started AFTER it completes.
+    verifyInOrder(<void Function()>[
+      () => plugin.cancel(),
+      () => tts.play(any()),
+      () => plugin.start(any(), path: any(named: 'path')),
+    ]);
   });
 
   test('close() inside the start() await window still releases the mic',

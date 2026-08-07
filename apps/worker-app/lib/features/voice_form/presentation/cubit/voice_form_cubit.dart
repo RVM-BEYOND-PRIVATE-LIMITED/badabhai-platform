@@ -260,7 +260,16 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     ));
     await _tts.play(next.question); // read aloud — mic not yet live
     if (isClosed) return;
+    await _armFreshClip(next.question, next.index, next.total);
+  }
 
+  Future<void> _rearm(VoiceFormAsking current) =>
+      _armFreshClip(current.question, current.index, current.total);
+
+  /// start → 250ms prime → arm → emit listening/holding. Shared by first-render,
+  /// re-arm-after-empty, and replay (#631). Releases the mic if [close] lands in
+  /// the start() await window.
+  Future<void> _armFreshClip(VoiceQuestion question, int index, int total) async {
     _startingMic = true;
     try {
       await _recorder.start(); // start THIS question's clip
@@ -271,36 +280,34 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       await _recorder.cancel(); // closed during the start window — release it
       return;
     }
-
     await _sleep(_primeDelay); // 250ms prime
     if (isClosed) return;
     _endpointer.arm();
-
     emit(VoiceFormAsking(
-      question: next.question,
-      index: next.index,
-      total: next.total,
+      question: question,
+      index: index,
+      total: total,
       micPhase: _endpointer.manualOnly ? MicPhase.holding : MicPhase.listening,
     ));
   }
 
-  Future<void> _rearm(VoiceFormAsking current) async {
-    _startingMic = true;
+  /// Replay the current question aloud (the speaker button, #631). PROMPTING and
+  /// LISTENING are mutually exclusive: the mic is stopped for the WHOLE of
+  /// playback so the prompt is never captured as the answer, then a fresh clip
+  /// is armed. Guarded by [_advancing] so a replay cannot race an advance.
+  Future<void> replay() async {
+    final VoiceFormState current = state;
+    if (current is! VoiceFormAsking || _advancing) return;
+    _advancing = true;
     try {
-      await _recorder.start();
+      await _recorder.cancel(); // mic OFF — discard any partial take
+      emit(current.copyWith(micPhase: MicPhase.priming));
+      await _tts.play(current.question); // read aloud while the mic is off
+      if (isClosed) return;
+      await _armFreshClip(current.question, current.index, current.total);
     } finally {
-      _startingMic = false;
+      _advancing = false;
     }
-    if (isClosed) {
-      await _recorder.cancel();
-      return;
-    }
-    await _sleep(_primeDelay);
-    if (isClosed) return;
-    _endpointer.arm();
-    emit(current.copyWith(
-        micPhase:
-            _endpointer.manualOnly ? MicPhase.holding : MicPhase.listening));
   }
 
   /// Amplitude tap: feed the endpointer while listening; a returned signal
