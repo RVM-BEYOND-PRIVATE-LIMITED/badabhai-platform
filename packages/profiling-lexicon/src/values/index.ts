@@ -18,11 +18,11 @@
  * | `parseExperienceYears` | ported |
  * | `parseSalaryMonthly` / `detectSalaries` | ported |
  * | `parseAvailability` / `parseRelocationWillingness` | ported |
- * | `FIELD_CROSSWALK` | Phase 7 |
+ * | `FIELD_CROSSWALK` | ported (Phase 7) |
  *
- * Every normalizer Phase 3 named is now real. `FIELD_CROSSWALK` stays `declare`d because it maps
- * RFS field ids onto `WorkerProfileDraft` paths, which is Phase 7's contract to define — a caller
- * that imports it gets a TypeScript error at the call site rather than `undefined` at runtime.
+ * Every normalizer Phase 3 named is now real, and `FIELD_CROSSWALK` is no longer `declare`d:
+ * Phase 7 defined the contract it was waiting for and `./crosswalk.ts` implements it, guarded by
+ * an exhaustiveness test against the ai-service's own RFS vocabulary.
  */
 
 export type { Availability, MonthlyInr, NormalizedValue } from "./types.js";
@@ -67,12 +67,11 @@ export {
  *
  * Phase 7.
  */
-export interface CrosswalkEntry {
-  readonly draftPath: string;
-  readonly type: "string" | "number" | "string[]" | "bool" | "enum";
-  readonly unit?: "years" | "inr_per_month";
-  /** For `tools_equipment`, which routes tokens to `machines[]` vs `controllers[]`. */
-  readonly splitter?: "machines_controllers";
-}
+export type { CrosswalkEntry } from "./types-crosswalk.js";
 
-export declare const FIELD_CROSSWALK: Readonly<Record<string, CrosswalkEntry>>;
+export {
+  CROSSWALK_DRAFT_FIELDS,
+  CROSSWALK_FIELD_IDS,
+  FIELD_CROSSWALK,
+  crosswalkFor,
+} from "./crosswalk.js";

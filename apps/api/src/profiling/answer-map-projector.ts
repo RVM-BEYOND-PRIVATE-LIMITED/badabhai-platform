@@ -1,0 +1,147 @@
+/**
+ * `AnswerMapProjector` — a usable profile from the deterministic answer map ALONE.
+ *
+ * THIS IS THE FAIL-CLOSED PATH, and it is the reason the whole interview can survive the LLM being
+ * down, blocked, or failing every gate. It works because normalization happens at CAPTURE time,
+ * not at parse time: `answer-capture.ts` writes `value_normalized` on every turn using Phase 3's
+ * normalizers, so by the time the interview ends the map already holds typed values. Nothing has
+ * to be re-derived here, and nothing has to be asked of a model.
+ *
+ * `parse_status = "deterministic_only"` when this is all we have. **The worker still gets a real
+ * profile.** The LLM is an overlay that adds coverage regexes cannot reach — never a dependency.
+ *
+ * THE MAPPING IS NOT LOCAL. Where each RFS answer lands is `FIELD_CROSSWALK` in
+ * `@badabhai/profiling-lexicon`, guarded by an exhaustiveness test against the ai-service's own
+ * vocabulary. A `switch` here would be a second, unchecked copy of that decision.
+ */
+
+import type { AnswerRecord, ParsedField } from "@badabhai/ai-contracts";
+import { CROSSWALK_DRAFT_FIELDS, crosswalkFor } from "@badabhai/profiling-lexicon";
+
+/** Where a projected value came from. Observability, and the audit of what the LLM contributed. */
+export const VALUE_SOURCES = ["answer_map", "llm_parse"] as const;
+export type ValueSource = (typeof VALUE_SOURCES)[number];
+
+export interface ProjectedValue {
+  readonly value: unknown;
+  readonly source: ValueSource;
+}
+
+/** A partial `WorkerProfileDraft`: draft field id → value, with provenance per field. */
+export type ProfileProjection = Readonly<Record<string, ProjectedValue>>;
+
+export const PARSE_STATUSES = ["deterministic_only", "llm_overlay"] as const;
+export type ParseStatus = (typeof PARSE_STATUSES)[number];
+
+export interface ProjectionResult {
+  readonly draft: ProfileProjection;
+  readonly parseStatus: ParseStatus;
+  /** Draft fields the LLM overlay contributed that the map had nothing for. Ids only. */
+  readonly overlayFields: readonly string[];
+}
+
+/**
+ * The map's live values, keyed by RFS field id.
+ *
+ * Reads `target_field` and falls back to `question_key`, matching `toCapturedProjection`. Only
+ * `answered` records carry a value: a `declined` record is a complete answer for completion
+ * purposes but has nothing to put on a resume, and an `unanswered` one is a gap.
+ */
+function liveValues(answerMap: readonly AnswerRecord[]): Map<string, unknown> {
+  const values = new Map<string, unknown>();
+  for (const record of answerMap) {
+    if (record.status !== "answered") continue;
+    if (record.value_normalized === null || record.value_normalized === undefined) continue;
+    values.set(record.target_field ?? record.question_key, record.value_normalized);
+  }
+  return values;
+}
+
+/**
+ * Write one RFS value onto the draft through the crosswalk.
+ *
+ * THREE OUTCOMES, and the crosswalk decides which: no entry at all (not an RFS field), a `null`
+ * `draftPath` (deliberately not carried — `work_history`, `languages`), or a real destination. A
+ * `splitter` entry fans across several draft fields when the caller supplies one, and otherwise
+ * keeps the answer on its declared path rather than dropping it.
+ */
+function assign(
+  draft: Record<string, ProjectedValue>,
+  fieldId: string,
+  value: unknown,
+  source: ValueSource,
+  split?: (value: unknown) => Record<string, unknown>,
+): void {
+  const entry = crosswalkFor(fieldId);
+  // No entry = not an RFS field. A NULL draftPath = deliberately not carried (work_history,
+  // languages). Both write nothing, and the crosswalk records which is which.
+  if (!entry || entry.draftPath === null) return;
+
+  if (entry.splitter) {
+    const parts = split?.(value);
+    if (parts) {
+      for (const [draftField, part] of Object.entries(parts)) {
+        // A splitter must not be able to WIDEN the set of columns a parse can write to.
+        if (CROSSWALK_DRAFT_FIELDS.has(draftField)) draft[draftField] = { value: part, source };
+      }
+      return;
+    }
+    // No splitter supplied: keep the answer somewhere reviewable rather than dropping it. The
+    // worker answered; a missing splitter is our defect, not theirs.
+    draft[entry.draftPath] = { value, source };
+    return;
+  }
+
+  draft[entry.draftPath] = { value, source };
+}
+
+/**
+ * THE PRECEDENCE FUNCTION. Written ONCE, here, and nowhere else:
+ *
+ *     deterministic answer map  >  LLM parse (post-gates)  >  heuristic transcript extractor
+ *
+ * WRITTEN ONCE IS THE WHOLE POINT. A precedence rule restated in three call sites is a rule that
+ * will eventually disagree with itself, and the direction it disagrees in decides whether a model
+ * can overwrite what a worker actually said. The gates already discard any parsed value that
+ * CONTRADICTS the map; this is the weaker, always-applied rule underneath them — where both have
+ * a value, the map's wins, no comparison required.
+ *
+ * `parseStatus` is `deterministic_only` exactly when the overlay contributed nothing, which is the
+ * honest signal for "the LLM was down, blocked, or failed every gate" without this function having
+ * to know which.
+ */
+export function projectProfile(
+  answerMap: readonly AnswerRecord[],
+  accepted: Readonly<Record<string, ParsedField>> = {},
+  options: { readonly split?: (value: unknown) => Record<string, unknown> } = {},
+): ProjectionResult {
+  const draft: Record<string, ProjectedValue> = {};
+  const overlayFields: string[] = [];
+
+  // 1. THE OVERLAY FIRST, so the map can overwrite it. Applying the map first and then guarding
+  //    every overlay write would put the precedence rule in two places; letting the winner write
+  //    last keeps it in one.
+  for (const [fieldId, field] of Object.entries(accepted)) {
+    assign(draft, fieldId, field.value, "llm_parse", options.split);
+  }
+
+  // 2. THE MAP WINS. Unconditionally — no comparison, no merge, no "unless the LLM is more
+  //    confident". Confidence is the model's opinion of itself.
+  const live = liveValues(answerMap);
+  for (const [fieldId, value] of live) {
+    assign(draft, fieldId, value, "answer_map", options.split);
+  }
+
+  for (const [draftField, projected] of Object.entries(draft)) {
+    if (projected.source === "llm_parse") overlayFields.push(draftField);
+  }
+
+  return {
+    draft,
+    parseStatus: overlayFields.length > 0 ? "llm_overlay" : "deterministic_only",
+    overlayFields: overlayFields.sort(),
+  };
+}
+
+/** The draft fields a projection could ever touch — the crosswalk's own set, never a second copy. */
+export const PROJECTABLE_DRAFT_FIELDS = CROSSWALK_DRAFT_FIELDS;
