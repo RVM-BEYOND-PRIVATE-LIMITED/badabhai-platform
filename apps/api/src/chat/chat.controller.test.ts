@@ -12,6 +12,7 @@ function make() {
   const chat = {
     startSession: vi.fn(async () => ({ session_id: "s", status: "active" })),
     postMessage: vi.fn(async () => ({ session_id: "s", reply: "hi" })),
+    latestSession: vi.fn(async () => ({ session_id: "prior-1" })),
   };
   return { controller: new ChatController(chat as unknown as ChatService), chat };
 }
@@ -28,5 +29,12 @@ describe("ChatController (thin) — worker from token, never the body", () => {
     const dto = { session_id: "s", text: "hello" };
     await controller.postMessage(WORKER, dto as never, CTX);
     expect(chat.postMessage).toHaveBeenCalledWith(WORKER.id, dto, CTX);
+  });
+
+  it("latestSession passes the authenticated worker id (no param) and returns its id", async () => {
+    const { controller, chat } = make();
+    const out = await controller.latestSession(WORKER);
+    expect(chat.latestSession).toHaveBeenCalledWith(WORKER.id);
+    expect(out).toEqual({ session_id: "prior-1" });
   });
 });

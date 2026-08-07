@@ -119,6 +119,49 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
     });
   });
 
+  it("V1 posting: a NULL trade_key is passed through (job_postings carries role_title only)", async () => {
+    // ADR-0036: the feed serves `job_postings`, so a tapped/applied job id is a
+    // POSTING id and the repo's fallback returns a row with NO trade_key/area/
+    // experience/benefits/requirements (postings don't store them). The service
+    // must surface `trade_key: null` honestly — never invent a trade — so the
+    // detail screen shows the posting's real title/city/pay/shift/description.
+    const posting: WorkerVisibleJobRow = {
+      id: JOB_ID,
+      tradeKey: null,
+      title: "CNC Operator",
+      city: "Pune",
+      area: null,
+      payMin: 20000,
+      payMax: 28000,
+      minExperienceYears: null,
+      maxExperienceYears: null,
+      neededBy: "immediate",
+      shift: "day",
+      description: "Run VMC/CNC on the day line.",
+      benefits: null,
+      requirements: null,
+    };
+    const { svc } = setup(posting);
+    const out = await svc.getWorkerVisibleJob(JOB_ID);
+    expect(out.trade_key).toBeNull();
+    expect(out).toEqual({
+      job_id: JOB_ID,
+      trade_key: null,
+      title: "CNC Operator",
+      city: "Pune",
+      area: null,
+      pay_min: 20000,
+      pay_max: 28000,
+      min_experience_years: null,
+      max_experience_years: null,
+      needed_by: "immediate",
+      shift: "day",
+      description: "Run VMC/CNC on the day line.",
+      benefits: null,
+      requirements: null,
+    });
+  });
+
   it("PROJECTION: the serialized response never contains payer/payer_id/applicants/status keys", async () => {
     // Belt-and-braces: even if the repo (hypothetically) leaked the hidden
     // columns, the service's EXPLICIT field-by-field mapping drops them — the

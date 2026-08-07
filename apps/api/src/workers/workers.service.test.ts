@@ -81,11 +81,15 @@ function setup(workerExists = true) {
   const repo = {
     findById: vi.fn(async (_id: string) => (workerExists ? { id: "w-1", fullName: null } : undefined)),
     updateFullName: vi.fn(async (_id: string, _token: string) => ({ id: "w-1" })),
+    // The name is baked onto the PDF at render time, so setFullName re-renders the
+    // latest resume in place (TD77 parity with updateResumePrefs).
+    latestResume: vi.fn(async (_id: string) => ({ id: "res-1", version: 1 })),
   };
   const pii = { encrypt: vi.fn((_plaintext: string) => TOKEN) };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
-  const svc = newSvc(repo, pii, events);
-  return { svc, repo, pii, events };
+  const renderQueue = mockRenderQueue();
+  const svc = newSvc(repo, pii, events, mockStorage(), mockConfig(), renderQueue);
+  return { svc, repo, pii, events, renderQueue };
 }
 
 describe("WorkersService.setFullName (TD21)", () => {
@@ -116,6 +120,25 @@ describe("WorkersService.setFullName (TD21)", () => {
     await expect(svc.setFullName("missing", NAME, CTX)).rejects.toBeInstanceOf(NotFoundException);
     expect(repo.updateFullName).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("re-renders the latest resume PDF in place so a name change reaches the download (TD77)", async () => {
+    const { svc, renderQueue } = setup();
+    await svc.setFullName("w-1", NAME, CTX);
+    // The name is decrypted live in the render worker, so a forced in-place re-render
+    // rebuilds the PDF with the new name — without it the downloaded PDF keeps the old
+    // name (the app defers to this server-side re-render and never regenerates on edit).
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: "res-1", workerId: "w-1", force: true }),
+    );
+  });
+
+  it("skips the re-render when the worker has no resume yet — the first generate picks the name up", async () => {
+    const { svc, repo, renderQueue } = setup();
+    repo.latestResume.mockResolvedValueOnce(undefined as never);
+    await svc.setFullName("w-1", NAME, CTX);
+    expect(renderQueue.add).not.toHaveBeenCalled();
   });
 });
 

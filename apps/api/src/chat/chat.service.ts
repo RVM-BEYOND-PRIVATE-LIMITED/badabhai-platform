@@ -714,6 +714,22 @@ export class ChatService {
    * falling through to Postgres. Falling through would look like success and show the
    * worker an empty transcript for an interview that is very much still alive.
    */
+  /**
+   * The worker's LATEST chat session id, or null if they have none. Backs the
+   * Flutter "Bada Bhai" tab resuming the signup profiling thread: `chat_session`
+   * id is in-memory only client-side, so after a cold restart the app cannot find
+   * the prior session and would start a fresh empty one — orphaning the answers.
+   * This lets the client re-attach to its most recent session (then read its
+   * transcript via {@link listMessages}) so the Q&A is always there.
+   *
+   * Worker id comes from the bearer (never a param) → no cross-worker leak.
+   * READ-ONLY → no event, same rationale as {@link listMessages}.
+   */
+  async latestSession(workerId: string): Promise<{ session_id: string | null }> {
+    const session = await this.chat.findLatestSessionByWorker(workerId);
+    return { session_id: session?.id ?? null };
+  }
+
   async listMessages(workerId: string, sessionId: string): Promise<SessionMessagesResponse> {
     const session = await this.chat.findSession(sessionId);
     if (!session || session.workerId !== workerId) {

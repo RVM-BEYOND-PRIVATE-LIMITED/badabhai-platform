@@ -93,6 +93,44 @@ export interface WorkerResumeFields {
   has_photo: boolean;
 }
 
+/** The `profile` block of {@link WorkerProfileBundle}. */
+export interface WorkerProfileBundleProfile {
+  id: string;
+  profile_status: ProfileStatus;
+}
+
+/** The `resume` block of {@link WorkerProfileBundle}. */
+export interface WorkerProfileBundleResume {
+  id: string;
+  resume_text: string;
+  version: number;
+  /** 'pending' | 'rendered' | 'failed' — whether the PDF is downloadable yet. */
+  render_status: string;
+}
+
+/**
+ * Response of `GET /workers/me/profile` — the worker-self bundle the app uses to
+ * restore `profileId` and reuse an already-generated resume. Either block is `null`
+ * when the worker has no profile / no resume yet (never a 404).
+ *
+ * AN EXPLICIT ALLOWLIST, NOT THE ROW. The sibling ops route `GET /workers/:id/profile`
+ * returns the raw Drizzle rows, which is tolerable behind `InternalServiceGuard` but
+ * NOT on a worker-authed surface: `worker_profiles` carries the 768-dim `embedding`
+ * (~10-15KB of JSON per call to a low-bandwidth mobile client), `raw_profile`, and
+ * `rich_profile_draft` (the 28-field AI draft, including the model-authored
+ * `clarification_questions` free text); `generated_resumes` carries `resume_json`,
+ * `source_profile_snapshot` and `pdf_storage_key` (a private-bucket object key).
+ * None of it is worker-visible content, and §9 is "never expose unnecessary data".
+ *
+ * Projecting field-by-field also means a column added to either table LATER cannot
+ * silently join a public response — widening this is a decision, not an accident.
+ * The PDF is fetched through the signed-URL route (ADR-0032), never via a raw key.
+ */
+export interface WorkerProfileBundle {
+  profile: WorkerProfileBundleProfile | null;
+  resume: WorkerProfileBundleResume | null;
+}
+
 /** The `trade` block of {@link WorkerProfileSummary}. Every part is nullable —
  * extraction may not have canonicalized yet; the client shows a "complete your
  * profile" hint on nulls. */

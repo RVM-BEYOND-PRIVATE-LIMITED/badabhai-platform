@@ -162,6 +162,23 @@ describe("listFeed — the company NAME is not in the projection (ADR-0036's ope
     expect(sql).not.toContain("org_label");
     expect(sql).not.toContain("verification_status");
   });
+
+  it("never back-fills `city` (or anything else) from the free-text location_label", async () => {
+    const { repo, statements } = makeDb();
+    await repo.listFeed(WORKER, 10, {});
+    const { sql } = statements[0]!;
+
+    // `jp.city` is the COARSE, matchable city bucket ("Pune"). `jp.location_label` is up
+    // to 200 chars of poster-typed free text that is EXPLICITLY EXEMPT from the PII
+    // heuristic (job-postings.dto.ts screens `description` only) and routinely names the
+    // site or the employer — "Near <Employer> gate 3, MIDC Bhosari". match-feed.service.ts
+    // already refuses it for `area` ("inventing one from `location_label` would put payer
+    // free text on a worker card"); a COALESCE into `city` is the SAME leak through a
+    // different column, and it reads as a harmless one-word diff in review.
+    // A posting with no city sends NULL, which the mapper renders as "" — honest absence.
+    expect(sql).toContain("jp.city AS city");
+    expect(sql).not.toContain("location_label");
+  });
 });
 
 describe("listFeed — every filter is INERT unless the worker set it (Part 3)", () => {
