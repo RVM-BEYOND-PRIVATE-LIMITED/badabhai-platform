@@ -31,7 +31,20 @@ import { resolveFamily } from "@badabhai/db";
 
 import { SERVER_CONFIG } from "../config/config.module";
 import { isValidPredicate } from "./predicate";
-import type { PackItemRow, PackOptionRow, PackRepository } from "./pack.repository";
+import type { PackItemRow, PackOptionRow } from "./pack.repository";
+// A VALUE import, and it has to be. `PackRepository` is constructor-injected below, and Nest
+// reads that dependency from the `design:paramtypes` TypeScript emits for the decorator. For a
+// TYPE-ONLY import there is no value at runtime, so the compiler emits `Function` instead of the
+// class and Nest resolves the dependency to nothing:
+//
+//     Nest can't resolve dependencies of PackRegistryService (SERVER_CONFIG, ?)
+//
+// It stayed latent through all of Phase 5 because this module is dark — nothing imported it, so
+// the container never built it, every unit test hand-constructs `new PackRegistryService(...)`,
+// and `profiling.module.boot.test.ts` asserts on `@Module` METADATA rather than on a compiled
+// container (the runner does not emit `design:paramtypes` at all, so it cannot do otherwise).
+// The first thing to import this module found it instantly, at boot, in CI.
+import { PackRepository } from "./pack.repository";
 
 /** How long a resolved pack stays in process. A pack edit is a deploy-scale event, not a turn. */
 export const PACK_CACHE_TTL_MS = 900_000;
