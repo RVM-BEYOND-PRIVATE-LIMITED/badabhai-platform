@@ -55,20 +55,37 @@ export function playStoreBrowseUrl(): string {
 }
 
 /**
- * The BRANDED SHORT-LINK origin — the base of `/r/<code>`, the resolver every agent code,
- * worker share, campaign URL and QR now goes through (B4).
+ * The PUBLIC LANDING origin — the host that serves `/i/<code>`, which is this app.
  *
- * Defaults to the app-link host the worker app's manifest already claims, so B4 adds NO new
- * required deployment variable. Pointing it at a real short domain is a DNS/deploy action
- * (P0-6), never a code change.
+ * Defaults to the app-link host the worker app's manifest already claims, so this adds NO new
+ * required deployment variable. Pointing it at a real short domain is a DNS/deploy action,
+ * never a code change.
+ *
+ * NAME KEPT, MEANING NARROWED (#607). The env var stays `NEXT_PUBLIC_SHORT_LINK_BASE` because
+ * it is already set in deployed environments and renaming it would be a silent breakage at
+ * boot; what changed is that it now names the origin serving `/i/`, not the origin serving
+ * `/r/`. Whatever host it points at MUST serve this Next app.
  */
 export function shortLinkOrigin(): string {
   return (env("NEXT_PUBLIC_SHORT_LINK_BASE") ?? "https://app.badabhai.in").replace(/\/+$/, "");
 }
 
-/** The shareable short link for a code — what a QR encodes and what gets forwarded. */
-export function shortLinkUrl(code: string): string {
-  return `${shortLinkOrigin()}/r/${encodeURIComponent(code)}`;
+/**
+ * The shareable link for a code — what a QR encodes and what gets forwarded.
+ *
+ * `/i/<code>`, NOT `/r/<code>` (#607). `/r/` is served by `apps/api`
+ * (`referral-resolver.controller.ts`, `@Controller("r")`), but this origin serves payer-web,
+ * which has no `/r` route and declares no rewrite — so every `/r/` URL built here was a 404,
+ * and the desktop bridge QR was the one place that actually shipped one. A scan died there
+ * with no `referral_clicks` row.
+ *
+ * ATTRIBUTION IS NOT LOST BY THE MOVE. `/i/<code>` pings the same public click endpoint
+ * itself ({@link pingInviteClick} -> `POST /invites/:code/click`), which is the path the
+ * resolver's own 302 landed on anyway. The `/r/` resolver and the `referral_links` table stay
+ * in place as a measurement-only surface; nothing ships links into that space.
+ */
+export function inviteLandingUrl(code: string): string {
+  return `${shortLinkOrigin()}/i/${encodeURIComponent(code)}`;
 }
 
 /**
