@@ -178,6 +178,51 @@ void main() {
     await recorder.cancel();
   });
 
+  test(
+      'REGRESSION (#624): a multi-question session keeps EVERY answer clip — '
+      "starting Q(n) never sweeps Q1..Q(n-1) (each may still be uploading)",
+      () async {
+    // Simulate the plugin writing the clip file at the path start() picks.
+    final List<String> paths = <String>[];
+    when(() => plugin.start(any(), path: any(named: 'path')))
+        .thenAnswer((Invocation inv) async {
+      final String p = inv.namedArguments[#path] as String;
+      paths.add(p);
+      await File(p).writeAsBytes(<int>[1]);
+    });
+    when(() => plugin.stop()).thenAnswer((_) async => paths.last);
+
+    final RecordPackageVoiceRecorder recorder =
+        RecordPackageVoiceRecorder(recorder: plugin);
+    addTearDown(() async {
+      for (final String p in paths) {
+        final File f = File(p);
+        if (await f.exists()) await f.delete();
+      }
+    });
+
+    // Q1 → stop → Q2 → stop → Q3. The small gaps guarantee distinct epoch-ms
+    // file names (the recorder times clips at ms resolution).
+    await recorder.start();
+    await recorder.stop();
+    await Future<void>.delayed(const Duration(milliseconds: 3));
+    await recorder.start();
+    await recorder.stop();
+    await Future<void>.delayed(const Duration(milliseconds: 3));
+    await recorder.start(); // Q3's start runs the sweep
+
+    // Three genuinely distinct takes.
+    expect(paths.toSet().length, 3);
+    // Q1's clip (two questions back, possibly still uploading) MUST survive —
+    // on the pre-fix code the sweep deletes it because _activePath only ever
+    // protected Q2. Q2 must survive too.
+    expect(await File(paths[0]).exists(), isTrue,
+        reason: "Q1's clip was swept by Q3's start() — regression #624");
+    expect(await File(paths[1]).exists(), isTrue);
+
+    await recorder.cancel();
+  });
+
   test('dispose releases the plugin', () async {
     final RecordPackageVoiceRecorder recorder =
         RecordPackageVoiceRecorder(recorder: plugin);
