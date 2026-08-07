@@ -357,11 +357,15 @@ jobs:
       #
       # Idempotent and PII-free — public occupation reference data and reviewed interview
       # copy. Deterministic ids make a re-run a row-level no-op.
+      # `--apply` is REQUIRED: both seeders dry-run by default (they plan, print a delta
+      # and write nothing), which is the right default for a human at a production shell
+      # and exactly the wrong one for CI. Without it the step exits 0 having written zero
+      # rows, and the failure surfaces one step later as "the pack tables are EMPTY".
       - name: Seed job domains (occupation catalogue)
-        run: pnpm --filter @badabhai/db db:seed:domains
+        run: pnpm --filter @badabhai/db db:seed:domains --apply
 
       - name: Seed question packs
-        run: pnpm --filter @badabhai/db db:seed:packs
+        run: pnpm --filter @badabhai/db db:seed:packs --apply
 
       # The deploy gate, run against the LIVE database rather than the corpus. The
       # `--corpus` variant in the node job checks the JSONL; this one checks what actually
