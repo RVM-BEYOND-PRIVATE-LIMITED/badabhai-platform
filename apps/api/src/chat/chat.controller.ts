@@ -71,4 +71,16 @@ export class ChatController {
   ) {
     return this.chat.listMessages(worker.id, params.sessionId);
   }
+
+  /**
+   * The worker's latest chat session id ({ session_id } | { session_id: null }).
+   * Lets the Flutter "Bada Bhai" tab re-attach to the signup profiling session
+   * after a cold restart (the id is in-memory only client-side) and redraw the
+   * transcript via {@link listMessages} — so the Q&A is always shown, never a
+   * fresh empty thread. Worker from the bearer (no param); READ-ONLY → no event.
+   */
+  @Get("session/latest")
+  latestSession(@CurrentWorker() worker: AuthenticatedWorker) {
+    return this.chat.latestSession(worker.id);
+  }
 }

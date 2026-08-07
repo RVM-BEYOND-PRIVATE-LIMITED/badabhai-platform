@@ -1,6 +1,6 @@
 {
-  "id": "9c045c35-9080-42f3-849f-3c9c72d8455c",
-  "prevId": "99763675-8bdb-4c25-b738-efec6092cffe",
+  "id": "6509c340-0765-4aaa-8c3d-e9358ed4802d",
+  "prevId": "78c3b3b2-046c-4a96-9120-0ce9a0652834",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -437,6 +437,19 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "notifications_enabled": {
+          "name": "notifications_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "notifications_read_at": {
+          "name": "notifications_read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "photo_storage_key": {
           "name": "photo_storage_key",
@@ -966,13 +979,6 @@
           "notNull": true,
           "default": "'open'"
         },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'skill'"
-        },
         "embedding": {
           "name": "embedding",
           "type": "vector(768)",
@@ -981,15 +987,9 @@
         }
       },
       "indexes": {
-        "unresolved_phrase_scope_uq": {
-          "name": "unresolved_phrase_scope_uq",
+        "unresolved_phrase_uq": {
+          "name": "unresolved_phrase_uq",
           "columns": [
-            {
-              "expression": "scope",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "phrase",
               "isExpression": false,
@@ -1038,10 +1038,6 @@
         "unresolved_phrase_status_chk": {
           "name": "unresolved_phrase_status_chk",
           "value": "\"unresolved_phrase\".\"status\" IN ('open', 'clustered', 'resolved')"
-        },
-        "unresolved_phrase_scope_chk": {
-          "name": "unresolved_phrase_scope_chk",
-          "value": "\"unresolved_phrase\".\"scope\" IN ('skill', 'occupation')"
         }
       },
       "isRLSEnabled": true
@@ -2658,6 +2654,18 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "pack_id": {
+          "name": "pack_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pack_version": {
+          "name": "pack_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2695,7 +2703,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "chat_sessions_pack_pin_chk": {
+          "name": "chat_sessions_pack_pin_chk",
+          "value": "(\"chat_sessions\".\"pack_id\" IS NULL AND \"chat_sessions\".\"pack_version\" IS NULL) OR (\"chat_sessions\".\"pack_id\" IS NOT NULL AND \"chat_sessions\".\"pack_version\" IS NOT NULL AND \"chat_sessions\".\"pack_version\" >= 1)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.voice_notes": {
@@ -2803,6 +2816,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "voice_notes_created_at_idx": {
+          "name": "voice_notes_created_at_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -2839,8 +2867,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.worker_pack_answer": {
-      "name": "worker_pack_answer",
+    "public.profiling_voice_answer": {
+      "name": "profiling_voice_answer",
       "schema": "",
       "columns": {
         "id": {
@@ -2856,8 +2884,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "chat_session_id": {
-          "name": "chat_session_id",
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "voice_note_id": {
+          "name": "voice_note_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -2880,46 +2914,65 @@
           "primaryKey": false,
           "notNull": true
         },
-        "answer_text": {
-          "name": "answer_text",
-          "type": "text",
+        "attempt_no": {
+          "name": "attempt_no",
+          "type": "smallint",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": 1
         },
-        "answer_number": {
-          "name": "answer_number",
-          "type": "double precision",
+        "ordinal": {
+          "name": "ordinal",
+          "type": "smallint",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
-        "answer_bool": {
-          "name": "answer_bool",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "answer_option_keys": {
-          "name": "answer_option_keys",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
+        "capture_status": {
+          "name": "capture_status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'answered'"
+          "default": "'recorded'"
         },
-        "source": {
-          "name": "source",
+        "transcript_status": {
+          "name": "transcript_status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'chat'"
+          "default": "'pending'"
         },
-        "answered_at": {
-          "name": "answered_at",
+        "transcript_error_code": {
+          "name": "transcript_error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "duration_seconds": {
+          "name": "duration_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "superseded_at": {
+          "name": "superseded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "superseded_by_id": {
+          "name": "superseded_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purged_at": {
+          "name": "purged_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -2927,17 +2980,65 @@
         }
       },
       "indexes": {
-        "wpa_worker_question_uq": {
-          "name": "wpa_worker_question_uq",
+        "pva_session_order_idx": {
+          "name": "pva_session_order_idx",
           "columns": [
             {
-              "expression": "worker_id",
+              "expression": "session_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             },
             {
-              "expression": "pack_id",
+              "expression": "ordinal",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attempt_no",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "pva_session_question_attempt_uq": {
+          "name": "pva_session_question_attempt_uq",
+          "columns": [
+            {
+              "expression": "session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "question_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attempt_no",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "pva_session_question_live_uq": {
+          "name": "pva_session_question_live_uq",
+          "columns": [
+            {
+              "expression": "session_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2950,15 +3051,32 @@
             }
           ],
           "isUnique": true,
+          "where": "superseded_at IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "wpa_chat_session_idx": {
-          "name": "wpa_chat_session_idx",
+        "pva_voice_note_uq": {
+          "name": "pva_voice_note_uq",
           "columns": [
             {
-              "expression": "chat_session_id",
+              "expression": "voice_note_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "voice_note_id IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "pva_worker_idx": {
+          "name": "pva_worker_idx",
+          "columns": [
+            {
+              "expression": "worker_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2968,12 +3086,28 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "pva_pending_idx": {
+          "name": "pva_pending_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "transcript_status IN ('pending', 'queued')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
-        "worker_pack_answer_worker_id_workers_id_fk": {
-          "name": "worker_pack_answer_worker_id_workers_id_fk",
-          "tableFrom": "worker_pack_answer",
+        "profiling_voice_answer_worker_id_workers_id_fk": {
+          "name": "profiling_voice_answer_worker_id_workers_id_fk",
+          "tableFrom": "profiling_voice_answer",
           "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
@@ -2984,12 +3118,38 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "worker_pack_answer_chat_session_id_chat_sessions_id_fk": {
-          "name": "worker_pack_answer_chat_session_id_chat_sessions_id_fk",
-          "tableFrom": "worker_pack_answer",
+        "profiling_voice_answer_session_id_chat_sessions_id_fk": {
+          "name": "profiling_voice_answer_session_id_chat_sessions_id_fk",
+          "tableFrom": "profiling_voice_answer",
           "tableTo": "chat_sessions",
           "columnsFrom": [
-            "chat_session_id"
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "profiling_voice_answer_voice_note_id_voice_notes_id_fk": {
+          "name": "profiling_voice_answer_voice_note_id_voice_notes_id_fk",
+          "tableFrom": "profiling_voice_answer",
+          "tableTo": "voice_notes",
+          "columnsFrom": [
+            "voice_note_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "profiling_voice_answer_superseded_by_id_profiling_voice_answer_id_fk": {
+          "name": "profiling_voice_answer_superseded_by_id_profiling_voice_answer_id_fk",
+          "tableFrom": "profiling_voice_answer",
+          "tableTo": "profiling_voice_answer",
+          "columnsFrom": [
+            "superseded_by_id"
           ],
           "columnsTo": [
             "id"
@@ -3002,20 +3162,254 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "wpa_status_chk": {
-          "name": "wpa_status_chk",
-          "value": "\"worker_pack_answer\".\"status\" IN ('answered', 'declined', 'unanswered')"
+        "pva_question_key_chk": {
+          "name": "pva_question_key_chk",
+          "value": "\"profiling_voice_answer\".\"question_key\" ~ '^[a-z_]+$' AND length(\"profiling_voice_answer\".\"question_key\") <= 40"
         },
-        "wpa_source_chk": {
-          "name": "wpa_source_chk",
-          "value": "\"worker_pack_answer\".\"source\" IN ('chat', 'chip', 'form', 'ops')"
+        "pva_pack_version_chk": {
+          "name": "pva_pack_version_chk",
+          "value": "\"profiling_voice_answer\".\"pack_version\" >= 1"
         },
-        "wpa_answer_shape_chk": {
-          "name": "wpa_answer_shape_chk",
-          "value": "(\"worker_pack_answer\".\"status\" = 'answered') = (\n        (\"worker_pack_answer\".\"answer_text\" IS NOT NULL)::int\n        + (\"worker_pack_answer\".\"answer_number\" IS NOT NULL)::int\n        + (\"worker_pack_answer\".\"answer_bool\" IS NOT NULL)::int\n        + (\"worker_pack_answer\".\"answer_option_keys\" IS NOT NULL)::int\n        = 1\n      )"
+        "pva_attempt_no_chk": {
+          "name": "pva_attempt_no_chk",
+          "value": "\"profiling_voice_answer\".\"attempt_no\" >= 1 AND \"profiling_voice_answer\".\"attempt_no\" <= 20"
+        },
+        "pva_ordinal_chk": {
+          "name": "pva_ordinal_chk",
+          "value": "\"profiling_voice_answer\".\"ordinal\" >= 0"
+        },
+        "pva_capture_status_chk": {
+          "name": "pva_capture_status_chk",
+          "value": "\"profiling_voice_answer\".\"capture_status\" IN ('recorded', 'uploaded', 'failed', 'abandoned')"
+        },
+        "pva_transcript_status_chk": {
+          "name": "pva_transcript_status_chk",
+          "value": "\"profiling_voice_answer\".\"transcript_status\" IN ('pending', 'queued', 'succeeded', 'failed', 'skipped')"
+        },
+        "pva_duration_chk": {
+          "name": "pva_duration_chk",
+          "value": "\"profiling_voice_answer\".\"duration_seconds\" IS NULL OR (\"profiling_voice_answer\".\"duration_seconds\" >= 0 AND \"profiling_voice_answer\".\"duration_seconds\" <= 120)"
+        },
+        "pva_superseded_by_self_chk": {
+          "name": "pva_superseded_by_self_chk",
+          "value": "\"profiling_voice_answer\".\"superseded_by_id\" IS NULL OR \"profiling_voice_answer\".\"superseded_by_id\" <> \"profiling_voice_answer\".\"id\""
+        },
+        "pva_superseded_pair_chk": {
+          "name": "pva_superseded_pair_chk",
+          "value": "(\"profiling_voice_answer\".\"superseded_at\" IS NULL AND \"profiling_voice_answer\".\"superseded_by_id\" IS NULL) OR (\"profiling_voice_answer\".\"superseded_at\" IS NOT NULL AND \"profiling_voice_answer\".\"superseded_by_id\" IS NOT NULL)"
+        },
+        "pva_purged_ref_chk": {
+          "name": "pva_purged_ref_chk",
+          "value": "\"profiling_voice_answer\".\"purged_at\" IS NULL OR \"profiling_voice_answer\".\"voice_note_id\" IS NULL"
+        },
+        "pva_error_code_chk": {
+          "name": "pva_error_code_chk",
+          "value": "\"profiling_voice_answer\".\"transcript_error_code\" IS NULL OR \"profiling_voice_answer\".\"transcript_status\" = 'failed'"
         }
       },
-      "isRLSEnabled": true
+      "isRLSEnabled": false
+    },
+    "public.worker_attributes": {
+      "name": "worker_attributes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "worker_id": {
+          "name": "worker_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attribute_key": {
+          "name": "attribute_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value_kind": {
+          "name": "value_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value_bool": {
+          "name": "value_bool",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_number": {
+          "name": "value_number",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_text": {
+          "name": "value_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_text_list": {
+          "name": "value_text_list",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'answer_map'"
+        },
+        "question_key": {
+          "name": "question_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pack_id": {
+          "name": "pack_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pack_version": {
+          "name": "pack_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "wa_worker_key_uq": {
+          "name": "wa_worker_key_uq",
+          "columns": [
+            {
+              "expression": "worker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attribute_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wa_key_bool_idx": {
+          "name": "wa_key_bool_idx",
+          "columns": [
+            {
+              "expression": "attribute_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "value_bool",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worker_attributes_worker_id_workers_id_fk": {
+          "name": "worker_attributes_worker_id_workers_id_fk",
+          "tableFrom": "worker_attributes",
+          "tableTo": "workers",
+          "columnsFrom": [
+            "worker_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "worker_attributes_session_id_chat_sessions_id_fk": {
+          "name": "worker_attributes_session_id_chat_sessions_id_fk",
+          "tableFrom": "worker_attributes",
+          "tableTo": "chat_sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "wa_attribute_key_chk": {
+          "name": "wa_attribute_key_chk",
+          "value": "\"worker_attributes\".\"attribute_key\" ~ '^[a-z_]+$' AND length(\"worker_attributes\".\"attribute_key\") <= 40"
+        },
+        "wa_value_kind_chk": {
+          "name": "wa_value_kind_chk",
+          "value": "\"worker_attributes\".\"value_kind\" IN ('boolean', 'number', 'text', 'text_list')"
+        },
+        "wa_source_chk": {
+          "name": "wa_source_chk",
+          "value": "\"worker_attributes\".\"source\" IN ('answer_map', 'llm_parse')"
+        },
+        "wa_value_present_chk": {
+          "name": "wa_value_present_chk",
+          "value": "(\n        (\"worker_attributes\".\"value_kind\" = 'boolean'   AND \"worker_attributes\".\"value_bool\" IS NOT NULL AND \"worker_attributes\".\"value_number\" IS NULL AND \"worker_attributes\".\"value_text\" IS NULL AND \"worker_attributes\".\"value_text_list\" IS NULL) OR\n        (\"worker_attributes\".\"value_kind\" = 'number'    AND \"worker_attributes\".\"value_number\" IS NOT NULL AND \"worker_attributes\".\"value_bool\" IS NULL AND \"worker_attributes\".\"value_text\" IS NULL AND \"worker_attributes\".\"value_text_list\" IS NULL) OR\n        (\"worker_attributes\".\"value_kind\" = 'text'      AND \"worker_attributes\".\"value_text\" IS NOT NULL AND \"worker_attributes\".\"value_bool\" IS NULL AND \"worker_attributes\".\"value_number\" IS NULL AND \"worker_attributes\".\"value_text_list\" IS NULL) OR\n        (\"worker_attributes\".\"value_kind\" = 'text_list' AND \"worker_attributes\".\"value_text_list\" IS NOT NULL AND \"worker_attributes\".\"value_bool\" IS NULL AND \"worker_attributes\".\"value_number\" IS NULL AND \"worker_attributes\".\"value_text\" IS NULL)\n      )"
+        },
+        "wa_value_text_list_shape_chk": {
+          "name": "wa_value_text_list_shape_chk",
+          "value": "\"worker_attributes\".\"value_text_list\" IS NULL OR jsonb_typeof(\"worker_attributes\".\"value_text_list\") = 'array'"
+        },
+        "wa_pack_pin_chk": {
+          "name": "wa_pack_pin_chk",
+          "value": "(\"worker_attributes\".\"pack_id\" IS NULL AND \"worker_attributes\".\"pack_version\" IS NULL) OR (\"worker_attributes\".\"pack_id\" IS NOT NULL AND \"worker_attributes\".\"pack_version\" IS NOT NULL AND \"worker_attributes\".\"pack_version\" >= 1)"
+        }
+      },
+      "isRLSEnabled": false
     },
     "public.generated_resumes": {
       "name": "generated_resumes",

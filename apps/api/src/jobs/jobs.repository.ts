@@ -1,6 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
-import { type Database, type Job, type JobNeededBy, type JobShift, jobs } from "@badabhai/db";
+import { and, eq, sql } from "drizzle-orm";
+import {
+  type Database,
+  type Job,
+  type JobNeededBy,
+  type JobShift,
+  jobs,
+  jobPostings,
+} from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
 /**
@@ -9,9 +16,15 @@ import { DATABASE } from "../database/database.module";
  */
 export interface WorkerVisibleJobRow {
   id: string;
-  tradeKey: Job["tradeKey"];
+  // NULL for a V1 posting: `job_postings` has no `trade_key` (it carries a free-text
+  // `role_title` only). Legacy `jobs` rows always have one.
+  tradeKey: Job["tradeKey"] | null;
   title: string;
-  city: string;
+  // NULL for a V1 posting whose coarse `city` bucket was never filled in
+  // (`job_postings.city` is nullable). Legacy `jobs.city` is NOT NULL, so a legacy
+  // row always has one. DELIBERATELY NOT back-filled from `job_postings.location_label`
+  // — see the fallback query below.
+  city: string | null;
   area: string | null;
   payMin: number | null;
   payMax: number | null;
@@ -46,7 +59,7 @@ export class JobsRepository {
    * closed-vs-unknown oracle.
    */
   async findWorkerVisibleJobById(jobId: string): Promise<WorkerVisibleJobRow | undefined> {
-    const [row] = await this.db
+    const [legacy] = await this.db
       .select({
         id: jobs.id,
         tradeKey: jobs.tradeKey,
@@ -66,6 +79,45 @@ export class JobsRepository {
       .from(jobs)
       .where(and(eq(jobs.id, jobId), eq(jobs.status, "open")))
       .limit(1);
-    return row;
+    if (legacy) return legacy;
+
+    // V1 (ADR-0036): the feed serves `job_postings`, so a tapped/applied job id is a
+    // POSTING id, not a legacy `jobs.id` — the query above misses it and the detail
+    // screen was left with only the light title/place it was handed. Fall back to the
+    // OPEN posting and project the SAME worker-visible, PII-free SHOW set. Fields the
+    // posting doesn't carry are NULL (never invented): `trade_key`, `area`, the
+    // experience window, `benefits`, `requirements`, and `city` when the coarse bucket
+    // is unset. `status = 'open'` keeps the SAME neutral-404 no-oracle rule.
+    // `org_label` / `payer_id` are NEVER selected (employer identity, HIDE — ADR-0024/§2).
+    //
+    // `city` IS NOT BACK-FILLED FROM `location_label`, deliberately. `job_postings.city`
+    // is the COARSE, matchable city bucket ("Pune"); `location_label` is 200 chars of
+    // poster-typed free text that is explicitly EXEMPT from the PII heuristic
+    // (job-postings.dto.ts) and may name the site or the employer ("Near <Employer> gate
+    // 3"). Promoting it into a worker-visible field would put payer free text on the
+    // worker path — the same call match-feed.service.ts already made for `area`
+    // ("inventing one from `location_label` would put payer free text on a worker card").
+    // A NULL city is the honest answer; the client already hides the row.
+    const [posting] = await this.db
+      .select({
+        id: jobPostings.id,
+        tradeKey: sql<Job["tradeKey"] | null>`NULL`,
+        title: jobPostings.roleTitle,
+        city: jobPostings.city,
+        area: sql<string | null>`NULL`,
+        payMin: jobPostings.payMin,
+        payMax: jobPostings.payMax,
+        minExperienceYears: sql<number | null>`NULL`,
+        maxExperienceYears: sql<number | null>`NULL`,
+        neededBy: jobPostings.neededBy,
+        shift: jobPostings.shift,
+        description: jobPostings.description,
+        benefits: sql<string[] | null>`NULL`,
+        requirements: sql<string[] | null>`NULL`,
+      })
+      .from(jobPostings)
+      .where(and(eq(jobPostings.id, jobId), eq(jobPostings.status, "open")))
+      .limit(1);
+    return posting;
   }
 }

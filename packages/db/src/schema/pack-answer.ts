@@ -1,6 +1,6 @@
 /**
  * `worker_pack_answer` — the durable record of what a worker actually said, question by
- * question (migration 0075).
+ * question (migration 0073).
  *
  * WHY THIS EXISTS WHEN THE TRANSCRIPT ALREADY DOES. The transcript is the interview's
  * EVIDENCE store: prose, in the worker's own words, ordered by time. This table is its
@@ -133,4 +133,4 @@ export const workerPackAnswers = pgTable(
       )`,
     ),
   ],
-).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0071
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0073

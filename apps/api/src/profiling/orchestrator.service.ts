@@ -44,8 +44,10 @@ import {
 } from "./conversation-state";
 import {
   askCeiling,
+  askCount,
   clarify,
   nextQuestion,
+  servedText,
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_HARDSHIP,
   MAX_ENGINE_TURNS,
@@ -254,11 +256,28 @@ export class ProfilingOrchestrator {
 
     if (capture.turnClass === "empty") {
       next = { ...next, silentTurns: next.silentTurns + 1 };
-      if (next.silentTurns < MAX_SILENT_TURNS && !capped) {
+      // THE WORDING THE WORKER LAST SAW, not the question's original phrasing. Reading
+      // `prompt_text` directly walked the interview BACKWARDS to the opening wording after the
+      // retry wording had already been served — the exact regression `servedText` exists to
+      // prevent, and one a voice session makes audible rather than merely visible.
+      const reserved = askedItem
+        ? servedText(askedItem, askCount(toEngineState(next, turn), askedItem.question_key))
+        : "";
+      // A RE-SERVE NEEDS SOMETHING TO RE-SERVE. With no question on screen — the state of every
+      // NEW session — there was nothing, and the old `?? ""` COMMITTED a blank assistant bubble:
+      // this branch returns before the empty-reply guard below, so that guard never saw it. The
+      // blank was also cached as the replay reply, so a duplicate submit served it again.
+      //
+      // `classifyUtterance` calls anything under two trimmed characters `empty` and the wire
+      // validator demands only one, so a first message of "k" or "." reached exactly this line.
+      // Falling through instead lets the engine choose the first question, which is what the
+      // worker needed anyway — and it matters most for the voice form, where a one-character
+      // transcript is simply what a noisy environment produces.
+      if (reserved.trim().length > 0 && next.silentTurns < MAX_SILENT_TURNS && !capped) {
         // A TURN, not an ASK. A worker whose keyboard is failing has not refused to answer, so
         // the question is re-served with no budget spent and no counter advanced.
         return this.turn(buffer, next, input, {
-          reply: askedItem?.prompt_text ?? "",
+          reply: reserved,
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           progress: progressOf(items, answers),

@@ -19,6 +19,7 @@
  * event payload — same §2 guarantee, now localized.
  */
 
+import { z } from "zod";
 import type { LanguageCode } from "@badabhai/types";
 
 /** Coarse notification type the client maps to an icon/tone. NOT the event name. */
@@ -244,4 +245,40 @@ export interface WorkerNotification {
   title: string;
   body: string;
   created_at: string; // ISO-8601 (the event's occurred_at)
+  /**
+   * #643 — has the worker seen this alert? DERIVED, not stored: the feed is a
+   * projection over `events`, so there is no per-notification row to flag. True when
+   * the event occurred at or before `workers.notifications_read_at` (the watermark the
+   * app advances via POST /workers/me/notifications/read). Always false while the
+   * watermark is NULL — a worker who has never marked read has read nothing.
+   *
+   * Additive on the wire: the app already parses `read` with a `?? false` fallback, so
+   * older clients are unaffected and newer ones stop guessing from local state.
+   */
+  read: boolean;
 }
+
+/**
+ * #643 — the worker's push notification preference (GET/PATCH
+ * /workers/me/notification-prefs). NON-PII: a single boolean about the caller.
+ *
+ * Snake_case on the wire to match the app's existing parse (`api_client.dart`) and the
+ * rest of the worker-facing contracts.
+ */
+export interface NotificationPrefs {
+  notifications_enabled: boolean;
+}
+
+/**
+ * PATCH /workers/me/notification-prefs body. The single flag is REQUIRED (unlike
+ * resume-prefs, which has two optional flags and a refine): with one field, absent
+ * means the request says nothing, so a 400 beats emitting a no-op state-change event.
+ * `.strict()` so an unexpected key — including anything PII-shaped — is rejected
+ * rather than ignored.
+ */
+export const UpdateNotificationPrefsSchema = z
+  .object({
+    notifications_enabled: z.boolean(),
+  })
+  .strict();
+export type UpdateNotificationPrefsDto = z.infer<typeof UpdateNotificationPrefsSchema>;

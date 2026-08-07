@@ -108,6 +108,9 @@ const LOCKED_TABLES = [
   "question_pack", // 0069: versioned container, one active per (family, locale); RLS+FORCE+REVOKE in migration 0069
   "question_pack_item", // 0069: the question — prompt copy + ask_if/skip_if AST; RLS+FORCE+REVOKE in migration 0069
   "question_pack_option", // 0069: the chips — label_text IS the worker's answer of record; RLS+FORCE+REVOKE in migration 0069
+  // ── Voice profiling form (migration 0071) ───────────────────────────────────
+  "worker_attributes", // 0071: the settled value of an `attribute`-kind answer (77% of the pack corpus had no destination before this) — trade facts keyed by an opaque worker_id, same class as worker_profiles; RLS+FORCE+REVOKE in migration 0071
+  "profiling_voice_answer", // 0071: one row per recorded answer clip — opaque ids + question_key + status, NEVER a transcript (that stays on voice_notes); RLS+FORCE+REVOKE in migration 0071
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

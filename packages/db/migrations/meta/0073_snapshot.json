@@ -1,6 +1,6 @@
 {
-  "id": "c580f11e-f6fc-489a-8b0a-78d8e4a038e0",
-  "prevId": "6509c340-0765-4aaa-8c3d-e9358ed4802d",
+  "id": "198c123a-cf6a-49c6-920e-bd1839b32bbc",
+  "prevId": "c580f11e-f6fc-489a-8b0a-78d8e4a038e0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2884,6 +2884,184 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.worker_pack_answer": {
+      "name": "worker_pack_answer",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "worker_id": {
+          "name": "worker_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "chat_session_id": {
+          "name": "chat_session_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pack_id": {
+          "name": "pack_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pack_version": {
+          "name": "pack_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "question_key": {
+          "name": "question_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "answer_text": {
+          "name": "answer_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "answer_number": {
+          "name": "answer_number",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "answer_bool": {
+          "name": "answer_bool",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "answer_option_keys": {
+          "name": "answer_option_keys",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'answered'"
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'chat'"
+        },
+        "answered_at": {
+          "name": "answered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "wpa_worker_question_uq": {
+          "name": "wpa_worker_question_uq",
+          "columns": [
+            {
+              "expression": "worker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "pack_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "question_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "wpa_chat_session_idx": {
+          "name": "wpa_chat_session_idx",
+          "columns": [
+            {
+              "expression": "chat_session_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worker_pack_answer_worker_id_workers_id_fk": {
+          "name": "worker_pack_answer_worker_id_workers_id_fk",
+          "tableFrom": "worker_pack_answer",
+          "tableTo": "workers",
+          "columnsFrom": [
+            "worker_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "worker_pack_answer_chat_session_id_chat_sessions_id_fk": {
+          "name": "worker_pack_answer_chat_session_id_chat_sessions_id_fk",
+          "tableFrom": "worker_pack_answer",
+          "tableTo": "chat_sessions",
+          "columnsFrom": [
+            "chat_session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "wpa_status_chk": {
+          "name": "wpa_status_chk",
+          "value": "\"worker_pack_answer\".\"status\" IN ('answered', 'declined', 'unanswered')"
+        },
+        "wpa_source_chk": {
+          "name": "wpa_source_chk",
+          "value": "\"worker_pack_answer\".\"source\" IN ('chat', 'chip', 'form', 'ops')"
+        },
+        "wpa_answer_shape_chk": {
+          "name": "wpa_answer_shape_chk",
+          "value": "(\"worker_pack_answer\".\"status\" = 'answered') = (\n        (\"worker_pack_answer\".\"answer_text\" IS NOT NULL)::int\n        + (\"worker_pack_answer\".\"answer_number\" IS NOT NULL)::int\n        + (\"worker_pack_answer\".\"answer_bool\" IS NOT NULL)::int\n        + (\"worker_pack_answer\".\"answer_option_keys\" IS NOT NULL)::int\n        = 1\n      )"
+        }
+      },
+      "isRLSEnabled": true
+    },
     "public.profiling_voice_answer": {
       "name": "profiling_voice_answer",
       "schema": "",
@@ -4132,6 +4310,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "job_domain_match_layer": {
+          "name": "job_domain_match_layer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "job_domain_matched_at": {
           "name": "job_domain_matched_at",
           "type": "timestamp with time zone",
@@ -4256,10 +4440,14 @@
       "checkConstraints": {
         "worker_profiles_job_domain_match_status_chk": {
           "name": "worker_profiles_job_domain_match_status_chk",
-          "value": "\"worker_profiles\".\"job_domain_match_status\" IS NULL OR \"worker_profiles\".\"job_domain_match_status\" IN ('matched_auto', 'matched_llm', 'unmatched_below_floor', 'unmatched_llm_declined', 'unmatched_degraded')"
+          "value": "\"worker_profiles\".\"job_domain_match_status\" IS NULL OR \"worker_profiles\".\"job_domain_match_status\" IN ('matched_auto', 'matched_llm', 'unmatched_below_floor', 'unmatched_llm_declined', 'unmatched_degraded', 'matched_lexical', 'matched_worker_confirmed')"
+        },
+        "worker_profiles_job_domain_match_layer_chk": {
+          "name": "worker_profiles_job_domain_match_layer_chk",
+          "value": "\"worker_profiles\".\"job_domain_match_layer\" IS NULL OR (\n        \"worker_profiles\".\"job_domain_match_layer\" IN ('l0_exact', 'l1_skeleton', 'l2_trigram', 'l3_vector')\n        AND \"worker_profiles\".\"job_domain_match_status\" LIKE 'matched%'\n      )"
         }
       },
-      "isRLSEnabled": false
+      "isRLSEnabled": true
     },
     "public.applications": {
       "name": "applications",

@@ -66,7 +66,7 @@ function applicationRow(id: string, occurredAt: string, workerId: string): Event
  * limit, exactly as the SQL does — so a test that overflows the main feed sees the same
  * union the database would produce.
  */
-function setup(rows: EventRow[], securityRows?: EventRow[]) {
+function setup(rows: EventRow[], securityRows?: EventRow[], notificationsReadAt: Date | null = null) {
   const repo = {
     findForWorker: vi.fn(async (_id: string, limit: number) => rows.slice(0, limit)),
     findSecurityForWorker: vi.fn(async (_id: string, limit: number) =>
@@ -76,7 +76,11 @@ function setup(rows: EventRow[], securityRows?: EventRow[]) {
     ),
   };
   const workersRepo = {
-    findById: vi.fn(async () => ({ preferredLanguage: "hi" })),
+    findNotificationState: vi.fn(async () => ({
+      preferredLanguage: "hi",
+      notificationsEnabled: true,
+      notificationsReadAt,
+    })),
   };
   const svc = new NotificationsService(
     repo as unknown as NotificationsRepository,
@@ -101,6 +105,7 @@ describe("NotificationsService.getForWorker — projection", () => {
         title: NOTIFICATION_TEMPLATES["resume.generated"]!.copy[hi]!.title,
         body: NOTIFICATION_TEMPLATES["resume.generated"]!.copy[hi]!.body,
         created_at: "2026-07-14T10:00:00.000Z",
+        read: false, // no watermark set in this setup ⇒ nothing read yet (#643)
       },
       {
         id: "e2",
@@ -108,6 +113,7 @@ describe("NotificationsService.getForWorker — projection", () => {
         title: NOTIFICATION_TEMPLATES["profile.confirmed"]!.copy[hi]!.title,
         body: NOTIFICATION_TEMPLATES["profile.confirmed"]!.copy[hi]!.body,
         created_at: "2026-07-14T09:00:00.000Z",
+        read: false,
       },
     ]);
   });
@@ -158,6 +164,7 @@ describe("application.submitted → the worker's OWN apply receipt (2026-07-17 w
         title: "Application bhej di",
         body: "Aapki application aage pahunch gayi.",
         created_at: "2026-07-17T10:00:00.000Z",
+        read: false,
       },
     ]);
   });
@@ -172,12 +179,21 @@ describe("application.submitted → the worker's OWN apply receipt (2026-07-17 w
     expect(note!.body).toBe(c.body);
   });
 
-  it("the wire row carries EXACTLY {id,type,title,body,created_at} — no job_id/worker_id/rank/source_surface", async () => {
+  it("the wire row carries EXACTLY {id,type,title,body,created_at,read} — no job_id/worker_id/rank/source_surface", async () => {
     const { svc } = setup([applicationRow("e-app-1", "2026-07-17T10:00:00.000Z", WORKER_A)]);
     const [note] = await svc.getForWorker(WORKER_A);
 
-    // Exact key set — an added passthrough field (job_id, rank, …) fails here.
-    expect(Object.keys(note!).sort()).toEqual(["body", "created_at", "id", "title", "type"]);
+    // Exact key set — an added passthrough field (job_id, rank, …) fails here. `read`
+    // (#643) is DERIVED from the worker's watermark, not carried from the payload, so
+    // it joins the set without weakening the guard.
+    expect(Object.keys(note!).sort()).toEqual([
+      "body",
+      "created_at",
+      "id",
+      "read",
+      "title",
+      "type",
+    ]);
 
     // …and no payload VALUE survives the projection, under any key name.
     const json = JSON.stringify(note);
@@ -432,5 +448,64 @@ describe("notifications allowlist — validity + faceless copy", () => {
         COUNTERPARTY_PAYLOAD_KEY,
       );
     }
+  });
+});
+
+describe("the Alerts read watermark → the `read` flag (#643)", () => {
+  const T = (iso: string) => new Date(iso);
+
+  it("marks events AT OR BEFORE the watermark read, and later ones unread", async () => {
+    const { svc } = setup(
+      [
+        row("resume.generated", "newer", "2026-08-07T12:00:00.000Z"),
+        row("profile.confirmed", "exact", "2026-08-07T10:00:00.000Z"),
+        row("job.available", "older", "2026-08-07T08:00:00.000Z"),
+      ],
+      undefined,
+      T("2026-08-07T10:00:00.000Z"),
+    );
+    const out = await svc.getForWorker("w-1");
+    const readById = Object.fromEntries(out.map((n) => [n.id, n.read]));
+
+    expect(readById).toEqual({
+      newer: false, // after the watermark — still unread
+      exact: true, // AT the watermark — inclusive boundary, so read
+      older: true,
+    });
+  });
+
+  it("reports everything UNREAD while the watermark is NULL (a worker who never marked read)", async () => {
+    const { svc } = setup(
+      [
+        row("resume.generated", "e1", "2020-01-01T00:00:00.000Z"),
+        row("profile.confirmed", "e2", "2026-08-07T10:00:00.000Z"),
+      ],
+      undefined,
+      null,
+    );
+    const out = await svc.getForWorker("w-1");
+
+    // A null watermark must NOT be coerced to the epoch — that would read as
+    // "read everything" and silently swallow every alert a new worker has.
+    expect(out.map((n) => n.read)).toEqual([false, false]);
+  });
+
+  it("falls back to UNREAD when the worker row cannot be read (fail-soft, never false-read)", async () => {
+    const { svc, workersRepo } = setup([row("resume.generated", "e1", "2026-08-07T10:00:00.000Z")]);
+    workersRepo.findNotificationState.mockRejectedValueOnce(new Error("db down"));
+
+    const out = await svc.getForWorker("w-1");
+    // Degrading to "unread" re-shows an alert; degrading to "read" would HIDE one.
+    expect(out[0]!.read).toBe(false);
+  });
+
+  it("reads the watermark WITHOUT pulling PII columns (explicit projection, not SELECT *)", async () => {
+    const { svc, workersRepo } = setup([row("resume.generated", "e1", "2026-08-07T10:00:00.000Z")]);
+    await svc.getForWorker("w-1");
+
+    // findById is SELECT * and would hand this §2-sensitive path the encrypted
+    // phone and full name for no reason. The projection is the boundary.
+    expect(workersRepo.findNotificationState).toHaveBeenCalledWith("w-1");
+    expect(workersRepo).not.toHaveProperty("findById");
   });
 });

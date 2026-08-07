@@ -121,6 +121,30 @@ export class ChatRepository {
     return rows[0];
   }
 
+  /**
+   * The worker's session with the MOST RECENT ACTIVITY — their real transcript —
+   * or undefined if they have never started one. Backs the "resume my chat" read;
+   * the worker id comes from the bearer (no param) → no cross-worker leak.
+   *
+   * ORDER BY `last_message_at DESC NULLS LAST`, THEN `started_at DESC`, NOT plain
+   * `started_at`: a worker accrues EMPTY sessions (every pre-fix app open called
+   * `startSession`, which always inserts a new row), and those empties have the
+   * NEWEST `started_at` but NO messages (`last_message_at` NULL). Ordering by
+   * `started_at` alone resumed an empty session and the Bada Bhai tab showed a
+   * blank thread even though the Q&A was one session back. `last_message_at` picks
+   * the session the worker actually conversed in; NULLS LAST parks the empties;
+   * `started_at` breaks ties (and covers the never-messaged brand-new case).
+   */
+  async findLatestSessionByWorker(workerId: string): Promise<ChatSession | undefined> {
+    const rows = await this.db
+      .select()
+      .from(chatSessions)
+      .where(eq(chatSessions.workerId, workerId))
+      .orderBy(sql`${chatSessions.lastMessageAt} DESC NULLS LAST`, desc(chatSessions.startedAt))
+      .limit(1);
+    return rows[0];
+  }
+
   async insertMessage(input: NewChatMessage): Promise<ChatMessage> {
     const inserted = await this.db.insert(chatMessages).values(input).returning();
     const row = inserted[0];

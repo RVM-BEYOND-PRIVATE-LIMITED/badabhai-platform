@@ -87,7 +87,7 @@ export type JobDomainMatchStatus =
 
 /**
  * The two outcomes the Occupation Intelligence Engine adds, on top of the five above
- * (migration 0072).
+ * (migration 0073).
  *
  * `matched_lexical`           the retrieval ladder resolved it at L0/L1/L2 — no model, no
  *                             vector, no rupee spent. The common case once the vernacular

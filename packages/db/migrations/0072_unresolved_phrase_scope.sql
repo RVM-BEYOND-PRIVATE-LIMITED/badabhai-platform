@@ -1,4 +1,11 @@
--- 0070 — `unresolved_phrase.scope`: one growth queue, two vocabularies.
+-- 0072 — `unresolved_phrase.scope`: one growth queue, two vocabularies.
+--
+-- RENUMBERED FROM 0070. Two migrations from another branch (worker notification prefs, the
+-- voice-profiling spine) landed on main at 0070/0071 while this one was unmerged — inside the
+-- block this work had reserved. The block protocol assumes reservations are honoured; when they
+-- are not, the fix is to REGENERATE against main rather than to renumber by hand, because
+-- drizzle SNAPSHOTS chain and a hand-renumbered file leaves the next `db:generate` diffing
+-- against a snapshot that never saw the other branch's tables.
 --
 -- HAND-EDITED after `db:generate`, in three ways that all matter. The generated file is kept
 -- in git history; the differences are:

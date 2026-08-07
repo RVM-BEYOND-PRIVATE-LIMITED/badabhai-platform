@@ -1,5 +1,5 @@
 {
-  "id": "99763675-8bdb-4c25-b738-efec6092cffe",
+  "id": "78c3b3b2-046c-4a96-9120-0ce9a0652834",
   "prevId": "630fa1a9-97f1-4125-8653-7104f46d9135",
   "version": "7",
   "dialect": "postgresql",
@@ -437,6 +437,19 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "notifications_enabled": {
+          "name": "notifications_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "notifications_read_at": {
+          "name": "notifications_read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "photo_storage_key": {
           "name": "photo_storage_key",
@@ -966,13 +979,6 @@
           "notNull": true,
           "default": "'open'"
         },
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'skill'"
-        },
         "embedding": {
           "name": "embedding",
           "type": "vector(768)",
@@ -981,15 +987,9 @@
         }
       },
       "indexes": {
-        "unresolved_phrase_scope_uq": {
-          "name": "unresolved_phrase_scope_uq",
+        "unresolved_phrase_uq": {
+          "name": "unresolved_phrase_uq",
           "columns": [
-            {
-              "expression": "scope",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "phrase",
               "isExpression": false,
@@ -1038,10 +1038,6 @@
         "unresolved_phrase_status_chk": {
           "name": "unresolved_phrase_status_chk",
           "value": "\"unresolved_phrase\".\"status\" IN ('open', 'clustered', 'resolved')"
-        },
-        "unresolved_phrase_scope_chk": {
-          "name": "unresolved_phrase_scope_chk",
-          "value": "\"unresolved_phrase\".\"scope\" IN ('skill', 'occupation')"
         }
       },
       "isRLSEnabled": true

@@ -47,6 +47,10 @@ import {
   workerPackAnswers,
 } from "./pack-answer";
 import {
+  profilingVoiceAnswers,
+  workerAttributes,
+} from "./profiling";
+import {
   generatedResumes,
   profileQuestions,
   profiles,
@@ -109,6 +113,7 @@ export * from "./occupation";
 export * from "./question-pack";
 export * from "./chat";
 export * from "./pack-answer";
+export * from "./profiling";
 export * from "./profile";
 export * from "./job";
 export * from "./payer";
@@ -141,6 +146,10 @@ export type ChatMessage = typeof chatMessages.$inferSelect;
 export type NewChatMessage = typeof chatMessages.$inferInsert;
 export type VoiceNote = typeof voiceNotes.$inferSelect;
 export type NewVoiceNote = typeof voiceNotes.$inferInsert;
+export type WorkerAttribute = typeof workerAttributes.$inferSelect;
+export type NewWorkerAttribute = typeof workerAttributes.$inferInsert;
+export type ProfilingVoiceAnswer = typeof profilingVoiceAnswers.$inferSelect;
+export type NewProfilingVoiceAnswer = typeof profilingVoiceAnswers.$inferInsert;
 export type GeneratedResume = typeof generatedResumes.$inferSelect;
 export type NewGeneratedResume = typeof generatedResumes.$inferInsert;
 export type EventRow = typeof events.$inferSelect;
@@ -298,4 +307,6 @@ export const schema = {
   payerFormDrafts,
   referralLinks,
   referralClicks,
+  workerAttributes,
+  profilingVoiceAnswers,
 };

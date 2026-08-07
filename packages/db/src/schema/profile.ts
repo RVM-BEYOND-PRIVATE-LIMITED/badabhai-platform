@@ -119,7 +119,7 @@ export const workerProfiles = pgTable(
     // Cosine similarity of the winning candidate. Diagnostic + floor calibration only;
     // NEVER an input to ranking (invariant #4 — rank stays deterministic).
     jobDomainMatchScore: doublePrecision("job_domain_match_score"),
-    // WHICH RUNG of the retrieval ladder placed this worker (migration 0072). NULL on
+    // WHICH RUNG of the retrieval ladder placed this worker (migration 0073). NULL on
     // every row written before the OIE, and on every unmatched outcome — there is no
     // layer when nothing matched.
     //
@@ -148,7 +148,7 @@ export const workerProfiles = pgTable(
     // "How many workers landed in domain X" — the coverage read, and the FK-referencing
     // column Postgres does not auto-index.
     index("worker_profiles_job_domain_id_idx").on(t.jobDomainId),
-    // WIDENED by migration 0072 with the two deterministic-engine outcomes. Adding values
+    // WIDENED by migration 0073 with the two deterministic-engine outcomes. Adding values
     // to a CHECK drops nothing, invalidates no stored row, and breaks no reader — every
     // existing status is still legal and every existing consumer still recognises what it
     // reads. Collapsing a worker's explicit chip tap into `matched_auto` to avoid this
@@ -169,7 +169,7 @@ export const workerProfiles = pgTable(
       )`,
     ),
   ],
-).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0072
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0073
 
 // ---------------------------------------------------------------------------
 // generated_resumes

@@ -9,6 +9,7 @@ import {
   type SourceSurface,
   applications,
   jobs,
+  jobPostings,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
@@ -36,15 +37,19 @@ export interface FeedJob {
 
 /** An application row joined with its (coarse, PII-free) job fields. */
 export interface ApplicationWithJob {
-  // Nullable since migration 0056: `applications.job_id` lost its NOT NULL because a
-  // V1 application points at `job_posting_id` instead. This reader INNER JOINs `jobs`,
-  // so in practice it only ever returns non-null ids — but the column's type is the
-  // contract, and narrowing it here with a cast would be a lie that the next reader
-  // (or a LEFT JOIN refactor) inherits. Render sites handle the null honestly.
+  // Migration 0056: `applications.job_id` lost its NOT NULL because a V1 application
+  // points at `job_posting_id` instead (job_id NULL). `findApplicationsByWorker` now
+  // LEFT JOINs BOTH `jobs` (legacy) and `job_postings` (V1) and coalesces, so this is
+  // the EFFECTIVE id — `job_id` for a legacy decision, else `job_posting_id`. Always
+  // non-null for a real row (one FK is always set); typed nullable to match the column.
   jobId: string | null;
-  tradeKey: Job["tradeKey"];
+  // NULL for a V1 decision: `job_postings` has no `trade_key` (only `role_title`).
+  tradeKey: Job["tradeKey"] | null;
   title: string;
-  city: string;
+  // NULL for a V1 decision whose posting has no coarse city bucket (`job_postings.city`
+  // is nullable). A legacy decision always has one (`jobs.city` is NOT NULL). NEVER
+  // back-filled from `job_postings.location_label` — see the query below.
+  city: string | null;
   area: string | null;
   action: ApplicationAction;
   reason: SkipReason | null;
@@ -251,12 +256,28 @@ export class ApplicationsRepository {
    * (trade/title/city/area — never employer or pay). Oldest first.
    */
   async findApplicationsByWorker(workerId: string): Promise<ApplicationWithJob[]> {
+    // A decision carries `job_id` (legacy alpha) or `job_posting_id` (V1); the DB CHECK
+    // `applications_job_ref_chk` requires AT LEAST ONE to be set (it is an OR, not an
+    // XOR — a row could in principle carry both, in which case the legacy side wins the
+    // coalesce below). The old INNER JOIN on `jobs` silently dropped every V1 decision
+    // (job_id NULL), so the worker's "Applied jobs" tab looked empty even after applying
+    // from the V1 feed. LEFT JOIN both and coalesce the coarse, PII-free fields so a
+    // decision from either surface shows. Both joins are on a PRIMARY KEY, so neither
+    // can fan a decision out into duplicate rows.
+    //
+    // `title` is sound as non-null: both source columns are NOT NULL and both FKs are
+    // ON DELETE CASCADE, so a surviving decision always has one side of the join.
+    // `city` is NOT: `job_postings.city` is nullable, and it is deliberately NOT
+    // back-filled from `job_postings.location_label` — that column is poster-typed free
+    // text, exempt from the PII heuristic, and may name the site or employer. Putting it
+    // on a worker-visible surface is the exact leak match-feed.service.ts refuses for
+    // `area`. NULL is the honest answer.
     return this.db
       .select({
-        jobId: applications.jobId,
+        jobId: sql<string | null>`coalesce(${applications.jobId}, ${applications.jobPostingId})`,
         tradeKey: jobs.tradeKey,
-        title: jobs.title,
-        city: jobs.city,
+        title: sql<string>`coalesce(${jobs.title}, ${jobPostings.roleTitle})`,
+        city: sql<string | null>`coalesce(${jobs.city}, ${jobPostings.city})`,
         area: jobs.area,
         action: applications.action,
         reason: applications.reason,
@@ -266,7 +287,8 @@ export class ApplicationsRepository {
         updatedAt: applications.updatedAt,
       })
       .from(applications)
-      .innerJoin(jobs, eq(applications.jobId, jobs.id))
+      .leftJoin(jobs, eq(applications.jobId, jobs.id))
+      .leftJoin(jobPostings, eq(applications.jobPostingId, jobPostings.id))
       .where(eq(applications.workerId, workerId))
       .orderBy(asc(applications.createdAt))
       .limit(OPS_LIST_CAP); // bound an otherwise-unbounded ops read

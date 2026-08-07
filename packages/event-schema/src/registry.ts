@@ -32,6 +32,14 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerResumePrefsUpdatedPayload,
   },
+  // #643 — the push-notification toggle. Emitted because the flag GATES the ADR-0034
+  // fan-out (a material state change); the Alerts read watermark it ships alongside
+  // emits nothing, being a read position rather than a business action (§1).
+  "worker.notification_prefs_updated": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerNotificationPrefsUpdatedPayload,
+  },
   // ADR-0032 — profile photo lifecycle. Payloads are worker_id ONLY (the photo is
   // PII at rest in Storage; keys/URLs never enter the event spine).
   "worker.photo_uploaded": {
