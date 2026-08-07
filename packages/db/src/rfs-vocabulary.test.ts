@@ -16,9 +16,19 @@ const CONFIG_PY = join(REPO_ROOT, "apps", "ai-service", "app", "config.py");
  * it. Reading the FILE rather than importing anything keeps this a plain unit test with no Python
  * runtime, in the same spirit as the profiling-lexicon mirror check.
  */
-function pythonFieldList(name: string): string[] {
+const FIELD_LIST_PATTERNS = {
+  profiling_required_fields: /profiling_required_fields:\s*str\s*=\s*\(([\s\S]*?)\)/,
+  profiling_optional_fields: /profiling_optional_fields:\s*str\s*=\s*\(([\s\S]*?)\)/,
+} as const;
+
+function pythonFieldList(name: keyof typeof FIELD_LIST_PATTERNS): string[] {
   const source = readFileSync(CONFIG_PY, "utf8");
-  const declaration = new RegExp(`${name}:\\s*str\\s*=\\s*\\(([\\s\\S]*?)\\)`).exec(source);
+  // LITERAL PATTERNS, SELECTED BY NAME, rather than one built from `${name}`. The interpolated
+  // form is what semgrep's `detect-non-literal-regexp` flags, and although `name` only ever
+  // arrives here as one of these two literals, that is a property of today's CALL SITES, not of
+  // this function. A lookup cannot become attacker-controlled however the helper is later reused,
+  // and the key type makes an unknown name a compile error rather than a silent `undefined`.
+  const declaration = FIELD_LIST_PATTERNS[name].exec(source);
   if (!declaration) throw new Error(`${name} not found in config.py — the mirror has moved`);
   const joined = [...declaration[1]!.matchAll(/"([^"]*)"/g)].map((m) => m[1]).join("");
   return joined.split(",").filter(Boolean);
