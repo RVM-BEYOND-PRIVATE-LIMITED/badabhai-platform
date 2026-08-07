@@ -357,11 +357,19 @@ jobs:
       #
       # Idempotent and PII-free — public occupation reference data and reviewed interview
       # copy. Deterministic ids make a re-run a row-level no-op.
+      #
+      # `--apply` IS REQUIRED. Every script in this family is DRY-RUN by default: without
+      # the flag they print the corpus they would write, exit 0, and touch nothing. That is
+      # not a hypothetical — the first version of these two steps omitted it, both went
+      # green, and `db:verify:packs` below then failed with "the pack tables are EMPTY".
+      # A seed step that passes while seeding nothing is worse than no seed step, because
+      # the green tick is the thing you would trust. Same reasoning, and the same flag, as
+      # `db:seed:match:vocabulary` further down.
       - name: Seed job domains (occupation catalogue)
-        run: pnpm --filter @badabhai/db db:seed:domains
+        run: pnpm --filter @badabhai/db db:seed:domains --apply
 
       - name: Seed question packs
-        run: pnpm --filter @badabhai/db db:seed:packs
+        run: pnpm --filter @badabhai/db db:seed:packs --apply
 
       # The deploy gate, run against the LIVE database rather than the corpus. The
       # `--corpus` variant in the node job checks the JSONL; this one checks what actually

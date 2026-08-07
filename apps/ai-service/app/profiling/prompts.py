@@ -18,7 +18,6 @@ Every string reaching these builders is already pseudonymized.
 
 from __future__ import annotations
 
-
 _TRADE_LABEL: dict[str, str] = {
     "cnc_vmc": "CNC/VMC manufacturing",
     "welding": "welding & fabrication",

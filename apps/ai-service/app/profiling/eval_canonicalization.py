@@ -372,13 +372,17 @@ def _make_real_pseudonymize_fn(base_url: str, timeout: float = 30.0) -> attrib.P
     return pseudonymize_fn
 
 
-def _smoke_profiling_respond(base_url: str, timeout: float = 30.0) -> bool:
+def _smoke_profile_parse(base_url: str, timeout: float = 30.0) -> bool:
     """Exercise the second real endpoint once, so the per-field rig touches BOTH.
 
-    WAS /profile/parse, WHICH NO LONGER EXISTS (OIE Phase 8). The interview is
+    WAS ``/profiling/respond``, WHICH NO LONGER EXISTS (OIE Phase 8). The interview is
     deterministic and makes no model call, so there is no per-turn endpoint left to smoke.
-    The equivalent is /profile/parse: the one LLM call the pipeline still makes, and the
+    The equivalent is ``/profile/parse``: the one LLM call the pipeline still makes, and the
     one whose availability this rig actually needs to know about.
+
+    The FUNCTION was renamed with the route. A helper still named after a deleted endpoint is
+    a trap — the next reader greps for ``/profiling/respond``, finds this, and concludes the
+    route survived the cutover.
 
     Returns True when the call answered at all. Uses a fabricated, PII-free answer map.
     """
@@ -549,9 +553,9 @@ def _run_per_field(args) -> int:
             f"+ {base}/profile/parse + {base}/pseudonymize{pacing}\n"
             "(both endpoints pseudonymize first; fabricated data only)\n"
         )
-        # Touch BOTH real endpoints per the brief; respond is a smoke pass.
+        # Touch BOTH real endpoints per the brief; the parse call is a smoke pass.
         try:
-            ok = _smoke_profiling_respond(args.base_url)
+            ok = _smoke_profile_parse(args.base_url)
             print(f"/profile/parse smoke: {'ok' if ok else 'blocked'}\n")
         except Exception as exc:  # noqa: BLE001 - report, don't crash the eval
             print(f"/profile/parse smoke: error ({exc})\n")
