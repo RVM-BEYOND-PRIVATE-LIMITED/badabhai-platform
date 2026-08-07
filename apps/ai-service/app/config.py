@@ -460,6 +460,34 @@ class Settings(BaseSettings):
     # (the only model that supports Hinglish source + source_language_code="auto").
     sarvam_translate_model: str = "mayura:v1"
 
+    # --- Sarvam text-to-speech (the voice form's spoken questions) --------------
+    # Rendered OFFLINE by app/cli/tts_render.py, never per request: the questions are
+    # static reviewed pack copy, so the audio is a build artifact. Defaults are the
+    # render defaults; the CLI can override each one per run for A/B listening.
+    sarvam_tts_model: str = "bulbul:v2"
+    # v2 speaker. Chosen by an actual listening test with native speakers from the
+    # target demographic, NOT from the docs — this is the voice a low-literacy worker
+    # hears instead of reading, so intelligibility beats pleasantness.
+    sarvam_tts_speaker: str = "anushka"
+    # BCP-47. The packs are locale hi-IN; whether bulbul renders their ROMANIZED
+    # Hinglish correctly at this code is the open question V0 exists to answer (the
+    # whole 466-item corpus is ASCII — zero Devanagari codepoints).
+    sarvam_tts_language: str = "hi-IN"
+    # 22.05 kHz mono speech is ample for a phone speaker and roughly half the bytes
+    # of 44.1k; the client bundles the corpus, so size is shipped to every worker.
+    sarvam_tts_sample_rate: int = 22050
+    # wav is Sarvam's default and is what the render step stores as a master. The
+    # client ships a transcoded, far smaller format — the master stays lossless so a
+    # codec change never needs a re-render (and never another provider call).
+    sarvam_tts_output_codec: str = "wav"
+    # Published rate card: bulbul:v2 Rs 15 / 10,000 chars, bulbul:v3 Rs 30 / 10,000.
+    # ESTIMATE until the first invoice, exactly like sarvam_stt_cost_inr_per_chunk.
+    sarvam_tts_cost_inr_per_10k_chars: float = 15.0
+    # Sarvam rounds UP per request, so a 40-char question is not billed as 40 chars.
+    # Modelling that floor is what makes the "render once" vs "synthesize per session"
+    # comparison honest. CALIBRATE against the first invoice — V0 measures it.
+    sarvam_tts_min_billed_chars: int = 500
+
     # Supabase Storage access for the AI service. Read ONLY to fetch voice audio
     # for real STT (Storage Mode A — REST + service-role key). Backend-only.
     # Supabase project URL; never used for anything but the storage object GET.
