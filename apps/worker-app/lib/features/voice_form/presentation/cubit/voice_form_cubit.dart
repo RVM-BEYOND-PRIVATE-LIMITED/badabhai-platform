@@ -192,14 +192,26 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
 
   /// The worker finished speaking (silence endpoint / cap-out / manual "next").
   /// Stops the clip, retains it, submits it, and advances. Idempotent.
-  Future<void> answerBySpeaking() => _advance(spoken: true);
+  Future<void> answerBySpeaking() => _advance(null);
 
-  /// The worker tapped a choice chip (#630) instead of speaking. Discards the
-  /// open clip and submits the choice. Idempotent.
-  Future<void> answerByChoice(String choice) =>
-      _advance(spoken: false, choice: choice);
+  /// The worker tapped select chips (#630) — submits [optionKeys], never label
+  /// text, and makes no STT call. Idempotent.
+  Future<void> answerByChips(List<String> optionKeys) =>
+      _advance(VoiceAnswer.chips(optionKeys));
 
-  Future<void> _advance({required bool spoken, String? choice}) async {
+  /// The worker tapped Haan / Nahi on a boolean question (#630). Idempotent.
+  Future<void> answerByBoolean(bool value) =>
+      _advance(VoiceAnswer.boolean(value));
+
+  /// A literal text answer — e.g. "Nahi pata" (#629), which the engine maps to
+  /// `declined`. There is no client-side skip. Idempotent.
+  Future<void> answerByText(String text) => _advance(VoiceAnswer.text(text));
+
+  /// Advance the session with [chosen] (chip/boolean/text) or, when null, by
+  /// stopping the mic and using the recorded clip. The single guarded path both
+  /// silence-advance and every manual advance funnel through — the source of the
+  /// idempotency guarantee.
+  Future<void> _advance(VoiceAnswer? chosen) async {
     if (_advancing) return; // idempotency: one advance per question
     final VoiceFormState current = state;
     if (current is! VoiceFormAsking) return;
@@ -207,7 +219,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     try {
       final VoiceAnswer answer;
       String? retainPath;
-      if (spoken) {
+      if (chosen == null) {
         final RecordedClip? clip = await _recorder.stop(); // stop
         if (clip == null) {
           // Nothing captured (a mis-trigger). Re-arm the same question rather
@@ -219,8 +231,10 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         retainPath = clip.path;
         answer = VoiceAnswer.spoken(clip);
       } else {
-        await _recorder.cancel(); // discard the open clip — they tapped instead
-        answer = VoiceAnswer.chosen(choice!);
+        // A chip/boolean/text answer — discard the open clip (no STT call) and
+        // submit the chosen answer.
+        await _recorder.cancel();
+        answer = chosen;
       }
 
       emit(current.copyWith(micPhase: MicPhase.uploading));
