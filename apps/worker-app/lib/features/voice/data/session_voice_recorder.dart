@@ -36,16 +36,35 @@ class SessionVoiceRecorder implements VoiceRecorder {
   /// seam; production uses [defaultMaxDuration].
   SessionVoiceRecorder({
     AudioRecorder? recorder,
-    Duration maxDuration = defaultMaxDuration,
+    Duration maxDuration = profilingAnswerMaxDuration,
+    DateTime Function()? clock,
   })  : _injected = recorder,
-        _maxDuration = maxDuration;
+        _maxDuration = maxDuration,
+        _clock = clock ?? DateTime.now;
 
-  /// The hard cap — mirrors the API contract's `duration_seconds` ≤ 120. The
-  /// voice form applies a tighter per-answer cap on top (#634).
+  /// The API contract's absolute ceiling (`duration_seconds` ≤ 120), mirrored
+  /// from the 120s constant in packages/types|validators — which #634 does NOT
+  /// modify. Kept only as documentation of the backstop; the 30s profiling cap
+  /// below always fires first, so this is never the bound on a profiling answer.
   static const Duration defaultMaxDuration = Duration(seconds: 120);
+
+  /// Hard cap on a profiling ANSWER (#634) and this recorder's DEFAULT cap. At
+  /// ≤30s Sarvam takes a single sync call (ai-service `stt.py`,
+  /// `SARVAM_SYNC_MAX_SECONDS = 30`) and never enters the chunked path — which
+  /// removes, in one move, the chunked-wave latency ceiling, the 5-chunk cost
+  /// reservation, AND the Devanagari-danda chunk-seam privacy gap entirely,
+  /// because no seams exist. The auto-stop timer arms at this value and the
+  /// submitted `durationSeconds` is clamped to it, so a ≤30s clip is what
+  /// reaches the server, always. The 120s guard sits behind it and never fires.
+  static const Duration profilingAnswerMaxDuration = Duration(seconds: 30);
 
   final AudioRecorder? _injected;
   final Duration _maxDuration;
+
+  /// Time source for per-answer duration accounting — a test seam so the 30s
+  /// clamp is assertable without wall-clock waits. Clip file names and the
+  /// stale-sweep cutoff deliberately stay on real time (uniqueness + hygiene).
+  final DateTime Function() _clock;
 
   /// LAZY: constructing [AudioRecorder] performs a platform-channel call, so it
   /// must not run at DI-wiring time.
@@ -136,7 +155,7 @@ class SessionVoiceRecorder implements VoiceRecorder {
         'bb-voice-${DateTime.now().millisecondsSinceEpoch}.m4a';
     await _rec.start(sessionConfig, path: path);
     _activePath = path;
-    _startedAt = DateTime.now();
+    _startedAt = _clock();
     _autoStopTimer = Timer(_maxDuration, () {
       _autoStopped = _finishStop(cappedAtMax: true);
     });
@@ -200,7 +219,7 @@ class SessionVoiceRecorder implements VoiceRecorder {
     final int maxSeconds = _maxDuration.inSeconds;
     int seconds = cappedAtMax
         ? maxSeconds
-        : DateTime.now().difference(startedAt).inSeconds;
+        : _clock().difference(startedAt).inSeconds;
     if (seconds < 1) seconds = 1;
     if (seconds > maxSeconds && maxSeconds >= 1) seconds = maxSeconds;
     return RecordedClip(path: path, durationSeconds: seconds);
