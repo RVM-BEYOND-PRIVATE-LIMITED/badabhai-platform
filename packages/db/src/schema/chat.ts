@@ -1,6 +1,7 @@
 /**
  * Worker chat domain — the profiling conversation: sessions, voice notes, messages.
  */
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -10,6 +11,7 @@ import {
   timestamp,
   jsonb,
   index,
+  check,
 } from "drizzle-orm/pg-core";
 import type {
   ChatSessionStatus,
@@ -48,8 +50,28 @@ export const chatSessions = pgTable(
     // `conversationObjectKey` in @badabhai/validators. (The runtime archival write
     // lives in the chat-persistence wiring; this is the frozen reference contract.)
     conversationStoragePath: text("conversation_storage_path"),
+    // ---- Question-pack pin (migration 0071) --------------------------------
+    // WHICH interview this session is running. Nullable: the v1 model-driven chat pins nothing,
+    // and every session that predates the voice form has neither.
+    //
+    // WHY POSTGRES AND NOT JUST REDIS. The orchestrator envelope lives only in the Redis key, with
+    // a 24h TTL, and the pack pin is the one thing `profiling_voice_answer` rows cannot carry for
+    // it: an eviction BEFORE the first clip would re-run retrieval on resume and could pin a
+    // DIFFERENT pack, silently changing the questions mid-interview. Everything else about a
+    // session is reconstructible from those rows; this is not.
+    //
+    // Cost is one extra UPDATE at pin time — not per turn.
+    packId: text("pack_id"),
+    packVersion: integer("pack_version"),
   },
-  (t) => [index("chat_sessions_worker_id_idx").on(t.workerId)],
+  (t) => [
+    index("chat_sessions_worker_id_idx").on(t.workerId),
+    // Pinned together or not at all. Half a pin names an interview nobody can reproduce.
+    check(
+      "chat_sessions_pack_pin_chk",
+      sql`(${t.packId} IS NULL AND ${t.packVersion} IS NULL) OR (${t.packId} IS NOT NULL AND ${t.packVersion} IS NOT NULL AND ${t.packVersion} >= 1)`,
+    ),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -83,6 +105,14 @@ export const voiceNotes = pgTable(
   (t) => [
     index("voice_notes_worker_id_idx").on(t.workerId),
     index("voice_notes_session_id_idx").on(t.sessionId),
+    // THE RETENTION SWEEP'S INDEX (migration 0071). Every purge job that will ever run over this
+    // table asks the same question — "which clips are older than N days" — and until now nothing
+    // served it, so the sweep would sequentially scan the largest raw-PII table in the system.
+    //
+    // Taken NOW, while the table is empty (`VOICE_NOTES_BUCKET` is unset, so the surface is
+    // dormant). Drizzle wraps each migration in a transaction and `CREATE INDEX CONCURRENTLY`
+    // cannot run inside one, so this is the cheapest this index will ever be.
+    index("voice_notes_created_at_idx").on(t.createdAt),
   ],
 );
 

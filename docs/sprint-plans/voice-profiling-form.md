@@ -3,7 +3,17 @@
 Hinglish voice-driven sequential Q&A for the worker app: questions shown one at a time, read aloud,
 answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam TTS out.
 
-**Status date:** 2026-08-07 · **HEAD:** `7502a09c`
+**Status date:** 2026-08-07 · **HEAD:** `4d0989f8`
+
+---
+
+## Owner rulings (2026-08-07)
+
+| Question | Ruling |
+|---|---|
+| Where `attribute` answers land (was the V2 blocker) | **A `worker_attributes` table.** Normalized, RLS-locked, one live row per (worker, key) — the matcher can filter on it with a plain index. Shipped in V1. |
+| Voice-clip retention | **Never deleted.** `retention_policy` stays `retain_indefinitely`. Erase-on-request (DSAR) is unchanged — that is a legal obligation, not a retention policy — but the DPDP notice copy in V9 must now state indefinite retention explicitly, and TD58's purge job is re-scoped from "delete on a schedule" to "delete on request, provably". |
+| One pipeline for both surfaces | **Both surfaces must build the profile the same way.** See §1a. |
 
 ---
 
@@ -16,6 +26,8 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | Silent-turn blank-reply fix + `servedText` re-serve | PR #641 → `2d4354ac` | **on `main`** |
 | Desktop bridge QR pointed at `/i/` (closes #607) | PR #642 → `7502a09c` | **on `main`** |
 | 16 worker-app issues, assigned RishiBamako | #624–#639 | **filed, open** |
+| **V0** — Sarvam `TtsAdapter` + `tts_smoke --matrix`, armed by nothing | PR #645 → `4d0989f8` | **on `main`** |
+| **V1** — migration 0071 data spine (`worker_attributes`, `profiling_voice_answer`, pack pin, retention index) | PR #647 | **on `main`, applied** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -40,8 +52,39 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **B-1** | Packs **seeded** in each environment | `db:seed:packs` appears in **no workflow, no runbook, no e2e**. CI runs only `--corpus` (DB-free). Unverified per environment. |
 | **B-2** | Sarvam TTS accepts **romanized** Hinglish at `hi-IN` | Unknown. 0 of 466 pack items contain a Devanagari codepoint. Resolved by V0. |
 | **B-3** | Round-trip latency for a ≤30s answer | Unmeasured. Every number in the repo is a timeout, never an observation. Resolved by V0. |
-| **B-4** | Where `attribute` answers land | **No destination exists.** See V2. |
+| ~~**B-4**~~ | Where `attribute` answers land | **RESOLVED** — owner ruled `worker_attributes`; the table shipped in V1 (migration 0071). The *wiring* is V2. |
 | **B-5** | `envelope.occupation` is never written | The 100 trade packs are unreachable; every worker gets the 8-item universal tail. V3. |
+| **B-6** | The two surfaces do not share a parse/build pipeline | `/profile/parse` and `projectProfile` have zero callers; the chat uses `/profile/extract`. See §1a. V3. |
+
+### 1a. ONE PIPELINE — and the two surfaces do not share one today
+
+Owner ruling: the voice form must parse and build the profile *exactly* the way the chat does. Two
+ways of doing the same thing is two things to keep correct.
+
+They do not share one today, and the gap is bigger than "a different function":
+
+| | Chat (live) | OIE / voice (as designed) |
+|---|---|---|
+| ai-service call | `POST /profile/extract` | `POST /profile/parse` — **zero callers in `apps/api`** |
+| Never-invent gates | **do not run** | six gates, TS + Python mirror |
+| Write path | `ProfileExtractionProcessor` → `ProfilesRepository.create` | `projectProfile` — **zero callers** |
+| Table write | `INSERT … ON CONFLICT (ai_job_id) DO NOTHING` | none yet |
+
+**The convergence, and it is the voice side that moves.** `worker_profiles` keeps exactly one
+writer — `ProfilesRepository.create`, reached through `ProfilesService`. V3's finalize leg produces
+a `WorkerProfileDraft` (deterministic `projectProfile`, plus the gated `/profile/parse` overlay when
+it is available) and hands it to **that** service. It does not open a second write path, and it does
+not touch the chat's own trigger.
+
+Two live defects this exposes, both logged for V4/V7 rather than fixed here:
+
+1. `AiService.extractProfile` **fabricates** an empty draft when the ai-service is unreachable —
+   `DraftProfileSchema.parse({})` with `blocked: false`. A degraded call is indistinguishable from a
+   worker who said nothing.
+2. `create` is insert-only per `ai_job_id`, and readers resolve "the" profile by
+   `created_at DESC LIMIT 1`. So a later empty extraction **shadows** an earlier good one.
+
+Both are worse under a voice form, where the input cost real money and the worker's time.
 
 ### The finding that reorders the plan
 
@@ -54,13 +97,17 @@ through `FIELD_CROSSWALK`.
 | `rfs` | 107 (23%) | yes |
 | `attribute` | **359 (77%)** | **no — silently dropped** |
 
-Verified three further ways: no matching code reads the answer map, there is no `worker_attributes`
-table, and nothing outside `apps/api/src/profiling/` reads `answerMap`. Top dropped fields:
-`workplace_type` (100), `tools_owned` (99), `safety_training` (17), `shift_work` (14).
+Verified three further ways at the time: no matching code read the answer map, there was no
+`worker_attributes` table, and nothing outside `apps/api/src/profiling/` read `answerMap`. Top
+dropped fields: `workplace_type` (100), `tools_owned` (99), `safety_training` (17), `shift_work`
+(14) — 80 distinct keys in all.
 
 In voice this is worse than in chat: a session asks ~13 questions, ~8–9 of them `attribute`-kind, and
 each spoken answer costs a paid STT call and the worker's time in a noisy yard before being discarded.
-**V2 exists to close this, and it is an owner decision.**
+
+**Status: half closed.** The owner ruled a `worker_attributes` table and it shipped in V1 (migration
+0071), so the destination now exists. The projector still does not write to it — that is V2, and
+until V2 lands the 77% is still dropped.
 
 ---
 
@@ -141,7 +188,7 @@ Per CLAUDE.md §5/§6. Each owner takes complete modules end to end.
 | Path | Owner |
 |---|---|
 | `apps/api/src/profiling/**`, `apps/api/src/voice/**`, `apps/api/src/chat/**` | Prakash |
-| `packages/db/src/schema/profiling.ts`, migration 0077 | Prakash |
+| `packages/db/src/schema/profiling.ts`, migration 0071 | Prakash |
 | `apps/ai-service/app/tts.py`, `cli/tts_smoke.py`, `cli/tts_render.py` | Divyanshu |
 | `packages/db/data/question-packs/**` + pack tooling | Divyanshu |
 | `apps/worker-app/**` | **Rishi** (issues #624–#639) |
@@ -151,12 +198,40 @@ Cross-team rule: backend never edits `apps/worker-app`; every client change is a
 
 ---
 
-## 3. Database changes — migration 0077
+## 3. Database changes — migration 0071 (SHIPPED)
 
-`0077`, the first free slot in Prakash's `0075–0079` block. **Re-derive from `_journal.json` at
-generate time** — head is `idx 69` today, and `pnpm db:generate` numbers from the head, so if
-0070–0076 have not landed it will emit `0070` and must be renumbered per `MIGRATIONS.md:66-70`. The
-clean sequencing is to land this **after** 0075/0076. Claim the row in `MIGRATIONS.md` in the same PR.
+**Landed as `0071_outstanding_monster_badoon`.** It was authored as `0070` and renumbered: PR #646
+minted `0070_bent_storm` on a concurrent branch the same day, which is precisely the collision
+`MIGRATIONS.md` exists to prevent. The lesson is recorded there in full, and it is worth repeating
+here because this plan reasoned its way into the trap: **the collision risk is per concurrent
+branch, not per person.** One developer running two sessions is two branches, and git warns nobody.
+
+Renumbering meant **regenerating**, not renaming — a drizzle snapshot chains to its predecessor by
+`prevId`, so a renamed snapshot would still have chained off `0069` and the next `db:generate` would
+have emitted a migration to re-add `0070_bent_storm`'s columns. The regenerated SQL verified
+byte-identical to the original apart from the hand-appended RLS tail, re-appended byte-for-byte.
+
+Verified on a chain built from an **empty** database (standards invariant #10): the whole chain
+applies clean, both new tables come up `ENABLE` + `FORCE` with zero grants for all three PostgREST
+roles and zero policies, and every CHECK and partial unique index was exercised — each rejection
+reporting the constraint that actually fired, so no constraint is decorative. The permanent form of
+that is `tests/e2e/profiling-voice-spine.e2e.test.ts`.
+
+### New table `worker_attributes` — the 77% finally has a destination
+
+One live row per `(worker_id, attribute_key)`; a re-interview UPDATEs rather than accumulating.
+
+| Column | Notes |
+|---|---|
+| `attribute_key` | The pack item's `target_field` — 80 distinct keys today. CHECK `^[a-z_]+$` len ≤40, the **same** filter `question_pack_item.question_key` carries, because this key reaches event payloads. |
+| `value_kind` | `boolean` / `number` / `text` / `text_list`. Deliberately **not** the same axis as `answer_type`: eight answer types collapse into four storage kinds, so a new answer type does not force a migration. |
+| `value_bool` / `value_number` / `value_text` / `value_text_list` | Exactly one populated, and `wa_value_present_chk` forces it to be **the one `value_kind` names**. Without that second half a row could claim `number` while carrying only text, and every reader trusting the kind would silently read NULL. `numeric(14,4)`, never float. |
+| `source` | `answer_map` \| `llm_parse` — the projector's precedence outcome, recorded so an audit can answer "did a model write this?" without re-running the projection. Re-exported from `@badabhai/types`, so the vocabulary is not restated. |
+| `question_key`, `pack_id`, `pack_version`, `session_id` | Provenance of the QUESTION. Pinned-together CHECK; `session_id` is SET NULL so the attribute outlives the session record. |
+
+Indexes: UNIQUE `(worker_id, attribute_key)` — the core invariant and the upsert target — plus
+`(attribute_key, value_bool)` for the matcher's "which workers have X" read. The per-worker read is
+served by the unique index as a leftmost prefix, so no third index.
 
 ### New table `profiling_voice_answer` — in a new `packages/db/src/schema/profiling.ts`
 
@@ -225,7 +300,7 @@ security-engineer decision.
 2. `packages/db/src/schema/index.ts` — import, `export *`, types, **and the `schema` barrel object**
 
 `:148` asserts the list equals live `pg_tables`; `:149` asserts `live.size === Object.keys(schema).length`.
-**62 → 63 in all three places.**
+**62 → 64** in all three places (two new tables).
 
 ### Backward compatibility
 
@@ -268,32 +343,42 @@ the cubit and the silence semantics — which is exactly why this runs before th
 
 ---
 
-### Phase V1 — Data spine *(Owner: Prakash · M · after V0)*
+### Phase V1 — Data spine *(Owner: Prakash · M · **DONE**, PR #647)*
 
-Migration 0077 per §3 · `packages/db/src/schema/profiling.ts` · RLS registration in both places ·
-DSAR voice leg per-key → **prefix sweep** · `retentionPolicy: 'delete_after_processing'` on the form's
-register path.
+Migration 0071 per §3 · `packages/db/src/schema/profiling.ts` · RLS registration in all three places
+(62 → 64) · `MAX_PROFILING_ANSWER_SECONDS = 30` and the four closed-set vocabularies in
+`@badabhai/types` · `VALUE_SOURCES` re-pointed at the shared definition rather than restated.
 
-**Acceptance.** `rls-spine` e2e green at 63 tables. An orphaned object (PUT without register) is
-erased by DSAR. A re-record supersedes rather than deletes, and the partial unique index rejects two
-live answers for one question.
+**Acceptance — met.** `tests/e2e/profiling-voice-spine.e2e.test.ts`, 12 cases against real Postgres:
+a re-record supersedes rather than deletes, the partial unique index rejects two live answers for one
+question, `value_kind` must name the populated column, the purge order is enforced, and the workers
+cascade erases both tables. Every rejection asserts the **specific** constraint that fired.
 
-**Rollback.** Before any clip: fully reversible. After clips exist: revert code, leave schema (this
-repo has no down-migrations; additive schema with no writer is inert).
+**Deliberately not in this phase.** The DSAR prefix sweep and the retention-policy write move to V4
+with the transcription seam — they are code on the write path, not schema, and the owner's
+never-delete ruling makes the prefix sweep an erase-on-request concern rather than a retention one.
+
+**Rollback.** Additive only — 2 CREATE TABLE, 2 nullable ADD COLUMN, 1 index on an empty table. With
+no writer the schema is inert, so rollback is "revert the code, leave the schema".
 
 ---
 
-### Phase V2 — Attribute destination *(Owner: Prakash + **owner decision** · M · after V1)*
+### Phase V2 — Attribute projection *(Owner: Prakash · S · after V1)*
 
-**Objective.** Give the 359 `attribute`-kind answers (77% of the corpus) somewhere to land. Without
-this the voice form asks ~8–9 questions per session whose answers are discarded at projection.
+**Decided.** The table exists (V1). What remains is the wiring, and it is small:
 
-**The decision (owner's, not engineering's).** A `worker_attributes` table · a JSONB column on
-`worker_profiles` · extend the RFS vocabulary + crosswalk · or rule attributes deliberately
-measurement-only — **in which case the voice form must not ask them**, and the packs need a
-`skip_in_voice` flag.
+- `projectProfile` gains an attribute leg: `target_kind: "attribute"` answers map to
+  `{attribute_key, value_kind, value}` rows instead of being dropped. `answer_type → value_kind` is
+  the only new mapping, and it belongs beside the crosswalk, not in a `switch` at the call site.
+- The upsert goes through the **same** service that writes `worker_profiles` (§1a), on the same
+  transaction as the profile write — an attribute set that survives a failed profile write is a
+  worker whose profile and whose matchable inventory disagree.
+- `answer_type: "boolean"` capture and `multi_select` multi-value capture land here rather than in
+  V3: they were held back precisely because correcting the stored *value* of data with no destination
+  would have masked the missing destination.
 
-**Blocks.** The *value* of V3–V6. The form is buildable without it; it just wastes 77% of the questions.
+**Acceptance.** A full `qp_universal` session projects every answered attribute item, `boolean` items
+land as `value_bool` (not the verbatim utterance), and a re-interview UPDATEs rather than duplicating.
 
 ---
 
@@ -429,7 +514,7 @@ V0 Empirical gates (TTS roman-script + capture rate)  ── BLOCKS EVERYTHING �
         │                                                                    │
         ├──────────────► V5 TTS pipeline (Divyanshu) ────────────┐           │
         │                                                        │           │
-   B-1 packs seeded ──► V1 Data spine (0077) ──┬──► V3 Orchestrator surface ─┤
+   B-1 packs seeded ──► V1 Data spine (0071) ✅ ──┬──► V3 Orchestrator surface ─┤
                                                │                             │
                                                └──► V4 Transcription seam ───┤
                                                                              │
@@ -497,7 +582,7 @@ adapter and chunker · `stt_smoke.py` · the spend ledger · the signed-upload s
 design-system primitives · the Hinglish copy constants · persona guards (client + server) · the remote
 -config kill-switch pattern · the event spine.
 
-Net-new: `profiling_voice_answer` + migration 0077 · `ProfilingController`/`ProfilingSessionService` ·
+Net-new: `worker_attributes` + `profiling_voice_answer` + migration 0071 · `ProfilingController`/`ProfilingSessionService` ·
 `openTurn` · occupation pinning · boolean/multi-select capture · `VoiceTranscriptionService` + the sync
 short-answer path · `app/tts.py` + the two CLIs + the rendered corpus · `ai_provider_calls` ·
 `lib/features/voice_form/` · 4 additive event payloads.
