@@ -43,6 +43,7 @@ import { AdminEventsController } from "../admin/admin-events.controller";
 import { AdminActionsController } from "../admin/admin-actions.controller";
 import { AdminPiiRevealController } from "../admin/admin-pii-reveal.controller";
 import { NotificationsController } from "../notifications/notifications.controller";
+import { NotificationPrefsController } from "../notifications/notification-prefs.controller";
 import { SkillsController } from "../skills/skills.controller";
 import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
 import { ReferralBonusController } from "../referrals/referral-bonus.controller";
@@ -167,8 +168,18 @@ const CONTRACT: ControllerContract[] = [
   },
   {
     name: "Notifications",
+    // #643 — `markRead` WRITES the worker's read watermark, so it takes the same
+    // worker-self + consent posture as the feed it belongs to. It accepts no body and
+    // no path param, so the token is the only id that can reach the service.
     ctor: NotificationsController,
-    routes: { list: [C, W] },
+    routes: { list: [C, W], markRead: [C, W] },
+  },
+  {
+    // #643 — the worker's push toggle. Both routes are worker-self; the PATCH gates the
+    // ADR-0034 fan-out, so an unguarded one would let a caller silence another worker.
+    name: "NotificationPrefs",
+    ctor: NotificationPrefsController,
+    routes: { get: [C, W], update: [C, W] },
   },
   { name: "Capacity", ctor: CapacityController, routes: { buyCapacity: [I] } },
   { name: "PostingPlans", ctor: PostingPlansController, routes: { buyPlan: [I], buyBoost: [I] } },

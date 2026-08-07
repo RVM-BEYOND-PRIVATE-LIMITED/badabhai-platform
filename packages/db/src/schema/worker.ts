@@ -64,8 +64,9 @@ export const workers = pgTable(
     // row to carry a flag on, and "mark all read" is the only gesture the app offers.
     // NULL = nothing read yet (a fresh worker), which is why it is nullable rather than
     // defaulted: epoch-defaulting would be indistinguishable from "read everything".
-    // Advanced MONOTONICALLY (GREATEST in the update) so a retried or clock-skewed
-    // stamp can never un-read an alert the worker already saw.
+    // Advanced MONOTONICALLY — the UPDATE's WHERE matches only when this column is
+    // NULL or STRICTLY OLDER than the new stamp (see advanceNotificationsReadAt), so a
+    // retried or clock-skewed request can never un-read an alert the worker already saw.
     notificationsReadAt: timestamp("notifications_read_at", { withTimezone: true }),
     // ADR-0032 — opaque Storage object key of the worker's profile photo in the
     // private WORKER_PHOTOS_BUCKET (`photos/{workerId}/{uuid}.jpg`, server-chosen).
