@@ -37,5 +37,18 @@ export const TranscriptionOutputSchema = z.object({
   // translation failed-closed). Raw worker text — stored in voice_notes.transcript_english,
   // kept OUT of events/ai_jobs/logs.
   english_text: z.string().default(""),
+  /**
+   * WHY THE TRANSCRIPT IS EMPTY, when it is — `stt_budget_blocked` (we refused to call the
+   * provider), `stt_call_failed` (the call failed), or null (nothing went wrong; the worker
+   * genuinely said nothing).
+   *
+   * The adapter has always computed this. It was dropped at the response boundary, so an
+   * empty transcript arrived here indistinguishable from silence: the processor stored it and
+   * marked the job COMPLETED. A worker whose answer was never transcribed saw a success.
+   *
+   * PII-free by construction — adapter-authored codes, never provider or worker text.
+   * Defaulted to null so an ai-service that predates the field still parses (§3).
+   */
+  error_code: z.string().nullable().default(null),
 });
 export type TranscriptionOutput = z.infer<typeof TranscriptionOutputSchema>;
