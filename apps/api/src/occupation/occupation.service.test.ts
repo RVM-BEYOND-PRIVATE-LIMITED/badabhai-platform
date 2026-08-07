@@ -8,6 +8,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
+import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
 import { buildOccupationSnapshot } from "./occupation-index";
 import type { OccupationIndexService } from "./occupation-index.service";
 import type { OccupationRepository, TrigramCandidate } from "./occupation.repository";
@@ -189,5 +190,29 @@ describe("OccupationService.describeDomain", () => {
 
   it("returns null rather than throwing when there is no index", () => {
     expect(make({ snapshot: null }).svc.describeDomain("jd_weld")).toBeNull();
+  });
+});
+
+describe("L2 receives NORMALIZED text — the contract its parameter name states", () => {
+  it("normalizes the utterance before handing it to trigramCandidates", async () => {
+    // REGRESSION (#619 review, CRITICAL). `trigramCandidates(queryNorm, k)` compares its argument
+    // against `a.text_norm`, the column `normalizeOccupationText` wrote. The raw utterance was
+    // passed instead. L0/L1 hid it completely — `matchSpan` normalizes internally — so the bug is
+    // only reachable on the inputs L2 exists for: a conversational sentence that L0/L1 miss.
+    const { svc, repo } = make({ trigram: [] });
+    const raw = "Main KAPDE  silne ka kaam karta hun!!";
+
+    await svc.resolve(raw, {});
+
+    expect(repo.trigramCandidates).toHaveBeenCalledOnce();
+    const passed = (repo.trigramCandidates as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as string;
+    expect(passed).toBe(normalizeOccupationText(raw));
+    // And concretely: no upper case, no punctuation, no doubled spaces — the shape `text_norm`
+    // is stored in. Asserting this as well as the equality means a change to the normalizer
+    // cannot make the check above vacuously true.
+    expect(passed).not.toMatch(/[A-Z!]/);
+    expect(passed).not.toContain("  ");
+    expect(passed).not.toBe(raw);
   });
 });
