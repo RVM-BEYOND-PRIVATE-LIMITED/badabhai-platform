@@ -20,6 +20,25 @@ class RecordedClip extends Equatable {
   List<Object?> get props => <Object?>[path, durationSeconds];
 }
 
+/// One microphone-amplitude reading, sampled by the session recorder's
+/// `levels()` stream and consumed by the silence endpointer (the voice-form
+/// module). Both fields are dBFS from the `record` plugin: `0` is full-scale,
+/// large-negative is quiet (~ -160 ≈ silence). Relative, not absolute — the
+/// endpointer calibrates a per-session noise floor because a factory floor and a
+/// quiet room have wildly different baselines.
+class MicLevel extends Equatable {
+  const MicLevel({required this.dbfs, required this.peakDbfs});
+
+  /// Current amplitude (dBFS) for this sample window.
+  final double dbfs;
+
+  /// Peak amplitude (dBFS) the plugin has seen (its rolling `max`).
+  final double peakDbfs;
+
+  @override
+  List<Object?> get props => <Object?>[dbfs, peakDbfs];
+}
+
 /// Terminal result of the voice-note pipeline: the resolved [transcript] (what
 /// the worker said, merged into the chat as their message) plus bada bhai's
 /// [reply]. The voice screen pops back to chat with this so both bubbles render
