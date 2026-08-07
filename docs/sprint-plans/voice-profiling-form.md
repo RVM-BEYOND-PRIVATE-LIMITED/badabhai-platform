@@ -27,7 +27,8 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | Desktop bridge QR pointed at `/i/` (closes #607) | PR #642 → `7502a09c` | **on `main`** |
 | 16 worker-app issues, assigned RishiBamako | #624–#639 | **filed, open** |
 | **V0** — Sarvam `TtsAdapter` + `tts_smoke --matrix`, armed by nothing | PR #645 → `4d0989f8` | **on `main`** |
-| **V1** — migration 0071 data spine (`worker_attributes`, `profiling_voice_answer`, pack pin, retention index) | PR #647 | **on `main`, applied** |
+| **V1** — migration 0071 data spine (`worker_attributes`, `profiling_voice_answer`, pack pin, retention index) | PR #647 → `6f33a5aa` | **on `main`, applied** |
+| **V2** — attribute projection + the yes/no lexicon + select-option capture | PR #648 | **on `main`** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -363,22 +364,43 @@ no writer the schema is inert, so rollback is "revert the code, leave the schema
 
 ---
 
-### Phase V2 — Attribute projection *(Owner: Prakash · S · after V1)*
+### Phase V2 — Attribute projection *(Owner: Prakash · S · **DONE**, PR #648)*
 
-**Decided.** The table exists (V1). What remains is the wiring, and it is small:
+Three changes, and the middle one turned out to be the largest missing piece in the whole design.
 
-- `projectProfile` gains an attribute leg: `target_kind: "attribute"` answers map to
-  `{attribute_key, value_kind, value}` rows instead of being dropped. `answer_type → value_kind` is
-  the only new mapping, and it belongs beside the crosswalk, not in a `switch` at the call site.
-- The upsert goes through the **same** service that writes `worker_profiles` (§1a), on the same
-  transaction as the profile write — an attribute set that survives a failed profile write is a
-  worker whose profile and whose matchable inventory disagree.
-- `answer_type: "boolean"` capture and `multi_select` multi-value capture land here rather than in
-  V3: they were held back precisely because correcting the stored *value* of data with no destination
-  would have masked the missing destination.
+**1. `projectProfile` gained an attribute leg.** `ProjectionResult.attributes` carries
+`{attributeKey, valueKind, value, source}` per non-RFS answer. **The crosswalk decides what is an
+attribute** — `crosswalkFor` returns an entry for every RFS id and nothing else, so "no entry" *is*
+"not RFS", and no `target_kind` had to be threaded down. `value_kind` is derived from the value's
+SHAPE rather than from `answer_type`, so a new answer type needs no new case. The map-beats-LLM
+precedence governs attributes identically — otherwise a model could overwrite a spoken answer in the
+matcher's inventory while losing on the resume.
 
-**Acceptance.** A full `qp_universal` session projects every answered attribute item, `boolean` items
-land as `value_bool` (not the verbatim utterance), and a re-interview UPDATEs rather than duplicating.
+**2. A Hinglish yes/no reader (`parseAffirmation`), in the lexicon.** This is the piece nothing had.
+All **236** `boolean` items carry **zero options** — measured, 236 of 236 — so there was never a chip
+to tap, and capture fell through to its verbatim path and wrote "haan bilkul karta hoon" into a field
+whose entire vocabulary is `true`/`false`.
+
+Its three tiers are ordered *explicit yes → verb claim → bare negator*, and **measurement corrected
+that order**: a negator scan placed ahead of the verb tier reads "kaam nahi mil raha, gas charging
+karta hoon" as a `false`, because the negator belongs to a clause about work. The verb tier's own
+check is clause-clamped, so asking it first gets that sentence right *and* still gets "nahi karta
+hoon" right. The negative half is read from `negation.json` rather than restated — one negation
+engine, not two.
+
+**3. Select-option matching, with the destination deciding.** An `attribute` select that matches no
+option captures **nothing**: `worker_attributes.value_text` is filtered by equality, so a sentence
+there is not a worse value but an unmatchable one. An `rfs` select (41 of the 45 `multi_select` items
+are `skills`) keeps the worker's words, because that destination is a free-form list the
+canonicalization path already owns.
+
+**Acceptance — met.** `boolean` items land as `true`/`false`, a negated yes lands as `false`, a hedge
+captures nothing, refused options are dropped, and a contained label ("PVC" inside "CPVC") cannot
+double-count. Each claim was mutation-verified: disabling the type layer reddens 11 tests, disabling
+the attribute leg reddens 5, and reversing the affirmation tiers reddens the clause-clamping case.
+
+**Deferred to V3 deliberately.** The `worker_attributes` *writer*. A repository with no caller is how
+this engine got built dark the first time; it lands with the finalize leg that calls it.
 
 ---
 

@@ -288,3 +288,135 @@ describe("the normalizer map is keyed on REAL vocabulary ids", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// The answer-type layer — 281 of the 466 corpus items depend on it
+// ---------------------------------------------------------------------------
+
+const BOOL_ATTR = item({
+  question_key: "q_forklift",
+  target_kind: "attribute",
+  target_field: "forklift",
+  answer_type: "boolean",
+  // ZERO options, exactly like all 236 boolean items in the shipped corpus. There has never been
+  // a chip to tap here, which is why the type layer had to exist at all.
+  options: [],
+});
+
+const opt = (key: string, label: string) => ({
+  option_key: key,
+  label_text: label,
+  value: key,
+  implies_skill_id: null,
+  is_none_of_above: false,
+});
+
+const MULTI_ATTR = item({
+  question_key: "q_pipe_material",
+  target_kind: "attribute",
+  target_field: "pipe_material",
+  answer_type: "multi_select",
+  options: [opt("pvc", "PVC"), opt("gi", "GI"), opt("cpvc", "CPVC")],
+});
+
+const SINGLE_ATTR = item({
+  question_key: "q_workplace_type",
+  target_kind: "attribute",
+  target_field: "workplace_type",
+  answer_type: "single_select",
+  options: [opt("factory", "Factory"), opt("workshop", "Workshop"), opt("site", "Site")],
+});
+
+// 41 of the 45 multi_select items are this: an RFS `skills` question, whose destination is a
+// free-form list the canonicalization path owns.
+const MULTI_RFS = item({
+  question_key: "q_appliance_type",
+  target_kind: "rfs",
+  target_field: "skills",
+  answer_type: "multi_select",
+  options: [opt("split_ac", "Split AC"), opt("fridge", "Fridge")],
+});
+
+describe("boolean capture — the 236 items that carry no chips", () => {
+  it("reads a spoken yes as TRUE, not as the sentence the worker said", () => {
+    // The defect this closes: before the type layer, this stored "haan bilkul karta hoon" as the
+    // value of a field whose entire vocabulary is true/false.
+    expect(only(captureAnswer("haan bilkul karta hoon", BOOL_ATTR)).valueNormalized).toBe(true);
+  });
+
+  it("reads a spoken no as FALSE", () => {
+    expect(only(captureAnswer("nahi, kabhi nahi chalaya", BOOL_ATTR)).valueNormalized).toBe(false);
+  });
+
+  it("a negated yes is FALSE, not TRUE", () => {
+    // The direction that matters. A keyword scan sees "haan" and stores the opposite of the
+    // worker's answer into a column the matcher filters on.
+    expect(only(captureAnswer("haan nahi, main nahi chalata", BOOL_ATTR)).valueNormalized).toBe(
+      false,
+    );
+  });
+
+  it("captures NOTHING rather than guessing when the answer is a hedge", () => {
+    // "sometimes" is not a boolean. Recording a false the worker did not say is worse than
+    // leaving the question askable for its one bounded re-ask.
+    expect(captureAnswer("kabhi kabhi", BOOL_ATTR).values).toHaveLength(0);
+  });
+
+  it("does not let the negation veto discard a legitimate FALSE", () => {
+    // The trap `spanFor` is documented against: `parseAffirmation` already resolved the negation,
+    // so handing its span to the veto would drop the answer entirely and record every worker who
+    // said "nahi" as having said nothing.
+    const capture = captureAnswer("nahi", BOOL_ATTR);
+    expect(capture.values).toHaveLength(1);
+    expect(capture.values[0]!.valueNormalized).toBe(false);
+  });
+});
+
+describe("select capture — the destination decides what an unmatched answer means", () => {
+  it("captures EVERY option the worker named, in the order they said them", () => {
+    const value = only(captureAnswer("PVC aur GI dono", MULTI_ATTR)).valueNormalized;
+    expect(value).toEqual(["pvc", "gi"]);
+  });
+
+  it("drops an option the worker REFUSED", () => {
+    // Reusing the negation engine rather than scanning the raw string is the whole point: a
+    // refused option must not be recorded as a claimed one.
+    expect(only(captureAnswer("PVC hai, GI nahi", MULTI_ATTR)).valueNormalized).toEqual(["pvc"]);
+  });
+
+  it("does not let a contained label double-count its own characters", () => {
+    // "CPVC" contains "PVC". Longest-first with consumption is why this reports one option.
+    expect(only(captureAnswer("sirf CPVC", MULTI_ATTR)).valueNormalized).toEqual(["cpvc"]);
+  });
+
+  it("takes a single_select answer when exactly one option was named", () => {
+    expect(only(captureAnswer("main workshop mein hoon", SINGLE_ATTR)).valueNormalized).toBe(
+      "workshop",
+    );
+  });
+
+  it("captures NOTHING when a single_select answer names two options", () => {
+    // A worker who names two has not answered a single-choice question, and picking the first
+    // would be picking at random.
+    expect(captureAnswer("factory aur workshop dono", SINGLE_ATTR).values).toHaveLength(0);
+  });
+
+  it("captures NOTHING when an ATTRIBUTE select matches no option", () => {
+    // `worker_attributes.value_text` is filtered by equality. A sentence there is not a worse
+    // value, it is an unmatchable one.
+    expect(captureAnswer("bahar khule mein kaam karta hoon", SINGLE_ATTR).values).toHaveLength(0);
+  });
+
+  it("KEEPS the worker's words when an RFS select matches no option", () => {
+    // The asymmetry is deliberate. `skills` is a free-form list the canonicalization path owns,
+    // so the worker's own words are strictly more information than nothing.
+    expect(only(captureAnswer("main deep freezer ka kaam karta hoon", MULTI_RFS)).valueNormalized).toBe(
+      "main deep freezer ka kaam karta hoon",
+    );
+  });
+
+  it("still prefers an EXACT chip match over the scan", () => {
+    // A tapped chip is the answer of record verbatim; the scan must not get to reinterpret it.
+    expect(only(captureAnswer("Split AC", MULTI_RFS)).valueNormalized).toBe("split_ac");
+  });
+});
