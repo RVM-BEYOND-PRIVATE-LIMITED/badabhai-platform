@@ -91,6 +91,10 @@ function makeWorld(
   opts: {
     packs?: { occupation: QuestionPack | null; universal: QuestionPack | null };
     interject?: (store: Map<string, TranscriptBuffer>) => void;
+    /** Pre-existing durable pin, as `chat_sessions` would hold it after an envelope eviction. */
+    storedPin?: { packId: string; packVersion: number } | null;
+    /** Make the durable pin write fail, to prove a turn survives it. */
+    pinThrows?: boolean;
   } = {},
 ) {
   const store = new Map<string, TranscriptBuffer>();
@@ -125,12 +129,41 @@ function makeWorld(
   // machinery — CAS, replay, bounded re-ask, hard cases — and letting real retrieval run would
   // make every one of them depend on the occupation catalogue. Identification has its own suite.
   const identify = { identify: vi.fn(async () => ({ patch: {}, offer: null, pinned: null })) };
+
+  // `chat_sessions`, reduced to the two things the orchestrator is allowed to do to it: read the
+  // pack pin and win it once. `pinned` is the row; `pinPack` enforces the same WRITE-ONCE rule
+  // the real `WHERE pack_id IS NULL` does, so a test can tell "I won" from "someone else had it".
+  let pinned: { packId: string; packVersion: number } | null = opts.storedPin ?? null;
+  const chat = {
+    findPackPin: vi.fn(async () => pinned),
+    pinPack: vi.fn(async (_id: string, packId: string, packVersion: number) => {
+      if (opts.pinThrows) throw new Error("connection terminated unexpectedly");
+      if (pinned) return false;
+      pinned = { packId, packVersion };
+      return true;
+    }),
+  };
+  // Typed to TAKE its argument, so a test can assert on the emitted payload — `vi.fn(async () =>
+  // …)` infers a zero-arg signature and `mock.calls[0][0]` is then a compile error.
+  const events = { emit: vi.fn(async (_params: unknown) => undefined) };
+
   const orchestrator = new ProfilingOrchestrator(
     buffer as never,
     registry as never,
     identify as never,
+    chat as never,
+    events as never,
   );
-  return { orchestrator, store, buffer, registry, identify };
+  return {
+    orchestrator,
+    store,
+    buffer,
+    registry,
+    identify,
+    chat,
+    events,
+    storedPin: () => pinned,
+  };
 }
 
 /** Seed a session already mid-interview, with `q_city` on screen. */
@@ -624,6 +657,149 @@ describe("a DISAMBIGUATE decision must never become a blank message", () => {
     const result = await orchestrator.takeTurn(say("hello"));
     expect(result.unavailable).toBe(true);
     expect(store.size).toBe(0);
+    vi.restoreAllMocks();
+  });
+});
+
+describe("the pack pin has to survive Redis", () => {
+  /**
+   * THE DEFECT A LIVE INTERVIEW FOUND. Migration 0071 added `chat_sessions.pack_id` /
+   * `pack_version` with a comment explaining exactly why they must exist — the envelope lives
+   * only in a Redis key with a 24h TTL, so an eviction re-runs retrieval on resume and can hand
+   * a half-finished interview a DIFFERENT pack. Then nothing wrote them. Thirteen turns of the
+   * welding pack were served and the column read NULL for every one of them.
+   *
+   * Two halves, and each is useless alone: writing a pin nobody reads back changes nothing, and
+   * reading a pin nobody wrote returns null forever.
+   */
+  const PIN = {
+    job_domain_id: "jd_nco_7212_0301",
+    label: "Welder",
+    isco_unit_code: "7212",
+    match_status: "matched_lexical" as const,
+    match_score: 0.97,
+    match_layer: "l0_exact" as const,
+    pack_id: null,
+    pack_version: null,
+    catalog_version: "9121:0:3885:2026-08-07T12:24:17.864Z:2026-08-07T12:24:22.762Z:101",
+  };
+
+  /** A world whose identify step pins a welder on the turn it is called. */
+  function pinningWorld(opts: Parameters<typeof makeWorld>[0] = {}) {
+    const world = makeWorld({
+      packs: { occupation: OCCUPATION_PACK, universal: UNIVERSAL_PACK },
+      ...opts,
+    });
+    world.identify.identify.mockImplementation(
+      async () =>
+        ({
+          patch: { occupation: PIN, phase: "occupation_specific" },
+          offer: null,
+          pinned: PIN,
+        }) as never,
+    );
+    return world;
+  }
+
+  it("writes the pin to chat_sessions on the turn the pack is chosen, and emits it once", async () => {
+    const world = pinningWorld();
+    await world.orchestrator.takeTurn(say("main welder hoon"));
+
+    expect(world.storedPin()).toEqual({ packId: "qp_welding", packVersion: 1 });
+    expect(world.chat.pinPack).toHaveBeenCalledTimes(1);
+
+    // The audit half. `catalog_version` is PROJECTED — the raw signature is 65 characters
+    // against a payload cap of 64, which is how the unresolved event once 500'd every
+    // unplaced worker's turn.
+    expect(world.events.emit).toHaveBeenCalledTimes(1);
+    const emitted = world.events.emit.mock.calls[0]?.[0] as unknown as {
+      event_name: string;
+      payload: Record<string, unknown>;
+      idempotencyKey: string;
+    };
+    expect(emitted.event_name).toBe("profile.pack_pinned");
+    expect(emitted.payload.pack_id).toBe("qp_welding");
+    expect(emitted.payload.pack_version).toBe(1);
+    expect(emitted.payload.job_domain_id).toBe("jd_nco_7212_0301");
+    expect(String(emitted.payload.catalog_version).length).toBeLessThanOrEqual(64);
+    expect(emitted.idempotencyKey).toBe(`profile.pack_pinned:${SESSION}`);
+    // No worker text anywhere in the payload — the utterance that produced the pin never
+    // leaves the request.
+    expect(JSON.stringify(emitted.payload)).not.toContain("welder hoon");
+  });
+
+  it("writes ONCE — later turns re-derive the same pin and must not re-UPDATE", async () => {
+    // The envelope carries `packId` forward on every turn, so a naive "write whatever the
+    // envelope says" would be a dozen UPDATEs to store one immutable fact.
+    const world = pinningWorld();
+    await world.orchestrator.takeTurn(say("main welder hoon"));
+    await world.orchestrator.takeTurn(say("Pune"));
+    await world.orchestrator.takeTurn(say("8 saal"));
+    expect(world.chat.pinPack).toHaveBeenCalledTimes(1);
+    expect(world.events.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the pin when the envelope is GONE, and loads that pack rather than re-resolving", async () => {
+    // The eviction the columns exist for: nothing in Redis, a pin in Postgres. Re-running
+    // retrieval here is not idempotent — the catalogue may have moved and the worker's opening
+    // words are gone — so the resumed interview must load the PINNED version verbatim.
+    const world = pinningWorld({ storedPin: { packId: "qp_welding", packVersion: 1 } });
+    world.identify.identify.mockImplementation(
+      async () => ({ patch: {}, offer: null, pinned: null }) as never,
+    );
+    expect(world.store.size).toBe(0); // no envelope at all
+
+    await world.orchestrator.takeTurn(say("haan ji"));
+
+    expect(world.chat.findPackPin).toHaveBeenCalledWith(SESSION);
+    expect(world.registry.loadPinned).toHaveBeenCalled();
+    expect(world.registry.resolveForOccupation).not.toHaveBeenCalled();
+    expect(world.store.get(SESSION)?.profiling?.packId).toBe("qp_welding");
+    expect(world.store.get(SESSION)?.profiling?.packVersion).toBe(1);
+  });
+
+  it("does not query the pin when the envelope loaded — it already knows", async () => {
+    // A read here would be a round trip on every turn of every interview to learn something
+    // the envelope holds.
+    const world = pinningWorld();
+    seed(world.store);
+    await world.orchestrator.takeTurn(say("Pune"));
+    expect(world.chat.findPackPin).not.toHaveBeenCalled();
+  });
+
+  it("a failed pin write costs the pin, never the worker's turn", async () => {
+    // The turn is already committed to Redis and the reply is owed. Throwing here would turn a
+    // durability problem into a lost answer.
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const world = pinningWorld({ pinThrows: true });
+
+    const result = await world.orchestrator.takeTurn(say("main welder hoon"));
+
+    expect(result.unavailable).toBe(false);
+    expect(result.reply).toBe(PROCESS.prompt_text); // the welding pack still ran
+    expect(world.store.get(SESSION)?.profiling?.packId).toBe("qp_welding");
+    expect(world.events.emit).not.toHaveBeenCalled(); // never claim a pin Postgres lacks
+    vi.restoreAllMocks();
+  });
+
+  it("never repins a session that already holds one, and emits nothing when it loses", async () => {
+    // `WHERE pack_id IS NULL` is the real guard; this proves the caller honours its answer
+    // rather than emitting a `pack_pinned` for a pin it did not make.
+    //
+    // THE SETUP IS THE TEST. An envelope that LOADED (so the restore path is skipped and the
+    // turn believes nothing is pinned) against a row that already holds a different pack —
+    // which is the state a concurrent writer, or a `findPackPin` that threw, leaves behind.
+    // Seeding no envelope instead would restore the pin and return before `pinPack` was ever
+    // called, so the assertion would hold for the wrong reason.
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const world = pinningWorld({ storedPin: { packId: "qp_other", packVersion: 3 } });
+    seed(world.store, { packId: null, packVersion: null });
+
+    await world.orchestrator.takeTurn(say("main welder hoon"));
+
+    expect(world.chat.pinPack).toHaveBeenCalledTimes(1); // it tried…
+    expect(world.storedPin()).toEqual({ packId: "qp_other", packVersion: 3 }); // …and lost
+    expect(world.events.emit).not.toHaveBeenCalled();
     vi.restoreAllMocks();
   });
 });
