@@ -199,6 +199,7 @@ function make(
       replayed: false,
       excludeFromParse: false,
       unavailable: false,
+      checkpointDue: false,
       ...opts.turn,
     })),
   };
@@ -290,14 +291,107 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
     expect(ChatService.length).toBe(8);
   });
 
-  it("writes NOTHING to Postgres mid-interview", async () => {
+  it("writes NO transcript, NO answers and NO events to Postgres mid-interview", async () => {
+    // NARROWED FROM "writes NOTHING" IN PHASE 9, deliberately. The buffer design's promise was
+    // never "no writes" — it was "no PER-TURN write amplification", which is what the ~150 rows
+    // per interview actually were. Phase 9 adds ONE small state UPDATE every five asks (risk #10)
+    // so a Redis TTL lapse costs at most four answers instead of the whole interview. That write
+    // is asserted on its own below; what must stay absent is everything that scales with turns.
     const { chat, events } = await run();
     expect(chat.insertMessage).not.toHaveBeenCalled();
     expect(chat.insertMessages).not.toHaveBeenCalled();
     expect(chat.insertPackAnswers).not.toHaveBeenCalled();
-    expect(chat.saveConversationState).not.toHaveBeenCalled();
     expect(chat.withTransaction).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
+    // Not due on this turn, so not written: the checkpoint is paced, not per-turn.
+    expect(chat.saveConversationState).not.toHaveBeenCalled();
+  });
+
+  describe("the mid-interview checkpoint (Phase 9, risk #10)", () => {
+    it("persists the state — and ONLY the state — when the orchestrator says a boundary was crossed", async () => {
+      const { chat } = await run({
+        turn: { checkpointDue: true },
+        written: { profiling: envelope({ phase: "occupation_specific", engineAsks: 5 }) },
+      });
+
+      expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
+      const [sessionId, state] = chat.saveConversationState.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(sessionId).toBe(SESSION);
+      // The same projection the flush writes — phase, occupation, answer map, counters.
+      expect(state).toMatchObject({ phase: "occupation_specific", engine_asks: 5 });
+      // THE TRANSCRIPT MUST NOT BE IN IT. This is the line that keeps the checkpoint ~2 UPDATEs
+      // per interview rather than a second copy of every message, and it is also the privacy
+      // boundary: `chat_messages` is the only home of raw worker text before the flush.
+      expect(state).not.toHaveProperty("messages");
+      expect(JSON.stringify(state)).not.toContain(DTO.text);
+      // Still no transcript rows and no transaction — the checkpoint is a bare UPDATE.
+      expect(chat.insertMessages).not.toHaveBeenCalled();
+      expect(chat.withTransaction).not.toHaveBeenCalled();
+    });
+
+    it("does NOT double-write when the same turn also completes the interview", async () => {
+      // `finalizeInterview` writes the identical state through `endSession` INSIDE the flush
+      // transaction. Checkpointing as well would be a second UPDATE of one column with one value,
+      // outside that transaction — pure cost, and a write that could outlive a rolled-back flush.
+      const { chat } = await run({
+        turn: { checkpointDue: true, complete: true },
+        written: { profiling: envelope(), completedAt: T0 },
+      });
+
+      expect(chat.endSession).toHaveBeenCalledTimes(1);
+      expect(chat.saveConversationState).not.toHaveBeenCalled();
+    });
+
+    it("still checkpoints when the interview WANTED to end but the flush ROLLED BACK", async () => {
+      // `complete` says the engine closed; `flushed` says it landed. When they differ, nothing
+      // was written and the interview still exists only in Redis — which is exactly when losing
+      // the buffer hurts most, because the worker has answered every question. Keying the skip on
+      // `terminal` rather than on `turn.complete` is what keeps the checkpoint reachable here.
+      //
+      // `flushThrows`, NOT `flushLost`: the latter models another request having already
+      // finalized the session, where the transcript IS durable and `finalizeInterview` correctly
+      // reports success. Checkpointing an already-ended session would be the bug, not the fix.
+      const { chat } = await run({
+        turn: { checkpointDue: true, complete: true },
+        written: { profiling: envelope({ engineAsks: 10 }) },
+        flushThrows: true,
+      });
+
+      expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT checkpoint when another request already finalized the session", async () => {
+      // The mirror of the case above, and the reason `terminal` is not simply `!flushThrows`:
+      // a lost conditional update means the session row is already `ended`, so this state write
+      // would land on a finished interview.
+      const { chat } = await run({
+        turn: { checkpointDue: true, complete: true },
+        written: { profiling: envelope({ engineAsks: 10 }) },
+        flushLost: true,
+      });
+
+      expect(chat.saveConversationState).not.toHaveBeenCalled();
+    });
+
+    it("a failing checkpoint does not fail the worker's turn", async () => {
+      // The record is the Redis buffer, already durable by this point; the checkpoint is a
+      // backup. A worker who just answered a question gets the next question, not a 500 because
+      // a redundant copy did not land.
+      const { chat, svc } = make({
+        turn: { checkpointDue: true },
+        written: { profiling: envelope({ engineAsks: 5 }) },
+      });
+      chat.saveConversationState.mockRejectedValue(new Error("deadlock detected"));
+
+      const res = await svc.postMessage(WORKER, DTO as never, CTX);
+
+      expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
+      expect(res.reply).toBe("Aap kis sheher mein rehte hain?");
+      expect(res.blocked).toBe(false);
+    });
   });
 
   it("delegates the whole turn — the orchestrator owns the buffer write, not this service", async () => {

@@ -378,6 +378,38 @@ export class ChatService {
       : false;
     const terminal = turn.complete && flushed;
 
+    // 6b. The mid-interview checkpoint (OIE Phase 9, risk #10).
+    //
+    //     ONLY WHEN THE INTERVIEW IS STILL RUNNING. A completed one just wrote the same state
+    //     through `endSession` inside the flush transaction; checkpointing here as well would be
+    //     a second UPDATE of the same column with the same value, outside that transaction.
+    //
+    //     BEST EFFORT, AND THAT IS THE WHOLE DESIGN. This write exists to make a Redis TTL lapse
+    //     survivable — it is a backup, not the record. The record is the buffer, which is already
+    //     durable in Redis's eyes by the time we get here. So a checkpoint failure must never
+    //     reach the worker: they answered a question, and the honest response to that is the next
+    //     question, not an error because a redundant copy did not land.
+    //
+    //     STATE ONLY, NEVER MESSAGE TEXT. `toConversationStatePatch` is the same projection
+    //     `finalizeInterview` writes — phase, occupation, answer map, counters. The transcript
+    //     stays in Redis until the flush, which is what keeps this ~2 UPDATEs per interview
+    //     instead of the ~150 rows the buffer design deleted.
+    if (turn.checkpointDue && !terminal && buffered.profiling) {
+      try {
+        await this.chat.saveConversationState(
+          dto.session_id,
+          toConversationStatePatch(buffered.profiling),
+          now,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `mid-interview checkpoint failed session=${dto.session_id} ` +
+            `asks=${buffered.profiling.engineAsks}; the interview continues on the Redis buffer ` +
+            `and the next checkpoint will retry (${err instanceof Error ? err.message : "unknown"})`,
+        );
+      }
+    }
+
     this.logger.log(
       `turn taken session=${dto.session_id} turn=${buffered.turnCount} ` +
         `question=${turn.questionKey ?? "-"} progress=${turn.progress.answered}/${turn.progress.total} ` +
