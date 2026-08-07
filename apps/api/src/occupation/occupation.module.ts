@@ -11,6 +11,7 @@
  */
 import { Module } from "@nestjs/common";
 
+import { ProfilingModule } from "../profiling/profiling.module";
 import { SkillsModule } from "../skills/skills.module";
 import { OccupationController } from "./occupation.controller";
 import { OccupationIndexService } from "./occupation-index.service";
@@ -18,7 +19,9 @@ import { OccupationRepository } from "./occupation.repository";
 import { OccupationService } from "./occupation.service";
 
 @Module({
-  imports: [SkillsModule],
+  // `ProfilingModule` for `PackRegistryService` — the pack fallback chain and version pinning,
+  // reused rather than reimplemented behind the question-pack route.
+  imports: [SkillsModule, ProfilingModule],
   controllers: [OccupationController],
   providers: [OccupationIndexService, OccupationRepository, OccupationService],
   exports: [OccupationService, OccupationIndexService],

@@ -108,6 +108,24 @@ export class PackRegistryService {
   }
 
   /**
+   * The active pack a FAMILY owns, with no fallback chain.
+   *
+   * DELIBERATELY NOT A FALL-THROUGH. `resolveForOccupation` answers "what would this worker be
+   * asked", and falling through to a parent family is the right answer there. This answers "what
+   * does THIS family own", which ops tooling and the pack-authoring loop need in order to see
+   * that a family has no pack yet — a question a fall-through would silently answer with somebody
+   * else's pack.
+   *
+   * Returns `null` when the family has no active pack in the configured locale. That is a normal
+   * state during Phase 6 authoring, not an error.
+   */
+  async loadForFamily(familyId: string, now: number): Promise<QuestionPack | null> {
+    const heads = await this.repo.findActivePacks([familyId], this.config.PROFILING_PACK_LOCALE);
+    const head = heads[0];
+    return head ? this.load(head.packId, head.version, now) : null;
+  }
+
+  /**
    * The UNIVERSAL pack — the tail every interview runs, whatever trade the worker is in.
    *
    * Resolved through the same chain with no occupation, which can only match the `is_universal`

@@ -20,3 +20,33 @@ export const ResolveOccupationDtoSchema = z.object({
   allow_vector: z.boolean().optional(),
 });
 export type ResolveOccupationDto = z.infer<typeof ResolveOccupationDtoSchema>;
+
+/**
+ * Which pack a family or an occupation gets.
+ *
+ * EXACTLY ONE SELECTOR, enforced here rather than left to the handler. Two selectors would
+ * make the answer depend on an undocumented precedence, and a caller debugging "why did this
+ * worker get that pack" would have to read the controller to find out which one won.
+ *
+ * `pack_id` + `pack_version` together are the PINNED lookup: the exact version a
+ * conversation was pinned to, which must never be re-resolved to whatever is active now.
+ * Answering question 7 of a pack whose questions 1-6 were never asked is worse than failing.
+ */
+export const ResolveQuestionPackDtoSchema = z
+  .object({
+    family_id: z.string().min(1).optional(),
+    job_domain_id: z.string().min(1).optional(),
+    pack_id: z.string().min(1).optional(),
+    pack_version: z.number().int().positive().optional(),
+  })
+  .refine(
+    (v) =>
+      [v.family_id !== undefined, v.job_domain_id !== undefined, v.pack_id !== undefined].filter(
+        Boolean,
+      ).length === 1,
+    { message: "exactly one of family_id, job_domain_id or pack_id is required" },
+  )
+  .refine((v) => (v.pack_id === undefined) === (v.pack_version === undefined), {
+    message: "pack_id and pack_version must be given together",
+  });
+export type ResolveQuestionPackDto = z.infer<typeof ResolveQuestionPackDtoSchema>;
