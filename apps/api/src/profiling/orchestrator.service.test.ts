@@ -329,6 +329,36 @@ describe("the hard cases, each one deterministic", () => {
     expect(result.unavailable).toBe(false);
   });
 
+  it("serves a QUESTION, not a blank bubble, when the first message is a single character", async () => {
+    // THE HOLE THE GUARD DOES NOT COVER. `classifyUtterance` calls anything under two trimmed
+    // characters `empty`, and the wire validator only demands one — so "k" reaches here. On a NEW
+    // session `servedQuestionKey` is null, so the silent-turn re-serve had nothing to re-serve and
+    // fell back to "": a blank assistant bubble COMMITTED, and cached as the replay reply.
+    //
+    // It matters far more for the voice form than for typing: a one-character transcript is
+    // exactly what a noisy environment produces, so turn one would show a blank question and hand
+    // the empty string to a text-to-speech lookup.
+    const { orchestrator, store } = makeWorld();
+    const result = await orchestrator.takeTurn(say("k"));
+    expect(result.reply.trim().length).toBeGreaterThan(0);
+    expect(result.reply).toBe(CITY.prompt_text);
+    expect(result.questionKey).toBe("q_city");
+    expect(store.get(SESSION)?.profiling?.lastTurn?.reply.trim().length).toBeGreaterThan(0);
+  });
+
+  it("re-serves the RETRY wording after a silent turn, never the original", async () => {
+    // `servedText` exists so the ask path and the re-serve path cannot disagree about which words
+    // the worker actually saw. The silent branch read `prompt_text` directly and so walked the
+    // interview backwards to the original phrasing after the retry phrasing had been shown —
+    // audible in a voice session rather than merely visible.
+    const { orchestrator, store } = makeWorld();
+    seed(store, { askCounts: { q_city: 2 } });
+    const result = await orchestrator.takeTurn(say("."));
+    expect(result.reply).toBe(CITY.retry_text);
+    expect(result.questionKey).toBe("q_city");
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(1);
+  });
+
   it("resets the hardship run once the worker answers", async () => {
     const { orchestrator, store } = makeWorld();
     seed(store, { hardshipTurns: 1 });
