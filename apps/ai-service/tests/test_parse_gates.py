@@ -197,6 +197,57 @@ def test_gate_type_range_rejects_a_boolean_posing_as_a_number():
     assert rejection(result, "experience_years").reason == "not_a_number"
 
 
+def test_gate_type_range_rejects_a_string_array_whose_items_are_not_strings():
+    # `isinstance(value, list)` alone let `["lathe", {"note": "call 9876543210"}]` through as a
+    # valid string_array, and gate 6 then skipped the dict because it only inspected string
+    # members — so a nested object walked out with every counter at zero.
+    result = run({"tools_equipment": field(["lathe", {"note": "x"}], 3, "fanuc")})
+    assert rejection(result, "tools_equipment").gate == "type_range"
+    assert rejection(result, "tools_equipment").reason == "not_a_string"
+
+
+def test_gate_type_range_survives_an_integer_too_large_to_be_a_float():
+    # THE HTTP 500. Python ints are arbitrary precision and `math.isfinite` converts to float, so a
+    # 401-digit value from the model raised OverflowError, escaped the wall, and took down every
+    # honest field in the same response — the exact opposite of per-field fail-closed.
+    huge = 10**400
+    result = run({"experience_years": field(huge, 1, "saat saal")})
+    assert result.accepted == {}
+    assert rejection(result, "experience_years").reason == "experience_years_out_of_range"
+
+
+def test_the_wall_is_total_even_if_a_gate_itself_raises():
+    # The structural version of the same lesson: an unforeseen exception must cost ONE field, never
+    # the interview — and must be COUNTED, not swallowed into something that looks like a pass.
+    def exploding(_text: str) -> tuple[bool, str]:
+        raise RuntimeError("certifier is down")
+
+    result = run(
+        {
+            # Two STRING-bearing fields, so both actually reach the exploding certifier. A numeric
+            # value has no strings to certify and would never call it — which is correct, and is
+            # why `salary_expected` is deliberately not the fixture here.
+            "current_city": field("Pune", 7, "pune mein rehta hu"),
+            "tools_equipment": field(["Fanuc"], 3, "fanuc chalata hu"),
+        },
+        certify=exploding,
+    )
+    # Both fields die at gate 6 — but the wall RETURNED, and said so.
+    assert result.accepted == {}
+    assert {r.reason for r in result.rejections} == {"gate_error"}
+    assert len(result.rejections) == 2
+
+
+def test_a_field_with_no_strings_never_calls_the_certifier_at_all():
+    # The companion to the above, so the totality test cannot be read as "gate 6 runs on
+    # everything". Certification is for strings; a rupee figure has none.
+    def exploding(_text: str) -> tuple[bool, str]:
+        raise RuntimeError("certifier is down")
+
+    result = run({"salary_expected": field(15000, 5, "pandrah hazaar mahina")}, certify=exploding)
+    assert set(result.accepted) == {"salary_expected"}
+
+
 def test_gate_type_range_keeps_an_unrecognized_city_rather_than_dropping_it():
     # The ONE field kept on failure. A city missing from the gazetteer is still evidence of where
     # the worker lives; dropping it would lose a strong matching signal over a data gap. Flagged so
@@ -335,6 +386,36 @@ def test_gate_pii_inspects_every_string_in_an_array():
         return False, "[PHONE_1]" if text == "9876543210" else text
 
     result = run({"tools_equipment": field(["Fanuc", "9876543210"], 3, "fanuc")}, certify=masking)
+    assert rejection(result, "tools_equipment").gate == "pii"
+
+
+def test_gate_pii_reaches_a_string_nested_inside_an_object_inside_a_list():
+    # THE LEAK THIS GATE SHIPPED WITH. An earlier version built `[item for item in value if
+    # isinstance(item, str)]`, which silently DISCARDED the dict — so the phone number inside it was
+    # certified by nothing, the field was ACCEPTED, and the per-gate counters reported a clean pass.
+    # A string a walker cannot see is a string no wall can certify.
+    def masking(text: str) -> tuple[bool, str]:
+        return False, "[PHONE_1]" if "9876543210" in text else text
+
+    result = run(
+        {"tools_equipment": field([{"note": "call 9876543210"}], 3, "fanuc")},
+        certify=masking,
+        targets=[TargetField(field_id="tools_equipment", type="object")],
+    )
+    assert result.accepted == {}
+    assert rejection(result, "tools_equipment").gate == "pii"
+
+
+def test_gate_pii_certifies_object_KEYS_too():
+    # The model chooses the keys as well as the values.
+    def masking(text: str) -> tuple[bool, str]:
+        return False, "[PHONE_1]" if text == "9876543210" else text
+
+    result = run(
+        {"tools_equipment": field({"9876543210": "ok"}, 3, "fanuc")},
+        certify=masking,
+        targets=[TargetField(field_id="tools_equipment", type="object")],
+    )
     assert rejection(result, "tools_equipment").gate == "pii"
 
 

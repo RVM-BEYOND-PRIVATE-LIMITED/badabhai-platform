@@ -258,6 +258,97 @@ def test_the_surviving_lines_keep_their_own_i_after_a_drop(monkeypatch):
     assert "[0]" not in stub.prompt
 
 
+def test_a_container_valued_answer_never_reaches_the_prompt_unmasked(monkeypatch):
+    # THE LEAK THIS ROUTE SHIPPED WITH. `_publishable_normalized` checked `isinstance(value, str)`
+    # and let everything else through verbatim, on the reasoning that a non-string normalized value
+    # is server-computed closed-set data. That described the current PRODUCER, not the contract:
+    # `value_normalized` is typed `Any`, and FIELD_CROSSWALK declares six RFS fields as string
+    # arrays — including `work_history`, whose own comment says §2 forbids storing employer names.
+    dirty = [
+        {
+            "question_key": "q_history",
+            "target_field": "work_history",
+            "value_raw": "kaam kiya",
+            "value_normalized": ["Ramesh Motors Pvt Ltd", "9876543210", "2345 6789 0123"],
+            "status": "answered",
+            "turn": 1,
+        }
+    ]
+    stub = use(monkeypatch, StubRouter(json.dumps({"fields": {}})))
+    body = parse(answer_map=dirty)
+    assert "Ramesh Motors" not in stub.prompt
+    assert "9876543210" not in stub.prompt
+    assert "2345 6789 0123" not in stub.prompt
+    # Withheld, counted, and never fatal — the field is still listed, just without its typed value.
+    assert "normalized_value_withheld" in body["notes"]
+
+
+def test_a_clean_container_valued_answer_is_still_shown_to_the_model(monkeypatch):
+    # The other direction: withholding EVERY container would be a gate that just deletes data.
+    clean_list = [
+        {
+            "question_key": "q_tools",
+            "target_field": "tools_equipment",
+            "value_raw": "vmc aur fanuc",
+            "value_normalized": ["VMC", "Fanuc"],
+            "status": "answered",
+            "turn": 1,
+        }
+    ]
+    stub = use(monkeypatch, StubRouter(json.dumps({"fields": {}})))
+    body = parse(answer_map=clean_list)
+    assert 'already typed as ["VMC", "Fanuc"]' in stub.prompt
+    assert "normalized_value_withheld" not in body["notes"]
+
+
+def test_a_huge_integer_from_the_model_degrades_instead_of_500ing(monkeypatch):
+    # A 401-digit value used to raise OverflowError inside gate 3, escape the wall, and return HTTP
+    # 500 — one fabricated number destroying every honest field in the same response.
+    use(
+        monkeypatch,
+        StubRouter(
+            json.dumps(
+                {
+                    "fields": {
+                        "experience_years": parsed_field(10**400, 1, "saat saal ho gaye"),
+                        "salary_expected": parsed_field(15000, 5, "pandrah hazaar mahina"),
+                    }
+                }
+            )
+        ),
+    )
+    body = parse()
+    # The honest sibling in the SAME response survives. That is the per-field guarantee.
+    assert body["fields"]["salary_expected"]["value"] == 15000
+    assert "experience_years" in body["unparsed_field_ids"]
+    assert "fields_rejected" in body["notes"]
+
+
+def test_a_nested_object_in_a_parsed_value_never_egresses(monkeypatch):
+    # Gate 6 used to inspect only top-level strings, so this walked out of the service with the
+    # observability line reporting all six counters at zero.
+    use(
+        monkeypatch,
+        StubRouter(
+            json.dumps(
+                {
+                    "fields": {
+                        "tools_equipment": parsed_field(
+                            ["lathe", {"employer": "Ramesh Motors Pvt Ltd", "ph": "9876543210"}],
+                            3,
+                            "fanuc chalata hu",
+                        )
+                    }
+                }
+            )
+        ),
+    )
+    body = parse()
+    assert body["fields"] == {}
+    assert "9876543210" not in json.dumps(body)
+    assert "Ramesh Motors" not in json.dumps(body)
+
+
 def test_a_language_that_is_not_a_locale_never_reaches_the_prompt(monkeypatch):
     # `language` is the ONE request field that reaches the prompt without passing through the
     # masker, and the contract declares it as a bare `str | None` — no validator, no length bound.

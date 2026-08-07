@@ -74,7 +74,14 @@ def build_parse_messages(
     target_fields: list[TargetField],
     language: str | None = None,
 ) -> list[dict[str, str]]:
-    """The one LLM call's messages. Every worker-derived character here is already masked."""
+    """The one LLM call's messages.
+
+    Every worker-derived character reaching this function has already been through
+    `mask_parse_input` — transcript lines masked, raw answers masked, and any normalized value with
+    a string leaf the masker would touch withheld entirely. The claim is about `masked`, not about
+    the arguments: `target_fields` and `language` come from the CALLER, not the worker, and
+    `language` is shape-checked below because the contract does not constrain it.
+    """
     sections: list[str] = []
 
     sections.append(

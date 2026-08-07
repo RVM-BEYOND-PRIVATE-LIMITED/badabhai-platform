@@ -78,6 +78,7 @@ REJECTION_REASONS: tuple[str, ...] = (
     "field_id_not_requested",
     "pii_blocked",
     "pii_altered",
+    "gate_error",
 )
 
 #: The bounds the plan fixes. Stated once, here, mirrored in the TypeScript wall, parity-tested.
@@ -188,12 +189,25 @@ def check_role(evidence: EvidenceSpan, transcript: list[TranscriptLine]) -> str 
 
 
 def _is_real_number(value: Any) -> bool:
-    """A number, and NOT a bool. `isinstance(True, int)` is True in Python, so without this a
-    `true` for `experience_years` reads as 1 year and sails through the range check — a difference
-    from the TypeScript wall, where `typeof true === "boolean"` already rejects it."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    """A number, and NOT a bool.
+
+    TWO PYTHON-ONLY HAZARDS, neither of which exists on the TypeScript side:
+
+    `isinstance(True, int)` is True, so without the bool check a `true` for `experience_years`
+    reads as 1 year and sails through the range check. `typeof true === "boolean"` already handles
+    that over there.
+
+    `int` is ARBITRARY PRECISION, and `math.isfinite` converts its argument to a float — so a
+    401-digit integer from the model raised `OverflowError` here, escaped `apply_parse_gates`, and
+    turned a hallucination into an HTTP 500. A Python int is never inf or nan by construction, so
+    it needs no finiteness check at all; only floats do. The magnitude is then the RANGE check's
+    job, which compares int-to-int without ever touching a float.
+    """
+    if isinstance(value, bool):
         return False
-    return math.isfinite(value)
+    if isinstance(value, int):
+        return True
+    return isinstance(value, float) and math.isfinite(value)
 
 
 def check_type_range(field_id: str, value: Any, target: TargetField | None) -> str | None:
@@ -246,8 +260,16 @@ def check_type_range(field_id: str, value: Any, target: TargetField | None) -> s
         return "not_a_boolean"
     if target.type == "string" and not isinstance(value, str):
         return "not_a_string"
-    if target.type == "string_array" and not isinstance(value, list):
-        return "not_an_array"
+    if target.type == "string_array":
+        if not isinstance(value, list):
+            return "not_an_array"
+        # THE ITEMS, TOO. `isinstance(value, list)` alone let `["lathe", {"note": "call
+        # 9876543210"}]` through as a valid string_array, and gate 6 then skipped the dict because
+        # it only looked at string members — so a nested object walked out of the service with the
+        # wall reporting all six counters at zero. A "string array" whose items are not strings is
+        # not the declared type.
+        if any(not isinstance(item, str) for item in value):
+            return "not_a_string"
     if target.type == "enum":
         if not isinstance(value, str):
             return "not_a_string"
@@ -321,25 +343,52 @@ def check_vocabulary(field_id: str, targets: list[TargetField]) -> str | None:
 
 
 def check_pii(value: Any, certify: PiiCertifier) -> str | None:
-    """Every surviving string goes back through pseudonymization; blocked or ALTERED ⇒ rejected.
+    """EVERY string in the value, at ANY depth, goes back through pseudonymization; blocked or
+    ALTERED ⇒ the whole field is rejected.
 
     ALTERED IS THE LOAD-BEARING WORD. "Blocked" catches the obvious case, but a value the
     pseudonymizer silently rewrites — a phone number turned into a token — is a value that CONTAINED
     PII, and storing the rewritten form would record that the worker said something they did not.
+
+    AT ANY DEPTH is the other load-bearing phrase, and it was learned the hard way. An earlier
+    version inspected only TOP-LEVEL strings, so `["lathe", {"note": "call 9876543210"}]` had the
+    dict quietly filtered out of the list it was checking: the phone number was certified by
+    nothing, the field was ACCEPTED, and the observability line reported all six gate counters at
+    zero. `strings_in` walks lists, dicts, and dict KEYS — the model chooses those too — so there
+    is no container shape in which a string can hide from this gate.
     """
-    if isinstance(value, str):
-        strings = [value]
-    elif isinstance(value, list):
-        strings = [item for item in value if isinstance(item, str)]
-    else:
-        strings = []
-    for item in strings:
+    for item in strings_in(value):
         blocked, certified = certify(item)
         if blocked:
             return "pii_blocked"
         if certified != item:
             return "pii_altered"
     return None
+
+
+def strings_in(value: Any) -> list[str]:
+    """Every string reachable inside `value`, including dict keys. Order is deterministic.
+
+    Shared with `parse_masking`, which needs exactly the same reach for the same reason: a leaf a
+    walker cannot see is a leaf no wall can certify. JSON has no cycles and `json.loads` already
+    refuses pathological nesting, so this recursion is bounded by the parser above it.
+    """
+    found: list[str] = []
+    _collect_strings(value, found)
+    return found
+
+
+def _collect_strings(value: Any, found: list[str]) -> None:
+    if isinstance(value, str):
+        found.append(value)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_strings(item, found)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if isinstance(key, str):
+                found.append(key)
+            _collect_strings(item, found)
 
 
 # ---------------------------------------------------------------------------
@@ -369,49 +418,87 @@ def apply_parse_gates(
         # not a rejection, and not something to count as a failure.
         if parsed is None:
             continue
-
-        def reject(gate: GateId, reason: str, _field_id: str = field_id) -> None:
-            result.rejections.append(Rejection(field_id=_field_id, gate=gate, reason=reason))
-
-        vocabulary = check_vocabulary(field_id, target_fields)
-        if vocabulary:
-            reject("vocabulary", vocabulary)
-            continue
-
-        provenance = check_provenance(parsed.evidence, transcript)
-        if provenance:
-            reject("provenance", provenance)
-            continue
-
-        role = check_role(parsed.evidence, transcript)
-        if role:
-            reject("role", role)
-            continue
-
-        target = next((t for t in target_fields if t.field_id == field_id), None)
-        type_range = check_type_range(field_id, parsed.value, target)
-        if type_range:
-            reject("type_range", type_range)
-            continue
-
-        agreement = check_agreement(field_id, parsed.value, answer_map)
-        if agreement:
-            # NOT merely a rejection: the deterministic value stands and this is reported so
-            # `profile.parse_disagreement` can be emitted with ids and counts only.
-            reject("agreement", agreement)
-            result.disagreements.append(field_id)
-            continue
-
-        pii = check_pii(parsed.value, certify)
-        if pii:
-            reject("pii", pii)
-            continue
-
-        if is_city_unrecognized(field_id, parsed.value):
-            result.unrecognized_cities.append(field_id)
-        result.accepted[field_id] = parsed
+        try:
+            _gate_one_field(
+                field_id, parsed, result, answer_map, transcript, target_fields, certify
+            )
+        except Exception:  # noqa: BLE001 — see below; this is the totality guarantee, not a mask
+            # "PURE, TOTAL, AND NEVER RAISES" IS A CLAIM THIS MAKES TRUE.
+            #
+            # It used to be an aspiration, and the difference cost a worker their whole parse: a
+            # 401-digit integer from the model reached `math.isfinite`, which converts to float and
+            # raised `OverflowError`, which escaped this function and returned HTTP 500. One
+            # fabricated number took down every honest field in the same response — the exact
+            # opposite of the per-field fail-closed design.
+            #
+            # That specific bug is fixed at its source in `_is_real_number`. This guard is the
+            # STRUCTURAL version of the same lesson: an unforeseen exception must cost ONE field,
+            # never the interview. Deliberately NOT silent — the field is DROPPED (never accepted)
+            # and counted under its own `gate_error` reason, so a wall failing this way shows up in
+            # the per-gate counters instead of looking like a clean pass.
+            result.rejections.append(
+                Rejection(field_id=field_id, gate="type_range", reason="gate_error")
+            )
 
     return result
+
+
+def _gate_one_field(
+    field_id: str,
+    parsed: ParsedField,
+    result: GateResult,
+    answer_map: list[AnswerRecord],
+    transcript: list[TranscriptLine],
+    target_fields: list[TargetField],
+    certify: PiiCertifier,
+) -> None:
+    """One field through all six gates, in order. Appends to `result`; returns nothing.
+
+    Extracted so the caller can wrap exactly one field's worth of work in the totality guard — a
+    `try` around the whole loop would have let one bad field skip every field after it, which is a
+    worse failure than the one being guarded against.
+    """
+
+    def reject(gate: GateId, reason: str) -> None:
+        result.rejections.append(Rejection(field_id=field_id, gate=gate, reason=reason))
+
+    vocabulary = check_vocabulary(field_id, target_fields)
+    if vocabulary:
+        reject("vocabulary", vocabulary)
+        return
+
+    provenance = check_provenance(parsed.evidence, transcript)
+    if provenance:
+        reject("provenance", provenance)
+        return
+
+    role = check_role(parsed.evidence, transcript)
+    if role:
+        reject("role", role)
+        return
+
+    target = next((t for t in target_fields if t.field_id == field_id), None)
+    type_range = check_type_range(field_id, parsed.value, target)
+    if type_range:
+        reject("type_range", type_range)
+        return
+
+    agreement = check_agreement(field_id, parsed.value, answer_map)
+    if agreement:
+        # NOT merely a rejection: the deterministic value stands and this is reported so
+        # `profile.parse_disagreement` can be emitted with ids and counts only.
+        reject("agreement", agreement)
+        result.disagreements.append(field_id)
+        return
+
+    pii = check_pii(parsed.value, certify)
+    if pii:
+        reject("pii", pii)
+        return
+
+    if is_city_unrecognized(field_id, parsed.value):
+        result.unrecognized_cities.append(field_id)
+    result.accepted[field_id] = parsed
 
 
 def count_by_gate(rejections: list[Rejection]) -> dict[str, int]:

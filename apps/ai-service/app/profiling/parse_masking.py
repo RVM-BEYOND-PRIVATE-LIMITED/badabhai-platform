@@ -30,6 +30,7 @@ from typing import Any
 
 from ..contracts import AnswerRecord, ProfileParseInput, TranscriptLine
 from ..pseudonymize import pseudonymize
+from .parse_gates import strings_in
 
 #: The per-message bound. One worker utterance, not one interview. Deliberately far below
 #: `pseudonymize.DEFAULT_MAX_LENGTH`: a single message this long is not something a worker typed or
@@ -110,22 +111,31 @@ def mask_parse_input(
 
 
 def _publishable_normalized(record: AnswerRecord, mask: Masker) -> tuple[Any | None, int]:
-    """The deterministic value, but only if showing it to the model cannot poison the gate.
+    """The deterministic value, shown to the model only if EVERY string inside it is already clean.
 
-    A NON-STRING normalized value (a year count, a rupee figure, an availability enum, a boolean)
-    is server-computed closed-set data and goes through verbatim.
+    WHY "EVERY STRING INSIDE IT" AND NOT "IF IT IS A STRING". The first version of this checked
+    `isinstance(value, str)` and let anything else through verbatim, on the reasoning that a
+    non-string normalized value is server-computed closed-set data — a year count, a rupee figure,
+    an availability enum, a boolean. That reasoning described the CURRENT producer, not the
+    contract: `AnswerRecord.value_normalized` is typed `Any`, `TargetField.type` includes
+    `string_array` in both walls, and `FIELD_CROSSWALK` declares six RFS fields as string arrays —
+    among them `work_history`, whose own comment says §2 forbids storing employer names. A
+    list-valued record therefore rendered straight into the prompt, and `router.run` joins the
+    messages into the text it hands the Langfuse tracer. Measured: employer, person name, phone and
+    Aadhaar all crossed the boundary unmasked. The route is the pseudonymization gateway; the
+    guarantee has to be structural, not a bet on what today's caller happens to emit.
 
-    A STRING one is shown ONLY IF certification leaves it byte-identical. This is not squeamishness
-    about the masker; it is the agreement gate's correctness. Gate 4 compares the model's answer
-    against the ORIGINAL `value_normalized`, so showing the model a REWRITTEN form would invite it
-    to echo the rewrite and then reject that echo as a disagreement — a fabricated disagreement
-    event about a field the worker answered correctly. Withholding it instead costs the model a
-    hint, and the transcript still carries the answer.
+    WHY WITHHOLD RATHER THAN SUBSTITUTE THE MASKED FORM. Gate 4 compares the model's answer against
+    the ORIGINAL `value_normalized`, so showing the model a REWRITTEN value would invite it to echo
+    the rewrite and then reject that echo as a disagreement — a fabricated disagreement event about
+    a field the worker answered correctly. Withholding costs the model a hint; the transcript still
+    carries the answer.
     """
     value = record.value_normalized
-    if value is None or not isinstance(value, str):
-        return value, 0
-    blocked, certified = mask(value)
-    if blocked or certified != value:
-        return None, 1
+    if value is None:
+        return None, 0
+    for leaf in strings_in(value):
+        blocked, certified = mask(leaf)
+        if blocked or certified != leaf:
+            return None, 1
     return value, 0
