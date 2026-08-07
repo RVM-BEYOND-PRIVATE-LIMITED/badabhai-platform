@@ -33,6 +33,7 @@ function fakeRepo(overrides: Partial<OccupationRepository> = {}): OccupationRepo
     loadDomains: vi.fn().mockResolvedValue(DOMAINS),
     loadAliases: vi.fn().mockResolvedValue(ALIASES),
     loadBindings: vi.fn().mockResolvedValue(BINDINGS),
+    loadFamilyLabels: vi.fn().mockResolvedValue(new Map([["fam_welding", "वेल्डिंग"]])),
     trigramCandidates: vi.fn().mockResolvedValue([]),
     ...overrides,
   } as unknown as OccupationRepository;

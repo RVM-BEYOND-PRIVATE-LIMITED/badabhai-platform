@@ -21,6 +21,7 @@ import {
   buildOccupationIndex,
   resolveOccupation,
   scoreGoldSet,
+  scoreGoldSetByFamily,
   type GoldUtterance,
 } from "./occupation-retrieval-eval";
 
@@ -187,5 +188,76 @@ describe("scoreGoldSet", () => {
 
   it("handles an empty gold set without dividing by zero", () => {
     expect(scoreGoldSet(index, [])).toMatchObject({ total: 0, hitRate: 0, precision: 0 });
+  });
+});
+
+describe("scoreGoldSetByFamily — the Phase 7 acceptance criterion", () => {
+  // "Welder, Gas" and "Welder, Electric" sit in DIFFERENT units but ONE family. That gap is
+  // the whole reason this scorer exists: unit-level scoring calls the second a failure when
+  // the interview it produces is identical.
+  const index = buildOccupationIndex([
+    domain("jd_gas", "7212", ["gas welder"]),
+    domain("jd_arc", "7213", ["arc welder"]),
+    domain("jd_tailor", "7531", ["darzi"]),
+  ]);
+
+  const familyOf = (_jobDomainId: string, unit: string | null): string | null => {
+    if (unit === "7212" || unit === "7213") return "fam_welding";
+    if (unit === "7531") return "fam_tailoring";
+    return null;
+  };
+
+  it("counts a different UNIT in the same FAMILY as correct", () => {
+    // Unit-level scoring marks this wrong; the worker gets the right pack either way.
+    const r = scoreGoldSetByFamily(index, [{ utterance: "arc welder", expect_unit: "7212" }], familyOf);
+    expect(r.correct).toBe(1);
+    expect(r.wrongFamily).toBe(0);
+    expect(r.precision).toBe(1);
+  });
+
+  it("counts a different FAMILY as wrong", () => {
+    const r = scoreGoldSetByFamily(index, [{ utterance: "darzi", expect_unit: "7212" }], familyOf);
+    expect(r.wrongFamily).toBe(1);
+    expect(r.precision).toBe(0);
+  });
+
+  it("EXCLUDES gold rows whose expected unit binds to no family", () => {
+    // A gold row labelled to an unbound unit is a gap in the PACK corpus, not a retrieval
+    // error. Counting it would make the retrieval number move when pack authoring moved.
+    const r = scoreGoldSetByFamily(index, [{ utterance: "darzi", expect_unit: "9999" }], familyOf);
+    expect(r.unbound).toBe(1);
+    expect(r.wrongFamily).toBe(0);
+    expect(r.precision).toBe(0);
+  });
+
+  it("counts a miss separately from a wrong family", () => {
+    // Precision is about what it ANSWERED. Silence is a coverage problem, not a precision one.
+    const r = scoreGoldSetByFamily(
+      index,
+      [
+        { utterance: "aaj mausam accha hai", expect_unit: "7212" },
+        { utterance: "gas welder", expect_unit: "7212" },
+      ],
+      familyOf,
+    );
+    expect(r.miss).toBe(1);
+    expect(r.correct).toBe(1);
+    expect(r.precision).toBe(1);
+    expect(r.coverage).toBe(0.5);
+  });
+
+  it("reports zero precision rather than NaN when nothing was attempted", () => {
+    const r = scoreGoldSetByFamily(index, [{ utterance: "xyzzy", expect_unit: "7212" }], familyOf);
+    expect(r.precision).toBe(0);
+    expect(Number.isNaN(r.precision)).toBe(false);
+  });
+
+  it("records every failure with both the expected and the resolved family", () => {
+    const r = scoreGoldSetByFamily(index, [{ utterance: "darzi", expect_unit: "7212" }], familyOf);
+    expect(r.failures[0]).toMatchObject({
+      expectedFamily: "fam_welding",
+      gotFamily: "fam_tailoring",
+      got: "jd_tailor",
+    });
   });
 });

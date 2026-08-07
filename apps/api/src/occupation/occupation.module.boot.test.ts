@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
 import { SkillsInternalGuard } from "../skills/skills-internal.guard";
+import { PackRegistryService } from "../profiling/pack-registry.service";
+import { ProfilingModule } from "../profiling/profiling.module";
 import { SkillsModule } from "../skills/skills.module";
 import { OccupationController } from "./occupation.controller";
 import { OccupationIndexService } from "./occupation-index.service";
@@ -63,5 +65,19 @@ describe("OccupationModule wiring", () => {
   it("SkillsModule exports the guard the occupation controller depends on", () => {
     // Resolves at boot only. Without the export, every occupation route 500s.
     expect(getMeta("exports", SkillsModule)).toContain(SkillsInternalGuard);
+  });
+});
+
+describe("OccupationModule — pack resolution is REUSED, not reimplemented", () => {
+  it("imports ProfilingModule for PackRegistryService", () => {
+    // The question-pack route needs the fallback chain and version pinning. A second copy
+    // here is exactly how the engine and the db:verify:packs gate came to disagree about a
+    // worker's family once already (#616).
+    expect(getMeta("imports", OccupationModule)).toContain(ProfilingModule);
+  });
+
+  it("ProfilingModule exports the registry the route depends on", () => {
+    // Resolves at boot only. Without the export every question-pack request 500s.
+    expect(getMeta("exports", ProfilingModule)).toContain(PackRegistryService);
   });
 });

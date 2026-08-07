@@ -89,13 +89,20 @@ export class OccupationIndexService implements OnModuleInit, OnModuleDestroy {
         return false;
       }
 
-      const [domains, aliases, bindings] = await Promise.all([
+      const [domains, aliases, bindings, familyLabels] = await Promise.all([
         this.repo.loadDomains(),
         this.repo.loadAliases(),
         this.repo.loadBindings(),
+        this.repo.loadFamilyLabels(),
       ]);
 
-      const next = buildOccupationSnapshot({ catalogVersion, domains, aliases, bindings });
+      const next = buildOccupationSnapshot({
+        catalogVersion,
+        domains,
+        aliases,
+        bindings,
+        familyLabels,
+      });
 
       // An empty catalogue is a FAILED build, not a valid one. The only way to reach here
       // with zero domains is an unseeded or unreachable database, and installing that would

@@ -128,6 +128,109 @@ export interface EvalResult {
 }
 
 /**
+ * Resolve an ISCO unit code, or a job domain, to the family that owns its question pack.
+ *
+ * Supplied by the caller rather than imported, so this module stays free of the pack
+ * corpus — it measures RETRIEVAL, and a hard dependency on pack data would make the
+ * Phase 2 number unmeasurable whenever the pack corpus happened to be mid-edit.
+ */
+export type FamilyLookup = (jobDomainId: string, iscoUnitCode: string | null) => string | null;
+
+export interface FamilyEvalResult {
+  total: number;
+  /** Resolved to the family the label implies. */
+  correct: number;
+  /** Resolved to a DIFFERENT family — the failure that makes every later question wrong. */
+  wrongFamily: number;
+  /** Nothing matched, so no family was claimed. Not a precision failure. */
+  miss: number;
+  /** Gold rows whose expected unit binds to no family at all. Excluded from precision. */
+  unbound: number;
+  /** correct / (correct + wrongFamily) — the plan's ≥0.97 criterion. */
+  precision: number;
+  /** correct / total — how much of the gold set it answers correctly at all. */
+  coverage: number;
+  failures: { utterance: string; expectedFamily: string; gotFamily: string | null; got: string | null }[];
+}
+
+/**
+ * Score the gold set at FAMILY level — the plan's Phase 7 acceptance criterion.
+ *
+ * WHY THIS IS THE NUMBER THAT MATTERS, and unit-level precision is not. A family owns the
+ * question pack, so a wrong family means every subsequent question in the interview is
+ * about the wrong trade — twelve questions about welding for a tailor, and an abandoned
+ * interview. A wrong OCCUPATION inside the right family costs nothing at all: the pack is
+ * the same, and the exact NCO code is settled afterwards by the pack's own first question.
+ *
+ * `scoreGoldSet` scores at ISCO unit as a proxy, which was the only option before
+ * `profiling_family` existed. It is a PESSIMISTIC proxy — "Welder, Gas" and "Welder,
+ * Electric" are different units in some branches but one family — so the unit number is a
+ * lower bound on this one, and the two are reported side by side rather than one replacing
+ * the other.
+ *
+ * ROWS WHOSE EXPECTED UNIT BINDS TO NOTHING ARE EXCLUDED, not counted as failures. A gold
+ * utterance labelled to a unit with no family is a gap in the PACK corpus, not a retrieval
+ * error, and folding it into precision would make the retrieval number move whenever pack
+ * authoring moved.
+ */
+export function scoreGoldSetByFamily(
+  index: OccupationIndex,
+  gold: GoldUtterance[],
+  familyOf: FamilyLookup,
+): FamilyEvalResult {
+  let correct = 0;
+  let wrongFamily = 0;
+  let miss = 0;
+  let unbound = 0;
+  const failures: FamilyEvalResult["failures"] = [];
+
+  for (const g of gold) {
+    // The expected family comes from the LABEL's unit code, resolved through the same
+    // chain production uses. A synthetic domain id is passed because the label names a
+    // unit, not an occupation — so only the unit-and-above levels can match, which is
+    // exactly the granularity the gold set was labelled at.
+    const expected = familyOf(`__gold__${g.expect_unit}`, g.expect_unit);
+    if (expected === null) {
+      unbound++;
+      continue;
+    }
+
+    const hit = resolveOccupation(index, g.utterance);
+    if (hit === null) {
+      miss++;
+      failures.push({ utterance: g.utterance, expectedFamily: expected, gotFamily: null, got: null });
+      continue;
+    }
+
+    const got = familyOf(hit.jobDomainId, index.unitByDomain.get(hit.jobDomainId) ?? null);
+    if (got === expected) {
+      correct++;
+      continue;
+    }
+    wrongFamily++;
+    failures.push({
+      utterance: g.utterance,
+      expectedFamily: expected,
+      gotFamily: got,
+      got: hit.jobDomainId,
+    });
+  }
+
+  const attempted = correct + wrongFamily;
+  const total = gold.length;
+  return {
+    total,
+    correct,
+    wrongFamily,
+    miss,
+    unbound,
+    precision: attempted === 0 ? 0 : correct / attempted,
+    coverage: total - unbound === 0 ? 0 : correct / (total - unbound),
+    failures,
+  };
+}
+
+/**
  * Score a gold set.
  *
  * SCORED AT ISCO-UNIT LEVEL, NOT AT OCCUPATION LEVEL, and this is the plan's own

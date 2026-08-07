@@ -15,14 +15,26 @@
 import { Body, Controller, Get, HttpCode, NotFoundException, Param, Post, UseGuards } from "@nestjs/common";
 
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { PackRegistryService } from "../profiling/pack-registry.service";
 import { SkillsInternalGuard } from "../skills/skills-internal.guard";
-import { ResolveOccupationDtoSchema, type ResolveOccupationDto } from "./occupation.dto";
+import {
+  ResolveOccupationDtoSchema,
+  ResolveQuestionPackDtoSchema,
+  type ResolveOccupationDto,
+  type ResolveQuestionPackDto,
+} from "./occupation.dto";
 import { OccupationService } from "./occupation.service";
 
 @Controller("internal/occupation")
 @UseGuards(SkillsInternalGuard)
 export class OccupationController {
-  constructor(private readonly occupation: OccupationService) {}
+  constructor(
+    private readonly occupation: OccupationService,
+    // Prakash's registry, reused rather than re-resolved. It already owns the fallback chain,
+    // the version pinning and the pack cache — and a second resolver here is precisely how the
+    // engine and the deploy gate came to disagree about a worker's family once already.
+    private readonly packs: PackRegistryService,
+  ) {}
 
   /**
    * Resolve an occupation from a worker's words. Read-only — no event.
@@ -51,6 +63,55 @@ export class OccupationController {
       embed_spent: result.embedSpent,
       reason: result.reason,
     };
+  }
+
+  /**
+   * Which question pack a family or an occupation gets. Read-only — no event.
+   *
+   * THE THREE SELECTORS ANSWER THREE DIFFERENT QUESTIONS, which is why they are not
+   * interchangeable:
+   *
+   *   job_domain_id  "what would this worker actually be asked" — walks the fallback chain,
+   *                  so an unauthored trade correctly answers with its parent's pack.
+   *   family_id      "what does THIS family own" — no fall-through, so ops can see that a
+   *                  family has no pack yet instead of being shown somebody else's.
+   *   pack_id+ver    the exact pinned version, never re-resolved to whatever is active now.
+   */
+  @Post("question-pack")
+  @HttpCode(200)
+  async questionPack(
+    @Body(new ZodValidationPipe(ResolveQuestionPackDtoSchema)) dto: ResolveQuestionPackDto,
+  ) {
+    const now = Date.now();
+    let pack = null;
+
+    if (dto.pack_id !== undefined && dto.pack_version !== undefined) {
+      pack = await this.packs.loadPinned(dto.pack_id, dto.pack_version, now);
+    } else if (dto.family_id !== undefined) {
+      pack = await this.packs.loadForFamily(dto.family_id, now);
+    } else if (dto.job_domain_id !== undefined) {
+      const domain = this.occupation.describeDomain(dto.job_domain_id);
+      // A 404 here, rather than falling through to the universal pack. The caller named an
+      // occupation; answering about a different one would be a wrong answer wearing a 200.
+      if (domain === null) throw new NotFoundException("unknown or non-selectable occupation");
+      pack = await this.packs.resolveForOccupation(
+        {
+          job_domain_id: domain.jobDomainId,
+          label: domain.label,
+          isco_unit_code: domain.iscoUnitCode,
+          match_status: "matched_lexical",
+          match_score: null,
+          match_layer: null,
+          pack_id: null,
+          pack_version: null,
+          catalog_version: domain.catalogVersion,
+        },
+        now,
+      );
+    }
+
+    if (pack === null) throw new NotFoundException("no active question pack for that selector");
+    return { pack };
   }
 
   /** Catalogue metadata for one occupation, served from the in-process snapshot. */

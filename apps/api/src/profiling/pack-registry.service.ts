@@ -31,7 +31,20 @@ import { resolveFamily } from "@badabhai/db";
 
 import { SERVER_CONFIG } from "../config/config.module";
 import { isValidPredicate } from "./predicate";
-import type { PackItemRow, PackOptionRow, PackRepository } from "./pack.repository";
+import type { PackItemRow, PackOptionRow } from "./pack.repository";
+// A VALUE import, and it has to be. `PackRepository` is constructor-injected below, and Nest
+// reads that dependency from the `design:paramtypes` TypeScript emits for the decorator. For a
+// TYPE-ONLY import there is no value at runtime, so the compiler emits `Function` instead of the
+// class and Nest resolves the dependency to nothing:
+//
+//     Nest can't resolve dependencies of PackRegistryService (SERVER_CONFIG, ?)
+//
+// It stayed latent through all of Phase 5 because this module is dark — nothing imported it, so
+// the container never built it, every unit test hand-constructs `new PackRegistryService(...)`,
+// and `profiling.module.boot.test.ts` asserts on `@Module` METADATA rather than on a compiled
+// container (the runner does not emit `design:paramtypes` at all, so it cannot do otherwise).
+// The first thing to import this module found it instantly, at boot, in CI.
+import { PackRepository } from "./pack.repository";
 
 /** How long a resolved pack stays in process. A pack edit is a deploy-scale event, not a turn. */
 export const PACK_CACHE_TTL_MS = 900_000;
@@ -105,6 +118,24 @@ export class PackRegistryService {
       remaining = remaining.filter((binding) => binding.familyId !== resolved.familyId);
     }
     return null;
+  }
+
+  /**
+   * The active pack a FAMILY owns, with no fallback chain.
+   *
+   * DELIBERATELY NOT A FALL-THROUGH. `resolveForOccupation` answers "what would this worker be
+   * asked", and falling through to a parent family is the right answer there. This answers "what
+   * does THIS family own", which ops tooling and the pack-authoring loop need in order to see
+   * that a family has no pack yet — a question a fall-through would silently answer with somebody
+   * else's pack.
+   *
+   * Returns `null` when the family has no active pack in the configured locale. That is a normal
+   * state during Phase 6 authoring, not an error.
+   */
+  async loadForFamily(familyId: string, now: number): Promise<QuestionPack | null> {
+    const heads = await this.repo.findActivePacks([familyId], this.config.PROFILING_PACK_LOCALE);
+    const head = heads[0];
+    return head ? this.load(head.packId, head.version, now) : null;
   }
 
   /**
