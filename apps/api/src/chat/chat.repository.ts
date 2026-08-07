@@ -4,9 +4,11 @@ import {
   type Database,
   chatSessions,
   chatMessages,
+  workerPackAnswers,
   type ChatSession,
   type ChatMessage,
   type NewChatMessage,
+  type NewWorkerPackAnswer,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -56,6 +58,48 @@ export class ChatRepository {
   async insertMessages(tx: Tx, rows: NewChatMessage[]): Promise<ChatMessage[]> {
     if (rows.length === 0) return [];
     return tx.insert(chatMessages).values(rows).returning();
+  }
+
+  /**
+   * The interview's answers, as ONE multi-row INSERT (OIE Phase 8).
+   *
+   * UPSERT ON `wpa_worker_question_uq`, which is what makes a re-flush safe. The buffer survives
+   * a rolled-back transaction and the next POST re-drives the whole flush, so this statement runs
+   * a second time with the same rows — `DO UPDATE` turns that into a no-op rewrite instead of a
+   * unique violation that would fail the retry the first failure exists to enable.
+   *
+   * IT IS ALSO THE RE-INTERVIEW SEMANTIC, not merely a retry guard. The index deliberately omits
+   * `pack_version`, so a worker re-interviewed under pack v2 REPLACES their v1 answer for the
+   * same `question_key` rather than accumulating a second row every reader would then have to
+   * rank. Every column is overwritten, including `pack_version` itself — the row must describe
+   * the interview that produced the value it now holds.
+   *
+   * NO `.returning()`. Nothing needs the ids, and returning twelve rows across the transaction
+   * boundary is bytes spent on the path where the worker is waiting for their closing reply.
+   */
+  async insertPackAnswers(tx: Tx, rows: NewWorkerPackAnswer[]): Promise<void> {
+    if (rows.length === 0) return;
+    await tx
+      .insert(workerPackAnswers)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: [
+          workerPackAnswers.workerId,
+          workerPackAnswers.packId,
+          workerPackAnswers.questionKey,
+        ],
+        set: {
+          chatSessionId: sql`excluded.chat_session_id`,
+          packVersion: sql`excluded.pack_version`,
+          answerText: sql`excluded.answer_text`,
+          answerNumber: sql`excluded.answer_number`,
+          answerBool: sql`excluded.answer_bool`,
+          answerOptionKeys: sql`excluded.answer_option_keys`,
+          status: sql`excluded.status`,
+          source: sql`excluded.source`,
+          answeredAt: sql`excluded.answered_at`,
+        },
+      });
   }
 
   async createSession(workerId: string): Promise<ChatSession> {

@@ -50,3 +50,33 @@ export const ResolveQuestionPackDtoSchema = z
     message: "pack_id and pack_version must be given together",
   });
 export type ResolveQuestionPackDto = z.infer<typeof ResolveQuestionPackDtoSchema>;
+
+/**
+ * The pseudonymizer's residual-digit fail-closed rule (7+ digit run), re-checked here.
+ *
+ * Includes Devanagari digits because JS `\d` is ASCII-only while the Python pseudonymizer's
+ * is Unicode-aware — a boundary looser than the upstream gate is not a boundary. Copied
+ * from `skills.dto.ts` rather than shared: this is defence in depth, and two independent
+ * checks that happen to agree are worth more here than one check imported twice.
+ */
+const RESIDUAL_DIGITS = /[\d०-९]{7,}/;
+
+/**
+ * One below-floor occupation phrase for the growth queue.
+ *
+ * THE PHRASE ARRIVES ALREADY PSEUDONYMIZED (SG-1). This service cannot do it — the
+ * pseudonymizer lives in the ai-service — so the caller's guarantee is the contract, and the
+ * digit check below is the defence against a caller that breaks it. A phrase that reaches
+ * this table un-pseudonymized is worker PII at rest in an ops queue.
+ */
+export const RecordUnresolvedOccupationDtoSchema = z.object({
+  phrase: z
+    .string()
+    .min(1)
+    .max(500)
+    .refine((v) => !RESIDUAL_DIGITS.test(v), {
+      message: "phrase contains a residual numeric sequence (pseudonymize first)",
+    }),
+  lang: z.string().min(2).max(8).default("hi"),
+});
+export type RecordUnresolvedOccupationDto = z.infer<typeof RecordUnresolvedOccupationDtoSchema>;

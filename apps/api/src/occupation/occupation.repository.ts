@@ -193,6 +193,31 @@ export class OccupationRepository {
   }
 
   /**
+   * The NEGATIVE CACHE probe: has this phrase already been recorded as reaching nothing?
+   *
+   * The plan's caching table names `unresolved_phrase` as the negative cache, with "ops sets
+   * `status='resolved'`" as its only invalidation. So an OPEN row in the `occupation` scope
+   * means "known miss, nobody has authored an alias for it yet" — and rediscovering that
+   * with a trigram scan plus possibly an ANN probe is pure waste on a phrase workers repeat.
+   *
+   * MATCHED ON THE NORMALIZED FORM, which is why `OccupationService.recordUnresolved` writes
+   * the normalized form. Matching raw text would miss "Silai ka kaam!" against a stored
+   * "silai", and the cache would never hit for the same phrase said twice — a cache that
+   * silently never hits looks exactly like a cache that is working.
+   *
+   * `status` is checked, not just the row's existence: once ops resolves a phrase the queue
+   * keeps the row for its count history, and a resolved row must stop suppressing anything.
+   */
+  async isKnownUnresolved(phraseNorm: string): Promise<boolean> {
+    const rows = await this.db.execute(sql`
+      SELECT 1 FROM unresolved_phrase
+      WHERE scope = 'occupation' AND status = 'open' AND phrase = ${phraseNorm}
+      LIMIT 1
+    `);
+    return (rows as unknown as unknown[]).length > 0;
+  }
+
+  /**
    * Layer L2 — trigram similarity over the normalized alias text.
    *
    * `word_similarity(query, target)` is ASYMMETRIC and that is why it is used: it asks how

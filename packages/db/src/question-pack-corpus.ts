@@ -28,6 +28,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { checkPersonaTokens } from "@badabhai/profiling-lexicon";
 import {
   predicateFields,
   validatePredicate,
@@ -278,6 +279,11 @@ export function checkPromptPersona(text: string, where: string): string[] {
   }
   if (text.includes("!")) problems.push(`${where}: prompt contains an exclamation mark`);
   if (EMOJI_RE.test(text)) problems.push(`${where}: prompt contains an emoji`);
+  // THE BANNED-TOKEN LISTS, lifted from `persona.py` into `data/persona.json` before Phase 8
+  // deletes that file. `persona_guard.check_turn` enforced these per turn against a model's
+  // output, with a repair retry; the deterministic engine's prompts are AUTHORED, so the same
+  // rules become a build-time gate over text that cannot change at runtime. Strictly stronger.
+  for (const problem of checkPersonaTokens(text)) problems.push(`${where}: ${problem}`);
   return problems;
 }
 

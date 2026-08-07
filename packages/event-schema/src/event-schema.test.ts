@@ -2436,8 +2436,8 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 147 event names (146 prior + worker.notification_prefs_updated)", () => {
-    expect(EVENT_NAMES).toHaveLength(147);
+  it("exposes all 151 event names (146 prior + notification prefs + the four OIE events)", () => {
+    expect(EVENT_NAMES).toHaveLength(151);
     // #643 — the worker's push toggle. Emitted because the flag GATES the ADR-0034
     // fan-out; the Alerts read watermark shipped with it emits nothing (a read
     // position is not a business action, §1) and deliberately has no name here.
@@ -2580,6 +2580,11 @@ describe("registry", () => {
     expect(isEventName("feed.shown")).toBe(true);
     expect(isEventName("application.submitted")).toBe(true);
     expect(isEventName("application.skipped")).toBe(true);
+    // The Occupation Intelligence Engine's four (Phase 8 cutover).
+    expect(isEventName("occupation.phrase_unresolved")).toBe(true);
+    expect(isEventName("profile.occupation_identified")).toBe(true);
+    expect(isEventName("profile.occupation_unresolved")).toBe(true);
+    expect(isEventName("profile.parse_disagreement")).toBe(true);
     expect(isEventName("nope")).toBe(false);
   });
 
@@ -2858,5 +2863,157 @@ describe("job_posting.updated changed_fields — TAX-6 additive enum member", ()
         },
       }),
     ).toThrow(EventValidationException);
+  });
+});
+
+/**
+ * The Occupation Intelligence Engine's cutover events (Phase 8).
+ *
+ * Every one of them describes something that happened to a SPECIFIC worker's OWN WORDS,
+ * which makes them the highest-risk payloads in the registry for PII leakage: the
+ * interesting thing about a retrieval miss or a parse disagreement is precisely the text,
+ * and the text is exactly what may never be written. Each `.strict()` is therefore asserted
+ * with the field a well-meaning future change would most plausibly add.
+ */
+describe("OIE cutover payloads (Phase 8) — ids, codes and counts, never worker text", () => {
+  function oieEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "system" },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload,
+    };
+  }
+
+  const IDENTIFIED = {
+    worker_id: UUID_B,
+    job_domain_id: "jd_nco_7212_0100",
+    match_status: "matched_lexical",
+    catalog_version: "cat_2026_08_01",
+  };
+
+  it("validates profile.occupation_identified and defaults every optional field", () => {
+    const result = validateEvent(oieEvent("profile.occupation_identified", IDENTIFIED));
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "profile.occupation_identified") {
+      expect(result.event.payload.session_id).toBeNull();
+      expect(result.event.payload.family_id).toBeNull();
+      expect(result.event.payload.match_layer).toBeNull();
+      expect(result.event.payload.candidate_count).toBe(0);
+    }
+  });
+
+  it("rejects profile.occupation_identified carrying the worker's utterance (.strict)", () => {
+    // THE tempting field. "Which words produced this match" is the single most useful thing
+    // for tuning retrieval and the single most forbidden thing to put in the event spine —
+    // `occupation.phrase_unresolved.phrase_hash` is the only sanctioned shape for it.
+    const bad = validateEvent(
+      oieEvent("profile.occupation_identified", { ...IDENTIFIED, utterance: "silai ka kaam" }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects an UNMATCHED status on profile.occupation_identified", () => {
+    // The name is a claim. An `unmatched_*` status here would make "how many workers did we
+    // place" a query nobody can write correctly, because the identified event would silently
+    // be counting the failures too.
+    const bad = validateEvent(
+      oieEvent("profile.occupation_identified", {
+        ...IDENTIFIED,
+        match_status: "unmatched_below_floor",
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects a match_score outside [0,1] — the CALIBRATED confidence, not a raw layer score", () => {
+    const bad = validateEvent(
+      oieEvent("profile.occupation_identified", { ...IDENTIFIED, match_score: 1.4 }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("validates profile.occupation_unresolved across all four reasons", () => {
+    for (const reason of ["below_floor", "ambiguous", "declined", "degraded"]) {
+      const result = validateEvent(
+        oieEvent("profile.occupation_unresolved", {
+          worker_id: UUID_B,
+          reason,
+          catalog_version: "cat_2026_08_01",
+        }),
+      );
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("rejects profile.occupation_unresolved with an unlisted reason", () => {
+    const bad = validateEvent(
+      oieEvent("profile.occupation_unresolved", {
+        worker_id: UUID_B,
+        reason: "gave_up",
+        catalog_version: "cat_2026_08_01",
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("validates profile.parse_disagreement with field ids and counts", () => {
+    const result = validateEvent(
+      oieEvent("profile.parse_disagreement", {
+        worker_id: UUID_B,
+        field_ids: ["salary_expected", "experience_years"],
+        disagreement_count: 2,
+        agreement_count: 9,
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects profile.parse_disagreement carrying either side's VALUE (.strict)", () => {
+    // Both values are worker data: one is what they said, the other is what the model
+    // claimed they said. Recording the disagreement is the point; recording the dispute's
+    // contents would put the answer itself in the spine.
+    for (const smuggled of [{ llm_values: ["18000"] }, { deterministic_values: ["15000"] }]) {
+      const bad = validateEvent(
+        oieEvent("profile.parse_disagreement", {
+          worker_id: UUID_B,
+          field_ids: ["salary_expected"],
+          disagreement_count: 1,
+          agreement_count: 0,
+          ...smuggled,
+        }),
+      );
+      expect(bad.success).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
+
+  it("rejects a field id outside the ^[a-z_]+$ RFS vocabulary", () => {
+    // The same filter `slugFieldIds` applies before the flush transaction. Without it, a
+    // "field id" that is really a snippet of worker prose sails straight into the payload.
+    const bad = validateEvent(
+      oieEvent("profile.parse_disagreement", {
+        worker_id: UUID_B,
+        field_ids: ["mera naam Ramesh hai"],
+        disagreement_count: 1,
+        agreement_count: 0,
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects occupation.phrase_unresolved carrying the phrase itself (.strict)", () => {
+    const bad = validateEvent(
+      oieEvent("occupation.phrase_unresolved", {
+        phrase_hash: "a".repeat(64),
+        lang: "hi",
+        count: 3,
+        phrase: "kharad ka kaam",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
   });
 });

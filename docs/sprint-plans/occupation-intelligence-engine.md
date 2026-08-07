@@ -806,6 +806,64 @@ must be *in* this PR and not spread across earlier ones. Migrations 0070/0075/00
 In-flight Redis conversations: the envelope is `v: 2` and the reverted code reads `v: 1` shape via `narrow()`,
 which drops unknown keys and yields a clean restart rather than a crash. Bounded by the 24 h TTL.
 
+#### AS BUILT — every scope bullet met, five deltas, three deferrals
+
+The cutover landed as one PR, deletions included, so `git revert` remains the whole rollback story.
+Every bullet in the Scope block above exists and is wired. Five things differ from the plan's
+wording, each forced by running it against the code rather than by preference.
+
+1. **The migrations are 0071 and 0072, not 0075 and 0076.** drizzle-kit assigns sequentially, and
+   0071/0072 are INSIDE Divyanshu's reserved block (0067–0074). The reservation exists so two
+   people generating concurrently do not collide on `NNNN_slug.sql` + `_journal.json` +
+   snapshot; with one owner on both halves there is no collision to avoid, and renumbering to
+   0075 by hand would introduce exactly the journal-editing risk the protocol exists to remove.
+   Same tables, same contents, lower numbers.
+
+2. **`worker_pack_answer` gained a `status` column, and the CHECK became a biconditional.** The
+   plan specifies `CHECK (exactly one answer_* column is non-null)`, which cannot represent a
+   DECLINED answer — and "nahi pata" is the plan's own hardest-won rule: a declination is a
+   COMPLETE answer, never a gap. Persisting only valued answers would make "the worker told us
+   they do not know" indistinguishable from "we never asked", and only one of those means the
+   next interview should ask again. `wpa_answer_shape_chk` now reads
+   `(status = 'answered') = (exactly one value column is non-null)`, which preserves the plan's
+   intent — no row whose status lies about its contents — while keeping the declination.
+
+3. **The column is `job_domain_match_layer`, not the plan's bare `match_layer`.** It sits beside
+   `job_domain_match_status` and `job_domain_match_score` on `worker_profiles`; a lone
+   `match_layer` on that table reads as being about something else.
+
+4. **`IdentifyService` is new, and it is the piece that made the cutover work at all.** Phase 5
+   shipped an orchestrator with an `occupation` field nothing wrote and a `disambiguate`
+   decision that failed closed for want of chips; Phase 7 shipped the ladder and the chip offer
+   with no caller. Neither phase's scope named the join, and without it the deterministic
+   interview could only ever run the universal pack. It also carries the ONE outbound call the
+   interview makes — `/pseudonymize`, on the miss path, at most once per interview, before a
+   phrase reaches the growth queue. That is a regex pass, not a model, so the "zero LLM calls
+   between session start and completion" gate is untouched.
+
+5. **`domain_match.py`'s ambiguous case is now UNMATCHED rather than a model pick.** The plan
+   says to delete the LLM pick and keep the module; what it does not say is what happens where
+   the pick used to run. Guessing between two near-identical occupations without asking anyone
+   is the exact failure the floor exists to prevent, and this path only runs for a session with
+   no answer map. `pinned_job_domain_id` short-circuits before any of it.
+
+**Deferred, deliberately, with owners:**
+
+- **`docs/architecture/overview.md` and `AI-PROFILING-ARCHITECTURE-STATUS.md` do not exist in
+  this repository.** `docs/` contains only `sprint-plans/`. The plan's instruction to update
+  them cannot be carried out against files that are not here; **ADR-0038** was written instead
+  and carries the superseding decision. If those documents live on another branch they need a
+  separate pass — *joint, Phase 9*.
+- **`MAX_OCCUPATION_REPINS = 1` is implemented as ZERO re-pins.** `IdentifyService` returns
+  early on any pinned occupation, which is stricter than risk #12 asks for. Nothing in the
+  engine yet distinguishes "I changed trades" from "I mentioned a second machine", and a re-pin
+  discards the unanswered questions of the old pack. Widening it needs real utterances to judge
+  against — *Divyanshu, Phase 9*.
+- **`profiling_persona_guard_enabled` and `profiling_persona_repair_retries` are now inert.**
+  The guard they configure is deleted. Left in `config.py` because removing an env key is a
+  deploy-surface change that belongs in its own PR — *Prakash's half, next ai-service config
+  pass*.
+
 ---
 
 ### Phase 9 — Calibration, Verification & Hardening  *(Owners: joint · L · after P8)*

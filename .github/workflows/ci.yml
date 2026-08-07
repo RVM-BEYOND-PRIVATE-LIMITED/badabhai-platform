@@ -344,6 +344,40 @@ jobs:
       - name: Seed alpha jobs
         run: pnpm --filter @badabhai/db db:seed:jobs
 
+      # OIE Phase 8 — THE INTERVIEW NOW READS THESE TABLES ON EVERY TURN.
+      #
+      # Before the cutover the chat turn called the ai-service and needed no reference
+      # data at all; a migrated-but-unseeded database was fine. It is not fine now:
+      # `ProfilingOrchestrator.resolvePacks` fails closed when the UNIVERSAL pack is
+      # missing, so without these steps every e2e chat turn returns the unavailable line
+      # and the failure looks like a broken orchestrator rather than an unseeded database.
+      #
+      # Occupations first, then packs: `profiling_family_binding` references ISCO unit
+      # codes that only exist once the domains are in.
+      #
+      # Idempotent and PII-free — public occupation reference data and reviewed interview
+      # copy. Deterministic ids make a re-run a row-level no-op.
+      #
+      # `--apply` IS REQUIRED. Every script in this family is DRY-RUN by default: without
+      # the flag they print the corpus they would write, exit 0, and touch nothing. That is
+      # not a hypothetical — the first version of these two steps omitted it, both went
+      # green, and `db:verify:packs` below then failed with "the pack tables are EMPTY".
+      # A seed step that passes while seeding nothing is worse than no seed step, because
+      # the green tick is the thing you would trust. Same reasoning, and the same flag, as
+      # `db:seed:match:vocabulary` further down.
+      - name: Seed job domains (occupation catalogue)
+        run: pnpm --filter @badabhai/db db:seed:domains --apply
+
+      - name: Seed question packs
+        run: pnpm --filter @badabhai/db db:seed:packs --apply
+
+      # The deploy gate, run against the LIVE database rather than the corpus. The
+      # `--corpus` variant in the node job checks the JSONL; this one checks what actually
+      # landed — including "exactly one active pack per (family, locale)" and "a universal
+      # pack exists", neither of which a corpus read can prove.
+      - name: Verify question packs (db:verify:packs)
+        run: pnpm --filter @badabhai/db db:verify:packs
+
       # D1 — the Matching V1 match vocabulary. Needed here for TWO reasons, and the second
       # is the load-bearing one:
       #   1. It is reference data only — `MATCH_SKILLS` + the symmetric `skill_related`
