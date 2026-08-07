@@ -25,7 +25,8 @@
 import { createHash } from "node:crypto";
 
 import { Injectable, Logger } from "@nestjs/common";
-import { matchSpan, normalizeOccupationText } from "@badabhai/profiling-lexicon";
+import { idfOverlap, matchSpan, normalizeOccupationText } from "@badabhai/profiling-lexicon";
+import { DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 
 import { EventsService } from "../events/events.service";
 
@@ -67,7 +68,8 @@ export interface ResolvedCandidate {
 }
 
 export interface DisambiguationOption {
-  readonly jobDomainId: string;
+  /** `null` on the "Kuch aur" escape — the tap that resolves to no occupation. */
+  readonly jobDomainId: string | null;
   readonly familyId: string | null;
   /** What the worker sees and taps. Becomes their answer of record verbatim. */
   readonly label: string;
@@ -143,29 +145,54 @@ export class OccupationService {
       });
     };
 
+    // NORMALIZED ONCE, USED BY EVERYTHING BELOW. `trigramCandidates`' parameter is named
+    // `queryNorm` and its SQL compares against `a.text_norm`, the column
+    // `normalizeOccupationText` wrote. L0/L1 never needed it because `matchSpan` normalizes
+    // internally — which is exactly why passing the raw utterance to L2 was invisible: the
+    // two layers that run first are immune, and L2 is only reached when they miss.
+    const queryNorm = normalizeOccupationText(text);
+
     // ── L0 / L1 — in-process, free ────────────────────────────────────────────────
     const lexical = matchSpan(snapshot.spans, text);
     if (lexical !== null) {
       for (const id of lexical.ids) consider(id, lexical.layer, 1);
     }
 
-    let result = this.judge(byDomain, snapshot.catalogVersion, snapshot);
+    let result = this.judge(byDomain, snapshot.catalogVersion, snapshot, queryNorm);
     if (result.status === "auto") return result;
 
-    // ── L2 — trigram over the normalized alias text ───────────────────────────────
+    // ── NEGATIVE CACHE — a phrase we already know reaches nothing ─────────────────
     //
-    // NORMALIZED HERE, and it has to be. `trigramCandidates`' parameter is named `queryNorm` and
-    // its SQL compares against `a.text_norm`, the column `normalizeOccupationText` wrote. L0/L1
-    // never needed this because `matchSpan` normalizes internally — which is exactly why passing
-    // the raw utterance here was invisible: the two layers that run first are immune, and L2 is
-    // only reached when they miss. For any conversational sentence ("kapde silne ka kaam karta
-    // hun") that is EVERY time, so the ladder's only fuzzy layer returned nothing for precisely
-    // the inputs it exists to catch.
-    const queryNorm = normalizeOccupationText(text);
+    // The growth queue IS the negative cache (the plan's caching table says so): a phrase
+    // recorded `scope='occupation'`, still `status='open'`, is one ops has not yet turned
+    // into an alias. Every worker who says it will miss again, so paying for a trigram scan
+    // and possibly an ANN probe to rediscover that is pure waste on a repeated phrase.
+    //
+    // PROBED ONLY AFTER L0/L1 AND ONLY WHEN THEY FOUND NOTHING USABLE. A phrase can be in
+    // the queue AND newly resolvable — ops adds an alias, `status` stays `open` until
+    // someone closes it, and the catalogue has moved on. Letting the free layers speak first
+    // means a stale queue row can never suppress a hit that now exists.
+    if (byDomain.size === 0 && queryNorm.length > 0) {
+      const known = await this.repo.isKnownUnresolved(queryNorm);
+      if (known) {
+        return {
+          status: "unresolved",
+          catalogVersion: snapshot.catalogVersion,
+          pinned: null,
+          candidates: [],
+          disambiguationOptions: [],
+          needsDisambiguation: false,
+          embedSpent: false,
+          reason: "negative cache hit — phrase is an open unresolved occupation phrase",
+        };
+      }
+    }
+
+    // ── L2 — trigram over the normalized alias text ───────────────────────────────
     for (const c of await this.repo.trigramCandidates(queryNorm, LAYER_FANOUT)) {
       consider(c.jobDomainId, "L2", c.rawScore);
     }
-    result = this.judge(byDomain, snapshot.catalogVersion, snapshot);
+    result = this.judge(byDomain, snapshot.catalogVersion, snapshot, queryNorm);
     if (result.status === "auto") return result;
 
     // ── L3 — vector ANN, only when the caller already paid for the embedding ──────
@@ -176,7 +203,7 @@ export class OccupationService {
       for (const c of await this.skills.nearestDomains([...vector], LAYER_FANOUT)) {
         consider(c.job_domain_id, "L3", c.score);
       }
-      result = this.judge(byDomain, snapshot.catalogVersion, snapshot);
+      result = this.judge(byDomain, snapshot.catalogVersion, snapshot, queryNorm);
     }
 
     return result;
@@ -194,11 +221,31 @@ export class OccupationService {
     byDomain: ReadonlyMap<string, ScoredCandidate>,
     catalogVersion: string,
     snapshot: NonNullable<ReturnType<OccupationIndexService["snapshot"]>>,
+    utteranceNorm = "",
   ): ResolveResult {
+    // IDF OVERLAP IS THE THIRD TIE-BREAK, AND IT IS THE ONLY ONE THAT READS THE WORKER'S
+    // OTHER WORDS. Confidence and layer are properties of the MATCH, so when one span is
+    // claimed by several domains they are identical by construction and the remaining key
+    // (the id) is arbitrary. "mistri" reaches a mason and a general repairman with exactly
+    // the same evidence — but "raj mistri deewar banata hoon" contains `deewar`, which
+    // belongs to masonry and not to repair. Inverse document frequency is what stops `kaam`,
+    // present in hundreds of aliases, from counting as much as `deewar`.
+    //
+    // A TIE-BREAK ONLY: it reorders candidates that already scored equally and can never
+    // lift one past a threshold. Anything stronger would be a fifth retrieval layer with no
+    // calibration behind it, and the ladder has four.
+    const overlap = new Map<string, number>();
+    if (utteranceNorm.length > 0) {
+      for (const id of byDomain.keys()) {
+        overlap.set(id, idfOverlap(snapshot.spans, utteranceNorm, id));
+      }
+    }
+
     const ordered = [...byDomain.values()].sort(
       (a, b) =>
         b.confidence - a.confidence ||
         LAYER_RANK[a.layer] - LAYER_RANK[b.layer] ||
+        (overlap.get(b.jobDomainId) ?? 0) - (overlap.get(a.jobDomainId) ?? 0) ||
         a.jobDomainId.localeCompare(b.jobDomainId),
     );
 
@@ -239,31 +286,65 @@ export class OccupationService {
    * narrowing question — which for a genuinely ambiguous word like "mistri" is the honest
    * product answer, not a degraded one.
    *
-   * The plan's preferred repair — qualifying the duplicate from a parent label — needs a
-   * vernacular qualifier this snapshot does not carry. `label_hi` exists on FAMILIES (Phase
-   * 2 minted it there rather than on 4,071 domains), so the repair is to widen the snapshot
-   * with family labels. Deliberately not done blind here: qualifying a Hindi chip with an
-   * English parent title would be worse for a low-literacy reader than asking a question.
+   * QUALIFY FIRST, ABANDON SECOND — the plan's two-step repair. Chips are already one per
+   * FAMILY, so two colliding chips are two genuinely different trades that happen to share
+   * their shortest alias. The family's own `label_hi` is exactly the qualifier that
+   * separates them, and it is vernacular rather than an English parent title, so it stays
+   * readable for the worker being shown it. Only when qualification ALSO collides — two
+   * families sharing a label, or one lacking one — is the offer abandoned for an open
+   * narrowing question.
    */
   private buildOffer(
     options: readonly ScoredCandidate[],
     snapshot: NonNullable<ReturnType<OccupationIndexService["snapshot"]>>,
   ): { options: DisambiguationOption[]; abandoned: boolean; reason: string } {
-    const built: DisambiguationOption[] = [];
-    const labels = new Set<string>();
+    const raw: { candidate: ScoredCandidate; label: string }[] = [];
     for (const c of options) {
       const label = snapshot.domains.get(c.jobDomainId)?.chipLabel;
-      if (label === undefined) continue;
-      if (labels.has(label)) {
+      if (label !== undefined) raw.push({ candidate: c, label });
+    }
+
+    const collides = new Set(
+      raw.filter((r, i) => raw.findIndex((o) => o.label === r.label) !== i).map((r) => r.label),
+    );
+    const qualified = raw.map((r) => {
+      if (!collides.has(r.label)) return r;
+      const familyLabel =
+        r.candidate.familyId === null
+          ? null
+          : (snapshot.familyLabels.get(r.candidate.familyId) ?? null);
+      return familyLabel === null ? r : { candidate: r.candidate, label: familyLabel };
+    });
+
+    const seen = new Set<string>();
+    for (const r of qualified) {
+      if (seen.has(r.label)) {
         return {
           options: [],
           abandoned: true,
-          reason: `two candidates share the chip label ${JSON.stringify(label)}; offering both would record an ambiguous tap as a deliberate answer`,
+          reason: `two candidates share the chip label ${JSON.stringify(r.label)} even after family qualification; an ambiguous tap would be recorded as a deliberate answer`,
         };
       }
-      labels.add(label);
-      built.push({ jobDomainId: c.jobDomainId, familyId: c.familyId, label });
+      seen.add(r.label);
     }
+
+    const built: DisambiguationOption[] = qualified.map((r) => ({
+      jobDomainId: r.candidate.jobDomainId,
+      familyId: r.candidate.familyId,
+      label: r.label,
+    }));
+
+    // THE ESCAPE, appended last and deliberately NOT counted against the four-chip cap.
+    //
+    // Without it the offer is a trap. A worker whose trade is not among the chips has no way
+    // to say so, and the chip they tap anyway becomes their answer of record verbatim — at
+    // which point a wrong tap is indistinguishable from a right one for the rest of the
+    // interview. `jobDomainId: null` is what tells the caller this tap resolves to no
+    // occupation and the engine must broaden instead of pinning.
+    if (built.length > 0) {
+      built.push({ jobDomainId: null, familyId: null, label: DISAMBIGUATION_ESCAPE_LABEL });
+    }
+
     return { options: built, abandoned: false, reason: "" };
   }
 
@@ -285,10 +366,28 @@ export class OccupationService {
    * index's NULLS NOT DISTINCT is what still collapses repeats onto one counted row.
    */
   async recordUnresolved(phrase: string, lang: string): Promise<{ count: number }> {
-    const { id, count } = await this.skills.recordUnresolved(phrase, null, lang, "occupation");
+    // STORED NORMALIZED, so `isKnownUnresolved` can find it again. The probe runs on
+    // `normalizeOccupationText(utterance)`; storing the raw phrase would mean the negative
+    // cache never hits for the same trade said twice with different punctuation or particles
+    // — and a cache that silently never hits is indistinguishable from one that works.
+    //
+    // Normalization also improves the ops queue: it is the same key the alias corpus uses,
+    // so a promoted phrase becomes an `rvm` alias with no further editing, and repeats
+    // collapse onto one counted row instead of one row per phrasing.
+    const normalized = normalizeOccupationText(phrase);
+    // The empty-guard matters: a phrase made entirely of particles normalizes to "" and an
+    // empty key would collapse every such phrase onto one row under NULLS NOT DISTINCT.
+    const stored = normalized.length > 0 ? normalized : phrase;
+    const { id, count } = await this.skills.recordUnresolved(stored, null, lang, "occupation");
+
     // HASH ONLY. Even the pseudonymized text never rides the event spine — the same rule
     // `SkillsService.recordUnresolved` follows, and the reason its payload is `.strict()`.
-    const phraseHash = createHash("sha256").update(phrase, "utf8").digest("hex");
+    //
+    // HASHED OVER THE VALUE THAT WAS STORED, not the raw argument. The hash's only purpose
+    // is to let an ops consumer correlate an event back to a queue row without either of
+    // them carrying the text; hashing a different string than the row holds would make that
+    // correlation quietly impossible while still producing a valid-looking payload.
+    const phraseHash = createHash("sha256").update(stored, "utf8").digest("hex");
     await this.events.emit({
       event_name: "occupation.phrase_unresolved",
       actor: { actor_type: "ai_service", actor_id: null },

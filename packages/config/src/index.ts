@@ -8,6 +8,9 @@
  * crash because a server-only key is absent.
  */
 export * from "./shared";
+// Occupation-retrieval tuning: the calibration curve and decision thresholds. NOT env-derived —
+// see the file header for why these must not vary per environment.
+export * from "./occupation-tuning";
 export * from "./server";
 // Public config is re-exported for convenience in backend code, but frontends
 // should import the dedicated "@badabhai/config/public" entry point.

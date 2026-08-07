@@ -44,16 +44,43 @@ const snapshot = buildOccupationSnapshot({
   bindings: BINDINGS,
 });
 
+/**
+ * The same catalogue, but with family labels present.
+ *
+ * Split from the fixture above on purpose: `snapshot` has NO family labels, so the collision
+ * guard there must abandon, and this one has them, so it must qualify instead. Two fixtures
+ * is what makes those two behaviours separately assertable — with one, whichever branch the
+ * fixture happened to exercise would be the only one ever tested.
+ */
+const snapshotWithFamilyLabels = buildOccupationSnapshot({
+  catalogVersion: "cat-1",
+  domains: [
+    { jobDomainId: "jd_mason", labelEn: "Mason, Building", labelHi: null, iscoUnitCode: "7112" },
+    { jobDomainId: "jd_plumb", labelEn: "Plumber, General", labelHi: null, iscoUnitCode: "7126" },
+  ],
+  aliases: [
+    { jobDomainId: "jd_mason", text: "mistri" },
+    { jobDomainId: "jd_plumb", text: "mistri" },
+  ],
+  bindings: BINDINGS,
+  familyLabels: new Map([
+    ["fam_masonry", "राजमिस्त्री का काम"],
+    ["fam_plumbing", "प्लंबर का काम"],
+  ]),
+});
+
 function make(opts: {
   snapshot?: ReturnType<typeof buildOccupationSnapshot> | null;
   trigram?: TrigramCandidate[];
   vector?: Array<{ job_domain_id: string; label: string; score: number }>;
+  knownUnresolved?: boolean;
 } = {}) {
   const index = {
     snapshot: vi.fn().mockReturnValue(opts.snapshot === undefined ? snapshot : opts.snapshot),
   } as unknown as OccupationIndexService;
   const repo = {
     trigramCandidates: vi.fn().mockResolvedValue(opts.trigram ?? []),
+    isKnownUnresolved: vi.fn().mockResolvedValue(opts.knownUnresolved ?? false),
   } as unknown as OccupationRepository;
   const skills = {
     nearestDomains: vi.fn().mockResolvedValue(opts.vector ?? []),
@@ -152,7 +179,37 @@ describe("OccupationService.resolve — refusing", () => {
     const r = await svc.resolve("kaam");
     expect(r.status).toBe("disambiguate");
     expect(r.needsDisambiguation).toBe(true);
-    expect(r.disambiguationOptions.map((o) => o.label)).toEqual(["वेल्डर", "darzi"]);
+    // The escape rides last on EVERY offer and is not counted against the four-chip cap.
+    expect(r.disambiguationOptions.map((o) => o.label)).toEqual(["वेल्डर", "darzi", "Kuch aur"]);
+  });
+
+  it("appends the 'Kuch aur' escape with a NULL job_domain_id", async () => {
+    // Without it the offer is a trap: a worker whose trade is not on a chip has no way to
+    // say so, and the chip they tap anyway becomes their answer of record verbatim. The null
+    // id is what tells the caller this tap resolves to no occupation.
+    const { svc } = make({
+      trigram: [
+        { jobDomainId: "jd_weld", rawScore: 0.62 },
+        { jobDomainId: "jd_tailor", rawScore: 0.6 },
+      ],
+    });
+    const escape = (await svc.resolve("kaam")).disambiguationOptions.at(-1);
+    expect(escape?.label).toBe("Kuch aur");
+    expect(escape?.jobDomainId).toBeNull();
+  });
+
+  it("QUALIFIES colliding chips from the family label before abandoning", async () => {
+    // "mistri" reaches a mason and a plumber. Two chips reading "mistri" would be a coin
+    // flip recorded as a deliberate answer — but the families have distinct vernacular
+    // names, so the offer survives instead of being thrown away.
+    const { svc } = make({ snapshot: snapshotWithFamilyLabels });
+    const r = await svc.resolve("mistri");
+    expect(r.status).toBe("disambiguate");
+    expect(r.disambiguationOptions.map((o) => o.label)).toEqual([
+      "राजमिस्त्री का काम",
+      "प्लंबर का काम",
+      "Kuch aur",
+    ]);
   });
 
   it("sets needs_disambiguation only when it is actually offering something", async () => {
@@ -172,6 +229,92 @@ describe("OccupationService.resolve — refusing", () => {
     for (const text of ["welder", "mistri", "aaj mausam accha hai"]) {
       expect((await svc.resolve(text)).reason.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("OccupationService.resolve — the negative cache", () => {
+  it("short-circuits a known-unresolved phrase without paying for L2", async () => {
+    // The growth queue IS the negative cache. Rediscovering a known miss with a trigram scan
+    // on every repeat is pure waste on exactly the phrases workers say most.
+    const { svc, repo } = make({ knownUnresolved: true });
+    const r = await svc.resolve("kuch bilkul alag");
+    expect(r.status).toBe("unresolved");
+    expect(r.reason).toContain("negative cache");
+    expect(repo.trigramCandidates).not.toHaveBeenCalled();
+  });
+
+  it("is NOT probed when L0/L1 already found something", async () => {
+    // A phrase can be in the queue AND newly resolvable: ops adds an alias, `status` stays
+    // `open` until someone closes it. Letting the free layers speak first means a stale row
+    // can never suppress a hit that now exists.
+    const { svc, repo } = make({ knownUnresolved: true });
+    const r = await svc.resolve("welder");
+    expect(r.status).toBe("auto");
+    expect(repo.isKnownUnresolved).not.toHaveBeenCalled();
+  });
+
+  it("still climbs to L2 when the phrase is NOT a known miss", async () => {
+    const { svc, repo } = make({ knownUnresolved: false });
+    await svc.resolve("kuch bilkul alag");
+    expect(repo.isKnownUnresolved).toHaveBeenCalled();
+    expect(repo.trigramCandidates).toHaveBeenCalled();
+  });
+});
+
+describe("OccupationService.resolve — the IDF tie-break", () => {
+  it("prefers the claimant whose OTHER tokens match the utterance", async () => {
+    // "mistri" reaches a mason and a plumber with identical evidence. The rest of the
+    // sentence is the only thing that can separate them, and `deewar` belongs to masonry.
+    //
+    // THE IDS ARE CHOSEN SO LEXICOGRAPHIC ORDER DISAGREES WITH THE RIGHT ANSWER. The mason
+    // is `jd_zmason` and the plumber `jd_aplumb`, so the final id tie-break would put the
+    // PLUMBER first. Only the IDF overlap can produce the mason — which is what makes this
+    // test able to fail. The first version used `jd_mason`/`jd_plumb`, where alphabetical
+    // order already gave the expected answer, and deleting the entire tie-break left the
+    // suite green.
+    // THE FILLER DOMAINS ARE NOT PADDING. IDF is `log(N / (df + 1))`, which DEGENERATES TO
+    // ZERO at small N: with only the two domains below, `deewar` scores log(2/2) = 0 and
+    // `mistri` scores log(2/3), clamped to 0 — every weight is zero and the tie-break cannot
+    // fire at all. The real catalogue has N = 4,071, where a df-1 token scores ~7.6. The
+    // filler restores enough N for the formula to mean something, and the first version of
+    // this test failed for exactly this reason before the filler existed.
+    const filler = Array.from({ length: 10 }, (_, i) => ({
+      jobDomainId: `jd_filler_${i}`,
+      labelEn: `Filler ${i}`,
+      labelHi: null,
+      iscoUnitCode: "9999",
+    }));
+    const tie = buildOccupationSnapshot({
+      catalogVersion: "cat-1",
+      domains: [
+        { jobDomainId: "jd_zmason", labelEn: "Mason", labelHi: null, iscoUnitCode: "7112" },
+        { jobDomainId: "jd_aplumb", labelEn: "Plumber", labelHi: null, iscoUnitCode: "7126" },
+        ...filler,
+      ],
+      aliases: [
+        { jobDomainId: "jd_zmason", text: "mistri" },
+        { jobDomainId: "jd_zmason", text: "deewar" },
+        { jobDomainId: "jd_aplumb", text: "mistri" },
+        { jobDomainId: "jd_aplumb", text: "nal" },
+        ...filler.map((f, i) => ({ jobDomainId: f.jobDomainId, text: `filler${i}` })),
+      ],
+      bindings: BINDINGS,
+      familyLabels: new Map([
+        ["fam_masonry", "राजमिस्त्री"],
+        ["fam_plumbing", "प्लंबर"],
+      ]),
+    });
+    const { svc } = make({ snapshot: tie });
+    const r = await svc.resolve("mistri deewar");
+    expect(r.candidates[0]?.jobDomainId).toBe("jd_zmason");
+  });
+
+  it("leaves the order alone when nothing overlaps", async () => {
+    // A tie-break that cannot distinguish the candidates must not reorder them, or two
+    // instances with identical evidence would offer chips in different orders.
+    const { svc } = make();
+    const r = await svc.resolve("mistri");
+    expect(r.candidates.map((c) => c.jobDomainId)).toEqual(["jd_mason", "jd_plumb"]);
   });
 });
 
@@ -229,8 +372,12 @@ describe("OccupationService.recordUnresolved — the growth queue", () => {
       id: "11111111-1111-4111-8111-111111111111",
       count: 3,
     });
-    await svc.recordUnresolved("kuch alag kaam", "hi");
-    expect(skills.recordUnresolved).toHaveBeenCalledWith("kuch alag kaam", null, "hi", "occupation");
+    await svc.recordUnresolved("Kuch Alag KAAM!", "hi");
+    // STORED NORMALIZED, so the negative-cache probe can find it again. It probes on
+    // `normalizeOccupationText(utterance)`; storing the raw phrase would mean the cache
+    // never hits for the same trade said twice — and a cache that silently never hits is
+    // indistinguishable from one that works.
+    expect(skills.recordUnresolved).toHaveBeenCalledWith("kuch alag", null, "hi", "occupation");
   });
 
   it("emits the phrase HASH, never the phrase", async () => {
