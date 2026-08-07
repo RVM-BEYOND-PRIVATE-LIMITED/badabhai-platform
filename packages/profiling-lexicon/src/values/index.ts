@@ -34,6 +34,8 @@ export {
   type NegationResult,
 } from "./negation.js";
 
+export { parseAffirmation } from "./affirmation.js";
+
 export { canonicalCity, canonicalRegion, canonicalState } from "./gazetteer.js";
 
 export { parseExperienceYears } from "./experience.js";

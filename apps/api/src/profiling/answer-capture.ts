@@ -17,6 +17,7 @@ import {
   canonicalCity,
   classifyUtterance,
   detectSalaries,
+  parseAffirmation,
   parseAvailability,
   parseExperienceYears,
   parseRelocationWillingness,
@@ -136,17 +137,125 @@ function normalizeFor(item: QuestionPackItem, text: string): unknown | undefined
 
   const field = item.target_field;
   const normalizer = field ? NORMALIZER_BY_FIELD[field] : undefined;
-  if (!normalizer) {
-    // Free text: the worker's words are the answer. Trimmed, never rewritten.
-    //
-    // No empty-check, deliberately. `classifyUtterance` already returned `empty` for anything
-    // that trims to under two characters, and this line is only reached past that gate — so an
-    // `|| undefined` here would be unreachable code pretending to be a safety net.
-    return text.trim();
+  if (normalizer) {
+    const value = normalizer(text);
+    return value === null ? undefined : value;
   }
 
-  const value = normalizer(text);
-  return value === null ? undefined : value;
+  // NO FIELD NORMALIZER — try the ANSWER TYPE before falling through to verbatim.
+  //
+  // This layer exists because the field-keyed table above cannot serve the bulk of the corpus:
+  // 236 items are `boolean` and 45 are `multi_select`, spread across 80 distinct target fields
+  // that share nothing but their SHAPE. Keying those on the field would mean 80 near-identical
+  // entries; keying them on the type is one entry each.
+  //
+  // It sits BELOW the field table on purpose. Two number fields can need completely different
+  // parsers — years and rupees-per-month share a type and share nothing else — so a type-keyed
+  // rule must never get to override a field-keyed one.
+  const byType = normalizeByAnswerType(item, text);
+  if (byType !== FALL_THROUGH) return byType;
+
+  // Free text: the worker's words are the answer. Trimmed, never rewritten.
+  //
+  // No empty-check, deliberately. `classifyUtterance` already returned `empty` for anything
+  // that trims to under two characters, and this line is only reached past that gate — so an
+  // `|| undefined` here would be unreachable code pretending to be a safety net.
+  return text.trim();
+}
+
+/**
+ * Sentinel for "this type has no opinion — keep going".
+ *
+ * DISTINCT FROM `undefined`, which already means "we could not read an answer here" and leaves the
+ * question askable. Collapsing the two would make a `text` item's silence indistinguishable from a
+ * `boolean` item's, and one of those should fall through to verbatim while the other must not.
+ */
+const FALL_THROUGH = Symbol("fall-through");
+
+/**
+ * Normalize by `answer_type` — the layer that makes the spoken corpus answerable at all.
+ *
+ * WHAT IT FIXES. Before this, a `boolean` item stored the sentence "haan bilkul karta hoon" as its
+ * value, and a `multi_select` stored a whole sentence unless the worker's words happened to equal
+ * one chip label exactly. Both were measured against the shipped corpus, not imagined: all 236
+ * boolean items carry ZERO options, so there has never been a chip to match.
+ */
+function normalizeByAnswerType(
+  item: QuestionPackItem,
+  text: string,
+): unknown | undefined | typeof FALL_THROUGH {
+  switch (item.answer_type) {
+    case "boolean": {
+      // `undefined`, never a guessed `false`. A boolean question answered with "kabhi kabhi" is
+      // ambiguous, and recording a `false` the worker did not say puts it in a column the matcher
+      // filters on. Leaving it unread costs one re-ask.
+      const parsed = parseAffirmation(text);
+      return parsed === null ? undefined : parsed.value;
+    }
+    case "multi_select": {
+      const matched = matchOptions(item, text);
+      if (matched.length > 0) return matched;
+      return closedVocabulary(item) ? undefined : FALL_THROUGH;
+    }
+    case "single_select": {
+      const matched = matchOptions(item, text);
+      // Exactly one, or nothing. Two option labels in one utterance is a worker who has not
+      // answered a single-choice question, and picking the first would be picking at random.
+      if (matched.length === 1) return matched[0];
+      return closedVocabulary(item) ? undefined : FALL_THROUGH;
+    }
+    default:
+      return FALL_THROUGH;
+  }
+}
+
+/**
+ * Does this item's destination hold a CLOSED vocabulary?
+ *
+ * THE DESTINATION DECIDES, and this is the whole reason select items are not treated uniformly.
+ *
+ * An `attribute` select lands in `worker_attributes.value_text` — a column the matcher filters on
+ * by equality. A sentence there is not a worse value, it is an UNMATCHABLE one: nothing will ever
+ * query `value_text = 'main workshop mein kaam karta hoon'`. Better to leave the question
+ * unanswered and honest.
+ *
+ * An `rfs` select lands on the profile draft, where `skills` is a free-form list that the skill
+ * canonicalization path already owns — 41 of the 45 `multi_select` items are exactly that. There,
+ * the worker's own words are strictly more information than nothing, and dropping them would be a
+ * coverage regression for the sake of tidiness.
+ */
+function closedVocabulary(item: QuestionPackItem): boolean {
+  return item.target_kind === "attribute";
+}
+
+/**
+ * Which of this item's options the worker's words contain.
+ *
+ * Substring, case-insensitive, against the NEGATION-MASKED text — so "split AC hai, fridge nahi"
+ * yields `split_ac` alone. Reusing the negation engine here rather than scanning the raw string is
+ * what stops a refused option from being recorded as a claimed one.
+ *
+ * Longest label first, so a label that CONTAINS another ("Split AC" vs "AC") claims its characters
+ * before the shorter one can, and the shorter one is then only matched if it appears elsewhere.
+ */
+function matchOptions(item: QuestionPackItem, text: string): unknown[] {
+  const masked = applyNegation(text).masked.toLowerCase();
+  const byLength = [...item.options].sort((a, b) => b.label_text.length - a.label_text.length);
+
+  let remaining = masked;
+  const hits: { order: number; value: unknown }[] = [];
+  for (const option of byLength) {
+    const label = option.label_text.toLowerCase();
+    const at = remaining.indexOf(label);
+    if (at < 0) continue;
+    // Consume the matched characters so a shorter contained label cannot double-count them.
+    // Replaced with spaces rather than deleted, to keep every other offset where it was.
+    remaining = remaining.slice(0, at) + " ".repeat(label.length) + remaining.slice(at + label.length);
+    hits.push({ order: masked.indexOf(label), value: option.value ?? option.label_text });
+  }
+
+  // Report in the order the worker SAID them, not in the order we happened to scan.
+  return hits.sort((a, b) => a.order - b.order).map((hit) => hit.value);
 }
 
 /**
@@ -238,6 +347,12 @@ function spanFor(item: QuestionPackItem, text: string): { start: number; end: nu
     default:
       // Free text and chips have no sub-span to veto: the whole message IS the answer, and
       // vetoing it wholesale would delete answers containing an unrelated negation.
+      //
+      // THIS MUST NOT GROW A `boolean` CASE, and the reason is not obvious. `parseAffirmation`
+      // already resolves negation itself and returns `false` for a denied yes — that IS the
+      // answer. Returning its span here would hand that same negation to the veto below, which
+      // would then discard the value entirely. Every worker who said "nahi" would be recorded as
+      // having said nothing.
       return undefined;
   }
 }

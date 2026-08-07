@@ -194,3 +194,94 @@ describe("the projection can never invent a draft column", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// The attribute leg — 77% of the authored corpus, which used to land nowhere
+// ---------------------------------------------------------------------------
+
+describe("attribute projection", () => {
+  it("routes a non-RFS answer to worker_attributes instead of silently dropping it", () => {
+    // The finding this closes: 359 of 466 pack items are `target_kind: "attribute"`, and the
+    // projector wrote only RFS fields. Every one of those answers was captured, normalized,
+    // carried through the interview — and discarded here.
+    const result = projectProfile([
+      answer({ question_key: "q_forklift", target_field: "forklift", value_normalized: true }),
+    ]);
+    expect(result.attributes).toEqual([
+      { attributeKey: "forklift", valueKind: "boolean", value: true, source: "answer_map" },
+    ]);
+    // ...and it is NOT on the resume draft. Different destination, different rules.
+    expect(result.draft).toEqual({});
+  });
+
+  it("keeps RFS answers out of the attribute set", () => {
+    // The crosswalk IS the test for "is this RFS" — no second copy of the vocabulary here.
+    const result = projectProfile(MAP);
+    expect(result.attributes).toEqual([]);
+    expect(Object.keys(result.draft).length).toBeGreaterThan(0);
+  });
+
+  it("derives value_kind from the value's SHAPE, so a new answer type needs no new case", () => {
+    const result = projectProfile([
+      answer({ question_key: "a", target_field: "shift_work", value_normalized: false }),
+      answer({ question_key: "b", target_field: "hours_per_day", value_normalized: 9 }),
+      answer({ question_key: "c", target_field: "workplace_type", value_normalized: "workshop" }),
+      answer({ question_key: "d", target_field: "pipe_material", value_normalized: ["pvc", "gi"] }),
+    ]);
+    expect(result.attributes.map((a) => [a.attributeKey, a.valueKind, a.value])).toEqual([
+      ["hours_per_day", "number", 9],
+      ["pipe_material", "text_list", ["pvc", "gi"]],
+      ["shift_work", "boolean", false],
+      ["workplace_type", "text", "workshop"],
+    ]);
+  });
+
+  it("treats an EMPTY list as a real answer, not as silence", () => {
+    // "none of these" is not "unanswered". Collapsing them would re-ask a question the worker has
+    // already closed.
+    const result = projectProfile([
+      answer({ question_key: "a", target_field: "measuring_tools", value_normalized: [] }),
+    ]);
+    expect(result.attributes).toEqual([
+      { attributeKey: "measuring_tools", valueKind: "text_list", value: [], source: "answer_map" },
+    ]);
+  });
+
+  it("drops a value it cannot represent rather than stringifying it", () => {
+    // `worker_attributes` is a matchable inventory. "[object Object]" is a row no query can ever
+    // match and no reader can interpret — strictly worse than no row.
+    const result = projectProfile([
+      answer({ question_key: "a", target_field: "weird", value_normalized: { nested: 1 } }),
+      answer({ question_key: "b", target_field: "blank", value_normalized: "   " }),
+    ]);
+    expect(result.attributes).toEqual([]);
+  });
+
+  it("lets the answer map beat the LLM overlay on an attribute, exactly as it does on the draft", () => {
+    // The precedence rule is written once, and it has to govern BOTH outputs or a model could
+    // overwrite a spoken answer in the matcher's inventory while losing on the resume.
+    const result = projectProfile(
+      [answer({ question_key: "q", target_field: "forklift", value_normalized: false })],
+      { forklift: parsed(true) },
+    );
+    expect(result.attributes).toEqual([
+      { attributeKey: "forklift", valueKind: "boolean", value: false, source: "answer_map" },
+    ]);
+  });
+
+  it("still records an attribute the LLM contributed and the map had nothing for", () => {
+    const result = projectProfile([], { safety_training: parsed(true) });
+    expect(result.attributes).toEqual([
+      { attributeKey: "safety_training", valueKind: "boolean", value: true, source: "llm_parse" },
+    ]);
+  });
+
+  it("does not turn a declined or unanswered question into an attribute row", () => {
+    // A declination is a complete ANSWER for completion purposes and has no value to store.
+    const result = projectProfile([
+      answer({ question_key: "a", target_field: "forklift", status: "declined" }),
+      answer({ question_key: "b", target_field: "night_work", status: "unanswered" }),
+    ]);
+    expect(result.attributes).toEqual([]);
+  });
+});
