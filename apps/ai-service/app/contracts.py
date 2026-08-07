@@ -982,6 +982,20 @@ class TranscriptionOutput(BaseModel):
     # the backend stores it in voice_notes.transcript_english and keeps it OUT of
     # events/ai_jobs/logs, same as transcript_text.
     english_text: str = ""
+    # WHY a degraded result has to SAY SO on the wire.
+    #
+    # `SttAdapter.transcribe` already distinguishes "the worker said nothing" from
+    # "we refused to call the provider" (``stt_budget_blocked``) and "the provider
+    # call failed" (``stt_call_failed``). Until this field existed, that distinction
+    # was LOGGED here and then thrown away at the response boundary — so the backend
+    # received an empty transcript with no way to tell the three apart, wrote it, and
+    # marked the job completed. In chat that degrades a reply. In a voice-only form
+    # the worker speaks their answer and it vanishes behind a success.
+    #
+    # PII-FREE and CLOSED-SET by construction: these are adapter-authored codes, never
+    # provider text and never worker text. Additive + defaulted, so an older backend
+    # ignoring it is unaffected (§3).
+    error_code: str | None = None
 
 
 # --- Job-posting chat (ADR-0035) -------------------------------------------

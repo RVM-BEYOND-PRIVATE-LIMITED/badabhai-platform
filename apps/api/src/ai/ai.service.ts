@@ -249,7 +249,20 @@ export class AiService {
   async transcribe(input: TranscriptionInput): Promise<TranscriptionOutput> {
     const remote = await this.post("/voice/transcribe", input, TranscriptionOutputSchema, 270_000);
     if (remote) return remote;
-    return TranscriptionOutputSchema.parse({ transcript_text: "", confidence: 0, english_text: "", is_mock: true });
+    // THE FALLBACK HAS TO CONFESS. Returning an empty transcript is right — never fabricate the
+    // worker's words — but the object above this line was otherwise INDISTINGUISHABLE from a
+    // successful call on a worker who said nothing: same empty string, same zero confidence, and
+    // (until `error_code` existed) no field capable of telling the two apart. The processor
+    // stored it and marked the job completed, so an ai-service outage read as a wave of silent
+    // workers. `stt_service_unreachable` is authored HERE because it describes something only
+    // this side can know: the request never arrived.
+    return TranscriptionOutputSchema.parse({
+      transcript_text: "",
+      confidence: 0,
+      english_text: "",
+      is_mock: true,
+      error_code: "stt_service_unreachable",
+    });
   }
 
   /**
