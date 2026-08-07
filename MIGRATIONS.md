@@ -26,15 +26,65 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0068_damp_dorian_gray`** (journal has 69 entries, `idx` 0–68).
+**`0071_outstanding_monster_badoon`** (journal has 72 entries, `idx` 0–71).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
 | `0067`        | Divyanshu | **APPLIED** — Phase 1 retrieval foundations                   |
 | `0068`        | Prakash   | **CLAIMED** — W1 referral link metadata on `agency_invites`    |
-| `0069`–`0074` | Divyanshu | Occupation Intelligence — taxonomy, retrieval, question packs |
+| `0069`        | Divyanshu | **APPLIED** — Occupation Intelligence question packs (5 tables) |
+| `0070`        | Prakash   | **MERGED** — worker notification prefs + Alerts watermark (#646) |
+| `0071`        | Prakash   | **MERGED** — voice profiling form data spine (V1)              |
+| `0072`–`0074` | Divyanshu | Occupation Intelligence — taxonomy, retrieval, remaining slots |
 | `0075`–`0079` | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
 | `0080`+       | unclaimed | claim in a PR of its own, so the claim is reviewable          |
+
+### The `0070` collision — 2026-08-07, and it happened exactly as this file predicted
+
+Two branches minted `0070` on the same day. `#646` (notification prefs) took
+`0070_bent_storm`; the voice data spine took `0070_confused_human_cannonball`. Git warned nobody,
+and the second PR only discovered it as a merge conflict.
+
+**One author was not enough to prevent it.** The voice-spine branch deliberately took a contiguous
+number outside its nominal block on the reasoning that Prakash owned both backend workstreams, so
+there was no second party to collide with. That reasoning was wrong, and the way it was wrong is
+worth keeping: the collision risk is per **concurrent branch**, not per person. A single developer
+running two sessions against one repo is two branches, and the protocol's whole purpose is that git
+will not warn you. **Reserve by workstream even when you own every workstream.**
+
+Renumbered to `0071` per rule 2 — and **regenerated rather than renamed**, because a drizzle
+snapshot chains to its predecessor by `prevId`. A renamed `0070_*_snapshot.json` would still have
+chained off `0069`, so the next `db:generate` would have diffed against a schema that skipped
+`0070_bent_storm` entirely and emitted a migration to "add" columns that already exist. The
+regenerated SQL was verified **byte-identical** to the original apart from the hand-appended RLS
+tail, which was re-appended byte-for-byte.
+
+### `when` was pinned, on purpose — read this before touching `0071`'s journal entry
+
+`0071`'s journal `when` is **deliberately kept at the pre-renumber value** (`1786100629365`) rather
+than the fresh timestamp `db:generate` emitted.
+
+The reason is in drizzle's own migrator (`pg-core/dialect.js`): it applies a migration only when
+`Number(lastDbMigration.created_at) < migration.folderMillis`. It is **timestamp-driven, not
+hash-driven and not name-driven**. The old `0070_confused_human_cannonball` had already been applied
+to a live database, stamping `created_at = 1786100629365`. Had the renumbered file carried a newer
+timestamp, drizzle would have tried to re-run `CREATE TABLE worker_attributes` on a database that
+already has it, and the whole chain would have died there.
+
+Keeping the timestamp makes both cases correct with no manual intervention:
+
+- a database that **already applied** the pre-renumber file: `0071` is skipped (equal, not less), and
+  nothing is re-run;
+- a database that **has not**: `0071.folderMillis` is still greater than `0070_bent_storm`'s, so it
+  applies in order.
+
+**The one case it does NOT fix, and it is not fixable in the repo:** any database that applied the
+pre-renumber `0070` **before** `0070_bent_storm` landed will now skip `0070_bent_storm` forever, its
+`created_at` being the smaller number. That database is missing `workers.notifications_enabled` and
+`workers.notifications_read_at`, and the notification-prefs code from #646 will fail against it. The
+remedy is manual and one-time: run `0070_bent_storm.sql` by hand, then
+`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (<sha256 of the file>, 1786099264002)`
+so the bookkeeping matches reality. It does not disturb `order by created_at desc limit 1`.
 
 `0068` was released by the OIE sprint plan (below) and is now **taken** by the referral-metadata
 workstream — a contiguous claim, so `idx` stays equal to the tag number and drizzle's snapshot

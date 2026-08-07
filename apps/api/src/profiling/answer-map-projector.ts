@@ -17,10 +17,18 @@
 
 import type { AnswerRecord, ParsedField } from "@badabhai/ai-contracts";
 import { CROSSWALK_DRAFT_FIELDS, crosswalkFor } from "@badabhai/profiling-lexicon";
+import { PROFILE_VALUE_SOURCES, type ProfileValueSource } from "@badabhai/types";
 
-/** Where a projected value came from. Observability, and the audit of what the LLM contributed. */
-export const VALUE_SOURCES = ["answer_map", "llm_parse"] as const;
-export type ValueSource = (typeof VALUE_SOURCES)[number];
+/**
+ * Where a projected value came from. Observability, and the audit of what the LLM contributed.
+ *
+ * RE-EXPORTED, NOT RESTATED. The same vocabulary is a stored column on `worker_attributes`
+ * (migration 0070), so a second literal here would be a second chance for "the LLM wrote this" to
+ * drift out of agreement with what the database records. The old names are kept so no caller has
+ * to change.
+ */
+export const VALUE_SOURCES = PROFILE_VALUE_SOURCES;
+export type ValueSource = ProfileValueSource;
 
 export interface ProjectedValue {
   readonly value: unknown;

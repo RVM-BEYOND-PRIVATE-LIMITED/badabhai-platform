@@ -98,6 +98,63 @@ export type StorageClass = (typeof STORAGE_CLASSES)[number];
 /** Hard limit for Phase 1 voice notes (seconds). Mirrored in event-schema/validators. */
 export const MAX_VOICE_NOTE_SECONDS = 120;
 
+/**
+ * Hard limit for ONE ANSWER in the voice profiling form (seconds).
+ *
+ * Deliberately far below `MAX_VOICE_NOTE_SECONDS`, and the gap is load-bearing rather than
+ * conservative: at or under 30s the Sarvam adapter takes its single synchronous call and never
+ * enters the chunked path, which removes the multi-minute latency ceiling, the multi-chunk cost
+ * reservation, and the chunk-seam redaction gap in one stroke. Raising this past the chunker's
+ * threshold silently changes all three.
+ *
+ * `MAX_VOICE_NOTE_SECONDS` is unchanged and stays the contract limit for chat voice notes.
+ */
+export const MAX_PROFILING_ANSWER_SECONDS = 30;
+
+// ---- Voice profiling form (the sequential Q&A surface) ----
+
+/**
+ * What happened to one recorded answer clip, from the CLIENT's point of view.
+ *
+ * Separate from `transcript_status` on purpose. "The clip reached storage" and "the clip became
+ * text" fail independently and for different reasons, and collapsing them is how a worker's
+ * answer disappears while the row still reads `completed`.
+ */
+export const VOICE_CAPTURE_STATUSES = ["recorded", "uploaded", "failed", "abandoned"] as const;
+export type VoiceCaptureStatus = (typeof VOICE_CAPTURE_STATUSES)[number];
+
+/** What happened to one recorded answer clip on the TRANSCRIPTION leg. */
+export const VOICE_TRANSCRIPT_STATUSES = [
+  "pending",
+  "queued",
+  "succeeded",
+  "failed",
+  "skipped",
+] as const;
+export type VoiceTranscriptStatus = (typeof VOICE_TRANSCRIPT_STATUSES)[number];
+
+/**
+ * How a projected profile value was arrived at.
+ *
+ * ONE DEFINITION, because this set is written by the projector, stored on `worker_attributes`, and
+ * read back by anyone auditing what a model contributed. Three copies of a provenance vocabulary is
+ * three chances for "the LLM wrote this" to stop meaning the same thing in the three places it is
+ * checked. `answer-map-projector.ts` re-exports this rather than restating it.
+ */
+export const PROFILE_VALUE_SOURCES = ["answer_map", "llm_parse"] as const;
+export type ProfileValueSource = (typeof PROFILE_VALUE_SOURCES)[number];
+
+/**
+ * The storage shape of a `target_kind: "attribute"` answer.
+ *
+ * NOT the same axis as `answer_type`. Eight answer types collapse into four storage kinds, because
+ * what a column needs to know is how to hold the value and how to compare it — a `single_select`
+ * and a `city` are both one string to Postgres, and only `multi_select` genuinely needs a list.
+ * Keeping the two vocabularies separate is what stops a new answer type from forcing a migration.
+ */
+export const ATTRIBUTE_VALUE_KINDS = ["boolean", "number", "text", "text_list"] as const;
+export type AttributeValueKind = (typeof ATTRIBUTE_VALUE_KINDS)[number];
+
 // ---- AI jobs ----
 export const AI_JOB_TYPES = [
   "pseudonymization",

@@ -498,6 +498,13 @@
       "when": 1786099264002,
       "tag": "0070_bent_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1786100629365,
+      "tag": "0071_outstanding_monster_badoon",
+      "breakpoints": true
     }
   ]
 }
