@@ -116,6 +116,44 @@ void main() {
     expect(seen, <RecordState>[RecordState.record, RecordState.stop]);
   });
 
+  test(
+      'start() captures the 16kHz/24kbps NS+AEC session config, autoGain OFF '
+      '(#633)', () async {
+    final SessionVoiceRecorder recorder =
+        SessionVoiceRecorder(recorder: plugin);
+    await recorder.start();
+
+    final RecordConfig cfg = verify(
+      () => plugin.start(captureAny(), path: any(named: 'path')),
+    ).captured.single as RecordConfig;
+
+    expect(cfg.encoder, AudioEncoder.aacLc);
+    expect(cfg.numChannels, 1);
+    expect(cfg.sampleRate, 16000);
+    expect(cfg.bitRate, 24000);
+    expect(cfg.noiseSuppress, isTrue);
+    expect(cfg.echoCancel, isTrue);
+    // Load-bearing: AGC would compress the range the endpointer thresholds on.
+    expect(cfg.autoGain, isFalse);
+    expect(cfg.audioInterruption, AudioInterruptionMode.pauseResume);
+    expect(cfg.androidConfig.audioSource, AndroidAudioSource.voiceRecognition);
+
+    await recorder.cancel();
+  });
+
+  test('the single-shot config is provably unchanged — still 44.1kHz-default '
+      'range, NOT the session 16kHz (#633)', () {
+    // The single-shot flow builds `RecordConfig(encoder: aacLc, numChannels: 1)`
+    // inline and inherits the plugin defaults for everything else. Assert the
+    // session config did NOT bleed those defaults over to it.
+    expect(SessionVoiceRecorder.sessionConfig.sampleRate, 16000);
+    const RecordConfig singleShot =
+        RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1);
+    expect(singleShot.sampleRate, 44100);
+    expect(singleShot.noiseSuppress, isFalse);
+    expect(singleShot.echoCancel, isFalse);
+  });
+
   test('this session\'s clips are never swept (cutoff), unlike a prior run\'s',
       () async {
     final String temp = Directory.systemTemp.path;
