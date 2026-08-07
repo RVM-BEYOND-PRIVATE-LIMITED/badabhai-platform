@@ -52,6 +52,21 @@ export const workers = pgTable(
     // `night_shift_ready` is the worker-asserted availability flag.
     resumeShowPhoto: boolean("resume_show_photo").notNull().default(true),
     resumeNightShiftReady: boolean("resume_night_shift_ready").notNull().default(false),
+    // Worker-controlled push preference (#643). NON-PII boolean. Default TRUE so every
+    // existing row keeps today's behaviour — the column is additive and back-compat.
+    // READ BY THE SEND PATH: PushService.deliver gates the fan-out on it (ADR-0034), so
+    // the toggle actually silences pushes rather than only decorating the UI. SECURITY
+    // alerts are deliberately EXEMPT from the gate — see the note in push.service.ts.
+    notificationsEnabled: boolean("notifications_enabled").notNull().default(true),
+    // The Alerts read watermark (#643): every event at or before this instant is `read`.
+    // A single timestamp rather than per-notification rows because the feed is a
+    // PROJECTION over `events` (notifications.repository.ts) — there is no notification
+    // row to carry a flag on, and "mark all read" is the only gesture the app offers.
+    // NULL = nothing read yet (a fresh worker), which is why it is nullable rather than
+    // defaulted: epoch-defaulting would be indistinguishable from "read everything".
+    // Advanced MONOTONICALLY (GREATEST in the update) so a retried or clock-skewed
+    // stamp can never un-read an alert the worker already saw.
+    notificationsReadAt: timestamp("notifications_read_at", { withTimezone: true }),
     // ADR-0032 — opaque Storage object key of the worker's profile photo in the
     // private WORKER_PHOTOS_BUCKET (`photos/{workerId}/{uuid}.jpg`, server-chosen).
     // A POINTER only: never a URL, never photo bytes; the photo itself is PII at

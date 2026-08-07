@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import {
   type Database,
   workers,
@@ -167,6 +167,89 @@ export class WorkersRepository {
       .where(eq(workers.id, id))
       .returning();
     return rows[0];
+  }
+
+  /**
+   * The worker's notification state (#643) — the language for copy, the push
+   * preference, and the Alerts read watermark.
+   *
+   * EXPLICIT projection, deliberately NOT `findById` (which is `select()` = SELECT *
+   * and hands the caller the encrypted phone, phone_hash and full_name it has no use
+   * for) — exactly the reasoning behind `findSelfView`. Both call sites are §2-critical:
+   * the Alerts projection and the FCM fan-out, whose copy crosses Google's
+   * infrastructure. Reading only these three non-PII columns means no PII column can
+   * reach either path — it simply is not in the result set. Returns undefined when no
+   * worker matches (e.g. the row was erased mid-session).
+   */
+  async findNotificationState(id: string): Promise<
+    | {
+        preferredLanguage: Worker["preferredLanguage"];
+        notificationsEnabled: boolean;
+        notificationsReadAt: Date | null;
+      }
+    | undefined
+  > {
+    const rows = await this.db
+      .select({
+        preferredLanguage: workers.preferredLanguage,
+        notificationsEnabled: workers.notificationsEnabled,
+        notificationsReadAt: workers.notificationsReadAt,
+      })
+      .from(workers)
+      .where(eq(workers.id, id))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * Set the worker's push notification preference (#643). Returns the RESULTING value
+   * (read back from the updated row, so the caller's event carries what the DB now
+   * holds rather than what was requested), or undefined if no worker matched.
+   */
+  async updateNotificationsEnabled(
+    id: string,
+    enabled: boolean,
+  ): Promise<{ notificationsEnabled: boolean } | undefined> {
+    const rows = await this.db
+      .update(workers)
+      .set({ notificationsEnabled: enabled, updatedAt: new Date() })
+      .where(eq(workers.id, id))
+      .returning({ notificationsEnabled: workers.notificationsEnabled });
+    return rows[0];
+  }
+
+  /**
+   * Advance the Alerts read watermark (#643) — POST /workers/me/notifications/read.
+   *
+   * MONOTONIC by construction: the predicate matches only when the stored watermark is
+   * NULL or STRICTLY OLDER than `stampedAt`, so the timestamp can only ever move
+   * forward. Without that guard a retried request, or two in-flight requests landing
+   * out of order, could rewind the watermark and silently mark alerts the worker has
+   * already seen as unread again.
+   *
+   * `stampedAt` is the APP clock deliberately, not the DB's `now()`: `events.occurred_at`
+   * is stamped app-side (packages/event-schema validate.ts), and the feed's `read` flag
+   * compares the two directly — reading them off one clock keeps the comparison honest.
+   *
+   * IDEMPOTENT: a second call with an equal-or-older stamp matches no row and returns
+   * false, which is a correct, successful outcome (the watermark is already at least
+   * that far), NOT an error — the caller must not treat false as a failure.
+   */
+  async advanceNotificationsReadAt(id: string, stampedAt: Date): Promise<boolean> {
+    const rows = await this.db
+      .update(workers)
+      .set({ notificationsReadAt: stampedAt, updatedAt: new Date() })
+      .where(
+        and(
+          eq(workers.id, id),
+          or(
+            isNull(workers.notificationsReadAt),
+            lt(workers.notificationsReadAt, stampedAt),
+          )!,
+        ),
+      )
+      .returning({ id: workers.id });
+    return rows.length > 0;
   }
 
   /**

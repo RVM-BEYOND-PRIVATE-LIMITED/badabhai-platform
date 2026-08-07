@@ -60,10 +60,15 @@ export class NotificationsService {
       return delta !== 0 ? delta : (b.id > a.id ? 1 : b.id < a.id ? -1 : 0);
     });
 
-    // Fetch worker's language for copy selection. Fail-soft: default to hi/en if
-    // the worker row is missing (defensive — the caller is always an authed worker).
-    const worker = await this.workersRepo.findById(workerId).catch(() => null);
-    const lang = worker?.preferredLanguage ?? null;
+    // The worker's notification state: language for copy selection, and the read
+    // watermark for the `read` flag. An EXPLICIT non-PII projection rather than
+    // `findById` (which is SELECT * and would pull the encrypted phone and name into
+    // this path for no reason — §2 defense in depth, mirroring the repository's
+    // `findSelfView`). Fail-soft: a missing row degrades to default copy and an
+    // all-unread feed, never a 500 (defensive — the caller is always an authed worker).
+    const state = await this.workersRepo.findNotificationState(workerId).catch(() => null);
+    const lang = state?.preferredLanguage ?? null;
+    const readThrough = state?.notificationsReadAt ?? null;
 
     const out: WorkerNotification[] = [];
     for (const row of merged) {
@@ -78,6 +83,9 @@ export class NotificationsService {
         title: c.title,
         body: c.body,
         created_at: row.occurredAt.toISOString(),
+        // At or before the watermark ⇒ the worker has already seen it. A NULL
+        // watermark means they have never marked read, so nothing is read yet.
+        read: readThrough !== null && row.occurredAt.getTime() <= readThrough.getTime(),
       });
     }
     return out;

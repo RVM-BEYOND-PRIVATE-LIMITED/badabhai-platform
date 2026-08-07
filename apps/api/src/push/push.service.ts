@@ -77,6 +77,41 @@ export class PushService {
       return { sent: 0 };
     }
 
+    // The worker's notification state — the push preference and the language for copy.
+    // An EXPLICIT non-PII projection (never SELECT *): this payload crosses Google's
+    // infrastructure, so the encrypted phone and name must not even be fetched into
+    // this path. Fail-soft to defaults on a read error, matching the prior behaviour.
+    const state = await this.workersRepo.findNotificationState(job.workerId).catch(() => null);
+
+    // #643 — the worker's own notifications toggle. Checked HERE, before the quota INCR
+    // and the device read, so an opted-out worker costs neither a quota slot nor a query.
+    //
+    // SECURITY ALERTS ARE EXEMPT, deliberately, mirroring the daily-cap exemption below.
+    // Two reasons, and the first is decisive:
+    //   1. It would be an account-takeover bypass. The pushes in scope today are exactly
+    //      the SIM-swap tripwires (`worker.device_registered`, `worker.logged_out_all`).
+    //      An attacker holding a stolen session could PATCH this toggle off and then
+    //      register their own device in silence — the victim's other handsets would never
+    //      ring. A convenience preference must not be able to disarm the alarm that
+    //      reports its own misuse.
+    //   2. Industry norm: security alerts are non-suppressible on every comparable
+    //      platform, precisely because of (1).
+    // The gate is therefore correct-but-DORMANT today (every `push: true` template is
+    // security-typed) and becomes load-bearing the moment ADR-0034's deferred
+    // resume/profile/job pushes are enabled — which is the class a worker actually wants
+    // to silence. NOTE this makes the app's "SKIP every push fan-out" comment slightly
+    // too broad; see the PR for the FE label follow-up.
+    //
+    // No event: opting out is a preference, not a delivery failure, so emitting
+    // `worker.push_send_failed` would misreport it and skew failure metrics — the same
+    // posture as the "no devices to deliver to" return below.
+    if (!isSecurity && state?.notificationsEnabled === false) {
+      this.logger.log(
+        `push skipped worker=${job.workerId} type=${template.type} (notifications disabled)`,
+      );
+      return { sent: 0 };
+    }
+
     // ADR-0034 / TD91: global daily ceiling on NON-SECURITY pushes. Security alerts
     // (SIM-swap, logout-all) are exempt — FCM is free, and this one class MUST always
     // arrive. The counter uses a Redis INCR keyed per UTC day, same pattern as OTP caps.
@@ -109,10 +144,8 @@ export class PushService {
     const devices = await this.repo.devicesForDelivery(job.deviceIds);
     if (devices.length === 0) return { sent: 0 };
 
-    // Fetch worker's language for localized copy. Fail-soft to default on error.
-    const worker = await this.workersRepo.findById(job.workerId).catch(() => null);
-    const lang = worker?.preferredLanguage ?? null;
-    const copy = templateCopy(template, lang);
+    // Localized copy off the state read above — one worker read per delivery, not two.
+    const copy = templateCopy(template, state?.preferredLanguage ?? null);
 
     const route = ROUTE_BY_TYPE[template.type] ?? "home";
     let sent = 0;
