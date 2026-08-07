@@ -707,6 +707,15 @@ export const EVENT_REGISTRY = {
     payload: p.ProfileOccupationIdentifiedPayload,
   },
 
+  // Which QUESTIONS the worker got, as opposed to which trade they are in. Pack contents are
+  // immutable per version, so this pair is what makes a finished profile explicable a year
+  // later. Emitted only when the durable `chat_sessions` pin won the write. v1.
+  "profile.pack_pinned": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfilePackPinnedPayload,
+  },
+
   // The interview could NOT pin one and fell back to the universal pack. A normal outcome
   // that is otherwise invisible from both sides of the conversation — which is how a
   // catalogue silently stops covering a growing trade. v1.

@@ -2436,8 +2436,12 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 151 event names (146 prior + notification prefs + the four OIE events)", () => {
-    expect(EVENT_NAMES).toHaveLength(151);
+  it("exposes all 152 event names (146 prior + notification prefs + the five OIE events)", () => {
+    expect(EVENT_NAMES).toHaveLength(152);
+    // The pack pin — which QUESTIONS the worker got, as distinct from which trade they are in.
+    // Separate from `occupation_identified` because a trade can resolve while its family has no
+    // authored pack, which is the normal state during Phase 6 authoring.
+    expect(isEventName("profile.pack_pinned")).toBe(true);
     // #643 — the worker's push toggle. Emitted because the flag GATES the ADR-0034
     // fan-out; the Alerts read watermark shipped with it emits nothing (a read
     // position is not a business action, §1) and deliberately has no name here.
