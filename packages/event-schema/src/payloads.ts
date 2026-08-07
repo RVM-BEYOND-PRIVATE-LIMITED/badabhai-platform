@@ -707,8 +707,39 @@ export const AiLlmCallFailedPayload = z.object({
   error: z.string().min(1).max(512),
 });
 
-/** AI task the router executed. Mirrors `TaskType` in app/ai/model_config.py. */
-const aiTaskType = z.enum(["profiling_chat_turn", "profile_extraction", "resume_generation"]);
+/**
+ * AI task the spend belongs to — the FULL set the ai-service actually charges against, not the
+ * subset `model_config.TaskType` happens to route.
+ *
+ * IT USED TO BE THREE, AND THAT WAS A CEILING ON WHAT COULD BE LEDGERED AT ALL. `ai.cost_recorded`
+ * validates against this enum, and its one emitter swallows validation errors so the observability
+ * event can never fail an extraction — so a task type missing from this list did not produce a
+ * loud rejection, it produced NOTHING. `profile_parse` is the sharpest case: the Phase 8 cutover
+ * deleted every per-turn model call and replaced them with that single parse, moving all of the
+ * interview's model spend to a task this enum could not name.
+ *
+ * WIDENING AN ENUM IS BACKWARD COMPATIBLE IN THIS DIRECTION and only this one: every payload that
+ * validated before still validates, and a reader switching on the old three sees no new value for
+ * events it already understood. Removing one would break consumers (§3).
+ *
+ * Pinned to the ai-service's own task-type constants — `STT_TASK_TYPE`, `TTS_TASK_TYPE`,
+ * `EMBEDDING_TASK_TYPE`, `PARSE_TASK_TYPE`, `model_config.TaskType` — by
+ * `tests/test_task_type_ledger_parity.py`, which reads this enum out of this file so a new
+ * provider surface cannot arrive unledgered a second time.
+ */
+const aiTaskType = z.enum([
+  // Routed by `model_config.TaskType`.
+  "profiling_chat_turn",
+  "profile_extraction",
+  "resume_generation",
+  // Routed, but never in this enum until now — the interview's ONE LLM call.
+  "profile_parse",
+  "domain_match",
+  // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
+  "stt_transcription",
+  "tts_synthesis",
+  "skill_embedding",
+]);
 
 /** Async AI job type. Mirrors `AI_JOB_TYPES` in @badabhai/types. */
 const aiJobType = z.enum([
@@ -738,6 +769,8 @@ export const AiCostRecordedPayload = z.object({
   cost_alert: z.boolean().default(false),
   above_target: z.boolean().default(false),
 });
+/** The task a cost record can be attributed to — see {@link aiTaskType}. */
+export type AiCostTaskType = z.infer<typeof aiTaskType>;
 
 /**
  * Spend-cap / circuit-breaker block codes — the terminal `error_code` values the

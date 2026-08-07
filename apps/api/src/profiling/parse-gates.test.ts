@@ -268,8 +268,6 @@ describe("THE WALL — all six, over a real parse output", () => {
             evidence: { message_index: 3, quote: "35000 chahiye" },
           }),
         },
-        unparsed_field_ids: [],
-        notes: [],
       },
       { answer_map: [], transcript: TRANSCRIPT, target_fields: TARGETS },
       PASS,
@@ -302,8 +300,6 @@ describe("THE WALL — all six, over a real parse output", () => {
             evidence: { message_index: 1, quote: "pune me rehta hun" },
           }),
         },
-        unparsed_field_ids: [],
-        notes: [],
       },
       { answer_map: [], transcript: TRANSCRIPT, target_fields: TARGETS },
       PASS,
@@ -333,8 +329,6 @@ describe("THE WALL — all six, over a real parse output", () => {
             evidence: { message_index: 3, quote: "35000 chahiye" },
           }),
         },
-        unparsed_field_ids: [],
-        notes: [],
       },
       {
         answer_map: [
@@ -356,8 +350,6 @@ describe("THE WALL — all six, over a real parse output", () => {
         fields: {
           experience_years: field({ value: 12, evidence: { message_index: 1, quote: "7 saal se" } }),
         },
-        unparsed_field_ids: [],
-        notes: [],
       },
       {
         answer_map: [
@@ -376,7 +368,7 @@ describe("THE WALL — all six, over a real parse output", () => {
 
   it("treats a null field as an honest 'nothing citable', not a failure", () => {
     const result = applyParseGates(
-      { fields: { trade: null }, unparsed_field_ids: [], notes: [] },
+      { fields: { trade: null } },
       { answer_map: [], transcript: TRANSCRIPT, target_fields: TARGETS },
       PASS,
     );
@@ -391,8 +383,6 @@ describe("THE WALL — all six, over a real parse output", () => {
         fields: {
           employer_name: field({ value: "Tata Motors, Chakan plant, Pune 411501" }),
         },
-        unparsed_field_ids: [],
-        notes: [],
       },
       { answer_map: [], transcript: TRANSCRIPT, target_fields: TARGETS },
       PASS,
@@ -406,7 +396,7 @@ describe("THE WALL — all six, over a real parse output", () => {
   it("runs PII re-certification LAST, so it is never paid for a doomed field", () => {
     const certify = vi.fn(PASS);
     applyParseGates(
-      { fields: { employer_name: field({ value: "x" }) }, unparsed_field_ids: [], notes: [] },
+      { fields: { employer_name: field({ value: "x" }) } },
       { answer_map: [], transcript: TRANSCRIPT, target_fields: TARGETS },
       certify,
     );
@@ -418,7 +408,7 @@ describe("THE WALL — all six, over a real parse output", () => {
     // interview's parse.
     expect(() =>
       applyParseGates(
-        { fields: {} as never, unparsed_field_ids: [], notes: [] },
+        { fields: {} as never },
         { answer_map: [], transcript: [], target_fields: [] },
         PASS,
       ),
@@ -477,8 +467,6 @@ describe("THE WALL IS TOTAL — one bad field must never cost the interview", ()
           trade: field({ value: "boom" }),
           current_city: field({ value: "pune", evidence: { message_index: 1, quote: "pune me rehta hun" } }),
         },
-        unparsed_field_ids: [],
-        notes: [],
       },
       { answer_map: [], transcript: TRANSCRIPT, target_fields: TARGETS },
       explodesOnce,

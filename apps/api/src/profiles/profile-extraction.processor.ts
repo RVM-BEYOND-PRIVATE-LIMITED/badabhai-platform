@@ -31,7 +31,11 @@ import { SkillsRepository } from "../skills/skills.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository, type AiJobUsageMetadata } from "./ai-jobs.repository";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
-import { AI_SPEND_CAP_REASONS, type AiSpendCapReason } from "@badabhai/event-schema";
+import {
+  AI_SPEND_CAP_REASONS,
+  type AiCostTaskType,
+  type AiSpendCapReason,
+} from "@badabhai/event-schema";
 import {
   PROFILE_EXTRACTION_QUEUE,
   type ProfileExtractionJobData,
@@ -246,7 +250,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
 
       // Record AI usage/cost on the dedicated observability event. Guarded: an
       // observability emit must never turn a SUCCESSFUL extraction into a failure.
-      await this.recordAiCost(aiMeta, aiJobId, correlationId, requestId);
+      await this.recordAiCost(aiMeta, "profile_extraction", aiJobId, correlationId, requestId);
 
       // TD27: if the gateway BLOCKED a real call because a spend cap / circuit
       // breaker tripped, surface it on its own observability event (in addition
@@ -426,6 +430,27 @@ export class ProfileExtractionProcessor extends WorkerHost {
       transcript: lines,
       target_fields: targets,
     });
+
+    // THE INTERVIEW'S ENTIRE MODEL SPEND, LEDGERED — for the first time.
+    //
+    // The cutover's economic case is "~12 capable calls per interview became 1". That one call is
+    // this one, and until now it produced no cost record at all: `/profile/parse` returned no
+    // metadata, so there was nothing to record even if something had tried to. Every figure the
+    // ledger could show described the OLD architecture.
+    //
+    // Emitted here rather than beside the extraction record because this is where the call
+    // happened, and it is not the same call: two billable requests can occur under one
+    // `ai_job`, with different models, different token counts and different outcomes.
+    //
+    // `null` metadata is the degraded path (deadline, mock posture, spend cap) and records
+    // nothing — a zero-cost row would be indistinguishable from a real call that was free.
+    await this.recordAiCost(
+      parsed?.ai_metadata ?? null,
+      "profile_parse",
+      job.aiJobId,
+      job.correlationId ?? "",
+      job.requestId ?? "",
+    );
 
     // ── THE SECOND WALL ────────────────────────────────────────────────────────────────
     //
@@ -657,13 +682,27 @@ export class ProfileExtractionProcessor extends WorkerHost {
   }
 
   /**
-   * Emit the dedicated `ai.cost_recorded` observability event for a completed
-   * job. No-ops on the mock/AI-down path (no metadata = no real call to record),
-   * and swallows any emit/validation error so it can never fail the extraction.
-   * Carries operational fields only — never prompts, completions, or PII.
+   * Emit the dedicated `ai.cost_recorded` observability event for ONE AI call.
+   *
+   * No-ops on the mock/AI-down path (no metadata = no real call to record), and swallows any
+   * emit/validation error so it can never fail the extraction. Carries operational fields only
+   * — never prompts, completions, or PII.
+   *
+   * `taskType` IS A PARAMETER NOW, AND IT USED TO BE THE STRING `"profile_extraction"`, HARD-CODED.
+   * That was accurate while extraction was the only call this job made. The Phase 8 cutover added
+   * a second — `/profile/parse`, which is the ONLY LLM call left in the whole interview — and a
+   * hard-coded task type is not something a compiler can notice is now wrong.
+   *
+   * KEYED ON `ai_call_id`, NOT ON THE JOB. One job now makes two billable calls, and a
+   * per-job key silently deduped the second away: the extraction record landed, the parse record
+   * was dropped as a duplicate, and the interview's model spend disappeared into a dedup. The
+   * call id is what this event is actually about, so it is what exactly-once should mean here.
+   * (Across the deploy that changes this, an in-flight job redelivered mid-flight can write one
+   * duplicate extraction row. Observability only, and `ai_call_id` lets a reader collapse it.)
    */
   private async recordAiCost(
     meta: AICallMetadata | null,
+    taskType: AiCostTaskType,
     aiJobId: string,
     correlationId: string,
     requestId: string,
@@ -677,7 +716,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
         payload: {
           ai_call_id: meta.ai_call_id,
           ai_job_id: aiJobId,
-          task_type: "profile_extraction",
+          task_type: taskType,
           model: meta.model_name || "unknown",
           provider: meta.provider || "unknown",
           real_call: meta.real_call,
@@ -688,14 +727,14 @@ export class ProfileExtractionProcessor extends WorkerHost {
           cost_alert: meta.cost_alert,
           above_target: meta.above_target,
         },
-        // One cost record per job — dedups if a redelivery re-emits after the
-        // completion guard is bypassed.
-        idempotencyKey: `ai.cost_recorded:${aiJobId}`,
+        idempotencyKey: `ai.cost_recorded:${meta.ai_call_id}`,
         correlationId,
         requestId,
       });
     } catch (err) {
-      this.logger.warn(`ai.cost_recorded emit failed for job ${aiJobId} (non-fatal): ${String(err)}`);
+      this.logger.warn(
+        `ai.cost_recorded emit failed for job ${aiJobId} task=${taskType} (non-fatal): ${String(err)}`,
+      );
     }
   }
 
