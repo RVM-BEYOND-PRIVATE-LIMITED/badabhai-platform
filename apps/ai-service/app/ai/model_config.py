@@ -47,6 +47,13 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # (default tier, json_mode)
     "profiling_chat_turn": ("capable", True),
     "profile_extraction": ("capable", True),
+    # OIE Phase 7 — the ONE parse call. CAPABLE because the task is harder than it looks: it must
+    # copy a span character-for-character out of Hinglish/Devanagari text while typing the value,
+    # and a cheap model that paraphrases the quote fails the provenance gate on every field, which
+    # reads as "the parse found nothing" rather than as a routing mistake. `json_mode` because the
+    # response is parsed as a `ProfileParseOutput` — a prose preamble would exhaust the budget and
+    # lose the whole overlay.
+    "profile_parse": ("capable", True),
     "resume_generation": ("cheap", False),
     # The RAG job-domain pick. CHEAP on purpose, and it is not a cost compromise: the
     # retrieval has already narrowed thousands of occupations to ten labelled lines, so
@@ -101,6 +108,25 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             default_tier,
             max_output_tokens=settings.ai_extraction_max_output_tokens,
             temperature=settings.ai_extraction_temperature,
+            json_mode=json_mode,
+            max_retries=settings.ai_extraction_max_retries,
+        )
+    if task_type == "profile_parse":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # The parse returns one object per requested field, each carrying a quoted span, so its
+            # output scales with the Resume Field Set rather than being a fixed-size answer. It
+            # shares the extraction budget deliberately: both read one finished interview and emit
+            # one structured profile object, and giving them separate knobs would mean tuning the
+            # same thing in two places.
+            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            # TEMPERATURE ZERO, and NOT from settings. Typing a recorded answer has exactly one
+            # right result; sampling would let a re-parse of an unchanged interview return a
+            # different salary. This is also why the route needs its own branch at all — without
+            # one it fell through to the resume defaults below and would have run a citation task
+            # at temperature 0.4.
+            temperature=0.0,
             json_mode=json_mode,
             max_retries=settings.ai_extraction_max_retries,
         )

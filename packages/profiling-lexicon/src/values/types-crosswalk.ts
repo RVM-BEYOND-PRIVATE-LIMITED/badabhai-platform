@@ -15,7 +15,19 @@ export interface CrosswalkEntry {
    * out of the table entirely — and being left out is the failure the table exists to prevent.
    */
   readonly draftPath: string | null;
-  readonly type: "string" | "number" | "string[]" | "bool" | "enum";
+  /**
+   * THE `TargetField.type` VOCABULARY, SPELLED THE WAY THE CONTRACT SPELLS IT.
+   *
+   * This is the only table in the repo that declares a type per RFS field, so it is what builds
+   * `target_fields` on a parse request — and gate 3 branches on those exact strings. Phase 7
+   * originally wrote `"string[]"` and `"bool"` here, which matched nothing: gate 3 tests for
+   * `"string_array"` and `"boolean"`, so its array and boolean branches were DEAD and every
+   * array- or boolean-valued field went through the type gate unexamined. The frozen contract
+   * settles the spelling — `TargetFieldSchema.type` in `@badabhai/ai-contracts` documents
+   * `"string" | "number" | "boolean" | "enum" | "string_array"` — and a test now asserts every
+   * value used here is one gate 3 actually branches on, so the two cannot drift apart again.
+   */
+  readonly type: "string" | "number" | "string_array" | "boolean" | "enum";
   readonly unit?: "years" | "inr_per_month";
   /** For `tools_equipment`, which routes tokens to `machines[]` vs `controllers[]`. */
   readonly splitter?: "machines_controllers";

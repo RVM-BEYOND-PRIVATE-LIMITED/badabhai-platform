@@ -46,11 +46,42 @@ export const GATE_IDS = [
 ] as const;
 export type GateId = (typeof GATE_IDS)[number];
 
+/**
+ * Every reason a gate may give, as a CLOSED SET.
+ *
+ * Declared rather than left as `string` because these same six gates run a second time in the
+ * ai-service (`app/profiling/parse_gates.py`), and a rejection vocabulary that drifts between the
+ * two walls is a wall that reports different things about the same field. A parity test reads this
+ * array out of this file and asserts the Python mirror is identical, so a new reason has to be
+ * added on both sides or CI fails — and the union type means a typo here is a compile error rather
+ * than a novel code nobody's dashboard knows about.
+ */
+export const REJECTION_REASONS = [
+  "message_index_out_of_range",
+  "quote_not_in_message",
+  "span_not_from_worker",
+  "value_absent",
+  "not_a_number",
+  "not_a_string",
+  "not_a_boolean",
+  "not_an_array",
+  "experience_years_out_of_range",
+  "salary_out_of_range",
+  "availability_not_in_enum",
+  "value_not_in_enum",
+  "disagrees_with_answer_map",
+  "field_id_not_requested",
+  "pii_blocked",
+  "pii_altered",
+  "gate_error",
+] as const;
+export type RejectionReason = (typeof REJECTION_REASONS)[number];
+
 export interface Rejection {
   readonly fieldId: string;
   readonly gate: GateId;
-  /** PII-FREE. A reason code, never the offending value. */
-  readonly reason: string;
+  /** PII-FREE. A reason code from the closed set above, never the offending value. */
+  readonly reason: RejectionReason;
 }
 
 export interface GateResult {
@@ -208,7 +239,14 @@ export function checkTypeRange(
   if (target.type === "number" && typeof value !== "number") return "not_a_number";
   if (target.type === "boolean" && typeof value !== "boolean") return "not_a_boolean";
   if (target.type === "string" && typeof value !== "string") return "not_a_string";
-  if (target.type === "string_array" && !Array.isArray(value)) return "not_an_array";
+  if (target.type === "string_array") {
+    if (!Array.isArray(value)) return "not_an_array";
+    // THE ITEMS, TOO. `Array.isArray` alone let `["lathe", { note: "call 9876543210" }]` through as
+    // a valid string_array, and gate 6 then skipped the object because it only inspected string
+    // members — so a nested object walked out with the wall reporting every counter at zero. A
+    // "string array" whose items are not strings is not the declared type.
+    if (value.some((item) => typeof item !== "string")) return "not_a_string";
+  }
   if (target.type === "enum") {
     if (typeof value !== "string") return "not_a_string";
     if (target.enum && !target.enum.includes(value)) return "value_not_in_enum";
@@ -289,14 +327,39 @@ export function checkVocabulary(
 export type PiiCertifier = (text: string) => { blocked: boolean; text: string };
 
 export function checkPii(value: unknown, certify: PiiCertifier): Rejection["reason"] | null {
-  const strings = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
-  for (const item of strings) {
-    if (typeof item !== "string") continue;
+  for (const item of stringsIn(value)) {
     const certified = certify(item);
     if (certified.blocked) return "pii_blocked";
     if (certified.text !== item) return "pii_altered";
   }
   return null;
+}
+
+/**
+ * Every string reachable inside `value`, INCLUDING object keys. Order is deterministic.
+ *
+ * AT ANY DEPTH, and that was learned the hard way. An earlier version inspected only top-level
+ * strings, so `["lathe", { note: "call 9876543210" }]` had the object quietly skipped: the phone
+ * number was certified by nothing, the field was ACCEPTED, and the per-gate counters reported a
+ * clean pass. Keys are walked because the model chooses those too. JSON has no cycles and the
+ * parser above this already refuses pathological nesting, so the recursion is bounded.
+ */
+export function stringsIn(value: unknown): string[] {
+  const found: string[] = [];
+  const visit = (node: unknown): void => {
+    if (typeof node === "string") {
+      found.push(node);
+    } else if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+    } else if (node !== null && typeof node === "object") {
+      for (const [key, item] of Object.entries(node)) {
+        found.push(key);
+        visit(item);
+      }
+    }
+  };
+  visit(value);
+  return found;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,54 +388,69 @@ export function applyParseGates(
     // not a rejection, and not something to count as a failure.
     if (field === null || field === undefined) continue;
 
-    const reject = (gate: GateId, reason: string) => {
+    const reject = (gate: GateId, reason: RejectionReason) => {
       rejections.push({ fieldId, gate, reason });
     };
 
-    const vocabulary = checkVocabulary(fieldId, input.target_fields ?? []);
-    if (vocabulary) {
-      reject("vocabulary", vocabulary);
-      continue;
+    try {
+      gateOne(fieldId, field, input, certify, reject, accepted, disagreements);
+    } catch {
+      // "PURE, TOTAL, AND NEVER THROWS" IS A CLAIM THIS MAKES TRUE, and the difference is not
+      // theoretical: the sibling Python wall raised `OverflowError` on a 401-digit integer from
+      // the model, which escaped and returned HTTP 500 — one fabricated number destroying every
+      // honest field in the same response, the exact opposite of per-field fail-closed. An
+      // unforeseen throw must cost ONE field, never the interview. Not silent: the field is
+      // DROPPED and counted under its own `gate_error`, so a wall failing this way appears in the
+      // counters instead of looking like a clean pass.
+      reject("type_range", "gate_error");
     }
-
-    const provenance = checkProvenance(field.evidence, input.transcript ?? []);
-    if (provenance) {
-      reject("provenance", provenance);
-      continue;
-    }
-
-    const role = checkRole(field.evidence, input.transcript ?? []);
-    if (role) {
-      reject("role", role);
-      continue;
-    }
-
-    const target = (input.target_fields ?? []).find((t) => t.field_id === fieldId);
-    const typeRange = checkTypeRange(fieldId, field.value, target);
-    if (typeRange) {
-      reject("type_range", typeRange);
-      continue;
-    }
-
-    const agreement = checkAgreement(fieldId, field.value, input.answer_map ?? []);
-    if (agreement) {
-      // NOT merely a rejection: the deterministic value stands and this is reported so
-      // `profile.parse_disagreement` can be emitted with ids and counts only.
-      reject("agreement", agreement);
-      disagreements.push(fieldId);
-      continue;
-    }
-
-    const pii = checkPii(field.value, certify);
-    if (pii) {
-      reject("pii", pii);
-      continue;
-    }
-
-    accepted[fieldId] = field;
   }
 
   return { accepted, rejections, disagreements };
+}
+
+/**
+ * One field through all six gates, in order.
+ *
+ * Extracted so the caller can wrap exactly ONE field's work in the totality guard. A `try` around
+ * the whole loop would let one bad field skip every field after it — a worse failure than the one
+ * being guarded against.
+ */
+function gateOne(
+  fieldId: string,
+  field: ParsedField,
+  input: Pick<ProfileParseInput, "answer_map" | "transcript" | "target_fields">,
+  certify: PiiCertifier,
+  reject: (gate: GateId, reason: RejectionReason) => void,
+  accepted: Record<string, ParsedField>,
+  disagreements: string[],
+): void {
+  const vocabulary = checkVocabulary(fieldId, input.target_fields ?? []);
+  if (vocabulary) return reject("vocabulary", vocabulary);
+
+  const provenance = checkProvenance(field.evidence, input.transcript ?? []);
+  if (provenance) return reject("provenance", provenance);
+
+  const role = checkRole(field.evidence, input.transcript ?? []);
+  if (role) return reject("role", role);
+
+  const target = (input.target_fields ?? []).find((t) => t.field_id === fieldId);
+  const typeRange = checkTypeRange(fieldId, field.value, target);
+  if (typeRange) return reject("type_range", typeRange);
+
+  const agreement = checkAgreement(fieldId, field.value, input.answer_map ?? []);
+  if (agreement) {
+    // NOT merely a rejection: the deterministic value stands and this is reported so
+    // `profile.parse_disagreement` can be emitted with ids and counts only.
+    reject("agreement", agreement);
+    disagreements.push(fieldId);
+    return;
+  }
+
+  const pii = checkPii(field.value, certify);
+  if (pii) return reject("pii", pii);
+
+  accepted[fieldId] = field;
 }
 
 /** Rejection counts per gate — the shape observability wants. Ids and counts only. */

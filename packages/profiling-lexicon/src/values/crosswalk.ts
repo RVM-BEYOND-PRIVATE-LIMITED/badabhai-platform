@@ -24,10 +24,10 @@ import type { CrosswalkEntry } from "./types-crosswalk.js";
 export const FIELD_CROSSWALK: Readonly<Record<string, CrosswalkEntry>> = {
   // --- required -----------------------------------------------------------
   trade: { draftPath: "primary_role", type: "string" },
-  skills: { draftPath: "skills", type: "string[]" },
+  skills: { draftPath: "skills", type: "string_array" },
   experience_years: { draftPath: "experience_years", type: "number", unit: "years" },
   current_city: { draftPath: "current_city", type: "string" },
-  preferred_locations: { draftPath: "preferred_locations", type: "string[]" },
+  preferred_locations: { draftPath: "preferred_locations", type: "string_array" },
   // THE RENAME THIS TABLE EXISTS FOR. `salary_expected` (RFS) is `expected_salary` (draft), and
   // the two have been re-derived independently before.
   salary_expected: { draftPath: "expected_salary", type: "number", unit: "inr_per_month" },
@@ -38,21 +38,21 @@ export const FIELD_CROSSWALK: Readonly<Record<string, CrosswalkEntry>> = {
   // overlock for a tailor, a tandoor for a cook. The splitter routes the tokens; no per-trade code.
   tools_equipment: {
     draftPath: "machines",
-    type: "string[]",
+    type: "string_array",
     splitter: "machines_controllers",
   },
   salary_current: { draftPath: "current_salary", type: "number", unit: "inr_per_month" },
   education_level: { draftPath: "education_level", type: "string" },
   education_field: { draftPath: "education_field", type: "string" },
-  certifications: { draftPath: "certifications", type: "string[]" },
+  certifications: { draftPath: "certifications", type: "string_array" },
   // NOT CARRIED, DELIBERATELY. `WorkerProfileDraft` has no employer/history column and §2 forbids
   // storing employer names; the answer feeds the resume narrative and stops there. Written as an
   // explicit null so the exhaustiveness test can tell a considered omission from a forgotten one.
-  work_history: { draftPath: null, type: "string[]" },
+  work_history: { draftPath: null, type: "string_array" },
   // NOT CARRIED: no draft column today. Captured because it is cheap and useful, and will be
   // carried the moment a column exists.
-  languages: { draftPath: null, type: "string[]" },
-  relocation_willingness: { draftPath: "relocation_willingness", type: "bool" },
+  languages: { draftPath: null, type: "string_array" },
+  relocation_willingness: { draftPath: "relocation_willingness", type: "boolean" },
 };
 
 /** Every RFS id the crosswalk knows. */

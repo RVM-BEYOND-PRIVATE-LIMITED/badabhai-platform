@@ -84,6 +84,46 @@ describe("every destination is a REAL WorkerProfileDraft field", () => {
   });
 });
 
+describe("THE TYPE VOCABULARY IS THE ONE GATE 3 BRANCHES ON", () => {
+  // This table is the only per-field type declaration in the repo, so it is what builds
+  // `target_fields` on a parse request — and `checkTypeRange` branches on those exact strings.
+  // Phase 7 first wrote "string[]" and "bool" here, which matched NO branch: the array and boolean
+  // arms of gate 3 were dead, and every array- or boolean-valued field went through the type gate
+  // unexamined. A silent no-op gate is worse than no gate, because the counters report a pass.
+  const GATES = join(REPO_ROOT, "apps", "api", "src", "profiling", "parse-gates.ts");
+
+  /** The `target.type` literals `checkTypeRange` actually compares against. */
+  function branchedTypes(): Set<string> {
+    const source = readFileSync(GATES, "utf8");
+    return new Set([...source.matchAll(/target\.type === "([a-z_]+)"/g)].map((m) => m[1] as string));
+  }
+
+  it("reads a non-empty set of branches, so the check below cannot pass vacuously", () => {
+    const branched = branchedTypes();
+    expect(branched.size).toBeGreaterThanOrEqual(5);
+    expect(branched).toContain("string_array");
+    expect(branched).toContain("boolean");
+  });
+
+  it("every type this table declares is one gate 3 examines", () => {
+    const branched = branchedTypes();
+    // `enum` is branched on too, and the four scalar/array names must all be present. A value here
+    // that gate 3 has no arm for is a field the type gate silently waves through.
+    const declared = new Set(Object.values(FIELD_CROSSWALK).map((e) => e.type));
+    expect([...declared].filter((t) => !branched.has(t))).toEqual([]);
+  });
+
+  it("spells the array and boolean types the way the frozen contract does", () => {
+    // The regression, named. `TargetFieldSchema.type` in @badabhai/ai-contracts documents
+    // "string" | "number" | "boolean" | "enum" | "string_array".
+    const declared = new Set(Object.values(FIELD_CROSSWALK).map((e) => e.type));
+    expect(declared.has("string_array")).toBe(true);
+    expect(declared.has("boolean")).toBe(true);
+    expect([...declared]).not.toContain("string[]");
+    expect([...declared]).not.toContain("bool");
+  });
+});
+
 describe("the mapping's own shape", () => {
   it("carries the renames that make this table necessary at all", () => {
     // If the two vocabularies agreed everywhere a crosswalk would be pointless. These are the

@@ -17,6 +17,7 @@ import {
   checkVocabulary,
   countByGate,
   isCityUnrecognized,
+  stringsIn,
   type PiiCertifier,
 } from "./parse-gates";
 
@@ -161,6 +162,10 @@ describe("GATE 3 — TYPE / ENUM / RANGE", () => {
     };
     expect(checkTypeRange("skills", "welding", t)).toBe("not_an_array");
     expect(checkTypeRange("skills", ["welding"], t)).toBeNull();
+    // THE ITEMS, TOO. `Array.isArray` alone let `["lathe", { note: "call 9876543210" }]` through as
+    // a valid string_array, and gate 6 then skipped the object — a nested value walked out with
+    // every counter at zero. A "string array" whose items are not strings is not the declared type.
+    expect(checkTypeRange("skills", ["welding", { note: "x" }], t)).toBe("not_a_string");
   });
 
   it("REJECTS an absent value outright", () => {
@@ -228,6 +233,27 @@ describe("GATE 6 — PII RE-CERTIFICATION", () => {
 
   it("has nothing to say about a non-string value", () => {
     expect(checkPii(7, PASS)).toBeNull();
+  });
+
+  it("REACHES a string nested inside an object inside an array", () => {
+    // THE LEAK BOTH WALLS SHIPPED WITH. This gate used to iterate the array and `continue` past any
+    // member that was not a string — so the object was silently skipped, the phone number inside it
+    // was certified by nothing, the field was ACCEPTED, and the per-gate counters reported a clean
+    // pass. A string a walker cannot see is a string no wall can certify.
+    const rewriting: PiiCertifier = (t) => ({
+      blocked: false,
+      text: t.includes("9876543210") ? "[PHONE_1]" : t,
+    });
+    expect(checkPii(["lathe", { note: "call 9876543210" }], rewriting)).toBe("pii_altered");
+  });
+
+  it("certifies object KEYS too — the model chooses those as well", () => {
+    const rewriting: PiiCertifier = (t) => ({ blocked: false, text: t === "9876543210" ? "[X]" : t });
+    expect(checkPii({ "9876543210": "ok" }, rewriting)).toBe("pii_altered");
+  });
+
+  it("finds every string leaf, and only strings", () => {
+    expect(stringsIn(["a", { k: ["b", 7, null] }, true])).toEqual(["a", "k", "b"]);
   });
 });
 
@@ -430,5 +456,37 @@ describe("a WINDOWED transcript — `i` is what spans point at, not array positi
     expect(checkRole({ message_index: 10, quote: "Aap kis sheher" }, WINDOWED)).toBe(
       "span_not_from_worker",
     );
+  });
+});
+
+describe("THE WALL IS TOTAL — one bad field must never cost the interview", () => {
+  it("drops the field a throwing gate touched, counts it, and keeps its honest siblings", () => {
+    // The sibling Python wall raised OverflowError on a 401-digit integer from the model, escaped,
+    // and returned HTTP 500 — one fabricated number destroying every honest field in the same
+    // response, the exact opposite of the per-field fail-closed design. Not silent: `gate_error` is
+    // its own reason, so a wall failing this way shows up in the counters.
+    let calls = 0;
+    const explodesOnce: PiiCertifier = (t) => {
+      calls += 1;
+      if (t === "boom") throw new Error("certifier is down");
+      return { blocked: false, text: t };
+    };
+    const result = applyParseGates(
+      {
+        fields: {
+          trade: field({ value: "boom" }),
+          current_city: field({ value: "pune", evidence: { message_index: 1, quote: "pune me rehta hun" } }),
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+      { answer_map: [], transcript: TRANSCRIPT, target_fields: TARGETS },
+      explodesOnce,
+    );
+    expect(Object.keys(result.accepted)).toEqual(["current_city"]);
+    expect(result.rejections).toEqual([
+      { fieldId: "trade", gate: "type_range", reason: "gate_error" },
+    ]);
+    expect(calls).toBeGreaterThan(1);
   });
 });

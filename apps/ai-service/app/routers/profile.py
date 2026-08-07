@@ -1,8 +1,9 @@
-"""Transcript -> draft profile extraction: POST /profile/extract."""
+"""Transcript -> draft profile: POST /profile/extract and POST /profile/parse."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 
 from fastapi import APIRouter
 
@@ -11,17 +12,21 @@ from ..ai.canonicalize import canonicalize_labels
 from ..ai.embeddings import EMBEDDING_TASK_TYPE, embed_text
 from ..ai.model_config import rate_inr_per_1k
 from ..ai.skill_store import get_skill_store
+from ..config import get_settings
 from ..contracts import (
     DraftProfile,
     JobDomainMatch,
     ProfileExtractionInput,
     ProfileExtractionOutput,
+    ProfileParseInput,
+    ProfileParseOutput,
     WorkerProfileDraft,
 )
-from ..profiling import profile_extractor
+from ..profiling import parse_gates, profile_extractor
 from ..profiling.canonical_roles import (
     ROLE_TRADE,
     canonicalization_instruction,
+    coerce_json_text,
     extract_canonical_role_id,
     normalize_role_id,
 )
@@ -34,6 +39,8 @@ from ..profiling.domain_match import (
 from ..profiling.domain_match import (
     match_domain as match_job_domain,
 )
+from ..profiling.parse_masking import mask_parse_input
+from ..profiling.parse_prompt import build_parse_messages, empty_parse
 from ..profiling.prompts import extraction_system_prompt
 from ..profiling.signals import has_first_person_claim, label_for_id
 from ..pseudonymize import pseudonymize
@@ -339,3 +346,194 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
 def _schema_hint() -> str:
     keys = ", ".join(WorkerProfileDraft.model_fields.keys())
     return f"Schema keys: {keys}."
+
+
+# --- OIE Phase 7: POST /profile/parse --------------------------------------
+
+PARSE_TASK_TYPE = "profile_parse"
+
+#: Every note `/profile/parse` may emit, as a CLOSED SET.
+#:
+#: `ProfileParseOutput.notes` is a free-form `list[str]`, which makes it the one place in this
+#: response where worker text could leave the service without anyone noticing. So two rules hold
+#: here and are tested: nothing but these codes is ever written to it, and the MODEL'S OWN notes are
+#: discarded unread. Model output is untrusted input — it arrives from the far side of the privacy
+#: boundary, it can echo the transcript verbatim, and `notes` has no gate of its own because there
+#: is nothing in a note to check a span against.
+PARSE_NOTES = frozenset(
+    {
+        "mock_no_parse",
+        "llm_unavailable",
+        "parse_deadline_exceeded",
+        "parse_output_invalid",
+        "evidence_lines_dropped",
+        "answer_text_dropped",
+        "normalized_value_withheld",
+        "city_unrecognized",
+        "fields_rejected",
+        "parse_disagreement",
+    }
+)
+
+
+def _certify(text: str) -> tuple[bool, str]:
+    """Gate 6's wall. Full default length here on purpose — this certifies one parsed VALUE, not a
+    message, and a "value" long enough to trip the 20,000-char guard is one that should be blocked
+    rather than measured against a per-message bound."""
+    result = pseudonymize(text)
+    return result.blocked, result.text
+
+
+@api_router.post("/profile/parse", response_model=ProfileParseOutput)
+async def profile_parse(body: ProfileParseInput) -> ProfileParseOutput:
+    """THE one LLM call of the OIE interview: type the recorded answers and cite their spans.
+
+    THE FRAMING IS THE ENFORCEMENT (`profiling/parse_prompt.py`): `answer_map` is the record and
+    `transcript` is an indexed evidence store. The model is never asked what the worker earns; it is
+    told what the worker answered and asked to type it and quote the span. Then the six gates
+    (`profiling/parse_gates.py`) run before this response leaves — and run AGAIN in Nest before
+    anything is persisted, because two walls that agree are worth more than one wall that is
+    trusted.
+
+    DEGRADES, NEVER FAILS. Mock mode, an unavailable provider, a blown deadline, an unparseable
+    response and a total gate wipeout all produce the SAME thing: a valid `ProfileParseOutput` with
+    no fields. Downstream that projects to `parse_status = "deterministic_only"` and the worker
+    still gets a real profile out of the answer map, which is the property normalizing at capture
+    time was for. There is no failure branch here that costs a worker their interview.
+    """
+    settings_now = get_settings()
+
+    if not body.target_fields:
+        # Nothing was requested, so there is nothing to cite and no reason to spend a call.
+        return empty_parse([])
+
+    # 1. PSEUDONYMIZE FIRST, PER MESSAGE. Never the concatenation — see `parse_masking`.
+    masked = mask_parse_input(body)
+    notes: list[str] = []
+    if masked.dropped_lines:
+        notes.append("evidence_lines_dropped")
+    if masked.dropped_raw_answers:
+        notes.append("answer_text_dropped")
+    if masked.withheld_normalized:
+        notes.append("normalized_value_withheld")
+    if masked.dropped_lines or masked.dropped_raw_answers or masked.withheld_normalized:
+        # Counts only — the offending text is by definition un-maskable, so it is the last thing
+        # that may be logged.
+        logger.warning(
+            "dropped un-maskable legs from the parse input",
+            extra={
+                "extra": {
+                    "lines": masked.dropped_lines,
+                    "raw_answers": masked.dropped_raw_answers,
+                    "normalized": masked.withheld_normalized,
+                }
+            },
+        )
+
+    # 2. THE CALL, under a hard deadline. `router.run` never raises, but it can take
+    #    `gemini_timeout_seconds` x the retry chain — an order of magnitude past the p95 budget the
+    #    worker is waiting inside. Cancelling is safe: the router refunds its spend reservation in
+    #    a `finally`, so a cancelled call leaks no ledger.
+    messages = build_parse_messages(masked, body.target_fields, body.language)
+    fallback = empty_parse(body.target_fields).model_dump_json()
+    try:
+        content, meta = await asyncio.wait_for(
+            router.run(
+                PARSE_TASK_TYPE,
+                messages=messages,
+                mock_response=fallback,
+                real_call_allowed=True,
+                user_ref=body.worker_ref,
+            ),
+            timeout=settings_now.profile_parse_deadline_seconds,
+        )
+    except TimeoutError:
+        # `TimeoutError` ONLY — deliberately not `CancelledError`. On Python >= 3.11 `wait_for`
+        # raises the builtin, while a `CancelledError` here means the CLIENT went away, and
+        # swallowing that would turn a disconnect into a fabricated 200 and break cancellation for
+        # everything above this frame.
+        logger.warning(
+            "profile parse deadline exceeded",
+            extra={"extra": {"deadline_s": settings_now.profile_parse_deadline_seconds}},
+        )
+        return _parse_response(parse_gates.GateResult(), body, [*notes, "parse_deadline_exceeded"])
+
+    # Two DIFFERENT degradations, and conflating them would hide the one that needs an operator.
+    # The router's terminal states are unambiguous: nothing attempted (mock mode, a spend cap, the
+    # kill switch) is `real_call=False`, while a provider that was reached and failed every
+    # candidate is `real_call=True, success=False`. The first is a posture, the second is an
+    # incident.
+    if not meta.real_call:
+        notes.append("mock_no_parse")
+    elif not meta.success:
+        notes.append("llm_unavailable")
+
+    # 3. Read the response as a contract object. An unparseable or off-contract body is NOT an
+    #    error to raise — it is simply an overlay that contributed nothing.
+    parsed = _read_parse_output(content)
+    if parsed is None:
+        return _parse_response(parse_gates.GateResult(), body, [*notes, "parse_output_invalid"])
+
+    # 4. THE SIX GATES, before the response leaves.
+    gated = parse_gates.apply_parse_gates(
+        parsed,
+        list(body.answer_map),
+        masked.transcript,
+        list(body.target_fields),
+        _certify,
+    )
+    if gated.rejections:
+        notes.append("fields_rejected")
+    if gated.disagreements:
+        notes.append("parse_disagreement")
+    if gated.unrecognized_cities:
+        notes.append("city_unrecognized")
+
+    logger.info(
+        "profile parsed",
+        extra={
+            "extra": {
+                "is_mock": not meta.real_call,
+                "requested": len(body.target_fields),
+                "accepted": len(gated.accepted),
+                "disagreements": len(gated.disagreements),
+                # Field ids and counts only — never a value (§2).
+                "rejected_by_gate": parse_gates.count_by_gate(gated.rejections),
+            }
+        },
+    )
+    return _parse_response(gated, body, notes)
+
+
+def _read_parse_output(content: str) -> ProfileParseOutput | None:
+    """The model's response as a `ProfileParseOutput`, or None if it is not one.
+
+    Never raises and never repairs. A body this service cannot validate is a body it has no way to
+    gate, and the fail-closed reading of an ungateable overlay is "there was no overlay".
+    """
+    try:
+        return ProfileParseOutput.model_validate(json.loads(coerce_json_text(content)))
+    except Exception as exc:  # noqa: BLE001 — a malformed overlay is never worth a failed parse
+        # Type name only: the exception body can echo the model's response, which can echo the
+        # transcript.
+        logger.warning(
+            "profile parse output unreadable", extra={"extra": {"error": type(exc).__name__}}
+        )
+        return None
+
+
+def _parse_response(
+    gated: parse_gates.GateResult,
+    body: ProfileParseInput,
+    notes: list[str],
+) -> ProfileParseOutput:
+    """Assemble the response. `unparsed_field_ids` is computed HERE, from what actually survived the
+    gates — never taken from the model, which has every incentive to claim it parsed more than it
+    cited. `notes` is filtered to the closed set as the last act before the response leaves, so a
+    code added carelessly upstream is dropped rather than published."""
+    accepted = gated.accepted
+    return ProfileParseOutput(
+        fields=dict(accepted),
+        unparsed_field_ids=[t.field_id for t in body.target_fields if t.field_id not in accepted],
+        notes=[note for note in dict.fromkeys(notes) if note in PARSE_NOTES],
+    )
