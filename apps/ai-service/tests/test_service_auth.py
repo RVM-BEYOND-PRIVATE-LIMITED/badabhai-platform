@@ -150,7 +150,8 @@ class TestServiceAuthEnabled:
         post_paths = sorted(_served_paths_with_method(app.router, "POST"))
         # Pinned to the ACTUAL surface, not a loose floor: this count is the only
         # structural defense against the enumeration silently shrinking again.
-        assert len(post_paths) == 12, f"POST surface changed: {post_paths}"
+        # 13 since OIE Phase 7 added POST /profile/parse.
+        assert len(post_paths) == 13, f"POST surface changed: {post_paths}"
         for path in post_paths:
             resp = client.post(path, json={})
             assert resp.status_code == 401, f"{path} not gated"

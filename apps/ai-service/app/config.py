@@ -200,6 +200,13 @@ class Settings(BaseSettings):
     ai_extraction_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     ai_extraction_max_retries: int = Field(default=2, ge=0, le=5)
 
+    # OIE Phase 7 acceptance criterion: parse p95 < 6 s. A HARD DEADLINE is how that becomes a
+    # property of the route instead of a hope about the provider — `gemini_timeout_seconds` (30 s)
+    # times the retry chain is an order of magnitude past the budget, and the worker is waiting on
+    # this call to see their finished profile. On expiry the parse degrades to the deterministic
+    # projection, which is a real profile; the overlay is the only thing lost.
+    profile_parse_deadline_seconds: float = Field(default=6.0, gt=0.0, le=60.0)
+
     ai_resume_max_output_tokens: int = Field(default=512, ge=16, le=8192)
     ai_resume_temperature: float = Field(default=0.4, ge=0.0, le=2.0)
     ai_resume_max_retries: int = Field(default=1, ge=0, le=5)

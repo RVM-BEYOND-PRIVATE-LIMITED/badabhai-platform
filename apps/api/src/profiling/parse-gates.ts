@@ -46,11 +46,41 @@ export const GATE_IDS = [
 ] as const;
 export type GateId = (typeof GATE_IDS)[number];
 
+/**
+ * Every reason a gate may give, as a CLOSED SET.
+ *
+ * Declared rather than left as `string` because these same six gates run a second time in the
+ * ai-service (`app/profiling/parse_gates.py`), and a rejection vocabulary that drifts between the
+ * two walls is a wall that reports different things about the same field. A parity test reads this
+ * array out of this file and asserts the Python mirror is identical, so a new reason has to be
+ * added on both sides or CI fails — and the union type means a typo here is a compile error rather
+ * than a novel code nobody's dashboard knows about.
+ */
+export const REJECTION_REASONS = [
+  "message_index_out_of_range",
+  "quote_not_in_message",
+  "span_not_from_worker",
+  "value_absent",
+  "not_a_number",
+  "not_a_string",
+  "not_a_boolean",
+  "not_an_array",
+  "experience_years_out_of_range",
+  "salary_out_of_range",
+  "availability_not_in_enum",
+  "value_not_in_enum",
+  "disagrees_with_answer_map",
+  "field_id_not_requested",
+  "pii_blocked",
+  "pii_altered",
+] as const;
+export type RejectionReason = (typeof REJECTION_REASONS)[number];
+
 export interface Rejection {
   readonly fieldId: string;
   readonly gate: GateId;
-  /** PII-FREE. A reason code, never the offending value. */
-  readonly reason: string;
+  /** PII-FREE. A reason code from the closed set above, never the offending value. */
+  readonly reason: RejectionReason;
 }
 
 export interface GateResult {
@@ -325,7 +355,7 @@ export function applyParseGates(
     // not a rejection, and not something to count as a failure.
     if (field === null || field === undefined) continue;
 
-    const reject = (gate: GateId, reason: string) => {
+    const reject = (gate: GateId, reason: RejectionReason) => {
       rejections.push({ fieldId, gate, reason });
     };
 

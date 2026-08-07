@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { AnswerRecord, ParsedField } from "@badabhai/ai-contracts";
+import type { AnswerRecord, ParsedField, ProfileParseOutput } from "@badabhai/ai-contracts";
 
 import {
   PROJECTABLE_DRAFT_FIELDS,
   projectProfile,
 } from "./answer-map-projector";
+import { applyParseGates } from "./parse-gates";
 
 function answer(over: Partial<AnswerRecord> & { question_key: string }): AnswerRecord {
   return {
@@ -149,6 +150,36 @@ describe("the split field", () => {
     );
     expect(draft.machines?.value).toEqual(["VMC"]);
     expect(draft.secret_notes).toBeUndefined();
+  });
+});
+
+describe("THE ACCEPTANCE CRITERION, end to end: LLM-unavailable ⇒ a real profile", () => {
+  it("turns the ai-service's degraded response into deterministic_only, not into nothing", () => {
+    // This is the exact body `POST /profile/parse` returns on EVERY degraded path — mock mode, a
+    // dead provider, a blown deadline, an unreadable model reply, or a total gate wipeout. Both
+    // halves of the criterion are tested separately (the route always answers; the projector reads
+    // the map), and this is the join: the two are only worth anything if the shape one emits is the
+    // shape the other reads.
+    const fromAiService: ProfileParseOutput = {
+      fields: {},
+      unparsed_field_ids: ["experience_years", "salary_expected"],
+      notes: ["llm_unavailable"],
+    };
+    const gated = applyParseGates(
+      fromAiService,
+      { answer_map: MAP, transcript: [], target_fields: [] },
+      (text) => ({ blocked: false, text }),
+    );
+    expect(gated.accepted).toEqual({});
+
+    const { draft, parseStatus } = projectProfile(MAP, gated.accepted);
+    expect(parseStatus).toBe("deterministic_only");
+    // "A valid profile from the answer map alone" — asserted as CONTENT, because an empty draft
+    // would also satisfy `deterministic_only` and would satisfy nobody's résumé.
+    expect(draft.primary_role?.value).toBe("VMC operator");
+    expect(draft.experience_years?.value).toBe(7);
+    expect(draft.current_city?.value).toBe("Pune");
+    expect(draft.expected_salary?.value).toBe(35_000);
   });
 });
 
