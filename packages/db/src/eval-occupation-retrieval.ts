@@ -66,7 +66,7 @@ function main(): void {
   const gold = loadGoldSet();
   const r = scoreGoldSet(index, gold);
 
-  console.log(`[${SCRIPT}] index: ${index.exact.size} exact keys, ${index.skeleton.size} skeleton keys`);
+  console.log(`[${SCRIPT}] index: ${index.spans.exact.size} exact keys, ${index.spans.skeleton.size} skeleton keys`);
   console.log(`[${SCRIPT}] gold set: ${r.total} utterances`);
   console.log(`[${SCRIPT}] results:`);
   console.log(`  L0 exact correct            = ${r.l0}  (${pct(r.l0 / r.total)})`);

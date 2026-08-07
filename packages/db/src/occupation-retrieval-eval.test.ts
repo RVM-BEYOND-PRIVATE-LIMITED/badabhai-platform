@@ -51,7 +51,7 @@ describe("buildOccupationIndex", () => {
     // A non-selectable row can never be `is_searchable`, so indexing it would inflate the
     // offline hit rate above what production could ever achieve.
     const index = buildOccupationIndex([domain("jd_a", "7212", ["welding"], false)]);
-    expect(index.exact.size).toBe(0);
+    expect(index.spans.exact.size).toBe(0);
   });
 
   it("keeps every domain claiming the same key rather than picking one", () => {
@@ -61,12 +61,12 @@ describe("buildOccupationIndex", () => {
       domain("jd_a", "7112", ["mistri"]),
       domain("jd_b", "7233", ["mistri"]),
     ]);
-    expect(index.exact.get("mistri")).toEqual(["jd_a", "jd_b"]);
+    expect(index.spans.exact.get("mistri")).toEqual(["jd_a", "jd_b"]);
   });
 
   it("skips aliases that normalize to nothing", () => {
     const index = buildOccupationIndex([domain("jd_a", "7212", ["- / -"])]);
-    expect(index.exact.size).toBe(0);
+    expect(index.spans.exact.size).toBe(0);
   });
 });
 
@@ -123,7 +123,7 @@ describe("resolveOccupation", () => {
     // Guards the cap: without it every utterance is O(tokens^2) for no possible gain,
     // because a span longer than any alias cannot match by definition.
     const index = buildOccupationIndex([domain("jd_weld", "7212", ["welding"])]);
-    expect(index.maxSpanTokens).toBe(1);
+    expect(index.spans.maxSpanTokens).toBe(1);
     expect(resolveOccupation(index, "a b c d e welding f g h")?.jobDomainId).toBe("jd_weld");
   });
 });
