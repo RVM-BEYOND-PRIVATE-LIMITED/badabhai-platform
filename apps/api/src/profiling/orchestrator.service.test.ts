@@ -551,3 +551,38 @@ describe("determinism", () => {
     expect(replies.size).toBe(1);
   });
 });
+
+describe("a DISAMBIGUATE decision must never become a blank message", () => {
+  it("writes nothing and fails closed instead of serving an empty assistant bubble", async () => {
+    // LATENT BUG, found by tracing the branch rather than by a failure. `nextQuestion` returns
+    // kind "disambiguate" with promptText "" — the chips are Phase 7's to build. The commit path
+    // fell through the `else`, so the turn was COMMITTED with reply "": an empty assistant bubble
+    // appended to the transcript, cached as the replay reply, `servedQuestionKey` nulled, and no
+    // ask spent — so nothing cleared the flag and every later turn emitted another blank until
+    // MAX_ENGINE_TURNS closed the interview. Unreachable today only because nothing sets the flag.
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const { orchestrator, store } = makeWorld();
+    seed(store, { needsDisambiguation: true });
+    const before = JSON.stringify(store.get(SESSION));
+
+    const result = await orchestrator.takeTurn(say("welder"));
+
+    expect(result.unavailable).toBe(true);
+    expect(result.reply).toBe(UNAVAILABLE_REPLY);
+    // NOTHING was written — no blank bubble, no rev bump, no poisoned reply cache.
+    expect(JSON.stringify(store.get(SESSION))).toBe(before);
+    vi.restoreAllMocks();
+  });
+
+  it("never serves an empty reply for ANY decision kind", async () => {
+    // The general invariant behind the specific bug: whatever the engine decides, a turn that
+    // would show the worker nothing is not a turn worth committing.
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const blank = pack("qp_blank", [item({ question_key: "q_blank", prompt_text: "   " })]);
+    const { orchestrator, store } = makeWorld({ packs: { occupation: null, universal: blank } });
+    const result = await orchestrator.takeTurn(say("hello"));
+    expect(result.unavailable).toBe(true);
+    expect(store.size).toBe(0);
+    vi.restoreAllMocks();
+  });
+});
