@@ -1,0 +1,42 @@
+-- 0070 — `unresolved_phrase.scope`: one growth queue, two vocabularies.
+--
+-- HAND-EDITED after `db:generate`, in three ways that all matter. The generated file is kept
+-- in git history; the differences are:
+--
+--   1. STATEMENT ORDER. drizzle emitted `DROP INDEX` FIRST. Dropping the only unique index
+--      before creating its replacement leaves a window in which nothing enforces uniqueness —
+--      and, worse, `SkillsRepository.recordUnresolved` upserts with
+--      `ON CONFLICT (phrase, domain_id, lang)`, which raises
+--      "there is no unique or exclusion constraint matching the ON CONFLICT specification"
+--      the moment that index is gone. Any live writer between the two statements fails hard.
+--      Create the new index first, then drop the old one: uniqueness is continuous, and the
+--      ON CONFLICT target is satisfied by one index or the other at every instant.
+--
+--   2. `NULLS NOT DISTINCT` (PG15+), which this drizzle version cannot model. WITHOUT IT THE
+--      UPSERT SILENTLY STOPS DEDUPING. `domain_id` and `lang` are both nullable and are NULL
+--      for occupation phrases, and under standard SQL semantics NULL != NULL — so every
+--      occurrence of the same phrase would insert a NEW row with count = 1 instead of
+--      incrementing one row. The growth loop's whole trigger is `count >= N`, so it would
+--      never fire and nothing would look broken. Precedent: 0037 line 48, same table, same
+--      hand-edit, same reason.
+--
+--   3. The old index MUST go, rather than being kept alongside. `unresolved_phrase_uq` is
+--      unique on (phrase, domain_id, lang) WITHOUT scope, so it would forbid the one thing
+--      this migration exists to allow: "fitter" being an open SKILL gap and an open
+--      OCCUPATION gap at the same time. Those are different follow-up work — one becomes a
+--      `skill_alias`, the other a `job_domain_alias` — and collapsing them would let
+--      resolving the skill silently close the occupation gap.
+--
+-- BACKWARD COMPATIBLE. `DEFAULT 'skill'` is correct for every existing row (everything
+-- written before Phase 8 was a skill miss) and for every existing writer, so no backfill and
+-- no code change is required for the old path. A constant default is metadata-only on PG11+,
+-- so this does not rewrite the table.
+--
+-- ROLLBACK: drop the check, drop `unresolved_phrase_scope_uq`, recreate
+-- `unresolved_phrase_uq` (with NULLS NOT DISTINCT), drop the column. Safe only while no row
+-- has scope = 'occupation'; after that, delete those rows first — they are a derived,
+-- re-computable queue, never worker data.
+ALTER TABLE "unresolved_phrase" ADD COLUMN "scope" text DEFAULT 'skill' NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "unresolved_phrase_scope_uq" ON "unresolved_phrase" USING btree ("scope","phrase","domain_id","lang") NULLS NOT DISTINCT;--> statement-breakpoint
+DROP INDEX "unresolved_phrase_uq";--> statement-breakpoint
+ALTER TABLE "unresolved_phrase" ADD CONSTRAINT "unresolved_phrase_scope_chk" CHECK ("unresolved_phrase"."scope" IN ('skill', 'occupation'));

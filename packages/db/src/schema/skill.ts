@@ -48,6 +48,14 @@ export type SkillStatus = "active" | "provisional" | "deprecated";
 export type UnresolvedPhraseStatus = "open" | "clustered" | "resolved";
 
 /**
+ * Which vocabulary a below-floor phrase failed to resolve in (migration 0070).
+ *
+ * `skill` is every row written before Phase 8, which is why it is the column default —
+ * the widening needs no backfill and breaks no existing writer.
+ */
+export type UnresolvedPhraseScope = "skill" | "occupation";
+
+/**
  * Matching V1 (migration 0052) — the TWO KINDS a `skill` row can be.
  *
  * `match_skill` — a MATCHABLE unit of work (the closed `mskill_*` vocabulary in
@@ -162,20 +170,39 @@ export const unresolvedPhrases = pgTable(
     firstSeen: timestamp("first_seen", { withTimezone: true }).notNull().defaultNow(),
     lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
     status: text("status").$type<UnresolvedPhraseStatus>().notNull().default("open"),
+    // WHICH VOCABULARY THE PHRASE FAILED TO RESOLVE IN (migration 0070).
+    //
+    // This table is WIDENED rather than duplicated, and that is the whole design decision.
+    // It already owns the atomic count upsert, the pseudonymized-only contract, the
+    // open|clustered|resolved lifecycle, the optional clustering embedding and a live
+    // writer. A second `unresolved_occupation` table would have to re-earn every one of
+    // those and would split the ops queue in two.
+    //
+    // But the two scopes must NOT share rows: "fitter" is an unresolved SKILL and an
+    // unresolved OCCUPATION at the same time, with different follow-up work — one becomes
+    // a `skill_alias`, the other a `job_domain_alias`. Merging them would let a resolved
+    // skill silently close an open occupation gap.
+    //
+    // DEFAULT 'skill' keeps every existing row and every existing writer correct with no
+    // backfill: everything written before Phase 8 was a skill miss.
+    scope: text("scope").$type<UnresolvedPhraseScope>().notNull().default("skill"),
     // Optional embedding for TAX-7 clustering (nullable until clustered).
     embedding: vector("embedding", { dimensions: 768 }),
   },
   (t) => [
-    // One row per distinct phrase — enables the atomic count-increment upsert
-    // (INSERT ... ON CONFLICT (phrase, domain_id, lang) DO UPDATE count = count + 1).
-    // The migration adds NULLS NOT DISTINCT (PG15) by hand — this drizzle version
-    // can't model it — so NULL domain/lang phrases still dedupe to one row.
-    uniqueIndex("unresolved_phrase_uq").on(t.phrase, t.domainId, t.lang),
+    // One row per distinct (scope, phrase, domain, lang) — enables the atomic
+    // count-increment upsert. The migration adds NULLS NOT DISTINCT (PG15) by hand — this
+    // drizzle version can't model it — so NULL domain/lang phrases still dedupe to one row.
+    //
+    // `scope` LEADS the index deliberately: the ops queue is always read one scope at a
+    // time ("show me unresolved occupations"), so it is the highest-selectivity prefix.
+    uniqueIndex("unresolved_phrase_scope_uq").on(t.scope, t.phrase, t.domainId, t.lang),
     index("unresolved_phrase_status_idx").on(t.status),
     check(
       "unresolved_phrase_status_chk",
       sql`${t.status} IN ('open', 'clustered', 'resolved')`,
     ),
+    check("unresolved_phrase_scope_chk", sql`${t.scope} IN ('skill', 'occupation')`),
   ],
 ).enableRLS();
 

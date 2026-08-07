@@ -2436,8 +2436,8 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 146 event names (139 prior + the seven ADR-0037 payer events)", () => {
-    expect(EVENT_NAMES).toHaveLength(146);
+  it("exposes all 147 event names (146 prior + occupation.phrase_unresolved)", () => {
+    expect(EVENT_NAMES).toHaveLength(147);
     // ADR-0037 — the payer lifecycle transitions.
     expect(isEventName("payer.activated")).toBe(true);
     expect(isEventName("payer.suspended")).toBe(true);

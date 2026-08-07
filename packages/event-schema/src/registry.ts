@@ -675,6 +675,20 @@ export const EVENT_REGISTRY = {
     domain: "feed",
     payload: p.FeedShownV2Payload,
   },
+
+  // ── Occupation Intelligence Engine (Phase 8) ──────────────────────────────
+  // APPENDED AT THE END, never inserted among the entries above: the registry is
+  // append-only by protocol, because an edited entry is a mutated event schema and
+  // consumers version off these definitions.
+  //
+  // A worker's trade phrase reached none of the four retrieval layers and was recorded
+  // to the growth queue. PII-FREE: sha256 of the (already pseudonymized) phrase, the
+  // language tag, and the post-upsert count — never the text. v1.
+  "occupation.phrase_unresolved": {
+    version: 1,
+    domain: "occupation",
+    payload: p.OccupationPhraseUnresolvedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

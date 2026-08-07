@@ -22,8 +22,12 @@
  * PRIVACY: the worker's utterance is an argument and is never stored, logged or emitted by
  * this class. Spans reaching the log are matched CATALOGUE text, not worker text.
  */
+import { createHash } from "node:crypto";
+
 import { Injectable, Logger } from "@nestjs/common";
 import { matchSpan, normalizeOccupationText } from "@badabhai/profiling-lexicon";
+
+import { EventsService } from "../events/events.service";
 
 import { SkillsRepository } from "../skills/skills.repository";
 import {
@@ -92,6 +96,7 @@ export class OccupationService {
     private readonly index: OccupationIndexService,
     private readonly repo: OccupationRepository,
     private readonly skills: SkillsRepository,
+    private readonly events: EventsService,
   ) {}
 
   /**
@@ -260,6 +265,40 @@ export class OccupationService {
       built.push({ jobDomainId: c.jobDomainId, familyId: c.familyId, label });
     }
     return { options: built, abandoned: false, reason: "" };
+  }
+
+  /**
+   * Record a trade phrase that reached no layer, and emit the hash-only event.
+   *
+   * THE PHRASE MUST ALREADY BE PSEUDONYMIZED, and this service cannot do it — the
+   * pseudonymizer lives in the ai-service, behind HTTP. So this is a SEPARATE call rather
+   * than something `resolve()` does for itself: auto-recording would write the worker's raw
+   * utterance into a table whose entire contract is "pseudonymized text only" (SG-1), and it
+   * would do so silently, on the hot path, for every unmatched turn.
+   *
+   * `scope: "occupation"` is what keeps this out of the skill growth queue. Same table
+   * (migration 0070 widened it rather than minting a second one), different queue: "fitter"
+   * can be an open skill gap and an open occupation gap at once, and resolving one must not
+   * close the other.
+   *
+   * `domainId` is NULL: an occupation miss is not scoped to a skill domain. The unique
+   * index's NULLS NOT DISTINCT is what still collapses repeats onto one counted row.
+   */
+  async recordUnresolved(phrase: string, lang: string): Promise<{ count: number }> {
+    const { id, count } = await this.skills.recordUnresolved(phrase, null, lang, "occupation");
+    // HASH ONLY. Even the pseudonymized text never rides the event spine — the same rule
+    // `SkillsService.recordUnresolved` follows, and the reason its payload is `.strict()`.
+    const phraseHash = createHash("sha256").update(phrase, "utf8").digest("hex");
+    await this.events.emit({
+      event_name: "occupation.phrase_unresolved",
+      actor: { actor_type: "ai_service", actor_id: null },
+      subject: { subject_type: "occupation_phrase", subject_id: id },
+      payload: { phrase_hash: phraseHash, lang, count },
+      // Keyed on the row AND its count, so an at-least-once retry of the same occurrence
+      // does not double-emit while a genuine second occurrence still does.
+      idempotencyKey: `occupation.phrase_unresolved:${id}:${count}`,
+    });
+    return { count };
   }
 
   /** Catalogue metadata for one occupation, from the in-process snapshot. */

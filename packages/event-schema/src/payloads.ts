@@ -2523,3 +2523,31 @@ export const FeedShownV2Payload = z
   })
   .strict();
 export type FeedShownV2Payload = z.infer<typeof FeedShownV2Payload>;
+
+// ---------------------------------------------------------------------------
+// occupation.* — the OIE growth loop (Phase 8).
+
+/**
+ * A worker's trade phrase failed to reach the occupation catalogue and was recorded to the
+ * `unresolved_phrase` growth queue with `scope='occupation'` (migration 0070).
+ *
+ * PII-FREE BY CONSTRUCTION, mirroring `skill.phrase_unresolved` exactly rather than
+ * inventing a second shape: the phrase (already pseudonymized, SG-1) is NOT carried — only
+ * its sha256 hex, the language tag and the post-upsert occurrence count. `.strict()` blocks
+ * smuggling the text back in.
+ *
+ * NO `domain_id`. An occupation miss is not scoped to a skill domain, and the skill payload's
+ * `min(1)` on that field is precisely why this is a separate payload rather than a reuse.
+ *
+ * THE COUNT IS THE POINT. The growth loop reads `count >= N` to promote a phrase to an
+ * `rvm` alias, after which the next worker who says it hits L0 for free. This event is how
+ * that threshold becomes observable without anyone reading the queue table.
+ */
+export const OccupationPhraseUnresolvedPayload = z
+  .object({
+    phrase_hash: z.string().regex(/^[0-9a-f]{64}$/),
+    lang: z.string().min(2).max(8),
+    count: z.number().int().positive(),
+  })
+  .strict();
+export type OccupationPhraseUnresolvedPayload = z.infer<typeof OccupationPhraseUnresolvedPayload>;

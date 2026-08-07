@@ -14,6 +14,7 @@ import type { OccupationIndexService } from "./occupation-index.service";
 import type { OccupationRepository, TrigramCandidate } from "./occupation.repository";
 import { OccupationService } from "./occupation.service";
 import type { SkillsRepository } from "../skills/skills.repository";
+import type { EventsService } from "../events/events.service";
 
 const BINDINGS = [
   { familyId: "fam_welding", iscoUnitCode: "7212" },
@@ -56,8 +57,10 @@ function make(opts: {
   } as unknown as OccupationRepository;
   const skills = {
     nearestDomains: vi.fn().mockResolvedValue(opts.vector ?? []),
+    recordUnresolved: vi.fn().mockResolvedValue({ id: "row", count: 1 }),
   } as unknown as SkillsRepository;
-  return { svc: new OccupationService(index, repo, skills), repo, skills };
+  const events = { emit: vi.fn().mockResolvedValue(undefined) } as unknown as EventsService;
+  return { svc: new OccupationService(index, repo, skills, events), repo, skills, events };
 }
 
 describe("OccupationService.resolve — the ladder", () => {
@@ -214,5 +217,62 @@ describe("L2 receives NORMALIZED text — the contract its parameter name states
     expect(passed).not.toMatch(/[A-Z!]/);
     expect(passed).not.toContain("  ");
     expect(passed).not.toBe(raw);
+  });
+});
+
+describe("OccupationService.recordUnresolved — the growth queue", () => {
+  it("writes with scope 'occupation', never the skill scope", async () => {
+    // Same table, different queue. "fitter" is legitimately an open skill gap AND an open
+    // occupation gap; sharing a row would let resolving one silently close the other.
+    const { svc, skills } = make();
+    (skills.recordUnresolved as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      count: 3,
+    });
+    await svc.recordUnresolved("kuch alag kaam", "hi");
+    expect(skills.recordUnresolved).toHaveBeenCalledWith("kuch alag kaam", null, "hi", "occupation");
+  });
+
+  it("emits the phrase HASH, never the phrase", async () => {
+    // Even pseudonymized text must not ride the event spine. The payload is `.strict()`,
+    // so an attempt to add the text back is a schema failure, not a silent leak.
+    const { svc, skills, events } = make();
+    (skills.recordUnresolved as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      count: 2,
+    });
+    await svc.recordUnresolved("kuch alag kaam", "hi");
+
+    const emitted = (events.emit as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      event_name: string;
+      payload: Record<string, unknown>;
+    };
+    expect(emitted.event_name).toBe("occupation.phrase_unresolved");
+    expect(emitted.payload.phrase_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(emitted)).not.toContain("kuch alag kaam");
+  });
+
+  it("keys idempotency on the row AND the count", async () => {
+    // On the row alone, a genuine second occurrence would be swallowed as a retry; on
+    // neither, an at-least-once retry would double-count the growth signal.
+    const { svc, skills, events } = make();
+    (skills.recordUnresolved as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: "abc",
+      count: 7,
+    });
+    await svc.recordUnresolved("phrase", "hi");
+    const emitted = (events.emit as unknown as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      idempotencyKey: string;
+    };
+    expect(emitted.idempotencyKey).toBe("occupation.phrase_unresolved:abc:7");
+  });
+
+  it("does NOT record automatically from resolve()", async () => {
+    // `resolve` receives the worker's RAW utterance; this table's contract is pseudonymized
+    // text only. Auto-recording would put raw worker words into an ops queue on every
+    // unmatched turn, silently.
+    const { svc, skills } = make();
+    await svc.resolve("aaj mausam accha hai");
+    expect(skills.recordUnresolved).not.toHaveBeenCalled();
   });
 });
