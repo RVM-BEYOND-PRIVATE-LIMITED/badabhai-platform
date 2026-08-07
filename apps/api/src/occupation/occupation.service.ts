@@ -23,7 +23,7 @@
  * this class. Spans reaching the log are matched CATALOGUE text, not worker text.
  */
 import { Injectable, Logger } from "@nestjs/common";
-import { matchSpan } from "@badabhai/profiling-lexicon";
+import { matchSpan, normalizeOccupationText } from "@badabhai/profiling-lexicon";
 
 import { SkillsRepository } from "../skills/skills.repository";
 import {
@@ -148,7 +148,16 @@ export class OccupationService {
     if (result.status === "auto") return result;
 
     // ── L2 — trigram over the normalized alias text ───────────────────────────────
-    for (const c of await this.repo.trigramCandidates(text, LAYER_FANOUT)) {
+    //
+    // NORMALIZED HERE, and it has to be. `trigramCandidates`' parameter is named `queryNorm` and
+    // its SQL compares against `a.text_norm`, the column `normalizeOccupationText` wrote. L0/L1
+    // never needed this because `matchSpan` normalizes internally — which is exactly why passing
+    // the raw utterance here was invisible: the two layers that run first are immune, and L2 is
+    // only reached when they miss. For any conversational sentence ("kapde silne ka kaam karta
+    // hun") that is EVERY time, so the ladder's only fuzzy layer returned nothing for precisely
+    // the inputs it exists to catch.
+    const queryNorm = normalizeOccupationText(text);
+    for (const c of await this.repo.trigramCandidates(queryNorm, LAYER_FANOUT)) {
       consider(c.jobDomainId, "L2", c.rawScore);
     }
     result = this.judge(byDomain, snapshot.catalogVersion, snapshot);
