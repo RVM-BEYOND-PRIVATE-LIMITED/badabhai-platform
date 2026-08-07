@@ -17,13 +17,17 @@
 
 import type { AnswerRecord, ParsedField } from "@badabhai/ai-contracts";
 import { CROSSWALK_DRAFT_FIELDS, crosswalkFor } from "@badabhai/profiling-lexicon";
-import { PROFILE_VALUE_SOURCES, type ProfileValueSource } from "@badabhai/types";
+import {
+  PROFILE_VALUE_SOURCES,
+  type AttributeValueKind,
+  type ProfileValueSource,
+} from "@badabhai/types";
 
 /**
  * Where a projected value came from. Observability, and the audit of what the LLM contributed.
  *
  * RE-EXPORTED, NOT RESTATED. The same vocabulary is a stored column on `worker_attributes`
- * (migration 0070), so a second literal here would be a second chance for "the LLM wrote this" to
+ * (migration 0071), so a second literal here would be a second chance for "the LLM wrote this" to
  * drift out of agreement with what the database records. The old names are kept so no caller has
  * to change.
  */
@@ -41,11 +45,31 @@ export type ProfileProjection = Readonly<Record<string, ProjectedValue>>;
 export const PARSE_STATUSES = ["deterministic_only", "llm_overlay"] as const;
 export type ParseStatus = (typeof PARSE_STATUSES)[number];
 
+/**
+ * One `target_kind: "attribute"` answer, ready for `worker_attributes`.
+ *
+ * A SEPARATE OUTPUT FROM `draft`, not a widening of it, because the two have different
+ * destinations and different rules. `draft` is the RFS profile the resume is built from;
+ * attributes are the matcher's inventory, one row per key, and 77% of the authored corpus is
+ * attributes. Merging them would put a `forklift` boolean into a resume field.
+ */
+export interface ProjectedAttribute {
+  readonly attributeKey: string;
+  readonly valueKind: AttributeValueKind;
+  readonly value: boolean | number | string | readonly string[];
+  readonly source: ValueSource;
+}
+
 export interface ProjectionResult {
   readonly draft: ProfileProjection;
   readonly parseStatus: ParseStatus;
   /** Draft fields the LLM overlay contributed that the map had nothing for. Ids only. */
   readonly overlayFields: readonly string[];
+  /**
+   * The attribute answers, keyed and typed. Empty before the corpus had anywhere to put them —
+   * which was the state of the world until migration 0071.
+   */
+  readonly attributes: readonly ProjectedAttribute[];
 }
 
 /**
@@ -125,19 +149,26 @@ export function projectProfile(
 ): ProjectionResult {
   const draft: Record<string, ProjectedValue> = {};
   const overlayFields: string[] = [];
+  const attributes = new Map<string, ProjectedAttribute>();
 
   // 1. THE OVERLAY FIRST, so the map can overwrite it. Applying the map first and then guarding
   //    every overlay write would put the precedence rule in two places; letting the winner write
   //    last keeps it in one.
   for (const [fieldId, field] of Object.entries(accepted)) {
     assign(draft, fieldId, field.value, "llm_parse", options.split);
+    collectAttribute(attributes, fieldId, field.value, "llm_parse");
   }
 
   // 2. THE MAP WINS. Unconditionally — no comparison, no merge, no "unless the LLM is more
   //    confident". Confidence is the model's opinion of itself.
+  //
+  //    The SAME precedence governs attributes, and for the same reason: a later write to the same
+  //    key replaces the earlier one, so running the map second is what makes the worker's own
+  //    answer beat the model's reading of it.
   const live = liveValues(answerMap);
   for (const [fieldId, value] of live) {
     assign(draft, fieldId, value, "answer_map", options.split);
+    collectAttribute(attributes, fieldId, value, "answer_map");
   }
 
   for (const [draftField, projected] of Object.entries(draft)) {
@@ -148,7 +179,60 @@ export function projectProfile(
     draft,
     parseStatus: overlayFields.length > 0 ? "llm_overlay" : "deterministic_only",
     overlayFields: overlayFields.sort(),
+    attributes: [...attributes.values()].sort((a, b) =>
+      a.attributeKey < b.attributeKey ? -1 : a.attributeKey > b.attributeKey ? 1 : 0,
+    ),
   };
+}
+
+/**
+ * Route a NON-RFS answer to `worker_attributes`.
+ *
+ * HOW IT KNOWS IT IS AN ATTRIBUTE, without being handed the pack: the crosswalk already answers
+ * exactly that question. `crosswalkFor` returns an entry for every RFS field id and nothing else —
+ * that is what its exhaustiveness test against the ai-service vocabulary guarantees — so "no entry"
+ * IS "not an RFS field". Threading `target_kind` down here would be a second, unchecked copy of a
+ * fact the crosswalk already holds.
+ *
+ * A field WITH an entry but a `null` `draftPath` (`work_history`, `languages`) is deliberately not
+ * carried onto the resume. It is still RFS, so it does not become an attribute either — it stays
+ * exactly as dropped as it was.
+ *
+ * THE VALUE'S SHAPE PICKS THE COLUMN. `value_kind` is derived from the projected value rather than
+ * from `answer_type`, because by this point normalization has already happened and the shape IS the
+ * type — and because deriving it here means a new answer type does not need a new case.
+ */
+function collectAttribute(
+  into: Map<string, ProjectedAttribute>,
+  fieldId: string,
+  value: unknown,
+  source: ValueSource,
+): void {
+  if (crosswalkFor(fieldId)) return;
+  const typed = classifyAttributeValue(value);
+  // An unrepresentable value is dropped rather than stringified. `worker_attributes` is a matchable
+  // inventory; coercing an object into "[object Object]" would put a row there that no query can
+  // ever match and no reader can interpret.
+  if (typed === null) return;
+  into.set(fieldId, { attributeKey: fieldId, ...typed, source });
+}
+
+function classifyAttributeValue(
+  value: unknown,
+): { valueKind: AttributeValueKind; value: boolean | number | string | readonly string[] } | null {
+  if (typeof value === "boolean") return { valueKind: "boolean", value };
+  if (typeof value === "number" && Number.isFinite(value)) return { valueKind: "number", value };
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? { valueKind: "text", value: trimmed } : null;
+  }
+  if (Array.isArray(value)) {
+    // An EMPTY list is a real answer — "none of these" is not the same as "unanswered", and
+    // collapsing them would re-ask a question the worker has already closed.
+    const items = value.filter((entry): entry is string => typeof entry === "string");
+    return items.length === value.length ? { valueKind: "text_list", value: items } : null;
+  }
+  return null;
 }
 
 /** The draft fields a projection could ever touch — the crosswalk's own set, never a second copy. */
