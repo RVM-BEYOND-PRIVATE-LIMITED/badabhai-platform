@@ -28,6 +28,7 @@ import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabha
 import { AiService } from "../ai/ai.service";
 import { EventsService } from "../events/events.service";
 import type { RequestContext } from "../common/request-context";
+import { catalogVersionForEvent } from "../occupation/occupation.repository";
 import { OccupationService, type ResolveResult } from "../occupation/occupation.service";
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
 import type { OfferedChip, ProfilingEnvelope } from "./conversation-state";
@@ -405,7 +406,11 @@ export class IdentifyService {
         // a release has none); the payload's is not, because the Phase 9 sweep groups by it and
         // a null bucket is a hole in the histogram rather than a category. `unknown` is a
         // SENTINEL and reads as one — inventing a plausible version string would be worse.
-        catalog_version: pin.catalog_version ?? "unknown",
+        //
+        // PROJECTED, not passed through: the catalogue version is a six-field cache signature
+        // carrying two ISO timestamps, and the payload caps this at 64 characters. See
+        // `catalogVersionForEvent`.
+        catalog_version: catalogVersionForEvent(pin.catalog_version),
         candidate_count: candidateCount,
       },
       // ONE PER SESSION, because the engine pins exactly once. A retry of the same turn after a
@@ -436,7 +441,10 @@ export class IdentifyService {
         // not a version: the payload requires a non-empty string, and inventing a plausible
         // version number would make a degraded seam indistinguishable from a real release in
         // the Phase 9 sweep.
-        catalog_version: catalogVersion ?? "unknown",
+        //
+        // PROJECTED, not passed through — and this is the line that 500'd every unresolved
+        // turn on a real catalogue. See `catalogVersionForEvent`.
+        catalog_version: catalogVersionForEvent(catalogVersion),
       },
       idempotencyKey: `profile.occupation_unresolved:${ctx.sessionId}`,
       correlationId: ctx.correlationId,
