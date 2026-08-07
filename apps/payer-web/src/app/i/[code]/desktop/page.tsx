@@ -1,21 +1,25 @@
 import type { Metadata } from "next";
-import { pingInviteClick, shortLinkUrl } from "../../../../lib/invite-landing";
+import { inviteLandingUrl, pingInviteClick } from "../../../../lib/invite-landing";
 import { InviteQr } from "./invite-qr";
 
 /**
  * DESKTOP referral landing page — `https://app.badabhai.in/i/<code>/desktop` (B4).
  *
- * WHERE IT COMES FROM. The `GET /r/:code` resolver classifies the visitor's User-Agent and
- * sends a DESKTOP browser here instead of to the mobile page. That branch exists because the
- * mobile page's only real action is "install from the Play Store", which is useless on a
+ * WHERE IT COMES FROM. A DESKTOP browser is sent here instead of to the mobile page, because
+ * the mobile page's only real action is "install from the Play Store", which is useless on a
  * laptop: the worker cannot install an Android app on it, and a dead-ended desktop visit is
  * a lost referral for an agent who happened to share the link into a desktop WhatsApp Web
  * session — a completely normal thing for the ~450-agent channel to do.
  *
- * WHAT IT DOES INSTEAD. Renders the SHORT LINK as a QR so the visitor scans it with the
- * phone they will actually install on. The scan re-enters the SAME `/r/<code>` resolver from
- * the phone, which is what preserves attribution across the device hop — the code is never
- * retyped and never lost.
+ * WHAT IT DOES INSTEAD. Renders the shareable link as a QR so the visitor scans it with the
+ * phone they will actually install on. The scan re-enters `/i/<code>` from the phone, so the
+ * PHONE's own User-Agent drives the App-Link / intent / Play-Store branch — that is what
+ * preserves attribution across the device hop; the code is never retyped and never lost.
+ *
+ * IT ENCODES `/i/`, NOT `/r/` (#607). `/r/` is served by `apps/api`, but the short-link origin
+ * points at this app, which has no `/r` route and no rewrite — so the QR encoded a 404 and
+ * every bridge scan died there with no `referral_clicks` row. `/i/` logs its own click via
+ * {@link pingInviteClick}, which is where the resolver's 302 landed anyway.
  *
  * SAME NO-ORACLE RULE as the mobile page: the code is never resolved for rendering, so a
  * valid, invalid, expired and already-used code all produce identical output. Nothing here
@@ -48,10 +52,10 @@ export default async function InviteDesktopPage({ params }: { params: Promise<{ 
   // is de-duplicated downstream by the click-hash window, not by dropping this one.
   await pingInviteClick(code);
 
-  // The QR encodes the SHORT link, not this page: scanning must re-enter the resolver from
+  // The QR encodes the MOBILE landing, not this page: scanning must re-enter `/i/<code>` from
   // the phone so the phone's own User-Agent drives the App-Link/Play-Store branch. Encoding
   // this desktop URL instead would strand the phone on a QR page showing itself.
-  const scanUrl = shortLinkUrl(code);
+  const scanUrl = inviteLandingUrl(code);
 
   return (
     <main className="invite-landing">
