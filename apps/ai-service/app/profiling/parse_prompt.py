@@ -16,9 +16,13 @@ Language IS passed, because it changes how a span is transliterated, not what th
 from __future__ import annotations
 
 import json
+import re
 
 from ..contracts import ProfileParseOutput, TargetField
 from .parse_masking import MaskedParseInput
+
+#: BCP-47-ish: `hi`, `hi-IN`, `pa-Guru-IN`. Anything else is not a locale and is dropped.
+_LOCALE_RE = re.compile(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}")
 
 PARSE_SYSTEM_PROMPT = """You TYPE and CITE. You do not interview, infer, or estimate.
 
@@ -101,7 +105,14 @@ def build_parse_messages(
         + (transcript or "(empty)")
     )
 
-    if language:
+    if language and _LOCALE_RE.fullmatch(language):
+        # SHAPE-CHECKED, not merely truthy. `ProfileParseInput.language` is a bare `str | None`
+        # with no validator and no length bound, and this is the ONE field of the request that
+        # reaches the prompt without passing through the masker — everything else is worker text
+        # and is masked as such, while this is supposed to be a locale tag. A caller that put a
+        # sentence (or an instruction) here would be concatenating unmasked, un-gated text into a
+        # system-adjacent position. Dropping anything that is not locale-shaped costs nothing: the
+        # model reads the transcript in whatever language it is written in regardless.
         sections.append(f"The worker answered in: {language}.")
 
     return [
