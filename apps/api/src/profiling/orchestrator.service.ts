@@ -353,8 +353,31 @@ export class ProfilingOrchestrator {
       next = { ...next, phase: decision.phase, servedQuestionKey: decision.questionKey };
     }
 
+    // A TURN THAT WOULD SHOW THE WORKER NOTHING IS NOT A TURN WORTH COMMITTING.
+    //
+    // `disambiguate` is how this is reached: `nextQuestion` returns it with an empty `promptText`
+    // because the CHIPS are Phase 7's to build from the retrieval offer, and nothing here can
+    // render them yet. Committing it anyway appended an empty assistant bubble to the transcript,
+    // cached "" as the replay reply, and — because a non-ask spends no budget and nothing clears
+    // the flag — emitted another blank every turn until MAX_ENGINE_TURNS closed the interview.
+    //
+    // Failing closed instead writes NOTHING and returns a line the worker can retry into. That is
+    // recoverable; a wall of empty bubbles is not. The guard is on the TEXT rather than on the
+    // kind, so a pack whose prompt is whitespace cannot reintroduce this either.
+    const reply = decision.kind === "close" ? CLOSING_REPLY : decision.promptText;
+    if (reply.trim().length === 0) {
+      this.logger.error(
+        `refusing to serve an empty reply session=${input.sessionId} kind=${decision.kind} ` +
+          `phase=${decision.phase}; nothing was written` +
+          (decision.kind === "disambiguate"
+            ? " — a disambiguation offer needs Phase 7 retrieval to supply the chips"
+            : ""),
+      );
+      return null;
+    }
+
     return this.turn(buffer, next, input, {
-      reply: decision.kind === "close" ? CLOSING_REPLY : decision.promptText,
+      reply,
       questionKey: decision.questionKey,
       options: decision.options,
       progress: decision.progress,

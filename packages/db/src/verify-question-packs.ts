@@ -25,6 +25,7 @@ import {
   summariseQuestionPackCorpus,
   validateQuestionPackCorpus,
 } from "./question-pack-corpus";
+import { RFS_FIELD_IDS } from "./rfs-vocabulary";
 
 // Repo-root env, same as verify-job-domains.ts. Loaded at module scope rather than inside
 // main() because the corpus layer runs before any database is touched and must not
@@ -65,7 +66,11 @@ async function main(): Promise<void> {
   console.log(`[${SCRIPT}] corpus:`);
   for (const [k, v] of Object.entries(summary)) console.log(`  ${k.padEnd(26)} = ${v}`);
 
-  const problems = validateQuestionPackCorpus(corpus);
+  // THE VOCABULARY IS PASSED, and that is the whole point of this line. `opts.fields` is what
+  // arms the "target_field is in the Resume Field Set" rule; without it `opts.fields?.fieldIds.size`
+  // is undefined and the rule silently does not run. It did not run for the entire life of this
+  // gate, which is how the UNIVERSAL pack shipped with four invented field ids and no normalizer.
+  const problems = validateQuestionPackCorpus(corpus, { fields: { fieldIds: RFS_FIELD_IDS } });
   const corpusFatal = problems.filter((p) => !p.includes("WARN"));
   const corpusWarn = problems.filter((p) => p.includes("WARN"));
   if (corpusWarn.length > 0) {

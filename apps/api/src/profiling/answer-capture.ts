@@ -69,6 +69,12 @@ export function mayCommit(
  *
  * Keyed on the RFS `target_field`, not on `answer_type`, because two number fields can need
  * completely different parsers — years and rupees-per-month share a type and share nothing else.
+ *
+ * THE KEYS ARE RFS IDS AND NOTHING ELSE (`RFS_FIELD_IDS` in `@badabhai/db`), asserted by a test.
+ * A key spelled as the WorkerProfileDraft column instead — `willing_to_relocate` rather than
+ * `relocation_willingness` — matches no pack question, so the field silently falls through to the
+ * verbatim path and stores a whole sentence where a boolean belongs. `notice_period_days` is the
+ * deliberate exception: it is an `attribute` target, never an `rfs` one.
  * A field with no entry falls through to the verbatim path, which is correct for free text and for
  * chip answers whose label IS the value.
  */
@@ -79,7 +85,7 @@ const NORMALIZER_BY_FIELD: Readonly<Record<string, (text: string) => unknown>> =
   salary_current: (text) => detectSalaries(text).current?.value ?? null,
   availability: (text) => parseAvailability(text)?.value.availability ?? null,
   notice_period_days: (text) => parseAvailability(text)?.value.noticeDays ?? null,
-  willing_to_relocate: (text) => parseRelocationWillingness(text)?.value ?? null,
+  relocation_willingness: (text) => parseRelocationWillingness(text)?.value ?? null,
 };
 
 /**
@@ -94,6 +100,12 @@ const NORMALIZER_BY_FIELD: Readonly<Record<string, (text: string) => unknown>> =
 export function hasFieldNormalizer(field: string | null): boolean {
   return field !== null && field in NORMALIZER_BY_FIELD;
 }
+
+/**
+ * The field ids this file can type. Exported so a test can assert they are REAL vocabulary ids
+ * rather than plausible-looking ones — the defect that shipped was a key nothing could ever match.
+ */
+export const NORMALIZED_FIELDS: readonly string[] = Object.keys(NORMALIZER_BY_FIELD);
 
 /**
  * Was the detected value negated?
@@ -221,7 +233,7 @@ function spanFor(item: QuestionPackItem, text: string): { start: number; end: nu
     case "availability":
     case "notice_period_days":
       return parseAvailability(text)?.span;
-    case "willing_to_relocate":
+    case "relocation_willingness":
       return parseRelocationWillingness(text)?.span;
     default:
       // Free text and chips have no sub-span to veto: the whole message IS the answer, and
