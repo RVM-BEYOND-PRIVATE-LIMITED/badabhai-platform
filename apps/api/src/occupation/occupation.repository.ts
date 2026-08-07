@@ -172,6 +172,27 @@ export class OccupationRepository {
   }
 
   /**
+   * The families' vernacular labels — the chip's fallback when an occupation has no
+   * vernacular name of its own.
+   *
+   * Only 348 of 2,156 blue-collar occupations own an alias that is not just their English
+   * title, and `job_domain.label_hi` is NULL for every row in the catalogue. The families
+   * are where the Hindi actually lives (all 101 have `label_hi`, enforced by
+   * `db:verify:packs`), and a chip is a family-level choice anyway.
+   */
+  async loadFamilyLabels(): Promise<Map<string, string | null>> {
+    const rows = await this.db.execute(sql`
+      SELECT family_id, label_hi FROM profiling_family
+    `);
+    return new Map(
+      (rows as unknown as Array<{ family_id: string; label_hi: string | null }>).map((r) => [
+        r.family_id,
+        r.label_hi,
+      ]),
+    );
+  }
+
+  /**
    * Layer L2 — trigram similarity over the normalized alias text.
    *
    * `word_similarity(query, target)` is ASYMMETRIC and that is why it is used: it asks how
@@ -186,26 +207,48 @@ export class OccupationRepository {
    * searchable):
    *
    *     text_norm %  q   Bitmap Index Scan on ..._text_norm_trgm_idx    3.5 ms
-   *     q %> text_norm   Index Only Scan on the unique index + Filter  22.9 ms
-   *     text_norm <% q   identical to the above                        22.9 ms
+   *     q <% text_norm   Index Only Scan on the unique index + Filter  22.9 ms
+   *     q %> text_norm   identical to the above                        22.9 ms
    *
-   * The word-similarity operators (`%>`, `<%`) are served by NEITHER the existing GIN index
+   * The word-similarity operators (`<%`, `%>`) are served by NEITHER the existing GIN index
    * nor a GiST `gist_trgm_ops` index built specifically to test it — with a GiST index
    * present the plan is unchanged, and with seq/index/index-only scans all disabled the
    * planner still reaches for the unique index rather than either trigram index.
    *
+   * ── THE FILTER AND THE SCORE MUST RUN IN THE SAME DIRECTION ──
+   *
+   * `<%`, NOT `%>`. They are commutators of each other, so this is not a stylistic choice:
+   *
+   *     A <% B   is   word_similarity(A, B) > threshold
+   *     A %> B   is   word_similarity(B, A) > threshold
+   *
+   * The SELECT ranks on `word_similarity(queryNorm, text_norm)`, so the WHERE must admit
+   * rows on the SAME expression or it filters by one measure and ranks by another. As first
+   * merged this used `%>`, which asks whether the ALIAS matches a fragment of the WORKER'S
+   * SENTENCE — the reverse of the question this layer exists to ask. Measured on the seeded
+   * catalogue, aliases admitted at the same threshold:
+   *
+   *     query           %> (as merged)   <% (correct)   dropped by %>
+   *     silai                        9             74             65
+   *     welding                     19            186            168
+   *     bijli                        5             44             39
+   *     kharad                       7              8              2
+   *
+   * and the reason, in one pair of numbers:
+   *
+   *     word_similarity('welding', 'welder gas cutting operations') = 0.5000
+   *     word_similarity('welder gas cutting operations', 'welding') = 0.1875
+   *
+   * L2 was running, returning rows, and scoring them correctly — while discarding ~90% of
+   * the candidates it should have considered. Nothing failed; the layer was just quietly
+   * bad at its job.
+   *
    * ── WHY NOT JUST USE `%`, WHICH IS INDEXED AND 6x FASTER ──
    *
-   * Because it loses exactly the matches this layer exists for. Distinct domains found,
-   * same threshold, `%` versus `%>`:
-   *
-   *     welding       8 vs 11      kharad        2 vs  4
-   *     gadi chalana  2 vs  8      raj mistri   10 vs 15
-   *     silai         5 vs  5      bijli         4 vs  4
-   *
    * `%` divides by the union of both trigram sets, so a short query against a long official
-   * title scores low — the multi-word Hinglish phrase is precisely the case it drops. A
-   * 6x speedup that silently loses 6 of 8 candidates for "gadi chalana" is not a speedup.
+   * title scores low — the multi-word Hinglish phrase is precisely the case it drops, and
+   * that case is the reason this layer exists. A 6x speedup that loses the inputs the layer
+   * was built for is not a speedup.
    *
    * ── THE OPEN RISK, STATED ──
    *
@@ -213,7 +256,7 @@ export class OccupationRepository {
    * at 5k. It is comfortably inside the ≤400 ms per-turn budget today and L2 only runs when
    * L0 and L1 both miss, but that criterion will NOT be met by scaling this query as-is.
    * Phase 9 owns performance calibration; the fallback if it becomes hot is a two-stage
-   * pass — an index-served `%` prefilter UNIONed with a bounded `%>` pass over a narrowed
+   * pass — an index-served `%` prefilter UNIONed with a bounded `<%` pass over a narrowed
    * candidate set — never a silent switch to `%` alone.
    *
    * Deduped to the best alias per domain by `max`, for the same reason L3 dedupes: a domain
@@ -233,7 +276,7 @@ export class OccupationRepository {
         FROM job_domain_alias a
         JOIN job_domain d ON d.job_domain_id = a.job_domain_id
         WHERE a.is_searchable
-          AND ${queryNorm} %> a.text_norm
+          AND ${queryNorm} <% a.text_norm
           AND d.selectable = true AND d.status = 'active'
         GROUP BY a.job_domain_id
         ORDER BY score DESC

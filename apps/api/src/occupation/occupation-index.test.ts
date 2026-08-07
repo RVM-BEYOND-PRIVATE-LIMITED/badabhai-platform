@@ -35,6 +35,35 @@ describe("pickChipLabel", () => {
     expect(label).toBe("kharad");
   });
 
+  it("SKIPS an alias that is merely label_en again", () => {
+    // The seeder writes `label_en` into the alias array, and 77% of occupations have
+    // exactly one alias — that title. Without this skip the shortest alias IS the English
+    // title for 1,808 of 2,156 blue-collar occupations, and the guarantee this function is
+    // named after is delivered for 348 of them.
+    expect(pickChipLabel(null, ["Cooks"], "Cooks", "खाना बनाने का काम")).toBe("खाना बनाने का काम");
+  });
+
+  it("compares against label_en NORMALIZED, not raw", () => {
+    // "Welder, Gas" and "welder gas" are the same title wearing different punctuation. A
+    // raw comparison would call the second one vernacular and put it on a chip.
+    expect(pickChipLabel(null, ["welder gas"], "Welder, Gas", "वेल्डिंग")).toBe("वेल्डिंग");
+  });
+
+  it("prefers a genuine vernacular alias OVER the family label", () => {
+    // The family label is coarser. When the worker's own word exists, it wins.
+    expect(pickChipLabel(null, ["kharad", "Lathe Machinist"], "Lathe Machinist", "मशीन का काम")).toBe(
+      "kharad",
+    );
+  });
+
+  it("uses label_en only when there is no family label either", () => {
+    expect(pickChipLabel(null, ["Cooks"], "Cooks", null)).toBe("Cooks");
+  });
+
+  it("ignores a blank family label", () => {
+    expect(pickChipLabel(null, ["Cooks"], "Cooks", "   ")).toBe("Cooks");
+  });
+
   it("breaks equal-length ties lexicographically, not by arrival order", () => {
     // Every API instance builds its own snapshot from its own unordered query. Two
     // instances offering different chips for one occupation would record different
@@ -94,6 +123,29 @@ describe("buildOccupationSnapshot", () => {
 
   it("carries the catalog version through unchanged", () => {
     expect(snap().catalogVersion).toBe("v1");
+  });
+
+  it("threads the FAMILY label into the chip when the occupation has no vernacular name", () => {
+    const s = buildOccupationSnapshot({
+      catalogVersion: "v1",
+      domains: [domain("jd_cook", "Cooks", "5120")],
+      // The only alias is the English title, which is the shape 84% of the catalogue is in.
+      aliases: [{ jobDomainId: "jd_cook", text: "Cooks" }],
+      bindings: [{ familyId: "fam_cooking", iscoUnitCode: "5120" }],
+      familyLabels: new Map([["fam_cooking", "खाना बनाने का काम"]]),
+    });
+    expect(s.domains.get("jd_cook")?.chipLabel).toBe("खाना बनाने का काम");
+  });
+
+  it("falls back to label_en when a domain has no family at all", () => {
+    const s = buildOccupationSnapshot({
+      catalogVersion: "v1",
+      domains: [domain("jd_x", "Cooks", "9999")],
+      aliases: [{ jobDomainId: "jd_x", text: "Cooks" }],
+      bindings: [],
+      familyLabels: new Map([["fam_cooking", "खाना बनाने का काम"]]),
+    });
+    expect(s.domains.get("jd_x")?.chipLabel).toBe("Cooks");
   });
 
   it("gives a domain with no family binding a null family rather than inventing one", () => {

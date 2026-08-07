@@ -24,7 +24,7 @@
  * PRIVACY: public occupation reference data only. No worker text is stored here — the
  * utterance is an argument, never a field.
  */
-import { buildSpanIndex, type SpanIndex } from "@badabhai/profiling-lexicon";
+import { buildSpanIndex, normalizeOccupationText, type SpanIndex } from "@badabhai/profiling-lexicon";
 import { resolveFamily, type ResolvableBinding } from "@badabhai/db";
 
 /** One alias row, as the index needs to see it. */
@@ -72,7 +72,27 @@ export interface OccupationSnapshot {
 }
 
 /**
- * Pick the chip label for one domain.
+ * Pick the chip label for one domain, in strict order of how much it sounds like a worker.
+ *
+ *   1. the occupation's own `label_hi`
+ *   2. the shortest alias that is NOT merely the English title again
+ *   3. the FAMILY's `label_hi`
+ *   4. `label_en`, and only when a domain has no family and no alias of its own
+ *
+ * STEP 2 HAD TO LEARN TO SKIP `label_en`, AND STEP 3 HAD TO EXIST AT ALL. The first version
+ * of this function took the shortest alias outright, on the reasoning that "aliases ARE the
+ * worker's vocabulary by design". Measured against the seeded catalogue, that reasoning was
+ * wrong for most of it: `label_hi` is NULL on all 4,071 occupations (plan finding F1), the
+ * seeder writes `label_en` INTO the alias array, and 77% of occupations have exactly one
+ * alias — the official English title. So the shortest alias WAS `label_en` for
+ * **1,808 of 2,156** blue-collar occupations, and the "never `label_en`" guarantee this
+ * function is named after was delivered for 348 of them.
+ *
+ * The family label is the right fallback rather than a convenient one. Chips are already
+ * deduplicated to ONE PER FAMILY (see `decide`), so a chip is a family-level choice in the
+ * first place — labelling it with the family's own vernacular name says exactly what the
+ * worker is being asked to choose between. All 101 families have `label_hi`; the pack
+ * corpus validator makes that a build-time gate, so step 3 cannot silently become step 4.
  *
  * TIES ARE BROKEN LEXICOGRAPHICALLY, NOT BY ARRIVAL ORDER, and this is a multi-instance
  * correctness rule rather than tidiness. Every API instance builds its own snapshot from
@@ -80,12 +100,22 @@ export interface OccupationSnapshot {
  * instances that picked "arrival order" could offer two different chips for the same
  * occupation in the same conversation, and the chip is what gets recorded as the answer.
  */
-export function pickChipLabel(labelHi: string | null, aliases: readonly string[], labelEn: string): string {
+export function pickChipLabel(
+  labelHi: string | null,
+  aliases: readonly string[],
+  labelEn: string,
+  familyLabelHi: string | null = null,
+): string {
   if (labelHi !== null && labelHi.trim().length > 0) return labelHi;
+
+  // Compared NORMALIZED, not raw. "Welder, Gas" and "welder gas" are the same title wearing
+  // different punctuation, and a raw comparison would call the second one vernacular.
+  const officialNorm = normalizeOccupationText(labelEn);
   let best: string | null = null;
   for (const alias of aliases) {
     const candidate = alias.trim();
     if (candidate.length === 0) continue;
+    if (normalizeOccupationText(candidate) === officialNorm) continue;
     if (best === null) {
       best = candidate;
       continue;
@@ -94,7 +124,10 @@ export function pickChipLabel(labelHi: string | null, aliases: readonly string[]
       best = candidate;
     }
   }
-  return best ?? labelEn;
+  if (best !== null) return best;
+
+  if (familyLabelHi !== null && familyLabelHi.trim().length > 0) return familyLabelHi;
+  return labelEn;
 }
 
 /**
@@ -110,6 +143,8 @@ export function buildOccupationSnapshot(input: {
   readonly domains: readonly IndexDomainRow[];
   readonly aliases: readonly IndexAliasRow[];
   readonly bindings: readonly ResolvableBinding[];
+  /** `profiling_family.label_hi`, keyed by family id. The chip's third fallback. */
+  readonly familyLabels?: ReadonlyMap<string, string | null>;
 }): OccupationSnapshot {
   const aliasesByDomain = new Map<string, string[]>();
   const known = new Set(input.domains.map((d) => d.jobDomainId));
@@ -130,13 +165,15 @@ export function buildOccupationSnapshot(input: {
       jobDomainId: d.jobDomainId,
       iscoUnitCode: d.iscoUnitCode,
     });
+    const familyId = family?.familyId ?? null;
+    const familyLabelHi = familyId === null ? null : (input.familyLabels?.get(familyId) ?? null);
     domains.set(d.jobDomainId, {
       jobDomainId: d.jobDomainId,
       labelEn: d.labelEn,
       labelHi: d.labelHi,
       iscoUnitCode: d.iscoUnitCode,
-      familyId: family?.familyId ?? null,
-      chipLabel: pickChipLabel(d.labelHi, aliases, d.labelEn),
+      familyId,
+      chipLabel: pickChipLabel(d.labelHi, aliases, d.labelEn, familyLabelHi),
     });
   }
 
