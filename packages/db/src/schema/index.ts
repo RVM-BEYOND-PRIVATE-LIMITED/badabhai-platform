@@ -44,6 +44,9 @@ import {
   voiceNotes,
 } from "./chat";
 import {
+  workerPackAnswers,
+} from "./pack-answer";
+import {
   generatedResumes,
   profileQuestions,
   profiles,
@@ -105,6 +108,7 @@ export * from "./skill";
 export * from "./occupation";
 export * from "./question-pack";
 export * from "./chat";
+export * from "./pack-answer";
 export * from "./profile";
 export * from "./job";
 export * from "./payer";
@@ -225,6 +229,8 @@ export type QuestionPackItem = typeof questionPackItems.$inferSelect;
 export type NewQuestionPackItem = typeof questionPackItems.$inferInsert;
 export type QuestionPackOption = typeof questionPackOptions.$inferSelect;
 export type NewQuestionPackOption = typeof questionPackOptions.$inferInsert;
+export type WorkerPackAnswer = typeof workerPackAnswers.$inferSelect;
+export type NewWorkerPackAnswer = typeof workerPackAnswers.$inferInsert;
 export type NewUnresolvedPhrase = typeof unresolvedPhrases.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
@@ -281,6 +287,7 @@ export const schema = {
   questionPacks,
   questionPackItems,
   questionPackOptions,
+  workerPackAnswers,
   jobReach,
   matchConfig,
   paymentOrders,

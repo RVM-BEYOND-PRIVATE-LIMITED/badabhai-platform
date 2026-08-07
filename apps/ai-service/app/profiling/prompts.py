@@ -1,42 +1,23 @@
-"""Prompt assembly for the worker interview + extraction.
+"""Prompt assembly for extraction and resume generation.
 
-THE CHAT TURN IS NO LONGER A REPHRASE. It used to be: a deterministic engine chose the
-question from a hardcoded bank and the model, when it was called at all, only put the
-chosen question into nicer words. The engine is gone. The model now conducts the whole
-interview for whatever trade the worker actually does, and everything it needs to do
-that lives in the static block below.
+THE CHAT TURN IS GONE FROM THIS FILE (OIE Phase 8). It used to hold the whole worker
+interview: a cached static persona block, a per-turn context message, and a history
+threader — everything a model needed to conduct a conversation. It needs none of it now,
+because a model no longer conducts one. Questions come from reviewed question packs and
+the orchestrator picks them deterministically, so the only prompts left here are the two
+that run AFTER the interview, on the whole transcript, as their own task types.
 
-MESSAGE LAYOUT, AND WHY THE ORDER IS LOAD-BEARING:
-
-  [0] STATIC  - persona + field set + JSON schema. BYTE-IDENTICAL for every worker and
-                every turn, because Gemini's implicit cache only applies to a stable
-                PREFIX and bills a hit at ~10% of the normal rate. This block is ~1.6k
-                estimated tokens, which clears the 1024-token floor for the first time
-                (the old ~200-token persona never did, and model_config.py documents
-                caching as a no-op because of it). Interpolating ANYTHING per-worker
-                here - a trade name, a turn counter, a session id - silently costs the
-                whole discount, with no error and no test failure. Do not do it.
-  [1] DYNAMIC - trade hint, progress, what is still missing. Everything variable.
-  [2] HISTORY - the recent transcript, oldest to newest.
-  [3] TURN    - the worker's message.
-
-HISTORY IS THREADED AGAIN, DELIBERATELY REVERSING COST-3. It used to be dropped: the
-engine already knew what to ask, so the model needed no memory, and re-sending the
-transcript made input cost grow O(n^2). Neither half holds now - a model that cannot
-see the conversation cannot ask a follow-up, which is the entire point of the change.
-The quadratic is bounded instead by PROFILING_HISTORY_MAX_TURNS, making it
-O(n * window), and the static prefix is cached.
+WHAT SURVIVED AND WHY IT IS UNCHANGED. ``extraction_system_prompt`` and
+``RESUME_SYSTEM_PROMPT`` were never affected by how the questions were chosen — they read
+a finished transcript. ``/profile/extract`` also stays live: an interview finalized before
+the cutover has no answer map, and re-parsing its transcript is exactly what should
+happen to it.
 
 Every string reaching these builders is already pseudonymized.
 """
 
 from __future__ import annotations
 
-from ..config import Settings
-from ..contracts import ConversationMessage
-from .persona import PERSONA_SYSTEM_BLOCK
-from .rfs import FIELD_LABEL, field_brief
-from .turn_schema import SCHEMA_HINT
 
 _TRADE_LABEL: dict[str, str] = {
     "cnc_vmc": "CNC/VMC manufacturing",
@@ -50,128 +31,6 @@ _TRADE_LABEL: dict[str, str] = {
 
 def _trade_name(role_family: str) -> str:
     return _TRADE_LABEL.get(role_family, "CNC/VMC manufacturing")
-
-
-# ---------------------------------------------------------------------------
-# The chat turn
-# ---------------------------------------------------------------------------
-
-
-def static_system_block(settings: Settings) -> str:
-    """messages[0]. MUST be byte-stable for a given configuration - see the header.
-
-    Depends only on `Settings` (the field set), never on the worker, the session, the
-    turn, or the trade. `test_prompt_cache` pins that property, because losing it costs
-    the caching discount silently.
-    """
-    return "\n\n".join((PERSONA_SYSTEM_BLOCK, field_brief(settings), SCHEMA_HINT))
-
-
-def turn_context_message(
-    *,
-    role_family: str | None,
-    captured: dict[str, str],
-    missing: list[str],
-    turn_index: int,
-    max_turns: int,
-    force_complete: bool,
-) -> str:
-    """messages[1]. Everything that varies - kept OUT of the cached prefix.
-
-    Telling the model what it already has is what implements "never ask what has already
-    been answered" (Law 8) without a deterministic engine tracking it. Telling it what
-    is missing is what keeps a free-form interview converging instead of wandering.
-    """
-    lines: list[str] = []
-
-    # A HINT, not an instruction. The worker's actual trade is whatever they say it is;
-    # this only helps the model pitch its vocabulary on turn one, and it must feel free
-    # to abandon it the moment the worker says something else.
-    if role_family:
-        lines.append(
-            "Likely trade (a hint only — believe the worker over this): "
-            f"{_trade_name(role_family)}."
-        )
-
-    if captured:
-        known = "; ".join(f"{FIELD_LABEL.get(k, k)}: {v}" for k, v in captured.items())
-        lines.append(f"ALREADY ANSWERED — never ask about these again: {known}")
-    else:
-        lines.append("Nothing collected yet. This is the start of the conversation.")
-
-    if missing:
-        lines.append(
-            "STILL MISSING: " + ", ".join(FIELD_LABEL.get(m, m) for m in missing) + "."
-        )
-
-    lines.append(f"This is turn {turn_index} of at most {max_turns}.")
-
-    if force_complete:
-        # The hard cap fired. The endpoint will force completion regardless of what
-        # comes back, so the model's only remaining job is to close warmly.
-        lines.append(
-            "FINAL TURN. Do not ask a question. Thank them in one short line and tell "
-            'them their resume is being made. Set "is_complete": true.'
-        )
-    elif not missing:
-        lines.append(
-            'Everything required is collected. Close warmly and set "is_complete": true.'
-        )
-
-    return "\n".join(lines)
-
-
-def build_chat_messages(
-    *,
-    settings: Settings,
-    history: list[ConversationMessage],
-    worker_message: str,
-    role_family: str | None,
-    captured: dict[str, str],
-    missing: list[str],
-    turn_index: int,
-    force_complete: bool = False,
-    repair: str | None = None,
-) -> list[dict[str, str]]:
-    """Assemble one chat turn.
-
-    `history` is expected PRE-WINDOWED by the caller (the API owns the buffer and the
-    window size), so this function does not truncate: a builder that silently dropped
-    turns would make the window invisible at the call site where the cost decision is
-    actually made.
-
-    `repair` carries the persona guard's correction on the single retry. It goes LAST,
-    after the offending exchange, so the model sees what it wrote and why it was wrong.
-    """
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": static_system_block(settings)},
-        {
-            "role": "system",
-            "content": turn_context_message(
-                role_family=role_family,
-                captured=captured,
-                missing=missing,
-                turn_index=turn_index,
-                max_turns=settings.profiling_max_turns,
-                force_complete=force_complete,
-            ),
-        },
-    ]
-
-    for msg in history:
-        if msg.role == "assistant":
-            messages.append({"role": "assistant", "content": msg.text})
-        elif msg.role == "worker":
-            messages.append({"role": "user", "content": msg.text})
-        # `system` history entries are dropped: they were never worker-visible and
-        # re-feeding them would let an old instruction outrank the current turn.
-
-    messages.append({"role": "user", "content": worker_message})
-
-    if repair:
-        messages.append({"role": "system", "content": repair})
-
-    return messages
 
 
 # ---------------------------------------------------------------------------

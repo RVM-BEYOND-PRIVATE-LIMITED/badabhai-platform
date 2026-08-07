@@ -72,7 +72,7 @@ def test_per_field_offline_reports_fields_and_attribution(capsys):
 
 
 def test_per_field_real_uses_both_endpoints_via_stubs(capsys, monkeypatch):
-    """--per-field --real wires /profile/extract + /profiling/respond +
+    """--per-field --real wires /profile/extract + /profile/parse +
     /pseudonymize. We stub all three so the wiring is covered WITHOUT a live
     server or any LLM call (fabricated data only)."""
 

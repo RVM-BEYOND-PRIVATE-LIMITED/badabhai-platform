@@ -91,6 +91,23 @@ export function inboundHash(sessionId: string, rev: number, text: string): strin
 export const REPLY_CACHE_WINDOW_MS = 10_000;
 
 /**
+ * One chip in an outstanding disambiguation offer, WITH the id it resolves to.
+ *
+ * THE MAP IS HELD SERVER-SIDE, AND THAT IS THE WHOLE DESIGN. When the worker taps "welder", the
+ * text that arrives is the label — and resolving it by re-running retrieval against that label
+ * would re-enter the same ambiguity the chips exist to settle, potentially landing on a different
+ * occupation than the one the chip was built from. The tap is looked up in THIS array instead, so
+ * a chip always resolves to exactly the row it was rendered from.
+ *
+ * `jobDomainId` is null on the "kuch aur" escape — the tap that means "none of these".
+ */
+export interface OfferedChip {
+  readonly label: string;
+  readonly jobDomainId: string | null;
+  readonly familyId: string | null;
+}
+
+/**
  * Everything the deterministic interview needs between turns.
  *
  * ABSENT on a v1 (model-driven) interview, which is why `TranscriptBuffer.profiling` is optional:
@@ -125,6 +142,22 @@ export interface ProfilingEnvelope {
   /** True once retrieval has offered choices the worker has not resolved. */
   readonly needsDisambiguation: boolean;
   /**
+   * The chips currently on screen and what each resolves to. Empty when no offer is outstanding.
+   *
+   * Cleared the moment the offer is settled — by a tap, by the escape, or by the offer being
+   * abandoned — so a stale array can never resolve a later, unrelated message into an occupation.
+   */
+  readonly disambiguationOffer: readonly OfferedChip[];
+  /**
+   * How many turns retrieval has been run and come back with nothing.
+   *
+   * BOUNDED, because an unbounded identify phase is an interview that never asks a second
+   * question. A worker whose trade is genuinely not in the catalogue must still get a profile;
+   * after {@link MAX_IDENTIFY_ATTEMPTS} the engine stops trying and runs the universal pack,
+   * which is exactly the fallback the universal pack exists for.
+   */
+  readonly identifyAttempts: number;
+  /**
    * The pack pinned WITH the occupation, and immutable for the rest of the conversation.
    *
    * Duplicated from `occupation.pack_id` deliberately (risk #13): a repin replaces `occupation`,
@@ -158,6 +191,8 @@ export const PROFILING_ENVELOPE_KEYS = {
   silentTurns: true,
   hardshipTurns: true,
   needsDisambiguation: true,
+  disambiguationOffer: true,
+  identifyAttempts: true,
   packId: true,
   packVersion: true,
   catalogVersion: true,
@@ -179,6 +214,8 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     silentTurns: 0,
     hardshipTurns: 0,
     needsDisambiguation: false,
+    disambiguationOffer: [],
+    identifyAttempts: 0,
     packId: null,
     packVersion: null,
     catalogVersion: null,
@@ -219,6 +256,29 @@ function narrowAnswerMap(value: unknown): AnswerRecord[] {
     if (parsed.success) records.push(parsed.data);
   }
   return records;
+}
+
+/**
+ * The outstanding chip offer, rebuilt entry by entry.
+ *
+ * A CHIP WITHOUT A LABEL IS DROPPED, not repaired to "". The label is what the worker taps and
+ * what becomes their answer of record verbatim; an empty one would render as a blank button that
+ * silently pins a real occupation.
+ */
+function narrowOffer(value: unknown): OfferedChip[] {
+  if (!Array.isArray(value)) return [];
+  const chips: OfferedChip[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const v = raw as Record<string, unknown>;
+    if (typeof v.label !== "string" || v.label.trim().length === 0) continue;
+    chips.push({
+      label: v.label,
+      jobDomainId: typeof v.jobDomainId === "string" ? v.jobDomainId : null,
+      familyId: typeof v.familyId === "string" ? v.familyId : null,
+    });
+  }
+  return chips;
 }
 
 function narrowLastTurn(value: unknown): LastTurn | null {
@@ -269,6 +329,8 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     silentTurns: nonNegativeInt(v.silentTurns),
     hardshipTurns: nonNegativeInt(v.hardshipTurns),
     needsDisambiguation: v.needsDisambiguation === true,
+    disambiguationOffer: narrowOffer(v.disambiguationOffer),
+    identifyAttempts: nonNegativeInt(v.identifyAttempts),
     packId: typeof v.packId === "string" ? v.packId : null,
     packVersion:
       typeof v.packVersion === "number" && Number.isInteger(v.packVersion) && v.packVersion > 0

@@ -2551,3 +2551,108 @@ export const OccupationPhraseUnresolvedPayload = z
   })
   .strict();
 export type OccupationPhraseUnresolvedPayload = z.infer<typeof OccupationPhraseUnresolvedPayload>;
+
+// ---------------------------------------------------------------------------
+// profile.* — the OIE cutover (Phase 8).
+
+/** Which rung of the retrieval ladder placed the worker. Mirrors `OCCUPATION_MATCH_LAYERS`. */
+const occupationMatchLayer = z.enum(["l0_exact", "l1_skeleton", "l2_trigram", "l3_vector"]);
+
+/**
+ * The interview PINNED an occupation — the moment the conversation stops being generic and
+ * becomes this worker's trade.
+ *
+ * WHY THIS IS AN EVENT AND NOT JUST A COLUMN. `worker_profiles` records where a worker ENDED
+ * UP; this records how they got there, at the moment it happened, including the layer and the
+ * score. The plan's acceptance gate is a DISTRIBUTION — L0+L1 ≥ 45%, L2 ≥ 30%, L3 ≤ 25% — and
+ * a distribution over a mutable column is not measurable after the fact, because a re-pin
+ * overwrites the only evidence of the first pin.
+ *
+ * PII-FREE: catalogue ids, a pack pointer, a status, a layer and a score. The worker's own
+ * words are NEVER here — `phrase_hash` on `occupation.phrase_unresolved` is where an
+ * utterance goes, and only as a hash. `.strict()` keeps a future field from smuggling text in.
+ */
+export const ProfileOccupationIdentifiedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema.nullable().default(null),
+    job_domain_id: z.string().min(1).max(64),
+    family_id: z.string().min(1).max(64).nullable().default(null),
+    /** The pack pinned for the rest of the conversation. Null when only the family resolved. */
+    pack_id: z.string().min(1).max(64).nullable().default(null),
+    pack_version: z.number().int().positive().nullable().default(null),
+    match_status: z.enum(["matched_auto", "matched_lexical", "matched_worker_confirmed"]),
+    match_layer: occupationMatchLayer.nullable().default(null),
+    /** The calibrated confidence, not the raw layer score — see `occupation-calibration.ts`. */
+    match_score: z.number().min(0).max(1).nullable().default(null),
+    /** Pinned per conversation, so a mid-interview catalogue refresh is auditable. */
+    catalog_version: z.string().min(1).max(64),
+    /** How many candidates the ladder was choosing between. 1 means it was never a choice. */
+    candidate_count: z.number().int().nonnegative().default(0),
+  })
+  .strict();
+export type ProfileOccupationIdentifiedPayload = z.infer<
+  typeof ProfileOccupationIdentifiedPayload
+>;
+
+/**
+ * The interview could NOT pin an occupation and fell back to the universal pack.
+ *
+ * A NORMAL OUTCOME, NOT AN ERROR, and that is why it is emitted at all. The universal pack
+ * still produces a real profile, so this failure is invisible from the worker's side and
+ * would be invisible from ops' side too — which is exactly how a catalogue silently stops
+ * covering a growing trade. `reason` separates the three cases that need different responses:
+ * a coverage gap (author aliases), a genuine ambiguity the worker would not resolve
+ * (rewrite the chips), and a degraded seam (page someone).
+ */
+export const ProfileOccupationUnresolvedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema.nullable().default(null),
+    /**
+     * `below_floor`        nothing in the catalogue came close enough to offer.
+     * `ambiguous`          chips were shown and the worker took the "kuch aur" escape.
+     * `declined`           the worker never named a trade at all.
+     * `degraded`           retrieval itself failed — index cold, database down, embed blocked.
+     */
+    reason: z.enum(["below_floor", "ambiguous", "declined", "degraded"]),
+    /** Best calibrated confidence seen, so a floor can be re-tuned against real misses. */
+    best_score: z.number().min(0).max(1).nullable().default(null),
+    /** The deepest layer reached before giving up. Null when retrieval never ran. */
+    deepest_layer: occupationMatchLayer.nullable().default(null),
+    catalog_version: z.string().min(1).max(64),
+  })
+  .strict();
+export type ProfileOccupationUnresolvedPayload = z.infer<
+  typeof ProfileOccupationUnresolvedPayload
+>;
+
+/**
+ * The parse LLM returned a value that CONTRADICTED the deterministic answer map, and the
+ * deterministic value won.
+ *
+ * THIS EVENT IS THE PROOF THAT GATE 4 IS LOAD-BEARING. The gate makes the model structurally
+ * incapable of overriding the record — it can only reformat. But a gate that silently
+ * discards is a gate nobody can tell is working, or catch degrading: a disagreement rate that
+ * climbs from 0.3% to 12% is a prompt regression, a lexicon regression, or a model swap, and
+ * every one of those is worth knowing about before a quarter of profiles are being quietly
+ * corrected.
+ *
+ * FIELD IDS AND COUNTS ONLY — NEVER VALUES, on either side. Both the model's answer and the
+ * worker's are worker data; the whole point of recording a disagreement is that something
+ * about a specific worker's specific answer was wrong, which makes the values the single most
+ * tempting and most forbidden thing to attach. `.strict()` plus the slug regex means a
+ * `*_value` field cannot be added later without the schema rejecting it.
+ */
+export const ProfileParseDisagreementPayload = z
+  .object({
+    worker_id: uuidSchema,
+    ai_job_id: uuidSchema.nullable().default(null),
+    /** RFS field ids, the same `^[a-z_]+$` closed vocabulary the pack validator enforces. */
+    field_ids: z.array(z.string().regex(/^[a-z_]+$/).max(40)).max(64).default([]),
+    disagreement_count: z.number().int().nonnegative().default(0),
+    /** Fields the model got right, so the rate has a denominator without a second query. */
+    agreement_count: z.number().int().nonnegative().default(0),
+  })
+  .strict();
+export type ProfileParseDisagreementPayload = z.infer<typeof ProfileParseDisagreementPayload>;

@@ -73,5 +73,6 @@ export {
   CROSSWALK_DRAFT_FIELDS,
   CROSSWALK_FIELD_IDS,
   FIELD_CROSSWALK,
+  PARSE_TARGET_FIELDS,
   crosswalkFor,
 } from "./crosswalk.js";

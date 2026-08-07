@@ -5,6 +5,7 @@
  *   normalize/   Divyanshu — occupation-text normalization (seeder + retrieval share it)
  *   retrieval/   Divyanshu — L0/L1 span search (the eval harness + the live service share it)
  *   persona/     Divyanshu — the product's voice, lifted from persona.py before Phase 8 deletes it
+ *   rfs/         Divyanshu — the Resume Field Set vocabulary, lifted from rfs.py for the same reason
  *   predicates/  Prakash   — conversational detectors, one per turn
  *   values/      Prakash   — value normalizers, the negation engine, the field crosswalk
  *
@@ -18,5 +19,6 @@
 export * from "./normalize/index.js";
 export * from "./retrieval/index.js";
 export * from "./persona/index.js";
+export * from "./rfs/index.js";
 export * from "./predicates/index.js";
 export * from "./values/index.js";

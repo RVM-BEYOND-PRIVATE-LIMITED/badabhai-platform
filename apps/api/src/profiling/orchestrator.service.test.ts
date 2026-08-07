@@ -121,8 +121,16 @@ function makeWorld(
     loadPinned: vi.fn(async () => packs.occupation),
     resolveForOccupation: vi.fn(async () => packs.occupation),
   };
-  const orchestrator = new ProfilingOrchestrator(buffer as never, registry as never);
-  return { orchestrator, store, buffer, registry };
+    // The identify step is STUBBED TO A NO-OP here on purpose. These tests are about the turn
+  // machinery — CAS, replay, bounded re-ask, hard cases — and letting real retrieval run would
+  // make every one of them depend on the occupation catalogue. Identification has its own suite.
+  const identify = { identify: vi.fn(async () => ({ patch: {}, offer: null, pinned: null })) };
+  const orchestrator = new ProfilingOrchestrator(
+    buffer as never,
+    registry as never,
+    identify as never,
+  );
+  return { orchestrator, store, buffer, registry, identify };
 }
 
 /** Seed a session already mid-interview, with `q_city` on screen. */
@@ -150,11 +158,14 @@ function seed(
   });
 }
 
+const CTX = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req_1" };
+
 const say = (text: string, at: Date = T0) => ({
   sessionId: SESSION,
   workerId: WORKER,
   text,
   now: at,
+  ctx: CTX as never,
 });
 
 describe("the first turn", () => {

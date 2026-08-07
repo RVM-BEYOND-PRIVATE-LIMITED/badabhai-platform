@@ -61,6 +61,8 @@ const FULL: ProfilingEnvelope = {
   silentTurns: 1,
   hardshipTurns: 1,
   needsDisambiguation: true,
+  disambiguationOffer: [{ label: "Welder", jobDomainId: "jd_nco_7212_0100", familyId: "fam_welding" }],
+  identifyAttempts: 1,
   packId: "qp_welding",
   packVersion: 3,
   catalogVersion: "cat_2026_08",

@@ -9,10 +9,10 @@
  * against the winner's state — which is only correct because re-running has no side effects to
  * undo, no accumulated counters, and no memory of the attempt that lost.
  *
- * BUILT DARK. Nothing calls this yet: `ChatService.postMessage` still runs the v1 model-driven
- * path untouched. That is deliberate — Phase 5's objective is the state machine "built dark and
- * fully unit-tested without a DB or Redis", and wiring it into the live chat route is a separate,
- * reviewable change with its own rollback story.
+ * LIVE AS OF THE PHASE 8 CUTOVER. `ChatService.postMessage` calls {@link takeTurn} where it used
+ * to call `AiService.profilingRespond`, and the model-driven path is deleted rather than flagged
+ * off. The rollback unit is a `git revert` of that one PR — which is precisely why every deletion
+ * landed in it.
  */
 
 import { Injectable, Logger } from "@nestjs/common";
@@ -23,6 +23,8 @@ import {
   type TranscriptBuffer,
 } from "../chat/chat-transcript.buffer";
 import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat.service";
+import type { RequestContext } from "../common/request-context";
+import { IdentifyService } from "./identify.service";
 import { captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
 import {
   isSettled,
@@ -107,6 +109,15 @@ export interface TurnResult {
   readonly questionKey: string | null;
   readonly options: readonly QuestionPackOption[];
   readonly progress: { readonly answered: number; readonly total: number };
+  /**
+   * MANDATORY pack questions still unsettled — the client's `unanswered_essentials`.
+   *
+   * Question keys, never values, and never PII: the same `^[a-z_]+$` closed vocabulary the pack
+   * validator enforces on every authored row. Empty genuinely means "nothing essential is
+   * outstanding" here, which it could not under the LLM path — the model reported a list it had
+   * itself invented.
+   */
+  readonly unansweredEssentials: readonly string[];
   readonly complete: boolean;
   readonly completionReason: CompletionReason | null;
   /** Layer A hit: the previous reply was replayed and NOTHING was written. */
@@ -122,6 +133,11 @@ export interface TurnInput {
   readonly workerId: string;
   readonly text: string;
   readonly now: Date;
+  /**
+   * Correlation for the two occupation events this turn may emit. Threaded through rather than
+   * synthesised so a placement can be traced back to the HTTP request that produced it.
+   */
+  readonly ctx: RequestContext;
 }
 
 @Injectable()
@@ -131,6 +147,7 @@ export class ProfilingOrchestrator {
   constructor(
     private readonly buffer: ChatTranscriptBuffer,
     private readonly packs: PackRegistryService,
+    private readonly identify: IdentifyService,
   ) {}
 
   /**
@@ -223,6 +240,7 @@ export class ProfilingOrchestrator {
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           progress: progressOf(items, answers),
+          unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
           replayed: false,
@@ -244,6 +262,7 @@ export class ProfilingOrchestrator {
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           progress: progressOf(items, answers),
+          unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
           replayed: false,
@@ -280,6 +299,7 @@ export class ProfilingOrchestrator {
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           progress: progressOf(items, answers),
+          unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
           replayed: false,
@@ -303,6 +323,7 @@ export class ProfilingOrchestrator {
           questionKey: clarified.questionKey,
           options: clarified.options,
           progress: clarified.progress,
+          unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
           replayed: false,
@@ -325,8 +346,56 @@ export class ProfilingOrchestrator {
     }
     answers = this.fillCrossQuestion(items, input.text, envelope, answers, capture.correcting, turn);
 
+    // --- IDENTIFY: the worker's words become an occupation -------------------
+    //
+    // AFTER the answer is recorded and BEFORE the engine is consulted, and both halves of that
+    // sandwich are load-bearing. After, because "silai ka kaam karta hoon" is simultaneously the
+    // answer to the trade question and the phrase retrieval runs on — recording it second would
+    // let a pin that changes the pack decide whether the worker's own sentence was ever written
+    // down. Before, because a pin CHANGES WHICH QUESTIONS EXIST, and asking the universal pack's
+    // next question on the very turn we learned the trade wastes the turn the worker just spent
+    // telling us.
+    next = withAnswers(next, answers);
+    const identified = await this.identify.identify(next, input.text, {
+      ...input.ctx,
+      sessionId: input.sessionId,
+      workerId: input.workerId,
+    });
+    next = { ...next, ...identified.patch };
+
+    // Chips are on screen. That IS the turn — there is no pack question to ask until the worker
+    // resolves the ambiguity, and asking one anyway would put two questions in one bubble.
+    if (identified.offer) {
+      return this.turn(buffer, next, input, {
+        reply: identified.offer.prompt,
+        // NO QUESTION KEY. This question belongs to no pack, and claiming a pack's key for it
+        // would make the next turn's `askedItem` lookup capture a chip tap as that question's
+        // answer.
+        questionKey: null,
+        options: identified.offer.options,
+        progress: progressOf(items, answers),
+        unansweredEssentials: essentialsOf(items, answers),
+        complete: false,
+        completionReason: null,
+        replayed: false,
+        excludeFromParse: false,
+        unavailable: false,
+      });
+    }
+
+    // A pin THIS TURN means the occupation pack was not loaded when `packs` was resolved above.
+    // Re-resolving now is what lets the very next question come from the worker's own trade.
+    let engine = packs.engine;
+    if (identified.pinned) {
+      const repinned = await this.resolvePacks(next, input.now.getTime());
+      if (repinned) {
+        engine = repinned.engine;
+        next = { ...next, packId: repinned.packId, packVersion: repinned.packVersion };
+      }
+    }
+
     // --- The decision -------------------------------------------------------
-    const decision = nextQuestion(toEngineState(withAnswers(next, answers), turn), packs.engine);
+    const decision = nextQuestion(toEngineState(next, turn), engine);
 
     // ADVANCING PAST A QUESTION IS WHAT RECORDS `unanswered`. Judged by comparing what the engine
     // chose against what was on screen, rather than by re-deriving the ask ceiling here — one
@@ -355,9 +424,12 @@ export class ProfilingOrchestrator {
 
     // A TURN THAT WOULD SHOW THE WORKER NOTHING IS NOT A TURN WORTH COMMITTING.
     //
-    // `disambiguate` is how this is reached: `nextQuestion` returns it with an empty `promptText`
-    // because the CHIPS are Phase 7's to build from the retrieval offer, and nothing here can
-    // render them yet. Committing it anyway appended an empty assistant bubble to the transcript,
+    // `disambiguate` is how this WAS reached: `nextQuestion` returns it with an empty
+    // `promptText`, because chips come from retrieval and not from a pack row. The identify step
+    // above now serves that turn itself and returns before ever consulting the engine, so this
+    // branch should be unreachable — the guard stays because "should be unreachable" is a claim
+    // about today's control flow and the failure it prevents is silent.
+    // Committing an empty reply anyway appended an empty assistant bubble to the transcript,
     // cached "" as the replay reply, and — because a non-ask spends no budget and nothing clears
     // the flag — emitted another blank every turn until MAX_ENGINE_TURNS closed the interview.
     //
@@ -381,6 +453,7 @@ export class ProfilingOrchestrator {
       questionKey: decision.questionKey,
       options: decision.options,
       progress: decision.progress,
+      unansweredEssentials: essentialsOf(items, answers),
       complete: decision.kind === "close",
       completionReason: decision.completionReason,
       replayed: false,
@@ -516,6 +589,7 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
     questionKey: last.questionKey,
     options: [],
     progress: { answered: 0, total: 0 },
+    unansweredEssentials: [],
     complete: false,
     completionReason: null,
     replayed: true,
@@ -530,6 +604,7 @@ function unavailable(): TurnResult {
     questionKey: null,
     options: [],
     progress: { answered: 0, total: 0 },
+    unansweredEssentials: [],
     complete: false,
     completionReason: null,
     replayed: false,
@@ -551,4 +626,22 @@ function progressOf(items: readonly QuestionPackItem[], answers: AnswerMap) {
     answered: items.filter((item) => isSettled(answers, item.question_key)).length,
     total: items.length,
   };
+}
+
+/**
+ * The mandatory questions still unsettled.
+ *
+ * DECLINED COUNTS AS SETTLED (`isSettled`), and that is the plan's hardest-won rule made
+ * concrete: "nahi pata" is a COMPLETE answer. Counting a declination as outstanding here would
+ * put it back on the client's essentials list and invite exactly the badgering the engine already
+ * refuses to do.
+ *
+ * Capped at the payload's own limit so this list can never be the thing that fails an emit — the
+ * flush transaction carries a sibling of it, and a rejected array there costs the interview.
+ */
+function essentialsOf(items: readonly QuestionPackItem[], answers: AnswerMap): string[] {
+  return items
+    .filter((item) => item.is_mandatory && !isSettled(answers, item.question_key))
+    .map((item) => item.question_key)
+    .slice(0, 50);
 }

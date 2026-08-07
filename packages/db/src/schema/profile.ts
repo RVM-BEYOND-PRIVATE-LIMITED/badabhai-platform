@@ -25,7 +25,7 @@ import type {
 import { jsonObject, jsonArray } from "./internal/sql-defaults";
 import { workers } from "./worker";
 import { jobDomains } from "./occupation";
-import type { JobDomainMatchStatus } from "./occupation";
+import type { OccupationMatchLayer, OccupationMatchStatus } from "./occupation";
 
 // ---------------------------------------------------------------------------
 // worker_profiles — canonicalized profile (one current per worker in Phase 1)
@@ -115,10 +115,24 @@ export const workerProfiles = pgTable(
     // WHY the match ended where it did. Recorded on EVERY path including failure,
     // because "we could not place this worker" is exactly the metric the catalog's
     // coverage is judged on, and it is invisible if only successes are stored.
-    jobDomainMatchStatus: text("job_domain_match_status").$type<JobDomainMatchStatus>(),
+    jobDomainMatchStatus: text("job_domain_match_status").$type<OccupationMatchStatus>(),
     // Cosine similarity of the winning candidate. Diagnostic + floor calibration only;
     // NEVER an input to ranking (invariant #4 — rank stays deterministic).
     jobDomainMatchScore: doublePrecision("job_domain_match_score"),
+    // WHICH RUNG of the retrieval ladder placed this worker (migration 0072). NULL on
+    // every row written before the OIE, and on every unmatched outcome — there is no
+    // layer when nothing matched.
+    //
+    // This is the column the plan's L0+L1 ≥ 45% / L2 ≥ 30% / L3 ≤ 25% acceptance gate is
+    // measured from, which is the reason it is stored rather than merely logged: a log
+    // line answers "what happened just now", and the gate asks "what happened across the
+    // last ten thousand workers".
+    //
+    // NAMED `job_domain_match_layer`, not the plan's bare `match_layer`, to sit in the
+    // same prefix family as the three sibling columns above. A lone `match_layer` on a
+    // table that also carries `job_domain_match_status` reads as being about something
+    // else entirely.
+    jobDomainMatchLayer: text("job_domain_match_layer").$type<OccupationMatchLayer>(),
     jobDomainMatchedAt: timestamp("job_domain_matched_at", { withTimezone: true }),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -134,12 +148,28 @@ export const workerProfiles = pgTable(
     // "How many workers landed in domain X" — the coverage read, and the FK-referencing
     // column Postgres does not auto-index.
     index("worker_profiles_job_domain_id_idx").on(t.jobDomainId),
+    // WIDENED by migration 0072 with the two deterministic-engine outcomes. Adding values
+    // to a CHECK drops nothing, invalidates no stored row, and breaks no reader — every
+    // existing status is still legal and every existing consumer still recognises what it
+    // reads. Collapsing a worker's explicit chip tap into `matched_auto` to avoid this
+    // widening would have thrown away the best signal the system collects.
     check(
       "worker_profiles_job_domain_match_status_chk",
-      sql`${t.jobDomainMatchStatus} IS NULL OR ${t.jobDomainMatchStatus} IN ('matched_auto', 'matched_llm', 'unmatched_below_floor', 'unmatched_llm_declined', 'unmatched_degraded')`,
+      sql`${t.jobDomainMatchStatus} IS NULL OR ${t.jobDomainMatchStatus} IN ('matched_auto', 'matched_llm', 'unmatched_below_floor', 'unmatched_llm_declined', 'unmatched_degraded', 'matched_lexical', 'matched_worker_confirmed')`,
+    ),
+    // A layer is only meaningful when something matched. Enforced rather than merely
+    // documented, because "l3_vector" beside "unmatched_below_floor" would be read by the
+    // Phase 9 calibration sweep as a vector hit and quietly corrupt the layer histogram
+    // the launch gate is scored on.
+    check(
+      "worker_profiles_job_domain_match_layer_chk",
+      sql`${t.jobDomainMatchLayer} IS NULL OR (
+        ${t.jobDomainMatchLayer} IN ('l0_exact', 'l1_skeleton', 'l2_trigram', 'l3_vector')
+        AND ${t.jobDomainMatchStatus} LIKE 'matched%'
+      )`,
     ),
   ],
-);
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0072
 
 // ---------------------------------------------------------------------------
 // generated_resumes
