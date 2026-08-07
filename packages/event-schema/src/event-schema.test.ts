@@ -2436,8 +2436,12 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 151 event names (146 prior + notification prefs + the four OIE events)", () => {
-    expect(EVENT_NAMES).toHaveLength(151);
+  it("exposes all 152 event names (146 prior + notification prefs + the four OIE cutover events + interview telemetry)", () => {
+    expect(EVENT_NAMES).toHaveLength(152);
+    // OIE Phase 9 — the interview's own record. Separate from `profile.extraction_ready`,
+    // which is a downstream trigger: one says "there is work to do", the other "here is how
+    // the engine performed". The only source for p95 turn latency and the completion rate.
+    expect(isEventName("profile.interview_completed")).toBe(true);
     // #643 — the worker's push toggle. Emitted because the flag GATES the ADR-0034
     // fan-out; the Alerts read watermark shipped with it emits nothing (a read
     // position is not a business action, §1) and deliberately has no name here.
@@ -3015,5 +3019,69 @@ describe("OIE cutover payloads (Phase 8) — ids, codes and counts, never worker
     );
     expect(bad.success).toBe(false);
     if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("accepts profile.interview_completed with a full latency histogram", () => {
+    const ok = validateEvent(
+      oieEvent("profile.interview_completed", {
+        worker_id: UUID_B,
+        session_id: UUID_A,
+        turn_count: 14,
+        ask_count: 12,
+        completion_reason: "drained",
+        occupation_pinned: true,
+        match_layer: "l1_skeleton",
+        pack_id: "qp_tailoring",
+        pack_version: 2,
+        answered_count: 9,
+        declined_count: 2,
+        unanswered_count: 1,
+        turn_latency_ms: { le_100: 8, le_200: 3, le_400: 2, le_800: 1, gt_800: 0, max_ms: 612 },
+      }),
+    );
+    expect(ok.success).toBe(true);
+  });
+
+  it("rejects profile.interview_completed carrying the worker's words (.strict)", () => {
+    // THE FIELD A WELL-MEANING CHANGE WOULD MOST PLAUSIBLY ADD. "Which utterance did the
+    // slowest turn come from" is a genuinely useful debugging question, and answering it here
+    // would put raw worker text on the audit spine forever. The hash on
+    // `occupation.phrase_unresolved` is where an utterance is allowed to go.
+    const bad = validateEvent(
+      oieEvent("profile.interview_completed", {
+        worker_id: UUID_B,
+        turn_count: 3,
+        ask_count: 3,
+        turn_latency_ms: { le_100: 3, le_200: 0, le_400: 0, le_800: 0, gt_800: 0, max_ms: 40 },
+        slowest_turn_text: "silai ka kaam karta hoon",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects a free-text completion_reason (no PII through the observability field)", () => {
+    const bad = validateEvent(
+      oieEvent("profile.interview_completed", {
+        worker_id: UUID_B,
+        turn_count: 3,
+        ask_count: 3,
+        completion_reason: "worker Ramesh gave up",
+        turn_latency_ms: { le_100: 3, le_200: 0, le_400: 0, le_800: 0, gt_800: 0, max_ms: 40 },
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects a negative latency bucket — a count cannot be negative", () => {
+    const bad = validateEvent(
+      oieEvent("profile.interview_completed", {
+        worker_id: UUID_B,
+        turn_count: 1,
+        ask_count: 1,
+        turn_latency_ms: { le_100: -1, le_200: 0, le_400: 0, le_800: 0, gt_800: 0, max_ms: 0 },
+      }),
+    );
+    expect(bad.success).toBe(false);
   });
 });

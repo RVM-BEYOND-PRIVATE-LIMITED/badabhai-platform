@@ -38,6 +38,34 @@ const DEFAULT_ROLE_FAMILY = "cnc_vmc";
  * constraint would happily accept and which is worse than storing nothing, because it is
  * indistinguishable from a real answer at every later read.
  */
+/**
+ * Split the answer map by status, for `profile.interview_completed`.
+ *
+ * THE THREE ARE KEPT APART DELIBERATELY. `declined` is a COMPLETE answer — "nahi pata" is the
+ * plan's own hardest-won rule — and folding it into `unanswered` would erase the difference
+ * between a worker who told us they do not know and a question that was never settled. A rising
+ * decline rate on one question is a question-quality problem; a rising unanswered rate is an
+ * engine problem. One number cannot say which.
+ *
+ * `superseded` records (a correction's old value) are counted under neither: they are history,
+ * not outcomes, and including them would make the counts exceed the questions asked.
+ */
+function countAnswerStatuses(answers: readonly { status?: string }[]): {
+  answered: number;
+  declined: number;
+  unanswered: number;
+} {
+  let answered = 0;
+  let declined = 0;
+  let unanswered = 0;
+  for (const a of answers) {
+    if (a.status === "answered") answered++;
+    else if (a.status === "declined") declined++;
+    else if (a.status === "unanswered") unanswered++;
+  }
+  return { answered, declined, unanswered };
+}
+
 function typedAnswerColumns(
   value: unknown,
 ): Pick<
@@ -590,6 +618,53 @@ export class ChatService {
           requestId: ctx.requestId,
           tx,
         });
+
+        // THE INTERVIEW'S OWN RECORD (OIE Phase 9). Distinct from `extraction_ready` above,
+        // which is a downstream trigger — one says "there is work to do", this says "here is
+        // how the engine performed". Three of the plan's acceptance criteria (p95 turn latency,
+        // completion rate, ask-count distribution) have no other source: `worker_profiles`
+        // records where a worker ended up and overwrites the evidence of how they got there.
+        //
+        // ONE EVENT PER INTERVIEW, NOT PER TURN — the latency arrives as a histogram
+        // accumulated in the envelope. Per-turn events would be the plan's own risk #9: ~12M
+        // rows whose only reader is a dashboard.
+        //
+        // INSIDE THE TRANSACTION, so an interview that did not durably happen does not report
+        // that it did. A rolled-back flush leaves no telemetry claiming a completion.
+        if (buffer.profiling) {
+          const env = buffer.profiling;
+          const byStatus = countAnswerStatuses(env.answerMap);
+          await this.events.emit({
+            event_name: "profile.interview_completed",
+            actor: { actor_type: "worker", actor_id: workerId },
+            subject: { subject_type: "chat_session", subject_id: sessionId },
+            payload: {
+              worker_id: workerId,
+              session_id: sessionId,
+              turn_count: buffer.turnCount,
+              ask_count: env.engineAsks,
+              // Filtered to the payload's own slug rule rather than trusted. The emit is inside
+              // this transaction, so a reason that failed validation would roll back a completed
+              // interview to protect an observability field — the same asymmetry `slugFieldIds`
+              // exists for two methods above.
+              completion_reason: /^[a-z_]{1,40}$/.test(buffer.completionReason ?? "")
+                ? (buffer.completionReason as string)
+                : null,
+              occupation_pinned: env.occupation !== null,
+              match_layer: env.occupation?.match_layer ?? null,
+              pack_id: env.packId,
+              pack_version: env.packVersion,
+              answered_count: byStatus.answered,
+              declined_count: byStatus.declined,
+              unanswered_count: byStatus.unanswered,
+              turn_latency_ms: { ...env.turnLatency },
+            },
+            idempotencyKey: `profile.interview_completed:${sessionId}`,
+            correlationId: ctx.correlationId,
+            requestId: ctx.requestId,
+            tx,
+          });
+        }
         return true;
       });
     } catch (err) {

@@ -24,7 +24,7 @@ import { describe, it, expect, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import { ChatService } from "./chat.service";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
-import type { ProfilingEnvelope } from "../profiling/conversation-state";
+import { emptyTurnLatency, type ProfilingEnvelope } from "../profiling/conversation-state";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -66,6 +66,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     packVersion: 2,
     catalogVersion: "cat_2026_08",
     lastTurn: null,
+    turnLatency: emptyTurnLatency(),
     ...over,
   };
 }
@@ -526,17 +527,106 @@ describe("ChatService — flush at end", () => {
     expect(flushedRows(chat).map((r) => r.direction)).toEqual(["inbound", "outbound"]);
   });
 
-  it("emits one event per message plus the readiness signal, all inside the tx", async () => {
+  it("emits one event per message plus the readiness signal and the interview record, all inside the tx", async () => {
     const { chat, events } = await run({ buffer: {}, written: COMPLETED, turn: complete });
     expect(emittedNames(events)).toEqual([
       "chat.message_received",
       "chat.message_sent",
       "profile.extraction_ready",
+      "profile.interview_completed",
     ]);
     for (const call of events.emit.mock.calls) {
       expect((call[0] as { tx: unknown }).tx).toEqual({ __tx: true });
     }
     expect(chat.withTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  describe("profile.interview_completed — the engine's own telemetry (Phase 9)", () => {
+    const payloadOf = (events: { emit: ReturnType<typeof vi.fn> }) =>
+      (
+        events.emit.mock.calls.find(
+          (c) => (c[0] as { event_name: string }).event_name === "profile.interview_completed",
+        )?.[0] as { payload: Record<string, unknown> } | undefined
+      )?.payload;
+
+    it("carries the latency histogram, the ask count and the pin — the three the plan gates on", async () => {
+      const { events } = await run({
+        buffer: {},
+        turn: complete,
+        written: {
+          ...COMPLETED,
+          turnCount: 14,
+          profiling: envelope({
+            engineAsks: 12,
+            turnLatency: { le_100: 8, le_200: 3, le_400: 2, le_800: 1, gt_800: 0, max_ms: 612 },
+          }),
+        },
+      });
+
+      expect(payloadOf(events)).toMatchObject({
+        turn_count: 14,
+        ask_count: 12,
+        occupation_pinned: true,
+        match_layer: "l0_exact",
+        pack_id: "qp_tailoring",
+        pack_version: 2,
+        turn_latency_ms: { le_100: 8, le_200: 3, le_400: 2, le_800: 1, gt_800: 0, max_ms: 612 },
+      });
+    });
+
+    it("counts declined SEPARATELY from unanswered", async () => {
+      // "nahi pata" is a COMPLETE answer. Folding it into `unanswered` would erase the
+      // difference between a worker who told us they do not know and a question that never
+      // settled — a question-quality problem versus an engine problem.
+      const { events } = await run({
+        buffer: {},
+        turn: complete,
+        written: {
+          ...COMPLETED,
+          profiling: envelope({
+            answerMap: [
+              answer({ question_key: "q_a" }),
+              answer({ question_key: "q_b", status: "declined", value_raw: "nahi pata" }),
+              answer({ question_key: "q_c", status: "unanswered", value_raw: "" }),
+              answer({ question_key: "q_d", status: "superseded", value_raw: "5 saal" }),
+            ] as never,
+          }),
+        },
+      });
+
+      expect(payloadOf(events)).toMatchObject({
+        answered_count: 1,
+        declined_count: 1,
+        unanswered_count: 1, // and `superseded` counted under none of them — it is history
+      });
+    });
+
+    it("drops a completion_reason that is not a slug rather than rolling back the interview", async () => {
+      // The emit is INSIDE the flush transaction, so an unvalidated reason would trade a
+      // worker's entire completed interview for an observability field. Same asymmetry as
+      // `slugFieldIds`.
+      const { events } = await run({
+        buffer: {},
+        turn: complete,
+        written: {
+          ...COMPLETED,
+          completionReason: "worker Ramesh gave up" as never,
+          profiling: envelope(),
+        },
+      });
+
+      expect(payloadOf(events)).toMatchObject({ completion_reason: null });
+    });
+
+    it("is NOT emitted when the flush rolls back — no telemetry claims a completion that did not happen", async () => {
+      const { events } = await run({
+        buffer: {},
+        turn: complete,
+        written: COMPLETED,
+        flushThrows: true,
+      });
+      expect(emittedNames(events)).not.toContain("profile.interview_completed");
+    });
   });
 
   it("every event carries a stable idempotency key", async () => {

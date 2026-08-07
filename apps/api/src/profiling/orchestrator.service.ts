@@ -37,6 +37,7 @@ import {
   answersOf,
   emptyProfilingEnvelope,
   inboundHash,
+  recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
   toEngineState,
   withAnswers,
@@ -194,6 +195,15 @@ export class ProfilingOrchestrator {
    * function the same question about newer facts.
    */
   async takeTurn(input: TurnInput): Promise<TurnResult> {
+    // OUTSIDE THE RETRY LOOP, deliberately: what this measures is what the turn COST, and a lost
+    // CAS that forced a second decision genuinely cost the worker both. Timing each attempt
+    // separately would report the cheap winning attempt and hide contention entirely — which is
+    // the one condition a turn-latency metric exists to surface.
+    //
+    // `Date.now()` rather than `input.now`, because `input.now` is the injected logical clock the
+    // decision is derived from; measuring elapsed time against a fixed value is measuring zero.
+    const startedAt = Date.now();
+
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
       const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
@@ -208,8 +218,14 @@ export class ProfilingOrchestrator {
       const decided = await this.decide(buffer, envelope, input);
       if (!decided) return unavailable();
 
+      // Stamp the histogram onto the buffer that is about to be written. Done HERE rather than
+      // inside `decide` so there is exactly one measurement point covering the whole decision —
+      // answer capture, retrieval, pack resolution and question selection together, which is the
+      // unit the plan's "p95 deterministic turn ≤ 400 ms" is about.
+      const measured = withTurnLatency(decided.buffer, Date.now() - startedAt);
+
       // LAYER B — the CAS. A loss is not an error: reload and re-run.
-      const won = await this.buffer.saveWithCas(input.sessionId, decided.buffer, envelope.rev);
+      const won = await this.buffer.saveWithCas(input.sessionId, measured, envelope.rev);
       if (won) return decided.result;
 
       this.logger.log(
@@ -639,6 +655,22 @@ export class ProfilingOrchestrator {
       result,
     };
   }
+}
+
+/**
+ * Fold this turn's elapsed time into the buffer's histogram.
+ *
+ * A buffer with no envelope is returned untouched: `saveWithCas` rejects one anyway, and
+ * inventing an envelope here to hold a metric would hand a CAS token to a value that never had
+ * one.
+ */
+function withTurnLatency(buffer: TranscriptBuffer, elapsedMs: number): TranscriptBuffer {
+  const envelope = buffer.profiling;
+  if (!envelope) return buffer;
+  return {
+    ...buffer,
+    profiling: { ...envelope, turnLatency: recordTurnLatency(envelope.turnLatency, elapsedMs) },
+  };
 }
 
 /** Layer A: the same message, at the same rev, inside the window. */
