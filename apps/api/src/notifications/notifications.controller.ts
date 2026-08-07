@@ -1,4 +1,4 @@
-import { Controller, Get, Header, UseGuards } from "@nestjs/common";
+import { Controller, Get, Header, HttpCode, Post, UseGuards } from "@nestjs/common";
 import {
   WorkerAuthGuard,
   CurrentWorker,
@@ -6,6 +6,7 @@ import {
 } from "../auth/worker-auth.guard";
 import { ConsentGuard } from "../auth/consent.guard";
 import { NotificationsService } from "./notifications.service";
+import { NotificationStateService } from "./notification-state.service";
 import { type WorkerNotification } from "./notifications.dto";
 
 /**
@@ -18,7 +19,10 @@ import { type WorkerNotification } from "./notifications.dto";
  */
 @Controller("workers/me/notifications")
 export class NotificationsController {
-  constructor(private readonly notifications: NotificationsService) {}
+  constructor(
+    private readonly notifications: NotificationsService,
+    private readonly state: NotificationStateService,
+  ) {}
 
   @Get()
   @Header("Cache-Control", "no-store")
@@ -27,5 +31,27 @@ export class NotificationsController {
     @CurrentWorker() worker: AuthenticatedWorker,
   ): Promise<{ notifications: WorkerNotification[] }> {
     return { notifications: await this.notifications.getForWorker(worker.id) };
+  }
+
+  /**
+   * #643 — mark the worker's Alerts read up to now, by advancing the server-side
+   * watermark. Makes read state CROSS-DEVICE and survive a reinstall, which local-only
+   * read state cannot.
+   *
+   * Worker from `@CurrentWorker`, never a body — the body is deliberately EMPTY and
+   * unread: the watermark is always "now", so there is nothing for a client to choose
+   * and no value it could backdate. IDEMPOTENT (the watermark only moves forward), so
+   * a retry is a safe no-op.
+   *
+   * NO event (§1) — a read position is not a business action; see
+   * {@link NotificationStateService.markRead}.
+   */
+  @Post("read")
+  @HttpCode(200)
+  @Header("Cache-Control", "no-store")
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async markRead(@CurrentWorker() worker: AuthenticatedWorker): Promise<{ ok: true }> {
+    await this.state.markRead(worker.id);
+    return { ok: true };
   }
 }

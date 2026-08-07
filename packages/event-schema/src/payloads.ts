@@ -69,6 +69,17 @@ export const WorkerResumePrefsUpdatedPayload = z
   })
   .strict(); // no extra fields — a stray name/phone can never ride along (§2)
 
+// #643 — the worker flipped their push notification preference. A material state
+// change (it gates the ADR-0034 fan-out), so it IS emitted — unlike the read
+// watermark, which is a read-position marker and emits nothing (§1). PII-FREE:
+// worker_id + the RESULTING boolean only.
+export const WorkerNotificationPrefsUpdatedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    notifications_enabled: z.boolean(),
+  })
+  .strict();
+
 // ADR-0032 — the worker uploaded (or replaced) their profile photo. The photo is a
 // high-sensitivity PII class living ONLY in the private WORKER_PHOTOS_BUCKET; this
 // event carries the opaque worker_id and NOTHING else — never the object key, a URL,

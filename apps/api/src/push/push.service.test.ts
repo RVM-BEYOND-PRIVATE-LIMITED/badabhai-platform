@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import { PushService } from "./push.service";
 import type { PushMessage, PushSendResult } from "./push.provider";
@@ -29,6 +29,7 @@ function setup(
     devices?: unknown[];
     sendResult?: PushSendResult;
     config?: Partial<ServerConfig>;
+    notificationsEnabled?: boolean;
   } = {},
 ) {
   const sent: PushMessage[] = [];
@@ -52,7 +53,11 @@ function setup(
   } as ServerConfig;
 
   const workersRepo = {
-    findById: vi.fn(async () => ({ preferredLanguage: "hi" })),
+    findNotificationState: vi.fn(async () => ({
+      preferredLanguage: "hi",
+      notificationsEnabled: opts.notificationsEnabled ?? true,
+      notificationsReadAt: null,
+    })),
   };
 
   const redisStore = new Map<string, string>();
@@ -243,5 +248,79 @@ describe("PushService — the kill-switch", () => {
     const s = setup({ config: { PUSH_GLOBAL_MAX_SENDS_PER_DAY: 1 } as Partial<ServerConfig> });
     await s.svc.deliver(job());
     expect(s.redisClient!.incr).not.toHaveBeenCalled();
+  });
+});
+
+describe("PushService — the worker's notifications toggle (#643)", () => {
+  // Every `push: true` template in scope today is SECURITY-typed, so the non-security
+  // branch of the gate has no real event to ride. Register a synthetic non-security
+  // pushable template for the duration of this block: without it these tests could only
+  // assert the exemption and would prove nothing about the gate itself. `Readonly` is a
+  // compile-time claim only — the runtime object is plain — and it is restored after.
+  const MUTABLE = NOTIFICATION_TEMPLATES as unknown as Record<string, unknown>;
+  const SYNTHETIC = "job.available.__test_pushable__";
+
+  beforeEach(() => {
+    MUTABLE[SYNTHETIC] = {
+      type: "job_available",
+      copy: { hi: { title: "Naya job", body: "Dekhein." }, en: { title: "New job", body: "Look." } },
+      push: true,
+    };
+  });
+  afterEach(() => {
+    delete MUTABLE[SYNTHETIC];
+  });
+
+  it("SKIPS a non-security push when the worker turned notifications off", async () => {
+    const { svc, provider, events } = setup({ notificationsEnabled: false });
+    const res = await svc.deliver(job({ eventName: SYNTHETIC }));
+
+    expect(res.sent).toBe(0);
+    expect(provider.send).not.toHaveBeenCalled();
+    // A preference is NOT a delivery failure — emitting push_send_failed here would
+    // misreport an opt-out as an outage and skew the failure metrics.
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("DELIVERS that same non-security push when notifications are on", async () => {
+    // The control for the test above: without it, a gate that blocked everything (or a
+    // synthetic template that never matched) would look identical to a working gate.
+    const { svc, provider } = setup({ notificationsEnabled: true });
+    const res = await svc.deliver(job({ eventName: SYNTHETIC }));
+
+    expect(res.sent).toBe(1);
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("an opted-out worker never burns a daily-quota slot", async () => {
+    // Pins the ORDERING claim in push.service.ts: the toggle is checked BEFORE the
+    // Redis INCR, so opted-out workers cost neither a quota slot nor a device read.
+    const s = setup({ notificationsEnabled: false });
+    await s.svc.deliver(job({ eventName: SYNTHETIC }));
+
+    expect(s.redisClient!.incr).not.toHaveBeenCalled();
+    expect(s.repo.devicesForDelivery).not.toHaveBeenCalled();
+  });
+
+  it("STILL delivers a security alert to a worker who turned notifications off", async () => {
+    // The decisive property. The pushes in scope are SIM-swap tripwires: if this toggle
+    // could suppress them, an attacker holding a stolen session could flip it off and
+    // then register their own device in silence. A convenience preference must never
+    // disarm the alarm that reports its own misuse.
+    const { svc, provider } = setup({ notificationsEnabled: false });
+    const res = await svc.deliver(job()); // worker.device_registered — security
+
+    expect(res.sent).toBe(1);
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("delivers normally when the worker row cannot be read (fail-soft, not fail-shut)", async () => {
+    // A transient DB error must not silently mute a worker's alerts.
+    const { svc, provider, workersRepo } = setup();
+    workersRepo.findNotificationState.mockRejectedValueOnce(new Error("db down"));
+
+    const res = await svc.deliver(job({ eventName: SYNTHETIC }));
+    expect(res.sent).toBe(1);
+    expect(provider.send).toHaveBeenCalledTimes(1);
   });
 });

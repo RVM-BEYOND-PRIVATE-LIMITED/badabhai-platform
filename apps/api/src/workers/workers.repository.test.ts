@@ -499,3 +499,75 @@ describe("WorkersRepository.latestResume — the resume the worker/payer should 
     expect(await new WorkersRepository(db).latestResume(WORKER_ID)).toBeUndefined();
   });
 });
+
+describe("WorkersRepository — notification state (#643)", () => {
+  describe("findNotificationState", () => {
+    it("projects ONLY the three non-PII columns — never the encrypted phone or name", async () => {
+      const { db, captured } = makeDb({ rows: [] });
+      await new WorkersRepository(db).findNotificationState(WORKER_ID);
+
+      // The whole point of not reusing findById (which is SELECT *): this projection
+      // feeds the Alerts feed and the FCM fan-out, so PII must not even be fetched.
+      expect(Object.keys(captured.selection ?? {}).sort()).toEqual([
+        "notificationsEnabled",
+        "notificationsReadAt",
+        "preferredLanguage",
+      ]);
+      expect(captured.selectTable).toBe(workers);
+      expect(text(captured.where)).toContain('"id" =');
+      expect(params(captured.where)).toEqual([WORKER_ID]);
+      expect(captured.limit).toBe(1);
+    });
+  });
+
+  describe("updateNotificationsEnabled", () => {
+    it("writes the flag for exactly that worker and returns the RESULTING value", async () => {
+      const { db, captured } = makeDb({ rows: [{ notificationsEnabled: false }] });
+      const out = await new WorkersRepository(db).updateNotificationsEnabled(WORKER_ID, false);
+
+      expect(captured.updateTable).toBe(workers);
+      expect(captured.updateSet?.notificationsEnabled).toBe(false);
+      expect(captured.updateSet?.updatedAt).toBeInstanceOf(Date);
+      expect(params(captured.where)).toEqual([WORKER_ID]);
+      expect(out).toEqual({ notificationsEnabled: false });
+    });
+
+    it("touches no other worker's row", async () => {
+      const { db, captured } = makeDb({ rows: [{ notificationsEnabled: true }] });
+      await new WorkersRepository(db).updateNotificationsEnabled(WORKER_ID, true);
+      expect(params(captured.where)).not.toContain(WORKER_ID_2);
+    });
+  });
+
+  describe("advanceNotificationsReadAt — the monotonic watermark", () => {
+    it("only matches when the stored watermark is NULL or STRICTLY OLDER (never rewinds)", async () => {
+      const stamp = new Date("2026-08-07T10:00:00.000Z");
+      const { db, captured } = makeDb({ rows: [{ id: WORKER_ID }] });
+      const advanced = await new WorkersRepository(db).advanceNotificationsReadAt(
+        WORKER_ID,
+        stamp,
+      );
+
+      const sql = text(captured.where);
+      // The guard IS the predicate — without both legs a retried or clock-skewed
+      // request could move the watermark BACKWARD and un-read seen alerts.
+      expect(sql).toContain('"notifications_read_at" is null');
+      expect(sql).toContain('"notifications_read_at" <');
+      expect(sql).not.toContain('"notifications_read_at" >');
+      // Scoped to the one worker, with the stamp BOUND as a parameter (Drizzle
+      // serializes a timestamptz Date to ISO) — never interpolated into the text.
+      expect(params(captured.where)).toEqual([WORKER_ID, stamp.toISOString()]);
+      expect(captured.updateSet?.notificationsReadAt).toBe(stamp);
+      expect(advanced).toBe(true);
+    });
+
+    it("reports false (not an error) when no row matched — the watermark was already ahead", async () => {
+      const { db } = makeDb({ rows: [] });
+      const advanced = await new WorkersRepository(db).advanceNotificationsReadAt(
+        WORKER_ID,
+        new Date("2026-08-07T10:00:00.000Z"),
+      );
+      expect(advanced).toBe(false);
+    });
+  });
+});

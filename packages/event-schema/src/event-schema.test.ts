@@ -2436,8 +2436,13 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 146 event names (139 prior + the seven ADR-0037 payer events)", () => {
-    expect(EVENT_NAMES).toHaveLength(146);
+  it("exposes all 147 event names (146 prior + worker.notification_prefs_updated)", () => {
+    expect(EVENT_NAMES).toHaveLength(147);
+    // #643 — the worker's push toggle. Emitted because the flag GATES the ADR-0034
+    // fan-out; the Alerts read watermark shipped with it emits nothing (a read
+    // position is not a business action, §1) and deliberately has no name here.
+    expect(isEventName("worker.notification_prefs_updated")).toBe(true);
+    expect(isEventName("worker.notifications_read")).toBe(false);
     // ADR-0037 — the payer lifecycle transitions.
     expect(isEventName("payer.activated")).toBe(true);
     expect(isEventName("payer.suspended")).toBe(true);
