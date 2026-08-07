@@ -736,6 +736,16 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileInterviewCompletedPayload,
   },
+
+  // How much the six never-invent gates threw away, per gate. The gates always worked; the
+  // RATE is what says the model started inventing spans or reading our questions back to us.
+  // Counts only — no field ids, because a value that failed `provenance` or `pii` is not
+  // vouched for and even the field it claimed to fill is unverified model output. v1.
+  "profile.parse_gates_rejected": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileParseGatesRejectedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

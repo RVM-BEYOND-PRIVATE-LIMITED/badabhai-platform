@@ -2734,3 +2734,43 @@ export const ProfileInterviewCompletedPayload = z
 export type ProfileInterviewCompletedPayload = z.infer<
   typeof ProfileInterviewCompletedPayload
 >;
+
+/**
+ * How many parsed fields each of the six "never invent" gates threw away.
+ *
+ * WHY THE COUNTS NEED TO BE AN EVENT AND NOT A LOG LINE. Every gate already does its job — a
+ * rejected field never reaches a profile. But the RATE is the signal: `provenance` climbing means
+ * the model started inventing spans, `role` climbing means it started reading our own question
+ * text back to us, `pii` climbing means the pseudonymizer and the parser disagree about what a
+ * name is. A log line answers "did this job reject anything"; only a queryable event answers "is
+ * this getting worse", and by the time a human greps logs for it the regression has shipped.
+ *
+ * SEPARATE FROM `profile.parse_disagreement`, which is gate 4 alone and carries the field ids
+ * because a disagreement is about a specific field the deterministic map already owns. This is
+ * the whole wall, and deliberately carries NO field ids: a value that failed `provenance` or
+ * `pii` is by definition not vouched for, so even naming the field it claimed to fill says more
+ * about unverified model output than it should.
+ */
+export const ProfileParseGatesRejectedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    ai_job_id: uuidSchema.nullable().default(null),
+    /** Total fields rejected across all gates. */
+    rejected_count: z.number().int().nonnegative().default(0),
+    /** Fields that survived every gate — the denominator, without a second query. */
+    accepted_count: z.number().int().nonnegative().default(0),
+    /** Per-gate counts. Keys mirror `GATE_IDS`; a gate that rejected nothing reports 0, so a
+     * missing key means a version skew rather than a quiet zero. */
+    by_gate: z
+      .object({
+        provenance: z.number().int().nonnegative().default(0),
+        role: z.number().int().nonnegative().default(0),
+        type_range: z.number().int().nonnegative().default(0),
+        agreement: z.number().int().nonnegative().default(0),
+        vocabulary: z.number().int().nonnegative().default(0),
+        pii: z.number().int().nonnegative().default(0),
+      })
+      .strict(),
+  })
+  .strict();
+export type ProfileParseGatesRejectedPayload = z.infer<typeof ProfileParseGatesRejectedPayload>;

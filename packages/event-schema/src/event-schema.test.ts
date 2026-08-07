@@ -2436,12 +2436,15 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 152 event names (146 prior + notification prefs + the four OIE cutover events + interview telemetry)", () => {
-    expect(EVENT_NAMES).toHaveLength(152);
+  it("exposes all 153 event names (146 prior + notification prefs + the four OIE cutover events + two Phase 9 telemetry)", () => {
+    expect(EVENT_NAMES).toHaveLength(153);
     // OIE Phase 9 — the interview's own record. Separate from `profile.extraction_ready`,
     // which is a downstream trigger: one says "there is work to do", the other "here is how
     // the engine performed". The only source for p95 turn latency and the completion rate.
     expect(isEventName("profile.interview_completed")).toBe(true);
+    // ...and how much the six-gate wall discarded. The gates always worked; the RATE is what
+    // says the model started inventing spans or reading our own questions back to us.
+    expect(isEventName("profile.parse_gates_rejected")).toBe(true);
     // #643 — the worker's push toggle. Emitted because the flag GATES the ADR-0034
     // fan-out; the Alerts read watermark shipped with it emits nothing (a read
     // position is not a business action, §1) and deliberately has no name here.
@@ -3068,6 +3071,52 @@ describe("OIE cutover payloads (Phase 8) — ids, codes and counts, never worker
         ask_count: 3,
         completion_reason: "worker Ramesh gave up",
         turn_latency_ms: { le_100: 3, le_200: 0, le_400: 0, le_800: 0, gt_800: 0, max_ms: 40 },
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects profile.parse_gates_rejected carrying the field ids it threw away (.strict)", () => {
+    // THE MOST TEMPTING ADDITION HERE, and the reason the payload is counts-only: "which field
+    // failed provenance" is the first thing anyone debugging wants. But a value that failed
+    // `provenance` or `pii` is unverified model output, and so is the field id attached to it.
+    const bad = validateEvent(
+      oieEvent("profile.parse_gates_rejected", {
+        worker_id: UUID_B,
+        rejected_count: 1,
+        accepted_count: 4,
+        by_gate: {
+          provenance: 1,
+          role: 0,
+          type_range: 0,
+          agreement: 0,
+          vocabulary: 0,
+          pii: 0,
+        },
+        rejected_field_ids: ["current_city"],
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects an unknown gate id — the six are a CLOSED set", () => {
+    // A seventh gate arriving without a schema change would report into a key nothing reads,
+    // and the wall would look narrower than it is.
+    const bad = validateEvent(
+      oieEvent("profile.parse_gates_rejected", {
+        worker_id: UUID_B,
+        rejected_count: 1,
+        accepted_count: 0,
+        by_gate: {
+          provenance: 0,
+          role: 0,
+          type_range: 0,
+          agreement: 0,
+          vocabulary: 0,
+          pii: 0,
+          plausibility: 1,
+        },
       }),
     );
     expect(bad.success).toBe(false);

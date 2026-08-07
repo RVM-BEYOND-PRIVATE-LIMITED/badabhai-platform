@@ -15,7 +15,7 @@ import {
   type ProfileExtractionOutput,
 } from "@badabhai/ai-contracts";
 import { PARSE_TARGET_FIELDS } from "@badabhai/profiling-lexicon";
-import { applyParseGates, countByGate } from "../profiling/parse-gates";
+import { applyParseGates, countByGate, type Rejection } from "../profiling/parse-gates";
 import { projectProfile, type ProjectionResult } from "../profiling/answer-map-projector";
 import type { NewWorkerProfile } from "@badabhai/db";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
@@ -452,6 +452,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
           `answer map alone (parse_status=deterministic_only)`,
       );
     }
+    const acceptedCount = Object.keys(gated.accepted).length;
     if (gated.rejections.length > 0) {
       // Gate ids and counts, never the rejected values — a value that failed a gate is by
       // definition not vouched for, so it is not known to be PII-free.
@@ -460,7 +461,8 @@ export class ProfileExtractionProcessor extends WorkerHost {
           JSON.stringify(countByGate(gated.rejections)),
       );
     }
-    await this.recordDisagreements(job, gated.disagreements, Object.keys(gated.accepted).length);
+    await this.recordGateRejections(job, gated.rejections, acceptedCount);
+    await this.recordDisagreements(job, gated.disagreements, acceptedCount);
 
     const projection = projectProfile(answerMap, gated.accepted, { split: splitToolsEquipment });
     this.logger.log(
@@ -497,6 +499,60 @@ export class ProfileExtractionProcessor extends WorkerHost {
           `transcript re-parse: ${err instanceof Error ? err.name : "UnknownError"}`,
       );
       return null;
+    }
+  }
+
+  /**
+   * Emit `profile.parse_gates_rejected` — how much the six-gate wall threw away, per gate.
+   *
+   * THE GATES ALWAYS WORKED; THE RATE IS THE SIGNAL. A rejected field never reaches a profile,
+   * so nothing is broken when this fires — but `provenance` climbing means the model started
+   * inventing spans, `role` climbing means it started reading our own question text back to us,
+   * and `pii` climbing means the pseudonymizer and the parser have drifted apart on what a name
+   * is. A log line can answer "did this job reject anything"; only an event answers "is this
+   * getting worse", and grepping logs for that discovers it after it ships.
+   *
+   * NOT EMITTED WHEN NOTHING WAS REJECTED, because the healthy case is the overwhelming majority
+   * and one row per extraction to say "zero" is the write amplification risk #9 warns about.
+   * `accepted_count` on the rows that DO fire carries the denominator.
+   *
+   * GUARDED: an observability emit must never fail an extraction that produced a real profile.
+   */
+  private async recordGateRejections(
+    job: {
+      workerId: string;
+      aiJobId: string;
+      correlationId?: string | null;
+      requestId?: string | null;
+    },
+    rejections: readonly Rejection[],
+    acceptedCount: number,
+  ): Promise<void> {
+    if (rejections.length === 0) return;
+    try {
+      await this.events.emit({
+        event_name: "profile.parse_gates_rejected",
+        actor: { actor_type: "ai_service" },
+        subject: { subject_type: "ai_job", subject_id: job.aiJobId },
+        payload: {
+          worker_id: job.workerId,
+          ai_job_id: job.aiJobId,
+          rejected_count: rejections.length,
+          accepted_count: acceptedCount,
+          // COUNTS ONLY, no field ids — see the payload's own note. A value that failed
+          // `provenance` or `pii` is unverified model output, and so is the field id it came
+          // attached to.
+          by_gate: countByGate(rejections),
+        },
+        idempotencyKey: `profile.parse_gates_rejected:${job.aiJobId}`,
+        correlationId: job.correlationId ?? undefined,
+        requestId: job.requestId ?? undefined,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `parse-gate-rejection emit failed for job ${job.aiJobId} (the profile stands): ` +
+          `${err instanceof Error ? err.name : "UnknownError"}`,
+      );
     }
   }
 
