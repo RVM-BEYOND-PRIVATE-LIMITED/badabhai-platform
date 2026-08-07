@@ -16,3 +16,7 @@ export * from "./question-pack-resolver";
 // The RFS vocabulary a `target_kind: "rfs"` question may write into. Exported because the
 // orchestrator keys its capture-time normalizers on these same ids.
 export * from "./rfs-vocabulary";
+// The L0/L1 eval harness. Exported so `apps/api` can assert PARITY between the number this
+// harness publishes and what `OccupationIndexService` actually does — see
+// `occupation-retrieval-parity.test.ts`. Nothing on a request path imports it.
+export * from "./occupation-retrieval-eval";

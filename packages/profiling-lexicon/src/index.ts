@@ -1,8 +1,9 @@
 /**
  * @badabhai/profiling-lexicon — the Hinglish occupational lexicon.
  *
- * Barrel only. Everything is defined in the three owned subdirectories:
+ * Barrel only. Everything is defined in the four owned subdirectories:
  *   normalize/   Divyanshu — occupation-text normalization (seeder + retrieval share it)
+ *   retrieval/   Divyanshu — L0/L1 span search (the eval harness + the live service share it)
  *   predicates/  Prakash   — conversational detectors, one per turn
  *   values/      Prakash   — value normalizers, the negation engine, the field crosswalk
  *
@@ -14,5 +15,6 @@
  */
 
 export * from "./normalize/index.js";
+export * from "./retrieval/index.js";
 export * from "./predicates/index.js";
 export * from "./values/index.js";
