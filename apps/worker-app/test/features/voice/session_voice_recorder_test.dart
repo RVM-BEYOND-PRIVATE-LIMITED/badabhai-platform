@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:record/record.dart';
 
+import 'package:badabhai_worker_app/features/voice/data/record_package_voice_recorder.dart';
 import 'package:badabhai_worker_app/features/voice/data/session_voice_recorder.dart';
 import 'package:badabhai_worker_app/features/voice/domain/voice_models.dart';
 import 'package:badabhai_worker_app/features/voice/domain/voice_recorder.dart';
@@ -120,6 +121,60 @@ void main() {
     states.add(RecordState.stop);
     await pumpEventQueue();
     expect(seen, <RecordState>[RecordState.record, RecordState.stop]);
+  });
+
+  test(
+      'start() captures the 16kHz/24kbps NS+AEC session config, autoGain OFF '
+      '(#633)', () async {
+    final SessionVoiceRecorder recorder =
+        SessionVoiceRecorder(recorder: plugin);
+    await recorder.start();
+
+    final RecordConfig cfg = verify(
+      () => plugin.start(captureAny(), path: any(named: 'path')),
+    ).captured.single as RecordConfig;
+
+    expect(cfg.encoder, AudioEncoder.aacLc);
+    expect(cfg.numChannels, 1);
+    expect(cfg.sampleRate, 16000);
+    expect(cfg.bitRate, 24000);
+    expect(cfg.noiseSuppress, isTrue);
+    expect(cfg.echoCancel, isTrue);
+    // Load-bearing: AGC would compress the range the endpointer thresholds on.
+    expect(cfg.autoGain, isFalse);
+    expect(cfg.audioInterruption, AudioInterruptionMode.pauseResume);
+    expect(cfg.androidConfig.audioSource, AndroidAudioSource.voiceRecognition);
+
+    await recorder.cancel();
+  });
+
+  test(
+      'the SINGLE-SHOT recorder does not inherit the session config — its own '
+      'start() still passes 44.1kHz-default, NS/AEC off (#633)', () async {
+    // Asserted against the REAL RecordPackageVoiceRecorder, not a hand-rolled
+    // literal: a test that re-declares `RecordConfig(...)` locally and checks
+    // the package's defaults would pass unchanged even if the single-shot
+    // recorder were mutated to use the session settings — which is the exact
+    // bleed this test exists to catch.
+    final MockAudioRecorder singleShotPlugin = MockAudioRecorder();
+    when(() => singleShotPlugin.start(any(), path: any(named: 'path')))
+        .thenAnswer((_) async {});
+    when(() => singleShotPlugin.cancel()).thenAnswer((_) async {});
+
+    final RecordPackageVoiceRecorder singleShot =
+        RecordPackageVoiceRecorder(recorder: singleShotPlugin);
+    await singleShot.start();
+
+    final RecordConfig cfg = verify(
+      () => singleShotPlugin.start(captureAny(), path: any(named: 'path')),
+    ).captured.single as RecordConfig;
+
+    expect(cfg.sampleRate, 44100);
+    expect(cfg.noiseSuppress, isFalse);
+    expect(cfg.echoCancel, isFalse);
+    expect(SessionVoiceRecorder.sessionConfig.sampleRate, 16000); // and differs
+
+    await singleShot.cancel();
   });
 
   test(

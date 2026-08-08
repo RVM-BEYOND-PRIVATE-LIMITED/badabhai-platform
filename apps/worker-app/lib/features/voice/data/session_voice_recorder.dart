@@ -58,6 +58,36 @@ class SessionVoiceRecorder implements VoiceRecorder {
   AudioRecorder? _recorder;
   AudioRecorder get _rec => _recorder ??= _injected ?? AudioRecorder();
 
+  /// The session-only capture config (#633). Deliberately distinct from the
+  /// single-shot [RecordPackageVoiceRecorder]'s config, which stays untouched.
+  ///
+  ///  - **16 kHz / 24 kbps** — the right sample rate for speech ASR (saarika) and
+  ///    ~5× fewer bytes than the 44.1 kHz default; a 45s clip is ~135 KB vs
+  ///    ~700 KB, which matters a great deal on 2G.
+  ///  - **noiseSuppress + echoCancel** — the mic stays warm across the whole
+  ///    session while TTS plays the next question; AEC keeps that prompt out of
+  ///    the answer, NS cleans factory-floor hum.
+  ///  - **autoGain: false — load-bearing.** AGC compresses exactly the dynamic
+  ///    range the silence endpointer (#626) thresholds on; with it on, the
+  ///    pre-flight noise floor is no longer comparable to in-answer amplitudes
+  ///    and auto-advance breaks quietly. Leave it OFF.
+  ///  - **pauseResume** — auto-pause/resume around phone-call interruptions so a
+  ///    mid-answer call doesn't strand the recorder stopped.
+  ///  - **voiceRecognition** source — Android's speech-tuned capture path.
+  static const RecordConfig sessionConfig = RecordConfig(
+    encoder: AudioEncoder.aacLc,
+    numChannels: 1,
+    sampleRate: 16000,
+    bitRate: 24000,
+    noiseSuppress: true,
+    echoCancel: true,
+    autoGain: false,
+    audioInterruption: AudioInterruptionMode.pauseResume,
+    androidConfig: AndroidRecordConfig(
+      audioSource: AndroidAudioSource.voiceRecognition,
+    ),
+  );
+
   /// `session-` in the name is deliberate and load-bearing: it keeps this
   /// recorder's clips in a namespace disjoint from [RecordPackageVoiceRecorder]
   /// (`bb-voice-<epochMs>.m4a`, no 'session-'). Two independent lazy
@@ -113,10 +143,7 @@ class SessionVoiceRecorder implements VoiceRecorder {
     final String path =
         '${Directory.systemTemp.path}${Platform.pathSeparator}'
         'bb-voice-session-${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _rec.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
-      path: path,
-    );
+    await _rec.start(sessionConfig, path: path);
     _activePath = path;
     _startedAt = DateTime.now();
     _autoStopTimer = Timer(_maxDuration, () {
