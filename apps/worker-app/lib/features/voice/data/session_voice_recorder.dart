@@ -60,7 +60,7 @@ class SessionVoiceRecorder implements VoiceRecorder {
 
   /// `session-` in the name is deliberate and load-bearing: it keeps this
   /// recorder's clips in a namespace disjoint from [RecordPackageVoiceRecorder]
-  /// ('bb-voice-<epochMs>.m4a', no 'session-'). Two independent lazy
+  /// (`bb-voice-<epochMs>.m4a`, no 'session-'). Two independent lazy
   /// singletons write to the same [Directory.systemTemp] with their own
   /// private sweep; without the disjoint prefix, this recorder's sweep (and
   /// the other recorder's) could each delete the other's in-flight clip —
