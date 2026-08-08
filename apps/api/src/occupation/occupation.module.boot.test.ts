@@ -73,7 +73,15 @@ describe("OccupationModule — pack resolution is REUSED, not reimplemented", ()
     // The question-pack route needs the fallback chain and version pinning. A second copy
     // here is exactly how the engine and the db:verify:packs gate came to disagree about a
     // worker's family once already (#616).
-    expect(getMeta("imports", OccupationModule)).toContain(ProfilingModule);
+    //
+    // UNWRAPPED FROM `forwardRef` since the Phase 8 cutover: the orchestrator now calls
+    // `OccupationService` to identify the trade, so the two modules genuinely reference each
+    // other and Nest needs the lazy form on both sides.
+    const imports = getMeta("imports", OccupationModule).map((entry) => {
+      const ref = entry as { forwardRef?: () => unknown };
+      return typeof ref?.forwardRef === "function" ? ref.forwardRef() : entry;
+    });
+    expect(imports).toContain(ProfilingModule);
   });
 
   it("ProfilingModule exports the registry the route depends on", () => {

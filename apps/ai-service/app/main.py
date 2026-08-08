@@ -1,6 +1,6 @@
 """FastAPI AI service.
 
-Endpoints: /health, /pseudonymize, /profiling/respond, /profile/extract,
+Endpoints: /health, /pseudonymize, /profile/parse, /profile/extract,
 /resume/generate.
 
 INVARIANT: pseudonymization runs BEFORE any external LLM path on every endpoint
@@ -34,7 +34,6 @@ from .routers import (
     job_posting,
     privacy,
     profile,
-    profiling,
     resume,
     skills,
     voice,
@@ -47,10 +46,8 @@ from .routers._shared import (
     translate_adapter,
 )
 from .routers.job_posting import _JOB_POSTING_BLOCKED_REPLY
-from .routers.profiling import _BLOCKED_REPLY
 
 __all__ = [
-    "_BLOCKED_REPLY",
     "_JOB_POSTING_BLOCKED_REPLY",
     "_pseudonymization_meta",
     "app",
@@ -140,7 +137,6 @@ app.include_router(privacy.api_router)
 app.include_router(embeddings.api_router)
 app.include_router(skills.api_router)
 app.include_router(growth.api_router)
-app.include_router(profiling.api_router)
 app.include_router(job_posting.api_router)
 app.include_router(profile.api_router)
 app.include_router(resume.api_router)

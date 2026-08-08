@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "drizzle-orm";
-import type { Database } from "@badabhai/db";
+import type { Database, UnresolvedPhraseScope } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import type { AliasCandidate, DomainCandidate } from "./skills.dto";
 
@@ -184,19 +184,33 @@ export class SkillsRepository {
 
   /**
    * Upsert one below-floor miss into the growth queue: new row, or on the
-   * (phrase, domain_id, lang) unique key increment `count` + bump `last_seen`
+   * (scope, phrase, domain_id, lang) unique key increment `count` + bump `last_seen`
    * (the migration's NULLS NOT DISTINCT makes NULL domain/lang dedupe too).
    * `phrase` is ALREADY pseudonymized (SG-1). Returns the row id + post-upsert count.
+   *
+   * `scope` DEFAULTS TO 'skill', which is what makes this widening backward compatible:
+   * every existing caller keeps its exact previous behaviour without being edited, and
+   * every row written before Phase 8 was a skill miss. Occupation retrieval passes
+   * 'occupation' explicitly.
+   *
+   * THE TWO SCOPES MUST NOT SHARE A ROW. "fitter" is legitimately an unresolved skill AND
+   * an unresolved occupation, and the follow-up work differs — one becomes a `skill_alias`,
+   * the other a `job_domain_alias`. Sharing a row would let resolving one silently close
+   * the other, which is why `scope` leads the unique index rather than sitting beside it.
    */
   async recordUnresolved(
     phrase: string,
-    domainId: string,
+    // NULLABLE for the occupation scope: an occupation miss is not scoped to a skill
+    // domain, and inventing a sentinel string would make one queue row per fake domain.
+    // The index's NULLS NOT DISTINCT is what lets NULL still dedupe to a single row.
+    domainId: string | null,
     lang: string,
+    scope: UnresolvedPhraseScope = "skill",
   ): Promise<{ id: string; count: number }> {
     const rows = await this.db.execute(sql`
-      INSERT INTO unresolved_phrase (phrase, domain_id, lang)
-      VALUES (${phrase}, ${domainId}, ${lang})
-      ON CONFLICT (phrase, domain_id, lang)
+      INSERT INTO unresolved_phrase (scope, phrase, domain_id, lang)
+      VALUES (${scope}, ${phrase}, ${domainId}, ${lang})
+      ON CONFLICT (scope, phrase, domain_id, lang)
       DO UPDATE SET count = unresolved_phrase.count + 1, last_seen = now()
       RETURNING id, count
     `);
