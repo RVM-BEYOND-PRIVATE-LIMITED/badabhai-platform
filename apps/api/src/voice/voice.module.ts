@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
@@ -13,7 +13,14 @@ import { VoiceTranscriptionProcessor } from "./voice-transcription.processor";
 
 @Module({
   imports: [
-    ChatModule, // for ChatRepository (session lookup)
+    // forwardRef, AND IT IS LOAD-ORDER RATHER THAN INJECTION. The cycle is a triangle and every
+    // edge of it is real: this module needs `ChatRepository` to look a session up, `ChatModule`
+    // needs `ProfilingOrchestrator` to run a turn, and `ProfilingModule` needs
+    // `VoiceTranscriptionService` for the voice form's synchronous answer leg. Without the
+    // forwardRef this file is EVALUATED while `chat.module.ts` is still mid-evaluation, so
+    // `ChatModule` is literally `undefined` in this array and Nest refuses to build the graph —
+    // `UndefinedModuleException`, at boot, on every environment.
+    forwardRef(() => ChatModule), // for ChatRepository (session lookup)
     AuthModule, // WorkerAuthGuard + ConsentGuard for the worker AI routes (inv. 4/6)
     StorageModule, // signed upload URLs into the private voice-notes bucket
     BullModule.registerQueue({ name: VOICE_TRANSCRIPTION_QUEUE }),

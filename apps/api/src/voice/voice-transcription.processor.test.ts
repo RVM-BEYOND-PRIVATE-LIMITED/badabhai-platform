@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { VoiceTranscriptionProcessor } from "./voice-transcription.processor";
 import { VoiceTranscriptionService } from "./voice-transcription.service";
 import type { VoiceTranscriptionJobData } from "../queue/queue.constants";
@@ -63,6 +64,7 @@ function make(
     ),
   };
   const aiJobs = {
+    create: vi.fn().mockResolvedValue({ id: "aij_sync_1" }),
     findById: vi.fn().mockResolvedValue(opts.findById ?? undefined),
     markRunning: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
@@ -254,7 +256,10 @@ describe("VoiceTranscriptionProcessor", () => {
   it("treats an EMPTY stored transcript as already paid for, not as absent", async () => {
     // Compared against null explicitly, never truthiness. An empty string is a real transcript
     // (the worker said nothing) and it cost exactly as much as a full one.
-    const { proc, ai, aiJobs } = make({ findById: { status: "running" }, note: { ...ROW, transcriptText: "" } });
+    const { proc, ai, aiJobs } = make({
+      findById: { status: "running" },
+      note: { ...ROW, transcriptText: "" },
+    });
 
     await proc.process(makeJob({ attemptsMade: 1, attempts: 3 }));
 
@@ -320,13 +325,17 @@ describe("VoiceTranscriptionService — the ROW owns the audio, not the payload 
     // second (request-path) caller exists, a caller who can name someone else's
     // voice_note_id would otherwise have that audio fetched, billed to them, and the
     // transcript written onto a row of their choosing.
-    const { service:svc, ai, voice, aiJobs, events } = make({
+    const {
+      service: svc,
+      ai,
+      voice,
+      aiJobs,
+      events,
+    } = make({
       note: { ...ROW, workerId: OTHER_WORKER, transcriptText: null },
     });
 
-    await expect(svc.transcribe(JOB, { terminal: true })).rejects.toThrow(
-      /does not belong/i,
-    );
+    await expect(svc.transcribe(JOB, { terminal: true })).rejects.toThrow(/does not belong/i);
 
     expect(ai.transcribe).not.toHaveBeenCalled(); // nothing fetched, nothing billed
     expect(voice.setTranscript).not.toHaveBeenCalled(); // nothing written
@@ -338,7 +347,9 @@ describe("VoiceTranscriptionService — the ROW owns the audio, not the payload 
   });
 
   it("the refusal message names no ids — it must not confirm whose note it is", async () => {
-    const { service:svc } = make({ note: { ...ROW, workerId: OTHER_WORKER, transcriptText: null } });
+    const { service: svc } = make({
+      note: { ...ROW, workerId: OTHER_WORKER, transcriptText: null },
+    });
 
     const err = await svc.transcribe(JOB, { terminal: true }).catch((e: unknown) => e);
     const message = err instanceof Error ? err.message : String(err);
@@ -349,42 +360,41 @@ describe("VoiceTranscriptionService — the ROW owns the audio, not the payload 
   });
 
   it("a missing row fails closed rather than transcribing the payload's path", async () => {
-    const { service:svc, ai } = make({ note: null as never });
+    const { service: svc, ai } = make({ note: null as never });
 
     await expect(svc.transcribe(JOB, { terminal: true })).rejects.toThrow(/not found/i);
     expect(ai.transcribe).not.toHaveBeenCalled();
   });
 
-  it("reads storage_path, duration and worker_ref from the ROW, ignoring the payload",
-    async () => {
-      // A payload that disagrees with the row on everything EXCEPT the owner — the guard
-      // passes, and the provider call must still be driven entirely by the row.
-      const { service:svc, ai } = make({
-        note: {
-          ...ROW,
-          storagePath: "worker/sess/REAL.ogg",
-          durationSeconds: 7,
-          transcriptText: null,
-        },
-      });
-
-      await svc.transcribe(
-        { ...JOB, storagePath: "attacker/OTHER.ogg", durationSeconds: 999 },
-        { terminal: false },
-      );
-
-      expect(ai.transcribe).toHaveBeenCalledWith(
-        expect.objectContaining({
-          storage_path: "worker/sess/REAL.ogg",
-          duration_seconds: 7,
-          worker_ref: JOB.workerId,
-        }),
-      );
+  it("reads storage_path, duration and worker_ref from the ROW, ignoring the payload", async () => {
+    // A payload that disagrees with the row on everything EXCEPT the owner — the guard
+    // passes, and the provider call must still be driven entirely by the row.
+    const { service: svc, ai } = make({
+      note: {
+        ...ROW,
+        storagePath: "worker/sess/REAL.ogg",
+        durationSeconds: 7,
+        transcriptText: null,
+      },
     });
+
+    await svc.transcribe(
+      { ...JOB, storagePath: "attacker/OTHER.ogg", durationSeconds: 999 },
+      { terminal: false },
+    );
+
+    expect(ai.transcribe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storage_path: "worker/sess/REAL.ogg",
+        duration_seconds: 7,
+        worker_ref: JOB.workerId,
+      }),
+    );
+  });
 
   it("still transcribes normally when the payload agrees with the row", async () => {
     // The guard must not break the queue path, whose payload is built from the row anyway.
-    const { service:svc, ai, voice } = make();
+    const { service: svc, ai, voice } = make();
 
     await svc.transcribe(JOB, { terminal: false });
 
@@ -395,5 +405,107 @@ describe("VoiceTranscriptionService — the ROW owns the audio, not the payload 
       0.9,
       MOCK_ENGLISH,
     );
+  });
+});
+
+describe("transcribeNow — the voice form's synchronous leg", () => {
+  const CTX = { correlationId: "c", requestId: "r" };
+  const now = (overrides: Record<string, unknown> = {}) => ({
+    voiceNoteId: JOB.voiceNoteId,
+    workerId: JOB.workerId,
+    maxSeconds: 30,
+    ctx: CTX,
+    ...overrides,
+  });
+
+  it("asks for NO English translation — the form wants the worker's own Hinglish", async () => {
+    // Two reasons, and the second is money. The capture layer — the city gazetteer, the yes/no
+    // lexicon, the chip labels — is written against what the worker actually says. And the
+    // translate leg is a REAL Sarvam call on no ledger at all (`translate.py` imports no cost
+    // tracker and takes no worker ref), so every one of them is spend nothing records: R9.
+    const { service, ai } = make();
+
+    await service.transcribeNow(now());
+
+    expect(ai.transcribe).toHaveBeenCalledWith(
+      expect.objectContaining({ translate_to_english: false }),
+    );
+  });
+
+  it("leaves the QUEUE path's call byte-identical — chat's response must not change", async () => {
+    // `GET /voice/:id` returns `transcript_english` to a shipped client. Flipping the default
+    // globally is a product decision; setting it for one surface is not.
+    const { proc, ai } = make();
+
+    await proc.process(makeJob());
+
+    expect(ai.transcribe).toHaveBeenCalledWith(
+      expect.not.objectContaining({ translate_to_english: expect.anything() }),
+    );
+  });
+
+  it("refuses a clip longer than the cap BEFORE paying for it", async () => {
+    // The cap is what keeps this on Sarvam's single synchronous call. A longer clip is not
+    // "slower" — it is the chunked path, with a different cost and a multi-minute ceiling.
+    const { service, ai } = make({
+      note: {
+        id: JOB.voiceNoteId,
+        workerId: JOB.workerId,
+        storagePath: JOB.storagePath,
+        durationSeconds: 47,
+        transcriptText: null,
+      },
+    });
+
+    await expect(service.transcribeNow(now())).rejects.toBeInstanceOf(BadRequestException);
+    expect(ai.transcribe).not.toHaveBeenCalled();
+  });
+
+  it("404s on another worker's clip, without an existence oracle", async () => {
+    const { service, ai } = make();
+
+    await expect(
+      service.transcribeNow(now({ workerId: "99999999-9999-4999-8999-999999999999" })),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(ai.transcribe).not.toHaveBeenCalled();
+  });
+
+  it("REPORTS a degraded transcription instead of throwing — the caller is answering a worker", async () => {
+    const { service } = make({ errorCode: "stt_budget_blocked" });
+
+    await expect(service.transcribeNow(now())).resolves.toEqual({
+      ok: false,
+      errorCode: "stt_budget_blocked",
+    });
+  });
+
+  it("returns the transcript READ BACK FROM THE ROW, which is what every other reader sees", async () => {
+    const { service, voice } = make();
+    const pending = {
+      id: JOB.voiceNoteId,
+      workerId: JOB.workerId,
+      storagePath: JOB.storagePath,
+      durationSeconds: 6,
+      transcriptText: null,
+    };
+    // THREE reads, and naming them is the point: `transcribeNow`'s own ownership + cap guard,
+    // then `transcribe`'s independent guard (the row is the authority on whose audio this is,
+    // never the payload), then the read-back AFTER the transcript has been persisted.
+    voice.findById
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce({
+        id: JOB.voiceNoteId,
+        workerId: JOB.workerId,
+        storagePath: JOB.storagePath,
+        durationSeconds: 6,
+        transcriptText: MOCK_TRANSCRIPT,
+      });
+
+    await expect(service.transcribeNow(now())).resolves.toEqual({
+      ok: true,
+      text: MOCK_TRANSCRIPT,
+      durationSeconds: 6,
+    });
   });
 });

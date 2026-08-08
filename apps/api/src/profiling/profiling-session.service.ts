@@ -7,16 +7,21 @@ import {
   NotFoundException,
   forwardRef,
 } from "@nestjs/common";
-import type { AnswerRecord, QuestionPackOption } from "@badabhai/ai-contracts";
+import type { QuestionPackOption } from "@badabhai/ai-contracts";
 
 import { ChatRepository } from "../chat/chat.repository";
 import { ChatService, type ChatTurnOutcome } from "../chat/chat.service";
 import type { RequestContext } from "../common/request-context";
+import { MAX_PROFILING_ANSWER_SECONDS } from "@badabhai/types";
+import { VoiceTranscriptionService } from "../voice/voice-transcription.service";
 import {
   ProfilingOrchestrator,
+  UNAVAILABLE_REPLY,
   type ServedQuestion,
+  type SessionView,
   type TurnResult,
 } from "./orchestrator.service";
+import { ProfilingVoiceRepository } from "./profiling-voice.repository";
 import { clipId } from "./reply-closure";
 import type {
   FinalizeProfilingResponse,
@@ -63,6 +68,8 @@ export class ProfilingSessionService {
     // ChatService back. The cycle is real — one interview, two entry points.
     @Inject(forwardRef(() => ChatService)) private readonly chatService: ChatService,
     private readonly orchestrator: ProfilingOrchestrator,
+    private readonly transcription: VoiceTranscriptionService,
+    private readonly voiceAnswers: ProfilingVoiceRepository,
   ) {}
 
   /**
@@ -124,9 +131,106 @@ export class ProfilingSessionService {
       );
     }
 
+    // A SPOKEN ANSWER IS TRANSCRIBED BEFORE THE TURN, synchronously, because the engine cannot
+    // choose question n+1 without answer n's TEXT. Everything else resolves in memory.
+    if (dto.answer.kind === "spoken") {
+      return this.spokenAnswer(workerId, dto, dto.answer.voice_note_id, view, ctx);
+    }
+
     const text = this.textFor(dto, served);
     const outcome = await this.chatService.runTurn(workerId, dto.session_id, text, ctx);
     return { step: this.stepOfOutcome(outcome) };
+  }
+
+  /**
+   * A recorded clip becomes a turn: transcribe, take the turn, record the evidence.
+   *
+   * THE FAILURE MODE THIS EXISTS TO PREVENT is a worker speaking their answer into a noisy yard
+   * and watching it disappear behind a green tick. `transcribeNow` reports WHICH failure — budget
+   * blocked, call failed, service unreachable — and every one of them means the words did not
+   * arrive, so no turn is taken and the worker is told they can say it again. Capturing an empty
+   * transcript instead would spend the question's ask budget on silence they did not choose.
+   */
+  private async spokenAnswer(
+    workerId: string,
+    dto: ProfilingAnswerDto,
+    voiceNoteId: string,
+    view: SessionView | null,
+    ctx: RequestContext,
+  ): Promise<ProfilingStepResponse> {
+    const transcribed = await this.transcription.transcribeNow({
+      voiceNoteId,
+      workerId,
+      maxSeconds: MAX_PROFILING_ANSWER_SECONDS,
+      ctx,
+    });
+
+    await this.recordClip(workerId, dto, voiceNoteId, view, transcribed);
+
+    if (!transcribed.ok) {
+      this.logger.warn(
+        `spoken answer lost session=${dto.session_id} question=${dto.question_key ?? "-"} ` +
+          `reason=${transcribed.errorCode}; no turn taken, the worker may record again`,
+      );
+      // THE EXISTING LINE, not a new one. It already means exactly this — nothing was written,
+      // send it again — and it is already in the 433-clip render manifest, so a worker who cannot
+      // read the screen HEARS it. Authoring a more specific line would be better copy and would
+      // silently add a 434th clip that no rendered audio exists for.
+      return { step: { kind: "unavailable", reply: UNAVAILABLE_REPLY } };
+    }
+
+    const outcome = await this.chatService.runTurn(workerId, dto.session_id, transcribed.text, ctx);
+    return { step: this.stepOfOutcome(outcome) };
+  }
+
+  /**
+   * The `profiling_voice_answer` row: this worker SPOKE this answer, at this attempt.
+   *
+   * NEVER FAILS THE TURN. It is an audit fact, and the answer it describes is already durable in
+   * the transcript buffer and reaches Postgres through the flush. A worker must not lose a spoken
+   * answer because an evidence INSERT hit a connection blip — so this logs and returns.
+   *
+   * WRITTEN ON FAILURE TOO, which is the more valuable half: a clip that was recorded, uploaded,
+   * paid for, and never transcribed is invisible everywhere else in the system.
+   */
+  private async recordClip(
+    workerId: string,
+    dto: ProfilingAnswerDto,
+    voiceNoteId: string,
+    view: SessionView | null,
+    transcribed:
+      | { ok: true; text: string; durationSeconds: number | null }
+      | { ok: false; errorCode: string },
+  ): Promise<void> {
+    const packId = view?.envelope.packId;
+    const packVersion = view?.envelope.packVersion;
+    // `pack_id` and `pack_version` are NOT NULL and pinned together by a CHECK. An unpinned
+    // envelope means retrieval has not run yet, which cannot happen once a question is on screen
+    // — but a row invented with a placeholder pack would be worse than no row.
+    if (!packId || !packVersion || !dto.question_key) return;
+
+    try {
+      await this.voiceAnswers.recordAnswer({
+        workerId,
+        sessionId: dto.session_id,
+        voiceNoteId,
+        packId,
+        packVersion,
+        questionKey: dto.question_key,
+        // The question's position in the interview, 1-based — `answered` is how many are behind
+        // the worker, so the one they just spoke to is the next.
+        ordinal: (view?.served?.progress.answered ?? 0) + 1,
+        durationSeconds: transcribed.ok ? transcribed.durationSeconds : null,
+        transcriptStatus: transcribed.ok ? "succeeded" : "failed",
+        transcriptErrorCode: transcribed.ok ? null : transcribed.errorCode,
+      });
+    } catch (err) {
+      this.logger.error(
+        `failed to record the voice-answer evidence row session=${dto.session_id} ` +
+          `question=${dto.question_key}; the ANSWER is unaffected: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**
@@ -145,28 +249,50 @@ export class ProfilingSessionService {
     }
 
     const view = await this.orchestrator.viewSession(sessionId, new Date());
-    if (!view) {
-      // No buffer: either the interview never started or its TTL lapsed. Both are "there is
-      // nothing to review", which is a truthful empty answer rather than an error.
-      return { session_id: sessionId, complete: session.status !== "active", rows: [] };
-    }
+    const prompts = new Map(
+      (view?.items ?? []).map((item) => [item.question_key, item.prompt_text]),
+    );
 
-    const prompts = new Map(view.items.map((item) => [item.question_key, item.prompt_text]));
-    // `envelope.answerMap` rather than `answersOf`, because the review is a LIST and the array is
-    // the contract's stable order. Keying it first would hand the screen whatever order the object
-    // happened to hold, which for a worker reading their answers back is not the same screen twice.
-    const rows = view.envelope.answerMap
-      .filter((record) => record.status !== "superseded")
-      .map((record) => ({
-        question_key: record.question_key,
-        prompt_text: prompts.get(record.question_key) ?? record.question_key,
-        status: record.status as "answered" | "declined" | "unanswered",
-        display_value: this.displayValue(record),
-      }));
+    // POSTGRES FIRST, AND THAT ORDER IS THE WHOLE FIX. The review screen exists to be shown AFTER
+    // the last question — but the engine closing the interview triggers the flush, and the flush
+    // drops the Redis key the instant its transaction commits. Reading the envelope therefore
+    // returned an EMPTY review at exactly the moment the review is for. Measured live: `rows: 0`
+    // against twelve `worker_pack_answer` rows already durable in Postgres.
+    //
+    // The envelope is still the right source MID-INTERVIEW, where nothing has been flushed yet —
+    // so it is the fallback rather than the replacement, and a worker who backs into the review
+    // half way through still sees what they have answered so far.
+    const flushed = await this.chat.listPackAnswers(sessionId);
+    const rows =
+      flushed.length > 0
+        ? flushed.map((row) => ({
+            question_key: row.questionKey,
+            prompt_text: prompts.get(row.questionKey) ?? row.questionKey,
+            status: row.status as "answered" | "declined" | "unanswered",
+            display_value: this.displayValueOf(
+              row.answerBool ?? row.answerNumber ?? row.answerText ?? row.answerOptionKeys,
+              row.status,
+            ),
+          }))
+        : // `envelope.answerMap` rather than `answersOf`, because the review is a LIST and the
+          // array is the contract's stable order. Keying it first would hand the screen whatever
+          // order the object happened to hold, which for a worker reading their answers back is
+          // not the same screen twice.
+          (view?.envelope.answerMap ?? [])
+            .filter((record) => record.status !== "superseded")
+            .map((record) => ({
+              question_key: record.question_key,
+              prompt_text: prompts.get(record.question_key) ?? record.question_key,
+              status: record.status as "answered" | "declined" | "unanswered",
+              display_value: this.displayValueOf(
+                record.value_normalized ?? record.value_raw,
+                record.status,
+              ),
+            }));
 
     return {
       session_id: sessionId,
-      complete: view.buffer.completedAt !== undefined || session.status !== "active",
+      complete: view?.buffer.completedAt !== undefined || session.status !== "active",
       rows,
     };
   }
@@ -228,6 +354,9 @@ export class ProfilingSessionService {
    */
   private textFor(dto: ProfilingAnswerDto, served: ServedQuestion | null): string {
     const answer = dto.answer;
+    // `spoken` is resolved before this is reached — it needs a provider call, and a synchronous
+    // mapper is the wrong place for one.
+    if (answer.kind === "spoken") throw new BadRequestException("A spoken answer needs a clip");
     if (answer.kind === "text") return answer.text;
 
     if (answer.kind === "boolean") {
@@ -260,13 +389,21 @@ export class ProfilingSessionService {
     return matched.join(", ");
   }
 
-  /** The rendered value for one review row, or null when the worker declined or never answered. */
-  private displayValue(record: AnswerRecord): string | null {
-    if (record.status !== "answered") return null;
-    const value = record.value_normalized ?? record.value_raw;
+  /**
+   * The rendered value for one review row, or null when the worker declined or never answered.
+   *
+   * ONE FUNCTION FOR BOTH SOURCES. The flushed row and the live envelope hold the same values in
+   * different shapes, and rendering them separately is how a worker's answer would come to look
+   * different depending on whether the interview had finished — which is the one comparison the
+   * review screen exists to make.
+   */
+  private displayValueOf(value: unknown, status: string): string | null {
+    if (status !== "answered") return null;
     if (value === null || value === undefined) return null;
     if (Array.isArray(value)) return value.map((v) => String(v)).join(", ");
     if (typeof value === "boolean") return value ? "Haan" : "Nahi";
+    // `numeric` columns arrive as strings from postgres-js; `String()` is a no-op on those and
+    // the right rendering for a number either way.
     return String(value);
   }
 

@@ -7,6 +7,7 @@ import { PackRegistryService } from "./pack-registry.service";
 import { PackRepository } from "./pack.repository";
 import { ProfilingController } from "./profiling.controller";
 import { ProfilingSessionService } from "./profiling-session.service";
+import { ProfilingVoiceRepository } from "./profiling-voice.repository";
 import { ProfilingModule } from "./profiling.module";
 import { AppModule } from "../app.module";
 
@@ -51,6 +52,8 @@ describe("ProfilingModule wiring", () => {
     expect(names).toContain("OccupationModule");
     expect(names).toContain("EventsModule");
     expect(names).toContain("AiModule");
+    // The synchronous transcription leg. One-way: VoiceModule does not import this one.
+    expect(names).toContain("VoiceModule");
   });
 
   it("imports AuthModule, which is where its routes' two guards come from", () => {
@@ -69,6 +72,7 @@ describe("ProfilingModule wiring", () => {
       IdentifyService,
       ProfilingOrchestrator,
       ProfilingSessionService,
+      ProfilingVoiceRepository,
     ]);
   });
 

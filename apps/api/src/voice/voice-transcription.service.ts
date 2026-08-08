@@ -1,4 +1,10 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { EventsService } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
 import { AiJobsRepository } from "../profiles/ai-jobs.repository";
@@ -33,6 +39,97 @@ export class VoiceTranscriptionService {
   ) {}
 
   /**
+   * Transcribe ONE clip on the request path and hand back the words.
+   *
+   * WHY THERE IS NO QUEUE HERE. The chat voice-note flow is right to be asynchronous: a 120 s
+   * note can take five provider calls, and nothing is waiting on the result. A profiling answer
+   * is the opposite — the worker is holding the phone, the engine cannot choose question n+1
+   * without answer n's text, and the clip is capped at {@link MAX_PROFILING_ANSWER_SECONDS},
+   * which keeps Sarvam on a SINGLE synchronous call and never enters the chunked path. Queueing
+   * it would add a poll loop and a strand for no latency saved.
+   *
+   * `terminal: true`, because there is no second attempt: the caller is an HTTP request, and if
+   * this fails the honest thing is to tell the worker so while their finger is still on the
+   * screen. That is the whole reason `terminal` is a parameter rather than queue arithmetic.
+   *
+   * RETURNS A RESULT RATHER THAN THROWING, unlike {@link transcribe}. The caller is not deciding
+   * whether to retry — it is deciding what to show a worker who just spoke, and "their answer did
+   * not arrive" is a turn outcome rather than an exception.
+   */
+  async transcribeNow(input: {
+    voiceNoteId: string;
+    workerId: string;
+    maxSeconds: number;
+    ctx: { correlationId: string; requestId: string };
+  }): Promise<
+    { ok: true; text: string; durationSeconds: number | null } | { ok: false; errorCode: string }
+  > {
+    const note = await this.voice.findById(input.voiceNoteId);
+    // 404 for both not-found and not-owner, so a note id is never an existence oracle. The
+    // service-level guard inside `transcribe` is the second wall, not this one's replacement.
+    if (!note || note.workerId !== input.workerId) {
+      throw new NotFoundException(`Voice note ${input.voiceNoteId} not found`);
+    }
+    if ((note.durationSeconds ?? 0) > input.maxSeconds) {
+      // The cap is what keeps this a single provider call. A longer clip is not "slower", it is
+      // a different code path with a different cost and a multi-minute ceiling.
+      throw new BadRequestException(
+        `A profiling answer may be at most ${input.maxSeconds} seconds`,
+      );
+    }
+
+    const job = await this.aiJobs.create({
+      jobType: "transcription",
+      status: "queued",
+      inputRef: { voice_note_id: note.id, worker_id: note.workerId },
+    });
+    await this.events.emit({
+      event_name: "voice_note.transcription_requested",
+      actor: { actor_type: "worker", actor_id: note.workerId },
+      subject: { subject_type: "ai_job", subject_id: job.id },
+      payload: { voice_note_id: note.id, worker_id: note.workerId, ai_job_id: job.id },
+      idempotencyKey: `voice_note.transcription_requested:${job.id}`,
+      correlationId: input.ctx.correlationId,
+      requestId: input.ctx.requestId,
+    });
+
+    try {
+      await this.transcribe(
+        {
+          voiceNoteId: note.id,
+          workerId: note.workerId,
+          storagePath: note.storagePath,
+          durationSeconds: note.durationSeconds,
+          languageCode: null,
+          aiJobId: job.id,
+          correlationId: input.ctx.correlationId,
+          requestId: input.ctx.requestId,
+        },
+        // THE FORM WANTS THE WORKER'S OWN HINGLISH BACK, not English. The engine's capture layer
+        // — the city gazetteer, the yes/no lexicon, the chip labels — is written against what
+        // the worker actually says. It also deletes a real, UNLEDGERED Sarvam translate call
+        // (R9) from the critical path: `translate.py` imports no cost tracker and takes no
+        // worker ref, so every one of those calls today is spend nothing records. Set only for
+        // THIS surface; `GET /voice/:id` still returns `transcript_english` for chat notes,
+        // because flipping the default would change a shipped response.
+        { terminal: true, translateToEnglish: false },
+      );
+    } catch (err) {
+      // `transcribe` has already written the terminal record and the one failed event. All that
+      // is left is to say WHICH failure, so the caller can tell the worker something true.
+      const reason = err instanceof Error ? err.message : String(err);
+      const errorCode = /transcription degraded: (\w+)/.exec(reason)?.[1] ?? "stt_failed";
+      return { ok: false, errorCode };
+    }
+
+    // READ THE ROW BACK rather than plumbing the transcript out of `transcribe`. The row is what
+    // every other reader sees, and the already-paid idempotency guard means a retried request
+    // returns the SAME words rather than buying them twice.
+    const done = await this.voice.findById(note.id);
+    return { ok: true, text: done?.transcriptText ?? "", durationSeconds: note.durationSeconds };
+  }
+
+  /**
    * @param terminal Whether a failure here is FINAL — i.e. the caller will not try again.
    *
    * A POLICY INPUT, NOT QUEUE PLUMBING, and that distinction is what lets this method be shared.
@@ -48,16 +145,9 @@ export class VoiceTranscriptionService {
    */
   async transcribe(
     job: VoiceTranscriptionJobData,
-    { terminal }: { terminal: boolean },
+    { terminal, translateToEnglish }: { terminal: boolean; translateToEnglish?: boolean },
   ): Promise<{ voice_note_id: string }> {
-    const {
-      voiceNoteId,
-      workerId,
-      languageCode,
-      aiJobId,
-      correlationId,
-      requestId,
-    } = job;
+    const { voiceNoteId, workerId, languageCode, aiJobId, correlationId, requestId } = job;
 
     // Idempotency: a prior attempt may have already completed (e.g. BullMQ
     // stalled-job redelivery) — don't re-transcribe; return the recorded id.
@@ -139,6 +229,9 @@ export class VoiceTranscriptionService {
         // note is up to 5 provider calls) to this worker's TD27 per-user daily
         // budget, same as chat/extraction/resume already do.
         worker_ref: ownerId,
+        // Omitted (rather than `true`) for every existing caller, so the ai-service default
+        // governs exactly as it did before this parameter existed.
+        ...(translateToEnglish === undefined ? {} : { translate_to_english: translateToEnglish }),
       });
 
       // A DEGRADED RESULT IS A FAILURE, AND IT USED TO BE RECORDED AS A SUCCESS.
