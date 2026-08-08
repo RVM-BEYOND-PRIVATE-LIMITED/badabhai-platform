@@ -11,7 +11,7 @@ Two independent things are asserted, and they fail for different reasons:
 2. IDENTITY PARITY — ``normalize_reply_text``/``clip_id`` must agree with the TypeScript
    ``normalizeReplyText``/``clipId`` on every string. The manifest ships ids computed in
    TypeScript; recomputing them here and comparing is the strongest available form of that check,
-   because it runs over the REAL 433-clip corpus rather than a handful of probes.
+   because it runs over the REAL 434-clip corpus rather than a handful of probes.
 
 WHY THE CODEPOINT VECTORS BELOW EXIST. The two languages used to disagree, and it was measured,
 not theorised. `str.strip()` and `String.prototype.trim()` strip DIFFERENT sets: six codepoints
@@ -44,7 +44,7 @@ _CANONICAL = _REPO_ROOT / "packages" / "db" / "data" / "question-packs" / "reply
 
 #: The measured floor. Pinned so the manifest cannot be quietly shrunk to make a failure go away —
 #: deleting rows is the cheapest way to turn a parity suite green. Deliberately below the current
-#: 433 so authoring the ~20 planned `retry_text` items does not redden the build.
+#: 434 so authoring the ~20 planned `retry_text` items does not redden the build.
 _MIN_CLIPS = 300
 
 
@@ -60,7 +60,7 @@ def test_mirror_is_byte_identical_to_the_canonical_manifest() -> None:
 def test_every_clip_id_recomputes_in_python() -> None:
     """The whole cross-language contract, over the real corpus.
 
-    ``load_reply_closure`` raises on ANY mismatch, so reaching the assertions means all 433 ids
+    ``load_reply_closure`` raises on ANY mismatch, so reaching the assertions means all 434 ids
     computed in TypeScript were reproduced here byte for byte.
     """
     clips = load_reply_closure()

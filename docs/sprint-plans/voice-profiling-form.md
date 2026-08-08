@@ -635,8 +635,15 @@ from chat.
 > | `retry` | 4 |
 > | `why` (bare — reachable when the served question is gone) | 143 |
 > | `clarify` (`why_text` + `servedText`) | 150 |
-> | `constant` | 7 |
-> | **total** | **433** |
+> | `constant` | 8 |
+> | **total** | **434** |
+>
+> The `constant` row was **7 until #679**, which found the chat opener — the literal first thing a
+> worker hears — enumerated by nothing: absent from `CONSTANT_REPLIES`, so `assertNoInterpolation`
+> never read it, and absent from the pack corpus, so `validateQuestionPackCorpus` never read it
+> either. It is in the manifest now, which is why the total moved. **The ₹324.75 quoted below was
+> measured at 433 clips and must be re-measured before `--apply`** — #701 requires that comparison
+> anyway.
 >
 > The plan estimated 145 clarify strings; it counted why+prompt only. A worker can ask "why?"
 > *after* the re-ask too, so why+retry is a distinct thing to say.

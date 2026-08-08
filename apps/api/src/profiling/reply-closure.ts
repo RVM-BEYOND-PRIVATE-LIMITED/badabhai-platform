@@ -41,7 +41,7 @@ import {
 // this same constant re-exported by the orchestrator, because two copies of a worker-facing string
 // drift and which one a worker sees would then depend on which internal path produced it. Copying
 // it here to keep the module import-free would recreate exactly that problem.
-import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies";
+import { CHAT_OPENING_TEXT, CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies";
 
 /** Which code path can put this text in front of a worker. */
 export type ReplyProducer = "prompt" | "retry" | "clarify" | "why" | "constant";
@@ -117,6 +117,12 @@ export const CONSTANT_REPLIES: readonly string[] = [
   CLOSING_REPLY_TEXT,
   CHAT_UNAVAILABLE_REPLY,
   DISAMBIGUATION_PROMPT_TEXT,
+  // THE FIRST THING A WORKER HEARS, and until #679 the one line no guard could see: served by
+  // `startSession` as `opening_text`, in no pack, and not listed here — so neither
+  // `assertNoInterpolation` nor `validateQuestionPackCorpus` ever read it. PII-free today, and it
+  // is also the line most likely to be personalised later, which is exactly why it belongs under
+  // the check rather than beside it.
+  CHAT_OPENING_TEXT,
 ];
 
 /** Thrown by the guards below. Names the offending text so the corpus row is findable. */
@@ -146,27 +152,88 @@ export function assertNoInterpolation(clips: readonly ReplyClip[]): void {
   }
 }
 
-/** Two different strings sharing a clip id would play the wrong audio. Cheap to check, so check. */
+/** The one collision message, so the insert-time guard and the manifest guard read identically. */
+function collisionError(id: string, a: string, b: string): ReplyClosureError {
+  return new ReplyClosureError(
+    `clip id ${id} is claimed by two different strings: ` +
+      `${JSON.stringify(a)} and ${JSON.stringify(b)}`,
+  );
+}
+
+/**
+ * Two different strings sharing a clip id would play the wrong audio — checked over a clip list
+ * this module did NOT build.
+ *
+ * WHAT IT IS AND IS NOT FOR (#679). It used to be called on the output of {@link replyClosure},
+ * where it could never fire: that output is drained from a `Map` keyed by id, so it holds at most
+ * one entry per id by construction and the "two entries, same id, different text" condition is
+ * unreachable. The guard read as protection and was doing nothing. The real defence now lives at
+ * the INSERT point, in {@link clipAccumulator}, where both strings still exist and the losing one
+ * would otherwise be dropped in silence.
+ *
+ * This function survives because the manifest is a committed artifact that BOTH languages read
+ * from disk, and a hand-edited or badly merged `reply-closure.json` is a genuinely
+ * non-deduplicated list. That is the input it is meaningful over, and the golden suite runs it
+ * against exactly that.
+ */
 export function assertNoCollisions(clips: readonly ReplyClip[]): void {
   const byId = new Map<string, string>();
   for (const clip of clips) {
     const seen = byId.get(clip.id);
     if (seen !== undefined && normalizeReplyText(seen) !== normalizeReplyText(clip.text)) {
-      throw new ReplyClosureError(
-        `clip id ${clip.id} is claimed by two different strings: ` +
-          `${JSON.stringify(seen)} and ${JSON.stringify(clip.text)}`,
-      );
+      throw collisionError(clip.id, seen, clip.text);
     }
     byId.set(clip.id, clip.text);
   }
 }
 
 /**
+ * The deduplicating accumulator behind {@link replyClosure} — and where a clip-id collision is
+ * actually caught.
+ *
+ * THE BUG THIS REPLACED. The old inline `if (!clips.has(id)) clips.set(...)` silently DROPPED the
+ * second string on a genuine 64-bit collision and kept the first. That is precisely the "worker
+ * hears the wrong question" outcome the module's guards claim to prevent, and it happened at the
+ * one moment both strings were still in hand — after which no downstream check could tell that
+ * anything had been lost.
+ *
+ * `idOf` IS A PARAMETER SO THE COLLISION BRANCH CAN BE TESTED AT ALL. sha256-64 over a few hundred
+ * clips puts a real collision at ~1e-14, so no fixture can produce one through {@link clipId}, and
+ * a branch that stands between a worker and the wrong audio should not be asserted by nothing —
+ * which was the other half of the same defect.
+ */
+export function clipAccumulator(idOf: (text: string) => string = clipId): {
+  add: (text: string, producer: ReplyProducer) => void;
+  clips: () => ReplyClip[];
+} {
+  const byId = new Map<string, ReplyClip>();
+  return {
+    add(text, producer) {
+      const normalized = normalizeReplyText(text);
+      if (normalized.length === 0) return; // a blank reply is never served — the guard drops the turn
+      const id = idOf(normalized);
+      const existing = byId.get(id);
+      if (existing !== undefined) {
+        // Same string reached by two producers is the NORMAL case (a `why` that is also a
+        // clarify's first half); the first producer wins and the clip is already correct.
+        if (existing.text !== normalized) throw collisionError(id, existing.text, normalized);
+        return;
+      }
+      byId.set(id, { id, text: normalized, producer });
+    },
+    // SORTED BY ID rather than by pack order so the output is a stable artifact: re-ordering a
+    // pack's items, or authoring a new pack, changes the set but not the ordering of everything
+    // already in it. A render is then an incremental diff instead of a full re-spend.
+    clips() {
+      return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+    },
+  };
+}
+
+/**
  * Every reply the engine can produce for these packs, deduplicated by clip id and sorted by it.
  *
- * SORTED BY ID rather than by pack order so the output is a stable artifact: re-ordering a pack's
- * items, or authoring a new pack, changes the set but not the ordering of everything already in it.
- * A render is then an incremental diff instead of a full re-spend.
+ * Deduplication, ordering and the collision guard all live in {@link clipAccumulator}.
  *
  * `why_text` IS EMITTED ON ITS OWN as well as inside its concatenation, and that is not redundancy.
  * `joinClarify` returns the bare `why` whenever the served question is absent — which happens when
@@ -175,13 +242,7 @@ export function assertNoCollisions(clips: readonly ReplyClip[]): void {
  * silence at the exact moment a confused worker asked for help.
  */
 export function replyClosure(packs: readonly QuestionPack[]): ReplyClip[] {
-  const clips = new Map<string, ReplyClip>();
-  const add = (text: string, producer: ReplyProducer): void => {
-    const normalized = normalizeReplyText(text);
-    if (normalized.length === 0) return; // a blank reply is never served — the guard drops the turn
-    const id = clipId(normalized);
-    if (!clips.has(id)) clips.set(id, { id, text: normalized, producer });
-  };
+  const { add, clips } = clipAccumulator();
 
   for (const text of CONSTANT_REPLIES) add(text, "constant");
 
@@ -204,7 +265,7 @@ export function replyClosure(packs: readonly QuestionPack[]): ReplyClip[] {
     }
   }
 
-  return [...clips.values()].sort((a, b) => (a.id < b.id ? -1 : 1));
+  return clips();
 }
 
 /**
@@ -218,10 +279,16 @@ function clarifyPromptText(item: QuestionPackItem): string {
   return item.why_text ?? servedText(item, 1);
 }
 
-/** Build the closure and run every guard. What a renderer and a CI check should both call. */
+/**
+ * Build the closure and run every guard. What a renderer and a CI check should both call.
+ *
+ * `assertNoCollisions` IS NOT CALLED HERE, and that is the fix rather than a regression (#679):
+ * over `replyClosure`'s deduplicated output it could not fire, so calling it looked like coverage
+ * and provided none. The collision that can actually happen is caught one layer down, at the
+ * insert point in {@link clipAccumulator}, and this function propagates it.
+ */
 export function checkedReplyClosure(packs: readonly QuestionPack[]): ReplyClip[] {
   const clips = replyClosure(packs);
   assertNoInterpolation(clips);
-  assertNoCollisions(clips);
   return clips;
 }

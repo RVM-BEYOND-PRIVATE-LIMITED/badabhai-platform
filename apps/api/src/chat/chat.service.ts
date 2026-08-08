@@ -7,11 +7,13 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { ProfilesService } from "../profiles/profiles.service";
 import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrator.service";
+import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 import { toConversationStatePatch } from "../profiling/conversation-state";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
 import { hasExtractedContent } from "../profiles/profile-content";
 import type { NewWorkerPackAnswer } from "@badabhai/db";
+import { CHAT_OPENING_TEXT } from "./chat-replies";
 import { ChatRepository } from "./chat.repository";
 import {
   ChatTranscriptBuffer,
@@ -90,29 +92,25 @@ function typedAnswerColumns(
 // POST-emit, only in the value returned to the client — see renderWorkerName.
 const WORKER_NAME_PLACEHOLDER = "{{worker_name}}";
 
-/** Re-exported from the import-free module so the TTS closure can read it without Nest. */
-export { CHAT_UNAVAILABLE_REPLY } from "./chat-replies";
-
-/** Served on a message posted to an interview that has already been finalized. */
-const CHAT_ALREADY_COMPLETE_REPLY = "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
+/**
+ * Re-exported from the import-free module so the TTS closure can read them without Nest.
+ *
+ * `export … from` alone would not bind them locally, and `startSession` below serves the opener,
+ * so it is imported as well. One statement each way, and still one definition.
+ */
+export { CHAT_UNAVAILABLE_REPLY, CHAT_OPENING_TEXT } from "./chat-replies";
 
 /**
- * The one-shot composite opener, as REVIEWED COPY rather than a generated line.
+ * Served on a message posted to an interview that has already been finalized.
  *
- * WHAT IT REPLACED. `AiService.profilingOpening()` spent one `capable`-tier call on the chat
- * MOUNT — before the worker had said anything at all — to produce a greeting that was then
- * memoized and served identically to everyone anyway. A constant does the same job for nothing.
- *
- * The invitation to answer several things at once is the point: a worker who volunteers their
- * trade, city and experience in one message has those captured on turn one, and the engine simply
- * asks for whatever they left out. A partial answer degrades to the ordinary question-by-question
- * flow, so this can only ever shorten the interview.
- *
- * ON-PERSONA by the same rules the pack validator enforces: "aap", no vocative, no exclamation,
- * no emoji, one question mark, under twenty words.
+ * AN ALIAS, NOT A SECOND STRING (#679). It was declared here as its own byte-identical literal,
+ * which is precisely the drift the rest of the reply-closure work went out of its way to
+ * eliminate: two copies of a worker-facing line, and which one a worker hears decided by which
+ * internal path produced it. The local name stays because the two call sites below are about a
+ * dead session rather than a normal close, and reading `CLOSING_REPLY_TEXT` there would suggest
+ * the interview just ended.
  */
-export const CHAT_OPENING_TEXT =
-  "Namaste. Aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?";
+const CHAT_ALREADY_COMPLETE_REPLY = CLOSING_REPLY_TEXT;
 
 /**
  * What one interview turn DID, before anybody decides how to render it.

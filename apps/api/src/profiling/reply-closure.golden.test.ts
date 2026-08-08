@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 import { loadQuestionPackCorpus, type PackRecord } from "@badabhai/db";
 
-import { checkedReplyClosure, type ReplyClip } from "./reply-closure";
+import { assertNoCollisions, checkedReplyClosure, type ReplyClip } from "./reply-closure";
 
 /**
  * THE CLOSURE, OVER THE REAL 466-ITEM CORPUS — committed as a golden artifact.
@@ -97,6 +97,28 @@ describe("the reply closure, over the REAL question-pack corpus", () => {
     expect(toQuestionPacks().length).toBeGreaterThanOrEqual(100);
   });
 
+  it("holds ONE version per pack_id — the assumption the manifest's completeness rests on", () => {
+    // #679's open question, converted into a failing build instead of a silent gap.
+    //
+    // A session PINS its pack version. The corpus is one file per `pack_id`, so a v2 would REPLACE
+    // v1 rather than sit beside it, and this manifest would then describe only v2 — while workers
+    // still mid-interview on v1 get served strings that were never checked and never rendered.
+    // Silence, at a question they cannot read.
+    //
+    // Fixing that properly means a multi-version corpus layout, which is a design decision and not
+    // this test's to make. What it CAN do is refuse to let the assumption lapse quietly: the day a
+    // second version of any pack appears, this fails and the render pipeline gets looked at before
+    // a worker is stranded on an unrendered one.
+    const byId = new Map<string, Set<number>>();
+    for (const p of toQuestionPacks()) {
+      const versions = byId.get(p.pack_id) ?? new Set<number>();
+      versions.add(p.version);
+      byId.set(p.pack_id, versions);
+    }
+    const multi = [...byId.entries()].filter(([, v]) => v.size > 1).map(([id]) => id);
+    expect(multi, "a pinned session on the older version would hear silence").toEqual([]);
+  });
+
   it("carries all five producers, so no reply KIND is missing wholesale", () => {
     // The count can drift with the corpus; the producer SET cannot drift innocently. A zero here
     // means an entire category of thing the engine says has no audio — e.g. every clarify turn.
@@ -119,5 +141,16 @@ describe("the reply closure, over the REAL question-pack corpus", () => {
   it("every clip id is unique and every text is non-empty", () => {
     expect(new Set(built.clips.map((c) => c.id)).size).toBe(built.clips.length);
     expect(built.clips.every((c) => c.text.trim().length > 0)).toBe(true);
+  });
+
+  it("the COMMITTED manifest carries no id claimed by two different strings", () => {
+    // `assertNoCollisions` over the bytes on disk, which is the input it is meaningful over
+    // (#679): the closure's own output is deduplicated by construction, but this file is a
+    // committed artifact that gets hand-edited and merged, and both languages read it to decide
+    // which audio file answers to which id. A duplicated id here is a worker hearing the wrong
+    // question — the exact failure the guard names, on the only list that can actually carry one.
+    if (process.env.UPDATE_REPLY_CLOSURE === "1") return;
+    const onDisk = JSON.parse(readFileSync(GOLDEN_PATH, "utf8")) as GoldenFile;
+    expect(() => assertNoCollisions(onDisk.clips)).not.toThrow();
   });
 });
