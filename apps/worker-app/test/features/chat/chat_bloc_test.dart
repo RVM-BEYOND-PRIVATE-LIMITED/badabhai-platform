@@ -2,6 +2,8 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/api/api_models.dart'
+    show ChatProgress, ChatQuestionKind;
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
@@ -413,5 +415,62 @@ void main() {
     expect(bloc.state.unansweredEssentials, <String>['machines', 'experience'],
         reason: 'a blocked turn must not clear the last known gaps');
     expect(bloc.state.lastReplyBlocked, isTrue);
+  });
+
+  // OIE Phase 8 (#649) — progress, question_kind and occupation thread into the
+  // state; progress + occupation are sticky, question_kind is turn-scoped.
+  group('OIE Phase 8 fields (#649)', () {
+    test('a turn carries progress, question_kind and occupation to state',
+        () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.sendMessage(any())).thenAnswer((_) async => const ChatTurn(
+            reply: 'Aap darzi hain?',
+            followups: <String>['darzi', 'Kuch aur'],
+            progress: ChatProgress(answered: 3, total: 12),
+            questionKind: ChatQuestionKind.disambiguate,
+            occupationLabel: 'darzi',
+          ));
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('main kapde silta hoon'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(bloc.state.progress?.answered, 3);
+      expect(bloc.state.progress?.total, 12);
+      expect(bloc.state.questionKind, ChatQuestionKind.disambiguate);
+      expect(bloc.state.occupationLabel, 'darzi');
+    });
+
+    test('progress + occupation are STICKY; question_kind is turn-scoped',
+        () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      final List<ChatTurn> turns = <ChatTurn>[
+        const ChatTurn(
+          reply: 'q1',
+          progress: ChatProgress(answered: 3, total: 12),
+          questionKind: ChatQuestionKind.disambiguate,
+          occupationLabel: 'darzi',
+        ),
+        // A later ordinary turn: no progress, no occupation, plain 'ask'.
+        const ChatTurn(reply: 'q2'),
+      ];
+      int i = 0;
+      when(() => repo.sendMessage(any())).thenAnswer((_) async => turns[i++]);
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('a'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      bloc.add(const ChatMessageSent('b'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(bloc.state.progress?.answered, 3,
+          reason: 'progress sticky-forward across a null-progress turn');
+      expect(bloc.state.occupationLabel, 'darzi',
+          reason: 'occupation latches once pinned');
+      expect(bloc.state.questionKind, ChatQuestionKind.ask,
+          reason: 'the 2nd turn is a plain ask — the disambiguate layout drops');
+    });
   });
 }

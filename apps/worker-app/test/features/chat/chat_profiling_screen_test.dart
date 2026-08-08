@@ -133,6 +133,41 @@ void main() {
   );
 
   testWidgets(
+      'REGRESSION: two option taps in one frame send ONE answer, not two '
+      '(#649)', (WidgetTester tester) async {
+    // The options row is only removed on the NEXT rebuild, and `state.sending`
+    // is false at build time — so without a synchronous latch both taps
+    // dispatch. The server is not idempotent across DIFFERENT text (Layer A
+    // replay only catches a byte-identical message), so the second lands as a
+    // bogus answer against whatever question the engine has just served.
+    final Completer<ChatTurn> reply = Completer<ChatTurn>();
+    int sends = 0;
+    when(() => repo.sendMessage(any())).thenAnswer((Invocation i) {
+      sends++;
+      if (sends == 1) {
+        return Future<ChatTurn>.value(const ChatTurn(
+            reply: 'Kaunsa control?',
+            followups: <String>['Fanuc', 'Siemens']));
+      }
+      return reply.future; // never completes — a second send would hang here
+    });
+    await pumpScreen(tester);
+
+    await tester.enterText(find.byType(TextField), 'cnc');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+    expect(sends, 1);
+
+    // Two taps on DIFFERENT options before any rebuild lands.
+    await tester.tap(find.text('Fanuc'));
+    await tester.tap(find.text('Siemens'));
+    await tester.pump();
+
+    expect(sends, 2,
+        reason: 'the first option tap sends; the second must be swallowed');
+  });
+
+  testWidgets(
       'renders suggested_followups as chips and tapping one sends that answer',
       (WidgetTester tester) async {
     when(() => repo.sendMessage(any())).thenAnswer((_) async => const ChatTurn(

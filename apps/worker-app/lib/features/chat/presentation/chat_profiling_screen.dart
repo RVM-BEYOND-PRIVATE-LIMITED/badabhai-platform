@@ -3,6 +3,7 @@ import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/api/api_models.dart' show ChatProgress, ChatQuestionKind;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -13,6 +14,7 @@ import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
+import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../router.dart';
 import '../../voice/domain/voice_models.dart';
 import '../domain/chat_message.dart';
@@ -22,6 +24,13 @@ import 'bloc/chat_bloc.dart';
 /// message to auto-scroll. Beyond this, we surface the "new message" pill
 /// instead of yanking the transcript down under their thumb.
 const double _kNearBottomThreshold = 120;
+
+/// The disambiguation "none of these" escape label (#649). The backend serves it
+/// as an ordinary `suggested_followups` entry (`is_none_of_above`, currently
+/// 'Kuch aur'); the client recognises it by this label to style it distinctly.
+/// If the phrase ever changes server-side it degrades to a normal option, never
+/// breaks.
+const String _kDisambiguateEscape = 'Kuch aur';
 
 /// Hinglish label on the jump-to-bottom pill.
 const String _kNewMessageLabel = 'Naye message';
@@ -105,6 +114,27 @@ class _ChatViewState extends State<_ChatView> {
   /// [_openProfilePreview] for why a bool and not just the disabled state.
   bool _openingPreview = false;
 
+  /// An option/chip tap is dispatched and the reply has not arrived yet.
+  ///
+  /// SET SYNCHRONOUSLY IN THE HANDLER, because the options row is only removed
+  /// on the next rebuild — and `state.sending` is false by construction at
+  /// build time, so gating on it in the builder does nothing. Two taps inside
+  /// one frame otherwise dispatch two `ChatMessageSent`s, and the server is
+  /// not idempotent across DIFFERENT text: Layer A replay only catches a
+  /// byte-identical message. The first settles the offer and pins the pack;
+  /// the second arrives with the offer already cleared and is captured against
+  /// whatever pack question the engine has just served — a bogus answer of
+  /// record, on the one control where a mis-tap costs a whole trade-specific
+  /// interview. Released when the turn SETTLES (see [_wasSending]).
+  bool _optionTapPending = false;
+
+  /// Previous `state.sending`, so the listener can spot the settle EDGE.
+  ///
+  /// Releasing on "followups changed" does not work: the bloc clears followups
+  /// the moment the worker sends ("Cleared the moment the worker sends again"),
+  /// so that fires on the way IN and unlatches before the second tap.
+  bool _wasSending = false;
+
   @override
   void initState() {
     super.initState();
@@ -131,6 +161,15 @@ class _ChatViewState extends State<_ChatView> {
   void _sendText(String text) {
     if (text.trim().isEmpty) return;
     context.read<ChatBloc>().add(ChatMessageSent(text));
+  }
+
+  /// Send an answer chosen from an OPTIONS list (chips or the disambiguate
+  /// rows). One tap per turn: see [_optionTapPending].
+  void _sendOption(String label) {
+    if (_optionTapPending) return;
+    if (label.trim().isEmpty) return;
+    setState(() => _optionTapPending = true);
+    _sendText(label);
   }
 
   /// Re-send the failed bubble at [index] (#343) — in place, no duplicate.
@@ -428,12 +467,24 @@ class _ChatViewState extends State<_ChatView> {
         ),
       ),
       body: BlocListener<ChatBloc, ChatState>(
-        // Fire only when a message is appended (length grows), not on every
-        // state change (e.g. the initializing flag flipping).
+        // Fire when a message is appended (length grows) OR when the in-flight
+        // flag moves — NOT on every state change (e.g. the initializing flag
+        // flipping). The second condition carries the one-tap-per-turn latch.
         listenWhen: (ChatState prev, ChatState curr) =>
-            curr.messages.length > prev.messages.length,
-        listener: (BuildContext context, ChatState state) =>
-            _onMessagesChanged(state.messages),
+            curr.messages.length > prev.messages.length ||
+            curr.sending != prev.sending,
+        listener: (BuildContext context, ChatState state) {
+          // Release on the SETTLE EDGE (sending true → false), never on the
+          // way in: the bloc clears followups and sets sending as soon as the
+          // worker sends, so anything keyed on those unlatches while the turn
+          // is still in flight — which is precisely the window the latch is
+          // for.
+          if (_wasSending && !state.sending && _optionTapPending) {
+            setState(() => _optionTapPending = false);
+          }
+          _wasSending = state.sending;
+          _onMessagesChanged(state.messages);
+        },
         child: BlocBuilder<ChatBloc, ChatState>(
           builder: (BuildContext context, ChatState state) {
             if (state.initializing) {
@@ -443,6 +494,10 @@ class _ChatViewState extends State<_ChatView> {
               child: Column(
                 children: <Widget>[
                   if (state.sessionFailed) _sessionBanner(),
+                  // OIE Phase 8 (#649): the pack progress bar + the pinned
+                  // occupation pill. Hidden until a pack resolves / a trade pins.
+                  if (state.progress != null || state.occupationLabel != null)
+                    _oieHeader(state.progress, state.occupationLabel),
                   Expanded(
                     child: Stack(
                       children: <Widget>[
@@ -481,7 +536,13 @@ class _ChatViewState extends State<_ChatView> {
                   if (state.sending)
                     _typingIndicator()
                   else if (state.followups.isNotEmpty)
-                    _followups(state.followups),
+                    // A disambiguation turn is mutually-exclusive occupations
+                    // where the tapped label BECOMES the answer of record and
+                    // selects the pack — a vertical single-select, not the
+                    // horizontal scroller a worker can skim past (#649).
+                    state.questionKind == ChatQuestionKind.disambiguate
+                        ? _disambiguate(state.followups)
+                        : _followups(state.followups),
                   // A blocked turn (pseudonymize fail-closed) never processed the
                   // worker's last answer — say so rather than let the canned
                   // fallback reply read as understood. Shown in every build.
@@ -684,11 +745,128 @@ class _ChatViewState extends State<_ChatView> {
               BbChip(
                 label: f,
                 labelWeight: FontWeight.w400,
-                onTap: () => _sendText(f),
+                onTap: () => _sendOption(f),
               ),
               const SizedBox(width: AppSpacing.s2),
             ],
           ],
+        ),
+      ),
+    );
+  }
+
+  /// OIE Phase 8 header (#649): the pack progress bar (the finish line, the
+  /// single strongest completion lever for low-literacy users) and the pinned
+  /// occupation pill.
+  Widget _oieHeader(ChatProgress? progress, String? occupation) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, AppSpacing.s2, AppSpacing.s4, AppSpacing.s2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          if (progress != null) BbProgressBar(value: progress.fraction),
+          if (progress != null && occupation != null)
+            const SizedBox(height: AppSpacing.s2),
+          if (occupation != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _occupationPill(occupation),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The trust moment: the worker's trade in their OWN vernacular, once pinned.
+  /// [label] is worker/engine data (e.g. "darzi"), never a persona string.
+  Widget _occupationPill(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s3, vertical: AppSpacing.s1),
+      decoration: BoxDecoration(
+        color: AppColors.haldiTint,
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        border: Border.all(color: AppColors.haldi),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.check_circle, size: 16, color: AppColors.blue),
+          const SizedBox(width: AppSpacing.s1),
+          Flexible(
+            child: Text(
+              label,
+              style: AppTypography.body(
+                  size: 14, weight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A disambiguation turn (#649): mutually-exclusive occupations as a VERTICAL
+  /// single-select. Unlike [_followups]' horizontal scroller, nothing can be
+  /// skimmed past — the tapped label becomes the answer of record and selects
+  /// the pack. The "none of these" escape is rendered visually distinct.
+  Widget _disambiguate(List<String> options) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (final String o in options) _disambiguateOption(o),
+        ],
+      ),
+    );
+  }
+
+  Widget _disambiguateOption(String label) {
+    final bool escape =
+        label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+      child: Material(
+        color: escape ? Colors.transparent : AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          onTap: () => _sendOption(label),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.s4, vertical: AppSpacing.s3),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              border: Border.all(
+                color: escape ? AppColors.borderSubtle : AppColors.blue,
+              ),
+            ),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    label,
+                    style: AppTypography.body(
+                      size: 15,
+                      weight: escape ? FontWeight.w400 : FontWeight.w600,
+                      color:
+                          escape ? AppColors.textMuted : AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                Icon(
+                  escape ? Icons.more_horiz : Icons.chevron_right,
+                  color: escape ? AppColors.textMuted : AppColors.blue,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

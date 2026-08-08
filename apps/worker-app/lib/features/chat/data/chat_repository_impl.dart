@@ -109,6 +109,9 @@ class ChatRepositoryImpl implements ChatRepository {
         unansweredEssentials: reply.unansweredEssentials,
         blocked: reply.blocked,
         isMock: reply.isMock,
+        progress: reply.progress,
+        questionKind: reply.questionKind,
+        occupationLabel: reply.occupationLabel,
       );
     } catch (error) {
       throw mapError(error);

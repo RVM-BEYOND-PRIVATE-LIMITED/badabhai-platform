@@ -344,6 +344,59 @@ class ChatSessionStart extends Equatable {
   List<Object?> get props => <Object?>[sessionId, openingText];
 }
 
+/// How far through the pinned question pack the worker is (`progress`, OIE
+/// Phase 8 / #649). This became knowable only with the deterministic interview:
+/// the old model invented each question as it went, so nothing knew how many
+/// were left. A visible finish line is the single strongest completion-rate lever
+/// for low-literacy users.
+class ChatProgress extends Equatable {
+  const ChatProgress({required this.answered, required this.total});
+
+  final int answered;
+  final int total;
+
+  /// 0..1, clamped and guarded against a zero/absurd total.
+  double get fraction =>
+      total <= 0 ? 0 : (answered / total).clamp(0.0, 1.0).toDouble();
+
+  /// Parses `{ answered, total }`. Returns null unless BOTH are sane ints and
+  /// `total > 0` — a malformed or empty progress object must hide the bar, never
+  /// throw the whole reply away (#371 discipline).
+  static ChatProgress? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? a = raw['answered'];
+    final Object? t = raw['total'];
+    if (a is! int || t is! int || t <= 0 || a < 0) return null;
+    return ChatProgress(answered: a, total: t);
+  }
+
+  @override
+  List<Object?> get props => <Object?>[answered, total];
+}
+
+/// What KIND of turn this is (`question_kind`, OIE Phase 8 / #649). Only
+/// [disambiguate] changes the UI — it renders a vertical single-select instead
+/// of the horizontal chip scroller. Unknown/absent → [ask] (today's behaviour).
+enum ChatQuestionKind {
+  ask,
+  disambiguate,
+  clarify,
+  close;
+
+  static ChatQuestionKind parse(Object? raw) {
+    switch (raw) {
+      case 'disambiguate':
+        return ChatQuestionKind.disambiguate;
+      case 'clarify':
+        return ChatQuestionKind.clarify;
+      case 'close':
+        return ChatQuestionKind.close;
+      default:
+        return ChatQuestionKind.ask;
+    }
+  }
+}
+
 /// Result of POST /chat/message.
 class ChatReply extends Equatable {
   const ChatReply({
@@ -355,6 +408,9 @@ class ChatReply extends Equatable {
     this.askedQuestionId,
     this.unansweredEssentials = const <String>[],
     this.sessionEnded = false,
+    this.progress,
+    this.questionKind = ChatQuestionKind.ask,
+    this.occupationLabel,
   });
 
   final String reply;
@@ -412,6 +468,19 @@ class ChatReply extends Equatable {
   /// throw away a live session mid-interview.
   final bool sessionEnded;
 
+  /// How far through the pinned pack the worker is (`progress`), or null when no
+  /// pack has resolved yet / no turn happened. Drives the progress bar (#649).
+  final ChatProgress? progress;
+
+  /// What kind of turn this is (`question_kind`, default [ChatQuestionKind.ask]).
+  /// Only [ChatQuestionKind.disambiguate] changes the UI (#649).
+  final ChatQuestionKind questionKind;
+
+  /// The worker's trade in THEIR OWN vernacular once retrieval pins it
+  /// (`occupation_label`, e.g. "darzi", never the English catalogue title), or
+  /// null before it pins. The trust moment of the interview (#649).
+  final String? occupationLabel;
+
   factory ChatReply.fromJson(Map<String, dynamic> json) => ChatReply(
         reply: json['reply'] as String? ?? '',
         blocked: json['blocked'] as bool? ?? false,
@@ -442,6 +511,14 @@ class ChatReply extends Equatable {
         // `is bool` not a cast, for the same #371 reason as extractionReady: a 0/1 or a
         // string from a future contract change must not throw the whole reply away.
         sessionEnded: json['session_ended'] is bool ? json['session_ended'] as bool : false,
+        // Absent / malformed -> null (hides the bar), never thrown (#371).
+        progress: ChatProgress.fromJson(json['progress']),
+        // Absent / unknown -> ask (today's behaviour).
+        questionKind: ChatQuestionKind.parse(json['question_kind']),
+        // Absent / null / non-string -> null (not yet pinned).
+        occupationLabel: json['occupation_label'] is String
+            ? json['occupation_label'] as String
+            : null,
       );
 
   @override
@@ -454,6 +531,9 @@ class ChatReply extends Equatable {
         askedQuestionId,
         unansweredEssentials,
         sessionEnded,
+        progress,
+        questionKind,
+        occupationLabel,
       ];
 }
 

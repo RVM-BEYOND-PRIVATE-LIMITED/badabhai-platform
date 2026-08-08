@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/api/api_models.dart' show ChatProgress, ChatQuestionKind;
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
 import '../../domain/chat_message.dart';
@@ -80,6 +81,9 @@ class ChatState extends Equatable {
     this.unansweredEssentials = const <String>[],
     this.lastReplyBlocked = false,
     this.lastReplyMock = false,
+    this.progress,
+    this.questionKind = ChatQuestionKind.ask,
+    this.occupationLabel,
   });
 
   /// Ordered, append-only transcript.
@@ -127,6 +131,22 @@ class ChatState extends Equatable {
   /// (`is_mock`). Surfaced only as a non-release demo cue (see [ChatTurn.isMock]).
   final bool lastReplyMock;
 
+  /// How far through the pinned pack the worker is (#649). STICKY-FORWARD: once a
+  /// pack pins (first non-null), it stays and reflects the latest count; a null
+  /// on a later/blocked turn leaves the last known value rather than flickering
+  /// the finish line away. Null until the first pack resolves — the bar is hidden.
+  final ChatProgress? progress;
+
+  /// The latest turn's kind (#649). TURN-SCOPED — reset to [ChatQuestionKind.ask]
+  /// on send, set from the reply; only [ChatQuestionKind.disambiguate] changes
+  /// how the followups render.
+  final ChatQuestionKind questionKind;
+
+  /// The worker's pinned trade in their own vernacular (#649). STICKY: latches on
+  /// the first non-null and stays (the trust moment, shown for the rest of the
+  /// interview). A fresh chat rebuilds the bloc, so it clears there.
+  final String? occupationLabel;
+
   ChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
@@ -137,6 +157,9 @@ class ChatState extends Equatable {
     List<String>? unansweredEssentials,
     bool? lastReplyBlocked,
     bool? lastReplyMock,
+    ChatProgress? progress,
+    ChatQuestionKind? questionKind,
+    String? occupationLabel,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -149,6 +172,10 @@ class ChatState extends Equatable {
       unansweredEssentials: unansweredEssentials ?? this.unansweredEssentials,
       lastReplyBlocked: lastReplyBlocked ?? this.lastReplyBlocked,
       lastReplyMock: lastReplyMock ?? this.lastReplyMock,
+      // Sticky-forward / sticky: a null keeps the last known (see field docs).
+      progress: progress ?? this.progress,
+      questionKind: questionKind ?? this.questionKind,
+      occupationLabel: occupationLabel ?? this.occupationLabel,
     );
   }
 
@@ -163,6 +190,9 @@ class ChatState extends Equatable {
         unansweredEssentials,
         lastReplyBlocked,
         lastReplyMock,
+        progress,
+        questionKind,
+        occupationLabel,
       ];
 }
 
@@ -361,6 +391,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ],
       sending: true,
       followups: const <String>[],
+      // The previous turn's kind belongs to a question already answered — reset
+      // so a stale disambiguate layout can't outlive its chips (#649).
+      questionKind: ChatQuestionKind.ask,
     ));
 
     await _deliver(text, index, emit);
@@ -406,6 +439,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // Turn-scoped honesty cues (see [ChatTurn]).
         lastReplyBlocked: turn.blocked,
         lastReplyMock: turn.isMock,
+        // OIE Phase 8 (#649): progress + occupation are sticky-forward (a null on
+        // a blocked turn keeps the last known); questionKind drives the followup
+        // layout for THIS turn (disambiguate → vertical single-select).
+        progress: turn.progress,
+        questionKind: turn.questionKind,
+        occupationLabel: turn.occupationLabel,
       ));
       _logWrapUpOnce(ready: turn.extractionReady);
     } on Failure catch (_) {
@@ -451,6 +490,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       messages: _withStatus(state.messages, index, ChatSendStatus.sent),
       sending: true,
       followups: const <String>[],
+      questionKind: ChatQuestionKind.ask, // #649 — drop a stale disambiguate
     ));
 
     await _deliver(message.text, index, emit);
@@ -471,6 +511,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // awaiting its reply (#344) — only report idle when nothing is in flight.
       sending: _inFlightSends > 0,
       followups: const <String>[],
+      // A voice answer is never a disambiguation turn — reset the layout (#649).
+      questionKind: ChatQuestionKind.ask,
       // The voice turn went through the SAME chat endpoint, so it carries the
       // same readiness decision (#421).
       extractionReady: event.extractionReady,
