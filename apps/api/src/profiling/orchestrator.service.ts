@@ -17,6 +17,7 @@
 
 import { Injectable, Logger } from "@nestjs/common";
 import type {
+  AnswerRecord,
   AnswerType,
   QuestionPack,
   QuestionPackItem,
@@ -43,12 +44,17 @@ import {
   recordAnswer,
   recordDeclined,
   recordUnanswered,
+  toAnswerArray,
+  toAnswerMap,
+  toCapturedProjection,
   type AnswerMap,
 } from "./answer-map";
+import { packAnswerRowFor } from "./pack-answer-row";
 import {
   answersOf,
   emptyProfilingEnvelope,
   inboundHash,
+  narrowAnswerRecords,
   recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
   TURN_KINDS,
@@ -262,6 +268,55 @@ export interface OpenTurnInput {
   readonly now: Date;
   readonly ctx: RequestContext;
 }
+
+/**
+ * A FINISHED interview, read from Postgres rather than from Redis.
+ *
+ * {@link ProfilingOrchestrator.viewSession} cannot serve this. It loads the transcript buffer, and
+ * the buffer is DROPPED the instant the flush transaction commits — which is the same instant the
+ * review screen becomes reachable. Every fact here therefore comes from `chat_sessions`: the pack
+ * pin from its columns, the answers from `conversation_state.answer_map`.
+ */
+export interface SettledView {
+  readonly packId: string;
+  readonly packVersion: number;
+  /** The pinned pack's rows, occupation first — the same order the interview served them in. */
+  readonly items: readonly QuestionPackItem[];
+  readonly answers: AnswerMap;
+  /** The whole jsonb column, so a patch can be merged over it rather than rebuilt from parts. */
+  readonly state: Record<string, unknown>;
+  readonly correctionCount: number;
+}
+
+export interface CorrectAnswerInput {
+  readonly sessionId: string;
+  readonly workerId: string;
+  readonly questionKey: string;
+  /** The worker's correction AS TEXT — chips already resolved to labels by the caller. */
+  readonly text: string;
+  /** Which affordance produced it. Recorded on the event; never the value. */
+  readonly method: "chips" | "boolean" | "text" | "spoken";
+  readonly profileAlreadyBuilt: boolean;
+  readonly now: Date;
+  readonly ctx: RequestContext;
+}
+
+export type CorrectAnswerOutcome =
+  | { readonly kind: "corrected"; readonly value: unknown; readonly correctionCount: number }
+  /** The words parsed to nothing for this question. Nothing was written. */
+  | { readonly kind: "unreadable" }
+  /** This session has changed as many answers as it may. */
+  | { readonly kind: "capped"; readonly cap: number };
+
+/**
+ * How many settled answers one interview may be corrected.
+ *
+ * NOT a rate limit and not an abuse guess — it is the bound that replaces the one the turn loop
+ * provides for free. An ordinary interview settles 12–16 questions and `MAX_ENGINE_TURNS` bounds
+ * every write inside it; a correction has no such ceiling, and each one can cost a paid STT call.
+ * Twenty lets a worker re-do every answer they gave and then some, and stops a loop.
+ */
+export const MAX_CORRECTIONS_PER_SESSION = 20;
 
 @Injectable()
 export class ProfilingOrchestrator {
@@ -1002,6 +1057,155 @@ export class ProfilingOrchestrator {
           }
         : null,
     };
+  }
+
+  /**
+   * A finished interview's record, for the correction path. See {@link SettledView}.
+   *
+   * NO OWNERSHIP CHECK, matching {@link viewSession}: ownership is decided against the
+   * `chat_sessions` ROW by the caller, never in here.
+   *
+   * Returns null when the session has no pack pin — an interview that never resolved one has no
+   * questions to correct against, and guessing the pack here would let a correction be written
+   * against a question the worker was never asked.
+   */
+  async viewSettled(sessionId: string, now: Date): Promise<SettledView | null> {
+    const session = await this.chat.findSession(sessionId);
+    if (!session?.packId || session.packVersion === null) return null;
+
+    const universal = await this.packs.loadUniversal(now.getTime());
+    if (!universal) return null;
+    let occupation = await this.packs.loadPinned(
+      session.packId,
+      session.packVersion,
+      now.getTime(),
+    );
+    if (occupation && occupation.pack_id === universal.pack_id) occupation = null;
+
+    const state = (session.conversationState ?? {}) as Record<string, unknown>;
+    const rawCount = state.correction_count;
+
+    return {
+      packId: session.packId,
+      packVersion: session.packVersion,
+      items: [...(occupation?.items ?? []), ...universal.items],
+      answers: toAnswerMap(narrowAnswerRecords(state.answer_map)),
+      state,
+      correctionCount: typeof rawCount === "number" && rawCount > 0 ? Math.trunc(rawCount) : 0,
+    };
+  }
+
+  /**
+   * Change a SETTLED answer, deliberately outside the turn loop.
+   *
+   * THIS IS THE ONE WRITE IN THE INTERVIEW THAT `nextQuestion` DOES NOT AUTHORIZE, and the ruling
+   * that asked for it (#700) named that as the reason it needs its own proof. What the turn loop
+   * hands a caller for free, and where each of those guarantees is re-established:
+   *
+   * | the turn loop gives | here |
+   * |---|---|
+   * | the session is this worker's | the CALLER, against the `chat_sessions` row |
+   * | the question is real and pinned | {@link viewSettled} → `items`, then the lookup below |
+   * | the chips belong to THIS question | the caller, resolving `option_key` → `label_text` |
+   * | the words become a typed value | `captureAnswer` — the SAME function, not a second one |
+   * | never store what we could not read | the `unreadable` outcome; nothing is written |
+   * | first-write-wins | DELIBERATELY BYPASSED, via {@link mayCommit}'s `correcting` escape, and
+   * |                  | asserted below rather than assumed |
+   * | a bounded number of writes | {@link MAX_CORRECTIONS_PER_SESSION} |
+   * | atomicity (the CAS) | one transaction — the envelope is gone, so Redis cannot provide it |
+   *
+   * `recordAnswer` supersedes rather than replaces: the previous value moves onto `history` with
+   * status `superseded`, which is what makes a correction auditable and what the parse call reads
+   * to know which of two wordings won.
+   *
+   * BOTH DURABLE STORES, IN ONE TRANSACTION. `worker_pack_answer` is what the review screen and
+   * every later reader see; `conversation_state.answer_map` is what the EXTRACTION PROCESSOR reads
+   * to build the profile. Writing only the first would leave a correction the worker can see and
+   * the profile can never reflect.
+   */
+  async correctAnswer(input: CorrectAnswerInput): Promise<CorrectAnswerOutcome> {
+    const view = await this.viewSettled(input.sessionId, input.now);
+    if (!view) throw new Error(`session ${input.sessionId} has no pinned pack to correct against`);
+
+    const item = view.items.find((candidate) => candidate.question_key === input.questionKey);
+    if (!item) throw new Error(`question ${input.questionKey} is not in this session's pack`);
+
+    if (view.correctionCount >= MAX_CORRECTIONS_PER_SESSION) {
+      return { kind: "capped", cap: MAX_CORRECTIONS_PER_SESSION };
+    }
+
+    // THE SAME CAPTURE PATH AS A TURN. Every normalizer, the negation veto, the chip matching and
+    // the typed-value rules run here exactly as they do on the asked question — a second
+    // implementation would be free to disagree with the first about what the worker said, on the
+    // one write whose entire purpose is to be more correct than the first attempt.
+    const capture = captureAnswer(input.text, item);
+    const value = capture.values.find((candidate) => candidate.questionKey === input.questionKey);
+    if (!value) {
+      // FAIL CLOSED. The turn loop can re-ask; this path cannot, and storing an unparsed sentence
+      // where a typed value belongs is how the review screen would confirm a correction that
+      // corrected nothing.
+      return { kind: "unreadable" };
+    }
+
+    // The escape being taken ON PURPOSE. Rule 2 of the overwrite rule — "an explicit correction
+    // commits, whatever question is on screen" — is what this whole path rests on, so it is
+    // asserted rather than implied. `askedQuestionKey` is null because nothing is on screen.
+    if (!mayCommit(view.answers, input.questionKey, null, true)) {
+      throw new Error(`the overwrite rule refused a correction for ${input.questionKey}`);
+    }
+
+    const answers = recordAnswer(view.answers, value, 0);
+    const correctionCount = view.correctionCount + 1;
+    const record = answers[input.questionKey] as AnswerRecord;
+
+    const patched: Record<string, unknown> = {
+      ...view.state,
+      answer_map: toAnswerArray(answers),
+      // The flattened projection every pre-cutover reader still uses. Rebuilt from the SAME map,
+      // so the two halves of the column cannot disagree about a corrected value.
+      captured: toCapturedProjection(answers),
+      correction_count: correctionCount,
+    };
+
+    const row = packAnswerRowFor({
+      workerId: input.workerId,
+      sessionId: input.sessionId,
+      packId: view.packId,
+      packVersion: view.packVersion,
+      record,
+      // `form`, not `chat`. This is the one write where the affordance IS known — the review
+      // screen is a form — and the vocabulary already carries the value.
+      source: "form",
+    });
+
+    await this.chat.withTransaction(async (tx) => {
+      await this.chat.saveConversationState(input.sessionId, patched, input.now, tx);
+      // Upsert on `(worker_id, pack_id, question_key)` — the same statement the flush uses, so a
+      // correction updates the row the interview wrote rather than racing it.
+      if (row) await this.chat.insertPackAnswers(tx, [row]);
+      await this.events.emit({
+        event_name: "profile.answer_corrected",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          question_key: input.questionKey,
+          pack_id: view.packId,
+          pack_version: view.packVersion,
+          method: input.method,
+          profile_already_built: input.profileAlreadyBuilt,
+          correction_count: correctionCount,
+        },
+        // Per correction, not per session: a worker may legitimately fix the same question twice.
+        idempotencyKey: `profile.answer_corrected:${input.sessionId}:${input.questionKey}:${correctionCount}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+        tx,
+      });
+    });
+
+    return { kind: "corrected", value: record.value_normalized, correctionCount };
   }
 
   private async restorePin(

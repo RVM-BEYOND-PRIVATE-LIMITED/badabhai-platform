@@ -227,7 +227,7 @@ moment the thing it drives becomes adaptive.
 | # | Item | State |
 |---|---|---|
 | ~~**B-1**~~ | Packs **seeded** in each environment | **RESOLVED by #689, and the row's own evidence was half wrong.** Re-measured: `db:seed:packs --apply` DOES run in ci.yml's e2e job (with `--apply`, and with the live-DB `db:verify:packs` after it) — but against a throwaway container that is deleted at the end of the run. The headline held: it was on **no deploy path and in no runbook**. `staging-cd.yml` now seeds domains → normalizes aliases → seeds packs → verifies both against the live database, immediately after `db:migrate`. A SEPARATE hole surfaced while checking: `db:normalize:aliases` and `db:verify:domains` ran in **zero** workflows, and `verify-job-domains.ts` states that an un-normalized alias is *"invisible to L0/L2 retrieval"* — so CI was exercising a silently degraded occupation ladder. Both now run in CI and on the deploy path. |
-| **B-2** | Sarvam TTS accepts **romanized** Hinglish at `hi-IN` | Unknown. 0 of 466 pack items contain a Devanagari codepoint. Resolved by V0. |
+| **B-2** | Sarvam TTS accepts **romanized** Hinglish at `hi-IN` | **RUN 2026-08-08 — the loudest failure is ruled out, the verdict is not in.** 20 REAL calls (`--matrix`, 5 probes × roman/Devanagari × `hi-IN`/`en-IN`), `is_mock=False` on every one, zero errors, **₹15** against the ₹450 ceiling. Roman/Devanagari duration ratio on identical content: **1.04–1.24 across all 10 pairs, 0 divergent** — so roman text is being SPOKEN, not spelled out letter by letter, which was the failure that would have forced a transliteration sidecar. **Duration parity is not intelligibility**: whether a welder in Pune understands the roman clip still needs a native ear, and that is the part a machine cannot close. Audio in `tts-probe/`. |
 | **B-3** | Round-trip latency for a ≤30s answer | Unmeasured. Every number in the repo is a timeout, never an observation. Resolved by V0. |
 | ~~**B-4**~~ | Where `attribute` answers land | **RESOLVED** — owner ruled `worker_attributes`; the table shipped in V1 (migration 0071). The *wiring* is V2. |
 | ~~**B-5**~~ | `envelope.occupation` is never written | **RESOLVED** by V3 (#650). Measured live: "main welder hoon" → `jd_nco_7212_0301` via `l0_exact` at 0.97 → the WELDING pack served → 13-turn interview → 10 typed rows in `worker_pack_answer`. |
@@ -503,6 +503,34 @@ the DSAR voice leg changes only to a **prefix sweep**, which deletes strictly mo
 Complexity: S ≤2d, M 3–5d, L 6–10d, XL >10d.
 
 ### Phase V0 — Empirical gates *(Owners: Divyanshu + Prakash · S · **blocks everything**)*
+
+> **RUNG 0 RAN 2026-08-08, greenlit by the owner. The machine half is done; the human half is not.**
+>
+> ```
+> python -m app.cli.tts_smoke --matrix
+> REAL Sarvam TTS: ON   bulbul:v2 / anushka / hi-IN / 22050 wav
+> 20 calls   is_mock=False on all 20   0 errors   estimated spend Rs 15.0
+> ```
+>
+> Roman vs Devanagari duration on IDENTICAL content, per pair:
+>
+> ```
+> city             1.06 / 1.11      salary           1.05 / 1.07
+> experience       1.11 / 1.11      trade            1.24 / 1.16
+> mixed_technical  1.04 / 1.07      (en-IN / hi-IN)
+> 0 divergent pairs of 10
+> ```
+>
+> **What that rules out and what it does not.** A roman string read as English letters —
+> "aa-pe-kaa" — takes far longer than the same sentence read as Hindi, so a ratio near 1.0 is
+> strong evidence bulbul is SPEAKING the roman text rather than spelling it. That was the failure
+> mode that would have forced a transliteration sidecar for all 466 items, with its own review and
+> drift surface. It did not happen.
+>
+> **Duration parity is not intelligibility.** Whether a welder in Pune UNDERSTANDS the roman clip
+> is the actual B-2 question and no measurement here answers it. Two native speakers from the
+> target demographic still have to listen — that is the acceptance below, and it is unchanged.
+> The clips are ready for them; the spend is already sunk at ₹15.
 
 **Objective.** Answer the two questions that can invalidate the design, for ~₹470 and one afternoon,
 **before any UI is built**.
@@ -904,9 +932,13 @@ one change — an incident you cannot bisect is not a flip.
 Gates: signed Sarvam DPA · bucket provisioned private · **`VOICE_NOTES_BUCKET` split-brain killed**
 (API defaults `""`, ai-service defaults `"worker-voice-notes"`; a mismatch is silent total failure with
 a green `/health`) · `AI_INTERNAL_TOKEN` armed **both** sides · translate leg ledgered or disabled ·
-DSAR prefix sweep · **ASR PII measurement** (if saarika emits digits as words — "nau aath saat" —
-*no gate in the system fires* and a phone number reaches the LLM) · B-1 done ·
-**TD58 purge job (#712) — this one gates setting `VOICE_NOTES_BUCKET` at all**.
+DSAR prefix sweep (#712) · **ASR PII measurement** (if saarika emits digits as words — "nau aath
+saat" — *no gate in the system fires* and a phone number reaches the LLM) · B-1 done.
+
+**TD58 does NOT gate this flip**, and a 2026-08-08 revision of this row briefly claimed it did.
+Under the 2026-08-07 ruling retention is `retain_indefinitely` by decision, so there is no purge job
+to wait for; what #712 owes is the DSAR half — the orphan-prefix sweep and a provable-deletion
+record — and the DPDP notice naming indefinite retention is a **V9 GA gate**, not a V8 one.
 
 **TWO OF THIS ROW'S OWN CLAIMS WERE STALE — re-measured 2026-08-08, both in the good direction.**
 It read *"neither compose file declares `SARVAM_API_KEY`, `SUPABASE_*`, `VOICE_NOTES_BUCKET` or
@@ -937,20 +969,32 @@ Abort: any `is_mock=True` on a real rung · `stt_call_failed` >5% · p90 > clien
 `voice_processing` consent purpose **plus a purpose-aware guard** (`ConsentGuard` is purpose-blind
 today, so the purpose alone is decorative) · DPDP notice copy naming recording, the third-party
 processor, the retention period and the training-use boundary · consent version bump + re-consent ·
-**TD58 purge job** · TD59 · R30 reassessed against measured ASR output.
+TD59 · R30 reassessed against measured ASR output. The DPDP notice here is now load-bearing in a way
+it was not when this row was written: under the 2026-08-07 ruling it must name **indefinite**
+retention explicitly, because that is the policy rather than an oversight.
 
-**TD58 is re-scoped from compliance debt to a launch gate — now filed as #712 (Divyanshu).** ~16
-objects and 4–5 MB of raw voice PII per worker per session; ~450 GB at 100k workers, hot tier,
-retained indefinitely, no purge job. That was tolerable when voice was an optional chat extra. It is
-not, once a form makes voice the primary capture path. **Do not set `VOICE_NOTES_BUCKET` on this
-path until a purge job exists.**
+**TD58 IS NOT A PURGE JOB, AND THIS ROW USED TO SAY IT WAS.** The 2026-08-07 ruling (top of this
+document) settled voice-clip retention as **never deleted** — `retention_policy` stays
+`retain_indefinitely` — and re-scoped TD58 from *"delete on a schedule"* to **"delete on request,
+provably"**. Erase-on-request is a legal obligation and is unchanged; it is not a retention policy.
 
-Measured 2026-08-08, and it is two holes rather than one: there is no sweep anywhere
-(`account-deletion-sweep.processor.ts` is DSAR erasure, which fires when the *worker* is deleted,
-never when the audio has served its purpose) **and** the clips are written to keep forever —
-`voice.service.ts:96` uses the schema defaults `retain_indefinitely / hot`, where §6 of this plan
-says these must be `delete_after_processing` because *"keeping the audio for a training corpus needs
-a consent purpose that does not exist."*
+What #712 (Divyanshu) therefore owes is the DSAR half only, and it is **not** a launch gate:
+
+- **The orphan-prefix sweep.** Upload is two calls — a signed PUT, then a row insert. A client that
+  completes the PUT and never inserts leaves audio no row points at, so `listVoiceStorageKeys`
+  cannot see it and it survives erasure forever. Reuse `deleteByPrefix('voice-notes/{workerId}/')`,
+  which the photo leg already has, **beside** the per-row loop rather than replacing it — legacy
+  `storage_path` values predate the minted-key shape guard and sit outside that prefix.
+- **A provable-deletion record.** Today an erasure records that deletion was *requested*. "Provably"
+  needs an audit row saying it *happened*, distinguishing deleted / nothing-to-delete / failed —
+  three outcomes that are one silence today.
+
+**Where the superseded language actually lives, since getting this wrong is what produced a
+mis-scoped P0.** `delete_after_processing` appears **nowhere in this document** — it is in the
+earlier plan-mode draft (`.claude/plans/`), which predates the 2026-08-07 ruling and is not the
+source of truth. The first version of #712 was written off that draft and asked for a retention
+window and a BullMQ scheduler; both are wrong. **This document's rulings table at the top is
+authoritative; read it before any section below it.**
 
 ---
 

@@ -2436,12 +2436,15 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 154 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry)", () => {
-    expect(EVENT_NAMES).toHaveLength(154);
+  it("exposes all 155 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction)", () => {
+    expect(EVENT_NAMES).toHaveLength(155);
     // The pack pin — which QUESTIONS the worker got, as distinct from which trade they are in.
     // Separate from `occupation_identified` because a trade can resolve while its family has no
     // authored pack, which is the normal state during Phase 6 authoring.
     expect(isEventName("profile.pack_pinned")).toBe(true);
+    // #700 — the review screen's correction. The one interview write with no `chat_messages` row
+    // behind it, so without this event a stored value would change with nothing recording it.
+    expect(isEventName("profile.answer_corrected")).toBe(true);
     // OIE Phase 9 — the interview's own record. Separate from `profile.extraction_ready`,
     // which is a downstream trigger: one says "there is work to do", the other "here is how
     // the engine performed". The only source for p95 turn latency and the completion rate.

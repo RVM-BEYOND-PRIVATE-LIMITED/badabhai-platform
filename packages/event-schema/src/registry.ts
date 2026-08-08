@@ -373,8 +373,16 @@ export const EVENT_REGISTRY = {
   // payer_id), matching the `coupon.redeemed` precedent. `posting_plan.paused/resumed`
   // are the plan serving-state machine (subject = the posting_plans row). All v1.
   "capacity.purchased": { version: 1, domain: "capacity", payload: p.CapacityPurchasedPayload },
-  "posting_plan.paused": { version: 1, domain: "posting_plan", payload: p.PostingPlanPausedPayload },
-  "posting_plan.resumed": { version: 1, domain: "posting_plan", payload: p.PostingPlanResumedPayload },
+  "posting_plan.paused": {
+    version: 1,
+    domain: "posting_plan",
+    payload: p.PostingPlanPausedPayload,
+  },
+  "posting_plan.resumed": {
+    version: 1,
+    domain: "posting_plan",
+    payload: p.PostingPlanResumedPayload,
+  },
   // Quota top-up (B2): a paid applicant-visibility refill on an active plan (pricing engine).
   "posting_plan.quota_topped": {
     version: 1,
@@ -394,7 +402,11 @@ export const EVENT_REGISTRY = {
   "invite.install": { version: 1, domain: "invite", payload: p.InviteInstallPayload },
   "messaging.requested": { version: 1, domain: "messaging", payload: p.MessagingRequestedPayload },
   "messaging.sent": { version: 1, domain: "messaging", payload: p.MessagingSentPayload },
-  "messaging.suppressed": { version: 1, domain: "messaging", payload: p.MessagingSuppressedPayload },
+  "messaging.suppressed": {
+    version: 1,
+    domain: "messaging",
+    payload: p.MessagingSuppressedPayload,
+  },
   "messaging.failed": { version: 1, domain: "messaging", payload: p.MessagingFailedPayload },
 
   // PACE supply-widening (ADR-0021) — deterministic widen waves + ops alert (the
@@ -505,7 +517,11 @@ export const EVENT_REGISTRY = {
   // AGENCY financial KYC (ADR-0022 module 1, Amendment 2). FINANCIAL-PII-FREE: opaque agency
   // payer_id + status enum + (ops) verified_by admin id + reject CODE. The PAN/bank/IFSC/name
   // live encrypted ONLY in `agency_kyc`, NEVER here. All v1.
-  "agency_kyc.submitted": { version: 1, domain: "agency_kyc", payload: p.AgencyKycSubmittedPayload },
+  "agency_kyc.submitted": {
+    version: 1,
+    domain: "agency_kyc",
+    payload: p.AgencyKycSubmittedPayload,
+  },
   "agency_kyc.verified": { version: 1, domain: "agency_kyc", payload: p.AgencyKycVerifiedPayload },
   "agency_kyc.rejected": { version: 1, domain: "agency_kyc", payload: p.AgencyKycRejectedPayload },
 
@@ -754,6 +770,17 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "profile",
     payload: p.ProfileParseGatesRejectedPayload,
+  },
+
+  // A settled answer changed from the review screen. The one interview write with no
+  // `chat_messages` row behind it — the correction path is deliberately outside the turn loop —
+  // so without this event a stored value would change with nothing recording that it did. Also
+  // the cheapest available signal that a question is badly worded or mis-heard. Keys and the
+  // affordance only, never the value. v1.
+  "profile.answer_corrected": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileAnswerCorrectedPayload,
   },
 } as const satisfies Record<string, EventDefinition>;
 

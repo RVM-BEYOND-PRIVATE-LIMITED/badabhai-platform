@@ -160,13 +160,7 @@ export const WorkerPushSendFailedPayload = z
     worker_id: uuidSchema,
     source_event_id: uuidSchema,
     /** Closed enum — never a provider response body (which echoes the token). */
-    reason: z.enum([
-      "unregistered",
-      "invalid_argument",
-      "quota",
-      "transport",
-      "provider_error",
-    ]),
+    reason: z.enum(["unregistered", "invalid_argument", "quota", "transport", "provider_error"]),
   })
   .strict();
 
@@ -319,9 +313,7 @@ const otpSendCapExceededShape = {
   /** The configured limit the breach was measured against (0 = paused = kill-switch). */
   limit: z.number().int().nonnegative(),
   /** The UTC-day window the breach happened on (`YYYYMMDD`) — never a timestamp/PII. */
-  window: z
-    .string()
-    .regex(/^\d{8}$/, "window must be a UTC-day stamp YYYYMMDD"),
+  window: z.string().regex(/^\d{8}$/, "window must be a UTC-day stamp YYYYMMDD"),
 } as const;
 
 export const WorkerOtpSendCapExceededPayload = z.object(otpSendCapExceededShape);
@@ -518,7 +510,13 @@ export const ProfileExtractionReadyPayload = z.object({
   /** Interview topic ids answered so far (e.g. "role", "machines") — never PII.
    * Must be lowercase slugs (a-z, underscore) only — enforced by regex. */
   answered_topics: z
-    .array(z.string().min(1).max(40).regex(/^[a-z_]+$/, "topic_id must be lowercase slug ([a-z_]+)"))
+    .array(
+      z
+        .string()
+        .min(1)
+        .max(40)
+        .regex(/^[a-z_]+$/, "topic_id must be lowercase slug ([a-z_]+)"),
+    )
     .max(50)
     .default([]),
 });
@@ -936,7 +934,9 @@ export type JobPostingCreatedPayload = z.infer<typeof JobPostingCreatedPayload>;
  */
 export const JobPostingUpdatedPayload = z.object({
   job_posting_id: uuidSchema,
-  changed_fields: z.array(z.enum(JOB_POSTING_CHANGED_FIELDS)).max(JOB_POSTING_CHANGED_FIELDS.length),
+  changed_fields: z
+    .array(z.enum(JOB_POSTING_CHANGED_FIELDS))
+    .max(JOB_POSTING_CHANGED_FIELDS.length),
   status: jobPostingStatus,
   vacancy_band: vacancyBand.nullable(),
 });
@@ -2660,9 +2660,7 @@ export const ProfileOccupationIdentifiedPayload = z
     candidate_count: z.number().int().nonnegative().default(0),
   })
   .strict();
-export type ProfileOccupationIdentifiedPayload = z.infer<
-  typeof ProfileOccupationIdentifiedPayload
->;
+export type ProfileOccupationIdentifiedPayload = z.infer<typeof ProfileOccupationIdentifiedPayload>;
 
 /**
  * The interview PINNED A QUESTION PACK — the moment the set of questions this worker will be
@@ -2730,9 +2728,7 @@ export const ProfileOccupationUnresolvedPayload = z
     catalog_version: z.string().min(1).max(64),
   })
   .strict();
-export type ProfileOccupationUnresolvedPayload = z.infer<
-  typeof ProfileOccupationUnresolvedPayload
->;
+export type ProfileOccupationUnresolvedPayload = z.infer<typeof ProfileOccupationUnresolvedPayload>;
 
 /**
  * The parse LLM returned a value that CONTRADICTED the deterministic answer map, and the
@@ -2756,7 +2752,15 @@ export const ProfileParseDisagreementPayload = z
     worker_id: uuidSchema,
     ai_job_id: uuidSchema.nullable().default(null),
     /** RFS field ids, the same `^[a-z_]+$` closed vocabulary the pack validator enforces. */
-    field_ids: z.array(z.string().regex(/^[a-z_]+$/).max(40)).max(64).default([]),
+    field_ids: z
+      .array(
+        z
+          .string()
+          .regex(/^[a-z_]+$/)
+          .max(40),
+      )
+      .max(64)
+      .default([]),
     disagreement_count: z.number().int().nonnegative().default(0),
     /** Fields the model got right, so the rate has a denominator without a second query. */
     agreement_count: z.number().int().nonnegative().default(0),
@@ -2812,7 +2816,13 @@ export const ProfileInterviewCompletedPayload = z
     ask_count: z.number().int().nonnegative().default(0),
     /** Why the engine stopped. The `CompletionReason` vocabulary, as a free slug for forward
      * compatibility with reasons a later phase adds — this is observability, not a gate. */
-    completion_reason: z.string().min(1).max(40).regex(/^[a-z_]+$/).nullable().default(null),
+    completion_reason: z
+      .string()
+      .min(1)
+      .max(40)
+      .regex(/^[a-z_]+$/)
+      .nullable()
+      .default(null),
     /** False means the interview ran the universal pack — the fallback, not a failure. */
     occupation_pinned: z.boolean().default(false),
     match_layer: occupationMatchLayer.nullable().default(null),
@@ -2827,9 +2837,7 @@ export const ProfileInterviewCompletedPayload = z
     turn_latency_ms: turnLatencyHistogram,
   })
   .strict();
-export type ProfileInterviewCompletedPayload = z.infer<
-  typeof ProfileInterviewCompletedPayload
->;
+export type ProfileInterviewCompletedPayload = z.infer<typeof ProfileInterviewCompletedPayload>;
 
 /**
  * How many parsed fields each of the six "never invent" gates threw away.
@@ -2870,3 +2878,45 @@ export const ProfileParseGatesRejectedPayload = z
   })
   .strict();
 export type ProfileParseGatesRejectedPayload = z.infer<typeof ProfileParseGatesRejectedPayload>;
+
+/**
+ * A worker changed a settled answer from the review screen.
+ *
+ * WHY THIS EVENT EXISTS AT ALL. The correction path writes to a question the engine has already
+ * moved past, deliberately outside the turn loop — so it is the one write in the interview with no
+ * `chat_messages` row behind it and no turn to reconstruct it from. Without this event a value
+ * would change in `worker_pack_answer` with nothing anywhere saying who changed it or when.
+ *
+ * It is also the honest measure of how often capture is WRONG. A correction rate climbing on one
+ * `question_key` is the cheapest signal available that a question is badly worded or that STT is
+ * mishearing it, and it cannot be recovered from the profile, which records the destination.
+ *
+ * PII-FREE, and this one needs saying because a correction is by nature about a value: the payload
+ * carries the question key and the AFFORDANCE, never the old value, the new value, or the
+ * utterance. `.strict()` stops a later field smuggling one in beside them.
+ */
+export const ProfileAnswerCorrectedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Pack question keys are `^[a-z_]+$` by validator construction. */
+    question_key: z
+      .string()
+      .min(1)
+      .max(40)
+      .regex(/^[a-z_]+$/),
+    pack_id: z.string().min(1).max(64),
+    pack_version: z.number().int().positive(),
+    /** How the worker supplied it — the review screen offers chips, then mic, then typing. */
+    method: z.enum(["chips", "boolean", "text", "spoken"]),
+    /**
+     * Whether a profile row already existed when this landed. The correction is durable either
+     * way; this is what says whether the built profile is now stale, and it is the field that
+     * makes the rebuild question measurable instead of theoretical.
+     */
+    profile_already_built: z.boolean(),
+    /** Corrections this session has taken, including this one. Bounded by the service. */
+    correction_count: z.number().int().positive(),
+  })
+  .strict();
+export type ProfileAnswerCorrectedPayload = z.infer<typeof ProfileAnswerCorrectedPayload>;
