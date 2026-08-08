@@ -225,6 +225,12 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   Future<void> start() async {
     if (state is! VoiceFormIdle) return;
     emit(const VoiceFormPreparing());
+    // CAPTURED BEFORE THE FIRST AWAIT. Taken after `ensurePermission()` it
+    // reads a generation the interruption has ALREADY bumped: backgrounding
+    // during `Preparing` bumps the gen but `_interrupt()` no-ops (there is no
+    // Asking state to preserve), so every later check compares equal and the
+    // whole start path proceeds as if nothing happened.
+    final int gen = _interruptGen;
     try {
       if (!_permissionAsked) {
         _permissionAsked = true;
@@ -244,9 +250,8 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
           .states()
           .listen((_) {}, onError: _onRecordStateError);
 
-      final int gen = _interruptGen;
       final VoiceFormStep step = await _gateway.start();
-      if (_torndown || gen != _interruptGen) return;
+      if (_torndown || !_foreground || gen != _interruptGen) return;
       await _route(step, gen);
     } on Failure catch (failure) {
       if (!_torndown) emit(VoiceFormError(failure));
@@ -444,7 +449,11 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     final int gen = _interruptGen; // #691 — abort if backgrounded mid-replay
     try {
       await _recorder.cancel(); // mic OFF — discard any partial take
-      if (_torndown) return; // close() raced the cancel() await
+      // The epoch belongs here too: an interruption during the cancel() await
+      // would otherwise be overwritten by the priming emit below, leaving an
+      // Asking state with a dead mic that resumeSession() cannot recover
+      // (it only recovers from VoiceFormInterrupted).
+      if (_torndown || !_foreground || gen != _interruptGen) return;
       emit(current.copyWith(micPhase: MicPhase.priming));
       await _tts.play(current.question); // read aloud while the mic is off
       if (_torndown || gen != _interruptGen) return;

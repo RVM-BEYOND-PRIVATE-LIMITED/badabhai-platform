@@ -21,6 +21,17 @@ class FakeTts implements QuestionAudioPlayer {
   Future<void> stop() async {}
 }
 
+/// A TTS whose `play` parks until the supplied future completes — lets a test
+/// hold `_present` mid-flight and drive lifecycle events underneath it.
+class BlockingTts implements QuestionAudioPlayer {
+  BlockingTts(this._gate);
+  final Future<void> _gate;
+  @override
+  Future<void> play(VoiceQuestion question) => _gate;
+  @override
+  Future<void> stop() async {}
+}
+
 class ScriptGateway implements VoiceFormGateway {
   ScriptGateway(this.total);
   final int total;
@@ -211,6 +222,43 @@ void main() {
 
     expect(cubit.state, isA<VoiceFormInterrupted>(),
         reason: 'a stale advance must never overwrite VoiceFormInterrupted');
+    verifyNever(() => plugin.start(any(), path: any(named: 'path')));
+  });
+
+  test(
+      'the FOREGROUND gate alone stops the mic — independent of the epoch',
+      () async {
+    // Both other interruption tests are satisfied by the EPOCH check returning
+    // first, so neither measures the foreground gate the fix leads with. This
+    // one moves the generation back into agreement before releasing the await,
+    // leaving _foreground as the only thing that can refuse the mic.
+    final ScriptGateway gateway = ScriptGateway(8);
+    final Completer<void> ttsBlock = Completer<void>();
+    final BlockingTts tts = BlockingTts(ttsBlock.future);
+
+    final VoiceFormCubit cubit = VoiceFormCubit(
+      gateway: gateway,
+      recorder: SessionVoiceRecorder(recorder: plugin),
+      endpointer: SilenceEndpointer(),
+      tts: tts,
+      sleep: (_) async {},
+    );
+    addTearDown(cubit.close);
+
+    final Future<void> starting = cubit.start(); // parks inside _present's tts
+    await pumpEventQueue();
+
+    // paused THEN resumed: the generation ends up back where the parked
+    // continuation captured it, so only _foreground can still refuse.
+    cubit.handleLifecycle(AppLifecycleState.paused);
+    await pumpEventQueue();
+    cubit.handleLifecycle(AppLifecycleState.paused); // still backgrounded
+    await pumpEventQueue();
+
+    ttsBlock.complete();
+    await starting;
+    await pumpEventQueue();
+
     verifyNever(() => plugin.start(any(), path: any(named: 'path')));
   });
 
