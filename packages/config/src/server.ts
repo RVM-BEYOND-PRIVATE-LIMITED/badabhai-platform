@@ -112,6 +112,17 @@ export const serverEnvSchema = z.object({
   // would let a hostile worker fabricate unlimited ≤2MiB orphan objects (upload-but-
   // never-confirm) — a storage-cost + erasure-surface abuse. Same fail-closed idiom.
   PHOTO_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // #694 — actions a single AUTHENTICATED worker may record per rolling UTC hour, across
+  // `POST /workers/me/actions` and its batch sibling. Counted in ACTIONS, not requests: the
+  // batch route exists because the client buffers and flushes opportunistically, so capping
+  // calls alone would let 100 calls x 100 items write 10,000 event rows against a cap of 100.
+  //
+  // 500 is deliberately generous against the real shape of a voice-form interview — ~12
+  // questions, each able to produce a manual replay and a spoken answer, so ~24 actions plus
+  // the ordinary app signals. It is an abuse backstop on writes into the audit spine, not a
+  // product limit, and no honest client should ever see it. Same fail-closed idiom as the caps
+  // above: a Redis outage rejects (429) rather than uncapping the events table.
+  WORKER_ACTIONS_PER_HOUR: z.coerce.number().int().positive().default(500),
   // Referral-attribution hook (ADR-0022 Amendment 1) per-IP cap / rolling UTC hour. The
   // worker-authed POST /referrals/attribute is a low-frequency onboarding side-signal; an
   // uncapped one lets an authed worker spam attribution reads (DB-load + a timing probe) —

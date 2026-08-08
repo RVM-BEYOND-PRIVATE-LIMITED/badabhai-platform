@@ -94,3 +94,12 @@ worker action is a **data** change (extend `ACTION_TYPES`), never a schema
 rebuild. This is the raw material for the future Learn layer. It is **not** the
 employer/match feedback loop (shortlist/reject/hire/no-show) — that learning
 loop is deferred with matching.
+
+**Two front doors, one payload.** `POST /actions` (+ `/batch`) is
+service-to-service, behind `InternalServiceGuard`. `POST /workers/me/actions`
+(+ `/batch`) is the worker's own, behind `WorkerAuthGuard` + `ConsentGuard`, with
+the acting worker taken from the bearer token and never from the body. The second
+exists because a worker client cannot hold a service secret — which is why the
+voice form's engagement signals were reaching a Firebase mirror and never this
+spine (#694). Both routes emit the identical `action.recorded` event through one
+service, so the audit record does not depend on which door it came in.
