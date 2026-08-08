@@ -114,6 +114,20 @@ class _ChatViewState extends State<_ChatView> {
   /// [_openProfilePreview] for why a bool and not just the disabled state.
   bool _openingPreview = false;
 
+  /// An option/chip tap is dispatched and the reply has not arrived yet.
+  ///
+  /// SET SYNCHRONOUSLY IN THE HANDLER, because the options row is only removed
+  /// on the next rebuild — and `state.sending` is false by construction at
+  /// build time, so gating on it in the builder does nothing. Two taps inside
+  /// one frame otherwise dispatch two `ChatMessageSent`s, and the server is
+  /// not idempotent across DIFFERENT text: Layer A replay only catches a
+  /// byte-identical message. The first settles the offer and pins the pack;
+  /// the second arrives with the offer already cleared and is captured against
+  /// whatever pack question the engine has just served — a bogus answer of
+  /// record, on the one control where a mis-tap costs a whole trade-specific
+  /// interview. Cleared when a new followups list lands.
+  bool _optionTapPending = false;
+
   @override
   void initState() {
     super.initState();
@@ -140,6 +154,15 @@ class _ChatViewState extends State<_ChatView> {
   void _sendText(String text) {
     if (text.trim().isEmpty) return;
     context.read<ChatBloc>().add(ChatMessageSent(text));
+  }
+
+  /// Send an answer chosen from an OPTIONS list (chips or the disambiguate
+  /// rows). One tap per turn: see [_optionTapPending].
+  void _sendOption(String label) {
+    if (_optionTapPending) return;
+    if (label.trim().isEmpty) return;
+    setState(() => _optionTapPending = true);
+    _sendText(label);
   }
 
   /// Re-send the failed bubble at [index] (#343) — in place, no duplicate.
@@ -437,12 +460,20 @@ class _ChatViewState extends State<_ChatView> {
         ),
       ),
       body: BlocListener<ChatBloc, ChatState>(
-        // Fire only when a message is appended (length grows), not on every
-        // state change (e.g. the initializing flag flipping).
+        // Fire when a message is appended (length grows) OR when the offered
+        // options change — NOT on every state change (e.g. the initializing
+        // flag flipping). The second condition releases the one-tap-per-turn
+        // latch: a new followups list means the turn the tap belonged to has
+        // been answered.
         listenWhen: (ChatState prev, ChatState curr) =>
-            curr.messages.length > prev.messages.length,
-        listener: (BuildContext context, ChatState state) =>
-            _onMessagesChanged(state.messages),
+            curr.messages.length > prev.messages.length ||
+            !identical(curr.followups, prev.followups),
+        listener: (BuildContext context, ChatState state) {
+          if (_optionTapPending) {
+            setState(() => _optionTapPending = false);
+          }
+          _onMessagesChanged(state.messages);
+        },
         child: BlocBuilder<ChatBloc, ChatState>(
           builder: (BuildContext context, ChatState state) {
             if (state.initializing) {
@@ -703,7 +734,7 @@ class _ChatViewState extends State<_ChatView> {
               BbChip(
                 label: f,
                 labelWeight: FontWeight.w400,
-                onTap: () => _sendText(f),
+                onTap: () => _sendOption(f),
               ),
               const SizedBox(width: AppSpacing.s2),
             ],
@@ -794,7 +825,7 @@ class _ChatViewState extends State<_ChatView> {
         borderRadius: BorderRadius.circular(AppRadii.md),
         child: InkWell(
           borderRadius: BorderRadius.circular(AppRadii.md),
-          onTap: () => _sendText(label),
+          onTap: () => _sendOption(label),
           child: Container(
             constraints: const BoxConstraints(minHeight: AppSpacing.tap),
             padding: const EdgeInsets.symmetric(
