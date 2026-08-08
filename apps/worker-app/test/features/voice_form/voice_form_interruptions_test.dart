@@ -11,6 +11,7 @@ import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointe
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/cubit/voice_form_cubit.dart';
+import 'voice_form_doubles.dart';
 
 class MockAudioRecorder extends Mock implements AudioRecorder {}
 
@@ -33,6 +34,9 @@ class BlockingTts implements QuestionAudioPlayer {
 }
 
 class ScriptGateway implements VoiceFormGateway {
+  @override
+  String? get sessionId => 'sess-test';
+
   ScriptGateway(this.total);
   final int total;
   int served = 0;
@@ -47,7 +51,7 @@ class ScriptGateway implements VoiceFormGateway {
   }
 
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) async {
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) async {
     submits++;
     received.add(answer);
     if (served >= total) return const VoiceFormDone();
@@ -69,7 +73,10 @@ void main() {
   late MockAudioRecorder plugin;
   late StreamController<RecordState> states;
 
+  late FakeRegistrar registrar;
+
   setUp(() {
+    registrar = FakeRegistrar();
     plugin = MockAudioRecorder();
     states = StreamController<RecordState>.broadcast();
     when(() => plugin.hasPermission()).thenAnswer((_) async => true);
@@ -91,6 +98,8 @@ void main() {
         recorder: SessionVoiceRecorder(recorder: plugin, clock: clock),
         endpointer: SilenceEndpointer(),
         tts: FakeTts(),
+        registrar: registrar,
+        session: testSession(),
         sleep: (_) async {},
       );
 
@@ -166,8 +175,9 @@ void main() {
     now = now.add(const Duration(seconds: 3)); // 3s of actual answer
     await cubit.answerBySpeaking();
 
-    // 33s of wall-clock elapsed, but only 3s was recorded.
-    expect(gateway.received.single.clip!.durationSeconds, 3);
+    // 33s of wall-clock elapsed, but only 3s was recorded. Read off the registrar — since
+    // #717 the clip goes there and the gateway sees only the resulting id.
+    expect(registrar.registered.single.durationSeconds, 3);
   });
 
   test('two consecutive silent questions stop the session with a settings hint',
@@ -198,6 +208,8 @@ void main() {
       recorder: SessionVoiceRecorder(recorder: plugin),
       endpointer: SilenceEndpointer(),
       tts: FakeTts(),
+      registrar: registrar,
+      session: testSession(),
       sleep: (_) async {},
     );
     addTearDown(cubit.close);
@@ -241,6 +253,8 @@ void main() {
       recorder: SessionVoiceRecorder(recorder: plugin),
       endpointer: SilenceEndpointer(),
       tts: tts,
+      registrar: registrar,
+      session: testSession(),
       sleep: (_) async {},
     );
     addTearDown(cubit.close);
@@ -308,6 +322,8 @@ void main() {
       recorder: SessionVoiceRecorder(recorder: plugin),
       endpointer: SilenceEndpointer(),
       tts: FakeTts(),
+      registrar: registrar,
+      session: testSession(),
       sleep: (_) => primeBlock.future, // block the 250ms prime
     );
     addTearDown(cubit.close);
@@ -332,6 +348,9 @@ void main() {
 /// A gateway whose `submit` parks on [_block] so a test can inject a `paused`
 /// mid-submit (#691).
 class _BlockingSubmitGateway implements VoiceFormGateway {
+  @override
+  String? get sessionId => 'sess-test';
+
   _BlockingSubmitGateway(this._block);
   final Completer<VoiceFormStep> _block;
 
@@ -340,7 +359,7 @@ class _BlockingSubmitGateway implements VoiceFormGateway {
       VoiceQuestion(id: 'q1', prompt: 'Q1'), index: 1, total: 8);
 
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) => _block.future;
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) => _block.future;
 
   @override
   Future<void> finalize() async {}

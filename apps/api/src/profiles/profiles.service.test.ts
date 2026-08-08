@@ -99,6 +99,10 @@ function setup() {
       async (_args: { sessionId: string; workerId: string; inFlightSince: Date }) =>
         undefined as FakeCandidate | undefined,
     ),
+    findCorrectionRebuildJob: vi.fn(
+      async (_args: { sessionId: string; workerId: string; answerSetHash: string }) =>
+        undefined as { id: string; status: string } | undefined,
+    ),
   };
   const workers = { findById: vi.fn(async () => undefined as Record<string, unknown> | undefined) };
   // Issue #435 — the session the caller named. Defaults to a session OWNED by WORKER,
@@ -642,5 +646,100 @@ describe("ProfilesService.confirm — ownership (IDOR) + event", () => {
     referralBonusQueue.add.mockRejectedValueOnce(new Error("redis down"));
     const res = await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
     expect(res.profile_status).toBe("confirmed");
+  });
+});
+
+/**
+ * THE FOURTH TRIGGER (#700, owner ruling 2026-08-08).
+ *
+ * The other three fire on "this session finished" and guard each other with session-scoped dedupe.
+ * That guarding is what closed #420, where two triggers fired on UNCHANGED data and double-spent.
+ * This one has to fire precisely because the data is no longer what was built — so it is keyed on
+ * the data, and these tests exist to prove the two can never be confused for one another.
+ */
+describe("rebuildAfterCorrection — the correction-specific trigger", () => {
+  const input = {
+    worker_id: WORKER,
+    session_id: SESSION,
+    answer_set_hash: "a".repeat(64),
+  };
+
+  it("queues an extraction carrying the answer-set hash and the trigger", async () => {
+    const { svc, aiJobs, extractionQueue } = setup();
+
+    const result = await svc.rebuildAfterCorrection(input, CTX);
+
+    expect(aiJobs.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobType: "profile_extraction",
+        status: "queued",
+        inputRef: {
+          worker_id: WORKER,
+          session_id: SESSION,
+          answer_set_hash: "a".repeat(64),
+          trigger: "correction",
+        },
+      }),
+    );
+    expect(extractionQueue.add).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ ai_job_id: "job-1", status: "queued" });
+  });
+
+  it("does NOT consult the session-scoped dedupe — that guard's answer is always yes here", async () => {
+    // `findExtractionDedupeCandidate` asks "has this session been extracted?". After a correction
+    // it says yes, and that is the REASON to rebuild, not a reason to skip. Calling it would make
+    // this trigger unable to ever fire.
+    const { svc, aiJobs } = setup();
+
+    await svc.rebuildAfterCorrection(input, CTX);
+
+    expect(aiJobs.findExtractionDedupeCandidate).not.toHaveBeenCalled();
+  });
+
+  it("dedupes on the HASH, so the same answer set is never built twice", async () => {
+    const { svc, aiJobs, extractionQueue } = setup();
+    aiJobs.findCorrectionRebuildJob.mockResolvedValueOnce({ id: "job-prior", status: "completed" });
+
+    const result = await svc.rebuildAfterCorrection(input, CTX);
+
+    expect(aiJobs.create).not.toHaveBeenCalled();
+    expect(extractionQueue.add).not.toHaveBeenCalled();
+    expect(result).toEqual({ ai_job_id: "job-prior", status: "completed" });
+  });
+
+  it("a DIFFERENT answer set is a different key and does build", async () => {
+    // The property that makes this structurally distinct from #420: that race was two triggers on
+    // unchanged data. A changed answer set is not expressible in this key space as a re-fire.
+    const { svc, aiJobs, extractionQueue } = setup();
+    aiJobs.findCorrectionRebuildJob.mockImplementation(async (args) =>
+      args.answerSetHash === "a".repeat(64) ? { id: "job-prior", status: "completed" } : undefined,
+    );
+
+    await svc.rebuildAfterCorrection({ ...input, answer_set_hash: "b".repeat(64) }, CTX);
+
+    expect(aiJobs.create).toHaveBeenCalledTimes(1);
+    expect(extractionQueue.add).toHaveBeenCalledTimes(1);
+  });
+
+  it("NEVER throws — the correction is already durable when this runs", async () => {
+    // Failing the worker's HTTP call because a queue was unreachable would report a stored
+    // correction as lost. Loud in the log, null to the caller.
+    const { svc, extractionQueue } = setup();
+    extractionQueue.add.mockRejectedValueOnce(new Error("redis is down"));
+
+    await expect(svc.rebuildAfterCorrection(input, CTX)).resolves.toBeNull();
+  });
+
+  it("emits ONE extraction_requested, keyed on the job — the spine must not over-report spend", async () => {
+    const { svc, events } = setup();
+
+    await svc.rebuildAfterCorrection(input, CTX);
+
+    const requested = events.emit.mock.calls
+      .map((c) => c[0])
+      .filter((e) => e.event_name === "profile.extraction_requested");
+    expect(requested).toHaveLength(1);
+    // The hash is a dedupe key, not an event field: it describes our internals, not the worker.
+    expect(JSON.stringify(requested[0]?.payload)).not.toContain("a".repeat(64));
   });
 });

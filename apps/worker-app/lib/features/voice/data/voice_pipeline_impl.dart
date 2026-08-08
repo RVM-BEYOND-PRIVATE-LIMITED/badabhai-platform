@@ -91,6 +91,40 @@ class RealVoiceStorageUploader implements VoiceStorageUploader {
   }
 }
 
+/// REAL clip → `voice_note_id`: the existing [VoiceStorageUploader] leg (signed-url mint,
+/// PUT, temp-file delete, 503 → [VoiceUnavailableFailure]) followed by `POST /voice/upload`,
+/// which registers the minted `storage_path` and returns the id the engine answers at (#717).
+///
+/// DELIBERATELY THIN. Everything that could be got wrong about moving a worker's raw audio is
+/// already solved in the uploader; this exists so the voice form does not need a second copy
+/// of the two-step dance, not to add behaviour of its own.
+class RealVoiceNoteRegistrar implements VoiceNoteRegistrar {
+  const RealVoiceNoteRegistrar({
+    required VoiceStorageUploader uploader,
+    required ApiClient api,
+  })  : _uploader = uploader,
+        _api = api;
+
+  final VoiceStorageUploader _uploader;
+  final ApiClient _api;
+
+  @override
+  Future<String> register(
+    RecordedClip clip, {
+    required String authToken,
+    required String sessionId,
+  }) async {
+    final String storagePath = await _uploader.upload(clip, authToken: authToken);
+    final VoiceUploadResult uploaded = await _api.uploadVoiceNote(
+      authToken: authToken,
+      sessionId: sessionId,
+      storagePath: storagePath,
+      durationSeconds: clip.durationSeconds,
+    );
+    return uploaded.voiceNoteId;
+  }
+}
+
 /// REAL transcript resolver: reads `voice_note_id` off the completed
 /// transcription [AiJob] and fetches GET /voice/:id, preferring
 /// `transcript_text` (source language) over `transcript_english`. Fails closed

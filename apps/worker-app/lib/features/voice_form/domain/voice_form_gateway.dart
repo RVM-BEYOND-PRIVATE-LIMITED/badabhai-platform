@@ -16,12 +16,29 @@ import 'voice_form_models.dart';
 /// answer clip crosses only as a signed-upload reference the impl mints — never
 /// raw audio bytes through this interface, never a path in a log.
 abstract interface class VoiceFormGateway {
+  /// The engine's session id, learned on [start] and null before it. Null after a [start]
+  /// that failed.
+  ///
+  /// EXPOSED, NOT USED INTERNALLY (#717). The cubit registers a spoken answer's clip against
+  /// this session before submitting the id — a profiling session IS a `chat_sessions` row,
+  /// so it is exactly what `POST /voice/upload` wants. A getter rather than an upload method
+  /// here is the point of the ruling: this interface stays one HTTP call per method, and the
+  /// upload seam lives where the clip does.
+  String? get sessionId;
+
   /// Open the session; returns the first [NextQuestion] (or [VoiceFormDone] for
   /// an empty pack). Requests worker auth internally.
   Future<VoiceFormStep> start();
 
   /// Submit one [answer] and block until the engine serves the next step.
-  Future<VoiceFormStep> submit(VoiceAnswer answer);
+  ///
+  /// [questionKey] is the stale-answer guard — the key of the question the worker is
+  /// ANSWERING, null on the disambiguation turn (which belongs to no pack). It is a
+  /// parameter rather than state the implementation keeps, because only the caller knows
+  /// what is on screen: an implementation that inferred it from the last step it parsed
+  /// would desync the moment the caller discarded a step, and the server's guard is a plain
+  /// equality test that would then PASS against the wrong question.
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {required String? questionKey});
 
   /// Commit the reviewed session — the ONLY finalize path (#632), reached from
   /// the review screen after the engine has served [VoiceFormDone]. Idempotent:
