@@ -73,6 +73,9 @@ void main() {
           'bb_chat_wrap_up',
           'bb_resume_ready',
           'bb_invite_shared',
+          // Voice-form action signals (#639).
+          'question_audio_played',
+          'profiling_answer_spoken',
         ]),
       );
     });
@@ -98,9 +101,13 @@ void main() {
       expect(_kPiiKey.hasMatch('referral_code'), isTrue);
       expect(_kPiiKey.hasMatch('full_name'), isTrue);
       expect(_kPiiKey.hasMatch('transcript'), isTrue);
+      // The voice-form events (#639) MUST NOT carry a question id — if someone
+      // ever swapped the count for one, the detector has to bite.
+      expect(_kPiiKey.hasMatch('question_id'), isTrue);
       // …and must NOT reject the legitimate ones.
       expect(_kPiiKey.hasMatch('turn_count'), isFalse);
       expect(_kPiiKey.hasMatch('purpose_count'), isFalse);
+      expect(_kPiiKey.hasMatch('question_index'), isFalse);
 
       expect(
           _kPiiValue['uuid']!

@@ -75,6 +75,23 @@ class BbAnalytics {
   static const BbAnalyticsEvent inviteShared =
       BbAnalyticsEvent('bb_invite_shared');
 
+  /// The worker tapped REPLAY on a voice-form question (#639) — a MANUAL replay
+  /// only, NEVER autoplay. A deliberate replay is the cleanest signal the
+  /// platform can collect that this worker cannot read the screen, which is
+  /// directly actionable; autoplay noise would destroy that signal. [questionIndex]
+  /// is a 1-based COUNT — never the question id, key, or text.
+  static BbAnalyticsEvent questionAudioPlayed({required int questionIndex}) =>
+      BbAnalyticsEvent('question_audio_played', <String, Object>{
+        'question_index': questionIndex,
+      });
+
+  /// The worker answered a voice-form question BY SPEAKING (#639). [questionIndex]
+  /// is a 1-based COUNT — never the transcript, the question, or any id.
+  static BbAnalyticsEvent profilingAnswerSpoken({required int questionIndex}) =>
+      BbAnalyticsEvent('profiling_answer_spoken', <String, Object>{
+        'question_index': questionIndex,
+      });
+
   /// Every funnel event this app can emit, with representative parameters.
   /// Exists so `test/core/observability/analytics_pii_test.dart` can assert the
   /// no-PII rule over the WHOLE set instead of one example.
@@ -84,6 +101,8 @@ class BbAnalytics {
         chatWrapUp(turnCount: 11),
         resumeReady,
         inviteShared,
+        questionAudioPlayed(questionIndex: 4),
+        profilingAnswerSpoken(questionIndex: 4),
       ];
 
   FirebaseAnalytics? _analytics;
