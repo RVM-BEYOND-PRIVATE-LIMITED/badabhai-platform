@@ -47,12 +47,15 @@ import '../../features/voice/domain/voice_note_repository.dart';
 import '../../features/voice/domain/voice_pipeline.dart';
 import '../../features/voice/domain/voice_recorder.dart';
 import '../../features/voice/presentation/cubit/voice_note_cubit.dart';
+import '../../features/voice_form/data/http_voice_form_gateway.dart';
 import '../../features/voice_form/data/silent_question_audio_player.dart';
 import '../../features/voice_form/data/tts_asset_resolver.dart';
 import '../../features/voice_form/data/voice_clip_queue.dart';
 import '../../features/voice_form/data/voice_preflight_probe.dart';
 import '../../features/voice_form/domain/question_audio_player.dart';
 import '../../features/voice_form/domain/silence_endpointer.dart';
+import '../../features/voice_form/domain/voice_form_gateway.dart';
+import '../../features/voice_form/presentation/cubit/voice_form_cubit.dart';
 import '../../features/name/data/name_repository_impl.dart';
 import '../../features/name/domain/name_repository.dart';
 import '../../features/name/presentation/cubit/name_cubit.dart';
@@ -308,6 +311,22 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerLazySingleton<QuestionAudioPlayer>(
       () => const SilentQuestionAudioPlayer());
   locator.registerLazySingleton<TtsAssetResolver>(() => TtsAssetResolver());
+  // #699 — the voice-form's real backend seam is now frozen (#697/#698). Bind the
+  // HTTP gateway + a fresh VoiceFormCubit per screen (the interaction the cubit
+  // was written against is exactly this contract). Dormant in production until
+  // the #638 kill switch flips.
+  locator.registerLazySingleton<VoiceFormGateway>(
+    () => HttpVoiceFormGateway(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerFactory<VoiceFormCubit>(
+    () => VoiceFormCubit(
+      gateway: locator<VoiceFormGateway>(),
+      recorder: locator<SessionVoiceRecorder>(),
+      endpointer: locator<SilenceEndpointer>(),
+      tts: locator<QuestionAudioPlayer>(),
+    ),
+  );
   locator.registerLazySingleton<VoiceStorageUploader>(
     () => kUseMocks
         ? const MockVoiceStorageUploader()
