@@ -67,6 +67,8 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     catalogVersion: "cat_2026_08",
     lastTurn: null,
     turnLatency: emptyTurnLatency(),
+    occupationFamilyId: "fam_tailoring",
+    occupationRepins: 0,
     ...over,
   };
 }

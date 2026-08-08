@@ -36,7 +36,7 @@
  *
  * GUARDED: refuses `NODE_ENV === "production"` (ops action, deliberately gated).
  */
-import { existsSync, copyFileSync, writeFileSync } from "node:fs";
+import { existsSync, copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { config } from "dotenv";
@@ -66,9 +66,12 @@ const DEFAULT_MIN_COUNT = 3;
 /** Rows per packet. A reviewer works a list, not a firehose. */
 const MAX_PROPOSALS = 200;
 
+// Anchored to THIS FILE, not cwd — mirroring `growth-cluster.ts`. `pnpm db:growth:occupation`
+// from the repo root and from `packages/db` must write the same packet, and a cwd-relative path
+// silently writes two different ones.  __dirname = packages/db/src (CJS via tsx).
 const REPORT_PATH =
   process.env.OCCUPATION_GROWTH_REPORT_PATH ??
-  path.join("..", "..", "docs", "registers", "occupation-growth-proposals.md");
+  path.resolve(__dirname, "../../../docs/registers/occupation-growth-proposals.md");
 
 /**
  * Sanitize QUEUE-DERIVED text before it enters the markdown packet.
@@ -208,6 +211,10 @@ async function main(): Promise<void> {
 
     const packet = renderPacket(rows, minCount);
     const out = path.resolve(REPORT_PATH);
+    // The registers directory is not in the repo (nothing has committed a packet yet), and a
+    // bare writeFileSync into a missing directory is an ENOENT that reads like a broken script
+    // rather than "run me first". Recursive, so it is a no-op once the directory exists.
+    mkdirSync(path.dirname(out), { recursive: true });
     // One backup slot, mirroring the skill packet. The DB rows are the source of truth, so a
     // lost packet is always regenerable via `--reopen` + a re-run.
     if (existsSync(out)) copyFileSync(out, out.replace(/\.md$/, ".prev.md"));

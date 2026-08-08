@@ -170,6 +170,23 @@ export interface ProfilingEnvelope {
   readonly lastTurn: LastTurn | null;
   /** Per-turn orchestrator latency, as a histogram. See {@link TurnLatency}. */
   readonly turnLatency: TurnLatency;
+  /**
+   * The FAMILY the current pin resolved to — the re-pin comparison key (risk #12).
+   *
+   * NOT derivable from `occupation`, which carries a `job_domain_id` and no family, and NOT
+   * interchangeable with it: the whole reason the ladder resolves families first is that
+   * "Welder, Gas" and "Welder, Electric" are a coin flip at occupation level and identical at
+   * family level. A re-pin guard comparing job domains would fire on that coin flip and swap a
+   * worker's pack for the one it already had.
+   */
+  readonly occupationFamilyId: string | null;
+  /**
+   * How many times the occupation has been RE-pinned. The first pin does not count.
+   *
+   * Bounded by `MAX_OCCUPATION_REPINS`, because an unbounded one lets a worker who keeps naming
+   * machines walk the interview through a different pack every turn, answering nothing.
+   */
+  readonly occupationRepins: number;
 }
 
 /**
@@ -252,6 +269,8 @@ export const PROFILING_ENVELOPE_KEYS = {
   catalogVersion: true,
   lastTurn: true,
   turnLatency: true,
+  occupationFamilyId: true,
+  occupationRepins: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -276,6 +295,8 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     catalogVersion: null,
     lastTurn: null,
     turnLatency: emptyTurnLatency(),
+    occupationFamilyId: null,
+    occupationRepins: 0,
   };
 }
 
@@ -395,6 +416,9 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     catalogVersion: typeof v.catalogVersion === "string" ? v.catalogVersion : null,
     lastTurn: narrowLastTurn(v.lastTurn),
     turnLatency: narrowTurnLatency(v.turnLatency),
+    occupationFamilyId:
+      typeof v.occupationFamilyId === "string" ? v.occupationFamilyId : null,
+    occupationRepins: nonNegativeInt(v.occupationRepins),
   };
 }
 
