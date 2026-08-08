@@ -69,6 +69,14 @@ export interface OccupationSnapshot {
   readonly spans: SpanIndex;
   readonly domains: ReadonlyMap<string, IndexedDomain>;
   readonly aliasCount: number;
+  /**
+   * family id -> its vernacular label. Kept on the snapshot, not only folded into
+   * `chipLabel`, because the disambiguation collision guard needs it as a QUALIFIER: when
+   * two chips share a shortest alias, the family label is what tells them apart.
+   */
+  readonly familyLabels: ReadonlyMap<string, string>;
+  /** Rough retained size, in bytes. Observability for the plan's ~2–4 MB budget. */
+  readonly approxBytes: number;
 }
 
 /**
@@ -181,5 +189,50 @@ export function buildOccupationSnapshot(input: {
     [...aliasesByDomain].map(([id, aliases]) => ({ id, aliases })),
   );
 
-  return { catalogVersion: input.catalogVersion, spans, domains, aliasCount };
+  // Only the families that actually HAVE a label. A null-valued entry would make the
+  // collision guard's `?? null` fall through anyway, so storing them would be storing
+  // nothing but ambiguity about whether a miss meant "absent" or "null".
+  const familyLabels = new Map<string, string>();
+  for (const [familyId, label] of input.familyLabels ?? []) {
+    if (label !== null && label.trim().length > 0) familyLabels.set(familyId, label);
+  }
+
+  return {
+    catalogVersion: input.catalogVersion,
+    spans,
+    domains,
+    aliasCount,
+    familyLabels,
+    approxBytes: approximateBytes(spans, domains),
+  };
+}
+
+/**
+ * A rough retained size for the snapshot, so the plan's "~2–4 MB" is observed rather than
+ * asserted.
+ *
+ * DELIBERATELY APPROXIMATE. An exact figure would need a heap walk; what this is for is a
+ * log line that makes an order-of-magnitude regression obvious — a corpus growth that turns
+ * 3 MB into 300 MB should be visible on the boot line, and a number that is 30% off does
+ * that job perfectly well. Two bytes per character is the JS engine's UTF-16 cost, plus a
+ * flat per-entry allowance for object and map overhead.
+ */
+function approximateBytes(
+  spans: SpanIndex,
+  domains: ReadonlyMap<string, IndexedDomain>,
+): number {
+  const ENTRY_OVERHEAD = 48;
+  let bytes = 0;
+  for (const [key, ids] of spans.exact) bytes += key.length * 2 + ids.length * 16 + ENTRY_OVERHEAD;
+  for (const [key, ids] of spans.skeleton) bytes += key.length * 2 + ids.length * 16 + ENTRY_OVERHEAD;
+  for (const [key, ids] of spans.tokenPostings) {
+    bytes += key.length * 2 + ids.length * 16 + ENTRY_OVERHEAD;
+  }
+  bytes += spans.idf.size * (16 + ENTRY_OVERHEAD);
+  for (const d of domains.values()) {
+    bytes +=
+      (d.jobDomainId.length + d.labelEn.length + (d.labelHi?.length ?? 0) + d.chipLabel.length) * 2 +
+      ENTRY_OVERHEAD * 2;
+  }
+  return bytes;
 }

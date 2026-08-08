@@ -1,17 +1,17 @@
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
-import { ConversationStateSchema } from "@badabhai/ai-contracts";
 import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
-import { redactKnownName } from "../common/redact-known-name";
-import { AiService } from "../ai/ai.service";
 import { ProfilesService } from "../profiles/profiles.service";
+import { ProfilingOrchestrator } from "../profiling/orchestrator.service";
+import { toConversationStatePatch } from "../profiling/conversation-state";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
 import { hasExtractedContent } from "../profiles/profile-content";
+import type { NewWorkerPackAnswer } from "@badabhai/db";
 import { ChatRepository } from "./chat.repository";
 import {
   ChatTranscriptBuffer,
@@ -29,30 +29,91 @@ import {
 
 const DEFAULT_ROLE_FAMILY = "cnc_vmc";
 
+/**
+ * A normalized answer value → the ONE typed column it belongs in, or `null` when no column can
+ * hold it.
+ *
+ * FOUR COLUMNS AND A NULL, matching `wpa_answer_shape_chk` exactly. Returning null rather than
+ * stringifying an unknown shape is the point: `String({})` is `"[object Object]"`, which the
+ * constraint would happily accept and which is worse than storing nothing, because it is
+ * indistinguishable from a real answer at every later read.
+ */
+/**
+ * Split the answer map by status, for `profile.interview_completed`.
+ *
+ * THE THREE ARE KEPT APART DELIBERATELY. `declined` is a COMPLETE answer — "nahi pata" is the
+ * plan's own hardest-won rule — and folding it into `unanswered` would erase the difference
+ * between a worker who told us they do not know and a question that was never settled. A rising
+ * decline rate on one question is a question-quality problem; a rising unanswered rate is an
+ * engine problem. One number cannot say which.
+ *
+ * `superseded` records (a correction's old value) are counted under neither: they are history,
+ * not outcomes, and including them would make the counts exceed the questions asked.
+ */
+function countAnswerStatuses(answers: readonly { status?: string }[]): {
+  answered: number;
+  declined: number;
+  unanswered: number;
+} {
+  let answered = 0;
+  let declined = 0;
+  let unanswered = 0;
+  for (const a of answers) {
+    if (a.status === "answered") answered++;
+    else if (a.status === "declined") declined++;
+    else if (a.status === "unanswered") unanswered++;
+  }
+  return { answered, declined, unanswered };
+}
+
+function typedAnswerColumns(
+  value: unknown,
+): Pick<
+  NewWorkerPackAnswer,
+  "answerText" | "answerNumber" | "answerBool" | "answerOptionKeys"
+> | null {
+  if (typeof value === "string" && value.length > 0) return { answerText: value };
+  if (typeof value === "number" && Number.isFinite(value)) return { answerNumber: value };
+  if (typeof value === "boolean") return { answerBool: value };
+  if (Array.isArray(value)) {
+    const keys = value.filter((v): v is string => typeof v === "string" && v.length > 0);
+    // An array that survives the filter EMPTY is not an empty answer, it is an unrepresentable
+    // one — `text[]` of length zero is non-null and would satisfy the CHECK while meaning
+    // nothing. Rejected so the caller records a declination instead.
+    return keys.length > 0 ? { answerOptionKeys: keys } : null;
+  }
+  return null;
+}
+
 // AI-PERSONA-2: the ai-service emits this literal token (never a real name) at the
 // vocative slots. The real first name is interpolated over it here in the API,
 // POST-emit, only in the value returned to the client — see renderWorkerName.
 const WORKER_NAME_PLACEHOLDER = "{{worker_name}}";
 
-/**
- * Served when the AI service is unreachable and no turn happened.
- *
- * DELIBERATELY NOT a copy of the ai-service's own degraded line, and deliberately not a
- * question. This is the same split the codebase already makes between Python's
- * `_BLOCKED_REPLY` and Flutter's `kChatBlockedNotice`: each surface says the thing IT
- * knows. The ai-service's fallback continues an interview it is still conducting; this
- * one is served when there is no interview happening at all, so asking a question here
- * would invite an answer nothing is listening for.
- *
- * On-persona by the same rules the guard enforces on the far side: "aap", no vocative,
- * no exclamation mark, no emoji, two short lines.
- */
-export const CHAT_UNAVAILABLE_REPLY =
-  "Abhi thodi dikkat aa rahi hai. Ek minute baad dobara bhejiye.";
+/** Re-exported from the import-free module so the TTS closure can read it without Nest. */
+export { CHAT_UNAVAILABLE_REPLY } from "./chat-replies";
 
 /** Served on a message posted to an interview that has already been finalized. */
 const CHAT_ALREADY_COMPLETE_REPLY =
   "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
+
+/**
+ * The one-shot composite opener, as REVIEWED COPY rather than a generated line.
+ *
+ * WHAT IT REPLACED. `AiService.profilingOpening()` spent one `capable`-tier call on the chat
+ * MOUNT — before the worker had said anything at all — to produce a greeting that was then
+ * memoized and served identically to everyone anyway. A constant does the same job for nothing.
+ *
+ * The invitation to answer several things at once is the point: a worker who volunteers their
+ * trade, city and experience in one message has those captured on turn one, and the engine simply
+ * asks for whatever they left out. A partial answer degrades to the ordinary question-by-question
+ * flow, so this can only ever shorten the interview.
+ *
+ * ON-PERSONA by the same rules the pack validator enforces: "aap", no vocative, no exclamation,
+ * no emoji, one question mark, under twenty words.
+ */
+export const CHAT_OPENING_TEXT =
+  "Namaste. Aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?";
 
 @Injectable()
 export class ChatService {
@@ -64,11 +125,14 @@ export class ChatService {
     private readonly workers: WorkersRepository,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
-    private readonly ai: AiService,
     private readonly buffer: ChatTranscriptBuffer,
     // forwardRef: ProfilesModule imports ChatModule (for the transcript), so the
     // dependency is circular. Used to auto-trigger extraction on the readiness flip.
     @Inject(forwardRef(() => ProfilesService)) private readonly profiles: ProfilesService,
+    // forwardRef: ProfilingModule needs ChatTranscriptBuffer from here. THE turn now runs
+    // through this — see postMessage.
+    @Inject(forwardRef(() => ProfilingOrchestrator))
+    private readonly orchestrator: ProfilingOrchestrator,
   ) {}
 
   async startSession(workerId: string, ctx: RequestContext) {
@@ -113,21 +177,16 @@ export class ChatService {
     // machines, five controllers and two qualifications they never said.
     if (!this.config.CHAT_ONE_SHOT_OPENER_ENABLED) return base;
 
-    const openingText = await this.ai.profilingOpening();
-    // `null` = AI service unreachable. Omit the key and let the client render its own
-    // constant, rather than inventing a second copy of the copy here.
-    if (openingText === null) return base;
-
-    // Outbound boundary check, following `postMessage` below: the object is built
-    // field-by-field so nothing unknown can leak in, and safeParse guards the VALUES.
-    // Log field PATHS only, never values, and return the constructed object either
-    // way — opening a chat session must NEVER 500 over its greeting.
+    // STATIC REVIEWED COPY, NOT A MODEL CALL (OIE Phase 8). This used to be
+    // `ai.profilingOpening()` — a `capable`-tier LLM call, memoized per role family, made on
+    // the chat MOUNT path. The route behind it is deleted with the rest of the LLM interview,
+    // and the replacement is a constant from the persona corpus lifted out of `persona.py`:
+    // the same voice, reviewed once in a git diff instead of regenerated per deployment.
     //
-    // Returns `response`, not `checked.data`, unlike `postMessage`: `started_at` is a
-    // Date and the schema's `z.union([z.string(), z.date()])` would hand back the
-    // parsed branch. The controller serializes the Date itself, so passing the
-    // original through keeps this endpoint's body byte-identical to before.
-    const response: StartSessionResponse = { ...base, opening_text: openingText };
+    // DELIBERATELY NOT the universal pack's first question. The engine asks that on the first
+    // POST, and rendering it here too would show the worker the same question twice — once as
+    // an un-answerable greeting and once as a real turn.
+    const response: StartSessionResponse = { ...base, opening_text: CHAT_OPENING_TEXT };
     const checked = StartSessionResponseSchema.safeParse(response);
     if (!checked.success) {
       this.logger.warn(
@@ -239,161 +298,178 @@ export class ChatService {
           extraction_ready: reflushed,
           unanswered_essentials: [],
           session_ended: reflushed,
+          question_kind: "close",
+          progress: null,
+          occupation_label: null,
         },
         dto.session_id,
       );
     }
 
-    // 2. The turn budget. API-AUTHORITATIVE: the model is still called on the final
-    //    turn (one code path), but it is told to close rather than ask, and completion
-    //    is forced whatever comes back. A model must never extend its own interview.
-    const turnIndex = buffer.turnCount + 1;
-    const forceComplete = turnIndex >= this.config.CHAT_MAX_TURNS;
-
-    // 3. R32 — strip the worker's OWN name from everything crossing the boundary. Read
-    //    ONCE per turn and reused by `renderWorkerName` below, so it costs no extra DB
-    //    hop over what the vocative already needed. `null` (no name, or an
-    //    undecryptable token) means "send it as it was": fail SAFE, because the
-    //    ai-service's fail-closed pseudonymize gate is still in front of the LLM and a
-    //    key rotation must never make chat unusable.
+    // 2. THE TURN. Deterministic, in-process, ZERO LLM CALLS.
     //
-    //    HISTORY IS REDACTED TOO, and that is new. History used to ship empty (PERF-2),
-    //    so `message_text` was the only egress leg. Re-arming history widened the
-    //    surface: a name the worker typed on turn two would otherwise ride to the
-    //    provider on turn twenty. The buffer keeps their actual words; only the copy
-    //    that leaves is redacted.
-    const workerFullName = await this.workerFullName(workerId);
-    const window = this.config.CHAT_HISTORY_WINDOW_TURNS;
-    // A turn is a worker+assistant pair, so the window is doubled into messages.
-    const recent = window > 0 ? buffer.messages.slice(-(window * 2)) : buffer.messages;
-    const history = recent.map((m) => ({
-      role: m.role,
-      text: redactKnownName(m.text, workerFullName),
-    }));
-
-    const aiResult = await this.ai.profilingRespond({
-      session_id: dto.session_id,
-      worker_ref: workerId,
-      message_text: redactKnownName(dto.text, workerFullName),
-      history,
-      conversation_state: {
-        ...ConversationStateSchema.parse({}),
-        role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
-        turn_count: buffer.turnCount,
-        captured: buffer.captured,
-      },
-      role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
-      force_complete: forceComplete,
+    //    Everything that used to happen between here and step 8 — the redacted history,
+    //    the `profilingRespond` round trip, the echoed `turn_count` the API had to
+    //    distrust, the `force_complete` flag a model could ignore — is gone, replaced by
+    //    one call into the orchestrator. Turn budget, answer capture, question selection,
+    //    the CAS write and the buffer append all live there, because they are ONE
+    //    decision and splitting them across two files is how the API and the model came
+    //    to hold two disagreeing copies of the interview's state.
+    //
+    //    THE ORCHESTRATOR OWNS THE BUFFER WRITE. It saves under a compare-and-swap on the
+    //    envelope's `rev`, which is the fix for the lost update this method used to have:
+    //    load → mutate → save with two concurrent submits silently discarded one worker's
+    //    answer. Nothing below writes the buffer.
+    const turn = await this.orchestrator.takeTurn({
+      sessionId: dto.session_id,
+      workerId,
+      text: dto.text,
+      now,
+      ctx,
     });
 
-    // 4. AI service unreachable. NO TURN HAPPENED — the buffer is not touched at all,
-    //    so a retry is exactly safe: no duplicated worker line, no orphan half-turn,
-    //    no topic lost. This is why `profilingRespond` returns null instead of
-    //    fabricating a turn (the old `mockProfilingTurn`, now deleted).
-    if (aiResult === null) {
+    // 3. Nothing was written and the worker should retry — a lost CAS after two attempts,
+    //    or no resolvable question pack. Same shape as the old AI-unreachable branch, and
+    //    for the same reason: no half-turn, no duplicated line, no topic lost.
+    if (turn.unavailable) {
       this.logger.warn(
-        `chat turn dropped session=${dto.session_id} turn=${turnIndex}: AI service ` +
-          `unreachable; buffer left untouched so the worker can retry`,
+        `chat turn dropped session=${dto.session_id}: orchestrator wrote nothing; ` +
+          `the worker can retry into the same session`,
       );
-      return this.degradedResponse(dto.session_id, CHAT_UNAVAILABLE_REPLY);
+      return this.degradedResponse(dto.session_id, turn.reply);
     }
 
-    // 5. Pseudonymization failed closed on the far side. Also a no-op, and here that is
-    //    a PRIVACY WIN over the old flow rather than just a symmetry: the previous
-    //    design stored the inbound row BEFORE calling the AI service, so the very
-    //    message that was blocked for carrying a phone number still landed verbatim in
-    //    `chat_messages` and rode into the extraction corpus. Buffering means it never
-    //    enters the transcript at all — the worker rephrases, and only the rephrasing
-    //    is kept.
-    if (aiResult.blocked) {
-      return this.degradedResponse(
+    // 4. Layer A of the double-submit defence fired: this exact message at this exact rev
+    //    inside the replay window. The previous reply is returned byte-identically and NO
+    //    state changed — which is what a mobile client on a flaky 2G connection needs, as
+    //    opposed to a 409 telling it something went wrong when nothing did.
+    if (turn.replayed) {
+      return this.checkedResponse(
+        {
+          session_id: dto.session_id,
+          reply: turn.reply,
+          blocked: false,
+          is_mock: false,
+          suggested_followups: [],
+          asked_question_id: turn.questionKey,
+          extraction_ready: false,
+          unanswered_essentials: [],
+          session_ended: false,
+          question_kind: "ask",
+          progress: turn.progress,
+          occupation_label: null,
+        },
         dto.session_id,
-        this.renderWorkerName(aiResult.reply_text, workerFullName),
-        { blocked: true },
       );
     }
 
-    // 6. Append BOTH sides, verbatim. `dto.text` is the worker's actual words (the
-    //    audit spine), and the assistant line is the RAW reply carrying the literal
-    //    `{{worker_name}}` placeholder — NEVER the interpolated name (SG-1). These are
-    //    the exact strings the flush will write to `chat_messages`, so interpolating
-    //    here would put a real name in the audit spine and in the extraction corpus.
-    const stamp = now.toISOString();
-    buffer.messages.push({ role: "worker", text: dto.text, at: stamp });
-    buffer.messages.push({ role: "assistant", text: aiResult.reply_text, at: stamp });
-
-    const st = aiResult.updated_state;
-    // NEVER below the API's own arithmetic. `turn_count` is echoed by the ai-service and
-    // is only schema-checked as a non-negative int, so a version-skewed or buggy service
-    // returning a stalled value (0, or the same number every turn) would freeze the
-    // counter — `forceComplete` could then never fire and the interview would run
-    // unbounded, one real LLM call per turn, with no completion and no flush. The cap is
-    // documented as API-authoritative; `Math.max` is what makes that true.
-    buffer.turnCount = Math.max(turnIndex, st?.turn_count ?? 0);
-    buffer.captured = st?.captured ?? buffer.captured;
-    buffer.roleFamily = st?.role_family || buffer.roleFamily || DEFAULT_ROLE_FAMILY;
-
-    const unansweredEssentials = this.coerceStringList(
-      st?.unanswered_essentials,
-      dto.session_id,
-    );
-
-    // 7. Save BEFORE finalizing, never after. If the flush then fails, the completed
-    //    buffer survives and the next POST (or a retry) re-attempts it; if we dropped
-    //    the key first, a failed flush would destroy the only copy of the interview.
-    // The cap is ORed in, not merely SENT. The ai-service applies it too (its own
-    // `cap_fired` includes `force_complete`), so today this is redundant — but the
-    // comment at step 2 promises "completion is forced whatever comes back", and this is
-    // the line that makes that true. Without it, an ai-service that returned
-    // `extraction_ready: false` on the capped turn would leave the worker chatting past
-    // the budget forever: one real LLM call per turn, no completion, no flush, no
-    // profile, and no error to notice. Defence in depth on the per-worker cost ceiling.
-    const complete = aiResult.extraction_ready || forceComplete;
-    if (complete) {
-      buffer.completedAt = stamp;
-      buffer.completionReason = st?.completion_reason ?? (forceComplete ? "turn_cap" : null) ?? undefined;
+    // 5. Re-read the buffer the orchestrator just wrote.
+    //
+    //    RE-READ RATHER THAN RECONSTRUCTED. `takeTurn` may have retried the whole decision
+    //    against a competing writer's state, so the object this method loaded at step 1 is
+    //    not necessarily the one that landed. Rebuilding a view of it here from `turn`
+    //    would be a second, quietly divergent copy of the interview — the exact class of
+    //    bug the CAS exists to remove.
+    const written = await this.buffer.load(dto.session_id);
+    if (written === null) {
+      // The key vanished between the CAS write and this read: a TTL lapse at the worst
+      // possible instant, or an eviction. The turn DID happen and is durable in Redis's
+      // eyes only, so the reply is still served; the interview restarts on the next POST.
+      this.logger.error(
+        `buffer for session ${dto.session_id} disappeared immediately after a successful ` +
+          `CAS write; serving the reply and letting the next turn restart the interview`,
+      );
+      return this.degradedResponse(dto.session_id, turn.reply);
     }
-    await this.buffer.save(dto.session_id, buffer);
+    const buffered = written;
+
+    // 6. Flush, if the engine closed the interview.
+    //
+    //    TERMINAL ONLY IF IT ACTUALLY LANDED. `turn.complete` says the interview should
+    //    end; `flushed` says the transcript is durable. They differ exactly when the flush
+    //    transaction rolled back, and conflating them loses the whole interview.
+    const flushed = turn.complete
+      ? await this.finalizeInterview(workerId, dto.session_id, buffered, ctx)
+      : false;
+    const terminal = turn.complete && flushed;
+
+    // 6b. The mid-interview checkpoint (OIE Phase 9, risk #10).
+    //
+    //     ONLY WHEN THE INTERVIEW IS STILL RUNNING. A completed one just wrote the same state
+    //     through `endSession` inside the flush transaction; checkpointing here as well would be
+    //     a second UPDATE of the same column with the same value, outside that transaction.
+    //
+    //     BEST EFFORT, AND THAT IS THE WHOLE DESIGN. This write exists to make a Redis TTL lapse
+    //     survivable — it is a backup, not the record. The record is the buffer, which is already
+    //     durable in Redis's eyes by the time we get here. So a checkpoint failure must never
+    //     reach the worker: they answered a question, and the honest response to that is the next
+    //     question, not an error because a redundant copy did not land.
+    //
+    //     STATE ONLY, NEVER MESSAGE TEXT. `toConversationStatePatch` is the same projection
+    //     `finalizeInterview` writes — phase, occupation, answer map, counters. The transcript
+    //     stays in Redis until the flush, which is what keeps this ~2 UPDATEs per interview
+    //     instead of the ~150 rows the buffer design deleted.
+    if (turn.checkpointDue && !terminal && buffered.profiling) {
+      try {
+        await this.chat.saveConversationState(
+          dto.session_id,
+          toConversationStatePatch(buffered.profiling),
+          now,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `mid-interview checkpoint failed session=${dto.session_id} ` +
+            `asks=${buffered.profiling.engineAsks}; the interview continues on the Redis buffer ` +
+            `and the next checkpoint will retry (${err instanceof Error ? err.message : "unknown"})`,
+        );
+      }
+    }
 
     this.logger.log(
-      `turn buffered session=${dto.session_id} turn=${buffer.turnCount} ` +
-        `captured=${Object.keys(buffer.captured).length} missing=${unansweredEssentials.length} ` +
-        `complete=${complete}`,
+      `turn taken session=${dto.session_id} turn=${buffered.turnCount} ` +
+        `question=${turn.questionKey ?? "-"} progress=${turn.progress.answered}/${turn.progress.total} ` +
+        `complete=${turn.complete} flushed=${flushed}`,
     );
 
-    // TERMINAL ONLY IF IT ACTUALLY LANDED. `complete` says the interview should end;
-    // `flushed` says the transcript is durable. They differ exactly when the flush
-    // transaction rolled back, and conflating them loses the whole interview — see
-    // finalizeInterview's catch.
-    const flushed = complete ? await this.finalizeInterview(workerId, dto.session_id, buffer, ctx) : false;
-    const terminal = complete && flushed;
-
-    // 8. Personalize ONLY the client-returned reply — post-buffer, post-flush, post-emit
-    //    — by interpolating the worker's real first name over the `{{worker_name}}`
-    //    token. Everything durable still holds the placeholder.
+    // 7. Personalize ONLY the client-returned reply — post-buffer, post-flush, post-emit —
+    //    by interpolating the worker's real first name over the `{{worker_name}}` token.
+    //    Everything durable still holds the placeholder.
+    //
+    //    KEPT EVEN THOUGH PACK COPY CONTAINS NO VOCATIVE TODAY. The token is a reviewed
+    //    affordance of the pack corpus, the validator permits it, and removing the
+    //    interpolation would turn the first pack that uses it into a literal
+    //    `{{worker_name}}` on a worker's screen.
+    const workerFullName = await this.workerFullName(workerId);
+    const occupation = buffered.profiling?.occupation ?? null;
     const response: PostMessageResponse = {
       session_id: dto.session_id,
-      reply: this.renderWorkerName(aiResult.reply_text, workerFullName).replace(
-        /\{\{[^}]*\}\}/g,
-        "",
-      ),
+      reply: this.renderWorkerName(turn.reply, workerFullName).replace(/\{\{[^}]*\}\}/g, ""),
       blocked: false,
-      is_mock: aiResult.is_mock,
-      // THE CHIPS. Same field the deterministic bank filled from a hardcoded per-topic
-      // list, so the Flutter client renders them unchanged — but they are now written
-      // by the model for the question it actually asked, which is what makes
-      // tap-to-answer work for a trade nobody wrote a question pack for.
-      suggested_followups: aiResult.suggested_followups,
-      // Now the Resume Field Set id this turn asked about, not a question-bank id.
-      asked_question_id: aiResult.asked_question_id,
+      // PERMANENTLY FALSE, and deliberately not repurposed. The field meant "this reply
+      // came from a mock LLM instead of a real one"; there is no LLM in this path at all,
+      // so the honest answer is that no mock happened either.
+      is_mock: false,
+      // THE CHIPS. Same field, same client rendering — but the options are now the pack's
+      // REVIEWED closed set (or a disambiguation offer), not a model's improvisation. That
+      // is what makes "options are ANSWERS, never questions" mechanically checkable.
+      suggested_followups: turn.options.map((option) => option.label_text),
+      // Now a pack `question_key`. Still passes the `^[a-z_]+$` ≤40-char filter the flush
+      // transaction applies, because the pack validator enforces exactly that shape.
+      asked_question_id: turn.questionKey,
       extraction_ready: terminal,
-      // Required RFS fields still missing. Empty = complete. Field ids only, never PII.
-      unanswered_essentials: unansweredEssentials,
-      // The session just became terminal. Telling the client is what lets it drop its
-      // cached session id and open a fresh one next time — without this it posts into a
-      // dead session for the rest of the process. Withheld when the flush failed, so the
-      // client keeps the session and its next POST re-drives the flush.
+      // Required-but-unanswered pack questions. Question keys only, never PII — and unlike the
+      // LLM path, empty here genuinely means "nothing essential is outstanding" rather than
+      // "the model did not say".
+      unanswered_essentials: [...turn.unansweredEssentials],
       session_ended: terminal,
+      question_kind: turn.complete ? "close" : "ask",
+      // The completion bar. The single biggest lever on completion rate for low-literacy
+      // users, and impossible to compute under the LLM path — the model never knew how
+      // many questions were left because it invented each one as it went.
+      progress: turn.progress,
+      // The "you have been understood" moment: the worker's trade, in their language,
+      // echoed back once retrieval pins it.
+      occupation_label: occupation?.label ?? null,
     };
     return this.checkedResponse(response, dto.session_id);
   }
@@ -443,6 +519,20 @@ export class ChatService {
       // version-skewed deployment costs an observability field instead of an interview.
       answered_topics: this.slugFieldIds(Object.keys(buffer.captured).sort(), sessionId),
       extraction_ready_emitted: true,
+      // THE ANSWER MAP AND THE PINNED OCCUPATION, projected into the frozen contract shape.
+      //
+      // THIS IS WHAT MAKES THE PARSE CALL POSSIBLE AT ALL. The extraction job runs minutes
+      // later, off the request path, and the Redis buffer is dropped the moment this
+      // transaction commits — so `chat_sessions.conversation_state` is the ONLY place the
+      // processor can read the interview's record from. Without this line the parse call
+      // would fall back to re-reading the transcript under a different vocabulary, which is
+      // precisely the live defect the plan set out to fix (`captured` never reaching
+      // extraction).
+      //
+      // SPREAD LAST so it cannot be silently overwritten by a field above, and taken from
+      // the ENVELOPE rather than rebuilt here — one projection, owned by the module that
+      // owns the envelope.
+      ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
     };
 
     let won = false;
@@ -457,6 +547,22 @@ export class ChatService {
           tx,
           buffer.messages.map((m) => this.toMessageRow(sessionId, workerId, m)),
         );
+
+        // THE ANSWER MAP, AS ROWS — ONE multi-row INSERT, inside this transaction.
+        //
+        // One statement and not twelve, deliberately. A twelve-question interview issuing
+        // twelve INSERTs inside an open transaction holds row locks across twelve network
+        // round trips at the exact moment the worker is waiting on their closing reply; the
+        // whole reason this method exists is that the per-turn design cost ~150 writes.
+        //
+        // INSIDE the transaction, so a rolled-back flush leaves no orphan answers pointing at
+        // a session whose transcript was never written. The buffer survives and the retry
+        // re-inserts the same rows — idempotent, because `wpa_worker_question_uq` turns the
+        // second attempt into an upsert rather than a duplicate.
+        const answers = this.toPackAnswerRows(workerId, sessionId, buffer);
+        if (answers.length > 0) {
+          await this.chat.insertPackAnswers(tx, answers);
+        }
 
         // One event per stored message, exactly as the per-turn flow emitted them —
         // same names, same payloads, same key shape. Only the TIMING moved: the audit
@@ -499,6 +605,53 @@ export class ChatService {
           requestId: ctx.requestId,
           tx,
         });
+
+        // THE INTERVIEW'S OWN RECORD (OIE Phase 9). Distinct from `extraction_ready` above,
+        // which is a downstream trigger — one says "there is work to do", this says "here is
+        // how the engine performed". Three of the plan's acceptance criteria (p95 turn latency,
+        // completion rate, ask-count distribution) have no other source: `worker_profiles`
+        // records where a worker ended up and overwrites the evidence of how they got there.
+        //
+        // ONE EVENT PER INTERVIEW, NOT PER TURN — the latency arrives as a histogram
+        // accumulated in the envelope. Per-turn events would be the plan's own risk #9: ~12M
+        // rows whose only reader is a dashboard.
+        //
+        // INSIDE THE TRANSACTION, so an interview that did not durably happen does not report
+        // that it did. A rolled-back flush leaves no telemetry claiming a completion.
+        if (buffer.profiling) {
+          const env = buffer.profiling;
+          const byStatus = countAnswerStatuses(env.answerMap);
+          await this.events.emit({
+            event_name: "profile.interview_completed",
+            actor: { actor_type: "worker", actor_id: workerId },
+            subject: { subject_type: "chat_session", subject_id: sessionId },
+            payload: {
+              worker_id: workerId,
+              session_id: sessionId,
+              turn_count: buffer.turnCount,
+              ask_count: env.engineAsks,
+              // Filtered to the payload's own slug rule rather than trusted. The emit is inside
+              // this transaction, so a reason that failed validation would roll back a completed
+              // interview to protect an observability field — the same asymmetry `slugFieldIds`
+              // exists for two methods above.
+              completion_reason: /^[a-z_]{1,40}$/.test(buffer.completionReason ?? "")
+                ? (buffer.completionReason as string)
+                : null,
+              occupation_pinned: env.occupation !== null,
+              match_layer: env.occupation?.match_layer ?? null,
+              pack_id: env.packId,
+              pack_version: env.packVersion,
+              answered_count: byStatus.answered,
+              declined_count: byStatus.declined,
+              unanswered_count: byStatus.unanswered,
+              turn_latency_ms: { ...env.turnLatency },
+            },
+            idempotencyKey: `profile.interview_completed:${sessionId}`,
+            correlationId: ctx.correlationId,
+            requestId: ctx.requestId,
+            tx,
+          });
+        }
         return true;
       });
     } catch (err) {
@@ -561,6 +714,64 @@ export class ChatService {
     return kept;
   }
 
+  /**
+   * The answer map as `worker_pack_answer` rows.
+   *
+   * ONE ROW PER SETTLED QUESTION. `unanswered` records are skipped: they mean "we asked and
+   * moved on", which is a fact about the CONVERSATION and lives in the transcript, not a fact
+   * about the worker. Persisting them would fill the table with empty rows that a re-interview
+   * would then have to distinguish from real declinations.
+   *
+   * THE VALUE COLUMN IS CHOSEN BY THE VALUE'S OWN TYPE, not by the question's declared
+   * `answer_type`. The pack says what it expected; the answer map holds what the worker actually
+   * gave, normalized at capture time. Trusting the declaration would write "5" into
+   * `answer_number` for a question whose normalizer legitimately produced a range string, and
+   * the CHECK constraint would then roll back the entire flush.
+   */
+  private toPackAnswerRows(
+    workerId: string,
+    sessionId: string,
+    buffer: TranscriptBuffer,
+  ): NewWorkerPackAnswer[] {
+    const envelope = buffer.profiling;
+    if (!envelope) return [];
+    // A pack pointer is REQUIRED, not defaulted. `pack_id` is how a later reader knows which
+    // question `experience_years` was — two packs may legitimately own that key with different
+    // wording — so a row without one is unreadable rather than merely incomplete.
+    if (envelope.packId === null || envelope.packVersion === null) return [];
+
+    const rows: NewWorkerPackAnswer[] = [];
+    for (const record of envelope.answerMap) {
+      if (record.status !== "answered" && record.status !== "declined") continue;
+      // Question keys are `^[a-z_]+$` by pack-validator construction. Re-checked here for the
+      // same reason `slugFieldIds` exists: this INSERT is inside the flush transaction, so a
+      // malformed key would cost the worker their whole completed interview.
+      if (!/^[a-z_]{1,40}$/.test(record.question_key)) continue;
+
+      const value = record.status === "answered" ? record.value_normalized : null;
+      const typed = typedAnswerColumns(value);
+      // An `answered` record whose normalized value is null or an unrepresentable shape would
+      // violate `wpa_answer_shape_chk`. Downgraded to `declined` — the honest reading, since
+      // what we hold is "the question is settled and there is no value" — rather than dropped,
+      // so the question is not re-asked on a later interview.
+      const settled = record.status === "answered" && typed !== null;
+      rows.push({
+        workerId,
+        chatSessionId: sessionId,
+        packId: envelope.packId,
+        packVersion: envelope.packVersion,
+        questionKey: record.question_key,
+        ...(settled ? typed : {}),
+        status: settled ? "answered" : "declined",
+        // `chip` vs `chat` is not knowable from the answer map — the record keeps the value, not
+        // the affordance that produced it. `chat` is the honest default; a chip tap is still a
+        // message on this route.
+        source: "chat",
+      });
+    }
+    return rows;
+  }
+
   /** A buffered line as the `chat_messages` row it becomes at flush. */
   private toMessageRow(sessionId: string, workerId: string, m: BufferedMessage) {
     return {
@@ -600,6 +811,12 @@ export class ChatService {
         unanswered_essentials: [],
         // The session is still very much alive; the worker should retry into it.
         session_ended: false,
+        question_kind: "ask",
+        // NULL, not {0,0}. No turn happened, so there is no progress to report — and a
+        // zeroed bar would render as "you have answered nothing" to a worker who has
+        // answered eleven questions.
+        progress: null,
+        occupation_label: null,
       },
       sessionId,
     );
@@ -625,6 +842,9 @@ export class ChatService {
         extraction_ready: true,
         unanswered_essentials: [],
         session_ended: true,
+        question_kind: "close",
+        progress: null,
+        occupation_label: null,
       },
       sessionId,
     );
@@ -650,30 +870,6 @@ export class ChatService {
       return response;
     }
     return checked.data;
-  }
-
-  /**
-   * Coerce a progress list to its string members. EXPECTED dead code behind the
-   * `AiService` typed seam (the response is schema-parsed, so this only ever sees
-   * `string[]` or null) — but if a future refactor makes it reachable, the degrade must
-   * be OBSERVABLE rather than silent: field name + drop count only, never the values.
-   */
-  private coerceStringList(raw: unknown, sessionId: string): string[] {
-    const list = raw ?? [];
-    if (!Array.isArray(list)) {
-      this.logger.warn(
-        `postMessage coerced unanswered_essentials session=${sessionId} non-array -> []`,
-      );
-      return [];
-    }
-    const strings = list.filter((t): t is string => typeof t === "string");
-    if (strings.length !== list.length) {
-      this.logger.warn(
-        `postMessage coerced unanswered_essentials session=${sessionId} ` +
-          `dropped=${list.length - strings.length} non-string member(s)`,
-      );
-    }
-    return strings;
   }
 
   /**

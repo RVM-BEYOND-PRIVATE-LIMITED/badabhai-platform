@@ -379,6 +379,18 @@ class ProfileParseOutput(BaseModel):
     fields: dict[str, ParsedField | None] = Field(default_factory=dict)
     unparsed_field_ids: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    # Cost + latency for the call this response came from.
+    #
+    # THE PHASE 8 CUTOVER MADE THIS THE ONLY LLM CALL IN THE WHOLE INTERVIEW — every
+    # per-turn model call was deleted and replaced by one parse at the end. It shipped
+    # returning no metadata, so the single remaining piece of model spend in the core
+    # flow was invisible to the ledger. ``/profile/extract`` and the profiling chat have
+    # carried ``ai_metadata`` since Phase 1; this closes the gap the cutover opened.
+    #
+    # ``None`` on every degraded path (deadline, mock posture, spend cap): a fabricated
+    # zero-cost record is worse than an absent one, being indistinguishable from a real
+    # call that happened to be free. PII-free — ids, model names, counts, an INR estimate.
+    ai_metadata: AICallMetadata | None = None
 
 
 # --- Interview conversation state ------------------------------------------
@@ -982,6 +994,20 @@ class TranscriptionOutput(BaseModel):
     # the backend stores it in voice_notes.transcript_english and keeps it OUT of
     # events/ai_jobs/logs, same as transcript_text.
     english_text: str = ""
+    # WHY a degraded result has to SAY SO on the wire.
+    #
+    # `SttAdapter.transcribe` already distinguishes "the worker said nothing" from
+    # "we refused to call the provider" (``stt_budget_blocked``) and "the provider
+    # call failed" (``stt_call_failed``). Until this field existed, that distinction
+    # was LOGGED here and then thrown away at the response boundary — so the backend
+    # received an empty transcript with no way to tell the three apart, wrote it, and
+    # marked the job completed. In chat that degrades a reply. In a voice-only form
+    # the worker speaks their answer and it vanishes behind a success.
+    #
+    # PII-FREE and CLOSED-SET by construction: these are adapter-authored codes, never
+    # provider text and never worker text. Additive + defaulted, so an older backend
+    # ignoring it is unaffected (§3).
+    error_code: str | None = None
 
 
 # --- Job-posting chat (ADR-0035) -------------------------------------------

@@ -123,9 +123,14 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
         voiceNoteId: uploaded.voiceNoteId,
       );
 
+      // TD59 (#635): transcription needs a budget that EXCEEDS the server's ~140s
+      // structural ceiling, not the 14s extraction default — otherwise the client
+      // gives up and tells the worker to retry while the server completes, bills
+      // and stores the transcript.
       final AiJob job = await _api.awaitAiJob(
         enqueued.aiJobId,
         authToken: token,
+        maxAttempts: kVoiceTranscriptPollMaxAttempts,
       );
       if (job.isFailed) {
         // The server withholds the raw failure reason (it can carry

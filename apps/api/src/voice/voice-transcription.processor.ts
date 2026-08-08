@@ -43,6 +43,29 @@ export class VoiceTranscriptionProcessor extends WorkerHost {
       return { voice_note_id: voiceNoteId };
     }
 
+    // …AND THE SAME QUESTION ASKED OF THE THING WE ACTUALLY PAY FOR.
+    //
+    // The job-status guard above is necessary and not sufficient. `markRunning` fires at the
+    // top of EVERY attempt, so a retry sees `running`, never `completed`, and falls straight
+    // through to a second provider call. That is a real double-charge whenever the Sarvam call
+    // succeeded and something AFTER it did not — `setTranscript` hitting a connection blip, the
+    // completion emit throwing, the worker being killed between the two. BullMQ retries the
+    // whole `process`, and the transcript we already bought is thrown away.
+    //
+    // `transcript_text IS NOT NULL` is the durable record of "we have already paid for this
+    // audio". Compared against null EXPLICITLY, never truthiness: an empty string is a
+    // legitimate transcript (the worker said nothing into the mic) and it cost exactly as much
+    // as a full one.
+    const note = await this.voice.findById(voiceNoteId);
+    if (note?.transcriptText !== null && note?.transcriptText !== undefined) {
+      this.logger.log(
+        `voice note ${voiceNoteId} already carries a transcript; completing job ${aiJobId} ` +
+          `without a second provider call`,
+      );
+      await this.aiJobs.markCompleted(aiJobId, { voice_note_id: voiceNoteId });
+      return { voice_note_id: voiceNoteId };
+    }
+
     try {
       await this.aiJobs.markRunning(aiJobId);
 
@@ -56,6 +79,30 @@ export class VoiceTranscriptionProcessor extends WorkerHost {
         // budget, same as chat/extraction/resume already do.
         worker_ref: workerId,
       });
+
+      // A DEGRADED RESULT IS A FAILURE, AND IT USED TO BE RECORDED AS A SUCCESS.
+      //
+      // The adapter distinguishes three empty transcripts — `stt_budget_blocked` (we refused to
+      // call the provider), `stt_call_failed` (the call failed), `stt_service_unreachable` (the
+      // ai-service never answered) — from the fourth, which is the worker genuinely saying
+      // nothing. Until `error_code` was carried on the wire, all four arrived here identical:
+      // an empty string. This method stored it, marked the job `completed`, and emitted
+      // `transcription_completed` with `transcript_length: 0`.
+      //
+      // In chat that degrades a reply. In a voice-driven form the worker speaks their answer
+      // into a noisy yard and it disappears behind a green tick — no retry, no signal, and the
+      // audio already bought and stored.
+      //
+      // THROWN RATHER THAN HANDLED HERE ON PURPOSE. The catch below already owns what
+      // "terminal" means: BullMQ retries (`stt_call_failed` and `stt_service_unreachable` are
+      // frequently transient), and only the final attempt writes `markFailed` and the one
+      // `transcription_failed` event. Duplicating that here would give this file a second,
+      // quietly divergent definition of failure. `stt_budget_blocked` will not recover on a
+      // retry, but a retry of it costs nothing — no provider call is made — and the terminal
+      // record is identical.
+      if (result.error_code) {
+        throw new Error(`transcription degraded: ${result.error_code}`);
+      }
 
       // Persist the transcript + English translation ONLY on the voice_notes row
       // (never in events/jobs).

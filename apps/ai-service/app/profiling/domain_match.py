@@ -44,7 +44,6 @@ in it, so the retrieval leg carries nothing to leak.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -204,75 +203,60 @@ def build_query_text(
     return ", ".join(terms)[:_QUERY_MAX_CHARS]
 
 
-# ---------------------------------------------------------------------------
-# The pick
-# ---------------------------------------------------------------------------
-
-_PICK_SYSTEM = """You classify a worker's trade against a fixed occupation catalog.
-
-You will be given the worker's own words describing their work, and a numbered shortlist
-of catalog occupations. Choose the ONE that best describes what this worker actually
-does for a living.
-
-RULES
-- Answer with an id from the shortlist, exactly as written. Never invent an id.
-- If none of them genuinely describes this worker, answer null. A wrong match is worse
-  than no match — do not stretch to fill the slot.
-- Judge the WORK, not the seniority, the pay, or how skilled they sound.
-- The worker's words may be Hinglish, misspelled, or a regional term for the trade.
-  Read them for meaning, not spelling.
-
-Reply with a single JSON object and nothing else:
-{"job_domain_id": "<id from the list, or null>", "confidence": <0.0-1.0>}"""
-
-
-def _pick_prompt(query_text: str, candidates: list[DomainCandidate]) -> list[dict[str, str]]:
-    listing = "\n".join(
-        f'{i + 1}. id="{c.job_domain_id}" — {c.label}' for i, c in enumerate(candidates)
-    )
-    return [
-        {"role": "system", "content": _PICK_SYSTEM},
-        {
-            "role": "user",
-            "content": f"Worker's own words:\n{query_text}\n\nShortlist:\n{listing}",
-        },
-    ]
-
-
-def _parse_pick(raw: str) -> tuple[str | None, float]:
-    """Read the model's answer. Anything unreadable is a DECLINE, never a guess."""
-    text = (raw or "").strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[-1] if "\n" in text else text
-        text = text.rsplit("```", 1)[0].strip()
-    try:
-        data = json.loads(text)
-    except (ValueError, TypeError):
-        return None, 0.0
-    if not isinstance(data, dict):
-        return None, 0.0
-    did = data.get("job_domain_id")
-    conf = data.get("confidence")
-    score = float(conf) if isinstance(conf, (int, float)) else 0.0
-    return (did if isinstance(did, str) and did else None), max(0.0, min(1.0, score))
-
-
 async def match_domain(
     query_text: str,
     *,
     store: DomainStore,
     settings: Settings,
-    router,  # AIRouter — untyped to avoid an import cycle through app.ai.router
-    embed,  # Callable[[str, Settings], EmbeddingResult] — injected for testability
+    router=None,  # DEPRECATED, ignored — see the header. Kept so callers need no edit.
+    embed,  # Callable[[str, EmbeddingResult] — injected for testability
     user_ref: str | None = None,
     real_call_allowed: bool = True,
+    pinned_job_domain_id: str | None = None,
 ) -> DomainMatch:
     """Resolve ``query_text`` to one catalog domain, or return an honest UNMATCHED.
 
     Never raises. Every failure mode — flag off, empty query, blocked pseudonymization,
-    seam down, nothing above the floor, an unreadable or hallucinated pick — lands on a
-    distinct UNMATCHED reason. Extraction must never fail because a classification did.
+    seam down, nothing above the floor — lands on a distinct UNMATCHED reason. Extraction
+    must never fail because a classification did.
+
+    THE LLM PICK IS GONE (OIE Phase 8). What survives is the part that was always the
+    valuable half: retrieval, the floor as a pre-filter, the auto-margin, and the
+    re-validation of every id against what was actually retrieved. What was removed is the
+    model choosing between shortlisted candidates — a job the deterministic retrieval
+    ladder now does during the interview itself, from the worker's own words, at a
+    calibrated confidence, for free. A second classifier reading the same transcript
+    afterwards could only ever produce a weaker second opinion, and ``MATCHED_LLM`` with
+    it.
+
+    ``router`` and ``real_call_allowed`` are kept in the signature and IGNORED rather than
+    removed: every caller passes them, this module is imported by the extraction route,
+    and a signature change would be a needless edit at four call sites for a parameter
+    that is now dead. They go when the next caller-side change touches those lines.
     """
+    # THE PIN SHORT-CIRCUITS EVERYTHING — no embed, no ANN probe, no rupee. The interview
+    # already placed this worker, deterministically, from what they said about themselves.
+    # Re-deriving it from the transcript would be strictly worse evidence at strictly
+    # higher cost. Still RE-VALIDATED against the catalogue, because a pin that arrived
+    # over a wire is an input like any other.
+    #
+    # NOT RE-VALIDATED HERE, and that is not an omission. This service has no database
+    # driver — `job_domain` is RLS-locked and the api runs every catalogue query — so a
+    # check here could only ask the api over HTTP for something the api is about to check
+    # anyway. `SkillsRepository.isSelectableDomain` remains the last hallucination wall
+    # and runs on every write path, pinned or not. Adding a second, weaker copy of it
+    # behind a network hop would buy nothing and could disagree.
+    if pinned_job_domain_id:
+        logger.info("occupation was pinned during the interview; no retrieval needed")
+        return DomainMatch(
+            status=MATCHED_AUTO,
+            job_domain_id=pinned_job_domain_id,
+            # No retrieval ran, so there is no retrieval similarity to report. A
+            # fabricated 1.0 would pollute the very column the floors are tuned on.
+            score=None,
+            considered=[pinned_job_domain_id],
+        )
+
     if not settings.domain_match_enabled:
         return DomainMatch(status=UNMATCHED_DEGRADED)
     if not query_text.strip():
@@ -321,50 +305,28 @@ async def match_domain(
             considered=considered,
         )
 
-    # REUSE the masked text the embed already produced, rather than pseudonymizing the
-    # same string a second time. `embed_text` returns it precisely so callers do not
-    # re-run the gate, and it makes the two legs PROVABLY see the same string.
+    # PAST THE FLOOR BUT INSIDE THE MARGIN: two or more candidates are genuinely close.
     #
-    # Re-calling `pseudonymize(query_text).text` here would have been the subtle bug: on
-    # a blocked result pseudonymize does NOT return an empty string — for the
-    # residual-digit path it returns the PARTIALLY masked text with the offending run
-    # still in it. Reading `.text` without checking `.blocked` would therefore hand a
-    # provider exactly the content that tripped the gate. It happens to be unreachable
-    # today because the embed above already returned on `emb.blocked`, but that is an
-    # upstream accident, not a gate in front of this call — and invariant #3 asks for the
-    # latter. `emb.text` is non-None here by construction: `emb.blocked` is False.
-    raw, _meta = await router.run(
-        "domain_match",
-        messages=_pick_prompt(emb.text or "", candidates),
-        # The router never raises; its mock path must therefore be a valid DECLINE
-        # rather than a guess, so an unreachable provider leaves the profile unmatched.
-        mock_response='{"job_domain_id": null, "confidence": 0.0}',
-        real_call_allowed=real_call_allowed,
-        user_ref=user_ref,
+    # THIS IS WHERE THE MODEL USED TO BE ASKED, and where it is now not. The pick was a
+    # `capable`-tier call that read the worker's masked words and chose from the shortlist;
+    # it is deleted with the rest of the LLM interview. What replaces it is not a cheaper
+    # classifier — it is the interview itself, which resolves the ambiguity by SHOWING the
+    # worker the candidates and recording which one they tap (`matched_worker_confirmed`,
+    # the highest-quality signal the platform collects).
+    #
+    # SO AN AMBIGUOUS EXTRACTION-TIME MATCH IS NOW HONESTLY UNMATCHED. That is a real,
+    # deliberate loss of coverage on this path, and it is the correct trade: this path only
+    # runs for a session with no answer map — a pre-cutover interview, or one where the
+    # worker never named a trade — and guessing between near-identical occupations without
+    # asking anyone is exactly how a cook becomes a "Metal Working Machine Tool Setter".
+    logger.info(
+        "domain match inside the auto-margin; no model is asked, recording unmatched",
+        extra={
+            "extra": {
+                "top": round(top.score, 4),
+                "runner_up": round(runner_up, 4),
+                "margin": settings.domain_match_auto_margin,
+            }
+        },
     )
-    picked_id, confidence = _parse_pick(raw)
-
-    if picked_id is None:
-        return DomainMatch(status=UNMATCHED_LLM_DECLINED, considered=considered)
-
-    # RE-VALIDATION. The pick must be one of the ids we actually sent. A model naming a
-    # real-but-not-retrieved domain is rejected exactly like one naming a fabricated
-    # domain: in both cases the answer did not come from the retrieval, so it did not
-    # come from the evidence.
-    match = next((c for c in candidates if c.job_domain_id == picked_id), None)
-    if match is None:
-        logger.warning(
-            "domain match rejected a hallucinated id",
-            extra={"extra": {"shortlist": len(candidates)}},
-        )
-        return DomainMatch(status=UNMATCHED_LLM_DECLINED, considered=considered)
-
-    # The recorded score is the RETRIEVAL similarity, not the model's self-reported
-    # confidence. One is measured, the other is asserted; only the measured one belongs
-    # in a column that later analysis will threshold on.
-    return DomainMatch(
-        status=MATCHED_LLM,
-        job_domain_id=match.job_domain_id,
-        score=round(match.score, 6),
-        considered=considered,
-    )
+    return DomainMatch(status=UNMATCHED_LLM_DECLINED, considered=considered)
