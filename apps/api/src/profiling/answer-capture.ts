@@ -16,6 +16,7 @@ import {
   applyNegation,
   canonicalCity,
   classifyUtterance,
+  crosswalkFor,
   detectSalaries,
   parseAffirmation,
   parseAvailability,
@@ -140,14 +141,29 @@ function normalizeFor(item: QuestionPackItem, text: string): unknown | undefined
   );
   if (chip) {
     const value = chip.value ?? chip.label_text;
-    return item.answer_type === "multi_select" ? [value] : value;
+    return keepIfWellTyped(item, item.answer_type === "multi_select" ? [value] : value);
   }
 
   const field = item.target_field;
   const normalizer = field ? NORMALIZER_BY_FIELD[field] : undefined;
   if (normalizer) {
     const value = normalizer(text);
-    return value === null ? undefined : value;
+    if (value !== null) return value;
+    // THE TYPED PARSER FOUND NOTHING — that is not the same as the worker not answering, and
+    // returning `undefined` straight from here was throwing away the item's own reviewed chips.
+    //
+    // Measured, not theorised: `availability` and `relocation` are the only two items in the whole
+    // corpus that carry BOTH a typed target field and options, and both live in `qp_universal`, so
+    // every interview asks them. `parseRelocationWillingness` returns null for every one of that
+    // item's three chip labels; `parseAvailability` reads "Abhi turant" and none of the other
+    // three. Short-circuiting meant the reviewed options were never consulted for either.
+    //
+    // Falls through to the ANSWER TYPE only, never onward to verbatim. That distinction is the
+    // whole safety of this branch: a typed field whose parser abstained must not end up holding a
+    // whole sentence, because `salary_expected` and `current_city` are matched on by equality and
+    // by range. No option matched still means unread.
+    const byType = normalizeByAnswerType(item, text);
+    return byType === FALL_THROUGH ? undefined : keepIfWellTyped(item, byType);
   }
 
   // NO FIELD NORMALIZER — try the ANSWER TYPE before falling through to verbatim.
@@ -169,6 +185,45 @@ function normalizeFor(item: QuestionPackItem, text: string): unknown | undefined
   // that trims to under two characters, and this line is only reached past that gate — so an
   // `|| undefined` here would be unreachable code pretending to be a safety net.
   return text.trim();
+}
+
+/**
+ * Refuse an option-derived value that CONTRADICTS the type its target field declares.
+ *
+ * Applied only to values that came from a chip — never to a normalizer's output (already typed by
+ * construction) and never to verbatim text (a free-text field has no declared shape to violate).
+ *
+ * WHY IT HAS TO EXIST. Option values are authored by a human in a JSONL corpus and land in one of
+ * three typed columns, while the field's real type lives in `FIELD_CROSSWALK`. Nothing structurally
+ * forces the two to agree, and measured against the shipped corpus they do not: `relocation` is a
+ * `boolean` field offering three chips, two carrying `value_bool` and the third carrying the TEXT
+ * "conditional". Tapping that third chip put a string into `z.boolean()` and failed the entire
+ * extraction job — not the one field, the whole profile.
+ *
+ * Refusing is the right half of that trade under CLAUDE.md §3. The worker loses one answer and
+ * keeps a profile; writing it through loses the profile. It also fails LOUDLY in the corpus rather
+ * than silently at Zod: a pack whose chips disagree with their field now shows up as a question
+ * that never captures, which is exactly the shape `db:verify:packs` should learn to reject.
+ */
+function keepIfWellTyped(item: QuestionPackItem, value: unknown): unknown | undefined {
+  const entry = item.target_field ? crosswalkFor(item.target_field) : undefined;
+  // No declared type — a pack-local attribute, or a field outside the RFS vocabulary. Nothing to
+  // contradict, so nothing to refuse.
+  if (entry === undefined) return value;
+  switch (entry.type) {
+    case "boolean":
+      return typeof value === "boolean" ? value : undefined;
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+    case "string":
+    case "enum":
+      return typeof value === "string" ? value : undefined;
+    case "string_array":
+      // A `multi_select` already wraps; a `single_select` on a list field contributes one item.
+      return Array.isArray(value) || typeof value === "string" ? value : undefined;
+    default:
+      return value;
+  }
 }
 
 /**

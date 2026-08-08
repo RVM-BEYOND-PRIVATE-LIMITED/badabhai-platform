@@ -33,13 +33,20 @@
     "ALSO ABSENT: bare 'ha' and bare 'hai'. 'hai' is the copula ('is') and appears in almost every",
     "Hindi sentence; 'ha' is one edit from it. Either would fire on sentences that are not answers.",
     "",
+    "'han' IS PRESENT, via `ha+n+`, and it is not a counter-example to the two above. It was missing",
+    "until a live interview answered three boolean questions with it and had all three recorded as",
+    "unanswered: the alternation accepted 'hanji' but not the 'han' it is built from, because every",
+    "branch demanded either two a's ('haa+n?') or a trailing 'aan' ('ha+an'). It is the single most",
+    "common Latin spelling of haan, it is a whole word under {WB}/{WE} (so 'kahan' and 'handle' are",
+    "untouched), and it is neither the copula nor one edit from it.",
+    "",
     "REGEX SUBSET: explicit character classes only, `{WB}`/`{WE}` for boundaries — never `\\b`, `\\d`",
     "or `\\w`. See README.md. The Devanagari alternatives are bracketed with `{DB}`/`{DE}` because a",
     "word boundary does not work after a matra."
   ],
   "explicitCues": [
     {
-      "source": "{WB}(?:haan+|haa+n?|ha+an|hanji|haanji|ji\\s*haan|haan\\s*ji|bilkul|bilkool|zaroor|zarur|jarur|jaroor|yes|yeah|yep|yup|yaa|sure|correct|sahi|theek|thik|thike|right|ok|okay|okey|acha|accha)\\s*(?:hai|hain|h)?{WE}",
+      "source": "{WB}(?:ha+n+|haa+n?|ha+an|hanji|haanji|ji\\s*haan|haan\\s*ji|bilkul|bilkool|zaroor|zarur|jarur|jaroor|yes|yeah|yep|yup|yaa|sure|correct|sahi|theek|thik|thike|right|ok|okay|okey|acha|accha)\\s*(?:hai|hain|h)?{WE}",
       "flags": "i"
     },
     {

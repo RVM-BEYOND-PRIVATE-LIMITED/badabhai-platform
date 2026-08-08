@@ -21,6 +21,8 @@ describe("parseAffirmation", () => {
   it.each([
     "haan",
     "Haan",
+    "han",
+    "Han",
     "haan ji",
     "ji haan",
     "hanji",
@@ -101,6 +103,17 @@ describe("parseAffirmation", () => {
     // `hai` is "is". If it were a cue, every sentence in the corpus would read as a yes.
     expect(parseAffirmation("mera naam Ramesh hai")).toBeNull();
   });
+
+  it.each(["ha", "hai", "hain", "kahan", "yahan", "handle", "kahani", "tha"])(
+    "adding `han` did not make a word that merely CONTAINS it a yes: %s",
+    (text) => {
+      // The regression this guards is specific. `han` is delimited by {WB}/{WE}, so the risk is
+      // not other cues — it is the very common Hindi words that embed it (`kahan`, `yahan`) and
+      // the two spellings the file deliberately excludes (`ha`, `hai`). If a future edit relaxes
+      // the boundary into a substring match, every one of these turns into an accidental yes.
+      expect(parseAffirmation(text)?.value).not.toBe(true);
+    },
+  );
 
   it("reports a span that points at the cue it actually read", () => {
     // The span feeds the parse call's provenance gate, so it has to be the evidence, not 0..0.
