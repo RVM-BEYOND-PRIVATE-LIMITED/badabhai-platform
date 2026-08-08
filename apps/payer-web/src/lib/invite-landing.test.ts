@@ -53,16 +53,16 @@ describe("playStoreUrl — the Play Install Referrer payload (blocker B4)", () =
   });
 
   it("reads the app id from config, not a literal (test track vs production differ)", () => {
-    process.env.NEXT_PUBLIC_WORKER_APP_ID = "in.badabhai.worker.staging";
-    expect(workerAppId()).toBe("in.badabhai.worker.staging");
-    expect(playStoreUrl(CODE)).toContain("id=in.badabhai.worker.staging");
+    process.env.NEXT_PUBLIC_WORKER_APP_ID = "com.badabhai.workerapp.staging";
+    expect(workerAppId()).toBe("com.badabhai.workerapp.staging");
+    expect(playStoreUrl(CODE)).toContain("id=com.badabhai.workerapp.staging");
     delete process.env.NEXT_PUBLIC_WORKER_APP_ID;
-    expect(workerAppId()).toBe("in.badabhai.worker");
+    expect(workerAppId()).toBe("com.badabhai.workerapp");
   });
 
   it("treats a BLANK env value as unset rather than building an id-less store URL", () => {
     process.env.NEXT_PUBLIC_WORKER_APP_ID = "   ";
-    expect(workerAppId()).toBe("in.badabhai.worker");
+    expect(workerAppId()).toBe("com.badabhai.workerapp");
     delete process.env.NEXT_PUBLIC_WORKER_APP_ID;
   });
 });

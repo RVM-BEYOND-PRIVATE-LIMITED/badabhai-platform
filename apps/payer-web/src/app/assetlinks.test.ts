@@ -41,7 +41,7 @@ describe("assetlinks.json (#609)", () => {
     // A mismatch fails App Link verification just as silently as a bad
     // fingerprint (the issue calls this out explicitly).
     const expected =
-      process.env.NEXT_PUBLIC_WORKER_APP_ID ?? "in.badabhai.worker";
+      process.env.NEXT_PUBLIC_WORKER_APP_ID ?? "com.badabhai.workerapp";
     expect(statements[0].target.package_name).toBe(expected);
   });
 

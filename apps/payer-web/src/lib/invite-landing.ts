@@ -25,7 +25,7 @@ function env(name: string): string | undefined {
  * every referred worker to a "not found" page on the Play Store.
  */
 export function workerAppId(): string {
-  return env("NEXT_PUBLIC_WORKER_APP_ID") ?? "in.badabhai.worker";
+  return env("NEXT_PUBLIC_WORKER_APP_ID") ?? "com.badabhai.workerapp";
 }
 
 /**
