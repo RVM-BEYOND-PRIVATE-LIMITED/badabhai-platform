@@ -6,6 +6,7 @@ import 'package:record/record.dart';
 
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/voice/data/session_voice_recorder.dart';
+import 'package:badabhai_worker_app/features/voice/domain/voice_models.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/question_audio_player.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointer.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';

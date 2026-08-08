@@ -1,7 +1,5 @@
 import 'package:equatable/equatable.dart';
 
-import '../../voice/domain/voice_models.dart';
-
 /// The shape of a question, which decides how it is answered (#630). 85% of the
 /// 466-item pack is a choice question, and the capture layer has no fuzzy
 /// speech→option_key path, so a choice question MUST be answerable by chip.
