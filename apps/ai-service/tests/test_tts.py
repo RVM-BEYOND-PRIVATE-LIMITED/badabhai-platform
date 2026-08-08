@@ -275,7 +275,9 @@ def test_no_router_can_reach_the_tts_adapter():
     Asserted over the source rather than over imports, so it fails on the line that
     introduces the coupling rather than at whatever runtime path first exercises it.
     """
-    routers = (Path(__file__).resolve().parents[1] / "app" / "routers").glob("*.py")
+    # `rglob`, not `glob`: a future router SUBPACKAGE (app/routers/voice_form/…) is exactly how
+    # this wall would be walked around without anyone editing a file the check looks at.
+    routers = (Path(__file__).resolve().parents[1] / "app" / "routers").rglob("*.py")
     offenders = [
         p.name
         for p in routers

@@ -25,3 +25,9 @@ export * from "./rfs-vocabulary";
 // harness publishes and what `OccupationIndexService` actually does — see
 // `occupation-retrieval-parity.test.ts`. Nothing on a request path imports it.
 export * from "./occupation-retrieval-eval";
+// The authored question-pack corpus reader + its validator. Exported for the SAME reason as the
+// eval harness above and with the same caveat: nothing on a request path imports it. `apps/api`
+// needs it to generate the reply-closure manifest — the enumeration of every string the engine can
+// speak — from the real packs rather than from a fixture, and a manifest built from a fixture
+// would pre-render audio for questions no worker is ever asked.
+export * from "./question-pack-corpus";
