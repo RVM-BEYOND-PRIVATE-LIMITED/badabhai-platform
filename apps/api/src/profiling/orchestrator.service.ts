@@ -16,12 +16,14 @@
  */
 
 import { Injectable, Logger } from "@nestjs/common";
-import type { QuestionPack, QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
+import type {
+  AnswerType,
+  QuestionPack,
+  QuestionPackItem,
+  QuestionPackOption,
+} from "@badabhai/ai-contracts";
 
-import {
-  ChatTranscriptBuffer,
-  type TranscriptBuffer,
-} from "../chat/chat-transcript.buffer";
+import { ChatTranscriptBuffer, type TranscriptBuffer } from "../chat/chat-transcript.buffer";
 import { ChatRepository } from "../chat/chat.repository";
 import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat.service";
 import type { RequestContext } from "../common/request-context";
@@ -138,6 +140,28 @@ export interface TurnResult {
   readonly options: readonly QuestionPackOption[];
   readonly progress: { readonly answered: number; readonly total: number };
   /**
+   * `why_text` for the question on screen — the client's ⓘ "yeh kyun poochh rahe hain" affordance.
+   *
+   * NOT the same thing as a clarify TURN, and the difference matters. A clarify turn happens when
+   * the worker ASKS, spends a turn, and gets the explanation read aloud followed by the question
+   * again. This field lets the client offer the same explanation on a tap without spending
+   * anything — which on a voice surface is the difference between a worker who does not
+   * understand a question quietly declining it and one who can find out what it means.
+   *
+   * Null when the question has no `why_text` (the majority) or when nothing is on screen.
+   */
+  readonly whyText: string | null;
+  /**
+   * How the question on screen is ANSWERED — the one thing a client cannot infer from the rest.
+   *
+   * `options` being empty does not mean "speak your answer": all 236 `boolean` pack items carry
+   * ZERO options (measured), so a client keying chips off `options.length` renders a mic for
+   * "Kya aapke paas certificate hai?" and then has no path from a spoken "haan" to a stored
+   * `true`. `single_select` and `multi_select` differ from each other too — one submit per tap
+   * versus accumulate-then-submit. Null when nothing pack-shaped is on screen.
+   */
+  readonly answerType: AnswerType | null;
+  /**
    * MANDATORY pack questions still unsettled — the client's `unanswered_essentials`.
    *
    * Question keys, never values, and never PII: the same `^[a-z_]+$` closed vocabulary the pack
@@ -179,6 +203,20 @@ export interface TurnInput {
    * Correlation for the two occupation events this turn may emit. Threaded through rather than
    * synthesised so a placement can be traced back to the HTTP request that produced it.
    */
+  readonly ctx: RequestContext;
+}
+
+/**
+ * Opening the interview — {@link TurnInput} minus the one thing that does not exist yet.
+ *
+ * A SEPARATE TYPE rather than `text?: string`, because an optional field would let a caller pass
+ * an utterance to a method that ignores it, and "the worker's words were silently dropped" is
+ * precisely the failure the voice form cannot afford.
+ */
+export interface OpenTurnInput {
+  readonly sessionId: string;
+  readonly workerId: string;
+  readonly now: Date;
   readonly ctx: RequestContext;
 }
 
@@ -264,6 +302,152 @@ export class ProfilingOrchestrator {
   }
 
   /**
+   * Put the FIRST question on screen without consuming a worker turn.
+   *
+   * WHY THIS IS NOT `takeTurn("")`. It nearly is, and that near-miss is the trap. Since #641 an
+   * empty utterance on a session with no question served falls through the silent-turn branch to
+   * the engine, so `takeTurn("")` does return question one — but it also does three things a
+   * start route has no business doing: it appends a `{role: "worker", text: ""}` line to the
+   * transcript that the end-of-interview parse call will read as the worker having said nothing,
+   * it runs occupation retrieval against the empty string, and it spends a turn from
+   * `MAX_ENGINE_TURNS`. On the chat surface none of that ever happens, because there the first
+   * question is a REPLY to something the worker typed. A voice form has no such thing: the screen
+   * has to speak first.
+   *
+   * IDEMPOTENT, AND NOT VIA THE REPLY CACHE. `start()` is called again on every cold app start,
+   * every resume-after-kill and every retry of a request that timed out after the write landed.
+   * Layer A cannot serve those — it is keyed on the inbound text, which here is nothing, and its
+   * window is ten seconds. So the test is `servedQuestionKey`: a question already on screen is
+   * RE-SERVED verbatim with nothing written and no ask spent, which is both stronger than the
+   * cache (it holds for the whole session) and the honest answer to "what should the worker see?".
+   *
+   * Fails closed exactly as {@link takeTurn} does: no pack, or a decision whose text is empty,
+   * writes nothing and returns the retryable unavailable line.
+   */
+  async openTurn(input: OpenTurnInput): Promise<TurnResult> {
+    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+      const loaded = await this.buffer.load(input.sessionId);
+      const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
+      const envelope =
+        loaded === null
+          ? await this.restorePin(input.sessionId, emptyProfilingEnvelope())
+          : (buffer.profiling ?? emptyProfilingEnvelope());
+
+      const packs = await this.resolvePacks(envelope, input.now.getTime());
+      if (!packs) {
+        this.logger.error(
+          `no question pack resolved opening session ${input.sessionId}; the universal pack is ` +
+            `missing, which db:verify:packs is supposed to make impossible`,
+        );
+        return unavailable();
+      }
+      const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+      const answers = answersOf(envelope);
+
+      // ALREADY OPEN. Re-serve, write nothing. `servedText` rather than `prompt_text`, so a
+      // session reopened after a re-ask hears the wording it last heard and not the opening
+      // phrasing from two turns ago — the regression `servedText` exists to prevent, and one a
+      // voice surface makes audible rather than merely visible.
+      const served = items.find((item) => item.question_key === envelope.servedQuestionKey);
+      if (served) {
+        const text = servedText(
+          served,
+          askCount(toEngineState(envelope, buffer.turnCount), served.question_key),
+        );
+        return {
+          reply: text,
+          questionKey: served.question_key,
+          options: served.options,
+          ...shapeOf(items, served.question_key),
+          progress: progressOf(items, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: true,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        };
+      }
+
+      // `buffer.turnCount` UNCHANGED, deliberately: `toEngineState`'s turn argument is what the
+      // hard turn cap is judged against, and opening the screen is not a turn the worker spent.
+      const decision = nextQuestion(toEngineState(envelope, buffer.turnCount), packs.engine);
+      const reply = decision.kind === "close" ? CLOSING_REPLY : decision.promptText;
+      if (reply.trim().length === 0) {
+        this.logger.error(
+          `refusing to open session ${input.sessionId} with an empty reply kind=${decision.kind} ` +
+            `phase=${decision.phase}; nothing was written`,
+        );
+        return unavailable();
+      }
+
+      const next: ProfilingEnvelope = {
+        ...envelope,
+        packId: packs.packId,
+        packVersion: packs.packVersion,
+        phase: decision.phase,
+        ...(decision.kind === "ask" && decision.questionKey
+          ? {
+              engineAsks: envelope.engineAsks + 1,
+              askCounts: {
+                ...envelope.askCounts,
+                [decision.questionKey]: (envelope.askCounts[decision.questionKey] ?? 0) + 1,
+              },
+              servedQuestionKey: decision.questionKey,
+            }
+          : { servedQuestionKey: decision.questionKey }),
+      };
+
+      // ONLY THE ASSISTANT LINE. There is no worker message to record, and inventing an empty one
+      // to keep the transcript alternating would put a silence into the record of what the worker
+      // said. `turnCount` is not bumped for the same reason.
+      const at = input.now.toISOString();
+      const opened: TranscriptBuffer = {
+        ...buffer,
+        messages: [...buffer.messages, { role: "assistant" as const, text: reply, at }],
+        profiling: next,
+      };
+
+      if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
+        await this.persistPin(envelope, next, {
+          sessionId: input.sessionId,
+          workerId: input.workerId,
+          text: "",
+          now: input.now,
+          ctx: input.ctx,
+        });
+        return {
+          reply,
+          questionKey: decision.questionKey,
+          options: decision.options,
+          ...shapeOf(items, decision.questionKey),
+          progress: decision.progress,
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: decision.kind === "close",
+          completionReason: decision.completionReason,
+          replayed: false,
+          excludeFromParse: false,
+          unavailable: false,
+          // An opening ask cannot cross a checkpoint boundary: it is ask one.
+          checkpointDue: false,
+        };
+      }
+
+      this.logger.log(
+        `CAS lost opening session=${input.sessionId} rev=${envelope.rev} ` +
+          `attempt=${attempt + 1}; reloading — the winner may already have served question one`,
+      );
+    }
+
+    this.logger.warn(
+      `CAS exhausted opening session=${input.sessionId} after ${MAX_CAS_ATTEMPTS} attempts; ` +
+        `nothing was written and the worker is asked to retry`,
+    );
+    return unavailable();
+  }
+
+  /**
    * The whole turn as a value: the buffer to write and the result to return, or `null` when no
    * pack could be resolved.
    *
@@ -286,7 +470,8 @@ export class ProfilingOrchestrator {
 
     const turn = buffer.turnCount + 1;
     const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
-    const askedItem = items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null;
+    const askedItem =
+      items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null;
 
     // THE TURN CAP OUTRANKS EVERY NON-ADVANCING BRANCH BELOW, and the order is the whole point:
     // clarify, silence and hardship all return early WITHOUT consulting the engine, so testing the
@@ -311,6 +496,7 @@ export class ProfilingOrchestrator {
           reply: DE_ESCALATION_REPLY,
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
+          ...shapeOf(items, envelope.servedQuestionKey),
           progress: progressOf(items, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -351,6 +537,7 @@ export class ProfilingOrchestrator {
           reply: reserved,
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
+          ...shapeOf(items, envelope.servedQuestionKey),
           progress: progressOf(items, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -389,6 +576,7 @@ export class ProfilingOrchestrator {
           reply: HARDSHIP_REPLIES[turn % HARDSHIP_REPLIES.length] as string,
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
+          ...shapeOf(items, envelope.servedQuestionKey),
           progress: progressOf(items, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -418,6 +606,7 @@ export class ProfilingOrchestrator {
           ),
           questionKey: clarified.questionKey,
           options: clarified.options,
+          ...shapeOf(items, clarified.questionKey),
           checkpointDue: false,
           progress: clarified.progress,
           unansweredEssentials: essentialsOf(items, answers),
@@ -441,7 +630,14 @@ export class ProfilingOrchestrator {
     for (const value of capture.values) {
       answers = recordAnswer(answers, value, turn);
     }
-    answers = this.fillCrossQuestion(items, input.text, envelope, answers, capture.correcting, turn);
+    answers = this.fillCrossQuestion(
+      items,
+      input.text,
+      envelope,
+      answers,
+      capture.correcting,
+      turn,
+    );
 
     // --- IDENTIFY: the worker's words become an occupation -------------------
     //
@@ -470,6 +666,12 @@ export class ProfilingOrchestrator {
         // answer.
         questionKey: null,
         options: identified.offer.options,
+        // NOT `shapeOf`, and this is the one site where the shape is asserted rather than looked
+        // up: these chips come from RETRIEVAL, so there is no pack row to read an `answer_type`
+        // off. It is nonetheless a single-select — the worker picks the one trade they do — and
+        // saying so is what stops a client from rendering the trade list as a mic prompt.
+        whyText: null,
+        answerType: "single_select",
         // A disambiguation turn spends no ask, so it can never cross a checkpoint boundary.
         checkpointDue: false,
         progress: progressOf(items, answers),
@@ -557,6 +759,7 @@ export class ProfilingOrchestrator {
       reply,
       questionKey: decision.questionKey,
       options: decision.options,
+      ...shapeOf(items, decision.questionKey),
       progress: decision.progress,
       unansweredEssentials: essentialsOf(items, answers),
       complete: decision.kind === "close",
@@ -759,6 +962,13 @@ export class ProfilingOrchestrator {
         reply: result.reply,
         questionKey: result.questionKey,
         at: input.now.toISOString(),
+        // EVERYTHING THE CLIENT DRAWS, stamped together with the words. Taken off `result` rather
+        // than recomputed, so the replayed response is the SAME response by construction and not
+        // a second derivation that could disagree with the first.
+        options: result.options,
+        progress: result.progress,
+        whyText: result.whyText,
+        answerType: result.answerType,
       },
     };
     const at = input.now.toISOString();
@@ -811,8 +1021,14 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
   return {
     reply: last.reply,
     questionKey: last.questionKey,
-    options: [],
-    progress: { answered: 0, total: 0 },
+    // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
+    // replay a strictly WORSE response than the one it claims to repeat: same words, no chips, no
+    // progress. On chat that costs a scroller and a progress bar; on the voice form it strands a
+    // worker who cannot type in front of a question that can only be answered by tapping.
+    options: last.options,
+    progress: last.progress,
+    whyText: last.whyText,
+    answerType: last.answerType,
     unansweredEssentials: [],
     complete: false,
     completionReason: null,
@@ -831,6 +1047,10 @@ function unavailable(): TurnResult {
     questionKey: null,
     options: [],
     progress: { answered: 0, total: 0 },
+    // Nothing is on screen to describe. Unlike the replay path above, this is not a lost value:
+    // no question was served, so there is no shape.
+    whyText: null,
+    answerType: null,
     unansweredEssentials: [],
     complete: false,
     completionReason: null,
@@ -842,6 +1062,27 @@ function unavailable(): TurnResult {
   };
 }
 
+/**
+ * The two render-shape fields for whichever question is on screen.
+ *
+ * DERIVED HERE RATHER THAN RETURNED BY `nextQuestion`, because they are not part of the DECISION.
+ * The engine chooses which question to ask; `why_text` and `answer_type` are properties of the
+ * authored row it chose, and threading them through the pure core would mean four more fields on
+ * `Decision` that every one of its construction sites has to keep truthful. One lookup against the
+ * same `items` array the decision was made from cannot disagree with it.
+ *
+ * Null for both when nothing pack-shaped is on screen — a close, or the disambiguation offer,
+ * whose chips come from retrieval and belong to no pack row.
+ */
+function shapeOf(
+  items: readonly QuestionPackItem[],
+  questionKey: string | null,
+): { whyText: string | null; answerType: AnswerType | null } {
+  if (questionKey === null) return { whyText: null, answerType: null };
+  const item = items.find((candidate) => candidate.question_key === questionKey);
+  if (!item) return { whyText: null, answerType: null };
+  return { whyText: item.why_text ?? null, answerType: item.answer_type };
+}
 
 function progressOf(items: readonly QuestionPackItem[], answers: AnswerMap) {
   return {

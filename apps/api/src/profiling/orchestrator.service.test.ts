@@ -126,7 +126,7 @@ function makeWorld(
     loadPinned: vi.fn(async () => packs.occupation),
     resolveForOccupation: vi.fn(async () => packs.occupation),
   };
-    // The identify step is STUBBED TO A NO-OP here on purpose. These tests are about the turn
+  // The identify step is STUBBED TO A NO-OP here on purpose. These tests are about the turn
   // machinery — CAS, replay, bounded re-ask, hard cases — and letting real retrieval run would
   // make every one of them depend on the occupation catalogue. Identification has its own suite.
   const identify = { identify: vi.fn(async () => ({ patch: {}, offer: null, pinned: null })) };
@@ -455,7 +455,9 @@ describe("cross-question capture — free information, never an overwrite", () =
     await orchestrator.takeTurn(say("7 saal, main pune me rehta hu"));
     const saved = store.get(SESSION)?.profiling;
     expect(saved?.answerMap.find((a) => a.question_key === "q_years")?.value_normalized).toBe(7);
-    expect(saved?.answerMap.find((a) => a.question_key === "q_city")?.value_normalized).toBe("Pune");
+    expect(saved?.answerMap.find((a) => a.question_key === "q_city")?.value_normalized).toBe(
+      "Pune",
+    );
   });
 
   it("NEVER overwrites a slot the worker already established", async () => {
@@ -591,6 +593,10 @@ describe("LAYER A — the reply cache", () => {
         reply: "stale",
         questionKey: "q_city",
         at: new Date(T0.getTime() + 60_000).toISOString(),
+        options: [],
+        progress: { answered: 0, total: 0 },
+        whyText: null,
+        answerType: null,
       },
     });
     const result = await orchestrator.takeTurn(say("main pune me rehta hu"));
@@ -739,6 +745,10 @@ describe("the mid-interview checkpoint boundary (Phase 9, risk #10)", () => {
         reply: "Kitne saal ka kaam ka tajurba hai?",
         questionKey: "q_years",
         at: T0.toISOString(),
+        options: [],
+        progress: { answered: 0, total: 0 },
+        whyText: null,
+        answerType: null,
       },
     });
 
@@ -889,5 +899,144 @@ describe("the pack pin has to survive Redis", () => {
     expect(world.storedPin()).toEqual({ packId: "qp_other", packVersion: 3 }); // …and lost
     expect(world.events.emit).not.toHaveBeenCalled();
     vi.restoreAllMocks();
+  });
+});
+
+const open = (at: Date = T0) => ({
+  sessionId: SESSION,
+  workerId: WORKER,
+  now: at,
+  ctx: CTX as never,
+});
+
+describe("openTurn — putting the first question on screen", () => {
+  it("serves question one and records the ask", async () => {
+    const { orchestrator, store } = makeWorld();
+
+    const result = await orchestrator.openTurn(open());
+
+    expect(result.questionKey).toBe("q_city");
+    expect(result.reply).toBe(CITY.prompt_text);
+    expect(result.unavailable).toBe(false);
+    const saved = store.get(SESSION)?.profiling;
+    expect(saved?.engineAsks).toBe(1);
+    expect(saved?.askCounts).toEqual({ q_city: 1 });
+    expect(saved?.servedQuestionKey).toBe("q_city");
+  });
+
+  it("writes NO worker message and spends NO turn — the screen spoke, the worker did not", async () => {
+    const { orchestrator, store } = makeWorld();
+
+    await orchestrator.openTurn(open());
+
+    const saved = store.get(SESSION);
+    // The whole reason this method exists rather than `takeTurn("")`: an empty inbound line here
+    // is read by the end-of-interview parse call as the worker having said nothing at all.
+    expect(saved?.messages).toEqual([
+      { role: "assistant", text: CITY.prompt_text, at: T0.toISOString() },
+    ]);
+    expect(saved?.turnCount).toBe(0);
+  });
+
+  it("carries the shape the client needs to draw the question", async () => {
+    const { orchestrator } = makeWorld();
+
+    const result = await orchestrator.openTurn(open());
+
+    expect(result.whyText).toBe(CITY.why_text);
+    expect(result.answerType).toBe(CITY.answer_type);
+  });
+
+  it("is idempotent: a re-open re-serves the same question and writes nothing", async () => {
+    const { orchestrator, store } = makeWorld();
+    await orchestrator.openTurn(open());
+    const afterFirst = store.get(SESSION)?.profiling;
+
+    const second = await orchestrator.openTurn(open(new Date(T0.getTime() + 3_600_000)));
+
+    expect(second.questionKey).toBe("q_city");
+    expect(second.reply).toBe(CITY.prompt_text);
+    expect(second.replayed).toBe(true);
+    const afterSecond = store.get(SESSION)?.profiling;
+    // Not the reply cache — that is keyed on inbound text and expires in ten seconds. An hour
+    // later, on a cold app start, the worker must still see the question they were left on.
+    expect(afterSecond?.rev).toBe(afterFirst?.rev);
+    expect(afterSecond?.engineAsks).toBe(1);
+    expect(afterSecond?.askCounts).toEqual({ q_city: 1 });
+  });
+
+  it("re-opens on the wording last SERVED, not the opening phrasing", async () => {
+    // A worker who has been re-asked once is looking at `retry_text`. Reopening the screen on
+    // `prompt_text` would change the question's shape under them — recoverable on chat, where
+    // they can scroll back, and simply confusing when it is the thing read aloud.
+    const { orchestrator, store } = makeWorld();
+    seed(store, { askCounts: { q_city: 2 } });
+
+    const result = await orchestrator.openTurn(open());
+
+    expect(result.reply).toBe(CITY.retry_text);
+  });
+
+  it("fails closed when no pack resolves, writing nothing", async () => {
+    const { orchestrator, store } = makeWorld({
+      packs: { occupation: null, universal: null },
+    });
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+
+    const result = await orchestrator.openTurn(open());
+
+    expect(result.unavailable).toBe(true);
+    expect(result.reply).toBe(UNAVAILABLE_REPLY);
+    expect(store.get(SESSION)).toBeUndefined();
+    vi.restoreAllMocks();
+  });
+
+  it("loses the CAS to a concurrent open and re-serves the winner's question", async () => {
+    // Two taps on "Sawaal-jawaab" is the ordinary case, not the exotic one.
+    const world = makeWorld({
+      interject: (store) => {
+        store.set(SESSION, {
+          workerId: WORKER,
+          turnCount: 0,
+          captured: {},
+          roleFamily: "",
+          messages: [{ role: "assistant", text: CITY.prompt_text, at: T0.toISOString() }],
+          startedAt: T0.toISOString(),
+          profiling: {
+            ...emptyProfilingEnvelope(),
+            rev: 1,
+            servedQuestionKey: "q_city",
+            engineAsks: 1,
+            askCounts: { q_city: 1 },
+          },
+        });
+      },
+    });
+    vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+
+    const result = await world.orchestrator.openTurn(open());
+
+    expect(result.questionKey).toBe("q_city");
+    // The loser must not double-count the ask the winner already recorded.
+    expect(world.store.get(SESSION)?.profiling?.engineAsks).toBe(1);
+    vi.restoreAllMocks();
+  });
+});
+
+describe("a replayed turn is the SAME response, not a stripped one", () => {
+  it("replays the chips, the progress and the question shape", async () => {
+    const { orchestrator } = makeWorld();
+    const text = "main pune me rehta hu";
+    const first = await orchestrator.takeTurn(say(text));
+
+    const replay = await orchestrator.takeTurn(say(text, new Date(T0.getTime() + 1_000)));
+
+    expect(replay.replayed).toBe(true);
+    // Before these were cached, a retry over a flaky link answered with the same words and no
+    // chips — which on a select question is a worker who cannot type and cannot proceed.
+    expect(replay.options).toEqual(first.options);
+    expect(replay.progress).toEqual(first.progress);
+    expect(replay.whyText).toBe(first.whyText);
+    expect(replay.answerType).toBe(first.answerType);
   });
 });
