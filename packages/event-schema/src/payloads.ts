@@ -544,6 +544,18 @@ export const ACTION_TYPES = [
   "onboarding_step_completed", // worker finished an onboarding step (offline-tolerant resume)
   "app_opened", // engagement signal
   "language_changed", // worker switched preferred language
+  // ── The voice form (#639/#694) ────────────────────────────────────────────────
+  // Both are ENGAGEMENT signals with a worker attached, which is the whole reason
+  // they belong here and not only in the Firebase mirror: "this worker cannot read
+  // the screen" is only actionable if you know WHICH worker, and Firebase carries no
+  // join key back to one by design.
+  //
+  // A MANUAL replay of a question's audio — never autoplay. A deliberate replay is
+  // the cleanest signal available that the worker is not reading the screen;
+  // autoplay noise would destroy it, which is why the client only records the tap.
+  "question_audio_played",
+  // The worker answered a voice-form question BY SPEAKING rather than tapping a chip.
+  "profiling_answer_spoken",
 ] as const;
 export const ActionType = z.enum(ACTION_TYPES);
 export type ActionType = z.infer<typeof ActionType>;

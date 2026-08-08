@@ -4,7 +4,12 @@ import { looksLikeActionContextPii } from "@badabhai/validators";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
-import type { RecordActionDto, RecordActionsBatchDto } from "./actions.dto";
+import type {
+  RecordActionDto,
+  RecordActionsBatchDto,
+  WorkerRecordActionDto,
+  WorkerRecordActionsBatchDto,
+} from "./actions.dto";
 
 /**
  * Records worker-side behavioural actions as `action.recorded` events — the raw
@@ -30,6 +35,30 @@ export class ActionsService {
     return { recorded: true, worker_id: dto.worker_id, action_type: dto.action_type };
   }
 
+  /**
+   * One action recorded by the AUTHENTICATED worker (#694).
+   *
+   * A THIN SEAM OVER {@link record}, not a parallel implementation. Everything that makes an
+   * action safe to store — the worker-exists check, the fail-closed PII guard on `context`, the
+   * `action.recorded` shape — has exactly one home, so the worker path cannot drift into being
+   * the lenient one. The only thing this adds is the identity, and it adds it from the token.
+   */
+  async recordForWorker(workerId: string, dto: WorkerRecordActionDto, ctx: RequestContext) {
+    return this.record({ ...dto, worker_id: workerId }, ctx);
+  }
+
+  /** The batch sibling. Every action in the batch is stamped with the SAME authenticated worker. */
+  async recordBatchForWorker(
+    workerId: string,
+    dto: WorkerRecordActionsBatchDto,
+    ctx: RequestContext,
+  ) {
+    return this.recordBatch(
+      { actions: dto.actions.map((a) => ({ ...a, worker_id: workerId })) },
+      ctx,
+    );
+  }
+
   async recordBatch(dto: RecordActionsBatchDto, ctx: RequestContext) {
     // Validate every action up front so an invalid item rejects the whole batch
     // before any write (mirrors emitMany's all-or-nothing semantics).
@@ -37,17 +66,12 @@ export class ActionsService {
     await Promise.all([...workerIds].map((id) => this.assertWorkerExists(id)));
     dto.actions.forEach(assertNoPii);
 
-    const events = await this.events.emitMany(
-      dto.actions.map((a) => this.toEmitParams(a, ctx)),
-    );
+    const events = await this.events.emitMany(dto.actions.map((a) => this.toEmitParams(a, ctx)));
 
     return { recorded_count: events.length };
   }
 
-  private toEmitParams(
-    dto: RecordActionDto,
-    ctx: RequestContext,
-  ): EmitParams<"action.recorded"> {
+  private toEmitParams(dto: RecordActionDto, ctx: RequestContext): EmitParams<"action.recorded"> {
     const payload: PayloadInputOf<"action.recorded"> = {
       worker_id: dto.worker_id,
       action_type: dto.action_type,

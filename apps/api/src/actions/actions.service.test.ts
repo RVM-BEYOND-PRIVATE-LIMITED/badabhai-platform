@@ -14,6 +14,55 @@ function make(workerExists = true) {
   return { svc, emit, emitMany, findById };
 }
 
+describe("ActionsService — the worker-authenticated seam (#694)", () => {
+  it("routes through the SAME record path, with the identity supplied by the caller", async () => {
+    // A thin seam, not a parallel implementation: the worker-exists check, the fail-closed PII
+    // guard and the `action.recorded` shape have one home, so the worker path cannot drift into
+    // being the lenient one.
+    const { svc, emit } = make();
+    await svc.recordForWorker(
+      WORKER,
+      { action_type: "question_audio_played", context: { question_index: 3 } },
+      CTX as never,
+    );
+    const arg = emit.mock.calls[0]![0];
+    expect(arg.payload.worker_id).toBe(WORKER);
+    expect(arg.actor).toEqual({ actor_type: "worker", actor_id: WORKER });
+    expect(arg.payload.action_type).toBe("question_audio_played");
+    expect(arg.payload.context).toEqual({ question_index: 3 });
+  });
+
+  it("stamps EVERY action in a batch with the same authenticated worker", async () => {
+    const { svc, emitMany } = make();
+    const res = await svc.recordBatchForWorker(
+      WORKER,
+      {
+        actions: [
+          { action_type: "question_audio_played", context: { question_index: 1 } },
+          { action_type: "profiling_answer_spoken", context: { question_index: 1 } },
+        ],
+      },
+      CTX as never,
+    );
+    expect(res).toEqual({ recorded_count: 2 });
+    for (const call of emitMany.mock.calls[0]![0]) {
+      expect(call.payload.worker_id).toBe(WORKER);
+    }
+  });
+
+  it("inherits the fail-closed PII guard — a worker cannot smuggle PII through context", async () => {
+    const { svc, emit } = make();
+    await expect(
+      svc.recordForWorker(
+        WORKER,
+        { action_type: "profiling_answer_spoken", context: { said: "call 9876543210" } },
+        CTX as never,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(emit).not.toHaveBeenCalled();
+  });
+});
+
 describe("ActionsService.record", () => {
   it("emits action.recorded for a known worker", async () => {
     const { svc, emit } = make();

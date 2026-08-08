@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 // Every controller in apps/api. Importing them here also proves they compile +
 // their metadata is well-formed.
 import { ActionsController } from "../actions/actions.controller";
+import { WorkerActionsController } from "../actions/worker-actions.controller";
 import { ApplicationsController } from "../applications/applications.controller";
 import { AuthController } from "../auth/auth.controller";
 import { ChatController } from "../chat/chat.controller";
@@ -98,6 +99,13 @@ const RZ = "RazorpayWebhookGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [I], recordBatch: [I] } },
+  // #694 — the worker's OWN action sink, deliberately a separate controller so it cannot inherit
+  // the ops guard above. `[C, W]` is the posture of every other `/workers/me/*` route.
+  {
+    name: "WorkerActions",
+    ctor: WorkerActionsController,
+    routes: { record: [C, W], recordBatch: [C, W] },
+  },
   {
     name: "Applications",
     ctor: ApplicationsController,
