@@ -271,6 +271,61 @@ void main() {
   });
 
   test(
+      'REGRESSION: close() racing the permission await does not take a levels '
+      'subscription close() has already cancelled', () async {
+    final Completer<void> permEntered = Completer<void>();
+    final Completer<bool> permBlock = Completer<bool>();
+    when(() => plugin.hasPermission()).thenAnswer((_) {
+      if (!permEntered.isCompleted) permEntered.complete();
+      return permBlock.future; // hang inside start()'s permission await
+    });
+
+    final VoiceFormCubit cubit = build(gateway: FakeGateway(8));
+    final Future<void> starting = cubit.start();
+    await permEntered.future;
+
+    // close() runs its whole teardown (cancel _levelsSub, close _meter,
+    // dispose the recorder) while start() is parked. Guarding on isClosed
+    // would let the continuation resume and subscribe to a disposed
+    // recorder's amplitude stream — a subscription nothing will ever cancel.
+    final Future<void> closing = cubit.close();
+    permBlock.complete(true);
+
+    await Future.wait(<Future<void>>[starting, closing]);
+
+    verifyNever(() => plugin.onAmplitudeChanged(any()));
+    verifyNever(() => plugin.start(any(), path: any(named: 'path')));
+  });
+
+  test(
+      'REGRESSION: close() racing an empty-clip re-arm does not restart the '
+      'mic after teardown', () async {
+    final Completer<void> stopEntered = Completer<void>();
+    final Completer<String?> stopBlock = Completer<String?>();
+
+    final VoiceFormCubit cubit = build(gateway: FakeGateway(8));
+    await cubit.start();
+    clearInteractions(plugin);
+
+    // A mis-trigger: stop() yields no clip, so _advance re-arms the SAME
+    // question — a mic start on a path distinct from replay()/reRecord().
+    when(() => plugin.stop()).thenAnswer((_) {
+      if (!stopEntered.isCompleted) stopEntered.complete();
+      return stopBlock.future;
+    });
+
+    final Future<void> advancing = cubit.answerBySpeaking();
+    await stopEntered.future;
+
+    final Future<void> closing = cubit.close();
+    stopBlock.complete(null); // no clip captured
+
+    await Future.wait(<Future<void>>[advancing, closing]);
+
+    verifyNever(() => plugin.start(any(), path: any(named: 'path')));
+  });
+
+  test(
       'REGRESSION: close() racing reRecord()\'s cancel() does not re-arm the '
       'mic after teardown (#629)', () async {
     final Completer<void> cancelEntered = Completer<void>();

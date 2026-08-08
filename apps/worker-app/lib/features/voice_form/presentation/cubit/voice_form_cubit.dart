@@ -195,7 +195,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       if (!_permissionAsked) {
         _permissionAsked = true;
         final bool granted = await _recorder.ensurePermission();
-        if (isClosed) return;
+        if (_torndown) return;
         if (!granted) {
           emit(const VoiceFormError(MicPermissionFailure()));
           return;
@@ -206,12 +206,12 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       _levelsSub = _recorder.levels(_levelInterval).listen(_onLevel);
 
       final VoiceFormStep step = await _gateway.start();
-      if (isClosed) return;
+      if (_torndown) return;
       await _route(step);
     } on Failure catch (failure) {
-      if (!isClosed) emit(VoiceFormError(failure));
+      if (!_torndown) emit(VoiceFormError(failure));
     } catch (error) {
-      if (!isClosed) emit(VoiceFormError(mapError(error)));
+      if (!_torndown) emit(VoiceFormError(mapError(error)));
     }
   }
 
@@ -249,7 +249,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         if (clip == null) {
           // Nothing captured (a mis-trigger). Re-arm the same question rather
           // than submit an empty answer the engine would reject.
-          if (!isClosed) await _rearm(current);
+          if (!_torndown) await _rearm(current);
           return;
         }
         _recorder.retain(clip.path); // retain — protect the in-flight upload
@@ -261,7 +261,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         await _recorder.cancel();
         answer = chosen;
       }
-      if (isClosed) {
+      if (_torndown) {
         // close() raced the stop()/cancel() await above — it already fired
         // _recorder.cancel() for us (see close()), but that doesn't drop a
         // retained path from OUR set; do that here or it's stuck retained
@@ -280,13 +280,13 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         // stale-clip sweep can only ever reclaim a released path.
         if (retainPath != null) _recorder.release(retainPath);
       }
-      if (isClosed) return;
+      if (_torndown) return;
       _answers.add(answer);
       await _route(step);
     } on Failure catch (failure) {
-      if (!isClosed) emit(VoiceFormError(failure));
+      if (!_torndown) emit(VoiceFormError(failure));
     } catch (error) {
-      if (!isClosed) emit(VoiceFormError(mapError(error)));
+      if (!_torndown) emit(VoiceFormError(mapError(error)));
     } finally {
       _advancing = false;
     }
@@ -313,7 +313,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       micPhase: MicPhase.priming,
     ));
     await _tts.play(next.question); // read aloud — mic not yet live
-    if (isClosed) return;
+    if (_torndown) return;
     await _armFreshClip(next.question, next.index, next.total);
   }
 
@@ -331,12 +331,12 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     } finally {
       _startingMic = false;
     }
-    if (isClosed) {
+    if (_torndown) {
       await _recorder.cancel(); // closed during the start window — release it
       return;
     }
     await _sleep(_primeDelay); // 250ms prime
-    if (isClosed) return;
+    if (_torndown) return;
     _endpointer.arm();
     emit(VoiceFormAsking(
       question: question,
@@ -403,11 +403,11 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     emit(const VoiceFormSubmitting());
     try {
       await _gateway.finalize();
-      if (!isClosed) emit(const VoiceFormComplete());
+      if (!_torndown) emit(const VoiceFormComplete());
     } on Failure catch (failure) {
-      if (!isClosed) emit(VoiceFormError(failure));
+      if (!_torndown) emit(VoiceFormError(failure));
     } catch (error) {
-      if (!isClosed) emit(VoiceFormError(mapError(error)));
+      if (!_torndown) emit(VoiceFormError(mapError(error)));
     }
   }
 
