@@ -7,6 +7,7 @@ import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_mapper.dart';
 import '../../../voice/data/session_voice_recorder.dart';
 import '../../../voice/domain/voice_models.dart';
+import '../../data/voice_form_action_log.dart';
 import '../../domain/question_audio_player.dart';
 import '../../domain/silence_endpointer.dart';
 import '../../domain/voice_form_gateway.dart';
@@ -129,6 +130,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     Duration primeDelay = const Duration(milliseconds: 250),
     Duration levelInterval = const Duration(milliseconds: 100),
     Future<void> Function(Duration)? sleep,
+    VoiceFormActionLog? actionLog,
   })  : _gateway = gateway,
         _recorder = recorder,
         _endpointer = endpointer,
@@ -136,6 +138,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         _primeDelay = primeDelay,
         _levelInterval = levelInterval,
         _sleep = sleep ?? Future<void>.delayed,
+        _actions = actionLog ?? VoiceFormActionLog(),
         super(const VoiceFormIdle());
 
   final VoiceFormGateway _gateway;
@@ -145,6 +148,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   final Duration _primeDelay;
   final Duration _levelInterval;
   final Future<void> Function(Duration) _sleep;
+  final VoiceFormActionLog _actions;
 
   final List<VoiceAnswer> _answers = <VoiceAnswer>[];
 
@@ -282,11 +286,14 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       }
       if (_torndown) return;
       _answers.add(answer);
+      if (answer.isSpoken) _actions.recordAnswerSpoken(current.index); // #639
       await _route(step);
     } on Failure catch (failure) {
       if (!_torndown) emit(VoiceFormError(failure));
+      unawaited(_actions.flush()); // a dead-ended session still owes its signals
     } catch (error) {
       if (!_torndown) emit(VoiceFormError(mapError(error)));
+      unawaited(_actions.flush());
     } finally {
       _advancing = false;
     }
@@ -297,6 +304,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       case NextQuestion():
         await _present(step);
       case VoiceFormDone():
+        unawaited(_actions.flush()); // best-effort, off the critical path (#639)
         emit(VoiceFormReview(List<VoiceAnswer>.of(_answers)));
     }
   }
@@ -353,6 +361,9 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   Future<void> replay() async {
     final VoiceFormState current = state;
     if (current is! VoiceFormAsking || _advancing) return;
+    // MANUAL replay only (#639) — buffered synchronously so analytics is never
+    // on the critical path of this accessibility affordance.
+    _actions.recordQuestionAudioPlayed(current.index);
     _advancing = true;
     try {
       await _recorder.cancel(); // mic OFF — discard any partial take
@@ -413,6 +424,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
 
   @override
   Future<void> close() async {
+    unawaited(_actions.flush()); // drain any un-flushed action signals (#639)
     // FIRST LINE, before any await: everything below is teardown, and a method
     // suspended on an await must see that immediately. `isClosed` only flips in
     // super.close() at the very bottom, which is far too late to stop a
