@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:record/record.dart';
 
+import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/voice/data/session_voice_recorder.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/question_audio_player.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointer.dart';
@@ -420,6 +421,34 @@ void main() {
     expect(cubit.state, isA<VoiceFormError>());
     expect(gateway.submitAttempts, 1);
   });
+
+  test(
+      'reset() recovers Error->Idle; re-start neither re-asks permission nor '
+      'leaks a second subscription (#680.5)', () async {
+    final _FailFirstGateway gateway = _FailFirstGateway();
+    final VoiceFormCubit cubit = VoiceFormCubit(
+      gateway: gateway,
+      recorder: SessionVoiceRecorder(recorder: plugin),
+      endpointer: SilenceEndpointer(),
+      tts: FakeTts(),
+      sleep: (_) async {},
+    );
+    addTearDown(cubit.close);
+
+    await cubit.start(); // gateway.start() throws → Error
+    expect(cubit.state, isA<VoiceFormError>());
+
+    cubit.reset();
+    expect(cubit.state, isA<VoiceFormIdle>());
+
+    await cubit.start(); // now succeeds
+    expect(cubit.state, isA<VoiceFormAsking>());
+
+    // Permission asked ONCE across both starts; the mic subscription taken ONCE
+    // (the guard), not leaked on the retry.
+    verify(() => plugin.hasPermission()).called(1);
+    verify(() => plugin.onAmplitudeChanged(any())).called(1);
+  });
 }
 
 /// A gateway whose [submit] always throws — for proving the retain/release
@@ -439,6 +468,28 @@ class _ThrowingSubmitGateway implements VoiceFormGateway {
     submitAttempts++;
     throw Exception('network drop');
   }
+
+  @override
+  Future<void> finalize() async {}
+}
+
+}
+
+/// Throws on the FIRST start() (a transient failure), then serves one question.
+class _FailFirstGateway implements VoiceFormGateway {
+  int _starts = 0;
+
+  @override
+  Future<VoiceFormStep> start() async {
+    _starts++;
+    if (_starts == 1) throw const NetworkFailure();
+    return const NextQuestion(
+        VoiceQuestion(id: 'q1', prompt: 'Q1'), index: 1, total: 1);
+  }
+
+  @override
+  Future<VoiceFormStep> submit(VoiceAnswer answer) async =>
+      const VoiceFormDone();
 
   @override
   Future<void> finalize() async {}

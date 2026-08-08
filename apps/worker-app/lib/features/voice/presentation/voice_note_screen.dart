@@ -70,6 +70,39 @@ const String kVoiceBackBlockedLabel =
 /// the server chat session here, so leaving would strand it off-screen.
 const String kVoiceBackBlockedSendingLabel =
     'Aapki baat bheji ja rahi hai — bas ek pal ruk jaayein.';
+
+// #680.1 — the TRANSCRIBE wait can be up to ~150s now (#635 raised the budget
+// to the server's real floor). Trapping a worker on a loading screen for 2.5
+// minutes is not acceptable, so the transcribe leg (unlike the send leg) offers
+// an explicit abandon behind a confirm. Leaving loses only THIS transcription.
+const String kVoiceAbandonTitle = 'Chhod dein?';
+const String kVoiceAbandonBody =
+    'Aapki awaaz abhi likhi ja rahi hai. Chhodne par yeh jawaab nahi jaayega.';
+const String kVoiceAbandonConfirm = 'Haan, chhod dein';
+const String kVoiceAbandonStay = 'Rukein';
+
+/// Confirms abandoning an in-flight TRANSCRIBE (#680.1). Returns true only if the
+/// worker explicitly chooses to leave. Dismissing keeps them on the wait.
+Future<bool> _confirmAbandonTranscribe(BuildContext context) async {
+  final bool? leave = await showDialog<bool>(
+    context: context,
+    builder: (BuildContext ctx) => AlertDialog(
+      title: const Text(kVoiceAbandonTitle),
+      content: const Text(kVoiceAbandonBody),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text(kVoiceAbandonStay),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: const Text(kVoiceAbandonConfirm),
+        ),
+      ],
+    ),
+  );
+  return leave ?? false;
+}
 const String _kErrorTitle = 'Voice note nahi gaya.';
 const String _kRetryLabel = 'Dobara try karein';
 const String _kTypeInsteadLabel = 'Type karke bhejein';
@@ -143,10 +176,24 @@ class _VoiceNoteView extends StatelessWidget {
               state is VoiceNoteProcessing || state is VoiceNoteSuccess;
           final bool sendingLeg =
               state is VoiceNoteProcessing && state.sending;
+          // #680.1 — the transcribe leg (Processing, NOT sending) is the long
+          // one (~150s); it gets an explicit abandon. The SEND leg + Success
+          // keep the #373 hold — leaving there strands the message.
+          final bool transcribingLeg =
+              state is VoiceNoteProcessing && !state.sending;
           return PopScope<Object?>(
             canPop: !pipelineInFlight,
-            onPopInvokedWithResult: (bool didPop, Object? result) {
+            onPopInvokedWithResult: (bool didPop, Object? result) async {
               if (didPop) return;
+              if (transcribingLeg) {
+                final bool leave = await _confirmAbandonTranscribe(context);
+                if (leave && context.mounted) {
+                  // Best-effort teardown; the screen pop closes the cubit too.
+                  context.read<VoiceNoteCubit>().cancelRecording();
+                  Navigator.of(context).maybePop();
+                }
+                return;
+              }
               ScaffoldMessenger.of(context)
                 ..hideCurrentSnackBar()
                 ..showSnackBar(
