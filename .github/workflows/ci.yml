@@ -17,6 +17,8 @@ jobs:
     outputs:
       ai-service: ${{ steps.filter.outputs.ai-service }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      worker-app: ${{ steps.filter.outputs.worker-app }}
+      payer-app: ${{ steps.filter.outputs.payer-app }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
@@ -49,6 +51,47 @@ jobs:
               # below — skips the very job it edits, so the edit ships unvalidated.
               # A workflow file can obviously affect the workflow.
               - '.github/workflows/ci.yml'
+            # The two Flutter apps. These filters live HERE rather than in their own
+            # workflow files because those files are now `workflow_call` reusables that
+            # this workflow invokes — see the `worker-app` / `payer-app` jobs below.
+            worker-app:
+              - 'apps/worker-app/**'
+              - '.github/workflows/worker-app.yml'
+              # The caller now decides whether the Flutter gate runs at all, so a change
+              # to THIS file must be able to trigger it — same reasoning as the e2e entry
+              # above, and the same failure if omitted.
+              - '.github/workflows/ci.yml'
+            payer-app:
+              - 'apps/payer-app/**'
+              - '.github/workflows/payer-app.yml'
+              - '.github/workflows/ci.yml'
+
+  # ---- Flutter gates, INSIDE the aggregator (#718) ----
+  #
+  # These were standalone workflows, so `ci-required` — the only required context on
+  # `main` — could not reach them: `needs:` cannot name a job in another workflow file.
+  # Measured on PR #711: `Worker app (analyze / test)` FAILED while `ci-required` PASSED,
+  # on a real analyzer error. The one check branch protection enforces was green, and a
+  # merge on it would have landed a worker app that does not analyze.
+  #
+  # That gap is worse than it sounds for these two specifically: apps/worker-app needs
+  # Dart >= 3.9.0, so a dev on an older Flutter cannot run `analyze`, `test`, or even
+  # `pub get`. CI is the ONLY executor for this code, and an ungated CI is no gate.
+  #
+  # Converting them to `workflow_call` reusables and calling them here puts them under
+  # `needs:` without duplicating the definitions, and without a second run per PR (their
+  # own `push`/`pull_request` triggers are removed in the same change). The check names
+  # become `worker-app / Worker app (analyze / test)`; nothing references them by name —
+  # branch protection requires `ci-required` alone.
+  worker-app:
+    needs: changes
+    if: needs.changes.outputs.worker-app == 'true'
+    uses: ./.github/workflows/worker-app.yml
+
+  payer-app:
+    needs: changes
+    if: needs.changes.outputs.payer-app == 'true'
+    uses: ./.github/workflows/payer-app.yml
 
   # ---- TypeScript monorepo: lint, typecheck, test, build ----
   node:
@@ -559,7 +602,9 @@ jobs:
   # owner must flip branch protection to require only `ci-required` for this to work.
   ci-required:
     if: always()
-    needs: [changes, node, ai-service, ai-service-image, e2e]
+    # worker-app / payer-app added in #718. A path-filtered job that does not run reports
+    # `skipped`, which this check treats as fine — only `failure`/`cancelled` fail it.
+    needs: [changes, node, ai-service, ai-service-image, e2e, worker-app, payer-app]
     runs-on: ubuntu-latest
     steps:
       - name: Check for CI failures

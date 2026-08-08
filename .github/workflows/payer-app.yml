@@ -1,24 +1,15 @@
 name: Payer app
 
 # BLOCKING gate for the Flutter payer/agency app (apps/payer-app) — the mirror of
-# `worker-app.yml`. Runs ONLY on changes under apps/payer-app (or this workflow),
-# so unrelated PRs don't pay the Flutter cost and don't wait on it. A red check
-# here means: do not merge.
+# `worker-app.yml`, and kept in lockstep with it. A red check here means: do not merge.
+#
+# CALLED BY `ci.yml`, NOT TRIGGERED DIRECTLY (#718) — see the header of
+# `worker-app.yml` for why: a standalone workflow cannot be reached by `ci-required`'s
+# `needs:`, so it could fail while the only required check on `main` stayed green. The
+# path filter moved with the trigger into `ci.yml`'s `changes` job (`payer-app`), so
+# unrelated PRs still neither pay the Flutter cost nor wait on it.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/payer-app/**"
-      - ".github/workflows/payer-app.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "apps/payer-app/**"
-      - ".github/workflows/payer-app.yml"
-
-concurrency:
-  group: payer-app-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 
 jobs:
   analyze-test:
