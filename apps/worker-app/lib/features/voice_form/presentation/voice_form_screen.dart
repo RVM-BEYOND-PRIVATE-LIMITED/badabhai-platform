@@ -37,7 +37,7 @@ const String _kMicFootnote = 'Mic sirf jawaab ke waqt chalu hota hai';
 /// Route-agnostic: it is handed a built [VoiceFormCubit] (the session gateway is
 /// still B6-frozen, so there is no locator binding yet) and reports terminal
 /// transitions through callbacks.
-class VoiceFormScreen extends StatelessWidget {
+class VoiceFormScreen extends StatefulWidget {
   const VoiceFormScreen({
     super.key,
     required this.cubit,
@@ -52,15 +52,41 @@ class VoiceFormScreen extends StatelessWidget {
   final VoidCallback? onExit;
 
   @override
+  State<VoiceFormScreen> createState() => _VoiceFormScreenState();
+}
+
+class _VoiceFormScreenState extends State<VoiceFormScreen>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    // Forward lifecycle to the cubit (#636): a call / backgrounding pauses the
+    // session; the cubit's handler is idempotent, so a single observer is enough
+    // and repeated transitions never stack.
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    widget.cubit.handleLifecycle(state);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return BlocProvider<VoiceFormCubit>.value(
-      value: cubit,
+      value: widget.cubit,
       child: BbScaffold(
         appBar: const BbAppBar(title: _kTitle),
         body: BlocConsumer<VoiceFormCubit, VoiceFormState>(
           listener: (BuildContext context, VoiceFormState state) {
-            if (state is VoiceFormReview) onReview?.call(state.answers);
-            if (state is VoiceFormComplete) onComplete?.call();
+            if (state is VoiceFormReview) widget.onReview?.call(state.answers);
+            if (state is VoiceFormComplete) widget.onComplete?.call();
           },
           builder: (BuildContext context, VoiceFormState state) =>
               _body(context, state),
@@ -86,10 +112,10 @@ class VoiceFormScreen extends StatelessWidget {
           action: BbButton(
             label: _kReRecord,
             variant: BbButtonVariant.outline,
-            onPressed: onExit,
+            onPressed: widget.onExit,
           ),
         ),
-      VoiceFormAsking() => _AskingView(state: state, cubit: cubit),
+      VoiceFormAsking() => _AskingView(state: state, cubit: widget.cubit),
     };
   }
 }
