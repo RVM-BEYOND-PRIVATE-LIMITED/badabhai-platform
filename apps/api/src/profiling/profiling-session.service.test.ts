@@ -3,9 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import type { AnswerRecord, QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
 
+import { DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
+
 import type { ChatTurnOutcome } from "../chat/chat.service";
+import { TURN_KINDS } from "./conversation-state";
 import type { ServedQuestion, SessionView, TurnResult } from "./orchestrator.service";
 import { ProfilingSessionService } from "./profiling-session.service";
+import { ProfilingStepSchema } from "./profiling.dto";
 import { clipId } from "./reply-closure";
 
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -363,11 +367,114 @@ describe("the step a client draws", () => {
 
     expect(step).toMatchObject({ kind: "question" });
     if (step.kind !== "question") throw new Error("unreachable");
+    // `value` and `implies_skill_id` stay off: engine business. `is_none_of_above` is on, because
+    // it describes how the option should be PRESENTED (#706).
     expect(step.question.options).toEqual([
-      { option_key: "mild_steel", label_text: "Mild steel" },
-      { option_key: "stainless", label_text: "Stainless steel" },
+      { option_key: "mild_steel", label_text: "Mild steel", is_none_of_above: false },
+      { option_key: "stainless", label_text: "Stainless steel", is_none_of_above: false },
     ]);
     expect(step.question.answer_type).toBe("multi_select");
+  });
+
+  it("an ordinary pack question is `ask`", async () => {
+    const { service } = makeWorld();
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+    if (step.kind !== "question") throw new Error("unreachable");
+    expect(step.question.question_kind).toBe("ask");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The disambiguation offer on the LOW-LITERACY surface (#706)
+// ---------------------------------------------------------------------------
+
+/** What the orchestrator's offer branch produces, built the way `identify.service.ts` builds it. */
+const OFFER_TURN = turn({
+  kind: "disambiguate",
+  reply: "Aap in mein se kaun sa kaam karte hain?",
+  questionKey: null,
+  answerType: "single_select",
+  options: [
+    option("occ_a", "Welder"),
+    { ...option("kuch_aur", DISAMBIGUATION_ESCAPE_LABEL), is_none_of_above: true },
+  ],
+});
+
+const offerOutcome = {
+  kind: "turn" as const,
+  turn: OFFER_TURN,
+  buffered: {} as never,
+  terminal: false,
+};
+
+describe("a disambiguation offer announces itself on the voice form (#706)", () => {
+  it("carries question_kind `disambiguate` instead of leaving it to be inferred", async () => {
+    // `question_key === null` was the only signal, which is an implicit contract a client had to
+    // reverse-engineer from a comment — and the exact shape that let the CHAT surface ship the
+    // wrong widget until #695. Here the worker is being read to, so "which of these did you mean?"
+    // and "what work do you do?" have to be speakable differently.
+    const { service } = makeWorld({ outcome: offerOutcome });
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+    if (step.kind !== "question") throw new Error("unreachable");
+    expect(step.question.question_kind).toBe("disambiguate");
+    expect(step.question.question_key).toBeNull();
+  });
+
+  it("flags the escape option, so the client stops matching on display copy", async () => {
+    const { service } = makeWorld({ outcome: offerOutcome });
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+    if (step.kind !== "question") throw new Error("unreachable");
+    const escapes = step.question.options.filter((o) => o.is_none_of_above);
+    expect(escapes).toHaveLength(1);
+    // Bound to the constant the server built it from — a copy change now moves the label without
+    // stranding the client's branch.
+    expect(escapes[0]?.label_text).toBe(DISAMBIGUATION_ESCAPE_LABEL);
+  });
+
+  it("declares the ENGINE's kinds, not a second copy of them", () => {
+    // The chat surface declares a superset only because `question_kind` shipped there before
+    // `TurnKind` existed. Here the schema IS the enum, so there is nothing to drift — this asserts
+    // that, rather than a containment that a hand-written literal array could quietly break.
+    const parse = (question_kind: string) =>
+      ProfilingStepSchema.safeParse({
+        kind: "question",
+        index: 1,
+        total: 11,
+        question: {
+          question_key: null,
+          question_kind,
+          prompt_text: "x",
+          answer_type: "single_select",
+          options: [],
+          why_text: null,
+          tts_clip_id: "a".repeat(16),
+        },
+      }).success;
+
+    for (const kind of TURN_KINDS) expect(parse(kind), `${kind} is not on the wire`).toBe(true);
+    expect(parse("interrogate")).toBe(false);
+  });
+
+  it("DEFAULTS both new fields, so a payload predating them still parses", () => {
+    // Additive to a contract a shipped client already reads (#698): the absent fields must read as
+    // today's behaviour rather than failing the parse.
+    const parsed = ProfilingStepSchema.safeParse({
+      kind: "question",
+      index: 1,
+      total: 11,
+      question: {
+        question_key: "q_city",
+        prompt_text: "Aap kis sheher mein rehte hain?",
+        answer_type: "single_select",
+        options: [{ option_key: "pune", label_text: "Pune" }],
+        why_text: null,
+        tts_clip_id: "a".repeat(16),
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success || parsed.data.kind !== "question") throw new Error("unreachable");
+    expect(parsed.data.question.question_kind).toBe("ask");
+    expect(parsed.data.question.options[0]?.is_none_of_above).toBe(false);
   });
 
   it("addresses the audio by CONTENT, so a clip can never be the wrong question's", async () => {
