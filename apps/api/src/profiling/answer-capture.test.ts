@@ -4,12 +4,7 @@ import type { QuestionPackItem } from "@badabhai/ai-contracts";
 
 import { RFS_FIELD_IDS } from "@badabhai/db";
 
-import {
-  NORMALIZED_FIELDS,
-  captureAnswer,
-  hasFieldNormalizer,
-  mayCommit,
-} from "./answer-capture";
+import { NORMALIZED_FIELDS, captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
 import { recordAnswer, type CapturedValue } from "./answer-map";
 
 let order = 0;
@@ -410,9 +405,9 @@ describe("select capture — the destination decides what an unmatched answer me
   it("KEEPS the worker's words when an RFS select matches no option", () => {
     // The asymmetry is deliberate. `skills` is a free-form list the canonicalization path owns,
     // so the worker's own words are strictly more information than nothing.
-    expect(only(captureAnswer("main deep freezer ka kaam karta hoon", MULTI_RFS)).valueNormalized).toBe(
-      "main deep freezer ka kaam karta hoon",
-    );
+    expect(
+      only(captureAnswer("main deep freezer ka kaam karta hoon", MULTI_RFS)).valueNormalized,
+    ).toBe("main deep freezer ka kaam karta hoon");
   });
 
   it("still prefers an EXACT chip match over the scan", () => {
@@ -439,10 +434,9 @@ describe("chip labels are worker-facing COPY, not tokens", () => {
   });
 
   it("captures BOTH materials when the worker names one alternative from a compound label", () => {
-    expect(only(captureAnswer("mild steel aur stainless steel", MATERIAL)).valueNormalized).toEqual([
-      "mild_steel",
-      "stainless",
-    ]);
+    expect(only(captureAnswer("mild steel aur stainless steel", MATERIAL)).valueNormalized).toEqual(
+      ["mild_steel", "stainless"],
+    );
   });
 
   it("still captures the whole label when the worker says it in full", () => {
@@ -467,5 +461,143 @@ describe("chip labels are worker-facing COPY, not tokens", () => {
     expect(only(captureAnswer("stainless steel, loha nahi", MATERIAL)).valueNormalized).toEqual([
       "stainless",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A yes/no on a select whose options ARE a yes and a no (#713)
+// ---------------------------------------------------------------------------
+
+/**
+ * The `relocation` item, VERBATIM FROM THE SHIPPED CORPUS rather than hand-built.
+ *
+ * It is in `qp_universal`, so every worker is asked it, and the whole defect was a disagreement
+ * between the authored options and what the field normalizer could read. A fixture that restated
+ * either half would be testing my reading of the corpus instead of the corpus.
+ */
+const RELOCATION = item({
+  question_key: "relocation",
+  target_kind: "rfs",
+  target_field: "relocation_willingness",
+  answer_type: "single_select",
+  max_asks: 1,
+  options: [
+    { option_key: "yes", label_text: "Haan, jaa sakta hoon", value: true } as never,
+    { option_key: "no", label_text: "Nahi, yahi rehna hai", value: false } as never,
+    {
+      option_key: "maybe",
+      label_text: "Sahi kaam mile to soch sakta hoon",
+      value: "conditional",
+    } as never,
+  ],
+});
+
+/** `qp_welding`'s `welding_position` — the other of the two, and an ATTRIBUTE rather than rfs. */
+const WELD_POSITION = item({
+  question_key: "welding_position",
+  target_kind: "attribute",
+  target_field: "welding_position",
+  answer_type: "single_select",
+  options: [
+    { option_key: "yes", label_text: "Haan, kar leta hoon", value: true } as never,
+    { option_key: "no", label_text: "Nahi, sirf flat", value: false } as never,
+  ],
+});
+
+describe("relocation was answerable by tapping and not by typing (#713)", () => {
+  // MEASURED BEFORE THE FIX, against this exact item: every one of the yes-forms below except the
+  // two carrying an explicit relocate cue captured NOTHING, and no typed sentence could EVER
+  // record `false` — while the `no` chip recorded one cleanly. The same question, in the same
+  // pack, was "yes or unknown" typed and "yes / no / conditional" tapped.
+  it.each([
+    "haan",
+    "haan ji",
+    "haan jaa sakta hoon",
+    "haan doosre sheher jaa sakta hoon",
+    "kahin bhi jaa sakta hoon",
+  ])("captures TRUE for %j", (text) => {
+    expect(only(captureAnswer(text, RELOCATION)).valueNormalized).toBe(true);
+  });
+
+  it.each(["nahi", "nahi yahi rehna hai"])("captures FALSE for %j", (text) => {
+    // The asymmetry that mattered most. `parseRelocationWillingness` only ever returns `true` —
+    // rightly, since "did not say" is not "said no" — but that left an EXPLICIT refusal, including
+    // the no-chip's own words, indistinguishable from silence.
+    expect(only(captureAnswer(text, RELOCATION)).valueNormalized).toBe(false);
+  });
+
+  it("still captures NOTHING for 'shayad' — the rule reads cues, it does not guess", () => {
+    // The one-directional rule this fix must not weaken: no polarity cue means no answer. The
+    // `conditional` option stays reachable by its label only, which is what it was before.
+    expect(captureAnswer("shayad", RELOCATION).values).toHaveLength(0);
+  });
+
+  it("leaves the exact chip labels exactly as they were", () => {
+    expect(only(captureAnswer("Haan, jaa sakta hoon", RELOCATION)).valueNormalized).toBe(true);
+    expect(only(captureAnswer("Nahi, yahi rehna hai", RELOCATION)).valueNormalized).toBe(false);
+    expect(
+      only(captureAnswer("sahi kaam mile to soch sakta hoon", RELOCATION)).valueNormalized,
+    ).toBe("conditional");
+  });
+
+  it("stores a BOOLEAN, the same value the chip stores — not the string 'true'", () => {
+    // `relocation_willingness` is `z.boolean()` on the draft, so a string here throws in the
+    // extraction job (#710 fixed the chip half of exactly this).
+    expect(typeof only(captureAnswer("haan", RELOCATION)).valueNormalized).toBe("boolean");
+  });
+
+  it("reaches the ATTRIBUTE select too, where an unmatched answer was simply lost", () => {
+    // `welding_position`'s labels are "Haan, kar leta hoon" / "Nahi, sirf flat", so a worker who
+    // says "haan" matches no whole label — and being an attribute it does not even fall through
+    // to verbatim.
+    expect(only(captureAnswer("haan", WELD_POSITION)).valueNormalized).toBe(true);
+    expect(only(captureAnswer("nahi", WELD_POSITION)).valueNormalized).toBe(false);
+  });
+});
+
+describe("the yes/no fallback cannot reach past the question on screen", () => {
+  it("does NOT fire on the cross-question path", () => {
+    // `fillCrossQuestion` runs capture over every OTHER item with a field normalizer, and
+    // `relocation` has one — so without the guard a worker answering "haan, 8 saal" to the
+    // EXPERIENCE question would be recorded as willing to relocate. A bare yes/no carries no
+    // subject; it means whatever was just asked.
+    expect(captureAnswer("haan", RELOCATION, { crossQuestion: true }).values).toHaveLength(0);
+    expect(captureAnswer("haan 8 saal", RELOCATION, { crossQuestion: true }).values).toHaveLength(
+      0,
+    );
+    expect(captureAnswer("nahi", RELOCATION, { crossQuestion: true }).values).toHaveLength(0);
+  });
+
+  it("but does NOT disable the typed parser there — that is the whole point of that path", () => {
+    // An explicit relocate cue is information a worker volunteered, and `parseRelocationWillingness`
+    // is exactly the "typed parser" the cross-question gate exists to admit.
+    const capture = captureAnswer("haan doosre sheher jaa sakta hoon", RELOCATION, {
+      crossQuestion: true,
+    });
+    expect(only(capture).valueNormalized).toBe(true);
+  });
+
+  it("leaves text-valued selects untouched — they never reach the yes/no lexicon", () => {
+    // The 638 text-valued options in the corpus: the boolean filter runs first, so a yes cue in
+    // an answer to one of them changes nothing.
+    expect(captureAnswer("haan", SINGLE_ATTR).values).toHaveLength(0);
+    expect(only(captureAnswer("haan main workshop mein hoon", SINGLE_ATTR)).valueNormalized).toBe(
+      "workshop",
+    );
+  });
+
+  it("refuses when two options claim the SAME polarity", () => {
+    // An item authoring two `true` options has not described a yes/no question, and picking
+    // either would be picking at random — the same rule the two-labels-matched case already has.
+    const AMBIGUOUS = item({
+      question_key: "q_bad",
+      target_kind: "attribute",
+      answer_type: "single_select",
+      options: [
+        { option_key: "a", label_text: "Haan bilkul", value: true } as never,
+        { option_key: "b", label_text: "Haan thoda", value: true } as never,
+      ],
+    });
+    expect(captureAnswer("haan", AMBIGUOUS).values).toHaveLength(0);
   });
 });

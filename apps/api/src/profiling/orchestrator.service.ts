@@ -964,7 +964,13 @@ export class ProfilingOrchestrator {
       // The SAME capture path as the asked question, deliberately: the normalizers, the chip
       // handling and the negation veto must not have a second implementation that is free to
       // disagree with the first about what a worker said.
-      const capture = captureAnswer(text, item);
+      //
+      // `crossQuestion` IS THE ONE DIFFERENCE, and it is the same rule the `hasFieldNormalizer`
+      // gate above encodes: only a TYPED parser may claim a value nobody asked for. The yes/no
+      // fallback (#713) is not one — a bare "haan" means whatever the question on screen asked,
+      // so letting it run here would record a worker answering the EXPERIENCE question as willing
+      // to relocate.
+      const capture = captureAnswer(text, item, { crossQuestion: true });
       for (const value of capture.values) {
         filled = recordAnswer(filled, value, turn);
       }
