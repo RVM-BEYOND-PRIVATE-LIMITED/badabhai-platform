@@ -5,7 +5,10 @@ import { IdentifyService } from "./identify.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
 import { PackRegistryService } from "./pack-registry.service";
 import { PackRepository } from "./pack.repository";
+import { ProfilingController } from "./profiling.controller";
+import { ProfilingSessionService } from "./profiling-session.service";
 import { ProfilingModule } from "./profiling.module";
+import { AppModule } from "../app.module";
 
 /**
  * DI WIRING GUARD.
@@ -20,11 +23,12 @@ import { ProfilingModule } from "./profiling.module";
  * dependencies as `undefined` and pass regardless. The E2E boot job is what actually proves the
  * graph resolves; this file proves the declarations exist.
  *
- * THE "BUILT DARK" ASSERTION IS GONE, DELIBERATELY. It was Phase 5's safety property — an
- * unexercised engine must not be reachable by a real worker — and Phase 8 is the change that
- * deliberately makes it reachable. It is replaced below by the assertion that still holds: this
- * module has no HTTP surface of its own, because the worker's turn arrives at `ChatController`'s
- * route, behind `ChatController`'s guards.
+ * THE "BUILT DARK" ASSERTION IS INVERTED, NOT DELETED — and the inversion comes with a POSITIVE
+ * assertion that this module is in `AppModule.imports`. That pairing is the whole point. The
+ * engine spent months in this repository reachable from nothing, guarded by a test that asserted
+ * `controllers === []` and was satisfied. Dropping that negative without gaining a positive would
+ * leave the same hole with no test at all: a controller declared on a module the application
+ * never imports serves nothing, and every unit test in this directory would still be green.
  */
 const getMeta = (key: string, target: unknown): unknown[] =>
   (Reflect.getMetadata(key, target as object) as unknown[] | undefined) ?? [];
@@ -49,20 +53,38 @@ describe("ProfilingModule wiring", () => {
     expect(names).toContain("AiModule");
   });
 
-  it("provides the repository, the registry, identification and the orchestrator", () => {
+  it("imports AuthModule, which is where its routes' two guards come from", () => {
+    // A controller whose guards cannot resolve does not fail closed — it fails to BOOT, which is
+    // the good case. This asserts the declaration so the failure is caught here rather than by
+    // the E2E boot job.
+    expect(resolveImports(ProfilingModule).map((m) => (m as { name?: string })?.name)).toContain(
+      "AuthModule",
+    );
+  });
+
+  it("provides the repository, the registry, identification, the orchestrator and the seam", () => {
     expect(getMeta("providers", ProfilingModule)).toEqual([
       PackRepository,
       PackRegistryService,
       IdentifyService,
       ProfilingOrchestrator,
+      ProfilingSessionService,
     ]);
   });
 
-  it("declares NO controller — the turn arrives through ChatController's guarded route", () => {
-    // A route here would be a SECOND way into the interview, with its own auth and its own
-    // ownership check to get wrong. The security spine did not move in the cutover: one route,
-    // one `@CurrentWorker`, one 404-not-403 ownership test.
-    expect(getMeta("controllers", ProfilingModule)).toEqual([]);
+  it("DECLARES the voice-form controller — the assertion that used to say the opposite", () => {
+    // Phase 5 asserted `controllers === []`, because an unexercised engine must not be reachable
+    // by a real worker. The voice form is the change that deliberately makes it reachable, so the
+    // property is inverted rather than dropped.
+    expect(getMeta("controllers", ProfilingModule)).toEqual([ProfilingController]);
+  });
+
+  it("is imported by AppModule, which is what makes that controller serve anything", () => {
+    // THE HALF THAT IS EASY TO FORGET. Inverting the negative above proves a route is DECLARED;
+    // this proves the application actually mounts it. Without this, `ProfilingModule` could be
+    // dropped from `AppModule.imports` tomorrow and every test in this file would still pass
+    // while `POST /profiling/answer` 404'd for every worker.
+    expect(resolveImports(AppModule)).toContain(ProfilingModule);
   });
 
   it("exports pack resolution, so the matcher cannot grow a second fallback chain", () => {

@@ -12,6 +12,7 @@ import { HealthModule } from "./health/health.module";
 import { AuthModule } from "./auth/auth.module";
 import { ConsentModule } from "./consent/consent.module";
 import { ChatModule } from "./chat/chat.module";
+import { ProfilingModule } from "./profiling/profiling.module";
 import { VoiceModule } from "./voice/voice.module";
 import { SkillsModule } from "./skills/skills.module";
 import { OccupationModule } from "./occupation/occupation.module";
@@ -67,6 +68,12 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     AuthModule,
     ConsentModule,
     ChatModule,
+    // THE DETERMINISTIC INTERVIEW, imported EXPLICITLY even though `ChatModule` already pulls it
+    // in transitively. The engine spent months in this repository reachable from nothing, behind
+    // a boot test that asserted it had no controllers and was happy about it. An explicit import
+    // is the line a reader checks to answer "is the voice form actually wired up?", and the boot
+    // test now asserts this exact entry rather than its absence.
+    ProfilingModule,
     VoiceModule,
     SkillsModule,
     OccupationModule,

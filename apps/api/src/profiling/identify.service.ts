@@ -556,7 +556,7 @@ const LAYER_TO_CONTRACT = {
  * concerned. `option_key` is synthesised because these chips come from the catalogue, not from
  * a pack row — and it is never read back, since the tap is resolved through the stored offer.
  */
-function toPackOption(chip: OfferedChip, index: number): QuestionPackOption {
+export function toPackOption(chip: OfferedChip, index: number): QuestionPackOption {
   return {
     option_key: chip.jobDomainId === null ? DISAMBIGUATION_ESCAPE_KEY : `occ_${index}`,
     label_text: chip.label,
