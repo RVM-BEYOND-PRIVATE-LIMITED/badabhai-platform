@@ -77,7 +77,8 @@ void main() {
 
   tearDown(() => amp.close());
 
-  VoiceFormCubit build({FakeGateway? gateway, FakeTts? tts}) => VoiceFormCubit(
+  VoiceFormCubit build({VoiceFormGateway? gateway, FakeTts? tts}) =>
+      VoiceFormCubit(
         gateway: gateway ?? FakeGateway(8),
         recorder: SessionVoiceRecorder(recorder: plugin),
         endpointer: SilenceEndpointer(),
