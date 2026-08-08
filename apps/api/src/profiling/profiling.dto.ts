@@ -69,6 +69,15 @@ export const ProfilingAnswerSchema = z.object({
     }),
     /** A Haan/Nahi tap. The 236 boolean items carry no options, so the CLIENT renders these. */
     z.object({ kind: z.literal("boolean"), value: z.boolean() }),
+    /**
+     * A recorded clip, already uploaded and registered as a `voice_notes` row.
+     *
+     * ONLY THE ID CROSSES. Not the storage path, not the duration, not the transcript — every one
+     * of those is read from the row server-side, because a caller who could name the path could
+     * have arbitrary audio fetched and billed to them, and a caller who could name the duration
+     * could walk past the 30-second cap that keeps this on a single provider call.
+     */
+    z.object({ kind: z.literal("spoken"), voice_note_id: uuidSchema }),
   ]),
 });
 export type ProfilingAnswerDto = z.infer<typeof ProfilingAnswerSchema>;

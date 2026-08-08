@@ -92,6 +92,10 @@ function makeWorld(
     view?: SessionView | null;
     outcome?: ChatTurnOutcome;
     opened?: TurnResult;
+    transcribed?:
+      | { ok: true; text: string; durationSeconds: number | null }
+      | { ok: false; errorCode: string };
+    recordThrows?: boolean;
   } = {},
 ) {
   const session =
@@ -116,12 +120,24 @@ function makeWorld(
           : opts.view,
     ),
   };
+  const transcription = {
+    transcribeNow: vi.fn(
+      async () => opts.transcribed ?? { ok: true as const, text: "aath saal", durationSeconds: 6 },
+    ),
+  };
+  const voiceAnswers = {
+    recordAnswer: vi.fn(async () => {
+      if (opts.recordThrows) throw new Error("connection terminated unexpectedly");
+    }),
+  };
   const service = new ProfilingSessionService(
     chat as never,
     chatService as never,
     orchestrator as never,
+    transcription as never,
+    voiceAnswers as never,
   );
-  return { service, chat, chatService, orchestrator };
+  return { service, chat, chatService, orchestrator, transcription, voiceAnswers };
 }
 
 /** The `answer` body for a chip tap on the material question. */
@@ -489,5 +505,136 @@ describe("finalize — durable, never a completion decision", () => {
     await expect(service.finalize(INTRUDER, SESSION, CTX)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+/** The `answer` body for a spoken clip against the material question. */
+const spoken = (voice_note_id = "55555555-5555-4555-8555-555555555555") =>
+  ({
+    session_id: SESSION,
+    question_key: "q_material",
+    answer: { kind: "spoken" as const, voice_note_id },
+  }) as never;
+
+describe("a spoken answer", () => {
+  it("transcribes SYNCHRONOUSLY and feeds the words to the turn", async () => {
+    // The engine cannot choose question n+1 without answer n's text, so there is nothing a queue
+    // hop would buy — only a poll loop and a strand.
+    const { service, chatService, transcription } = makeWorld();
+
+    await service.answer(WORKER, spoken(), CTX);
+
+    expect(transcription.transcribeNow).toHaveBeenCalledOnce();
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX);
+  });
+
+  it("caps the clip at 30 seconds, which is what keeps it a single provider call", async () => {
+    const { service, transcription } = makeWorld();
+
+    await service.answer(WORKER, spoken(), CTX);
+
+    expect(transcription.transcribeNow).toHaveBeenCalledWith(
+      expect.objectContaining({ maxSeconds: 30 }),
+    );
+  });
+
+  it("takes NO turn when the transcript did not arrive — the answer must not vanish", async () => {
+    // The failure this exists to prevent: a worker speaks into a noisy yard and their answer
+    // disappears behind a green tick. Capturing an empty transcript would spend the question's
+    // ask budget on a silence they did not choose.
+    const { service, chatService } = makeWorld({
+      transcribed: { ok: false, errorCode: "stt_call_failed" },
+    });
+
+    const { step } = await service.answer(WORKER, spoken(), CTX);
+
+    expect(chatService.runTurn).not.toHaveBeenCalled();
+    expect(step).toMatchObject({ kind: "unavailable" });
+  });
+
+  it("records the evidence row on SUCCESS, with the pack pinned per row", async () => {
+    const { service, voiceAnswers } = makeWorld({
+      view: {
+        buffer: {} as never,
+        envelope: { packId: "qp_welding", packVersion: 3 } as never,
+        items: [],
+        served: served(),
+      },
+    });
+
+    await service.answer(WORKER, spoken(), CTX);
+
+    expect(voiceAnswers.recordAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questionKey: "q_material",
+        packId: "qp_welding",
+        packVersion: 3,
+        transcriptStatus: "succeeded",
+        transcriptErrorCode: null,
+        durationSeconds: 6,
+      }),
+    );
+  });
+
+  it("records the evidence row on FAILURE too — that is the half nothing else can see", async () => {
+    // A clip recorded, uploaded, paid for and never transcribed is otherwise invisible.
+    const { service, voiceAnswers } = makeWorld({
+      view: {
+        buffer: {} as never,
+        envelope: { packId: "qp_welding", packVersion: 3 } as never,
+        items: [],
+        served: served(),
+      },
+      transcribed: { ok: false, errorCode: "stt_budget_blocked" },
+    });
+
+    await service.answer(WORKER, spoken(), CTX);
+
+    expect(voiceAnswers.recordAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transcriptStatus: "failed",
+        transcriptErrorCode: "stt_budget_blocked",
+      }),
+    );
+  });
+
+  it("does NOT lose the worker's answer when the evidence write fails", async () => {
+    // The row is an audit fact; the answer is already durable in the transcript buffer.
+    const { service, chatService } = makeWorld({
+      view: {
+        buffer: {} as never,
+        envelope: { packId: "qp_welding", packVersion: 3 } as never,
+        items: [],
+        served: served(),
+      },
+      recordThrows: true,
+    });
+
+    const { step } = await service.answer(WORKER, spoken(), CTX);
+
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX);
+    expect(step).toMatchObject({ kind: "question" });
+  });
+
+  it("still enforces the stale-question guard before spending a provider call", async () => {
+    const { service, transcription } = makeWorld({
+      view: {
+        buffer: {} as never,
+        envelope: {} as never,
+        items: [],
+        served: served({ questionKey: "q_years" }),
+      },
+    });
+
+    await expect(service.answer(WORKER, spoken(), CTX)).rejects.toBeInstanceOf(ConflictException);
+    // A 409 that had already paid Sarvam would be the worst of both.
+    expect(transcription.transcribeNow).not.toHaveBeenCalled();
+  });
+
+  it("404s on another worker's session before touching the clip", async () => {
+    const { service, transcription } = makeWorld();
+
+    await expect(service.answer(INTRUDER, spoken(), CTX)).rejects.toBeInstanceOf(NotFoundException);
+    expect(transcription.transcribeNow).not.toHaveBeenCalled();
   });
 });

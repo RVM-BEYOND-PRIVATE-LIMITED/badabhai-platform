@@ -5,12 +5,14 @@ import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
 import { EventsModule } from "../events/events.module";
 import { OccupationModule } from "../occupation/occupation.module";
+import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
 import { PackRegistryService } from "./pack-registry.service";
 import { PackRepository } from "./pack.repository";
 import { ProfilingController } from "./profiling.controller";
 import { ProfilingSessionService } from "./profiling-session.service";
+import { ProfilingVoiceRepository } from "./profiling-voice.repository";
 
 /**
  * The deterministic profiling engine — LIVE as of the Phase 8 cutover, and now with a surface.
@@ -51,6 +53,10 @@ import { ProfilingSessionService } from "./profiling-session.service";
     // WorkerAuthGuard + ConsentGuard for the routes below — the same two, in the same order, as
     // every other worker-facing controller.
     AuthModule,
+    // The synchronous ≤30s transcription leg. NOT a forwardRef: `VoiceModule` does not import
+    // this one, so the edge is one-way. It exports `VoiceTranscriptionService` and deliberately
+    // NOT `VoiceRepository` — the voice-notes table stays behind its own service.
+    VoiceModule,
   ],
   controllers: [ProfilingController],
   providers: [
@@ -59,6 +65,7 @@ import { ProfilingSessionService } from "./profiling-session.service";
     IdentifyService,
     ProfilingOrchestrator,
     ProfilingSessionService,
+    ProfilingVoiceRepository,
   ],
   exports: [PackRegistryService, ProfilingOrchestrator],
 })
