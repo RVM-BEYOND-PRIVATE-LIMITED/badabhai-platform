@@ -99,22 +99,41 @@ export class ActionsService {
 
 /**
  * Fail-closed PII guard at the capture boundary. The only free-form input is the
- * `context` bag; reject anything in a key OR a string value that looks like a
- * phone, email, human name, or address (TD11 — `looksLikeActionContextPii`) so
- * raw PII can never reach the events table. We name the position, never the
- * offending content (which would log the PII we reject).
+ * `context` bag; reject anything in a key OR a value that looks like a phone,
+ * email, human name, or address (TD11 — `looksLikeActionContextPii`) so raw PII
+ * can never reach the events table. We name the position, never the offending
+ * content (which would log the PII we reject).
  *
- * NOTE: this is best-effort. `context` is for non-PII signals (counts, statuses,
- * enums, lengths) — free text otherwise shaped like PII the heuristic doesn't
- * cover can still slip through, so callers must not put arbitrary free text in
- * context.
+ * EVERY VALUE, NOT JUST THE STRINGS. `contextSchema` accepts
+ * `string | number | boolean`, and this checked `typeof value === "string"` — so
+ * `{"phone":"9876543210"}` was a 400 while the identical `{"phone":9876543210}`
+ * was a 201, wrote through `createEvent` unexamined, and landed verbatim in
+ * `events.payload.context`. Every 10-digit Indian mobile and every 12-digit
+ * Aadhaar is a valid JS number, so the two highest-value PII items on this
+ * platform each had a one-character bypass. A skipped value TYPE is not
+ * best-effort, it is fail-open, and #705 is what first put worker-controlled
+ * JSON on this path (`POST /workers/me/actions`) rather than a trusted
+ * service-to-service caller.
+ *
+ * Numbers are stringified before the check rather than digit-counted separately,
+ * so the phone/Aadhaar bound stays defined in exactly one place. Legitimate
+ * signals are unaffected: `question_index`, `duration_ms` and `retry_count` are
+ * well under the 7-digit run `PHONE_DIGIT_RUN` looks for.
+ *
+ * NOTE: this remains best-effort ON SHAPE. `context` is for non-PII signals
+ * (counts, statuses, enums, lengths); the name tier in particular is ASCII
+ * title-case only, so a Devanagari name is not flagged (the R32 ruling stands —
+ * name-shape masking measured dead). Callers must not put arbitrary free text in
+ * context; what changed here is that no value now goes UNEXAMINED.
  */
 function assertNoPii(dto: RecordActionDto): void {
   for (const [key, value] of Object.entries(dto.context ?? {})) {
     if (looksLikeActionContextPii(key)) {
       throw new BadRequestException("a context key looks like PII; actions must not carry raw PII");
     }
-    if (typeof value === "string" && looksLikeActionContextPii(value)) {
+    // Booleans cannot carry PII and stringify to two fixed words; everything else is examined.
+    const asText = typeof value === "boolean" ? "" : String(value);
+    if (asText !== "" && looksLikeActionContextPii(asText)) {
       throw new BadRequestException(
         `context.${key} looks like PII (phone/email/name/address); actions must not carry raw PII`,
       );

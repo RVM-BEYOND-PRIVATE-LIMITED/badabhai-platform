@@ -35,13 +35,45 @@ async function expect429(p: Promise<unknown>): Promise<void> {
 
 describe("SubjectRateLimit.assertWithinHourlyCap", () => {
   it("allows within the cap, and re-asserts the TTL on EVERY hit", async () => {
-    // Not just the first: a `if (count === cost)` guard leaves a TTL-less key if the process dies
-    // between INCRBY and EXPIRE, which caps the subject forever rather than for the hour.
-    const { svc, redis } = setup({ results: [1] });
-    await expect(
-      svc.assertWithinHourlyCap("worker_actions", SUBJECT, 500),
-    ).resolves.toBeUndefined();
-    expect(redis.expire).toHaveBeenCalledTimes(1);
+    // ON EVERY HIT — which one call cannot demonstrate. A `if (count === cost)` guard passes a
+    // single-call assertion trivially, so the anti-pattern this test names has to be shown across
+    // SUBSEQUENT hits, where INCRBY returns something other than the cost.
+    const { svc, redis } = setup({ results: [1, 2, 3] });
+    for (let i = 0; i < 3; i++) {
+      await expect(
+        svc.assertWithinHourlyCap("worker_actions", SUBJECT, 500),
+      ).resolves.toBeUndefined();
+    }
+    expect(redis.expire).toHaveBeenCalledTimes(3);
+    // …and always on the SAME key, with a TTL inside the hour.
+    for (const call of redis.expire.mock.calls) {
+      expect(call[0]).toBe(redis.incrby.mock.calls[0]![0]);
+      expect(call[1]).toBeGreaterThan(0);
+      expect(call[1]).toBeLessThanOrEqual(3600);
+    }
+  });
+
+  it("REFUNDS a rejected charge — nothing was written, so nothing stays spent", async () => {
+    // Keeping the charge quietly lowers the cap for the rest of the hour: a worker at 450/500 who
+    // sends a 100-batch is refused and left at 550, so the 40-item flush that WOULD have fit is
+    // refused too. The refund is what stops one oversized flush from costing a worker their hour.
+    const { svc, redis } = setup({ results: [550] });
+    await expect429(svc.assertWithinHourlyCap("worker_actions", SUBJECT, 500, 100));
+    expect(redis.incrby).toHaveBeenCalledTimes(2);
+    expect(redis.incrby).toHaveBeenLastCalledWith(redis.incrby.mock.calls[0]![0], -100);
+  });
+
+  it("still 429s when the refund itself fails, and stays conservative", async () => {
+    // Fail-closed on the way out too: a failed refund must never turn a rejection into a pass.
+    const { svc, redis } = setup({ results: [550, new Error("READONLY")] });
+    await expect429(svc.assertWithinHourlyCap("worker_actions", SUBJECT, 500, 100));
+    expect(redis.incrby).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT refund a request it allowed", async () => {
+    const { svc, redis } = setup({ results: [100] });
+    await svc.assertWithinHourlyCap("worker_actions", SUBJECT, 500, 100);
+    expect(redis.incrby).toHaveBeenCalledTimes(1);
   });
 
   it("CHARGES THE COST, so a batch cannot walk around a per-request cap", async () => {

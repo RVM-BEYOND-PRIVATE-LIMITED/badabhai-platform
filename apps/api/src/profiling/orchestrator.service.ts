@@ -25,7 +25,14 @@ import type {
 
 import { ChatTranscriptBuffer, type TranscriptBuffer } from "../chat/chat-transcript.buffer";
 import { ChatRepository } from "../chat/chat.repository";
-import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat.service";
+// FROM THE IMPORT-FREE MODULE, NOT THROUGH `chat.service`. `chat.service` imports this file, so
+// reading the constant through its re-export closes a cycle — and under CommonJS the binding
+// resolves to `undefined` whenever `chat.service` is required first (measured: the emitted
+// `dist/chat/chat.service.js` requires the orchestrator at line 23 and `./chat-replies` only at 29).
+// The real boot order happens to load the orchestrator first, so this was latent rather than live;
+// `UNAVAILABLE_REPLY` is served straight to a worker on the CAS-lost path, so latent is not a
+// comfortable place for it to sit.
+import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { catalogVersionForEvent } from "../occupation/occupation.repository";

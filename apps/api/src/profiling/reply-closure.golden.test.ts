@@ -4,7 +4,23 @@ import { describe, expect, it } from "vitest";
 import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 import { loadQuestionPackCorpus, type PackRecord } from "@badabhai/db";
 
-import { assertNoCollisions, checkedReplyClosure, type ReplyClip } from "./reply-closure";
+import {
+  assertNoCollisions,
+  checkedReplyClosure,
+  clipId,
+  normalizeReplyText,
+  type ReplyClip,
+} from "./reply-closure";
+// THE SERVE SITES THEMSELVES, not a second copy of the list. See the completeness test at the
+// bottom of this file for why these are read from where they are used rather than re-typed.
+import { CHAT_OPENING_TEXT } from "../chat/chat-replies";
+import { DISAMBIGUATION_PROMPT } from "./identify.service";
+import {
+  CLOSING_REPLY,
+  DE_ESCALATION_REPLY,
+  HARDSHIP_REPLIES,
+  UNAVAILABLE_REPLY,
+} from "./orchestrator.service";
 
 /**
  * THE CLOSURE, OVER THE REAL 466-ITEM CORPUS — committed as a golden artifact.
@@ -152,5 +168,37 @@ describe("the reply closure, over the REAL question-pack corpus", () => {
     if (process.env.UPDATE_REPLY_CLOSURE === "1") return;
     const onDisk = JSON.parse(readFileSync(GOLDEN_PATH, "utf8")) as GoldenFile;
     expect(() => assertNoCollisions(onDisk.clips)).not.toThrow();
+  });
+
+  it("every constant THE SERVE SITES ACTUALLY USE has a clip in the committed manifest", () => {
+    // THE COMPLETENESS CLAIM, ENFORCED. `CONSTANT_REPLIES`' doc says "adding a seventh constant to
+    // the orchestrator without adding it here is a test failure rather than a question a worker
+    // hears in silence", and the unit test repeated it — but what that test asserted was
+    // `new Set(CONSTANT_REPLIES).size === CONSTANT_REPLIES.length`, i.e. UNIQUENESS over a second
+    // hand-typed copy of the same array. Nothing compared the strings the engine really serves
+    // against the manifest, so a constant could drift out of the closure with the suite green.
+    //
+    // These are imported from the SERVE SITES — the orchestrator's own exports and the chat
+    // module's, exactly as the code that puts them on screen reads them. Change
+    // `DE_ESCALATION_REPLY`'s wording without regenerating and this fails, which is the whole
+    // point: the de-escalation branch fires on an abusive turn and the changed string reaches the
+    // worker with no rendered clip behind it — silence, on the voice form.
+    if (process.env.UPDATE_REPLY_CLOSURE === "1") return;
+    const ids = new Set(
+      (JSON.parse(readFileSync(GOLDEN_PATH, "utf8")) as GoldenFile).clips.map((c) => c.id),
+    );
+    const served: ReadonlyArray<readonly [string, string]> = [
+      ["DE_ESCALATION_REPLY", DE_ESCALATION_REPLY],
+      ["CLOSING_REPLY", CLOSING_REPLY],
+      ["UNAVAILABLE_REPLY", UNAVAILABLE_REPLY],
+      ["DISAMBIGUATION_PROMPT", DISAMBIGUATION_PROMPT],
+      ["CHAT_OPENING_TEXT", CHAT_OPENING_TEXT],
+      ...HARDSHIP_REPLIES.map((text, i) => [`HARDSHIP_REPLIES[${i}]`, text] as const),
+    ];
+    for (const [name, text] of served) {
+      expect(ids.has(clipId(normalizeReplyText(text))), `${name} has no clip in the manifest`).toBe(
+        true,
+      );
+    }
   });
 });
