@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { languageCode } from "./common";
+import { AICallMetadataSchema, languageCode } from "./common";
 import { JOB_DOMAIN_MATCH_STATUSES } from "./occupation";
 
 // Occupation Intelligence Engine (OIE) — the deterministic-profiling contracts.
@@ -454,5 +454,21 @@ export const ProfileParseOutputSchema = z.object({
   unparsed_field_ids: z.array(z.string()).default([]),
   /** PII-free diagnostics ("2 fields dropped by closed-vocabulary gate"), counts + ids. */
   notes: z.array(z.string()).default([]),
+  /**
+   * Cost and latency for the call this response came from.
+   *
+   * THE PHASE 8 CUTOVER MADE THIS THE ONLY LLM CALL IN THE ENTIRE INTERVIEW — every per-turn
+   * model call was deleted and replaced by one parse at the end. It shipped returning no
+   * metadata at all, so the single remaining piece of model spend in the product's core flow
+   * was invisible: no row, no event, no way to answer "what does an interview cost".
+   * `/profile/extract` and the profiling chat have carried `ai_metadata` since Phase 1; this
+   * closes the gap the cutover opened.
+   *
+   * `null` on every degraded path — deadline exceeded, mock posture, spend cap — because a
+   * fabricated zero-cost record is worse than an absent one: it is indistinguishable from a
+   * real call that happened to be free. PII-free by construction (`AICallMetadataSchema` is
+   * ids, model names, counts and an INR estimate). Additive + defaulted (§3).
+   */
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type ProfileParseOutput = z.infer<typeof ProfileParseOutputSchema>;

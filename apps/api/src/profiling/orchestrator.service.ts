@@ -9,10 +9,10 @@
  * against the winner's state — which is only correct because re-running has no side effects to
  * undo, no accumulated counters, and no memory of the attempt that lost.
  *
- * BUILT DARK. Nothing calls this yet: `ChatService.postMessage` still runs the v1 model-driven
- * path untouched. That is deliberate — Phase 5's objective is the state machine "built dark and
- * fully unit-tested without a DB or Redis", and wiring it into the live chat route is a separate,
- * reviewable change with its own rollback story.
+ * LIVE AS OF THE PHASE 8 CUTOVER. `ChatService.postMessage` calls {@link takeTurn} where it used
+ * to call `AiService.profilingRespond`, and the model-driven path is deleted rather than flagged
+ * off. The rollback unit is a `git revert` of that one PR — which is precisely why every deletion
+ * landed in it.
  */
 
 import { Injectable, Logger } from "@nestjs/common";
@@ -22,7 +22,12 @@ import {
   ChatTranscriptBuffer,
   type TranscriptBuffer,
 } from "../chat/chat-transcript.buffer";
+import { ChatRepository } from "../chat/chat.repository";
 import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat.service";
+import type { RequestContext } from "../common/request-context";
+import { EventsService } from "../events/events.service";
+import { catalogVersionForEvent } from "../occupation/occupation.repository";
+import { IdentifyService } from "./identify.service";
 import { captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
 import {
   isSettled,
@@ -35,6 +40,7 @@ import {
   answersOf,
   emptyProfilingEnvelope,
   inboundHash,
+  recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
   toEngineState,
   withAnswers,
@@ -44,14 +50,17 @@ import {
   askCeiling,
   askCount,
   clarify,
+  joinClarify,
   nextQuestion,
   servedText,
+  CLOSING_REPLY_TEXT,
+  DE_ESCALATION_REPLY_TEXT,
+  HARDSHIP_REPLY_TEXTS,
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_HARDSHIP,
   MAX_ENGINE_TURNS,
   MAX_SILENT_TURNS,
   type CompletionReason,
-  type Decision,
   type EnginePacks,
 } from "./next-question";
 import { PackRegistryService } from "./pack-registry.service";
@@ -66,7 +75,7 @@ import { PackRegistryService } from "./pack-registry.service";
  * On-persona by the same rules `persona_guard.check_turn` enforces on pack copy: "aap", no
  * vocative, no exclamation, no emoji, under twenty words.
  */
-export const DE_ESCALATION_REPLY = "Aap se vinamra rehne ki request hai. Kaam ki baat karte hain.";
+export const DE_ESCALATION_REPLY = DE_ESCALATION_REPLY_TEXT;
 
 /**
  * The closed appreciation set for a hardship turn.
@@ -76,14 +85,13 @@ export const DE_ESCALATION_REPLY = "Aap se vinamra rehne ki request hai. Kaam ki
  * pushing a question is the whole point — a worker describing a hard month is not refusing to
  * answer, and pressing them is the fastest way to lose the interview.
  */
-export const HARDSHIP_REPLIES = [
-  "Samajh sakta hoon. Aapki baat sahi hai.",
-  "Aapki mehnat samajh aati hai. Thoda aur batayiye.",
-  "Theek hai. Aaram se batayiye, koi jaldi nahi.",
-] as const;
+export const HARDSHIP_REPLIES = HARDSHIP_REPLY_TEXTS;
 
 /** Served when the interview ends normally. */
-export const CLOSING_REPLY = "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
+export const CLOSING_REPLY = CLOSING_REPLY_TEXT;
+
+/** Re-exported: the join moved to the pure module so a TTS renderer need not boot Nest. */
+export { joinClarify };
 
 /**
  * Served when the CAS could not be won or no pack could be resolved. Nothing was written.
@@ -103,12 +111,41 @@ export const UNAVAILABLE_REPLY = CHAT_UNAVAILABLE_REPLY;
  */
 export const MAX_CAS_ATTEMPTS = 2;
 
+/**
+ * Asks between mid-interview Postgres checkpoints (OIE Phase 9, risk #10).
+ *
+ * REDIS IS THE ONLY HOME OF IN-FLIGHT STATE, and its TTL is 24 h. A lapse — an eviction under
+ * memory pressure, a failover, a worker who answers three questions and comes back tomorrow —
+ * costs the ENTIRE interview, and the worker is asked everything again from scratch. That is the
+ * single worst experience this engine can produce, because it is indistinguishable to the worker
+ * from the product being broken.
+ *
+ * FIVE IS THE COST/LOSS TRADE, not a round number. A ~12-ask interview checkpoints twice, so the
+ * write amplification the buffer design exists to avoid (~150 rows per interview, four Postgres
+ * writes per turn) does not come back: this is ~2 small UPDATEs of one JSONB column. In exchange
+ * the worst-case loss drops from "everything" to "at most the last 4 answers".
+ *
+ * ASKS, NOT TURNS, and deliberately: a clarify, a hardship acknowledgement and a silent turn all
+ * spend a turn without producing an answer, so pacing on turns would checkpoint hardest exactly
+ * when there is nothing new to save.
+ */
+export const CHECKPOINT_EVERY_ASKS = 5;
+
 /** What one turn produced. */
 export interface TurnResult {
   readonly reply: string;
   readonly questionKey: string | null;
   readonly options: readonly QuestionPackOption[];
   readonly progress: { readonly answered: number; readonly total: number };
+  /**
+   * MANDATORY pack questions still unsettled — the client's `unanswered_essentials`.
+   *
+   * Question keys, never values, and never PII: the same `^[a-z_]+$` closed vocabulary the pack
+   * validator enforces on every authored row. Empty genuinely means "nothing essential is
+   * outstanding" here, which it could not under the LLM path — the model reported a list it had
+   * itself invented.
+   */
+  readonly unansweredEssentials: readonly string[];
   readonly complete: boolean;
   readonly completionReason: CompletionReason | null;
   /** Layer A hit: the previous reply was replayed and NOTHING was written. */
@@ -117,6 +154,20 @@ export interface TurnResult {
   readonly excludeFromParse: boolean;
   /** The CAS was lost twice, or no pack resolved. Nothing was written; the worker may retry. */
   readonly unavailable: boolean;
+  /**
+   * This turn crossed a {@link CHECKPOINT_EVERY_ASKS} boundary — the caller should persist the
+   * conversation state to Postgres (OIE Phase 9, risk #10).
+   *
+   * WHY THE ORCHESTRATOR DECIDES BUT DOES NOT WRITE. It holds the only honest answer — it knows
+   * both the pre-turn and post-turn ask count, so it can fire on the CROSSING rather than on the
+   * value. A caller testing `engineAsks % 5 === 0` itself would re-fire on every subsequent turn
+   * that spends no ask (a clarify, a hardship acknowledgement, a silent turn), which on a stuck
+   * conversation is an UPDATE per turn forever. But the write itself belongs to `ChatService`,
+   * which owns the repository; giving the orchestrator a Postgres dependency to save one boolean
+   * would put durable writes behind the Redis CAS retry loop, where a retried turn would repeat
+   * them.
+   */
+  readonly checkpointDue: boolean;
 }
 
 export interface TurnInput {
@@ -124,6 +175,11 @@ export interface TurnInput {
   readonly workerId: string;
   readonly text: string;
   readonly now: Date;
+  /**
+   * Correlation for the two occupation events this turn may emit. Threaded through rather than
+   * synthesised so a placement can be traced back to the HTTP request that produced it.
+   */
+  readonly ctx: RequestContext;
 }
 
 @Injectable()
@@ -133,6 +189,9 @@ export class ProfilingOrchestrator {
   constructor(
     private readonly buffer: ChatTranscriptBuffer,
     private readonly packs: PackRegistryService,
+    private readonly identify: IdentifyService,
+    private readonly chat: ChatRepository,
+    private readonly events: EventsService,
   ) {}
 
   /**
@@ -143,10 +202,22 @@ export class ProfilingOrchestrator {
    * function the same question about newer facts.
    */
   async takeTurn(input: TurnInput): Promise<TurnResult> {
+    // OUTSIDE THE RETRY LOOP, deliberately: what this measures is what the turn COST, and a lost
+    // CAS that forced a second decision genuinely cost the worker both. Timing each attempt
+    // separately would report the cheap winning attempt and hide contention entirely — which is
+    // the one condition a turn-latency metric exists to surface.
+    //
+    // `Date.now()` rather than `input.now`, because `input.now` is the injected logical clock the
+    // decision is derived from; measuring elapsed time against a fixed value is measuring zero.
+    const startedAt = Date.now();
+
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
       const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
-      const envelope = buffer.profiling ?? emptyProfilingEnvelope();
+      const envelope =
+        loaded === null
+          ? await this.restorePin(input.sessionId, emptyProfilingEnvelope())
+          : (buffer.profiling ?? emptyProfilingEnvelope());
 
       // LAYER A — the reply cache. Checked on EVERY attempt, not only the first: the writer who
       // beat us may have been this same worker's duplicate submit, in which case the right answer
@@ -157,9 +228,25 @@ export class ProfilingOrchestrator {
       const decided = await this.decide(buffer, envelope, input);
       if (!decided) return unavailable();
 
+      // Stamp the histogram onto the buffer that is about to be written. Done HERE rather than
+      // inside `decide` so there is exactly one measurement point covering the whole decision —
+      // answer capture, retrieval, pack resolution and question selection together, which is the
+      // unit the plan's "p95 deterministic turn ≤ 400 ms" is about.
+      const measured = withTurnLatency(decided.buffer, Date.now() - startedAt);
+
       // LAYER B — the CAS. A loss is not an error: reload and re-run.
-      const won = await this.buffer.saveWithCas(input.sessionId, decided.buffer, envelope.rev);
-      if (won) return decided.result;
+      const won = await this.buffer.saveWithCas(input.sessionId, measured, envelope.rev);
+      if (won) {
+        // AFTER the CAS, never before. A turn that loses the write did not happen, and pinning a
+        // pack for it would durably commit the interview a discarded decision chose.
+        //
+        // Handed `measured.profiling` rather than `decided.buffer.profiling` — the envelope that
+        // actually landed. The two differ only by the latency histogram today, so nothing turns
+        // on it now; passing the value that was written is what keeps that true if a later stamp
+        // touches something the pin reads.
+        await this.persistPin(envelope, measured.profiling, input);
+        return decided.result;
+      }
 
       this.logger.log(
         `CAS lost session=${input.sessionId} rev=${envelope.rev} attempt=${attempt + 1}; ` +
@@ -225,11 +312,13 @@ export class ProfilingOrchestrator {
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           progress: progressOf(items, answers),
+          unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
           replayed: false,
           excludeFromParse: true,
           unavailable: false,
+          checkpointDue: false,
         });
       }
       // The cap fired. Fall through to the engine, which closes with `abuse_cap` — the reason
@@ -263,11 +352,13 @@ export class ProfilingOrchestrator {
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           progress: progressOf(items, answers),
+          unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
           replayed: false,
           excludeFromParse: false,
           unavailable: false,
+          checkpointDue: false,
         });
       }
       // Three silences: ADVANCE, and advancing has to be made real. Resetting the counter alone
@@ -299,11 +390,13 @@ export class ProfilingOrchestrator {
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           progress: progressOf(items, answers),
+          unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
           replayed: false,
           excludeFromParse: false,
           unavailable: false,
+          checkpointDue: false,
         });
       }
       // Past the bound: fall through and let the engine move the interview on. Acknowledging
@@ -318,10 +411,16 @@ export class ProfilingOrchestrator {
         // not a spent budget — `why_text` first, then the same question again on the same turn.
         next = { ...next, clarifyCount: next.clarifyCount + 1, silentTurns: 0 };
         return this.turn(buffer, next, input, {
-          reply: joinClarify(clarified, askedItem),
+          reply: joinClarify(
+            clarified,
+            askedItem,
+            askedItem ? askCount(state, askedItem.question_key) : 0,
+          ),
           questionKey: clarified.questionKey,
           options: clarified.options,
+          checkpointDue: false,
           progress: clarified.progress,
+          unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
           replayed: false,
@@ -344,8 +443,58 @@ export class ProfilingOrchestrator {
     }
     answers = this.fillCrossQuestion(items, input.text, envelope, answers, capture.correcting, turn);
 
+    // --- IDENTIFY: the worker's words become an occupation -------------------
+    //
+    // AFTER the answer is recorded and BEFORE the engine is consulted, and both halves of that
+    // sandwich are load-bearing. After, because "silai ka kaam karta hoon" is simultaneously the
+    // answer to the trade question and the phrase retrieval runs on — recording it second would
+    // let a pin that changes the pack decide whether the worker's own sentence was ever written
+    // down. Before, because a pin CHANGES WHICH QUESTIONS EXIST, and asking the universal pack's
+    // next question on the very turn we learned the trade wastes the turn the worker just spent
+    // telling us.
+    next = withAnswers(next, answers);
+    const identified = await this.identify.identify(next, input.text, {
+      ...input.ctx,
+      sessionId: input.sessionId,
+      workerId: input.workerId,
+    });
+    next = { ...next, ...identified.patch };
+
+    // Chips are on screen. That IS the turn — there is no pack question to ask until the worker
+    // resolves the ambiguity, and asking one anyway would put two questions in one bubble.
+    if (identified.offer) {
+      return this.turn(buffer, next, input, {
+        reply: identified.offer.prompt,
+        // NO QUESTION KEY. This question belongs to no pack, and claiming a pack's key for it
+        // would make the next turn's `askedItem` lookup capture a chip tap as that question's
+        // answer.
+        questionKey: null,
+        options: identified.offer.options,
+        // A disambiguation turn spends no ask, so it can never cross a checkpoint boundary.
+        checkpointDue: false,
+        progress: progressOf(items, answers),
+        unansweredEssentials: essentialsOf(items, answers),
+        complete: false,
+        completionReason: null,
+        replayed: false,
+        excludeFromParse: false,
+        unavailable: false,
+      });
+    }
+
+    // A pin THIS TURN means the occupation pack was not loaded when `packs` was resolved above.
+    // Re-resolving now is what lets the very next question come from the worker's own trade.
+    let engine = packs.engine;
+    if (identified.pinned) {
+      const repinned = await this.resolvePacks(next, input.now.getTime());
+      if (repinned) {
+        engine = repinned.engine;
+        next = { ...next, packId: repinned.packId, packVersion: repinned.packVersion };
+      }
+    }
+
     // --- The decision -------------------------------------------------------
-    const decision = nextQuestion(toEngineState(withAnswers(next, answers), turn), packs.engine);
+    const decision = nextQuestion(toEngineState(next, turn), engine);
 
     // ADVANCING PAST A QUESTION IS WHAT RECORDS `unanswered`. Judged by comparing what the engine
     // chose against what was on screen, rather than by re-deriving the ask ceiling here — one
@@ -374,9 +523,12 @@ export class ProfilingOrchestrator {
 
     // A TURN THAT WOULD SHOW THE WORKER NOTHING IS NOT A TURN WORTH COMMITTING.
     //
-    // `disambiguate` is how this is reached: `nextQuestion` returns it with an empty `promptText`
-    // because the CHIPS are Phase 7's to build from the retrieval offer, and nothing here can
-    // render them yet. Committing it anyway appended an empty assistant bubble to the transcript,
+    // `disambiguate` is how this WAS reached: `nextQuestion` returns it with an empty
+    // `promptText`, because chips come from retrieval and not from a pack row. The identify step
+    // above now serves that turn itself and returns before ever consulting the engine, so this
+    // branch should be unreachable — the guard stays because "should be unreachable" is a claim
+    // about today's control flow and the failure it prevents is silent.
+    // Committing an empty reply anyway appended an empty assistant bubble to the transcript,
     // cached "" as the replay reply, and — because a non-ask spends no budget and nothing clears
     // the flag — emitted another blank every turn until MAX_ENGINE_TURNS closed the interview.
     //
@@ -395,16 +547,24 @@ export class ProfilingOrchestrator {
       return null;
     }
 
+    // The CROSSING, computed from the pre-turn and post-turn ask counts. `next.engineAsks` was
+    // incremented above only on the `ask` branch, so this is true exactly once per boundary —
+    // never twice at the same count, however many non-ask turns follow.
+    const checkpointDue =
+      next.engineAsks > envelope.engineAsks && next.engineAsks % CHECKPOINT_EVERY_ASKS === 0;
+
     return this.turn(buffer, next, input, {
       reply,
       questionKey: decision.questionKey,
       options: decision.options,
       progress: decision.progress,
+      unansweredEssentials: essentialsOf(items, answers),
       complete: decision.kind === "close",
       completionReason: decision.completionReason,
       replayed: false,
       excludeFromParse: capture.excludeFromParse,
       unavailable: false,
+      checkpointDue,
     });
   }
 
@@ -441,6 +601,108 @@ export class ProfilingOrchestrator {
       }
     }
     return filled;
+  }
+
+  /**
+   * Rebuild a lost envelope's pack pin from Postgres.
+   *
+   * THE ONE FACT ABOUT A SESSION THAT CANNOT BE RE-DERIVED. Everything else in the envelope is
+   * either recoverable (the answers are rows in `worker_pack_answer`) or cheap to lose (counters,
+   * the reply cache). The pin is neither: re-running retrieval on a resumed conversation is not
+   * idempotent — the catalogue may have moved, the worker's first words are gone, and the ladder
+   * can legitimately land somewhere else — so without this read a 24h TTL lapse silently changes
+   * which questions a half-finished interview asks.
+   *
+   * ONLY on the lost-buffer path. When the envelope loaded it already holds the pin, and a query
+   * here would buy nothing but a round trip on every turn of every interview.
+   *
+   * A failure degrades rather than breaks: the interview restarts on the universal pack, which is
+   * exactly what it did before this existed. Loud, because a resumed session quietly changing its
+   * questions is the failure this whole path is here to prevent.
+   */
+  private async restorePin(
+    sessionId: string,
+    envelope: ProfilingEnvelope,
+  ): Promise<ProfilingEnvelope> {
+    try {
+      const pin = await this.chat.findPackPin(sessionId);
+      if (!pin) return envelope;
+      this.logger.log(
+        `envelope for session ${sessionId} was gone; restored pack pin ` +
+          `${pin.packId}:${pin.packVersion} from chat_sessions so the resumed interview asks ` +
+          `the same questions`,
+      );
+      return { ...envelope, packId: pin.packId, packVersion: pin.packVersion };
+    } catch (error) {
+      this.logger.error(
+        `could not read the pack pin for session ${sessionId}; the resumed interview will ` +
+          `re-resolve and may land on a different pack: ${(error as Error).message}`,
+      );
+      return envelope;
+    }
+  }
+
+  /**
+   * Make the pack pin durable, and emit the audit event — on the transition only.
+   *
+   * WHAT "THE TRANSITION" MEANS: the envelope that came out of this turn names a pack and the one
+   * that went in did not. Every later turn re-derives the same `packId` from the same pin, so
+   * writing on each of them would be twelve UPDATEs to store one immutable fact.
+   *
+   * THE EVENT FOLLOWS THE WRITE, NOT THE DECISION. `pinPack` returns whether its
+   * `WHERE pack_id IS NULL` won, so a session that somehow reaches here twice emits once and the
+   * audit trail never claims a pin Postgres does not hold.
+   *
+   * BEST-EFFORT, DELIBERATELY. The worker's turn is already committed to Redis and their reply is
+   * owed; throwing here would turn a durability problem into a lost answer. The cost of the
+   * failure is bounded and named in the log: this session loses the resume guarantee, and
+   * nothing else. It is not retried on a later turn because the transition has passed — a
+   * self-healing write would have to run on every turn, which is the cost this method exists to
+   * avoid.
+   */
+  private async persistPin(
+    before: ProfilingEnvelope,
+    after: ProfilingEnvelope | null | undefined,
+    input: TurnInput,
+  ): Promise<void> {
+    if (before.packId !== null || !after?.packId || !after.packVersion) return;
+    const occupation = after.occupation;
+    if (!occupation) return;
+
+    try {
+      const won = await this.chat.pinPack(input.sessionId, after.packId, after.packVersion);
+      if (!won) {
+        this.logger.warn(
+          `session ${input.sessionId} already holds a pack pin; keeping it and NOT repinning ` +
+            `to ${after.packId}:${after.packVersion}`,
+        );
+        return;
+      }
+      await this.events.emit({
+        event_name: "profile.pack_pinned",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          pack_id: after.packId,
+          pack_version: after.packVersion,
+          job_domain_id: occupation.job_domain_id,
+          catalog_version: catalogVersionForEvent(occupation.catalog_version),
+        },
+        // The SQL guard already makes this once-per-session; the key is the backstop for the
+        // at-least-once delivery retry, matching `profile.occupation_identified`.
+        idempotencyKey: `profile.pack_pinned:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `pack pin ${after.packId}:${after.packVersion} did not become durable for session ` +
+          `${input.sessionId}; the interview continues but a Redis eviction will restart it on ` +
+          `the universal pack: ${(error as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -521,6 +783,22 @@ export class ProfilingOrchestrator {
   }
 }
 
+/**
+ * Fold this turn's elapsed time into the buffer's histogram.
+ *
+ * A buffer with no envelope is returned untouched: `saveWithCas` rejects one anyway, and
+ * inventing an envelope here to hold a metric would hand a CAS token to a value that never had
+ * one.
+ */
+function withTurnLatency(buffer: TranscriptBuffer, elapsedMs: number): TranscriptBuffer {
+  const envelope = buffer.profiling;
+  if (!envelope) return buffer;
+  return {
+    ...buffer,
+    profiling: { ...envelope, turnLatency: recordTurnLatency(envelope.turnLatency, elapsedMs) },
+  };
+}
+
 /** Layer A: the same message, at the same rev, inside the window. */
 function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | null {
   const last = envelope.lastTurn;
@@ -535,11 +813,15 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
     questionKey: last.questionKey,
     options: [],
     progress: { answered: 0, total: 0 },
+    unansweredEssentials: [],
     complete: false,
     completionReason: null,
     replayed: true,
     excludeFromParse: false,
     unavailable: false,
+    // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
+    // client retrying on a flaky connection drive one Postgres UPDATE per retry.
+    checkpointDue: false,
   };
 }
 
@@ -549,25 +831,39 @@ function unavailable(): TurnResult {
     questionKey: null,
     options: [],
     progress: { answered: 0, total: 0 },
+    unansweredEssentials: [],
     complete: false,
     completionReason: null,
     replayed: false,
     excludeFromParse: false,
     unavailable: true,
+    // Nothing was written to Redis either, so there is no state a checkpoint could make durable.
+    checkpointDue: false,
   };
 }
 
-/** `why_text`, then the question again — one message, because the client renders one bubble. */
-function joinClarify(decision: Decision, askedItem: QuestionPackItem | null): string {
-  const why = decision.promptText;
-  const question = askedItem?.prompt_text ?? "";
-  if (!question || why === question) return why;
-  return `${why} ${question}`;
-}
 
 function progressOf(items: readonly QuestionPackItem[], answers: AnswerMap) {
   return {
     answered: items.filter((item) => isSettled(answers, item.question_key)).length,
     total: items.length,
   };
+}
+
+/**
+ * The mandatory questions still unsettled.
+ *
+ * DECLINED COUNTS AS SETTLED (`isSettled`), and that is the plan's hardest-won rule made
+ * concrete: "nahi pata" is a COMPLETE answer. Counting a declination as outstanding here would
+ * put it back on the client's essentials list and invite exactly the badgering the engine already
+ * refuses to do.
+ *
+ * Capped at the payload's own limit so this list can never be the thing that fails an emit — the
+ * flush transaction carries a sibling of it, and a rejected array there costs the interview.
+ */
+function essentialsOf(items: readonly QuestionPackItem[], answers: AnswerMap): string[] {
+  return items
+    .filter((item) => item.is_mandatory && !isSettled(answers, item.question_key))
+    .map((item) => item.question_key)
+    .slice(0, 50);
 }

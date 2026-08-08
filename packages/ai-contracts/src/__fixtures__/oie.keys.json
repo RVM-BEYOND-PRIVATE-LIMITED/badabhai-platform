@@ -82,5 +82,5 @@
     "target_fields"
   ],
   "ParsedField": ["value", "evidence", "source", "normalization", "confidence"],
-  "ProfileParseOutput": ["fields", "unparsed_field_ids", "notes"]
+  "ProfileParseOutput": ["fields", "unparsed_field_ids", "notes", "ai_metadata"]
 }

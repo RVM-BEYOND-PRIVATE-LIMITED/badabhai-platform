@@ -91,6 +91,23 @@ export function inboundHash(sessionId: string, rev: number, text: string): strin
 export const REPLY_CACHE_WINDOW_MS = 10_000;
 
 /**
+ * One chip in an outstanding disambiguation offer, WITH the id it resolves to.
+ *
+ * THE MAP IS HELD SERVER-SIDE, AND THAT IS THE WHOLE DESIGN. When the worker taps "welder", the
+ * text that arrives is the label — and resolving it by re-running retrieval against that label
+ * would re-enter the same ambiguity the chips exist to settle, potentially landing on a different
+ * occupation than the one the chip was built from. The tap is looked up in THIS array instead, so
+ * a chip always resolves to exactly the row it was rendered from.
+ *
+ * `jobDomainId` is null on the "kuch aur" escape — the tap that means "none of these".
+ */
+export interface OfferedChip {
+  readonly label: string;
+  readonly jobDomainId: string | null;
+  readonly familyId: string | null;
+}
+
+/**
  * Everything the deterministic interview needs between turns.
  *
  * ABSENT on a v1 (model-driven) interview, which is why `TranscriptBuffer.profiling` is optional:
@@ -125,6 +142,22 @@ export interface ProfilingEnvelope {
   /** True once retrieval has offered choices the worker has not resolved. */
   readonly needsDisambiguation: boolean;
   /**
+   * The chips currently on screen and what each resolves to. Empty when no offer is outstanding.
+   *
+   * Cleared the moment the offer is settled — by a tap, by the escape, or by the offer being
+   * abandoned — so a stale array can never resolve a later, unrelated message into an occupation.
+   */
+  readonly disambiguationOffer: readonly OfferedChip[];
+  /**
+   * How many turns retrieval has been run and come back with nothing.
+   *
+   * BOUNDED, because an unbounded identify phase is an interview that never asks a second
+   * question. A worker whose trade is genuinely not in the catalogue must still get a profile;
+   * after {@link MAX_IDENTIFY_ATTEMPTS} the engine stops trying and runs the universal pack,
+   * which is exactly the fallback the universal pack exists for.
+   */
+  readonly identifyAttempts: number;
+  /**
    * The pack pinned WITH the occupation, and immutable for the rest of the conversation.
    *
    * Duplicated from `occupation.pack_id` deliberately (risk #13): a repin replaces `occupation`,
@@ -135,6 +168,77 @@ export interface ProfilingEnvelope {
   /** Catalogue release retrieval ran against; pins alias resolution mid-flight. */
   readonly catalogVersion: string | null;
   readonly lastTurn: LastTurn | null;
+  /** Per-turn orchestrator latency, as a histogram. See {@link TurnLatency}. */
+  readonly turnLatency: TurnLatency;
+  /**
+   * The FAMILY the current pin resolved to — the re-pin comparison key (risk #12).
+   *
+   * NOT derivable from `occupation`, which carries a `job_domain_id` and no family, and NOT
+   * interchangeable with it: the whole reason the ladder resolves families first is that
+   * "Welder, Gas" and "Welder, Electric" are a coin flip at occupation level and identical at
+   * family level. A re-pin guard comparing job domains would fire on that coin flip and swap a
+   * worker's pack for the one it already had.
+   */
+  readonly occupationFamilyId: string | null;
+  /**
+   * How many times the occupation has been RE-pinned. The first pin does not count.
+   *
+   * Bounded by `MAX_OCCUPATION_REPINS`, because an unbounded one lets a worker who keeps naming
+   * machines walk the interview through a different pack every turn, answering nothing.
+   */
+  readonly occupationRepins: number;
+}
+
+/**
+ * Per-turn orchestrator latency, accumulated as a HISTOGRAM rather than a list (Phase 9).
+ *
+ * WHY A HISTOGRAM AND NOT PER-TURN EVENTS. The plan's gate is "p95 deterministic turn ≤ 400 ms",
+ * which is a percentile over a population — and the obvious way to get one, an event per turn, is
+ * the plan's own risk #9: ~12 turns × 1M conversations is 12M rows whose only consumer is a
+ * dashboard. Buckets give the same percentile from ONE event per interview, because a percentile
+ * over bucketed counts is exactly what an SLO is computed from in the first place.
+ *
+ * WHY A FIXED SIX FIELDS. The cost of carrying this in the envelope has to be independent of how
+ * long the interview runs, or a worker who takes 30 turns pays for the measurement. Five counters
+ * and a max are constant no matter the turn count.
+ *
+ * THE BOUNDARIES BRACKET THE TARGET. 400 ms is the gate, so it is a bucket edge: `le_400` and
+ * everything below it is the passing population, and the split at 100/200 is what distinguishes
+ * "comfortably inside" from "about to regress". `gt_800` and `max` are the tail the mean would
+ * hide — a p50 of 40 ms with one 9-second turn is a broken interview for that worker, and the
+ * histogram is what makes them visible.
+ */
+export interface TurnLatency {
+  readonly le_100: number;
+  readonly le_200: number;
+  readonly le_400: number;
+  readonly le_800: number;
+  readonly gt_800: number;
+  /** The slowest single turn, in ms. The tail the buckets round away. */
+  readonly max_ms: number;
+}
+
+/** A zeroed histogram. */
+export function emptyTurnLatency(): TurnLatency {
+  return { le_100: 0, le_200: 0, le_400: 0, le_800: 0, gt_800: 0, max_ms: 0 };
+}
+
+/**
+ * Fold one turn's duration into the histogram. Pure.
+ *
+ * A NEGATIVE OR NON-FINITE DURATION IS DROPPED, not clamped into `le_100`. Clock skew between
+ * instances is the realistic source, and a bogus 0 ms would make the p95 look better than reality
+ * — the one direction a latency metric must never fail in.
+ */
+export function recordTurnLatency(current: TurnLatency, ms: number): TurnLatency {
+  if (!Number.isFinite(ms) || ms < 0) return current;
+  const rounded = Math.round(ms);
+  const max_ms = Math.max(current.max_ms, rounded);
+  if (rounded <= 100) return { ...current, le_100: current.le_100 + 1, max_ms };
+  if (rounded <= 200) return { ...current, le_200: current.le_200 + 1, max_ms };
+  if (rounded <= 400) return { ...current, le_400: current.le_400 + 1, max_ms };
+  if (rounded <= 800) return { ...current, le_800: current.le_800 + 1, max_ms };
+  return { ...current, gt_800: current.gt_800 + 1, max_ms };
 }
 
 /**
@@ -158,10 +262,15 @@ export const PROFILING_ENVELOPE_KEYS = {
   silentTurns: true,
   hardshipTurns: true,
   needsDisambiguation: true,
+  disambiguationOffer: true,
+  identifyAttempts: true,
   packId: true,
   packVersion: true,
   catalogVersion: true,
   lastTurn: true,
+  turnLatency: true,
+  occupationFamilyId: true,
+  occupationRepins: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -179,10 +288,15 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     silentTurns: 0,
     hardshipTurns: 0,
     needsDisambiguation: false,
+    disambiguationOffer: [],
+    identifyAttempts: 0,
     packId: null,
     packVersion: null,
     catalogVersion: null,
     lastTurn: null,
+    turnLatency: emptyTurnLatency(),
+    occupationFamilyId: null,
+    occupationRepins: 0,
   };
 }
 
@@ -219,6 +333,29 @@ function narrowAnswerMap(value: unknown): AnswerRecord[] {
     if (parsed.success) records.push(parsed.data);
   }
   return records;
+}
+
+/**
+ * The outstanding chip offer, rebuilt entry by entry.
+ *
+ * A CHIP WITHOUT A LABEL IS DROPPED, not repaired to "". The label is what the worker taps and
+ * what becomes their answer of record verbatim; an empty one would render as a blank button that
+ * silently pins a real occupation.
+ */
+function narrowOffer(value: unknown): OfferedChip[] {
+  if (!Array.isArray(value)) return [];
+  const chips: OfferedChip[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const v = raw as Record<string, unknown>;
+    if (typeof v.label !== "string" || v.label.trim().length === 0) continue;
+    chips.push({
+      label: v.label,
+      jobDomainId: typeof v.jobDomainId === "string" ? v.jobDomainId : null,
+      familyId: typeof v.familyId === "string" ? v.familyId : null,
+    });
+  }
+  return chips;
 }
 
 function narrowLastTurn(value: unknown): LastTurn | null {
@@ -269,6 +406,8 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     silentTurns: nonNegativeInt(v.silentTurns),
     hardshipTurns: nonNegativeInt(v.hardshipTurns),
     needsDisambiguation: v.needsDisambiguation === true,
+    disambiguationOffer: narrowOffer(v.disambiguationOffer),
+    identifyAttempts: nonNegativeInt(v.identifyAttempts),
     packId: typeof v.packId === "string" ? v.packId : null,
     packVersion:
       typeof v.packVersion === "number" && Number.isInteger(v.packVersion) && v.packVersion > 0
@@ -276,6 +415,31 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
         : null,
     catalogVersion: typeof v.catalogVersion === "string" ? v.catalogVersion : null,
     lastTurn: narrowLastTurn(v.lastTurn),
+    turnLatency: narrowTurnLatency(v.turnLatency),
+    occupationFamilyId:
+      typeof v.occupationFamilyId === "string" ? v.occupationFamilyId : null,
+    occupationRepins: nonNegativeInt(v.occupationRepins),
+  };
+}
+
+/**
+ * A stored histogram, or a zeroed one.
+ *
+ * ABSENT IS NOT AN ERROR: every envelope written before this field existed has no `turnLatency`,
+ * and those interviews are still in flight behind a 24 h TTL. They resume with a zeroed histogram
+ * and under-report their own early turns, which is the correct trade — the alternative is
+ * discarding a live interview to protect a metric.
+ */
+function narrowTurnLatency(value: unknown): TurnLatency {
+  if (typeof value !== "object" || value === null) return emptyTurnLatency();
+  const v = value as Record<string, unknown>;
+  return {
+    le_100: nonNegativeInt(v.le_100),
+    le_200: nonNegativeInt(v.le_200),
+    le_400: nonNegativeInt(v.le_400),
+    le_800: nonNegativeInt(v.le_800),
+    gt_800: nonNegativeInt(v.gt_800),
+    max_ms: nonNegativeInt(v.max_ms),
   };
 }
 

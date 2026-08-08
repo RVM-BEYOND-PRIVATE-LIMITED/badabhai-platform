@@ -51,6 +51,23 @@ export interface SpanIndex {
   readonly skeleton: ReadonlyMap<string, readonly string[]>;
   /** Longest alias, in tokens. Caps the span scan — see {@link matchSpan}. */
   readonly maxSpanTokens: number;
+  /**
+   * token -> the ids whose aliases contain it, plus each token's inverse document frequency.
+   *
+   * WHAT THIS IS FOR, since it is emphatically NOT a fifth retrieval layer. `matchSpan`
+   * answers "which ids claim this span". When several claim the SAME span — "mistri"
+   * reaches a mason and a general repairman — every candidate has identical evidence, and
+   * neither the index nor the caller has any way to prefer one. The postings let the REST
+   * of the worker's sentence break that tie: "raj mistri deewar banata hoon" contains
+   * `deewar`, which belongs to masonry and not to general repair.
+   *
+   * IDF IS WHAT MAKES THE TIE-BREAK MEAN ANYTHING. Without it `kaam` — which appears in
+   * hundreds of aliases — would count as much as `deewar`, and the most common word in the
+   * corpus would decide the worker's trade. Weighting by rarity is the whole difference
+   * between evidence and noise.
+   */
+  readonly tokenPostings: ReadonlyMap<string, readonly string[]>;
+  readonly idf: ReadonlyMap<string, number>;
 }
 
 export interface SpanMatch {
@@ -81,21 +98,65 @@ function push(map: Map<string, string[]>, key: string, id: string): void {
 export function buildSpanIndex(entries: Iterable<IndexableEntry>): SpanIndex {
   const exact = new Map<string, string[]>();
   const skeleton = new Map<string, string[]>();
+  const tokenPostings = new Map<string, string[]>();
   let maxSpanTokens = 1;
+  let entryCount = 0;
 
   for (const entry of entries) {
+    entryCount++;
     for (const alias of entry.aliases) {
       const norm = normalizeOccupationText(alias);
       if (norm.length === 0) continue;
       push(exact, norm, entry.id);
       const skel = skeletonKey(norm);
       if (skel.length > 0) push(skeleton, skel, entry.id);
-      const tokens = norm.split(" ").length;
-      if (tokens > maxSpanTokens) maxSpanTokens = tokens;
+      const tokens = norm.split(" ");
+      if (tokens.length > maxSpanTokens) maxSpanTokens = tokens.length;
+      for (const token of tokens) {
+        if (token.length > 0) push(tokenPostings, token, entry.id);
+      }
     }
   }
 
-  return { exact, skeleton, maxSpanTokens };
+  // Smoothed IDF: log(N / (df + 1)). A token in EVERY entry scores ~0 and contributes
+  // nothing to a tie-break; a token in one entry scores high. The `+ 1` avoids a divide by
+  // zero for a token that somehow reached here with no postings, and `Math.max(0, ...)`
+  // keeps a token more frequent than N — impossible today, cheap to not depend on — from
+  // going negative and silently SUBTRACTING from a candidate's score.
+  const idf = new Map<string, number>();
+  const n = Math.max(entryCount, 1);
+  for (const [token, ids] of tokenPostings) {
+    idf.set(token, Math.max(0, Math.log(n / (ids.length + 1))));
+  }
+
+  return { exact, skeleton, maxSpanTokens, tokenPostings, idf };
+}
+
+/**
+ * IDF-weighted overlap between an utterance and one indexed id.
+ *
+ * A TIE-BREAK, NEVER A MATCH. This can reorder candidates that already scored equally; it
+ * cannot lift one past a threshold or introduce a candidate the ladder did not find. A rule
+ * that could change which family WINS on token overlap would be a fifth retrieval layer
+ * with no calibration behind it, and the plan's ladder has exactly four.
+ *
+ * Returns 0 when nothing overlaps — the correct neutral value, because a tie-break that
+ * cannot distinguish two candidates must leave the caller's existing order untouched.
+ *
+ * The caller passes an already-normalized utterance, so this repeats no work the ladder has
+ * already done on the same string.
+ */
+export function idfOverlap(index: SpanIndex, utteranceNorm: string, id: string): number {
+  let score = 0;
+  const counted = new Set<string>();
+  for (const token of utteranceNorm.split(" ")) {
+    if (token.length === 0 || counted.has(token)) continue;
+    counted.add(token);
+    const ids = index.tokenPostings.get(token);
+    if (ids === undefined || !ids.includes(id)) continue;
+    score += index.idf.get(token) ?? 0;
+  }
+  return score;
 }
 
 /**
