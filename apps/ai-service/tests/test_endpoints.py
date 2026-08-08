@@ -163,3 +163,52 @@ def test_voice_transcribe_accepts_and_forwards_the_opaque_worker_ref(monkeypatch
     assert seen["worker_ref"] == "opaque-worker-uuid"
     assert seen["duration_seconds"] == 120
 
+
+def test_voice_transcribe_returns_the_error_code_instead_of_only_logging_it(monkeypatch):
+    """A degraded result must SAY it is degraded, on the wire.
+
+    ``SttAdapter`` has always distinguished ``stt_budget_blocked`` (we refused to
+    call the provider) and ``stt_call_failed`` (the call failed) from a worker who
+    genuinely said nothing. That code was written to the log line in this router and
+    then DROPPED from the response, so all three reached the backend as the same
+    empty string — which the transcription processor stored and marked ``completed``.
+    In a voice-driven form that is a worker's spoken answer vanishing behind a green
+    tick, with the audio already bought and stored.
+    """
+    from app import main as main_module
+    from app.stt import SttResult
+
+    async def _blocked(**_kwargs):
+        return SttResult("", 0.0, None, True, error_code="stt_budget_blocked")
+
+    monkeypatch.setattr(main_module.stt_adapter, "transcribe", _blocked)
+    res = client.post(
+        "/voice/transcribe",
+        json={"storage_path": "voice-notes/w/x.m4a", "translate_to_english": False},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["error_code"] == "stt_budget_blocked"
+    assert body["transcript_text"] == ""
+
+
+def test_voice_transcribe_error_code_is_null_on_the_happy_path(monkeypatch):
+    """The other half: nothing wrong means nothing to report.
+
+    Without this, a backend that treats any non-null ``error_code`` as a failure
+    would reject every successful transcription.
+    """
+    from app import main as main_module
+    from app.stt import SttResult
+
+    async def _ok(**_kwargs):
+        return SttResult("main welder hoon", 0.9, "hi-IN", False)
+
+    monkeypatch.setattr(main_module.stt_adapter, "transcribe", _ok)
+    res = client.post(
+        "/voice/transcribe",
+        json={"storage_path": "voice-notes/w/x.m4a", "translate_to_english": False},
+    )
+    assert res.status_code == 200
+    assert res.json()["error_code"] is None
+

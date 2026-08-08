@@ -362,3 +362,44 @@ describe("checkPromptPersona — the runtime guard promoted to build time", () =
     expect(p).toContain("question mark");
   });
 });
+
+describe("no template placeholder may reach a worker", () => {
+  /**
+   * THE HIGHEST-VALUE CHECK IN THIS VALIDATOR, and the cheapest.
+   *
+   * The voice form pre-renders every string the engine can serve into TTS audio, keyed by
+   * `sha256(text)` and SHARED ACROSS EVERY WORKER. That is safe only while the text depends on
+   * nothing about the individual. `{{worker_name}}` is a reviewed affordance of this corpus — the
+   * API interpolates it POST-emit, into the client-returned reply only — but an authored prompt
+   * carrying it would put ONE worker's name into a clip EVERY other worker hears.
+   *
+   * Measured when this landed: 0 of 466 corpus items contain `{{` anywhere. So this is a guard
+   * against a single careless pack row, not a repair of an existing one.
+   */
+  const withText = (field: "prompt_text" | "retry_text" | "why_text", text: string) => {
+    const c = valid();
+    (c.packs[0]!.items[0]! as unknown as Record<string, unknown>)[field] = text;
+    return c;
+  };
+
+  it.each(["prompt_text", "retry_text", "why_text"] as const)(
+    "rejects a placeholder in %s — all three reach a worker",
+    (field) => {
+      // `why_text` reaches them inside the clarify concatenation and `retry_text` on the second
+      // ask, so checking only the prompt would leave two open doors.
+      const problems = fatal(withText(field, "Namaste {{worker_name}} ji, aap kahan hain?"));
+      expect(problems.join("\n")).toContain("template placeholder");
+      expect(problems.join("\n")).toContain(field);
+    },
+  );
+
+  it("rejects a stray closing brace pair too — a half-written token is still a token", () => {
+    expect(fatal(withText("why_text", "Aapke naam }} ke liye.")).join("\n")).toContain(
+      "template placeholder",
+    );
+  });
+
+  it("leaves ordinary text alone", () => {
+    expect(fatal(withText("why_text", "Sheher se paas ki naukri milti hai."))).toEqual([]);
+  });
+});

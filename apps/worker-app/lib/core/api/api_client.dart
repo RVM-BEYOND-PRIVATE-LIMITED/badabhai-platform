@@ -638,8 +638,13 @@ class ApiClient {
 
   /// Sets the master Notifications on/off preference (PATCH
   /// /workers/me/notification-prefs — WorkerAuthGuard). Worker-scoped. When OFF,
-  /// the backend must SKIP every push fan-out to this worker (the gate lives in
-  /// the send path, not here). Callers invoke this best-effort.
+  /// the backend skips every push fan-out to this worker (the gate lives in the
+  /// send path, `PushService.deliver`, not here) — EXCEPT security alerts, which
+  /// always send. The only two push templates today are the account-takeover
+  /// tripwires (`worker.device_registered` — SIM-swap login; `worker.logged_out_all`),
+  /// and a convenience toggle must not be able to disarm the alarm that reports
+  /// its own misuse (an attacker on a stolen session could otherwise silence it).
+  /// Callers invoke this best-effort.
   Future<void> updateNotificationPrefs({
     required bool enabled,
     required String authToken,

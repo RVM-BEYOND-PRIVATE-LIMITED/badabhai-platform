@@ -22,8 +22,11 @@ import {
   ChatTranscriptBuffer,
   type TranscriptBuffer,
 } from "../chat/chat-transcript.buffer";
+import { ChatRepository } from "../chat/chat.repository";
 import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat.service";
 import type { RequestContext } from "../common/request-context";
+import { EventsService } from "../events/events.service";
+import { catalogVersionForEvent } from "../occupation/occupation.repository";
 import { IdentifyService } from "./identify.service";
 import { captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
 import {
@@ -47,14 +50,17 @@ import {
   askCeiling,
   askCount,
   clarify,
+  joinClarify,
   nextQuestion,
   servedText,
+  CLOSING_REPLY_TEXT,
+  DE_ESCALATION_REPLY_TEXT,
+  HARDSHIP_REPLY_TEXTS,
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_HARDSHIP,
   MAX_ENGINE_TURNS,
   MAX_SILENT_TURNS,
   type CompletionReason,
-  type Decision,
   type EnginePacks,
 } from "./next-question";
 import { PackRegistryService } from "./pack-registry.service";
@@ -69,7 +75,7 @@ import { PackRegistryService } from "./pack-registry.service";
  * On-persona by the same rules `persona_guard.check_turn` enforces on pack copy: "aap", no
  * vocative, no exclamation, no emoji, under twenty words.
  */
-export const DE_ESCALATION_REPLY = "Aap se vinamra rehne ki request hai. Kaam ki baat karte hain.";
+export const DE_ESCALATION_REPLY = DE_ESCALATION_REPLY_TEXT;
 
 /**
  * The closed appreciation set for a hardship turn.
@@ -79,14 +85,13 @@ export const DE_ESCALATION_REPLY = "Aap se vinamra rehne ki request hai. Kaam ki
  * pushing a question is the whole point — a worker describing a hard month is not refusing to
  * answer, and pressing them is the fastest way to lose the interview.
  */
-export const HARDSHIP_REPLIES = [
-  "Samajh sakta hoon. Aapki baat sahi hai.",
-  "Aapki mehnat samajh aati hai. Thoda aur batayiye.",
-  "Theek hai. Aaram se batayiye, koi jaldi nahi.",
-] as const;
+export const HARDSHIP_REPLIES = HARDSHIP_REPLY_TEXTS;
 
 /** Served when the interview ends normally. */
-export const CLOSING_REPLY = "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
+export const CLOSING_REPLY = CLOSING_REPLY_TEXT;
+
+/** Re-exported: the join moved to the pure module so a TTS renderer need not boot Nest. */
+export { joinClarify };
 
 /**
  * Served when the CAS could not be won or no pack could be resolved. Nothing was written.
@@ -185,6 +190,8 @@ export class ProfilingOrchestrator {
     private readonly buffer: ChatTranscriptBuffer,
     private readonly packs: PackRegistryService,
     private readonly identify: IdentifyService,
+    private readonly chat: ChatRepository,
+    private readonly events: EventsService,
   ) {}
 
   /**
@@ -207,7 +214,10 @@ export class ProfilingOrchestrator {
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
       const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
-      const envelope = buffer.profiling ?? emptyProfilingEnvelope();
+      const envelope =
+        loaded === null
+          ? await this.restorePin(input.sessionId, emptyProfilingEnvelope())
+          : (buffer.profiling ?? emptyProfilingEnvelope());
 
       // LAYER A — the reply cache. Checked on EVERY attempt, not only the first: the writer who
       // beat us may have been this same worker's duplicate submit, in which case the right answer
@@ -226,7 +236,17 @@ export class ProfilingOrchestrator {
 
       // LAYER B — the CAS. A loss is not an error: reload and re-run.
       const won = await this.buffer.saveWithCas(input.sessionId, measured, envelope.rev);
-      if (won) return decided.result;
+      if (won) {
+        // AFTER the CAS, never before. A turn that loses the write did not happen, and pinning a
+        // pack for it would durably commit the interview a discarded decision chose.
+        //
+        // Handed `measured.profiling` rather than `decided.buffer.profiling` — the envelope that
+        // actually landed. The two differ only by the latency histogram today, so nothing turns
+        // on it now; passing the value that was written is what keeps that true if a later stamp
+        // touches something the pin reads.
+        await this.persistPin(envelope, measured.profiling, input);
+        return decided.result;
+      }
 
       this.logger.log(
         `CAS lost session=${input.sessionId} rev=${envelope.rev} attempt=${attempt + 1}; ` +
@@ -391,7 +411,11 @@ export class ProfilingOrchestrator {
         // not a spent budget — `why_text` first, then the same question again on the same turn.
         next = { ...next, clarifyCount: next.clarifyCount + 1, silentTurns: 0 };
         return this.turn(buffer, next, input, {
-          reply: joinClarify(clarified, askedItem),
+          reply: joinClarify(
+            clarified,
+            askedItem,
+            askedItem ? askCount(state, askedItem.question_key) : 0,
+          ),
           questionKey: clarified.questionKey,
           options: clarified.options,
           checkpointDue: false,
@@ -580,6 +604,108 @@ export class ProfilingOrchestrator {
   }
 
   /**
+   * Rebuild a lost envelope's pack pin from Postgres.
+   *
+   * THE ONE FACT ABOUT A SESSION THAT CANNOT BE RE-DERIVED. Everything else in the envelope is
+   * either recoverable (the answers are rows in `worker_pack_answer`) or cheap to lose (counters,
+   * the reply cache). The pin is neither: re-running retrieval on a resumed conversation is not
+   * idempotent — the catalogue may have moved, the worker's first words are gone, and the ladder
+   * can legitimately land somewhere else — so without this read a 24h TTL lapse silently changes
+   * which questions a half-finished interview asks.
+   *
+   * ONLY on the lost-buffer path. When the envelope loaded it already holds the pin, and a query
+   * here would buy nothing but a round trip on every turn of every interview.
+   *
+   * A failure degrades rather than breaks: the interview restarts on the universal pack, which is
+   * exactly what it did before this existed. Loud, because a resumed session quietly changing its
+   * questions is the failure this whole path is here to prevent.
+   */
+  private async restorePin(
+    sessionId: string,
+    envelope: ProfilingEnvelope,
+  ): Promise<ProfilingEnvelope> {
+    try {
+      const pin = await this.chat.findPackPin(sessionId);
+      if (!pin) return envelope;
+      this.logger.log(
+        `envelope for session ${sessionId} was gone; restored pack pin ` +
+          `${pin.packId}:${pin.packVersion} from chat_sessions so the resumed interview asks ` +
+          `the same questions`,
+      );
+      return { ...envelope, packId: pin.packId, packVersion: pin.packVersion };
+    } catch (error) {
+      this.logger.error(
+        `could not read the pack pin for session ${sessionId}; the resumed interview will ` +
+          `re-resolve and may land on a different pack: ${(error as Error).message}`,
+      );
+      return envelope;
+    }
+  }
+
+  /**
+   * Make the pack pin durable, and emit the audit event — on the transition only.
+   *
+   * WHAT "THE TRANSITION" MEANS: the envelope that came out of this turn names a pack and the one
+   * that went in did not. Every later turn re-derives the same `packId` from the same pin, so
+   * writing on each of them would be twelve UPDATEs to store one immutable fact.
+   *
+   * THE EVENT FOLLOWS THE WRITE, NOT THE DECISION. `pinPack` returns whether its
+   * `WHERE pack_id IS NULL` won, so a session that somehow reaches here twice emits once and the
+   * audit trail never claims a pin Postgres does not hold.
+   *
+   * BEST-EFFORT, DELIBERATELY. The worker's turn is already committed to Redis and their reply is
+   * owed; throwing here would turn a durability problem into a lost answer. The cost of the
+   * failure is bounded and named in the log: this session loses the resume guarantee, and
+   * nothing else. It is not retried on a later turn because the transition has passed — a
+   * self-healing write would have to run on every turn, which is the cost this method exists to
+   * avoid.
+   */
+  private async persistPin(
+    before: ProfilingEnvelope,
+    after: ProfilingEnvelope | null | undefined,
+    input: TurnInput,
+  ): Promise<void> {
+    if (before.packId !== null || !after?.packId || !after.packVersion) return;
+    const occupation = after.occupation;
+    if (!occupation) return;
+
+    try {
+      const won = await this.chat.pinPack(input.sessionId, after.packId, after.packVersion);
+      if (!won) {
+        this.logger.warn(
+          `session ${input.sessionId} already holds a pack pin; keeping it and NOT repinning ` +
+            `to ${after.packId}:${after.packVersion}`,
+        );
+        return;
+      }
+      await this.events.emit({
+        event_name: "profile.pack_pinned",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          pack_id: after.packId,
+          pack_version: after.packVersion,
+          job_domain_id: occupation.job_domain_id,
+          catalog_version: catalogVersionForEvent(occupation.catalog_version),
+        },
+        // The SQL guard already makes this once-per-session; the key is the backstop for the
+        // at-least-once delivery retry, matching `profile.occupation_identified`.
+        idempotencyKey: `profile.pack_pinned:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `pack pin ${after.packId}:${after.packVersion} did not become durable for session ` +
+          `${input.sessionId}; the interview continues but a Redis eviction will restart it on ` +
+          `the universal pack: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * The occupation pack (pinned if the conversation already has one) and the universal tail.
    *
    * PINNING HAPPENS ONCE. If `packId` is already set the pinned version is loaded verbatim; a
@@ -716,13 +842,6 @@ function unavailable(): TurnResult {
   };
 }
 
-/** `why_text`, then the question again — one message, because the client renders one bubble. */
-function joinClarify(decision: Decision, askedItem: QuestionPackItem | null): string {
-  const why = decision.promptText;
-  const question = askedItem?.prompt_text ?? "";
-  if (!question || why === question) return why;
-  return `${why} ${question}`;
-}
 
 function progressOf(items: readonly QuestionPackItem[], answers: AnswerMap) {
   return {

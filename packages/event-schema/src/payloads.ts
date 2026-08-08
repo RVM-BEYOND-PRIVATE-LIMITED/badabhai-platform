@@ -707,8 +707,39 @@ export const AiLlmCallFailedPayload = z.object({
   error: z.string().min(1).max(512),
 });
 
-/** AI task the router executed. Mirrors `TaskType` in app/ai/model_config.py. */
-const aiTaskType = z.enum(["profiling_chat_turn", "profile_extraction", "resume_generation"]);
+/**
+ * AI task the spend belongs to — the FULL set the ai-service actually charges against, not the
+ * subset `model_config.TaskType` happens to route.
+ *
+ * IT USED TO BE THREE, AND THAT WAS A CEILING ON WHAT COULD BE LEDGERED AT ALL. `ai.cost_recorded`
+ * validates against this enum, and its one emitter swallows validation errors so the observability
+ * event can never fail an extraction — so a task type missing from this list did not produce a
+ * loud rejection, it produced NOTHING. `profile_parse` is the sharpest case: the Phase 8 cutover
+ * deleted every per-turn model call and replaced them with that single parse, moving all of the
+ * interview's model spend to a task this enum could not name.
+ *
+ * WIDENING AN ENUM IS BACKWARD COMPATIBLE IN THIS DIRECTION and only this one: every payload that
+ * validated before still validates, and a reader switching on the old three sees no new value for
+ * events it already understood. Removing one would break consumers (§3).
+ *
+ * Pinned to the ai-service's own task-type constants — `STT_TASK_TYPE`, `TTS_TASK_TYPE`,
+ * `EMBEDDING_TASK_TYPE`, `PARSE_TASK_TYPE`, `model_config.TaskType` — by
+ * `tests/test_task_type_ledger_parity.py`, which reads this enum out of this file so a new
+ * provider surface cannot arrive unledgered a second time.
+ */
+const aiTaskType = z.enum([
+  // Routed by `model_config.TaskType`.
+  "profiling_chat_turn",
+  "profile_extraction",
+  "resume_generation",
+  // Routed, but never in this enum until now — the interview's ONE LLM call.
+  "profile_parse",
+  "domain_match",
+  // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
+  "stt_transcription",
+  "tts_synthesis",
+  "skill_embedding",
+]);
 
 /** Async AI job type. Mirrors `AI_JOB_TYPES` in @badabhai/types. */
 const aiJobType = z.enum([
@@ -738,6 +769,8 @@ export const AiCostRecordedPayload = z.object({
   cost_alert: z.boolean().default(false),
   above_target: z.boolean().default(false),
 });
+/** The task a cost record can be attributed to — see {@link aiTaskType}. */
+export type AiCostTaskType = z.infer<typeof aiTaskType>;
 
 /**
  * Spend-cap / circuit-breaker block codes — the terminal `error_code` values the
@@ -2589,7 +2622,20 @@ export const ProfileOccupationIdentifiedPayload = z
     session_id: uuidSchema.nullable().default(null),
     job_domain_id: z.string().min(1).max(64),
     family_id: z.string().min(1).max(64).nullable().default(null),
-    /** The pack pinned for the rest of the conversation. Null when only the family resolved. */
+    /**
+     * ALWAYS NULL FROM THE INTERVIEW, and that is structural rather than a gap to fill.
+     *
+     * Identification and pack selection are two different questions answered at two different
+     * moments: this event fires the instant retrieval places the worker, and the pack is chosen
+     * one step later by a fallback chain that walks the family tree and can legitimately end at
+     * the universal pack — the NORMAL state while Phase 6 authors families incrementally. A pack
+     * pointer here would therefore be either a guess or a lie about ordering.
+     *
+     * `profile.pack_pinned` is the event that answers "which questions did this worker get",
+     * emitted where and when that becomes true. These fields stay on the payload because
+     * removing a field from a v1 event breaks every consumer that reads it (§3 backward
+     * compatibility); they are reserved for a future caller that pins and identifies together.
+     */
     pack_id: z.string().min(1).max(64).nullable().default(null),
     pack_version: z.number().int().positive().nullable().default(null),
     match_status: z.enum(["matched_auto", "matched_lexical", "matched_worker_confirmed"]),
@@ -2605,6 +2651,44 @@ export const ProfileOccupationIdentifiedPayload = z
 export type ProfileOccupationIdentifiedPayload = z.infer<
   typeof ProfileOccupationIdentifiedPayload
 >;
+
+/**
+ * The interview PINNED A QUESTION PACK — the moment the set of questions this worker will be
+ * asked stops being negotiable.
+ *
+ * WHY THIS IS SEPARATE FROM `profile.occupation_identified`. That event says which TRADE the
+ * ladder placed the worker in. This says which INTERVIEW they got, and the two are not the same
+ * fact: a trade resolves through the catalogue, a pack resolves through a family-binding
+ * fallback chain that can end at a parent family or at no pack at all. A welder whose family has
+ * no authored pack yet is identified and never pinned — so joining the two into one event would
+ * force a null that means "not yet" to sit in the same column as a null that means "never".
+ *
+ * WHAT IT IS FOR. Reproducibility. `pack_id` + `pack_version` is the only thing that makes a
+ * finished profile explicable a year later: pack contents are immutable per version, so this
+ * pair reconstructs the exact wording of every question behind every stored answer. The matching
+ * `chat_sessions.pack_id` column is the durable half; this is the audit half, and it is emitted
+ * ONLY when the durable write won, so the event never claims a pin Postgres does not hold.
+ *
+ * PII-FREE: catalogue ids and a pack pointer. `.strict()` keeps a future field from smuggling
+ * the worker's words in beside them.
+ */
+export const ProfilePackPinnedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    pack_id: z.string().min(1).max(64),
+    pack_version: z.number().int().positive(),
+    /** The occupation whose family selected this pack. Never null — no occupation, no pin. */
+    job_domain_id: z.string().min(1).max(64),
+    /**
+     * The catalogue snapshot the pin was made against, PROJECTED — see `catalogVersionForEvent`.
+     * The raw signature is ~75 characters and does not fit 64, which is how the unresolved
+     * payload once turned every unplaced worker's turn into a 500.
+     */
+    catalog_version: z.string().min(1).max(64),
+  })
+  .strict();
+export type ProfilePackPinnedPayload = z.infer<typeof ProfilePackPinnedPayload>;
 
 /**
  * The interview could NOT pin an occupation and fell back to the universal pack.
