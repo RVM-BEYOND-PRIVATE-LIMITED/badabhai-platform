@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:equatable/equatable.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:record/record.dart' show RecordState;
 
 import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_mapper.dart';
@@ -12,6 +14,11 @@ import '../../domain/question_audio_player.dart';
 import '../../domain/silence_endpointer.dart';
 import '../../domain/voice_form_gateway.dart';
 import '../../domain/voice_form_models.dart';
+
+/// Shown when two consecutive questions came back silent — a dead/muted mic
+/// (#636). Persona-clean; points at settings, does not blame the worker.
+const String kVoiceMicSilentMessage =
+    'Mic se awaaz nahi aa rahi. Settings mein mic check karein.';
 
 // ---------------- States ----------------
 
@@ -154,6 +161,16 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
 
   StreamSubscription<MicLevel>? _levelsSub;
 
+  /// The recorder record-state subscription (#636). Taken WITH `onError` so a
+  /// Bluetooth SCO drop surfaces here instead of as an unhandled zone error that
+  /// would kill the session.
+  StreamSubscription<RecordState>? _statesSub;
+
+  /// Consecutive questions the worker left completely silent (#636). Two in a
+  /// row stops the session with a settings hint — a dead/muted mic should not
+  /// trap the worker re-asking the same question forever.
+  int _consecutiveSilent = 0;
+
   /// Re-broadcast of the live mic amplitude for the UI level meter (#629). Fed
   /// from the same single [_levelsSub] the endpointer reads, so the screen never
   /// takes a second subscription on the recorder.
@@ -191,10 +208,29 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   /// True once permission was requested — asked exactly once per session.
   bool _permissionAsked = false;
 
+  /// The HARD gate (#691): false whenever the app is backgrounded. `_armFreshClip`
+  /// refuses to call `_recorder.start()` while this is false, so the mic can NEVER
+  /// be armed off-screen — outside the worker's moment of consent — no matter
+  /// which in-flight continuation reaches it. Set SYNCHRONOUSLY from the lifecycle
+  /// handler, before any await.
+  bool _foreground = true;
+
+  /// Interruption generation (#691), bumped SYNCHRONOUSLY in [_interrupt]. Every
+  /// async arm chain captures it at entry and aborts if it moved — so a long
+  /// `submit`/`tts` await that resolves AFTER a `paused` cannot walk on to arm a
+  /// fresh clip and silently overwrite [VoiceFormInterrupted].
+  int _interruptGen = 0;
+
   /// Opens the session. Requests mic permission exactly once, then presents Q1.
   Future<void> start() async {
     if (state is! VoiceFormIdle) return;
     emit(const VoiceFormPreparing());
+    // CAPTURED BEFORE THE FIRST AWAIT. Taken after `ensurePermission()` it
+    // reads a generation the interruption has ALREADY bumped: backgrounding
+    // during `Preparing` bumps the gen but `_interrupt()` no-ops (there is no
+    // Asking state to preserve), so every later check compares equal and the
+    // whole start path proceeds as if nothing happened.
+    final int gen = _interruptGen;
     try {
       if (!_permissionAsked) {
         _permissionAsked = true;
@@ -208,10 +244,15 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       // One levels subscription for the whole session — feeds the endpointer for
       // auto-advance; never re-taken between questions (it survives stop/start).
       _levelsSub = _recorder.levels(_levelInterval).listen(_onLevel);
+      // Record-state stream WITH onError (#636): a Bluetooth SCO drop arrives as
+      // a stream error, not a silent stop — handle it, don't let it kill us.
+      _statesSub = _recorder
+          .states()
+          .listen((_) {}, onError: _onRecordStateError);
 
       final VoiceFormStep step = await _gateway.start();
-      if (_torndown) return;
-      await _route(step);
+      if (_torndown || !_foreground || gen != _interruptGen) return;
+      await _route(step, gen);
     } on Failure catch (failure) {
       if (!_torndown) emit(VoiceFormError(failure));
     } catch (error) {
@@ -245,15 +286,28 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     final VoiceFormState current = state;
     if (current is! VoiceFormAsking) return;
     _advancing = true;
+    final int gen = _interruptGen; // #691 — abort if an interruption lands
     try {
       final VoiceAnswer answer;
       String? retainPath;
       if (chosen == null) {
         final RecordedClip? clip = await _recorder.stop(); // stop
         if (clip == null) {
-          // Nothing captured (a mis-trigger). Re-arm the same question rather
-          // than submit an empty answer the engine would reject.
-          if (!_torndown) await _rearm(current);
+          // An interruption cancelled the recorder out from under this advance —
+          // that is a CLIENT-induced null, not the worker being silent (#691).
+          // Do not count it toward the dead-mic gate; the interruption owns the
+          // state now.
+          if (_torndown || gen != _interruptGen) return;
+          // Nothing captured. One miss re-arms the same question; a SECOND
+          // consecutive silent question is a dead/muted mic (#636) — stop with a
+          // settings hint rather than trap the worker re-asking forever.
+          _consecutiveSilent++;
+          if (_consecutiveSilent >= 2) {
+            emit(const VoiceFormError(
+                VoiceUnavailableFailure(kVoiceMicSilentMessage)));
+          } else {
+            await _rearm(current, gen);
+          }
           return;
         }
         _recorder.retain(clip.path); // retain — protect the in-flight upload
@@ -265,7 +319,19 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         await _recorder.cancel();
         answer = chosen;
       }
-      if (_torndown) {
+      // THE INTERRUPTION CHECK BELONGS ON BOTH BRANCHES, not just the null one.
+      //
+      // The epoch guard above sits inside `if (clip == null)`, so a `paused`
+      // landing during `await _recorder.stop()` was walked over whenever a clip
+      // WAS captured: the advance carried on to `emit(Asking(uploading))`,
+      // overwriting the `VoiceFormInterrupted` the handler had just emitted.
+      // `resumeSession()` then no-ops on resume — because the state is Asking
+      // again — so the mid-session permission re-check is skipped in exactly the
+      // case the pause was long enough for permission to be revoked.
+      //
+      // Release before returning: the retain is ours, and the interruption path
+      // does not know about it.
+      if (_torndown || gen != _interruptGen) {
         // close() raced the stop()/cancel() await above — it already fired
         // _recorder.cancel() for us (see close()), but that doesn't drop a
         // retained path from OUR set; do that here or it's stuck retained
@@ -279,15 +345,19 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       try {
         step = await _gateway.submit(answer); // queue upload
       } finally {
-        // ALWAYS, not only on success — a submit() that throws (network
-        // drop, timeout) must not leave this clip permanently retained; the
+        // ALWAYS, not only on success — a submit() that throws (network drop,
+        // timeout) must not leave this clip permanently retained; the
         // stale-clip sweep can only ever reclaim a released path.
         if (retainPath != null) _recorder.release(retainPath);
       }
-      if (_torndown) return;
+      // #691 — a `paused` during the (up to 30s) submit MUST NOT be walked over:
+      // if the interruption generation moved, this advance is stale — the mic is
+      // cancelled and the state is VoiceFormInterrupted; do not present or arm.
+      if (_torndown || gen != _interruptGen) return;
+      _consecutiveSilent = 0; // a real answer landed — reset the silence gate
       _answers.add(answer);
       if (answer.isSpoken) _actions.recordAnswerSpoken(current.index); // #639
-      await _route(step);
+      await _route(step, gen);
     } on Failure catch (failure) {
       if (!_torndown) emit(VoiceFormError(failure));
       unawaited(_actions.flush()); // a dead-ended session still owes its signals
@@ -299,10 +369,10 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     }
   }
 
-  Future<void> _route(VoiceFormStep step) async {
+  Future<void> _route(VoiceFormStep step, int gen) async {
     switch (step) {
       case NextQuestion():
-        await _present(step);
+        await _present(step, gen);
       case VoiceFormDone():
         unawaited(_actions.flush()); // best-effort, off the critical path (#639)
         emit(VoiceFormReview(List<VoiceAnswer>.of(_answers)));
@@ -312,8 +382,10 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   /// Render Q(n+1) → TTS → start → 250ms prime → arm. Starting the clip only
   /// after the prompt is read keeps the prompt out of the answer; the prime lets
   /// the codec settle before the endpointer is armed, so the first syllable is
-  /// captured but not mis-detected.
-  Future<void> _present(NextQuestion next) async {
+  /// captured but not mis-detected. [gen] aborts the whole chain if an
+  /// interruption lands mid-way (#691) — e.g. after the TTS await.
+  Future<void> _present(NextQuestion next, int gen) async {
+    if (_torndown || gen != _interruptGen) return;
     emit(VoiceFormAsking(
       question: next.question,
       index: next.index,
@@ -321,30 +393,39 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       micPhase: MicPhase.priming,
     ));
     await _tts.play(next.question); // read aloud — mic not yet live
-    if (_torndown) return;
-    await _armFreshClip(next.question, next.index, next.total);
+    if (_torndown || gen != _interruptGen) return;
+    await _armFreshClip(next.question, next.index, next.total, gen);
   }
 
-  Future<void> _rearm(VoiceFormAsking current) =>
-      _armFreshClip(current.question, current.index, current.total);
+  Future<void> _rearm(VoiceFormAsking current, int gen) =>
+      _armFreshClip(current.question, current.index, current.total, gen);
 
   /// start → 250ms prime → arm → emit listening/holding. Shared by first-render,
-  /// re-arm-after-empty, and replay (#631). Releases the mic if [close] lands in
-  /// the start() await window.
+  /// re-arm-after-empty, replay (#631), and resume (#636).
+  ///
+  /// #691 — this is the choke point that must NEVER start the mic off-screen: it
+  /// refuses to call `_recorder.start()` unless the app is [_foreground] AND this
+  /// chain's interruption [gen] is still current. Both are re-checked after every
+  /// await, and the mic is released if the app backgrounded during the start
+  /// window.
   Future<void> _armFreshClip(
-      VoiceQuestion question, int index, int total) async {
+      VoiceQuestion question, int index, int total, int gen) async {
+    if (_torndown || !_foreground || gen != _interruptGen) return;
     _startingMic = true;
     try {
       await _recorder.start(); // start THIS question's clip
     } finally {
       _startingMic = false;
     }
-    if (_torndown) {
-      await _recorder.cancel(); // closed during the start window — release it
+    if (_torndown || !_foreground || gen != _interruptGen) {
+      await _recorder.cancel(); // backgrounded / interrupted during start — release
       return;
     }
     await _sleep(_primeDelay); // 250ms prime
-    if (_torndown) return;
+    if (_torndown || !_foreground || gen != _interruptGen) {
+      await _recorder.cancel();
+      return;
+    }
     _endpointer.arm();
     emit(VoiceFormAsking(
       question: question,
@@ -365,13 +446,18 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     // on the critical path of this accessibility affordance.
     _actions.recordQuestionAudioPlayed(current.index);
     _advancing = true;
+    final int gen = _interruptGen; // #691 — abort if backgrounded mid-replay
     try {
       await _recorder.cancel(); // mic OFF — discard any partial take
-      if (_torndown) return; // close() raced the cancel() await
+      // The epoch belongs here too: an interruption during the cancel() await
+      // would otherwise be overwritten by the priming emit below, leaving an
+      // Asking state with a dead mic that resumeSession() cannot recover
+      // (it only recovers from VoiceFormInterrupted).
+      if (_torndown || !_foreground || gen != _interruptGen) return;
       emit(current.copyWith(micPhase: MicPhase.priming));
       await _tts.play(current.question); // read aloud while the mic is off
-      if (_torndown) return;
-      await _armFreshClip(current.question, current.index, current.total);
+      if (_torndown || gen != _interruptGen) return;
+      await _armFreshClip(current.question, current.index, current.total, gen);
     } finally {
       _advancing = false;
     }
@@ -396,13 +482,10 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     final VoiceFormState current = state;
     if (current is! VoiceFormAsking || _advancing) return;
     _advancing = true;
+    final int gen = _interruptGen;
     try {
       await _recorder.cancel(); // throw away the partial take
-      // close() raced the cancel() await — it has already cancelled the mic and
-      // disposed the recorder, so re-arming here would start a disposed plugin
-      // and leave the mic hot after teardown.
-      if (_torndown) return;
-      await _armFreshClip(current.question, current.index, current.total);
+      await _armFreshClip(current.question, current.index, current.total, gen);
     } finally {
       _advancing = false;
     }
@@ -422,6 +505,95 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     }
   }
 
+  /// App lifecycle transitions (#636), forwarded by the screen's observer. The
+  /// handler is IDEMPOTENT per transition, so iOS observer stacking (N observers
+  /// over N clips) collapses to a single effect: repeated `paused` events do not
+  /// stack, and a resume that finds nothing interrupted is a no-op.
+  void handleLifecycle(AppLifecycleState lifecycle) {
+    switch (lifecycle) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        // Set the hard gate SYNCHRONOUSLY, before any await, so no in-flight
+        // continuation can start the mic while backgrounded (#691) — even in the
+        // window where [_interrupt] no-ops because the state is already
+        // Interrupted (e.g. a second pause during a resume).
+        _foreground = false;
+        unawaited(_interrupt());
+      case AppLifecycleState.resumed:
+        _foreground = true;
+        unawaited(resumeSession());
+      case AppLifecycleState.inactive:
+        break; // transient (e.g. the call sheet animating in) — ignore
+    }
+  }
+
+  /// Backgrounded / interrupted mid-question: STOP the clip (never rely on the
+  /// plugin's auto-pause, which would let a 30s call inflate `durationSeconds`)
+  /// and enter [VoiceFormInterrupted]. Idempotent — a second `paused` while
+  /// already interrupted does nothing.
+  Future<void> _interrupt() async {
+    // Bump the generation SYNCHRONOUSLY (#691): any async arm chain that captured
+    // the old value now aborts instead of overwriting VoiceFormInterrupted.
+    _interruptGen++;
+    final VoiceFormState current = state;
+    if (current is! VoiceFormAsking) return; // already interrupted / not asking
+    final VoiceFormAsking asking = current;
+    emit(VoiceFormInterrupted(
+      question: asking.question,
+      index: asking.index,
+      total: asking.total,
+    ));
+    await _recorder.cancel(); // discard the partial take — recorded time only
+  }
+
+  /// Resume after an interruption (#636). Re-checks permission (it can be revoked
+  /// from the notification shade mid-session), then re-arms the SAME question
+  /// with a fresh clip and a reset endpointer — the trailing-silence timer is
+  /// never continued across the gap. Idempotent — a resume with nothing
+  /// interrupted is a no-op.
+  Future<void> resumeSession() async {
+    final VoiceFormState current = state;
+    if (current is! VoiceFormInterrupted) return;
+    final bool granted = await _recorder.ensurePermission();
+    // Re-paused during the permission check → do NOT arm (#691).
+    if (_torndown || !_foreground) return;
+    if (!granted) {
+      emit(const VoiceFormError(MicPermissionFailure()));
+      return;
+    }
+    // Leave Interrupted first, so a pause during the re-arm is catchable again;
+    // capture the current generation for this fresh arm chain.
+    final int gen = _interruptGen;
+    emit(VoiceFormAsking(
+      question: current.question,
+      index: current.index,
+      total: current.total,
+      micPhase: MicPhase.priming,
+    ));
+    await _armFreshClip(current.question, current.index, current.total, gen);
+  }
+
+  /// A recorder state-stream error (#636), typically a Bluetooth SCO drop. Discard
+  /// the clip and re-ask the SAME question rather than let it become an unhandled
+  /// zone error. Idempotent via [_advancing].
+  void _onRecordStateError(Object error) {
+    final VoiceFormState current = state;
+    if (current is! VoiceFormAsking || _advancing) return;
+    _advancing = true;
+    final int gen = _interruptGen;
+    unawaited(() async {
+      try {
+        await _recorder.cancel(); // the interrupted clip is unusable
+        if (!_torndown && gen == _interruptGen) {
+          await _armFreshClip(current.question, current.index, current.total, gen);
+        }
+      } finally {
+        _advancing = false;
+      }
+    }());
+  }
+
   @override
   Future<void> close() async {
     unawaited(_actions.flush()); // drain any un-flushed action signals (#639)
@@ -432,6 +604,8 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     _closing = true;
     await _levelsSub?.cancel();
     _levelsSub = null;
+    await _statesSub?.cancel();
+    _statesSub = null;
     await _meter.close();
     await _tts.stop();
     // Release the mic — covers a live recording AND the start() await window

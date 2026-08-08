@@ -65,6 +65,8 @@ void main() {
     when(() => plugin.stop()).thenAnswer((_) async => 'clip.m4a');
     when(() => plugin.onAmplitudeChanged(any()))
         .thenAnswer((_) => const Stream<Amplitude>.empty());
+    when(() => plugin.onStateChanged())
+        .thenAnswer((_) => const Stream<RecordState>.empty());
   });
 
   VoiceFormCubit makeCubit(OneQuestionGateway gateway) => VoiceFormCubit(

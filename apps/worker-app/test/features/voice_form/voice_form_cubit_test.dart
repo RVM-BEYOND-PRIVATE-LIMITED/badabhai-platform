@@ -75,6 +75,8 @@ void main() {
     when(() => plugin.cancel()).thenAnswer((_) async {});
     when(() => plugin.dispose()).thenAnswer((_) async {});
     when(() => plugin.onAmplitudeChanged(any())).thenAnswer((_) => amp.stream);
+    when(() => plugin.onStateChanged())
+        .thenAnswer((_) => const Stream<RecordState>.empty());
     // Each stop yields a DISTINCT clip path.
     when(() => plugin.stop())
         .thenAnswer((_) async => 'clip-${stopN++}.m4a');
