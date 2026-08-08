@@ -31,7 +31,9 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **V2** — attribute projection + the yes/no lexicon + select-option capture | PR #651 → `a639b7bc` | **on `main`** |
 | **V3** — the OIE Phase 8 cutover: the interview is deterministic, the LLM parses once | PR #650 → `2aa71d79` | **on `main`** |
 | Live-run fixes — `catalog_version` 500, event-validation diagnostics, compound chip labels | PR #656 → `952305ea` | **on `main`** |
-| Pack pin made durable + `profile.pack_pinned` | PR #661 | **on `main`** |
+| Pack pin made durable + `profile.pack_pinned` | PR #661 → `27a28b18` | **on `main`** |
+| **V4 (the three defects)** — a worker's answer could vanish behind a green tick | PR #664 → `40e61575` | **on `main`** |
+| **V7** — the interview's one LLM call was unledgered; `aiTaskType` widened 3 → 8 | PR #665 | **on `main`** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -472,7 +474,31 @@ the 409-on-stale-`question_key` are moot until a second surface exists.
 
 ---
 
-### Phase V4 — Transcription seam *(Owner: Prakash · M · after V1)*
+### Phase V4 — Transcription seam *(Owner: Prakash · M · **the three defects DONE**, PR #664 → `40e61575`)*
+
+> **The defect half landed; the seam half has not.** All three bugs this phase named turned out to be
+> the same mistake wearing three hats — *a failure recorded as a success* — and none of them needed
+> the voice form to exist in order to bite. They bite the chat voice-note path today.
+>
+> - **`error_code` now crosses the wire.** `stt_budget_blocked` / `stt_call_failed` were logged on the
+>   ai-service and dropped building the response, so three failures and one worker's silence arrived
+>   at apps/api as the same empty string.
+> - **A degraded result no longer completes the job.** It throws into the *existing* catch, so BullMQ
+>   retries and only the final attempt writes the terminal record — one definition of "terminal",
+>   not two.
+> - **A fourth hole, found while fixing the third:** `AiService.transcribe`'s unreachable-service
+>   fallback returned an empty transcript indistinguishable from silence, so an ai-service outage
+>   read as a wave of quiet workers. It now reports `stt_service_unreachable`.
+> - **The retry double-charge** is gated on `voice_notes.transcript_text IS NOT NULL` — compared
+>   against null explicitly, because an empty string is a real transcript and cost the same as a
+>   full one.
+>
+> **Not built, deliberately: the synchronous ≤30s path.** It has no consumer until V6 ships, its
+> latency is B-3 (still unmeasured), and a config-gated route nothing calls is the "built dark"
+> pattern this plan was written to stop repeating. `VoiceTranscriptionService` extraction remains
+> owed — the processor does service work inside a queue handler, which §4 forbids.
+
+<details><summary>Original V4 scope, as planned</summary>
 
 - Extract `VoiceTranscriptionService` from the BullMQ processor; `VoiceModule` gains `exports`
 - **Synchronous ≤30s answer path** (`PROFILING_ANSWER_MAX_SECONDS = 30`) — deletes the queue hop, the
@@ -487,6 +513,35 @@ the 409-on-stale-`question_key` are moot until a second surface exists.
   chunks. Gate on `voice_notes.transcript_text IS NOT NULL` instead.
 - `translate_to_english: false` for this surface — the form wants the worker's own Hinglish back, and
   it deletes a 60s ceiling **and** an unledgered Sarvam call from the critical path.
+
+</details>
+
+---
+
+### Phase V7 — Cost observability *(Owner: Prakash · **DONE**, PR #665)*
+
+Run ahead of V5, because it turned out not to be about the voice form at all.
+
+The plan's §7 note said "only `profile_extraction` persists cost". Measuring it found something
+sharper: **the cutover's own LLM call was invisible in three independent ways**, so every number the
+ledger could produce described the architecture the cutover deleted.
+
+| | |
+|---|---|
+| `/profile/parse` returned no `ai_metadata` | nothing downstream *could* record it |
+| `aiTaskType` listed 3 of the 8 task types the service charges against | and `ai.cost_recorded`'s emitter swallows validation errors, so an unlistable task produced **nothing**, not a rejection |
+| the emitter hard-coded `profile_extraction` and keyed on `ai_job_id` | one job now makes two billable calls, so the second was silently deduped away |
+
+Pinned by a test that reads the enum out of `payloads.ts` and compares it to the service's own
+`STT_TASK_TYPE` / `TTS_TASK_TYPE` / `EMBEDDING_TASK_TYPE` / `PARSE_TASK_TYPE` constants, so the next
+provider surface cannot arrive unledgered.
+
+**Still open from §7:** `SpendLedger` remains a Redis rate-limiter with expiring keys rather than a
+ledger. The `events` table is now the cost history — every real call emits `ai.cost_recorded` — which
+is the cheaper answer than a new table and matches §3 ("events are the audit trail"). The remaining
+gap is the **translate leg**, which is real Sarvam spend that fires by default and is on no ledger at
+all; setting `translate_to_english: false` for the form path deletes it from that surface but not
+from chat.
 
 ---
 
