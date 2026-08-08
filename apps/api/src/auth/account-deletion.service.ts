@@ -256,6 +256,40 @@ export class AccountDeletionService {
           );
         }
       }
+
+      // …AND THE ORPHANS THE LOOP ABOVE STRUCTURALLY CANNOT SEE.
+      //
+      // `voiceKeys` comes from `SELECT storage_path FROM voice_notes WHERE worker_id = $1`, so it
+      // enumerates audio we hold a ROW for. Upload is two steps: `POST /voice/upload-url` mints a
+      // signed PUT into `voice-notes/{workerId}/{uuid}.m4a`, and a SEPARATE `POST /voice/upload`
+      // inserts the row. A client that completes the PUT and never makes the second call — app
+      // killed, network dropped, or simply choosing not to — leaves raw worker audio in the
+      // bucket that no row points at. That object is invisible to the query, so it survived a
+      // DSAR erasure indefinitely. The DPDP obligation is to erase the worker's personal data,
+      // not the rows we happen to have indexed it by.
+      //
+      // ADDED BESIDE the per-row loop rather than replacing it, which matters: the minted-key
+      // shape guard (`voice.service.ts`) only constrains rows created after it landed, so a
+      // legacy `storage_path` outside `voice-notes/{workerId}/` would stop being erased if the
+      // loop went away. The two sets overlap harmlessly — deleting an already-deleted key is a
+      // no-op, and `deleteByPrefix` returns 0 for an empty prefix.
+      //
+      // This is the same sweep the PHOTO leg below already does, and its comment already gives
+      // the reason. The voice leg simply never got it.
+      try {
+        const orphansDeleted = await this.storage.deleteByPrefix(
+          `voice-notes/${workerId}/`,
+          this.config.VOICE_NOTES_BUCKET,
+        );
+        storageDeleted += orphansDeleted;
+      } catch (err) {
+        storageFailed += 1;
+        this.logger.warn(
+          `account deletion voice-prefix delete failed worker=${idPrefix} (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
+      }
     }
 
     // 2d. Erase the profile PHOTO objects (ADR-0032 — a face photo is a high-sensitivity PII

@@ -8,6 +8,7 @@ import { VOICE_TRANSCRIPTION_QUEUE } from "../queue/queue.constants";
 import { VoiceController } from "./voice.controller";
 import { VoiceService } from "./voice.service";
 import { VoiceRepository } from "./voice.repository";
+import { VoiceTranscriptionService } from "./voice-transcription.service";
 import { VoiceTranscriptionProcessor } from "./voice-transcription.processor";
 
 @Module({
@@ -20,6 +21,21 @@ import { VoiceTranscriptionProcessor } from "./voice-transcription.processor";
   controllers: [VoiceController],
   // AiJobsRepository depends only on DATABASE (a global module), so providing it
   // here is decoupled; AiService comes from the @Global() AiModule.
-  providers: [VoiceService, VoiceRepository, AiJobsRepository, VoiceTranscriptionProcessor],
+  providers: [
+    VoiceService,
+    VoiceRepository,
+    AiJobsRepository,
+    VoiceTranscriptionService,
+    VoiceTranscriptionProcessor,
+  ],
+  // THE MODULE HAD NO `exports` AT ALL, so every provider above was private to it and no other
+  // module could reach the voice layer even to read a transcript. That was fine while the only
+  // consumer was this module's own controller and queue; it stops being fine the moment a second
+  // surface needs the SAME transcription sequence rather than a copy of it.
+  //
+  // Deliberately narrow: the two collaborators another module would legitimately need.
+  // `VoiceRepository` stays private — a caller reaching past the service into raw row writes is
+  // how the transcript-persistence rules (never in events, never in jobs) get bypassed.
+  exports: [VoiceService, VoiceTranscriptionService],
 })
 export class VoiceModule {}
