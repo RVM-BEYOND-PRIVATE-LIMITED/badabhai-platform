@@ -16,7 +16,11 @@ import {
 } from "@badabhai/ai-contracts";
 import { PARSE_TARGET_FIELDS } from "@badabhai/profiling-lexicon";
 import { applyParseGates, countByGate, type Rejection } from "../profiling/parse-gates";
-import { projectProfile, type ProjectionResult } from "../profiling/answer-map-projector";
+import {
+  projectProfile,
+  type ProjectedAttribute,
+  type ProjectionResult,
+} from "../profiling/answer-map-projector";
 import type { NewWorkerProfile } from "@badabhai/db";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { EventsService } from "../events/events.service";
@@ -30,6 +34,7 @@ import { WorkerSkillsService } from "../match/worker-skills.service";
 import { SkillsRepository } from "../skills/skills.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository, type AiJobUsageMetadata } from "./ai-jobs.repository";
+import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
 import {
   AI_SPEND_CAP_REASONS,
@@ -87,6 +92,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // catalog before it is written. `SkillsModule` exports this repository; the query
     // has to run on the api's owner connection because `job_domain` is RLS-locked.
     private readonly skills: SkillsRepository,
+    // The destination for the 77% of the pack corpus that is `attribute`-kind. `ProfilesModule`
+    // provides it; it needs only DATABASE, which is a global module.
+    private readonly workerAttributes: WorkerAttributesRepository,
   ) {
     super();
   }
@@ -125,7 +133,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // never fail an extraction.
       const fullName = await this.workerFullName(workerId);
       const redacted = messages.map((m) => ({ ...m, text: redactKnownName(m.text, fullName) }));
-      const { result, pin } = await this.extractOrParse(
+      const { result, pin, attributes, pack } = await this.extractOrParse(
         { workerId, sessionId, aiJobId, correlationId, requestId },
         redacted,
         redactKnownName(transcript, fullName),
@@ -191,6 +199,49 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // failed match. See `resolveJobDomain`.
         ...domain,
       });
+
+      // ── THE 77% ───────────────────────────────────────────────────────────────
+      //
+      // `attribute`-kind answers — `workplace_type`, `tools_owned`, `safety_training`,
+      // `shift_work` — are 359 of the 466 authored pack items, and they do not belong on
+      // `worker_profiles`: they are MATCHING inputs, one row per (worker, key), filtered by the
+      // matcher with a plain index. Migration 0071 built the table and V2 taught the projector to
+      // fill the array; this is the write that was missing, and without it both were decoration.
+      //
+      // BEFORE `markCompleted`, AND ALLOWED TO THROW. That ordering is the whole safety argument:
+      // `profiles.create` is idempotent on `ai_job_id`, so a retry returns the SAME profile row
+      // rather than orphaning a duplicate, and `upsertMany` writes the same values over the same
+      // rows. So a failure here costs a retry and loses nothing — whereas swallowing it would
+      // lose 77% of what the worker actually said, permanently and silently, with the job marked
+      // completed. There is no backfill runner for this table; a quiet failure is not recoverable.
+      //
+      // Deliberately NOT the `rebuildQuietly` treatment the match projections get below. Those
+      // are derivable from other tables and have a repair script and a deploy gate. This is the
+      // worker's own answers.
+      const attributeRows = attributes.map((attribute) => ({
+        workerId,
+        attributeKey: attribute.attributeKey,
+        valueKind: attribute.valueKind,
+        valueBool: attribute.valueKind === "boolean" ? (attribute.value as boolean) : null,
+        valueNumber:
+          attribute.valueKind === "number" ? String(attribute.value as number) : null,
+        valueText: attribute.valueKind === "text" ? (attribute.value as string) : null,
+        valueTextList:
+          attribute.valueKind === "text_list" ? [...(attribute.value as readonly string[])] : null,
+        source: attribute.source,
+        // The interview this value came from, pinned. Pack contents are immutable per version, so
+        // this is what makes the value re-readable once the corpus has moved on.
+        questionKey: attribute.attributeKey,
+        packId: pack.packId,
+        packVersion: pack.packVersion,
+        sessionId,
+      }));
+      const attributesWritten = await this.workerAttributes.upsertMany(attributeRows);
+      if (attributeRows.length > 0) {
+        this.logger.log(
+          `worker_attributes upserted job=${aiJobId} rows=${attributesWritten}/${attributeRows.length}`,
+        );
+      }
 
       await this.aiJobs.markCompleted(aiJobId, { profile_id: saved.id }, toAiJobUsage(aiMeta));
 
@@ -390,7 +441,12 @@ export class ProfileExtractionProcessor extends WorkerHost {
     },
     messages: readonly ConversationMessage[],
     transcript: string,
-  ): Promise<{ result: ProfileExtractionOutput; pin: OccupationPin | null }> {
+  ): Promise<{
+    result: ProfileExtractionOutput;
+    pin: OccupationPin | null;
+    attributes: readonly ProjectedAttribute[];
+    pack: { packId: string | null; packVersion: number | null };
+  }> {
     // NO SESSION, NO ANSWER MAP. An extraction can be triggered without one (the app's
     // "make the profile anyway" escape hatch); there is no interview record to read.
     const state = job.sessionId === null ? null : await this.conversationState(job.sessionId);
@@ -405,6 +461,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
           messages: [...messages],
         }),
         pin: null,
+        // A pre-cutover session has no answer map, so it has no attributes and never had any.
+        // Empty here is the honest value, not a degradation.
+        attributes: [],
+        pack: { packId: null, packVersion: null },
       };
     }
 
@@ -497,6 +557,16 @@ export class ProfileExtractionProcessor extends WorkerHost {
     return {
       result: toExtractionOutput(projection),
       pin: occupation.success ? occupation.data : null,
+      // THE LINE THAT WAS MISSING. `projectProfile` has computed this array on every interview
+      // since V2 shipped; `toExtractionOutput` reads `projection.draft` and nothing else, so the
+      // attributes were computed and dropped on the floor. A live 13-turn welding interview
+      // produced 10 typed answers and ZERO rows in `worker_attributes` — the original 77% defect,
+      // moved one layer later and no less total.
+      attributes: projection.attributes,
+      pack: {
+        packId: typeof state?.pack_id === "string" ? state.pack_id : null,
+        packVersion: typeof state?.pack_version === "number" ? state.pack_version : null,
+      },
     };
   }
 
@@ -510,12 +580,26 @@ export class ProfileExtractionProcessor extends WorkerHost {
    */
   private async conversationState(
     sessionId: string,
-  ): Promise<{ answer_map: unknown; occupation: unknown } | null> {
+  ): Promise<{
+    answer_map: unknown;
+    occupation: unknown;
+    pack_id: unknown;
+    pack_version: unknown;
+  } | null> {
     try {
       const session = await this.chat.findSession(sessionId);
       const state = session?.conversationState;
       if (typeof state !== "object" || state === null) return null;
-      return state as { answer_map: unknown; occupation: unknown };
+      // `pack_id` / `pack_version` come along because every attribute row PINS the interview it
+      // was collected under. Pack contents are immutable per version, so that pair is the only
+      // thing that makes a stored value re-readable a year later — "did `safety_gear` mean the
+      // same question in v1 as in v3" is otherwise unanswerable.
+      return state as {
+        answer_map: unknown;
+        occupation: unknown;
+        pack_id: unknown;
+        pack_version: unknown;
+      };
     } catch (err) {
       // A read failure must not fail the extraction — it degrades to the legacy path, which is
       // exactly what a pre-cutover session would have taken anyway.
