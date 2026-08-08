@@ -169,6 +169,21 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   /// still releases the mic.
   bool _startingMic = false;
 
+  /// TEARDOWN HAS BEGUN — set on the FIRST line of [close].
+  ///
+  /// `isClosed` is not usable for this: bloc only flips it inside
+  /// `super.close()`, which is the LAST statement of our override, so for the
+  /// whole of `close()`'s body — the mic cancel AND the recorder dispose —
+  /// `isClosed` is still false. A method suspended on an await inside that
+  /// window therefore sails past an `isClosed` check and re-arms a recorder
+  /// that has already been disposed, leaving the mic hot after the screen is
+  /// gone. Guard on [_torndown], never on `isClosed` alone.
+  bool _closing = false;
+
+  /// Whether teardown has started or finished — the only safe "stop now" test
+  /// for a continuation resuming after an await.
+  bool get _torndown => _closing || isClosed;
+
   /// True once permission was requested — asked exactly once per session.
   bool _permissionAsked = false;
 
@@ -341,10 +356,10 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     _advancing = true;
     try {
       await _recorder.cancel(); // mic OFF — discard any partial take
-      if (isClosed) return; // close() raced the cancel() await; emit would throw
+      if (_torndown) return; // close() raced the cancel() await
       emit(current.copyWith(micPhase: MicPhase.priming));
       await _tts.play(current.question); // read aloud while the mic is off
-      if (isClosed) return;
+      if (_torndown) return;
       await _armFreshClip(current.question, current.index, current.total);
     } finally {
       _advancing = false;
@@ -374,8 +389,8 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       await _recorder.cancel(); // throw away the partial take
       // close() raced the cancel() await — it has already cancelled the mic and
       // disposed the recorder, so re-arming here would start a disposed plugin
-      // and leave the mic hot after teardown. Same guard replay() carries.
-      if (isClosed) return;
+      // and leave the mic hot after teardown.
+      if (_torndown) return;
       await _armFreshClip(current.question, current.index, current.total);
     } finally {
       _advancing = false;
@@ -398,6 +413,11 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
 
   @override
   Future<void> close() async {
+    // FIRST LINE, before any await: everything below is teardown, and a method
+    // suspended on an await must see that immediately. `isClosed` only flips in
+    // super.close() at the very bottom, which is far too late to stop a
+    // continuation re-arming the recorder we are about to dispose.
+    _closing = true;
     await _levelsSub?.cancel();
     _levelsSub = null;
     await _meter.close();
