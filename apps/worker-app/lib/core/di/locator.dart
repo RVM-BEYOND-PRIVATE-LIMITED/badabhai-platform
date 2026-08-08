@@ -45,6 +45,8 @@ import '../../features/voice/domain/voice_note_repository.dart';
 import '../../features/voice/domain/voice_pipeline.dart';
 import '../../features/voice/domain/voice_recorder.dart';
 import '../../features/voice/presentation/cubit/voice_note_cubit.dart';
+import '../../features/voice_form/data/voice_preflight_probe.dart';
+import '../../features/voice_form/domain/silence_endpointer.dart';
 import '../../features/name/data/name_repository_impl.dart';
 import '../../features/name/domain/name_repository.dart';
 import '../../features/name/presentation/cubit/name_cubit.dart';
@@ -282,6 +284,14 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // Lazy: constructing the plugin touches no platform channel until first use.
   locator.registerLazySingleton<SessionVoiceRecorder>(
       () => SessionVoiceRecorder());
+  // Voice-form (#626/#627): the silence endpointer is a SHARED singleton so the
+  // pre-flight calibrates the SAME instance the session later thresholds on, and
+  // the upload-bucket probe rides the one ApiClient + SessionRepository.
+  locator.registerLazySingleton<SilenceEndpointer>(() => SilenceEndpointer());
+  locator.registerLazySingleton<VoicePreflightProbe>(
+    () => VoicePreflightProbe(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
   locator.registerLazySingleton<VoiceStorageUploader>(
     () => kUseMocks
         ? const MockVoiceStorageUploader()
