@@ -118,6 +118,14 @@ export const EVENT_DOMAINS = [
   // the spine. PII-FREE: opaque worker/accrual ids + a whole-rupee integer ONLY — never a
   // phone, a phone_hash, or a name. MOCK: nothing disburses (real money is the §7 gate).
   "referral",
+  // Occupation Intelligence Engine (Phase 8) — the deterministic retrieval ladder's growth
+  // loop. A DISTINCT domain from `skill`, deliberately: that domain covers the ESCO/O*NET
+  // skill vocabulary, this one covers the NCO-2015 OCCUPATION catalogue, and the follow-up
+  // work differs — a skill miss becomes a `skill_alias`, an occupation miss becomes a
+  // `job_domain_alias`. Sharing a domain would make the two queues indistinguishable to any
+  // consumer reading the spine. PII-FREE: a sha256 of an already-pseudonymized phrase, a
+  // language tag and a count — never the worker's words.
+  "occupation",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -208,6 +216,12 @@ export const SUBJECT_TYPES = [
   // An unresolved_phrase growth-queue row (ADR-0030/FORK-B-1). subject_id = the row uuid;
   // the phrase text (pseudonymized at rest) NEVER rides the spine — hash-only payload.
   "skill_phrase",
+  // An unresolved_phrase row in the OCCUPATION scope (OIE Phase 8, migration 0070). Same
+  // table as `skill_phrase`, deliberately DIFFERENT subject: the two queues are worked by
+  // different people producing different artefacts (a `skill_alias` versus a
+  // `job_domain_alias`), so a consumer filtering the spine must be able to tell them apart.
+  // Hash-only payload, same as its sibling.
+  "occupation_phrase",
   // An AI job-posting chat SESSION (ADR-0035). The subject_id is the opaque
   // `payer_job_posting_chat_sessions.id`. DISTINCT from `chat_session` (the worker
   // profiling conversation, a different principal AND a different table) — reusing that

@@ -27,9 +27,15 @@ import '../domain/voice_recorder.dart';
 ///  - per-clip **recorded-time** accounting (each answer is its own clip, timed
 ///    from its own start — never a session-wide wall clock).
 ///
-/// Same stale-clip discipline as #624: the sweep only reclaims clips older than
-/// this instance (a previous crashed run), never this session's — and never a
-/// [retain]ed one.
+/// Stale-clip discipline, adapted from #624 for a session that keeps this
+/// recorder alive for the whole app process: the sweep reclaims any clip that
+/// is neither the live take NOR [retain]ed — including one this same session
+/// already finished and [release]d. A construction-time cutoff (what #624
+/// uses) cannot do that: every clip a running instance ever produces is
+/// necessarily newer than the moment it was constructed, so a fixed watermark
+/// would never reclaim a released clip for the rest of the process's life —
+/// worker voice audio piling up on-disk for as long as the app stays open
+/// across logins on a shared device.
 class SessionVoiceRecorder implements VoiceRecorder {
   /// [recorder] is a test seam (the real [AudioRecorder] touches the platform
   /// channel, which throws under `flutter test`). [maxDuration] is the hard cap
@@ -82,11 +88,14 @@ class SessionVoiceRecorder implements VoiceRecorder {
     ),
   );
 
-  static final RegExp _clipFileName = RegExp(r'^bb-voice-(\d+)\.m4a$');
-
-  /// Only clips whose timestamp predates this instance are stale (a previous,
-  /// crashed run). This session's clips are never swept.
-  final int _sweepBeforeMs = DateTime.now().millisecondsSinceEpoch;
+  /// `session-` in the name is deliberate and load-bearing: it keeps this
+  /// recorder's clips in a namespace disjoint from [RecordPackageVoiceRecorder]
+  /// (`bb-voice-<epochMs>.m4a`, no 'session-'). Two independent lazy
+  /// singletons write to the same [Directory.systemTemp] with their own
+  /// private sweep; without the disjoint prefix, this recorder's sweep (and
+  /// the other recorder's) could each delete the other's in-flight clip —
+  /// [retain] only protects a path from ITS OWN recorder's sweep.
+  static final RegExp _clipFileName = RegExp(r'^bb-voice-session-\d+\.m4a$');
 
   /// Paths the caller has explicitly RETAINED because their upload is in flight.
   /// The sweep never deletes these, regardless of age — [release] once the
@@ -133,7 +142,7 @@ class SessionVoiceRecorder implements VoiceRecorder {
 
     final String path =
         '${Directory.systemTemp.path}${Platform.pathSeparator}'
-        'bb-voice-${DateTime.now().millisecondsSinceEpoch}.m4a';
+        'bb-voice-session-${DateTime.now().millisecondsSinceEpoch}.m4a';
     await _rec.start(sessionConfig, path: path);
     _activePath = path;
     _startedAt = DateTime.now();
@@ -153,21 +162,21 @@ class SessionVoiceRecorder implements VoiceRecorder {
     }
   }
 
-  /// Best-effort sweep of stale `bb-voice-*.m4a` clips. Skips the live take, any
-  /// [retain]ed (in-flight) clip, and every clip this session produced (a newer
-  /// timestamp than [_sweepBeforeMs]).
+  /// Best-effort sweep of stale `bb-voice-session-*.m4a` clips. Skips only the
+  /// live take and any [retain]ed (in-flight) clip — everything else matching
+  /// the pattern is reclaimed, whether it's this process's own already-
+  /// [release]d clip or a leftover from a previous crashed run. Age plays no
+  /// part: an [_activePath]/[_retained] check is the only thing that can ever
+  /// need to survive a sweep, so that is the only thing checked.
   Future<void> _sweepStaleClips() async {
     try {
       await for (final FileSystemEntity entry
           in Directory.systemTemp.list(followLinks: false)) {
         if (entry is! File) continue;
         final String name = entry.uri.pathSegments.last;
-        final Match? match = _clipFileName.firstMatch(name);
-        if (match == null) continue;
+        if (!_clipFileName.hasMatch(name)) continue;
         if (entry.path == _activePath) continue; // never the live take
         if (_retained.contains(entry.path)) continue; // in-flight upload
-        final int? clipMs = int.tryParse(match.group(1) ?? '');
-        if (clipMs == null || clipMs >= _sweepBeforeMs) continue;
         try {
           await entry.delete();
         } catch (_) {

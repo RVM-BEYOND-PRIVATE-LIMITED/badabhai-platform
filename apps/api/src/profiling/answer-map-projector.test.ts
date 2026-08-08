@@ -164,6 +164,10 @@ describe("THE ACCEPTANCE CRITERION, end to end: LLM-unavailable ⇒ a real profi
       fields: {},
       unparsed_field_ids: ["experience_years", "salary_expected"],
       notes: ["llm_unavailable"],
+      // NULL, and that is the point rather than a formality. Every degraded path this body
+      // stands for is one where no billable call completed, and a zero-cost record would be
+      // indistinguishable from a real call that happened to be free.
+      ai_metadata: null,
     };
     const gated = applyParseGates(
       fromAiService,

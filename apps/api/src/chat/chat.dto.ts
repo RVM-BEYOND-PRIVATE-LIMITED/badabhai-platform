@@ -54,6 +54,36 @@ export const PostMessageResponseSchema = z.object({
    * a new session rather than posting into the ended one.
    */
   session_ended: z.boolean().default(false),
+  /**
+   * What KIND of turn this is (OIE Phase 8). Additive, defaulted, and safe for every
+   * existing client — `ChatReply.fromJson` ignores unknown keys.
+   *
+   * `disambiguate` is the one that earns its place: the client currently renders every
+   * `suggested_followups` list as a horizontal scroller, which is right for "pick a chip or
+   * type instead" and wrong for "which of these four trades are you", where the chip a worker
+   * taps becomes their answer of record verbatim. The Frontend issue raised by this phase asks
+   * for a single-select list on this value; until then the scroller still works.
+   */
+  question_kind: z.enum(["ask", "disambiguate", "clarify", "close"]).default("ask"),
+  /**
+   * Answered / total for the pinned pack, or null when no pack is resolved yet.
+   *
+   * IMPOSSIBLE UNDER THE LLM PATH, which is why it is new rather than overdue: the model
+   * invented each question as it went, so nothing anywhere knew how many were left. A
+   * deterministic engine reading a versioned pack knows exactly, and a visible finish line is
+   * the biggest single lever on completion rate for low-literacy users.
+   */
+  progress: z
+    .object({ answered: z.number().int().nonnegative(), total: z.number().int().nonnegative() })
+    .nullable()
+    .default(null),
+  /**
+   * The worker's trade in their OWN language, once retrieval pins it — the "you have been
+   * understood" moment, and the first point in the conversation where the platform proves it
+   * heard them. Never `label_en`: "Metal Working Machine Tool Setters and Operators" is not a
+   * thing anyone has ever called themselves.
+   */
+  occupation_label: z.string().nullable().default(null),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;
 

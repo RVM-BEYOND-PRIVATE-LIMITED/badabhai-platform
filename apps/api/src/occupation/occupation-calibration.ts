@@ -12,76 +12,38 @@
  *
  * So each layer is mapped onto a shared `confidence ∈ [0,1]` by a piecewise-linear table,
  * and ONE threshold set is applied to the mapped value regardless of which layer produced
- * it. The tables live here as data rather than in a config file for now because they are
- * not yet calibrated against real utterances — Phase 9 owns that, and moving them to
- * `packages/config` before there is anything to calibrate FROM would give false comfort.
+ * it.
  *
- * THE NUMBERS ARE PROVISIONAL AND SAID SO. The plan's `0.55/0.88/0.08` vector thresholds
- * are preserved underneath as the raw vector-layer anchors, and everything else is an
- * engineering estimate stated in one place so Phase 9 can move it in one place.
+ * THIS FILE HOLDS THE DECISION, NOT THE NUMBERS. The table and every threshold live in
+ * `@badabhai/config/occupation-tuning`, which is what the plan means by "stored as config"
+ * — Phase 9 re-calibrates against production utterances by editing ONE file, with no
+ * retrieval logic anywhere in the diff. An earlier version of this header argued for keeping
+ * them here until there was something to calibrate FROM; that was backwards. The point of
+ * the separation is that when the sweep happens, the change is unmistakably a tuning change.
  *
  * PRECISION IS ASYMMETRIC HERE, which is why the floors are high. A wrong family does not
  * cost one bad answer — it selects the wrong question pack, so every subsequent question
  * in the interview is about the wrong trade. One extra clarifying turn is cheap; twelve
  * questions about welding for a tailor is an abandoned interview.
  */
+import {
+  AUTO_FLOOR,
+  AUTO_MARGIN,
+  CALIBRATION_ANCHORS,
+  DISAMBIGUATE_FLOOR,
+  MAX_DISAMBIGUATION_OPTIONS,
+  type RetrievalLayer,
+} from "@badabhai/config";
 
-/** Which layer produced a candidate. Ordered cheapest-first, exactly as the ladder runs. */
-export type RetrievalLayer = "L0" | "L1" | "L2" | "L3";
-
-/**
- * Layer → confidence, as piecewise-linear anchor points on the layer's RAW score.
- *
- * L0 has no raw score: an exact normalized-alias hit either happened or did not, and it is
- * the strongest evidence the system can have short of the worker tapping a chip — the
- * worker used a name somebody reviewed and attached to this occupation. It is a constant.
- *
- * L1 is the same hit through a lossy key, so it is strong but not certain: the skeleton
- * fold collapses `driver`/`drover` and `fitter`/`father`, which is exactly why L0 is
- * exhausted first and why L1 lands below the auto floor on its own.
- */
-const ANCHORS: Record<RetrievalLayer, readonly (readonly [raw: number, confidence: number])[]> = {
-  // Constant: exact match, no raw score to interpolate over.
-  L0: [[0, 0.97], [1, 0.97]],
-  // Constant, deliberately BELOW AUTO_FLOOR — a skeleton hit alone must not auto-pin.
-  L1: [[0, 0.72], [1, 0.72]],
-  // pg_trgm word_similarity. Below ~0.35 it is noise (two words sharing "ing"); it
-  // saturates around 0.9 where the strings differ only by punctuation.
-  L2: [
-    [0.0, 0.0],
-    [0.35, 0.30],
-    [0.55, 0.55],
-    [0.75, 0.74],
-    [0.9, 0.82],
-    [1.0, 0.86],
-  ],
-  // Cosine SIMILARITY (1 - distance). The plan's vector anchors: 0.55 is the floor below
-  // which a vector hit is discarded, 0.88 is where it is trusted outright.
-  L3: [
-    [0.0, 0.0],
-    [0.55, 0.45],
-    [0.7, 0.62],
-    [0.88, 0.86],
-    [1.0, 0.92],
-  ],
+// Re-exported so everything under `apps/api/src/occupation` keeps ONE import site for the
+// decision vocabulary. The values live in config; this is the seam, not a second copy.
+export {
+  AUTO_FLOOR,
+  AUTO_MARGIN,
+  DISAMBIGUATE_FLOOR,
+  MAX_DISAMBIGUATION_OPTIONS,
+  type RetrievalLayer,
 };
-
-/**
- * AUTO-PIN needs BOTH a floor and a margin, and the margin is the one that matters.
- *
- * A floor alone accepts the top candidate whenever it scores well — including when the
- * runner-up scores just as well, which is precisely the ambiguous case where guessing is
- * worst. `mistri` legitimately reaches masonry and general repair; both score high; picking
- * either silently is how a mason gets an interview about motorcycle engines.
- */
-export const AUTO_FLOOR = 0.8;
-export const AUTO_MARGIN = 0.12;
-
-/** Below this, nothing is offered — the phrase is recorded unresolved and the engine broadens. */
-export const DISAMBIGUATE_FLOOR = 0.45;
-
-/** Most chips a worker should ever be shown, before the "Kuch aur" escape. */
-export const MAX_DISAMBIGUATION_OPTIONS = 4;
 
 /**
  * Map a raw layer score onto the shared confidence scale.
@@ -91,7 +53,7 @@ export const MAX_DISAMBIGUATION_OPTIONS = 4;
  * passes every threshold.
  */
 export function calibrate(layer: RetrievalLayer, rawScore: number): number {
-  const anchors = ANCHORS[layer];
+  const anchors = CALIBRATION_ANCHORS[layer];
   const first = anchors[0]!;
   const last = anchors[anchors.length - 1]!;
   if (!Number.isFinite(rawScore)) return 0;

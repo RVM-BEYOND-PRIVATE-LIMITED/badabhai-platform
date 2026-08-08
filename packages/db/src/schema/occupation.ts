@@ -85,6 +85,40 @@ export type JobDomainMatchStatus =
   | "unmatched_llm_declined"
   | "unmatched_degraded";
 
+/**
+ * The two outcomes the Occupation Intelligence Engine adds, on top of the five above
+ * (migration 0073).
+ *
+ * `matched_lexical`           the retrieval ladder resolved it at L0/L1/L2 — no model, no
+ *                             vector, no rupee spent. The common case once the vernacular
+ *                             alias overlay lands, and the one the whole engine exists for.
+ * `matched_worker_confirmed`  the worker TAPPED a disambiguation chip. The highest-quality
+ *                             signal in the system: not our inference about their words,
+ *                             their own explicit selection from a reviewed closed set.
+ *
+ * A SEPARATE UNION RATHER THAN A WIDENED `JobDomainMatchStatus`, because the two vocabularies
+ * are genuinely different sizes. `JobDomainMatch` — the RAG classifier's own result, mirrored
+ * in `contracts.py` — can still only produce the original five, and widening its type would
+ * let a reviewer write `matched_worker_confirmed` into a path that has no worker in it.
+ * The COLUMN accepts seven; the classifier emits five; the subset relation makes every
+ * existing assignment keep typechecking.
+ */
+export type OccupationMatchStatus =
+  | JobDomainMatchStatus
+  | "matched_lexical"
+  | "matched_worker_confirmed";
+
+/**
+ * Which rung of the retrieval ladder produced the match. Observability ONLY — never an input
+ * to ranking (invariant #4: ranking stays deterministic and is never a function of how
+ * confident retrieval happened to feel).
+ *
+ * Mirrors `OCCUPATION_MATCH_LAYERS` in `@badabhai/ai-contracts`. Declared here rather than
+ * imported because `packages/db` does not depend on that package and adding the edge to
+ * carry four string literals would invert a deliberate dependency direction.
+ */
+export type OccupationMatchLayer = "l0_exact" | "l1_skeleton" | "l2_trigram" | "l3_vector";
+
 export const jobDomains = pgTable(
   "job_domain",
   {

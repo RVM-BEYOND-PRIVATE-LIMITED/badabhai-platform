@@ -90,12 +90,19 @@ void main() {
           voiceNoteId: any(named: 'voiceNoteId'),
         )).thenAnswer(
         (_) async => const TranscribeResult(aiJobId: 'job-9', status: 'queued'));
-    when(() => api.awaitAiJob(any(), authToken: any(named: 'authToken')))
-        .thenAnswer((_) async => const AiJob(
-              status: 'completed',
-              profileId: null,
-              voiceNoteId: 'vn1',
-            ));
+    // `maxAttempts` is matched explicitly: the transcription call site passes
+    // its own budget (#635/TD59), and a stub that omits the argument stops
+    // matching the moment it does — mocktail then returns null and the failure
+    // surfaces as an opaque UnknownFailure rather than a missing-stub error.
+    when(() => api.awaitAiJob(
+          any(),
+          authToken: any(named: 'authToken'),
+          maxAttempts: any(named: 'maxAttempts'),
+        )).thenAnswer((_) async => const AiJob(
+          status: 'completed',
+          profileId: null,
+          voiceNoteId: 'vn1',
+        ));
   });
 
   VoiceNoteRepositoryImpl buildRepo({

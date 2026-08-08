@@ -131,8 +131,14 @@ class _VoiceNoteView extends StatelessWidget {
           // NOT held on the confirm turn — that is a decision point, and a
           // worker who changes their mind there must be able to walk away.
           //
-          // BOUNDED: `awaitAiJob` caps its polling (~14s) and an error state
-          // releases back immediately, with typing always open as a fallback.
+          // BOUNDED, but no longer briefly: the transcribe leg now polls on
+          // `kVoiceTranscriptPollMaxAttempts` (~150s, #635/TD59) rather than
+          // the 14s extraction default, because the server's own floor is
+          // ~140s. An error state still releases back immediately and typing
+          // is always open as a fallback — but a worker on a slow transcription
+          // can now be held here for up to ~2.5 minutes with only the snackbar
+          // to explain it. Revisit this hold when TD59's server-side merge
+          // (backend B5) removes the latency dependency.
           final bool pipelineInFlight =
               state is VoiceNoteProcessing || state is VoiceNoteSuccess;
           final bool sendingLeg =

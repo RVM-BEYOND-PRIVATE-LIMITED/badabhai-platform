@@ -50,7 +50,7 @@
  *   (DATABASE_URL from env/.env; AI_SERVICE_URL defaults to http://localhost:8000;
  *    GROWTH_REPORT_PATH overrides the packet location.)
  */
-import { copyFileSync, existsSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { config } from "dotenv";
@@ -66,6 +66,26 @@ config({ path: "../../.env" });
  * service sets AI_INTERNAL_TOKEN; absent = the historical open dev posture). */
 const AI_HEADERS: Record<string, string> = { "content-type": "application/json" };
 if (process.env.AI_INTERNAL_TOKEN) AI_HEADERS["x-ai-internal-token"] = process.env.AI_INTERNAL_TOKEN;
+
+/**
+ * THIS RUNNER OWNS THE `skill` SCOPE ONLY, and every query below says so (OIE Phase 9).
+ *
+ * Migration 0072 widened `unresolved_phrase` with `scope`, and `IdentifyService` now writes
+ * `scope='occupation'` rows with a NULL `domain_id`. Unscoped, this runner:
+ *
+ *   1. SPENT REAL EMBEDDING BUDGET on them — the Phase 1 select asks only for "open AND
+ *      embedding IS NULL", so every unmatched occupation utterance got a vector it has no
+ *      use for here; and
+ *   2. then skipped every one of them in Phase 2 as a "NULL domain_id" warning, because
+ *      clustering is domain-scoped. A warning count that only ever grows is one nobody reads.
+ *
+ * The proposals themselves were never wrong — a NULL-domain row could not reach a section — so
+ * this is waste and noise rather than contamination. The schema comment on `scope` already
+ * stated the intended contract ("the ops queue is always read one scope at a time"); this makes
+ * the reader honour it. Occupation phrases are promoted by `db:growth:occupation`, which needs
+ * no embeddings at all.
+ */
+const SKILL_SCOPE = eq(unresolvedPhrases.scope, "skill");
 
 const EMBED_BATCH_SIZE = Math.max(1, Math.min(200, Number(process.env.EMBED_BATCH_SIZE) || 100));
 const REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
@@ -208,11 +228,16 @@ async function embedOpenPhrases(
       .where(
         blocked.length > 0
           ? and(
+              SKILL_SCOPE,
               eq(unresolvedPhrases.status, "open"),
               isNull(unresolvedPhrases.embedding),
               notInArray(unresolvedPhrases.id, blocked),
             )
-          : and(eq(unresolvedPhrases.status, "open"), isNull(unresolvedPhrases.embedding)),
+          : and(
+              SKILL_SCOPE,
+              eq(unresolvedPhrases.status, "open"),
+              isNull(unresolvedPhrases.embedding),
+            ),
       )
       .orderBy(unresolvedPhrases.id)
       .limit(EMBED_BATCH_SIZE);
@@ -396,7 +421,7 @@ async function main(): Promise<void> {
       const reset = await db
         .update(unresolvedPhrases)
         .set({ embedding: null })
-        .where(isNotNull(unresolvedPhrases.embedding))
+        .where(and(SKILL_SCOPE, isNotNull(unresolvedPhrases.embedding)))
         .returning({ id: unresolvedPhrases.id });
       console.log(`[growth] reset — ${reset.length} phrase embeddings set to NULL; re-run to re-embed.`);
       return;
@@ -410,7 +435,7 @@ async function main(): Promise<void> {
       const reopened = await db
         .update(unresolvedPhrases)
         .set({ status: "open" })
-        .where(eq(unresolvedPhrases.status, "clustered"))
+        .where(and(SKILL_SCOPE, eq(unresolvedPhrases.status, "clustered")))
         .returning({ id: unresolvedPhrases.id });
       console.log(`[growth] reopened ${reopened.length} clustered row(s) → open; re-run to re-propose.`);
       return;
@@ -439,7 +464,13 @@ async function main(): Promise<void> {
         domainId: unresolvedPhrases.domainId,
       })
       .from(unresolvedPhrases)
-      .where(and(eq(unresolvedPhrases.status, "open"), isNotNull(unresolvedPhrases.embedding)))
+      .where(
+        and(
+          SKILL_SCOPE,
+          eq(unresolvedPhrases.status, "open"),
+          isNotNull(unresolvedPhrases.embedding),
+        ),
+      )
       .orderBy(unresolvedPhrases.id);
 
     const noDomain = open.filter((r) => r.domainId === null);
@@ -516,6 +547,10 @@ async function main(): Promise<void> {
       console.log(`[growth] previous packet backed up → ${backupPath}`);
     }
     const packet = renderPacket(new Date().toISOString(), partial, sections);
+    // `docs/registers/` is not in the repo until a packet is committed, and a bare write into
+    // a missing directory is an ENOENT that reads like a broken script rather than "run me
+    // first". Recursive, so it is a no-op once the directory exists.
+    mkdirSync(path.dirname(reportPath), { recursive: true });
     writeFileSync(reportPath, packet, "utf8");
     console.log(`[growth] packet written → ${reportPath}${partial ? " (PARTIAL)" : ""}`);
 
