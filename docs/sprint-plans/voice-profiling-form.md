@@ -39,7 +39,8 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | A mock call reporting real rupees | PR #672 → `ca5cd4e3` | **on `main`** |
 | **B-8b** — one definition of "the current profile"; 7 readers, one unordered, one un-deduped | PR #678 → `d5365b57` | **on `main`** |
 | **B-8a** — a call that never left the process claimed `success: true` and emitted a cost row | PR #681 → `ff676fe8` | **on `main`** |
-| **V4b** — `VoiceTranscriptionService` extracted; `VoiceModule` exports; the DSAR **orphan** sweep | PR #682 | **on `main`** |
+| **V4b** — `VoiceTranscriptionService` extracted; `VoiceModule` exports; the DSAR **orphan** sweep | PR #682 → `f9f89759` | **on `main`** |
+| **V5 (the render half)** — the 433-clip manifest measured, `tts_render.py`, TS↔Python identity parity | PR #683 | **on `main`** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -585,7 +586,7 @@ from chat.
 
 ---
 
-### Phase V5 — TTS pipeline *(Owner: Divyanshu · L · **enumeration DONE**, PR #667 · render still after V0)*
+### Phase V5 — TTS pipeline *(Owner: Divyanshu · L · **DONE** — enumeration #667 · render #683 · `--apply` gated on B-2)*
 
 > **Split, because only half of it depends on the listening test.** *What* to render is a property
 > of the engine; *how it should sound* is the open question B-2 answers. The first half shipped.
@@ -615,10 +616,38 @@ from chat.
 > second wall inside the closure. Measured: 0 of 466 items carry a template token today, so it is a
 > guard and not a repair.
 >
-> **Still owed:** `tts_render.py` over the closure, the golden closure file asserted from both TS
-> and Python (the `normalize()` parity vectors), and the boot test that no FastAPI router imports
-> `tts_adapter`. All three are cheap once B-2 says whether the corpus needs a transliteration
-> sidecar.
+> **The render half landed in #683 — and one of the three was already done.** The boot test
+> (`test_no_router_can_reach_the_tts_adapter`) shipped with V0 in #645, *before* the PR that
+> listed it as owed; it was hardened from `glob` to `rglob` so a future router subpackage cannot
+> walk around it.
+>
+> **433 is now MEASURED, not claimed.** `replyClosure` had zero callers outside a unit suite that
+> ran it on two hand-built items, so the number in the table above was asserted by nothing. It is
+> now generated from the live engine over the real 101 packs and committed as
+> `packages/db/data/question-packs/reply-closure.json` — a reviewable render manifest, because a
+> diff on that file is the diff on what a worker hears and on what the render costs. The measured
+> split matches the estimate exactly: 150 clarify / 143 why / 129 prompt / 7 constant / 4 retry.
+>
+> **A REAL cross-language defect, measured not reasoned.** Banning `\s` was only half the job:
+> `String.prototype.trim()` and Python's `str.strip()` strip DIFFERENT sets, and **six** codepoints
+> disagree across the two runtimes this repo runs — JS strips U+FEFF and Python does not; Python
+> strips U+001C–U+001F and U+0085 and JS does not. A BOM on a pack file would have produced a
+> different clip id on each side: the pre-rendered audio and the runtime reply silently disagreeing
+> about which clip is which, on the one surface where the worker cannot read the screen to notice.
+> Both sides dropped their built-in trim for the same anchored `[ 	
+]` class, so neither
+> runtime's whitespace notion is consulted by either language. It also fixed an internal
+> contradiction: `.trim()` stripped a LEADING non-breaking space while the comment beside it
+> declared NBSP meaningful — the existing vector only covered an interior one.
+>
+> **`tts_render.py` ships dry-run by default** and REFUSES `--apply` when real calls are blocked,
+> rather than walking 433 clips writing nothing and reporting either 433 failures (wrong — nothing
+> was attempted) or success over an empty directory. Mock is a posture, not a render. Measured
+> cost of the full catalogue: **₹324.75**.
+>
+> **Still gated on B-2:** actually running `--apply`. Whether the corpus needs a transliteration
+> sidecar is what the listening test answers, and rendering before that answer spends operator
+> budget on possibly-mispronounced audio.
 
 - `app/tts.py` — `TtsAdapter`, `TTS_TASK_TYPE = "tts_synthesis"` (**its own allowlist key**, so TTS can
   be flipped independently of STT), gate chain mirroring `stt.py:207-248` **in order**, fail-closed to
