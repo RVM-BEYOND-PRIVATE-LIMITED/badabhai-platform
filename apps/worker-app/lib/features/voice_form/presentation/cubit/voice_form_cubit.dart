@@ -345,6 +345,14 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
           }
           return;
         }
+        // BEFORE ANY EMIT, and that ordering is #691's whole fix. A `paused` landing during
+        // `await _recorder.stop()` leaves the handler's `VoiceFormInterrupted` on screen;
+        // emitting `Asking(uploading)` over it puts the session back into Asking, and
+        // `resumeSession()` no-ops on Asking — so the mid-session permission re-check is
+        // skipped in exactly the case the pause was long enough for permission to be
+        // revoked. Nothing is retained yet either: an abandoned take is left for the sweep.
+        if (_torndown || gen != _interruptGen) return;
+
         _recorder.retain(clip.path); // retain — protect the in-flight upload
         retainPath = clip.path;
         // UPLOAD HERE, NOT IN THE GATEWAY (#717). The engine answers at a `voice_note_id`,
@@ -363,20 +371,14 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         await _recorder.cancel();
         answer = chosen;
       }
-      // THE INTERRUPTION CHECK BELONGS ON BOTH BRANCHES, not just the null one.
-      //
-      // The epoch guard above sits inside `if (clip == null)`, so a `paused`
-      // landing during `await _recorder.stop()` was walked over whenever a clip
-      // WAS captured: the advance carried on to `emit(Asking(uploading))`,
-      // overwriting the `VoiceFormInterrupted` the handler had just emitted.
-      // `resumeSession()` then no-ops on resume — because the state is Asking
-      // again — so the mid-session permission re-check is skipped in exactly the
-      // case the pause was long enough for permission to be revoked.
+      // AGAIN, because the upload above is the long await (up to 30s on a 2G uplink) and an
+      // interruption is far more likely to land inside it than inside `stop()`. The check on
+      // the spoken branch covers the window before it; this one covers the window during it,
+      // and the chip/boolean/text branch's `cancel()` as well.
       if (_torndown || gen != _interruptGen) {
-        // close() raced the stop()/cancel() await above — it already fired
-        // _recorder.cancel() for us (see close()), but that doesn't drop a
-        // retained path from OUR set. The outer `finally` does that on every
-        // exit from here, this one included.
+        // close() raced an await above — it already fired _recorder.cancel() for us (see
+        // close()), but that does not drop a retained path from OUR set. The outer `finally`
+        // does that on every exit from here, this one included.
         return;
       }
 
