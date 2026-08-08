@@ -904,9 +904,13 @@ one change — an incident you cannot bisect is not a flip.
 Gates: signed Sarvam DPA · bucket provisioned private · **`VOICE_NOTES_BUCKET` split-brain killed**
 (API defaults `""`, ai-service defaults `"worker-voice-notes"`; a mismatch is silent total failure with
 a green `/health`) · `AI_INTERNAL_TOKEN` armed **both** sides · translate leg ledgered or disabled ·
-DSAR prefix sweep · **ASR PII measurement** (if saarika emits digits as words — "nau aath saat" —
-*no gate in the system fires* and a phone number reaches the LLM) · B-1 done ·
-**TD58 purge job (#712) — this one gates setting `VOICE_NOTES_BUCKET` at all**.
+DSAR prefix sweep (#712) · **ASR PII measurement** (if saarika emits digits as words — "nau aath
+saat" — *no gate in the system fires* and a phone number reaches the LLM) · B-1 done.
+
+**TD58 does NOT gate this flip**, and a 2026-08-08 revision of this row briefly claimed it did.
+Under the 2026-08-07 ruling retention is `retain_indefinitely` by decision, so there is no purge job
+to wait for; what #712 owes is the DSAR half — the orphan-prefix sweep and a provable-deletion
+record — and the DPDP notice naming indefinite retention is a **V9 GA gate**, not a V8 one.
 
 **TWO OF THIS ROW'S OWN CLAIMS WERE STALE — re-measured 2026-08-08, both in the good direction.**
 It read *"neither compose file declares `SARVAM_API_KEY`, `SUPABASE_*`, `VOICE_NOTES_BUCKET` or
@@ -937,20 +941,32 @@ Abort: any `is_mock=True` on a real rung · `stt_call_failed` >5% · p90 > clien
 `voice_processing` consent purpose **plus a purpose-aware guard** (`ConsentGuard` is purpose-blind
 today, so the purpose alone is decorative) · DPDP notice copy naming recording, the third-party
 processor, the retention period and the training-use boundary · consent version bump + re-consent ·
-**TD58 purge job** · TD59 · R30 reassessed against measured ASR output.
+TD59 · R30 reassessed against measured ASR output. The DPDP notice here is now load-bearing in a way
+it was not when this row was written: under the 2026-08-07 ruling it must name **indefinite**
+retention explicitly, because that is the policy rather than an oversight.
 
-**TD58 is re-scoped from compliance debt to a launch gate — now filed as #712 (Divyanshu).** ~16
-objects and 4–5 MB of raw voice PII per worker per session; ~450 GB at 100k workers, hot tier,
-retained indefinitely, no purge job. That was tolerable when voice was an optional chat extra. It is
-not, once a form makes voice the primary capture path. **Do not set `VOICE_NOTES_BUCKET` on this
-path until a purge job exists.**
+**TD58 IS NOT A PURGE JOB, AND THIS ROW USED TO SAY IT WAS.** The 2026-08-07 ruling (top of this
+document) settled voice-clip retention as **never deleted** — `retention_policy` stays
+`retain_indefinitely` — and re-scoped TD58 from *"delete on a schedule"* to **"delete on request,
+provably"**. Erase-on-request is a legal obligation and is unchanged; it is not a retention policy.
 
-Measured 2026-08-08, and it is two holes rather than one: there is no sweep anywhere
-(`account-deletion-sweep.processor.ts` is DSAR erasure, which fires when the *worker* is deleted,
-never when the audio has served its purpose) **and** the clips are written to keep forever —
-`voice.service.ts:96` uses the schema defaults `retain_indefinitely / hot`, where §6 of this plan
-says these must be `delete_after_processing` because *"keeping the audio for a training corpus needs
-a consent purpose that does not exist."*
+What #712 (Divyanshu) therefore owes is the DSAR half only, and it is **not** a launch gate:
+
+- **The orphan-prefix sweep.** Upload is two calls — a signed PUT, then a row insert. A client that
+  completes the PUT and never inserts leaves audio no row points at, so `listVoiceStorageKeys`
+  cannot see it and it survives erasure forever. Reuse `deleteByPrefix('voice-notes/{workerId}/')`,
+  which the photo leg already has, **beside** the per-row loop rather than replacing it — legacy
+  `storage_path` values predate the minted-key shape guard and sit outside that prefix.
+- **A provable-deletion record.** Today an erasure records that deletion was *requested*. "Provably"
+  needs an audit row saying it *happened*, distinguishing deleted / nothing-to-delete / failed —
+  three outcomes that are one silence today.
+
+**Where the superseded language actually lives, since getting this wrong is what produced a
+mis-scoped P0.** `delete_after_processing` appears **nowhere in this document** — it is in the
+earlier plan-mode draft (`.claude/plans/`), which predates the 2026-08-07 ruling and is not the
+source of truth. The first version of #712 was written off that draft and asked for a retention
+window and a BullMQ scheduler; both are wrong. **This document's rulings table at the top is
+authoritative; read it before any section below it.**
 
 ---
 

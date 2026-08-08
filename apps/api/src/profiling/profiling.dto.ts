@@ -82,6 +82,37 @@ export const ProfilingAnswerSchema = z.object({
 });
 export type ProfilingAnswerDto = z.infer<typeof ProfilingAnswerSchema>;
 
+/**
+ * A correction: change an answer the engine has already settled and moved past.
+ *
+ * THE WIRE SHAPE THE REVIEW SCREEN'S ⟲ NEEDED AND DID NOT HAVE (#700). It is deliberately
+ * `ProfilingAnswerSchema` minus the question-on-screen guard and plus a required key, because the
+ * two routes are opposites in exactly one respect:
+ *
+ *  - `POST /answer` 409s when `question_key` is NOT the question on screen. That guard is what
+ *    stops a timed-out retry landing on the next question.
+ *  - `POST /correct` requires that the question is NOT on screen — it must already be SETTLED. A
+ *    question still in front of the worker is the turn loop's business, and answering it through
+ *    here would spend no ask budget and record no turn.
+ *
+ * `question_key` is non-nullable here, where the answer route allows null: the disambiguation turn
+ * belongs to no pack, and there is no such thing as correcting it after the fact — the pack it
+ * pinned has already decided every question that followed.
+ *
+ * THE SAME FOUR ANSWER SHAPES, on purpose. #632 specifies the correction affordance as chips →
+ * mic → typing, in that order; supporting a subset would leave a worker who cannot type able to
+ * see a wrong value and unable to fix it, which is the whole failure this route exists to prevent.
+ */
+export const ProfilingCorrectionSchema = z.object({
+  session_id: uuidSchema,
+  question_key: z
+    .string()
+    .regex(/^[a-z_]+$/)
+    .max(40),
+  answer: ProfilingAnswerSchema.shape.answer,
+});
+export type ProfilingCorrectionDto = z.infer<typeof ProfilingCorrectionSchema>;
+
 export const ProfilingSessionParamSchema = z.object({ sessionId: uuidSchema });
 export type ProfilingSessionParamDto = z.infer<typeof ProfilingSessionParamSchema>;
 
@@ -175,6 +206,29 @@ export const ProfilingReviewResponseSchema = z.object({
   rows: z.array(ProfilingReviewRowSchema),
 });
 export type ProfilingReviewResponse = z.infer<typeof ProfilingReviewResponseSchema>;
+
+/** Declared AFTER `ProfilingReviewRowSchema` because it embeds it — these are values, not types. */
+export const ProfilingCorrectionResponseSchema = z.object({
+  session_id: uuidSchema,
+  question_key: z.string(),
+  /**
+   * The corrected row as the review screen should now draw it — the same shape a review row has,
+   * so the client redraws one line rather than re-fetching the whole screen on a 2G link.
+   */
+  row: ProfilingReviewRowSchema,
+  /** Corrections this session has taken, so a client can show the cap approaching. */
+  correction_count: z.number().int().positive(),
+  /**
+   * Whether a profile had already been built when this landed.
+   *
+   * TRUE MEANS THE STORED ANSWER IS NOW RIGHT AND THE BUILT PROFILE IS STALE. The correction is
+   * durable either way, and an extraction still sitting in the queue reads the corrected state —
+   * but re-running one that has already COMPLETED crosses three deliberate dedupe guards (#700),
+   * and that is a separate ruling. Surfaced rather than silently decided.
+   */
+  profile_rebuild_required: z.boolean(),
+});
+export type ProfilingCorrectionResponse = z.infer<typeof ProfilingCorrectionResponseSchema>;
 
 export const FinalizeProfilingResponseSchema = z.object({
   session_id: uuidSchema,

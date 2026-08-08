@@ -12,10 +12,12 @@ import { ProfilingSessionService } from "./profiling-session.service";
 import {
   FinalizeProfilingSchema,
   ProfilingAnswerSchema,
+  ProfilingCorrectionSchema,
   ProfilingSessionParamSchema,
   StartProfilingSessionSchema,
   type FinalizeProfilingDto,
   type ProfilingAnswerDto,
+  type ProfilingCorrectionDto,
   type ProfilingSessionParamDto,
   type StartProfilingSessionDto,
 } from "./profiling.dto";
@@ -81,6 +83,25 @@ export class ProfilingController {
     @Param(new ZodValidationPipe(ProfilingSessionParamSchema)) params: ProfilingSessionParamDto,
   ) {
     return this.profiling.review(worker.id, params.sessionId);
+  }
+
+  /**
+   * Change a SETTLED answer from the review screen — the ⟲ affordance (#700).
+   *
+   * The mirror image of `POST /answer`'s guard: that one 409s when the question is NOT on screen,
+   * this one 409s when it still IS. A question in front of the worker belongs to the turn loop.
+   *
+   * 400 when the question is not in this session's pack · 409 when it is unsettled or the
+   * correction cap is reached · 422 when the words parsed to no value for it.
+   */
+  @Post("correct")
+  @HttpCode(200)
+  correct(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Body(new ZodValidationPipe(ProfilingCorrectionSchema)) dto: ProfilingCorrectionDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.profiling.correct(worker.id, dto, ctx);
   }
 
   /**

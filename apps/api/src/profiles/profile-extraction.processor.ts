@@ -2,12 +2,10 @@ import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
 import {
-  AnswerRecordSchema,
   DraftProfileSchema,
   OccupationPinSchema,
   ProfileExtractionOutputSchema,
   WorkerProfileDraftSchema,
-  type AnswerRecord,
   type DraftProfile,
   type AICallMetadata,
   type ConversationMessage,
@@ -16,6 +14,7 @@ import {
 } from "@badabhai/ai-contracts";
 import { PARSE_TARGET_FIELDS } from "@badabhai/profiling-lexicon";
 import { applyParseGates, countByGate, type Rejection } from "../profiling/parse-gates";
+import { narrowAnswerRecords } from "../profiling/conversation-state";
 import {
   projectProfile,
   type ProjectedAttribute,
@@ -41,10 +40,7 @@ import {
   type AiCostTaskType,
   type AiSpendCapReason,
 } from "@badabhai/event-schema";
-import {
-  PROFILE_EXTRACTION_QUEUE,
-  type ProfileExtractionJobData,
-} from "../queue/queue.constants";
+import { PROFILE_EXTRACTION_QUEUE, type ProfileExtractionJobData } from "../queue/queue.constants";
 
 /**
  * TD27 spend-cap / circuit-breaker block codes the AI gateway returns in
@@ -231,8 +227,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
         attributeKey: attribute.attributeKey,
         valueKind: attribute.valueKind,
         valueBool: attribute.valueKind === "boolean" ? (attribute.value as boolean) : null,
-        valueNumber:
-          attribute.valueKind === "number" ? String(attribute.value as number) : null,
+        valueNumber: attribute.valueKind === "number" ? String(attribute.value as number) : null,
         valueText: attribute.valueKind === "text" ? (attribute.value as string) : null,
         valueTextList:
           attribute.valueKind === "text_list" ? [...(attribute.value as readonly string[])] : null,
@@ -338,7 +333,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
           requestId,
         });
       }
-      this.logger.warn(`extraction job ${aiJobId} failed (attempt ${job.attemptsMade + 1}): ${reason}`);
+      this.logger.warn(
+        `extraction job ${aiJobId} failed (attempt ${job.attemptsMade + 1}): ${reason}`,
+      );
       throw err; // rethrow so BullMQ records/retries the failure
     }
   }
@@ -482,8 +479,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // worker's own words (gate 2).
     const lines = messages
       .map((m, i) => ({ i, role: m.role, text: m.text }))
-      .filter((m): m is { i: number; role: "worker" | "assistant"; text: string } =>
-        m.role === "worker" || m.role === "assistant",
+      .filter(
+        (m): m is { i: number; role: "worker" | "assistant"; text: string } =>
+          m.role === "worker" || m.role === "assistant",
       );
     const targets = PARSE_TARGET_FIELDS.map((f) => ({ ...f, enum: null }));
 
@@ -586,9 +584,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * flush writes the envelope's projection into `conversation_state` precisely so this read has
    * something to find.
    */
-  private async conversationState(
-    sessionId: string,
-  ): Promise<{
+  private async conversationState(sessionId: string): Promise<{
     answer_map: unknown;
     occupation: unknown;
     pack_id: unknown;
@@ -685,7 +681,12 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * GUARDED: an observability emit must never fail an extraction that produced a real profile.
    */
   private async recordDisagreements(
-    job: { workerId: string; aiJobId: string; correlationId?: string | null; requestId?: string | null },
+    job: {
+      workerId: string;
+      aiJobId: string;
+      correlationId?: string | null;
+      requestId?: string | null;
+    },
     disagreements: readonly string[],
     acceptedCount: number,
   ): Promise<void> {
@@ -1055,23 +1056,6 @@ function toAiJobUsage(meta: AICallMetadata | null): AiJobUsageMetadata | undefin
 }
 
 /**
- * `conversation_state.answer_map` → validated `AnswerRecord`s.
- *
- * PER-RECORD, so one unparseable answer costs that answer and not the whole interview. The
- * column is jsonb written by a possibly-older build, and a schema-wide parse would turn a single
- * stale field into "this worker has no answers at all".
- */
-function narrowAnswerRecords(value: unknown): AnswerRecord[] {
-  if (!Array.isArray(value)) return [];
-  const records: AnswerRecord[] = [];
-  for (const raw of value) {
-    const parsed = AnswerRecordSchema.safeParse(raw);
-    if (parsed.success) records.push(parsed.data);
-  }
-  return records;
-}
-
-/**
  * `tools_equipment` → `machines[]` and `controllers[]`.
  *
  * THE CROSSWALK NAMES THIS SPLITTER AND SOMEONE HAS TO BE IT. One phrase carries a VMC and a
@@ -1124,7 +1108,7 @@ function splitToolsEquipment(value: unknown): Record<string, unknown> {
  * record here.
  */
 function toExtractionOutput(projection: ProjectionResult): ProfileExtractionOutput {
-  const at = <T,>(field: string): T | undefined => projection.draft[field]?.value as T | undefined;
+  const at = <T>(field: string): T | undefined => projection.draft[field]?.value as T | undefined;
   const arr = (field: string): string[] => {
     const value = projection.draft[field]?.value;
     if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
@@ -1162,8 +1146,7 @@ function toExtractionOutput(projection: ProjectionResult): ProfileExtractionOutp
     education_level: draft.education_level,
     education_field: draft.education_field,
     experience: draft.experience_years === null ? {} : { total_years: draft.experience_years },
-    salary_expectation:
-      draft.expected_salary === null ? {} : { amount_min: draft.expected_salary },
+    salary_expectation: draft.expected_salary === null ? {} : { amount_min: draft.expected_salary },
     location_preference: { preferred_cities: draft.preferred_locations },
     availability: { status: draft.availability },
   });

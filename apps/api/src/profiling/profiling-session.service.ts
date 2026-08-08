@@ -5,9 +5,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
   forwardRef,
 } from "@nestjs/common";
-import type { QuestionPackOption } from "@badabhai/ai-contracts";
+import type { AnswerType, QuestionPackOption } from "@badabhai/ai-contracts";
 
 import { ChatRepository } from "../chat/chat.repository";
 import { ChatService, type ChatTurnOutcome } from "../chat/chat.service";
@@ -17,15 +18,18 @@ import { VoiceTranscriptionService } from "../voice/voice-transcription.service"
 import {
   ProfilingOrchestrator,
   UNAVAILABLE_REPLY,
-  type ServedQuestion,
   type SessionView,
   type TurnResult,
 } from "./orchestrator.service";
 import { ProfilingVoiceRepository } from "./profiling-voice.repository";
+import { isSettled } from "./answer-map";
 import { clipId } from "./reply-closure";
+import { WorkersRepository } from "../workers/workers.repository";
 import type {
   FinalizeProfilingResponse,
   ProfilingAnswerDto,
+  ProfilingCorrectionDto,
+  ProfilingCorrectionResponse,
   ProfilingReviewResponse,
   ProfilingSessionResponse,
   ProfilingStep,
@@ -70,6 +74,10 @@ export class ProfilingSessionService {
     private readonly orchestrator: ProfilingOrchestrator,
     private readonly transcription: VoiceTranscriptionService,
     private readonly voiceAnswers: ProfilingVoiceRepository,
+    // Read-only, and for ONE question: had the profile already been built when a correction
+    // landed? `latestProfile` is the same reader `autoTriggerExtraction` uses to decide the same
+    // thing, so the two cannot disagree about whether a worker is profiled.
+    private readonly workers: WorkersRepository,
   ) {}
 
   /**
@@ -137,7 +145,7 @@ export class ProfilingSessionService {
       return this.spokenAnswer(workerId, dto, dto.answer.voice_note_id, view, ctx);
     }
 
-    const text = this.textFor(dto, served);
+    const text = this.textFor(dto.answer, served?.options ?? [], served?.answerType ?? null);
     const outcome = await this.chatService.runTurn(workerId, dto.session_id, text, ctx);
     return { step: this.stepOfOutcome(outcome) };
   }
@@ -298,6 +306,132 @@ export class ProfilingSessionService {
   }
 
   /**
+   * Change an answer the worker can see is wrong.
+   *
+   * THE REVIEW SCREEN IS THE ONLY PATH TO SUBMIT (#632), so this is the last moment before the
+   * profile is built and the value reaches the matcher. A worker who sees a wrong value here and
+   * cannot fix it submits it or abandons — and in chat they would simply have said so, because the
+   * correction lexicon picks it up mid-conversation. This route is that affordance, for a surface
+   * that has no mid-conversation left.
+   *
+   * WHAT THIS METHOD OWNS is only what a SURFACE owns: whose session it is, turning a tap or a clip
+   * into words, and drawing the result. Every engine rule — supersession, the overwrite escape, the
+   * capture path, the bound — belongs to `ProfilingOrchestrator.correctAnswer`, which is where the
+   * proof for bypassing the turn loop lives.
+   */
+  async correct(
+    workerId: string,
+    dto: ProfilingCorrectionDto,
+    ctx: RequestContext,
+  ): Promise<ProfilingCorrectionResponse> {
+    const session = await this.chat.findSession(dto.session_id);
+    // 404 not 403, exactly as the other routes: a session id must never be an existence oracle.
+    if (!session || session.workerId !== workerId) {
+      throw new NotFoundException(`Session ${dto.session_id} not found`);
+    }
+
+    const view = await this.orchestrator.viewSettled(dto.session_id, new Date());
+    if (!view) {
+      throw new ConflictException(
+        `Session ${dto.session_id} has no pinned pack; there is nothing settled to correct`,
+      );
+    }
+
+    const item = view.items.find((candidate) => candidate.question_key === dto.question_key);
+    // 400, not 404: the session exists and is the worker's — the QUESTION is the malformed part,
+    // and resolving it from the pinned pack is what stops a client correcting an arbitrary key.
+    if (!item) {
+      throw new BadRequestException(`Question ${dto.question_key} is not in this session's pack`);
+    }
+
+    // A QUESTION STILL ON SCREEN BELONGS TO THE TURN LOOP. Correcting it here would write the
+    // answer without spending its ask budget or recording a turn, so the engine would go on to
+    // serve a question the worker has already answered.
+    if (!isSettled(view.answers, dto.question_key)) {
+      throw new ConflictException(
+        `Question ${dto.question_key} is not settled; answer it through POST /profiling/answer`,
+      );
+    }
+
+    const text =
+      dto.answer.kind === "spoken"
+        ? await this.transcribeCorrection(workerId, dto.answer.voice_note_id, ctx)
+        : this.textFor(dto.answer, item.options, item.answer_type);
+
+    const existing = await this.workers.latestProfile(workerId);
+    const outcome = await this.orchestrator.correctAnswer({
+      sessionId: dto.session_id,
+      workerId,
+      questionKey: dto.question_key,
+      text,
+      method: dto.answer.kind,
+      profileAlreadyBuilt: existing !== undefined && existing !== null,
+      now: new Date(),
+      ctx,
+    });
+
+    if (outcome.kind === "capped") {
+      throw new ConflictException(`This interview has already taken ${outcome.cap} corrections`);
+    }
+    if (outcome.kind === "unreadable") {
+      // 422, not 400: the request was well-formed and the words simply did not parse to a value
+      // for this question. The client's correct response is to offer another affordance — the
+      // review screen's chips → mic → typing order exists for exactly this.
+      throw new UnprocessableEntityException(
+        `Could not read an answer to ${dto.question_key} from that`,
+      );
+    }
+
+    if (outcome.kind === "corrected" && existing) {
+      this.logger.warn(
+        `correction landed AFTER the profile was built session=${dto.session_id} ` +
+          `question=${dto.question_key}; the stored answer is now right and profile ` +
+          `${existing.id} is stale — see #700`,
+      );
+    }
+
+    return {
+      session_id: dto.session_id,
+      question_key: dto.question_key,
+      row: {
+        question_key: dto.question_key,
+        prompt_text: item.prompt_text,
+        status: "answered",
+        display_value: this.displayValueOf(outcome.value, "answered"),
+      },
+      correction_count: outcome.correctionCount,
+      profile_rebuild_required: existing !== undefined && existing !== null,
+    };
+  }
+
+  /**
+   * A spoken correction → its words.
+   *
+   * THROWS RATHER THAN DEGRADING, which is the opposite of the answer route and deliberately so.
+   * There, a lost clip returns `unavailable` and the worker records again against a question still
+   * on screen. Here there is no question on screen and no turn to retry — a soft failure would
+   * leave the review screen showing the old value with no indication the correction was lost.
+   */
+  private async transcribeCorrection(
+    workerId: string,
+    voiceNoteId: string,
+    ctx: RequestContext,
+  ): Promise<string> {
+    const transcribed = await this.transcription.transcribeNow({
+      voiceNoteId,
+      workerId,
+      maxSeconds: MAX_PROFILING_ANSWER_SECONDS,
+      ctx,
+    });
+    if (!transcribed.ok) {
+      throw new UnprocessableEntityException(
+        `That recording could not be transcribed (${transcribed.errorCode})`,
+      );
+    }
+    return transcribed.text;
+  }
+
+  /**
    * Commit the reviewed session.
    *
    * COMPLETION STAYS ENGINE-AUTHORITATIVE. This does not decide the interview is over — it 409s
@@ -352,8 +486,11 @@ export class ProfilingSessionService {
    * never decides that a tap means `true` — it sends what was tapped, and the meaning is looked
    * up against the options the engine actually served.
    */
-  private textFor(dto: ProfilingAnswerDto, served: ServedQuestion | null): string {
-    const answer = dto.answer;
+  private textFor(
+    answer: ProfilingAnswerDto["answer"],
+    options: readonly QuestionPackOption[],
+    answerType: AnswerType | null,
+  ): string {
     // `spoken` is resolved before this is reached — it needs a provider call, and a synchronous
     // mapper is the wrong place for one.
     if (answer.kind === "spoken") throw new BadRequestException("A spoken answer needs a clip");
@@ -366,7 +503,6 @@ export class ProfilingSessionService {
       return answer.value ? "haan" : "nahi";
     }
 
-    const options = served?.options ?? [];
     const matched = answer.option_keys.map((key) => {
       const option = options.find((candidate: QuestionPackOption) => candidate.option_key === key);
       if (!option) {
@@ -378,7 +514,7 @@ export class ProfilingSessionService {
       return option.label_text;
     });
 
-    if (matched.length > 1 && served?.answerType !== "multi_select") {
+    if (matched.length > 1 && answerType !== "multi_select") {
       throw new BadRequestException("This question takes exactly one option");
     }
 

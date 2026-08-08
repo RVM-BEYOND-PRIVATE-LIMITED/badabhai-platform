@@ -99,6 +99,21 @@ function makeWorld(
       | { ok: true; text: string; durationSeconds: number | null }
       | { ok: false; errorCode: string };
     recordThrows?: boolean;
+    /** What `viewSettled` reports — the FINISHED interview the correction path reads. */
+    settled?: {
+      packId: string;
+      packVersion: number;
+      items: QuestionPackItem[];
+      answers: Record<string, AnswerRecord>;
+      state: Record<string, unknown>;
+      correctionCount: number;
+    } | null;
+    corrected?:
+      | { kind: "corrected"; value: unknown; correctionCount: number }
+      | { kind: "unreadable" }
+      | { kind: "capped"; cap: number };
+    /** A profile row already exists for this worker — i.e. the correction is landing late. */
+    profile?: { id: string } | null;
   } = {},
 ) {
   const session =
@@ -117,6 +132,11 @@ function makeWorld(
   };
   const orchestrator = {
     openTurn: vi.fn(async () => opts.opened ?? turn({ questionKey: "q_city" })),
+    viewSettled: vi.fn(async () => (opts.settled === undefined ? null : opts.settled)),
+    correctAnswer: vi.fn(
+      async () =>
+        opts.corrected ?? { kind: "corrected" as const, value: "Pune", correctionCount: 1 },
+    ),
     viewSession: vi.fn(
       async (): Promise<SessionView | null> =>
         opts.view === undefined
@@ -134,14 +154,16 @@ function makeWorld(
       if (opts.recordThrows) throw new Error("connection terminated unexpectedly");
     }),
   };
+  const workers = { latestProfile: vi.fn(async () => opts.profile ?? null) };
   const service = new ProfilingSessionService(
     chat as never,
     chatService as never,
     orchestrator as never,
     transcription as never,
     voiceAnswers as never,
+    workers as never,
   );
-  return { service, chat, chatService, orchestrator, transcription, voiceAnswers };
+  return { service, chat, chatService, orchestrator, transcription, voiceAnswers, workers };
 }
 
 /** The `answer` body for a chip tap on the material question. */
@@ -736,5 +758,156 @@ describe("the review reads what SURVIVED the interview, not what is still in Red
         display_value: "Pune",
       },
     ]);
+  });
+});
+
+/**
+ * THE CORRECTION PATH (#700), AND WHY IT NEEDS ITS OWN PROOF.
+ *
+ * This write bypasses `nextQuestion` entirely, so every guarantee the turn loop hands a caller for
+ * free has to be re-established by hand — and a test per guarantee is the only thing that says it
+ * WAS. Owner ruling 2026-08-08: targeted write, not re-serve.
+ */
+describe("correcting a settled answer", () => {
+  const settledWorld = (over: Record<string, unknown> = {}) => ({
+    packId: "qp_universal",
+    packVersion: 1,
+    items: [item("q_city", "Aap kis sheher mein rehte hain?")],
+    answers: { q_city: answer({ question_key: "q_city", value_normalized: "Mumbai" }) },
+    state: {},
+    correctionCount: 0,
+    ...over,
+  });
+
+  const dto = {
+    session_id: SESSION,
+    question_key: "q_city",
+    answer: { kind: "text" as const, text: "Pune" },
+  };
+
+  it("writes the correction and hands back the redrawn row", async () => {
+    const { service, orchestrator } = makeWorld({ settled: settledWorld() });
+
+    const result = await service.correct(WORKER, dto, CTX);
+
+    expect(orchestrator.correctAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({ questionKey: "q_city", text: "Pune", method: "text" }),
+    );
+    expect(result.row).toEqual({
+      question_key: "q_city",
+      prompt_text: "Aap kis sheher mein rehte hain?",
+      status: "answered",
+      display_value: "Pune",
+    });
+    expect(result.correction_count).toBe(1);
+  });
+
+  it("404s another worker's session — the id is never an existence oracle", async () => {
+    const { service, orchestrator } = makeWorld({
+      session: { id: SESSION, workerId: "someone-else", status: "ended" },
+      settled: settledWorld(),
+    });
+
+    await expect(service.correct(WORKER, dto, CTX)).rejects.toThrow(/not found/i);
+    expect(orchestrator.correctAnswer).not.toHaveBeenCalled();
+  });
+
+  it("400s a question that is not in this session's pack", async () => {
+    // The guard that stops a client naming an arbitrary key. The question is resolved from the
+    // PINNED pack, never from the request.
+    const { service, orchestrator } = makeWorld({ settled: settledWorld() });
+
+    await expect(
+      service.correct(WORKER, { ...dto, question_key: "q_not_in_pack" }, CTX),
+    ).rejects.toThrow(/not in this session's pack/i);
+    expect(orchestrator.correctAnswer).not.toHaveBeenCalled();
+  });
+
+  it("409s a question that is NOT YET SETTLED — that one belongs to the turn loop", async () => {
+    // The mirror of the answer route's stale guard. Correcting a question still on screen would
+    // write the answer without spending its ask budget, so the engine would serve it again.
+    const { service, orchestrator } = makeWorld({ settled: settledWorld({ answers: {} }) });
+
+    await expect(service.correct(WORKER, dto, CTX)).rejects.toThrow(/not settled/i);
+    expect(orchestrator.correctAnswer).not.toHaveBeenCalled();
+  });
+
+  it("409s when the session never pinned a pack", async () => {
+    const { service } = makeWorld({ settled: null });
+    await expect(service.correct(WORKER, dto, CTX)).rejects.toThrow(/nothing settled/i);
+  });
+
+  it("422s when the words parse to no value — nothing is stored", async () => {
+    // FAIL CLOSED. The turn loop can re-ask; this path cannot, and storing an unparsed sentence
+    // where a typed value belongs would confirm a correction that corrected nothing.
+    const { service } = makeWorld({ settled: settledWorld(), corrected: { kind: "unreadable" } });
+    await expect(service.correct(WORKER, dto, CTX)).rejects.toThrow(/could not read/i);
+  });
+
+  it("409s once the session has taken its cap of corrections", async () => {
+    const { service } = makeWorld({
+      settled: settledWorld(),
+      corrected: { kind: "capped", cap: 20 },
+    });
+    await expect(service.correct(WORKER, dto, CTX)).rejects.toThrow(/already taken 20/i);
+  });
+
+  it("resolves chips to LABELS server-side, and rejects a key this question does not carry", async () => {
+    const chipItem = {
+      ...item("q_city", "Aap kis sheher mein rehte hain?"),
+      answer_type: "single_select",
+      options: [
+        {
+          option_key: "pune",
+          label_text: "Pune",
+          value: null,
+          implies_skill_id: null,
+          is_none_of_above: false,
+        },
+      ],
+    } as unknown as QuestionPackItem;
+    const { service, orchestrator } = makeWorld({ settled: settledWorld({ items: [chipItem] }) });
+
+    await service.correct(
+      WORKER,
+      { ...dto, answer: { kind: "chips", option_keys: ["pune"] } },
+      CTX,
+    );
+    expect(orchestrator.correctAnswer).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Pune", method: "chips" }),
+    );
+
+    await expect(
+      service.correct(WORKER, { ...dto, answer: { kind: "chips", option_keys: ["nagpur"] } }, CTX),
+    ).rejects.toThrow(/unknown option/i);
+  });
+
+  it("reports that a profile already built is now stale, rather than silently rebuilding it", async () => {
+    // The rebuild crosses three deliberate dedupe guards and is a separate ruling (#700). What
+    // this route owes is to say so, not to decide it.
+    const { service } = makeWorld({ settled: settledWorld(), profile: { id: "prof_1" } });
+    const result = await service.correct(WORKER, dto, CTX);
+    expect(result.profile_rebuild_required).toBe(true);
+  });
+
+  it("does not claim a rebuild is needed when no profile exists yet", async () => {
+    const { service } = makeWorld({ settled: settledWorld(), profile: null });
+    const result = await service.correct(WORKER, dto, CTX);
+    expect(result.profile_rebuild_required).toBe(false);
+  });
+
+  it("422s a spoken correction whose clip could not be transcribed — never a silent no-op", async () => {
+    // Deliberately UNLIKE the answer route, which degrades to `unavailable` against a question
+    // still on screen. Here there is no question on screen to record against again, so a soft
+    // failure would leave the review showing the old value with no sign the correction was lost.
+    const { service, orchestrator } = makeWorld({
+      settled: settledWorld(),
+      transcribed: { ok: false, errorCode: "stt_call_failed" },
+    });
+
+    await expect(
+      service.correct(WORKER, { ...dto, answer: { kind: "spoken", voice_note_id: SESSION } }, CTX),
+    ).rejects.toThrow(/could not be transcribed/i);
+    expect(orchestrator.correctAnswer).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@ import { ProfilesService } from "../profiles/profiles.service";
 import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrator.service";
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 import { toConversationStatePatch } from "../profiling/conversation-state";
+import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
 import { hasExtractedContent } from "../profiles/profile-content";
@@ -90,25 +91,6 @@ function countAnswerStatuses(answers: readonly { status?: string }[]): {
     else if (a.status === "unanswered") unanswered++;
   }
   return { answered, declined, unanswered };
-}
-
-function typedAnswerColumns(
-  value: unknown,
-): Pick<
-  NewWorkerPackAnswer,
-  "answerText" | "answerNumber" | "answerBool" | "answerOptionKeys"
-> | null {
-  if (typeof value === "string" && value.length > 0) return { answerText: value };
-  if (typeof value === "number" && Number.isFinite(value)) return { answerNumber: value };
-  if (typeof value === "boolean") return { answerBool: value };
-  if (Array.isArray(value)) {
-    const keys = value.filter((v): v is string => typeof v === "string" && v.length > 0);
-    // An array that survives the filter EMPTY is not an empty answer, it is an unrepresentable
-    // one — `text[]` of length zero is non-null and would satisfy the CHECK while meaning
-    // nothing. Rejected so the caller records a declination instead.
-    return keys.length > 0 ? { answerOptionKeys: keys } : null;
-  }
-  return null;
 }
 
 // AI-PERSONA-2: the ai-service emits this literal token (never a real name) at the
@@ -878,32 +860,18 @@ export class ChatService {
 
     const rows: NewWorkerPackAnswer[] = [];
     for (const record of envelope.answerMap) {
-      if (record.status !== "answered" && record.status !== "declined") continue;
-      // Question keys are `^[a-z_]+$` by pack-validator construction. Re-checked here for the
-      // same reason `slugFieldIds` exists: this INSERT is inside the flush transaction, so a
-      // malformed key would cost the worker their whole completed interview.
-      if (!/^[a-z_]{1,40}$/.test(record.question_key)) continue;
-
-      const value = record.status === "answered" ? record.value_normalized : null;
-      const typed = typedAnswerColumns(value);
-      // An `answered` record whose normalized value is null or an unrepresentable shape would
-      // violate `wpa_answer_shape_chk`. Downgraded to `declined` — the honest reading, since
-      // what we hold is "the question is settled and there is no value" — rather than dropped,
-      // so the question is not re-asked on a later interview.
-      const settled = record.status === "answered" && typed !== null;
-      rows.push({
+      const row = packAnswerRowFor({
         workerId,
-        chatSessionId: sessionId,
+        sessionId,
         packId: envelope.packId,
         packVersion: envelope.packVersion,
-        questionKey: record.question_key,
-        ...(settled ? typed : {}),
-        status: settled ? "answered" : "declined",
+        record,
         // `chip` vs `chat` is not knowable from the answer map — the record keeps the value, not
         // the affordance that produced it. `chat` is the honest default; a chip tap is still a
         // message on this route.
         source: "chat",
       });
+      if (row) rows.push(row);
     }
     return rows;
   }

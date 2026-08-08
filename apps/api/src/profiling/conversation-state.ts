@@ -391,7 +391,15 @@ function narrowAskCounts(value: unknown): Record<string, number> {
   return counts;
 }
 
-function narrowAnswerMap(value: unknown): AnswerRecord[] {
+/**
+ * `answer_map` jsonb → validated `AnswerRecord`s.
+ *
+ * EXPORTED, because there are three readers of that column and they must agree about which records
+ * exist. The envelope narrows it on every load; the extraction processor narrows it to build the
+ * profile; the correction path narrows it to change a settled answer. A private copy per reader is
+ * two files free to disagree about exactly the record a correction just wrote.
+ */
+export function narrowAnswerRecords(value: unknown): AnswerRecord[] {
   if (!Array.isArray(value)) return [];
   // Per-record, so one unparseable answer costs that answer and not the whole interview. Zod is
   // right here where it is wrong for the buffer as a whole: these records came from a schema, they
@@ -502,7 +510,7 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     rev: nonNegativeInt(v.rev),
     phase,
     occupation: occupation.success ? occupation.data : null,
-    answerMap: narrowAnswerMap(v.answerMap),
+    answerMap: narrowAnswerRecords(v.answerMap),
     engineAsks: nonNegativeInt(v.engineAsks),
     askCounts: narrowAskCounts(v.askCounts),
     servedQuestionKey: typeof v.servedQuestionKey === "string" ? v.servedQuestionKey : null,
