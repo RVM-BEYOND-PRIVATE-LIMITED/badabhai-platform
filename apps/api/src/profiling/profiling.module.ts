@@ -53,10 +53,14 @@ import { ProfilingVoiceRepository } from "./profiling-voice.repository";
     // WorkerAuthGuard + ConsentGuard for the routes below — the same two, in the same order, as
     // every other worker-facing controller.
     AuthModule,
-    // The synchronous ≤30s transcription leg. NOT a forwardRef: `VoiceModule` does not import
-    // this one, so the edge is one-way. It exports `VoiceTranscriptionService` and deliberately
-    // NOT `VoiceRepository` — the voice-notes table stays behind its own service.
-    VoiceModule,
+    // The synchronous ≤30s transcription leg. It exports `VoiceTranscriptionService` and
+    // deliberately NOT `VoiceRepository` — the voice-notes table stays behind its own service.
+    //
+    // This edge CLOSES A TRIANGLE (voice → chat → profiling → voice), which is why
+    // `VoiceModule` carries a `forwardRef` on its own `ChatModule` import. Adding this line
+    // without that one does not fail a test — it fails BOOT, because module metadata is
+    // evaluated at require time and every unit test here asserts metadata rather than a graph.
+    forwardRef(() => VoiceModule),
   ],
   controllers: [ProfilingController],
   providers: [
