@@ -34,7 +34,7 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | Pack pin made durable + `profile.pack_pinned` | PR #661 → `27a28b18` | **on `main`** |
 | **V4 (the three defects)** — a worker's answer could vanish behind a green tick | PR #664 → `40e61575` | **on `main`** |
 | **V7** — the interview's one LLM call was unledgered; `aiTaskType` widened 3 → 8 | PR #665 → `46a1fa17` | **on `main`** |
-| **V5 (the enumeration half)** — the 433-clip reply closure + the `{{…}}` corpus guard | PR #666 | **on `main`** |
+| **V5 (the enumeration half)** — the 433-clip reply closure + the `{{…}}` corpus guard | PR #667 | **on `main`** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -546,7 +546,7 @@ from chat.
 
 ---
 
-### Phase V5 — TTS pipeline *(Owner: Divyanshu · L · **enumeration DONE**, PR #666 · render still after V0)*
+### Phase V5 — TTS pipeline *(Owner: Divyanshu · L · **enumeration DONE**, PR #667 · render still after V0)*
 
 > **Split, because only half of it depends on the listening test.** *What* to render is a property
 > of the engine; *how it should sound* is the open question B-2 answers. The first half shipped.
