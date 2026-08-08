@@ -1,0 +1,221 @@
+import '../../../core/api/api_client.dart';
+import '../../../core/error/failure.dart';
+import '../../../core/error/failure_mapper.dart';
+import '../../../core/session/session_repository.dart';
+import '../domain/voice_form_gateway.dart';
+import '../domain/voice_form_models.dart';
+
+/// The real HTTP implementation of [VoiceFormGateway] (#699), against the frozen
+/// deterministic-interview routes (backend #697/#698).
+///
+/// All four routes are worker-authed (bearer) + consent-gated, exactly like
+/// `/chat/*`; the worker id is never in a body. A session that is missing or not
+/// yours is a 404. PRIVACY: an answer clip crosses only as a signed-upload
+/// reference the caller mints — never bytes through here, and never a path in a
+/// log; this class logs nothing.
+class HttpVoiceFormGateway implements VoiceFormGateway {
+  HttpVoiceFormGateway(this._api, this._session);
+
+  final ApiClient _api;
+  final SessionRepository _session;
+
+  /// Server session id, learned on [start] and echoed on every later call.
+  String? _sessionId;
+
+  @override
+  String? get sessionId => _sessionId;
+
+
+  String get _token {
+    final String? t = _session.sessionToken;
+    if (t == null) throw const UnauthorizedFailure();
+    return t;
+  }
+
+  @override
+  Future<VoiceFormStep> start() async {
+    try {
+      final Map<String, dynamic> json =
+          await _api.profilingStart(authToken: _token);
+      _sessionId = json['session_id'] as String?;
+      return _parseStep(json['step']);
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      throw mapError(error); // fail-closed
+    }
+  }
+
+  @override
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {required String? questionKey}) async {
+    final Map<String, dynamic> body = <String, dynamic>{
+      'session_id': _sessionId,
+      // FROM THE CALLER, NOT FROM A CURSOR THIS CLASS KEEPS. `question_key` is the
+      // stale-answer guard: it asserts "this is the question I am answering". Only the
+      // cubit knows what is on the worker's screen, so only the cubit can assert it.
+      //
+      // It used to be a field this class set as a SIDE EFFECT of parsing a step — which
+      // desynced the moment the cubit discarded a step it had asked for. An interruption
+      // during `submit` (a multi-second window: the server transcribes and runs the turn
+      // before replying) makes the cubit drop the response and re-arm Q(n) on resume, while
+      // this cursor had already moved to Q(n+1). The worker's second answer to Q(n) then
+      // carried `question_key: Q(n+1)`, the server's equality guard PASSED, and the answer
+      // was captured against the wrong question — the exact substitution the field exists to
+      // prevent, performed by the client.
+      'question_key': questionKey,
+      'answer': _answerJson(answer),
+    };
+    try {
+      final Map<String, dynamic> json =
+          await _api.profilingAnswer(authToken: _token, body: body);
+      return _parseStep(json['step']);
+    } on ApiException catch (e) {
+      // 409 — the engine already moved on (the routine 2G retry-after-timeout
+      // case). Do NOT re-POST the same body; re-attach to read the CURRENT step
+      // and redraw. Any other status fails closed.
+      if (e.statusCode == 409) {
+        final Map<String, dynamic> json =
+            await _api.profilingStart(authToken: _token);
+        _sessionId = json['session_id'] as String? ?? _sessionId;
+        return _parseStep(json['step']);
+      }
+      throw mapError(e);
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  @override
+  Future<void> finalize() async {
+    final String? id = _sessionId;
+    if (id == null) throw const UnauthorizedFailure();
+    try {
+      final Map<String, dynamic> json =
+          await _api.profilingFinalize(authToken: _token, sessionId: id);
+      final bool committed = json['committed'] == true;
+      if (!committed) {
+        // 200 WITH `committed: false` — the re-drive ran and did not commit. Real, and
+        // rarer than the 409 below; retryable from the review screen either way.
+        throw const VoiceUnavailableFailure();
+      }
+    } on ApiException catch (e) {
+      // 409 — "the engine decides when an interview closes". THE OTHER retryable outcome,
+      // and the frequent one. This comment used to claim it "surfaces as committed:false";
+      // it does not. `ProfilingSessionService.finalize` throws `ConflictException`, which
+      // arrives here as an `ApiException` — not a `Failure`, so it fell through to
+      // `mapError`, which has no 409 arm and returns the generic `ServerFailure(409)`
+      // "Something went wrong". The review screen then dead-ended on opaque copy for the
+      // one condition the worker could actually have retried out of.
+      if (e.statusCode == 409) throw const VoiceUnavailableFailure();
+      throw mapError(e);
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  // ---- wire → domain --------------------------------------------------------
+
+  /// Answer → the discriminated-union body. Sends option KEYS, never labels, and for a
+  /// spoken answer the REGISTERED `voice_note_id` — never bytes, never a device path.
+  ///
+  /// ALL FOUR MEMBERS, since #717. This threw `UnsupportedError` on `spoken` with the note
+  /// that it "has no wire shape yet"; that was false on the commit it shipped in.
+  /// `ProfilingAnswerSchema` has carried `{kind: 'spoken', voice_note_id}` since #702 and
+  /// `ProfilingSessionService.answer` dispatches it into transcribe-then-turn. Since every
+  /// `text`/`number`/`city`/`salary`/`duration` question renders as `open` — no chips, mic
+  /// only — and the universal pack OPENS with four of them, that throw made the first
+  /// question of every interview unanswerable.
+  Map<String, dynamic> _answerJson(VoiceAnswer answer) {
+    switch (answer.kind) {
+      case VoiceAnswerKind.text:
+        return <String, dynamic>{'kind': 'text', 'text': answer.text};
+      case VoiceAnswerKind.chips:
+        return <String, dynamic>{
+          'kind': 'chips',
+          'option_keys': answer.optionKeys,
+        };
+      case VoiceAnswerKind.boolean:
+        return <String, dynamic>{'kind': 'boolean', 'value': answer.boolValue};
+      case VoiceAnswerKind.spoken:
+        return <String, dynamic>{
+          'kind': 'spoken',
+          'voice_note_id': answer.voiceNoteId,
+        };
+    }
+  }
+
+  VoiceFormStep _parseStep(Object? raw) {
+    final Map<String, dynamic> step = (raw as Map).cast<String, dynamic>();
+    switch (step['kind']) {
+      case 'question':
+        final Map<String, dynamic> q =
+            (step['question'] as Map).cast<String, dynamic>();
+        return NextQuestion(
+          _parseQuestion(q),
+          index: step['index'] as int? ?? 0,
+          total: step['total'] as int? ?? 0,
+        );
+      case 'done':
+        return const VoiceFormDone();
+      case 'unavailable':
+        // A STEP, NOT A FAILURE (#717). Nothing was written and the worker may send that
+        // again — which is the whole reason this variant exists rather than a 5xx. Throwing
+        // it made the cubit emit `VoiceFormError`, whose only action on screen is `onExit`:
+        // the server said "say that again" and the client ended the interview.
+        return RetryCurrentQuestion(
+            step['reply'] as String? ?? const VoiceUnavailableFailure().message);
+      default:
+        // An UNKNOWN kind is different, and stays a failure. The union is closed on the
+        // server, so a value this client has never seen means the two have diverged —
+        // guessing "probably retryable" would re-arm the mic against a question that may no
+        // longer be on screen. Fail closed.
+        throw const VoiceUnavailableFailure();
+    }
+  }
+
+  VoiceQuestion _parseQuestion(Map<String, dynamic> q) {
+    return VoiceQuestion(
+      id: q['question_key'] as String? ?? '',
+      prompt: q['prompt_text'] as String? ?? '',
+      kind: _kind(q['answer_type'] as String?),
+      options: _options(q['options']),
+      whyText: q['why_text'] as String?,
+      // tts_clip_id = sha256(normalize(prompt))[:16] → resolve a bundled asset by
+      // that name; a missing asset is the designed text fallback (#631).
+      ttsAssetKey: q['tts_clip_id'] as String?,
+    );
+  }
+
+  /// answer_type decides the input — NOT options.length (all 236 boolean pack
+  /// items carry zero options).
+  VoiceQuestionKind _kind(String? answerType) {
+    switch (answerType) {
+      case 'boolean':
+        return VoiceQuestionKind.boolean;
+      case 'single_select':
+        return VoiceQuestionKind.singleSelect;
+      case 'multi_select':
+        return VoiceQuestionKind.multiSelect;
+      case 'text':
+      case 'number':
+      default:
+        return VoiceQuestionKind.open;
+    }
+  }
+
+  List<VoiceChoice> _options(Object? raw) {
+    if (raw is! List) return const <VoiceChoice>[];
+    return raw
+        .whereType<Map<dynamic, dynamic>>()
+        .map((Map<dynamic, dynamic> o) => VoiceChoice(
+              key: o['option_key'] as String? ?? '',
+              label: o['label_text'] as String? ?? '',
+            ))
+        .where((VoiceChoice c) => c.key.isNotEmpty)
+        .toList();
+  }
+}
