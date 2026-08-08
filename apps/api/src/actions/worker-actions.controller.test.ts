@@ -112,6 +112,11 @@ describe("the bounds on the buffered flush", () => {
   });
 
   it("bounds one request at 100 actions, and refuses an empty flush", () => {
+    // THE NUMBER IS PINNED HERE, deliberately. Deriving both arrays from
+    // `WORKER_ACTIONS_BATCH_MAX` proves the schema honours whatever that constant says — it does
+    // not pin what it says, so raising the constant to 10_000 kept this green. The internal batch
+    // route bounds at 100 and this one claims to match it; that agreement is the assertion.
+    expect(WORKER_ACTIONS_BATCH_MAX).toBe(100);
     const one = { action_type: "app_opened" as const };
     const ok = Array.from({ length: WORKER_ACTIONS_BATCH_MAX }, () => one);
     expect(WorkerRecordActionsBatchSchema.safeParse({ actions: ok }).success).toBe(true);

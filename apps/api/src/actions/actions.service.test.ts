@@ -50,7 +50,12 @@ describe("ActionsService — the worker-authenticated seam (#694)", () => {
     }
   });
 
-  it("inherits the fail-closed PII guard — a worker cannot smuggle PII through context", async () => {
+  // NAMED FOR WHAT IS ENFORCED, not for what would be nice. The guard examines every value and
+  // catches email shapes, 7+ digit runs, ASCII title-cased name shapes and address keywords. It
+  // does NOT catch a Devanagari name — the R32 ruling stands, name-shape masking measured dead —
+  // so "a worker cannot smuggle PII" would be a claim the code does not make. `context` is
+  // contractually a bag of counts, enums and flags; the guard is the backstop, not the contract.
+  it("rejects the PII SHAPES it enforces — phone, email, name, address — in a context value", async () => {
     const { svc, emit } = make();
     await expect(
       svc.recordForWorker(
@@ -60,6 +65,38 @@ describe("ActionsService — the worker-authenticated seam (#694)", () => {
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("…including as a NUMBER, which the guard used to skip entirely", async () => {
+    // The bypass was one character wide. `contextSchema` accepts string | number | boolean and
+    // the guard only examined strings, so the quoted form was a 400 and the bare form a 201 —
+    // written through createEvent unexamined into events.payload.context. Every Indian mobile
+    // (10 digits) and every Aadhaar (12) is a valid JS number.
+    const { svc, emit } = make();
+    for (const value of [9876543210, 123456789012]) {
+      await expect(
+        svc.recordForWorker(
+          WORKER,
+          { action_type: "profiling_answer_spoken", context: { n: value } },
+          CTX as never,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    }
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("still accepts the counts and flags `context` actually exists for", async () => {
+    // The guard must not become a product limit. These are the real voice-form signals.
+    const { svc, emit } = make();
+    await svc.recordForWorker(
+      WORKER,
+      {
+        action_type: "question_audio_played",
+        context: { question_index: 3, duration_ms: 421_000, replayed: true, step: "step_2" },
+      },
+      CTX as never,
+    );
+    expect(emit).toHaveBeenCalledOnce();
   });
 });
 

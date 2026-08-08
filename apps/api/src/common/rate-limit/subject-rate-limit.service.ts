@@ -14,8 +14,15 @@ interface RedisCounter {
 }
 
 /**
- * A per-SUBJECT cap over a rolling UTC hour, where the subject is an already-authenticated
+ * A per-SUBJECT cap over a FIXED UTC CALENDAR HOUR, where the subject is an already-authenticated
  * principal id (a worker, a payer) rather than an IP.
+ *
+ * FIXED BUCKET, NOT A SLIDING WINDOW, and the docs used to say "rolling" — which is a different
+ * and stricter thing. The key carries a `YYYYMMDDHH` stamp, so the counter resets at the top of
+ * the hour and a caller can legitimately spend the full cap at :59 and the full cap again at :00.
+ * That is the accepted cost of one INCRBY per request; the cap is an abuse backstop on writes into
+ * the audit spine, not a metering primitive, and a true sliding window needs a sorted set per
+ * subject. Anyone reading this to size a cap should size it for 2× over an hour boundary.
  *
  * WHY IT IS NOT `IpRateLimit`. That one HMAC-hashes its input because an IP is PII; a subject id
  * is an opaque internal uuid the caller has already proved they are, so hashing it would buy
@@ -46,6 +53,15 @@ export class SubjectRateLimit {
    *
    * `scope` is a short namespace, e.g. `"worker_actions"`. `cost` is how much this request
    * spends — the number of records it would write, not 1.
+   *
+   * RESERVE, THEN RELEASE ON REJECTION. The charge lands before the check, which is what makes a
+   * single oversized batch reject instead of writing its rows and starving the next caller. But
+   * KEEPING that charge on a rejected request quietly lowers the cap: a worker at 450/500 who
+   * sends a 100-batch is refused and left at 550, so the 40-item flush that would have fit is
+   * refused too, and every retry inside the hour pushes it further out. Nothing was written, so
+   * nothing should stay spent. The refund is best-effort — if it fails the counter is merely
+   * conservative, which is the safe direction — and a concurrent request can observe the
+   * pre-refund value, which can only ever reject something it would otherwise have allowed.
    */
   async assertWithinHourlyCap(
     scope: string,
@@ -58,12 +74,15 @@ export class SubjectRateLimit {
     const ttl = SubjectRateLimit.secondsUntilEndOfUtcHour();
 
     let count: number;
+    let redis: RedisCounter;
     try {
-      const redis = (await this.queue.client) as unknown as RedisCounter;
+      redis = (await this.queue.client) as unknown as RedisCounter;
       count = await redis.incrby(key, cost);
-      // Re-assert the TTL on EVERY hit, not only the first: a `if (count === cost)` guard would
-      // leave a TTL-less key if the process died between INCRBY and EXPIRE, capping the subject
-      // forever rather than for the hour. EXPIRE is idempotent and cheap.
+      // Re-assert the TTL on EVERY hit, not only the first. A `if (count === cost)` guard leaves a
+      // TTL-less key whenever the process dies between INCRBY and EXPIRE — and because the key is
+      // stamped with the hour, that does NOT cap the subject forever (the next hour is a different
+      // key); it leaks a key that never expires, one per subject per affected hour, in a Redis this
+      // also runs BullMQ on. EXPIRE is idempotent and cheap, so re-asserting is the whole fix.
       await redis.expire(key, ttl);
     } catch (err) {
       this.logger.error(
@@ -77,6 +96,15 @@ export class SubjectRateLimit {
     }
 
     if (count > cap) {
+      try {
+        await redis.incrby(key, -cost);
+      } catch (err) {
+        this.logger.warn(
+          `subject rate-limit refund failed scope=${scope} subject=${subjectId.slice(0, 8)}…; ` +
+            `the counter stays conservative until the hour rolls ` +
+            `(reason: ${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
       throw new HttpException(
         "Too many requests; please retry later",
         HttpStatus.TOO_MANY_REQUESTS,
