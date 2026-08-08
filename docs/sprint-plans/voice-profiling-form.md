@@ -33,7 +33,8 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | Live-run fixes — `catalog_version` 500, event-validation diagnostics, compound chip labels | PR #656 → `952305ea` | **on `main`** |
 | Pack pin made durable + `profile.pack_pinned` | PR #661 → `27a28b18` | **on `main`** |
 | **V4 (the three defects)** — a worker's answer could vanish behind a green tick | PR #664 → `40e61575` | **on `main`** |
-| **V7** — the interview's one LLM call was unledgered; `aiTaskType` widened 3 → 8 | PR #665 | **on `main`** |
+| **V7** — the interview's one LLM call was unledgered; `aiTaskType` widened 3 → 8 | PR #665 → `46a1fa17` | **on `main`** |
+| **V5 (the enumeration half)** — the 433-clip reply closure + the `{{…}}` corpus guard | PR #666 | **on `main`** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -545,7 +546,40 @@ from chat.
 
 ---
 
-### Phase V5 — TTS pipeline *(Owner: Divyanshu · L · after V0)*
+### Phase V5 — TTS pipeline *(Owner: Divyanshu · L · **enumeration DONE**, PR #666 · render still after V0)*
+
+> **Split, because only half of it depends on the listening test.** *What* to render is a property
+> of the engine; *how it should sound* is the open question B-2 answers. The first half shipped.
+>
+> **Measured over the real corpus** — the closure is not the pack strings:
+>
+> | producer | distinct clips |
+> |---|---:|
+> | `prompt` | 129 |
+> | `retry` | 4 |
+> | `why` (bare — reachable when the served question is gone) | 143 |
+> | `clarify` (`why_text` + `servedText`) | 150 |
+> | `constant` | 7 |
+> | **total** | **433** |
+>
+> The plan estimated 145 clarify strings; it counted why+prompt only. A worker can ask "why?"
+> *after* the re-ask too, so why+retry is a distinct thing to say.
+>
+> **A defect the enumeration exposed.** Deciding which question text pairs with a `why_text` forced
+> the question, and the answer was wrong: `joinClarify` read `askedItem.prompt_text` raw, while the
+> silent-turn branch carries a comment about that exact mistake. A worker looking at the re-ask who
+> then asks "yeh kyun poochh rahe ho?" got the explanation followed by the phrasing from two turns
+> ago. Five of 466 items carry `retry_text` today, which is why it survived.
+>
+> **The placeholder guard landed** in `validateQuestionPackCorpus` — already a CI gate via
+> `db:verify:packs --corpus` — across all three served fields, with `assertNoInterpolation` as the
+> second wall inside the closure. Measured: 0 of 466 items carry a template token today, so it is a
+> guard and not a repair.
+>
+> **Still owed:** `tts_render.py` over the closure, the golden closure file asserted from both TS
+> and Python (the `normalize()` parity vectors), and the boot test that no FastAPI router imports
+> `tts_adapter`. All three are cheap once B-2 says whether the corpus needs a transliteration
+> sidecar.
 
 - `app/tts.py` — `TtsAdapter`, `TTS_TASK_TYPE = "tts_synthesis"` (**its own allowlist key**, so TTS can
   be flipped independently of STT), gate chain mirroring `stt.py:207-248` **in order**, fail-closed to
