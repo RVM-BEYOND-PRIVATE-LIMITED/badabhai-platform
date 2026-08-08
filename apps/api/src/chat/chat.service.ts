@@ -62,21 +62,8 @@ function typedAnswerColumns(
 // POST-emit, only in the value returned to the client — see renderWorkerName.
 const WORKER_NAME_PLACEHOLDER = "{{worker_name}}";
 
-/**
- * Served when the AI service is unreachable and no turn happened.
- *
- * DELIBERATELY NOT a copy of the ai-service's own degraded line, and deliberately not a
- * question. This is the same split the codebase already makes between Python's
- * `_BLOCKED_REPLY` and Flutter's `kChatBlockedNotice`: each surface says the thing IT
- * knows. The ai-service's fallback continues an interview it is still conducting; this
- * one is served when there is no interview happening at all, so asking a question here
- * would invite an answer nothing is listening for.
- *
- * On-persona by the same rules the guard enforces on the far side: "aap", no vocative,
- * no exclamation mark, no emoji, two short lines.
- */
-export const CHAT_UNAVAILABLE_REPLY =
-  "Abhi thodi dikkat aa rahi hai. Ek minute baad dobara bhejiye.";
+/** Re-exported from the import-free module so the TTS closure can read it without Nest. */
+export { CHAT_UNAVAILABLE_REPLY } from "./chat-replies";
 
 /** Served on a message posted to an interview that has already been finalized. */
 const CHAT_ALREADY_COMPLETE_REPLY =

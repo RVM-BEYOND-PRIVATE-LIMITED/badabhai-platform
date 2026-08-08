@@ -49,14 +49,17 @@ import {
   askCeiling,
   askCount,
   clarify,
+  joinClarify,
   nextQuestion,
   servedText,
+  CLOSING_REPLY_TEXT,
+  DE_ESCALATION_REPLY_TEXT,
+  HARDSHIP_REPLY_TEXTS,
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_HARDSHIP,
   MAX_ENGINE_TURNS,
   MAX_SILENT_TURNS,
   type CompletionReason,
-  type Decision,
   type EnginePacks,
 } from "./next-question";
 import { PackRegistryService } from "./pack-registry.service";
@@ -71,7 +74,7 @@ import { PackRegistryService } from "./pack-registry.service";
  * On-persona by the same rules `persona_guard.check_turn` enforces on pack copy: "aap", no
  * vocative, no exclamation, no emoji, under twenty words.
  */
-export const DE_ESCALATION_REPLY = "Aap se vinamra rehne ki request hai. Kaam ki baat karte hain.";
+export const DE_ESCALATION_REPLY = DE_ESCALATION_REPLY_TEXT;
 
 /**
  * The closed appreciation set for a hardship turn.
@@ -81,14 +84,13 @@ export const DE_ESCALATION_REPLY = "Aap se vinamra rehne ki request hai. Kaam ki
  * pushing a question is the whole point — a worker describing a hard month is not refusing to
  * answer, and pressing them is the fastest way to lose the interview.
  */
-export const HARDSHIP_REPLIES = [
-  "Samajh sakta hoon. Aapki baat sahi hai.",
-  "Aapki mehnat samajh aati hai. Thoda aur batayiye.",
-  "Theek hai. Aaram se batayiye, koi jaldi nahi.",
-] as const;
+export const HARDSHIP_REPLIES = HARDSHIP_REPLY_TEXTS;
 
 /** Served when the interview ends normally. */
-export const CLOSING_REPLY = "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
+export const CLOSING_REPLY = CLOSING_REPLY_TEXT;
+
+/** Re-exported: the join moved to the pure module so a TTS renderer need not boot Nest. */
+export { joinClarify };
 
 /**
  * Served when the CAS could not be won or no pack could be resolved. Nothing was written.
@@ -351,7 +353,11 @@ export class ProfilingOrchestrator {
         // not a spent budget — `why_text` first, then the same question again on the same turn.
         next = { ...next, clarifyCount: next.clarifyCount + 1, silentTurns: 0 };
         return this.turn(buffer, next, input, {
-          reply: joinClarify(clarified, askedItem),
+          reply: joinClarify(
+            clarified,
+            askedItem,
+            askedItem ? askCount(state, askedItem.question_key) : 0,
+          ),
           questionKey: clarified.questionKey,
           options: clarified.options,
           progress: clarified.progress,
@@ -747,13 +753,6 @@ function unavailable(): TurnResult {
   };
 }
 
-/** `why_text`, then the question again — one message, because the client renders one bubble. */
-function joinClarify(decision: Decision, askedItem: QuestionPackItem | null): string {
-  const why = decision.promptText;
-  const question = askedItem?.prompt_text ?? "";
-  if (!question || why === question) return why;
-  return `${why} ${question}`;
-}
 
 function progressOf(items: readonly QuestionPackItem[], answers: AnswerMap) {
   return {
