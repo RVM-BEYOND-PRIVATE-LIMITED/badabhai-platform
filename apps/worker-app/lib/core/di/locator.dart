@@ -38,6 +38,7 @@ import '../../features/settings/data/notification_prefs_repository_impl.dart';
 import '../../features/settings/domain/notification_prefs_repository.dart';
 import '../../features/settings/presentation/cubit/account_delete_cubit.dart';
 import '../../features/voice/data/record_package_voice_recorder.dart';
+import '../../features/voice/data/session_voice_recorder.dart';
 import '../../features/voice/data/voice_note_repository_impl.dart';
 import '../../features/voice/data/voice_pipeline_impl.dart';
 import '../../features/voice/domain/voice_note_repository.dart';
@@ -276,6 +277,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // PUT vs canned path) and transcript resolve (GET /voice/:id vs canned text).
   locator.registerLazySingleton<VoiceRecorder>(
       () => RecordPackageVoiceRecorder());
+  // The voice-FORM session recorder (#625) — registered under its OWN type, so
+  // the single-shot flow's shared [VoiceRecorder] singleton is never touched.
+  // Lazy: constructing the plugin touches no platform channel until first use.
+  locator.registerLazySingleton<SessionVoiceRecorder>(
+      () => SessionVoiceRecorder());
   locator.registerLazySingleton<VoiceStorageUploader>(
     () => kUseMocks
         ? const MockVoiceStorageUploader()
