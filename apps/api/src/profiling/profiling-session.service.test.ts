@@ -109,11 +109,13 @@ function makeWorld(
       correctionCount: number;
     } | null;
     corrected?:
-      | { kind: "corrected"; value: unknown; correctionCount: number }
+      | { kind: "corrected"; value: unknown; correctionCount: number; answerSetHash: string }
       | { kind: "unreadable" }
       | { kind: "capped"; cap: number };
     /** A profile row already exists for this worker — i.e. the correction is landing late. */
     profile?: { id: string } | null;
+    /** What `rebuildAfterCorrection` reports. `null` = the rebuild could not be queued. */
+    rebuild?: { ai_job_id: string; status: string } | null;
   } = {},
 ) {
   const session =
@@ -135,7 +137,12 @@ function makeWorld(
     viewSettled: vi.fn(async () => (opts.settled === undefined ? null : opts.settled)),
     correctAnswer: vi.fn(
       async () =>
-        opts.corrected ?? { kind: "corrected" as const, value: "Pune", correctionCount: 1 },
+        opts.corrected ?? {
+          kind: "corrected" as const,
+          value: "Pune",
+          correctionCount: 1,
+          answerSetHash: "a".repeat(64),
+        },
     ),
     viewSession: vi.fn(
       async (): Promise<SessionView | null> =>
@@ -155,6 +162,11 @@ function makeWorld(
     }),
   };
   const workers = { latestProfile: vi.fn(async () => opts.profile ?? null) };
+  const profiles = {
+    rebuildAfterCorrection: vi.fn(async () =>
+      opts.rebuild === undefined ? { ai_job_id: "job_1", status: "queued" } : opts.rebuild,
+    ),
+  };
   const service = new ProfilingSessionService(
     chat as never,
     chatService as never,
@@ -162,8 +174,18 @@ function makeWorld(
     transcription as never,
     voiceAnswers as never,
     workers as never,
+    profiles as never,
   );
-  return { service, chat, chatService, orchestrator, transcription, voiceAnswers, workers };
+  return {
+    service,
+    chat,
+    chatService,
+    orchestrator,
+    transcription,
+    voiceAnswers,
+    workers,
+    profiles,
+  };
 }
 
 /** The `answer` body for a chip tap on the material question. */
@@ -882,18 +904,85 @@ describe("correcting a settled answer", () => {
     ).rejects.toThrow(/unknown option/i);
   });
 
-  it("reports that a profile already built is now stale, rather than silently rebuilding it", async () => {
-    // The rebuild crosses three deliberate dedupe guards and is a separate ruling (#700). What
-    // this route owes is to say so, not to decide it.
-    const { service } = makeWorld({ settled: settledWorld(), profile: { id: "prof_1" } });
-    const result = await service.correct(WORKER, dto, CTX);
-    expect(result.profile_rebuild_required).toBe(true);
-  });
+  /**
+   * THE BOUNDARY THE OWNER NAMED (ruling 2026-08-08), and it is exactly where this and #420 could
+   * otherwise blur into each other.
+   *
+   * #420 was TWO triggers firing on UNCHANGED data. This is ONE trigger firing because the data
+   * CHANGED. The line between them is whether an extraction has already READ the answers:
+   *
+   *   not yet extracted -> the queued extraction reads `conversation_state` when it RUNS, which is
+   *                        after this correction committed, so it builds from the corrected
+   *                        answers by itself. Firing here would be #420's shape exactly.
+   *   already extracted -> nothing will ever read them again. Rebuild.
+   */
+  describe("the rebuild boundary", () => {
+    it("does NOT take the rebuild path when the session was never extracted", async () => {
+      const { service, profiles } = makeWorld({ settled: settledWorld(), profile: null });
 
-  it("does not claim a rebuild is needed when no profile exists yet", async () => {
-    const { service } = makeWorld({ settled: settledWorld(), profile: null });
-    const result = await service.correct(WORKER, dto, CTX);
-    expect(result.profile_rebuild_required).toBe(false);
+      const result = await service.correct(WORKER, dto, CTX);
+
+      expect(profiles.rebuildAfterCorrection).not.toHaveBeenCalled();
+      // FALSE means "no rebuild is underway", and here that is correct rather than a gap: the
+      // ordinary extraction has not run yet and will pick the correction up on its own.
+      expect(result.profile_rebuild_required).toBe(false);
+    });
+
+    it("DOES take it when a profile has already been built", async () => {
+      const { service, profiles } = makeWorld({
+        settled: settledWorld(),
+        profile: { id: "prof_1" },
+      });
+
+      const result = await service.correct(WORKER, dto, CTX);
+
+      expect(profiles.rebuildAfterCorrection).toHaveBeenCalledWith(
+        {
+          worker_id: WORKER,
+          session_id: SESSION,
+          // KEYED ON THE DATA, not on the session — that is what makes it structurally
+          // incapable of colliding with #420's session-scoped guards.
+          answer_set_hash: "a".repeat(64),
+        },
+        CTX,
+      );
+      expect(result.profile_rebuild_required).toBe(true);
+    });
+
+    it("passes the hash of the map that was JUST WRITTEN, not a recomputed one", async () => {
+      const { service, profiles } = makeWorld({
+        settled: settledWorld(),
+        profile: { id: "prof_1" },
+        corrected: {
+          kind: "corrected",
+          value: "Pune",
+          correctionCount: 3,
+          answerSetHash: "b".repeat(64),
+        },
+      });
+
+      await service.correct(WORKER, dto, CTX);
+
+      expect(profiles.rebuildAfterCorrection).toHaveBeenCalledWith(
+        expect.objectContaining({ answer_set_hash: "b".repeat(64) }),
+        CTX,
+      );
+    });
+
+    it("still reports the correction as stored when the rebuild could not be queued", async () => {
+      // The correction is durable in both stores before this runs. Failing the worker's call
+      // because a QUEUE was unreachable would report it as lost when it is not.
+      const { service } = makeWorld({
+        settled: settledWorld(),
+        profile: { id: "prof_1" },
+        rebuild: null,
+      });
+
+      const result = await service.correct(WORKER, dto, CTX);
+
+      expect(result.row.display_value).toBe("Pune");
+      expect(result.profile_rebuild_required).toBe(false);
+    });
   });
 
   it("422s a spoken correction whose clip could not be transcribed — never a silent no-op", async () => {

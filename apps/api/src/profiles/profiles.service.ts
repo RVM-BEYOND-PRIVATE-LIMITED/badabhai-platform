@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ServiceUnavailableException,
-} from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import type { RequestContext } from "../common/request-context";
@@ -196,6 +191,106 @@ export class ProfilesService {
     }
 
     return { ai_job_id: job.id, status: "queued" as const };
+  }
+
+  /**
+   * THE FOURTH TRIGGER: rebuild the profile because a settled answer CHANGED (#700).
+   *
+   * Owner ruling 2026-08-08. The other three fire on the same fact — "this session finished" — and
+   * are guarded against each other by session-scoped dedupe. That guarding is what closed #420,
+   * where two triggers fired on UNCHANGED data and double-spent. This one is the opposite case: it
+   * must fire precisely because the data is no longer what was built.
+   *
+   * SO IT IS KEYED ON THE DATA, NOT THE SESSION, and that is structural rather than stylistic.
+   * `answer_set_hash` fingerprints the answer map itself, so:
+   *
+   *   - a rebuild for an answer set that was already built is the SAME key → deduped, no spend;
+   *   - a rebuild for a CHANGED answer set is a different key, and there is no way to express it
+   *     as a re-fire on unchanged data — which is what #420's race was.
+   *
+   * The two can therefore never collide, because the key space says so and not because the two
+   * call sites happen to stay apart.
+   *
+   * IT DELIBERATELY DOES NOT CALL `findExtractionDedupeCandidate`. That guard asks "has this
+   * session been extracted?" and after a correction the answer is yes — which is the reason a
+   * rebuild is needed, not a reason to skip it.
+   *
+   * THE NEW ROW SUPERSEDES THE OLD THROUGH `CURRENT_PROFILE_ORDER` and nothing else. That order
+   * (non-draft first, then `created_at desc`, then `id desc`) is the one definition of "which row
+   * is the profile", established by #678 after seven readers each answered it differently. A
+   * fresh extraction writes a newer non-draft row through the same `ProfilesRepository.create`, so
+   * it wins by the existing rule. No second definition, no update-in-place, no delete.
+   *
+   * NEVER THROWS. A correction is already durable in both stores by the time this runs; failing
+   * the worker's HTTP call because a rebuild could not be QUEUED would report the correction as
+   * lost when it is not. Loud in the log, invisible to them — the same posture as
+   * `autoTriggerExtraction`.
+   */
+  async rebuildAfterCorrection(
+    input: { worker_id: string; session_id: string; answer_set_hash: string },
+    ctx: RequestContext,
+  ): Promise<{ ai_job_id: string; status: string } | null> {
+    try {
+      const already = await this.aiJobs.findCorrectionRebuildJob({
+        sessionId: input.session_id,
+        workerId: input.worker_id,
+        answerSetHash: input.answer_set_hash,
+      });
+      if (already) {
+        this.logger.log(
+          `correction rebuild deduped session=${input.session_id} ` +
+            `hash=${input.answer_set_hash.slice(0, 12)} existing_ai_job=${already.id}`,
+        );
+        return { ai_job_id: already.id, status: already.status };
+      }
+
+      const job = await this.aiJobs.create({
+        jobType: "profile_extraction",
+        status: "queued",
+        // `answer_set_hash` is what makes this row findable by the dedupe above, and what makes
+        // the trigger distinguishable from the ordinary three in the audit trail.
+        inputRef: {
+          worker_id: input.worker_id,
+          session_id: input.session_id,
+          answer_set_hash: input.answer_set_hash,
+          trigger: "correction",
+        },
+      });
+
+      await this.events.emit({
+        event_name: "profile.extraction_requested",
+        actor: { actor_type: "worker", actor_id: input.worker_id },
+        subject: { subject_type: "ai_job", subject_id: job.id },
+        payload: {
+          worker_id: input.worker_id,
+          session_id: input.session_id,
+          ai_job_id: job.id,
+        },
+        idempotencyKey: `profile.extraction_requested:${job.id}`,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+
+      await this.extractionQueue.add("extract", {
+        workerId: input.worker_id,
+        sessionId: input.session_id,
+        aiJobId: job.id,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+
+      this.logger.log(
+        `correction rebuild queued session=${input.session_id} ` +
+          `hash=${input.answer_set_hash.slice(0, 12)} ai_job=${job.id}`,
+      );
+      return { ai_job_id: job.id, status: "queued" };
+    } catch (err) {
+      this.logger.error(
+        `correction rebuild could not be queued session=${input.session_id}; the CORRECTION is ` +
+          `durable and the built profile is now stale: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
   }
 
   async confirm(input: ConfirmProfileInput, ctx: RequestContext) {

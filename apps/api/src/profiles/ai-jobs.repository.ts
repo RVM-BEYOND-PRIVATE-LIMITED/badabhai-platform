@@ -245,6 +245,51 @@ export class AiJobsRepository {
     };
   }
 
+  /**
+   * Has THIS EXACT ANSWER SET already been queued or built for this session?
+   *
+   * THE FOURTH TRIGGER'S DEDUPE, and it is deliberately not
+   * {@link findExtractionDedupeCandidate}. That one asks "has this SESSION been extracted?", which
+   * is the right question for the ordinary flow and the wrong one after a correction — the answer
+   * is yes, and it is yes precisely when a rebuild is needed.
+   *
+   * KEYED ON THE DATA. #420 was two triggers firing on UNCHANGED data; a correction rebuild is one
+   * trigger firing BECAUSE the data changed. Keying this on `session_id` would put both in one key
+   * space and leave "they can never collide" resting on the two code paths staying separate.
+   * Keying on `answer_set_hash` makes it structural: a rebuild for an answer set already built is
+   * the SAME key and dedupes; a rebuild for a changed answer set is a DIFFERENT key and is not
+   * expressible as a re-fire on unchanged data.
+   *
+   * Includes queued and running rows with no age window, unlike the in-flight guard above: a
+   * correction rebuild is triggered by a deliberate human action, not by a page mount, so there is
+   * no mount-loop to bound and a stuck job must not be re-queued behind the worker's back.
+   *
+   * Reads opaque values out of `input_ref` — a uuid pair and a hex digest. No PII crosses this.
+   */
+  async findCorrectionRebuildJob(args: {
+    sessionId: string;
+    workerId: string;
+    answerSetHash: string;
+  }): Promise<{ id: string; status: string } | undefined> {
+    const rows = await this.db
+      .select({ id: aiJobs.id, status: aiJobs.status })
+      .from(aiJobs)
+      .where(
+        and(
+          eq(aiJobs.jobType, "profile_extraction"),
+          sql`${aiJobs.inputRef}->>'session_id' = ${args.sessionId}`,
+          sql`${aiJobs.inputRef}->>'worker_id' = ${args.workerId}`,
+          sql`${aiJobs.inputRef}->>'answer_set_hash' = ${args.answerSetHash}`,
+          // A FAILED rebuild is not a rebuild. Excluded so a correction whose extraction died can
+          // be retried by correcting again, rather than being pinned by its own failure.
+          inArray(aiJobs.status, ["queued", "running", "completed"]),
+        ),
+      )
+      .orderBy(sql`${aiJobs.createdAt} desc nulls last`)
+      .limit(1);
+    return rows[0];
+  }
+
   async create(input: NewAiJob): Promise<AiJob> {
     const inserted = await this.db.insert(aiJobs).values(input).returning();
     const row = inserted[0];

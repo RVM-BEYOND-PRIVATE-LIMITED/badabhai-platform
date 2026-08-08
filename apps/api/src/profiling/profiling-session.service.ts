@@ -25,6 +25,7 @@ import { ProfilingVoiceRepository } from "./profiling-voice.repository";
 import { isSettled } from "./answer-map";
 import { clipId } from "./reply-closure";
 import { WorkersRepository } from "../workers/workers.repository";
+import { ProfilesService } from "../profiles/profiles.service";
 import type {
   FinalizeProfilingResponse,
   ProfilingAnswerDto,
@@ -78,6 +79,9 @@ export class ProfilingSessionService {
     // landed? `latestProfile` is the same reader `autoTriggerExtraction` uses to decide the same
     // thing, so the two cannot disagree about whether a worker is profiled.
     private readonly workers: WorkersRepository,
+    // The fourth trigger (#700). ProfilesModule imports ProfilingModule for the projector, so
+    // this needs a forwardRef back — the cycle is real and is one interview, two concerns.
+    @Inject(forwardRef(() => ProfilesService)) private readonly profiles: ProfilesService,
   ) {}
 
   /**
@@ -382,11 +386,29 @@ export class ProfilingSessionService {
       );
     }
 
-    if (outcome.kind === "corrected" && existing) {
-      this.logger.warn(
-        `correction landed AFTER the profile was built session=${dto.session_id} ` +
-          `question=${dto.question_key}; the stored answer is now right and profile ` +
-          `${existing.id} is stale — see #700`,
+    // THE BOUNDARY, and it is the whole of why this is safe.
+    //
+    // NO PROFILE YET → do nothing. An extraction is already queued or running from the ordinary
+    // flush trigger, and it reads `conversation_state.answer_map` when it RUNS — which is after
+    // this correction committed. It will therefore build from the corrected answers by itself.
+    // Firing a rebuild here would be a second trigger on data the first has not read yet, which
+    // is #420's shape exactly.
+    //
+    // PROFILE ALREADY BUILT → rebuild. The extraction has been and gone; the stored answer is now
+    // right and the profile is stale, and nothing else will ever notice.
+    let rebuild: { ai_job_id: string; status: string } | null = null;
+    if (existing) {
+      this.logger.log(
+        `correction landed after profile ${existing.id} was built session=${dto.session_id} ` +
+          `question=${dto.question_key}; queuing a rebuild`,
+      );
+      rebuild = await this.profiles.rebuildAfterCorrection(
+        {
+          worker_id: workerId,
+          session_id: dto.session_id,
+          answer_set_hash: outcome.answerSetHash,
+        },
+        ctx,
       );
     }
 
@@ -400,7 +422,10 @@ export class ProfilingSessionService {
         display_value: this.displayValueOf(outcome.value, "answered"),
       },
       correction_count: outcome.correctionCount,
-      profile_rebuild_required: existing !== undefined && existing !== null,
+      // TRUE means a rebuild is UNDERWAY, not that one is owed. It stays false when no profile
+      // existed, because the ordinary extraction has not run yet and will pick the correction up
+      // on its own — there is nothing to rebuild.
+      profile_rebuild_required: rebuild !== null,
     };
   }
 

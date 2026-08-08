@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AnswerRecord, QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 
 import { ProfilingOrchestrator, MAX_CORRECTIONS_PER_SESSION } from "./orchestrator.service";
+import { answerSetHash, toAnswerMap } from "./answer-map";
 
 /**
  * THE ENGINE HALF OF THE CORRECTION PATH (#700, owner ruling 2026-08-08: targeted write).
@@ -139,7 +140,14 @@ describe("a correction supersedes rather than replaces", () => {
 
     const outcome = await orchestrator.correctAnswer(correction());
 
-    expect(outcome).toEqual({ kind: "corrected", value: "Pune", correctionCount: 1 });
+    expect(outcome).toEqual({
+      kind: "corrected",
+      value: "Pune",
+      correctionCount: 1,
+      // The rebuild trigger's key, handed back rather than recomputed by the caller — a hash of
+      // anything other than exactly what landed would dedupe against the wrong answer set.
+      answerSetHash: answerSetHash(toAnswerMap(saved[0]?.answer_map as AnswerRecord[])),
+    });
     const map = saved[0]?.answer_map as AnswerRecord[];
     const record = map.find((r) => r.question_key === "current_city") as AnswerRecord;
     expect(record.value_normalized).toBe("Pune");

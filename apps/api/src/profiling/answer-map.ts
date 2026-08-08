@@ -12,6 +12,8 @@
  * it re-runs have no history.
  */
 
+import { createHash } from "node:crypto";
+
 import type { AnswerRecord, AnswerStatus, EvidenceSpan } from "@badabhai/ai-contracts";
 
 /** `question_key` → the single current record for that question. */
@@ -149,6 +151,38 @@ function sameNormalized(a: unknown, b: unknown): boolean {
     return a.length === b.length && a.every((item, i) => sameNormalized(item, b[i]));
   }
   return Object.is(a, b);
+}
+
+/**
+ * A stable fingerprint of the interview's RECORD — what was answered, not how it got there.
+ *
+ * WHAT IT IS FOR. The correction path re-triggers the profile build (#700), and that trigger must
+ * be keyed on the DATA rather than on the session. #420 was two triggers firing on UNCHANGED data;
+ * this is one trigger firing precisely BECAUSE the data changed. Keying on `session_id` alone would
+ * put both in the same key space and make "they can never collide" a property of the code paths
+ * staying separate. Keying on this makes it a property of the KEY: a rebuild for an answer set that
+ * has already been built is the same key and dedupes; a rebuild for a changed answer set is a
+ * different key and cannot be confused with a re-fire on unchanged data.
+ *
+ * DELIBERATELY IGNORES `turn`, `evidence` and `history`. Those describe the JOURNEY, and a
+ * correction that lands on the same value the interview already captured must NOT produce a new
+ * hash — re-extracting an identical answer set is the spend #420 exists to prevent. Only
+ * `question_key`, `status` and the normalized VALUE decide what a profile would be built from.
+ *
+ * Sorted by key, and `\u001f`/`\u001e` separators rather than a delimiter that can occur in a
+ * value: a city called "a|b" must not be able to hash like two fields.
+ */
+const FIELD_SEP = "\u001f";
+const RECORD_SEP = "\u001e";
+
+export function answerSetHash(map: AnswerMap): string {
+  const parts = Object.keys(map)
+    .sort()
+    .map((key) => {
+      const record = map[key] as AnswerRecord;
+      return [key, record.status, JSON.stringify(record.value_normalized ?? null)].join(FIELD_SEP);
+    });
+  return createHash("sha256").update(parts.join(RECORD_SEP)).digest("hex");
 }
 
 /** Has this question reached a terminal state — answered or explicitly declined? */

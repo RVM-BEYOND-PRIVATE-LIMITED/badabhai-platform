@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { AnswerRecord } from "@badabhai/ai-contracts";
 
 import {
+  answerSetHash,
   emptyAnswerMap,
   isSettled,
   recordAnswer,
@@ -166,5 +168,102 @@ describe("the v1 `captured` projection stays populated across the cutover", () =
       // A declined question is not a captured VALUE, and a null normalized value is skipped
       // rather than rendered as the literal "null".
     });
+  });
+});
+
+/**
+ * THE REBUILD TRIGGER'S KEY (#700, owner ruling 2026-08-08).
+ *
+ * A correction re-triggers the profile build, keyed on this hash rather than on `session_id`. That
+ * is what makes it structurally incapable of colliding with the race #420 closed: that was two
+ * triggers firing on UNCHANGED data, and a changed answer set is not expressible in this key space
+ * as a re-fire on unchanged data.
+ *
+ * So the two properties below are the load-bearing ones. If the hash moved when the journey moved,
+ * a worker who "corrected" an answer to the value it already held would pay for a fresh extraction
+ * — which is the exact spend #420 exists to prevent.
+ */
+describe("answerSetHash — what it must and must not notice", () => {
+  const rec = (over: Partial<AnswerRecord> & { question_key: string }): AnswerRecord =>
+    ({
+      target_field: over.question_key,
+      value_raw: null,
+      value_normalized: null,
+      status: "answered",
+      evidence: null,
+      turn: 1,
+      history: [],
+      ...over,
+    }) as AnswerRecord;
+
+  const mapOf = (...records: AnswerRecord[]): AnswerMap =>
+    Object.fromEntries(records.map((r) => [r.question_key, r]));
+
+  it("is stable across key ORDER — the same answers hash the same", () => {
+    const a = mapOf(
+      rec({ question_key: "current_city", value_normalized: "Pune" }),
+      rec({ question_key: "experience_years", value_normalized: 8 }),
+    );
+    const b = mapOf(
+      rec({ question_key: "experience_years", value_normalized: 8 }),
+      rec({ question_key: "current_city", value_normalized: "Pune" }),
+    );
+    expect(answerSetHash(a)).toBe(answerSetHash(b));
+  });
+
+  it("IGNORES the journey — turn, evidence and history do not move it", () => {
+    // The property that stops a no-op correction re-spending. A worker who re-confirms an answer
+    // reaches this with a different `turn` and possibly a grown history, and must NOT produce a
+    // new key.
+    const plain = mapOf(rec({ question_key: "current_city", value_normalized: "Pune" }));
+    const travelled = mapOf(
+      rec({
+        question_key: "current_city",
+        value_normalized: "Pune",
+        turn: 9,
+        value_raw: "main Pune mein rehta hoon",
+        evidence: { message_index: 3, start: 5, end: 9 } as never,
+        history: [
+          {
+            value_raw: null,
+            value_normalized: "Mumbai",
+            status: "superseded",
+            evidence: null,
+            turn: 2,
+          },
+        ] as never,
+      }),
+    );
+    expect(answerSetHash(travelled)).toBe(answerSetHash(plain));
+  });
+
+  it("NOTICES a changed value — that is the whole point of the trigger", () => {
+    const before = mapOf(rec({ question_key: "current_city", value_normalized: "Mumbai" }));
+    const after = mapOf(rec({ question_key: "current_city", value_normalized: "Pune" }));
+    expect(answerSetHash(after)).not.toBe(answerSetHash(before));
+  });
+
+  it("NOTICES a changed status, even at the same value", () => {
+    // `answered` with no value and `declined` are different facts and build different profiles.
+    const answered = mapOf(rec({ question_key: "certification", status: "answered" }));
+    const declined = mapOf(rec({ question_key: "certification", status: "declined" }));
+    expect(answerSetHash(answered)).not.toBe(answerSetHash(declined));
+  });
+
+  it("cannot be confused by a separator inside a value", () => {
+    // Two fields vs one field whose value contains the delimiter. A hand-rolled join on a
+    // printable character would collide here.
+    const twoFields = mapOf(
+      rec({ question_key: "a", value_normalized: "x" }),
+      rec({ question_key: "b", value_normalized: "y" }),
+    );
+    const oneField = mapOf(rec({ question_key: "a", value_normalized: "x\u001fanswered\u001eb" }));
+    expect(answerSetHash(twoFields)).not.toBe(answerSetHash(oneField));
+  });
+
+  it("distinguishes an empty map from one with an empty answer", () => {
+    expect(answerSetHash({})).not.toBe(
+      answerSetHash(mapOf(rec({ question_key: "a", value_normalized: null }))),
+    );
   });
 });
