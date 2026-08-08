@@ -338,6 +338,30 @@ describe("the hard cases, each one deterministic", () => {
     expect(store.get(SESSION)?.profiling?.clarifyCount).toBe(1);
   });
 
+  it("REGRESSION: a clarify after a re-ask serves the RETRY wording, not the original", async () => {
+    // The silent-turn branch carries a comment about exactly this — re-serving raw `prompt_text`
+    // "walked the interview BACKWARDS to the opening wording after the retry wording had already
+    // been served" — and `joinClarify` then did precisely that, because it read
+    // `askedItem.prompt_text` instead of `servedText`.
+    //
+    // The worker sees: "Sheher ka naam bataiye." (the re-ask). They type "yeh kyun poochh rahe
+    // ho?". Pre-fix they got the explanation followed by "Aap kis sheher mein rehte hain?" — the
+    // phrasing from two turns ago, which reads as the app forgetting what it just said. In a
+    // VOICE form it is worse: the worker cannot scroll back to check, they just hear the
+    // question change shape.
+    //
+    // Five of 466 items carry `retry_text` today, which is why this survived. The plan calls for
+    // ~20 hand-authored retries plus 8 answer-type templates.
+    const { orchestrator, store } = makeWorld();
+    seed(store, { askCounts: { q_city: 2 } }); // already re-asked once
+
+    const result = await orchestrator.takeTurn(say("sir job milegi kya?"));
+
+    expect(result.reply).toContain(CITY.why_text as string);
+    expect(result.reply).toContain(CITY.retry_text as string);
+    expect(result.reply).not.toContain(CITY.prompt_text);
+  });
+
   it("moves on past the clarify bound rather than looping", async () => {
     const { orchestrator, store } = makeWorld();
     seed(store, { clarifyCount: MAX_CONSECUTIVE_CLARIFIES });

@@ -459,6 +459,33 @@ export function validateQuestionPackCorpus(
 
       problems.push(...checkPromptPersona(it.prompt_text ?? "", iw));
 
+      // NO TEMPLATE PLACEHOLDER IN ANY SERVED TEXT. Two lines, and the highest-value two lines
+      // in this validator.
+      //
+      // The voice form pre-renders every string the engine can serve into TTS audio, keyed by
+      // `sha256(text)` and shared across every worker. That is safe only while the text depends
+      // on nothing about the individual. `{{worker_name}}` is a reviewed affordance of this
+      // corpus — the API interpolates it POST-emit, into the client-returned reply only, so the
+      // durable and rendered copies keep the placeholder — but an authored prompt carrying it
+      // would put ONE worker's name into a clip EVERY other worker hears. That is the worst
+      // failure available in the design, and it is a single careless pack row away.
+      //
+      // All three served fields, not just the prompt: `why_text` reaches a worker inside the
+      // clarify concatenation and `retry_text` on the second ask. Measured at the time this
+      // landed: 0 of 466 items contain `{{` anywhere, so this is a guard, not a repair.
+      for (const [field, text] of [
+        ["prompt_text", it.prompt_text],
+        ["retry_text", it.retry_text],
+        ["why_text", it.why_text],
+      ] as const) {
+        if (typeof text === "string" && /\{\{|\}\}/.test(text)) {
+          problems.push(
+            `${iw}: ${field} contains a template placeholder. Served text is pre-rendered to ` +
+              `shared TTS audio, so an interpolated value would be spoken to every worker.`,
+          );
+        }
+      }
+
       // A select with fewer than two options is not a choice.
       const options = it.options ?? [];
       if (SELECT_TYPES.has(it.answer_type) && options.length < 2) {

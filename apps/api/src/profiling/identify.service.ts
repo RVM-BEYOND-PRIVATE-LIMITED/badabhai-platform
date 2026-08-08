@@ -31,6 +31,7 @@ import type { RequestContext } from "../common/request-context";
 import { catalogVersionForEvent } from "../occupation/occupation.repository";
 import { OccupationService, type ResolveResult } from "../occupation/occupation.service";
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
+import { DISAMBIGUATION_PROMPT_TEXT } from "./next-question";
 import type { OfferedChip, ProfilingEnvelope } from "./conversation-state";
 
 /**
@@ -53,7 +54,7 @@ export const MAX_IDENTIFY_ATTEMPTS = 2;
  * It lives as a constant rather than in a pack because it is asked ABOUT the packs — there is
  * no pack pinned yet at the moment it is served.
  */
-export const DISAMBIGUATION_PROMPT = "Aap in mein se kaun sa kaam karte hain?";
+export const DISAMBIGUATION_PROMPT = DISAMBIGUATION_PROMPT_TEXT;
 
 /** The outcome of running identification on one turn. */
 export interface IdentifyResult {
