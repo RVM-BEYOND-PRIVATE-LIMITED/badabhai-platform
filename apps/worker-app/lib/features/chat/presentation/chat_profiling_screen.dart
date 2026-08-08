@@ -125,8 +125,15 @@ class _ChatViewState extends State<_ChatView> {
   /// the second arrives with the offer already cleared and is captured against
   /// whatever pack question the engine has just served — a bogus answer of
   /// record, on the one control where a mis-tap costs a whole trade-specific
-  /// interview. Cleared when a new followups list lands.
+  /// interview. Released when the turn SETTLES (see [_wasSending]).
   bool _optionTapPending = false;
+
+  /// Previous `state.sending`, so the listener can spot the settle EDGE.
+  ///
+  /// Releasing on "followups changed" does not work: the bloc clears followups
+  /// the moment the worker sends ("Cleared the moment the worker sends again"),
+  /// so that fires on the way IN and unlatches before the second tap.
+  bool _wasSending = false;
 
   @override
   void initState() {
@@ -460,18 +467,22 @@ class _ChatViewState extends State<_ChatView> {
         ),
       ),
       body: BlocListener<ChatBloc, ChatState>(
-        // Fire when a message is appended (length grows) OR when the offered
-        // options change — NOT on every state change (e.g. the initializing
-        // flag flipping). The second condition releases the one-tap-per-turn
-        // latch: a new followups list means the turn the tap belonged to has
-        // been answered.
+        // Fire when a message is appended (length grows) OR when the in-flight
+        // flag moves — NOT on every state change (e.g. the initializing flag
+        // flipping). The second condition carries the one-tap-per-turn latch.
         listenWhen: (ChatState prev, ChatState curr) =>
             curr.messages.length > prev.messages.length ||
-            !identical(curr.followups, prev.followups),
+            curr.sending != prev.sending,
         listener: (BuildContext context, ChatState state) {
-          if (_optionTapPending) {
+          // Release on the SETTLE EDGE (sending true → false), never on the
+          // way in: the bloc clears followups and sets sending as soon as the
+          // worker sends, so anything keyed on those unlatches while the turn
+          // is still in flight — which is precisely the window the latch is
+          // for.
+          if (_wasSending && !state.sending && _optionTapPending) {
             setState(() => _optionTapPending = false);
           }
+          _wasSending = state.sending;
           _onMessagesChanged(state.messages);
         },
         child: BlocBuilder<ChatBloc, ChatState>(
