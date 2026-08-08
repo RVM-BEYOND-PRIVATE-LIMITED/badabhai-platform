@@ -13,6 +13,7 @@ import { AuthService } from "./auth.service";
 import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
 import { AccountDeletionService } from "./account-deletion.service";
+import { ErasureAuditRepository } from "./erasure-audit.repository";
 import { AccountDeletionSweepProcessor } from "./account-deletion-sweep.processor";
 import { WorkerAuthGuard } from "./worker-auth.guard";
 import { ConsentGuard, ConsentNotRevokedGuard } from "./consent.guard";
@@ -72,6 +73,9 @@ import { PinHasher } from "./pin-hasher.service";
     OtpService,
     SessionService,
     AccountDeletionService,
+    // TD58 (#712) — the write-only `audit_logs` record proving what each store erased. Reaches
+    // the @Global DATABASE token, so it needs no module import of its own.
+    ErasureAuditRepository,
     AccountDeletionSweepProcessor,
     WorkerAuthGuard,
     ConsentGuard,

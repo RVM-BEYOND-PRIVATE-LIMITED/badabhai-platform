@@ -10,6 +10,8 @@ import { ChatTranscriptBuffer } from "../chat/chat-transcript.buffer";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { StorageService } from "../storage/storage.service";
 import { WorkersRepository } from "../workers/workers.repository";
+import { ErasureAuditBuilder } from "./erasure-audit";
+import { ErasureAuditRepository } from "./erasure-audit.repository";
 import { SessionService } from "./session.service";
 
 /**
@@ -37,7 +39,11 @@ interface RedisDeletionClient {
  *      never be re-authenticated);
  *   2. CAPTURE resume object keys + the had_pin/devices_revoked counts, then erase storage
  *      (resume PDFs + archived conversations) — captured BEFORE the DB delete (the cascade
- *      erases generated_resumes, so their opaque object keys must be read first);
+ *      erases generated_resumes, so their opaque object keys must be read first), recording
+ *      EVERY LEG as it runs (TD58 / #712);
+ *   2f. write the PII-free `audit_logs` row proving what each store reported — BEFORE the hard
+ *      delete, so a crash mid-erasure still leaves evidence. Fail-OPEN: it is evidence, not a
+ *      gate, and aborting here would destroy the objects and record nothing;
  *   3. hard-delete the workers row in a transaction (Postgres cascades PII children and
  *      SET-NULLs the three billing/intent FKs per migration 0030);
  *   4. set a Redis cool-down tombstone on the PII-free phone_hash (fail-OPEN);
@@ -64,6 +70,9 @@ export class AccountDeletionService {
     private readonly sessions: SessionService,
     private readonly storage: StorageService,
     private readonly events: EventsService,
+    // TD58's "provably" (#712): the durable, PII-free record of what each store actually
+    // reported. Write-only, and NOT the event — see `ErasureAuditRepository`.
+    private readonly erasureAudit: ErasureAuditRepository,
     // Reuse BullMQ's existing Redis connection for the cool-down tombstone (no second client).
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
   ) {}
@@ -88,9 +97,7 @@ export class AccountDeletionService {
       return { scheduled_for: worker.deletionScheduledAt.toISOString() };
     }
 
-    const scheduledAt = new Date(
-      Date.now() + this.config.ACCOUNT_DELETION_GRACE_DAYS * 86_400_000,
-    );
+    const scheduledAt = new Date(Date.now() + this.config.ACCOUNT_DELETION_GRACE_DAYS * 86_400_000);
     // ATOMIC set-if-not-set: only ONE of two racing confirms owns the transition — the
     // loser falls through to the idempotent re-read (same date back, no re-extension,
     // no double-emit of the strict v1 event).
@@ -227,15 +234,20 @@ export class AccountDeletionService {
     // 2b. Erase storage BEFORE the DB delete. A single object-delete failure increments the
     // failed counter and CONTINUES (never aborts the erasure — D4). Resume PDFs are keyed by
     // opaque UUIDs (read above); archived conversations are prefix-scoped by worker.
-    let storageDeleted = 0;
-    let storageFailed = 0;
+    // EVERY LEG IS RECORDED AS IT RUNS (TD58 / #712). The two counters below are still the event
+    // payload's — unchanged, invariant #8 — but they cannot say WHICH store failed, and they
+    // cannot tell "we swept and it was empty" from "we never swept because the bucket is
+    // unconfigured". Both readings look like `0`, and only one of them is evidence.
+    const audit = new ErasureAuditBuilder();
+    let resumesDeleted = 0;
+    let resumesFailed = 0;
 
     for (const key of resumeKeys) {
       try {
         await this.storage.deletePdf(key, this.config.RESUMES_BUCKET);
-        storageDeleted += 1;
+        resumesDeleted += 1;
       } catch (err) {
-        storageFailed += 1;
+        resumesFailed += 1;
         // PII-free: object keys are opaque UUIDs; log the reason class only, never the key.
         this.logger.warn(
           `account deletion resume-object delete failed worker=${idPrefix} (reason: ${
@@ -254,13 +266,19 @@ export class AccountDeletionService {
     // live in VOICE_NOTES_BUCKET (or under conversationWorkerPrefix) so this erases it. The raw
     // storage_path is itself PII-adjacent (worker-scoped path) — keep it OUT of logs (reason
     // class + opaque worker prefix only, exactly like the resume loop).
+    if (resumesFailed > 0)
+      audit.failed("resume_objects", "by-row", resumeKeys.length, resumesDeleted);
+    else audit.swept("resume_objects", "by-row", resumeKeys.length, resumesDeleted);
+
     if (this.config.VOICE_NOTES_BUCKET) {
+      let voiceDeleted = 0;
+      let voiceFailed = 0;
       for (const key of voiceKeys) {
         try {
           await this.storage.deletePdf(key, this.config.VOICE_NOTES_BUCKET);
-          storageDeleted += 1;
+          voiceDeleted += 1;
         } catch (err) {
-          storageFailed += 1;
+          voiceFailed += 1;
           this.logger.warn(
             `account deletion voice-object delete failed worker=${idPrefix} (reason: ${
               err instanceof Error ? err.message : String(err)
@@ -268,6 +286,8 @@ export class AccountDeletionService {
           );
         }
       }
+      if (voiceFailed > 0) audit.failed("voice_objects", "by-row", voiceKeys.length, voiceDeleted);
+      else audit.swept("voice_objects", "by-row", voiceKeys.length, voiceDeleted);
 
       // …AND THE ORPHANS THE LOOP ABOVE STRUCTURALLY CANNOT SEE.
       //
@@ -288,20 +308,28 @@ export class AccountDeletionService {
       //
       // This is the same sweep the PHOTO leg below already does, and its comment already gives
       // the reason. The voice leg simply never got it.
+      const voicePrefix = `voice-notes/${workerId}/`;
       try {
         const orphansDeleted = await this.storage.deleteByPrefix(
-          `voice-notes/${workerId}/`,
+          voicePrefix,
           this.config.VOICE_NOTES_BUCKET,
         );
-        storageDeleted += orphansDeleted;
+        audit.swept("voice_prefix", voicePrefix, 1, orphansDeleted);
       } catch (err) {
-        storageFailed += 1;
+        audit.failed("voice_prefix", voicePrefix, 1);
         this.logger.warn(
           `account deletion voice-prefix delete failed worker=${idPrefix} (reason: ${
             err instanceof Error ? err.message : String(err)
           })`,
         );
       }
+    } else {
+      // NEVER RAN, and the record says so rather than reporting an empty sweep. While
+      // VOICE_NOTES_BUCKET is unset no audio can have been stored, so this is not a gap — but
+      // "we looked and found nothing" and "we never looked" are different claims, and only the
+      // first is evidence a DSAR request was honoured.
+      audit.skipped("voice_objects", "by-row");
+      audit.skipped("voice_prefix", `voice-notes/${workerId}/`);
     }
 
     // 2d. Erase the profile PHOTO objects (ADR-0032 — a face photo is a high-sensitivity PII
@@ -310,31 +338,35 @@ export class AccountDeletionService {
     // failed. Gated on the bucket exactly like the voice leg (WIRED-BUT-DORMANT while unset —
     // and while unset no photo can have been uploaded, so there is nothing to orphan). The
     // worker row was captured at step 0, so this needs no extra pre-delete read.
+    const photoPrefix = `photos/${workerId}/`;
     if (this.config.WORKER_PHOTOS_BUCKET) {
       try {
         const photosDeleted = await this.storage.deleteByPrefix(
-          `photos/${workerId}/`,
+          photoPrefix,
           this.config.WORKER_PHOTOS_BUCKET,
         );
-        storageDeleted += photosDeleted;
+        audit.swept("photo_prefix", photoPrefix, 1, photosDeleted);
       } catch (err) {
-        storageFailed += 1;
+        audit.failed("photo_prefix", photoPrefix, 1);
         this.logger.warn(
           `account deletion photo-prefix delete failed worker=${idPrefix} (reason: ${
             err instanceof Error ? err.message : String(err)
           })`,
         );
       }
+    } else {
+      audit.skipped("photo_prefix", photoPrefix);
     }
 
+    const conversationPrefix = conversationWorkerPrefix(workerId);
     try {
       const conversationsDeleted = await this.storage.deleteByPrefix(
-        conversationWorkerPrefix(workerId),
+        conversationPrefix,
         this.config.CONVERSATIONS_BUCKET,
       );
-      storageDeleted += conversationsDeleted;
+      audit.swept("conversation_prefix", conversationPrefix, 1, conversationsDeleted);
     } catch (err) {
-      storageFailed += 1;
+      audit.failed("conversation_prefix", conversationPrefix, 1);
       this.logger.warn(
         `account deletion conversation-prefix delete failed worker=${idPrefix} (reason: ${
           err instanceof Error ? err.message : String(err)
@@ -362,9 +394,9 @@ export class AccountDeletionService {
         const dropped = await redis.del(
           ...chatSessionIds.map((id) => ChatTranscriptBuffer.key(id)),
         );
-        storageDeleted += dropped;
+        audit.swept("transcript_buffer", "chat:transcript:*", chatSessionIds.length, dropped);
       } catch (err) {
-        storageFailed += 1;
+        audit.failed("transcript_buffer", "chat:transcript:*", chatSessionIds.length);
         // Session ids are opaque uuids, but the transcript they key is raw PII — log the
         // reason class and the opaque worker prefix only, never the ids.
         this.logger.warn(
@@ -372,6 +404,32 @@ export class AccountDeletionService {
             `reason: ${err instanceof Error ? err.message : String(err)})`,
         );
       }
+    }
+
+    // THE VERDICT, derived from the legs rather than accumulated beside them, so "was this
+    // erasure complete" has exactly one answer. The two counters the event payload has always
+    // carried fall out of it unchanged — invariant #8 holds, and they can no longer disagree
+    // with the record written next to them.
+    const erasure = audit.build();
+    const storageDeleted = erasure.objects_deleted;
+    const storageFailed = erasure.objects_failed;
+
+    // 2f. THE PROOF (TD58 / #712). Written BEFORE the hard delete for the same reason the
+    // storage sweeps run first: if this process dies here, the row already says what was
+    // erased, and a re-run is a clean no-op that writes a second, honest row. Recording it
+    // AFTER would leave the one case that most needs evidence — a crash mid-erasure — with
+    // none. Fail-OPEN like the tombstone: an audit-write failure must not abort an erasure
+    // that has already destroyed the objects, and it is loud because a silent one would make
+    // this record worthless.
+    try {
+      await this.erasureAudit.record(workerId, erasure);
+    } catch (err) {
+      this.logger.error(
+        `account deletion audit-record write FAILED worker=${idPrefix} (fail-open; the erasure ` +
+          `stands and its outcome was ${erasure.outcome}; reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+      );
     }
 
     // 3. Hard-delete the workers row (transactional cascade). This is the atomic PII removal.
@@ -421,8 +479,16 @@ export class AccountDeletionService {
       },
     });
 
-    this.logger.log(
-      `account deletion complete worker=${idPrefix} sessions=${sessionsRevoked} devices=${devicesRevoked} storage_deleted=${storageDeleted} storage_failed=${storageFailed} had_pin=${hadPin}`,
-    );
+    // "COMPLETE" IS NO LONGER UNCONDITIONAL (#712). This line read `account deletion complete …
+    // storage_failed=2` — the word a reader scans for, asserting success, beside the number that
+    // contradicted it. A failed leg means the worker's data may still be in a bucket, and the
+    // acceptance criterion is that such an erasure "does not report the erasure as complete".
+    const verdict = erasure.outcome === "failed" ? "INCOMPLETE" : "complete";
+    const line =
+      `account deletion ${verdict} worker=${idPrefix} sessions=${sessionsRevoked} ` +
+      `devices=${devicesRevoked} storage_deleted=${storageDeleted} ` +
+      `storage_failed=${storageFailed} outcome=${erasure.outcome} had_pin=${hadPin}`;
+    if (erasure.outcome === "failed") this.logger.error(line);
+    else this.logger.log(line);
   }
 }

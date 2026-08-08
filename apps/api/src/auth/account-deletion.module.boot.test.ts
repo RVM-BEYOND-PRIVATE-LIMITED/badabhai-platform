@@ -4,6 +4,7 @@ import { AuthModule } from "./auth.module";
 import { AuthController } from "./auth.controller";
 import { AccountDeletionService } from "./account-deletion.service";
 import { AccountDeletionSweepProcessor } from "./account-deletion-sweep.processor";
+import { ErasureAuditRepository } from "./erasure-audit.repository";
 import { StorageModule } from "../storage/storage.module";
 import { WorkerAuthGuard } from "./worker-auth.guard";
 
@@ -62,5 +63,20 @@ describe("Account-deletion wiring (ADR-0026 Phase 5 DI regression guard)", () =>
     );
     expect(providers).toContain("AccountDeletionSweepProcessor");
     expect(getMeta("providers", AuthModule)).toContain(AccountDeletionSweepProcessor);
+  });
+
+  // ---- TD58 (#712) — the provable-erasure record ----
+
+  it("AuthModule provides ErasureAuditRepository", () => {
+    // `AccountDeletionService` now takes it as a constructor dep, and a missing provider is a
+    // BOOT failure no unit test constructing the service by hand can see — the same class of
+    // mistake `actions.module.boot.test.ts` was added for.
+    expect(getMeta("providers", AuthModule)).toContain(ErasureAuditRepository);
+  });
+
+  it("needs NO new module import — it reaches the @Global DATABASE token", () => {
+    // Worth pinning: if the repository ever grows a non-global dep, this is where that shows up
+    // as a decision rather than as a 500 on the first erasure after deploy.
+    expect(getMeta("imports", AuthModule)).not.toContain(ErasureAuditRepository);
   });
 });

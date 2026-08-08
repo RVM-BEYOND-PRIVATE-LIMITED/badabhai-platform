@@ -8,6 +8,7 @@ import type { WorkersRepository } from "../workers/workers.repository";
 import type { RequestContext } from "../common/request-context";
 import type { SessionService } from "./session.service";
 import type { StorageService } from "../storage/storage.service";
+import type { ErasureAuditRepository } from "./erasure-audit.repository";
 import type { EventsService } from "../events/events.service";
 import type { Queue } from "bullmq";
 
@@ -39,6 +40,7 @@ interface Harness {
   sessions: { revokeAll: ReturnType<typeof vi.fn> };
   storage: { deletePdf: ReturnType<typeof vi.fn>; deleteByPrefix: ReturnType<typeof vi.fn> };
   events: { emit: ReturnType<typeof vi.fn> };
+  erasureAudit: { record: ReturnType<typeof vi.fn> };
   redisSet: ReturnType<typeof vi.fn>;
   redisDel: ReturnType<typeof vi.fn>;
 }
@@ -46,6 +48,8 @@ interface Harness {
 function make(
   opts: {
     missingWorker?: boolean;
+    /** The `audit_logs` write fails — proves the erasure still stands (fail-OPEN). */
+    auditRecordThrows?: boolean;
     resumeKeys?: string[];
     voiceKeys?: string[];
     chatSessionIds?: string[];
@@ -97,6 +101,13 @@ function make(
     deleteByPrefix: vi.fn(async () => 0),
   };
   const events = { emit: vi.fn(async () => undefined) };
+  // TD58 (#712) — the write-only erasure record. `recordThrows` proves the fail-OPEN posture:
+  // an audit-write failure must never abort an erasure that has already destroyed the objects.
+  const erasureAudit = {
+    record: vi.fn(async () => {
+      if (opts.auditRecordThrows) throw new Error("connection terminated unexpectedly");
+    }),
+  };
   const queue = {
     client: Promise.resolve({ set: redisSet, del: redisDel }),
   } as unknown as Queue;
@@ -119,9 +130,10 @@ function make(
     sessions as unknown as SessionService,
     storage as unknown as StorageService,
     events as unknown as EventsService,
+    erasureAudit as unknown as ErasureAuditRepository,
     queue,
   );
-  return { svc, workers, sessions, storage, events, redisSet, redisDel };
+  return { svc, workers, sessions, storage, events, erasureAudit, redisSet, redisDel };
 }
 
 describe("AccountDeletionService", () => {
@@ -315,7 +327,9 @@ describe("AccountDeletionService", () => {
     // Companion to the resume-PDF failure case: the SECOND storage leg (deleteByPrefix) can
     // also throw; it must be counted and never abort the DB erasure.
     const h = make({ resumeKeys: ["ok.pdf"], sessions: 1 });
-    h.storage.deleteByPrefix.mockRejectedValueOnce(new Error("storage batch-delete failed with status 503"));
+    h.storage.deleteByPrefix.mockRejectedValueOnce(
+      new Error("storage batch-delete failed with status 503"),
+    );
     await h.svc.execute(WORKER_ID);
 
     expect(h.workers.hardDelete).toHaveBeenCalledWith(WORKER_ID);
@@ -747,6 +761,169 @@ describe("AccountDeletionService — schedule/cancel (ADR-0031 grace window)", (
       }
     } finally {
       spies.forEach((s) => s.mockRestore());
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TD58 — erase on request, PROVABLY (#712)
+// ---------------------------------------------------------------------------
+
+/** The `audit_logs.metadata` this erasure wrote. */
+const auditOf = (h: { erasureAudit: { record: ReturnType<typeof vi.fn> } }) =>
+  h.erasureAudit.record.mock.calls[0]![1] as {
+    outcome: string;
+    objects_deleted: number;
+    objects_failed: number;
+    legs: { leg: string; target: string; attempted: number; deleted: number; outcome: string }[];
+  };
+
+const legOf = (h: Parameters<typeof auditOf>[0], leg: string) =>
+  auditOf(h).legs.find((l) => l.leg === leg);
+
+describe("the erasure records what each store actually reported (#712)", () => {
+  it("writes ONE audit row, keyed to the worker, per erasure", async () => {
+    const h = make({ resumeKeys: ["k1.pdf"] });
+    await h.svc.execute(WORKER_ID);
+    expect(h.erasureAudit.record).toHaveBeenCalledOnce();
+    expect(h.erasureAudit.record.mock.calls[0]![0]).toBe(WORKER_ID);
+  });
+
+  it("separates DELETED from NOTHING-TO-DELETE — the two counters could not", async () => {
+    // `0` in an aggregate counter is the same number whether the bucket was empty or the sweep
+    // never happened, and only one of those is evidence a request was honoured.
+    const h = make({ resumeKeys: ["k1.pdf"] });
+    h.storage.deleteByPrefix.mockResolvedValueOnce(0); // conversations: swept, empty
+    await h.svc.execute(WORKER_ID);
+
+    expect(legOf(h, "resume_objects")).toMatchObject({ deleted: 1, outcome: "deleted" });
+    expect(legOf(h, "conversation_prefix")).toMatchObject({
+      deleted: 0,
+      outcome: "nothing_to_delete",
+    });
+    expect(auditOf(h).outcome).toBe("deleted");
+  });
+
+  it("records a DORMANT bucket as skipped, never as an empty sweep", async () => {
+    // VOICE_NOTES_BUCKET unset. "We looked and found nothing" and "we never looked" are
+    // different claims; conflating them is how a gap hides behind a zero.
+    const h = make();
+    await h.svc.execute(WORKER_ID);
+    expect(legOf(h, "voice_prefix")).toMatchObject({ outcome: "skipped", attempted: 0 });
+    expect(legOf(h, "voice_objects")?.outcome).toBe("skipped");
+  });
+
+  it("names the ORPHAN-PREFIX sweep and what it removed", async () => {
+    // The whole point of the prefix leg: an object whose PUT completed and whose row insert
+    // never happened is invisible to `listVoiceStorageKeys`, so it survived erasure forever.
+    const h = make({ voiceBucket: "worker-voice" });
+    h.storage.deleteByPrefix
+      .mockResolvedValueOnce(2) // voice prefix: two orphans
+      .mockResolvedValueOnce(0); // conversations
+    await h.svc.execute(WORKER_ID);
+
+    expect(legOf(h, "voice_prefix")).toMatchObject({
+      target: `voice-notes/${WORKER_ID}/`,
+      deleted: 2,
+      outcome: "deleted",
+    });
+  });
+
+  it("KEEPS erasing a legacy storage_path outside the minted-key prefix", async () => {
+    // The per-row loop still runs beside the sweep. A prefix-only implementation would silently
+    // stop erasing rows written before the minted-key shape guard landed.
+    const h = make({ voiceBucket: "worker-voice", voiceKeys: ["legacy/elsewhere/old.m4a"] });
+    await h.svc.execute(WORKER_ID);
+
+    expect(h.storage.deletePdf).toHaveBeenCalledWith("legacy/elsewhere/old.m4a", "worker-voice");
+    expect(legOf(h, "voice_objects")).toMatchObject({ attempted: 1, deleted: 1 });
+  });
+
+  it("a storage failure is recorded as FAILED and never as success", async () => {
+    const h = make({ resumeKeys: ["good.pdf", "bad.pdf"] });
+    h.storage.deletePdf
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("storage delete failed with status 500"));
+    await h.svc.execute(WORKER_ID);
+
+    expect(legOf(h, "resume_objects")?.outcome).toBe("failed");
+    // FAIL CLOSED at the top level: one dead store outranks every success beneath it.
+    expect(auditOf(h).outcome).toBe("failed");
+  });
+
+  it("does NOT report an erasure with a failed leg as complete", async () => {
+    // The acceptance criterion, and the concrete defect: the log line said
+    // `account deletion complete … storage_failed=1` — the word a reader scans for, asserting
+    // success, beside the number contradicting it.
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const h = make({ resumeKeys: ["bad.pdf"] });
+    h.storage.deletePdf.mockRejectedValueOnce(new Error("boom"));
+
+    await h.svc.execute(WORKER_ID);
+
+    const lines = error.mock.calls.map((c) => String(c[0]));
+    expect(lines.some((l) => l.includes("account deletion INCOMPLETE"))).toBe(true);
+    expect(log.mock.calls.map((c) => String(c[0])).join("\n")).not.toContain(
+      "account deletion complete",
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("still hard-deletes and still emits when the AUDIT WRITE fails — fail-open", async () => {
+    // The record is evidence, not a gate. Aborting here would leave the objects destroyed, the
+    // worker row intact, and nothing recorded at all — strictly worse on every axis.
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const h = make({ auditRecordThrows: true, resumeKeys: ["k1.pdf"] });
+
+    await h.svc.execute(WORKER_ID);
+
+    expect(h.workers.hardDelete).toHaveBeenCalledOnce();
+    expect(h.events.emit).toHaveBeenCalledOnce();
+    vi.restoreAllMocks();
+  });
+
+  it("agrees with the event counters it is written beside", async () => {
+    // Both now derive from the same legs, so the durable event and the durable row cannot tell
+    // two different stories about one erasure.
+    const h = make({ resumeKeys: ["k1.pdf", "k2.pdf"], chatSessionIds: ["s1"] });
+    h.storage.deleteByPrefix.mockResolvedValueOnce(1);
+    await h.svc.execute(WORKER_ID);
+
+    const payload = h.events.emit.mock.calls[0]![0].payload as {
+      storage_objects_deleted: number;
+      storage_objects_failed: number;
+    };
+    expect(auditOf(h).objects_deleted).toBe(payload.storage_objects_deleted);
+    expect(auditOf(h).objects_failed).toBe(payload.storage_objects_failed);
+  });
+
+  it("carries NO object key and NO transcript — prefixes and counts only", async () => {
+    // The service's own contract: resume object keys never enter the event, logs, ai_jobs or
+    // audit_logs. A legacy `storage_path` is client-supplied text and belongs there even less.
+    const h = make({
+      voiceBucket: "worker-voice",
+      resumeKeys: ["secret-resume-key.pdf"],
+      voiceKeys: ["legacy/9876543210/old.m4a"],
+    });
+    await h.svc.execute(WORKER_ID);
+
+    const serialized = JSON.stringify(auditOf(h));
+    expect(serialized).not.toContain("secret-resume-key");
+    expect(serialized).not.toContain("9876543210");
+
+    // And positively: every target is one of the three SHAPES this record is allowed to carry —
+    // a worker-scoped prefix, the by-row marker, or the Redis key pattern. Nothing else can
+    // appear, so a future leg cannot quietly start recording the paths it deleted.
+    const ALLOWED = new Set([
+      "by-row",
+      "chat:transcript:*",
+      `voice-notes/${WORKER_ID}/`,
+      `photos/${WORKER_ID}/`,
+      `${WORKER_ID}/`,
+    ]);
+    for (const leg of auditOf(h).legs) {
+      expect(ALLOWED, `unexpected audit target ${leg.target}`).toContain(leg.target);
     }
   });
 });
