@@ -417,6 +417,55 @@ describe("select capture — the destination decides what an unmatched answer me
 
   it("still prefers an EXACT chip match over the scan", () => {
     // A tapped chip is the answer of record verbatim; the scan must not get to reinterpret it.
-    expect(only(captureAnswer("Split AC", MULTI_RFS)).valueNormalized).toBe("split_ac");
+    expect(only(captureAnswer("Split AC", MULTI_RFS)).valueNormalized).toEqual(["split_ac"]);
+  });
+});
+
+describe("chip labels are worker-facing COPY, not tokens", () => {
+  // Verbatim from qp_welding: the mild-steel chip reads "Loha ya mild steel" — *iron or mild
+  // steel* — because a chip has to be readable. A live session against the seeded corpus is
+  // what surfaced this: the worker said "mild steel aur stainless steel" and only ONE material
+  // was captured, because the whole label is a substring of nothing anyone says.
+  const MATERIAL = item({
+    question_key: "q_material_worked",
+    target_kind: "attribute",
+    target_field: "material_worked",
+    answer_type: "multi_select",
+    options: [
+      { ...opt("mild_steel", "Loha ya mild steel"), value: "mild_steel" },
+      { ...opt("stainless", "Stainless steel"), value: "stainless" },
+      { ...opt("aluminium", "Aluminium"), value: "aluminium" },
+    ],
+  });
+
+  it("captures BOTH materials when the worker names one alternative from a compound label", () => {
+    expect(only(captureAnswer("mild steel aur stainless steel", MATERIAL)).valueNormalized).toEqual([
+      "mild_steel",
+      "stainless",
+    ]);
+  });
+
+  it("still captures the whole label when the worker says it in full", () => {
+    expect(only(captureAnswer("loha ya mild steel", MATERIAL)).valueNormalized).toEqual([
+      "mild_steel",
+    ]);
+  });
+
+  it("matches the OTHER alternative too — 'loha' alone is the same chip", () => {
+    expect(only(captureAnswer("sirf loha", MATERIAL)).valueNormalized).toEqual(["mild_steel"]);
+  });
+
+  it("counts an option ONCE even when two of its needles are present", () => {
+    // "loha" and "mild steel" are both alternatives of the same chip. Two hits would put a
+    // duplicate in a column the matcher reads as a set.
+    expect(only(captureAnswer("loha aur mild steel", MATERIAL)).valueNormalized).toEqual([
+      "mild_steel",
+    ]);
+  });
+
+  it("still drops an alternative the worker REFUSED", () => {
+    expect(only(captureAnswer("stainless steel, loha nahi", MATERIAL)).valueNormalized).toEqual([
+      "stainless",
+    ]);
   });
 });

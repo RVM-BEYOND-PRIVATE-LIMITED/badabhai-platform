@@ -515,7 +515,12 @@ class _NotificationsToggleRowState extends State<_NotificationsToggleRow> {
     return BbListRow.toggle(
       icon: Icons.notifications_outlined,
       title: 'Notifications',
-      subtitle: _enabled ? 'On — sabhi alerts milenge' : 'Off — koi alert nahi',
+      // OFF must not overpromise: security alerts (login / logout-all) always
+      // arrive so a worker who turns notifications off and still gets a
+      // SIM-swap alarm doesn't think the toggle is broken (#648).
+      subtitle: _enabled
+          ? 'On — sabhi alerts milenge'
+          : 'Off — sirf suraksha alerts aayenge',
       value: _enabled,
       onChanged: _onChanged,
     );

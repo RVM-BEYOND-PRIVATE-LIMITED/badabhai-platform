@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import {
   type Database,
   chatSessions,
@@ -143,6 +143,55 @@ export class ChatRepository {
       .orderBy(sql`${chatSessions.lastMessageAt} DESC NULLS LAST`, desc(chatSessions.startedAt))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * Pin the question pack this session is running — WRITE-ONCE, enforced in SQL.
+   *
+   * THE COLUMNS SHIPPED IN MIGRATION 0071 AND NOTHING WROTE THEM. A live interview proved it:
+   * the welding pack was served for thirteen turns and `chat_sessions.pack_id` read `NULL` the
+   * whole time. The orchestrator envelope — the only place the pin existed — lives in a Redis key
+   * with a 24h TTL, so a worker resuming after an eviction re-ran retrieval from scratch and
+   * could be handed a DIFFERENT pack. Same worker, same conversation, silently different
+   * questions, and every answer already given now recorded against a pack that never asked them.
+   *
+   * `WHERE pack_id IS NULL` is the whole concurrency story, and it belongs in the statement
+   * rather than in a read-then-write: two turns racing on one session both pass a prior `SELECT`,
+   * and only one can pass this. The boolean return is therefore "I won the pin", which is what
+   * makes the `profile.pack_pinned` emit exactly-once without depending on the caller to have
+   * checked first.
+   *
+   * NOT a re-pin path. A second pack for a session is not an update, it is a contradiction; the
+   * caller logs and keeps the pin Postgres already holds.
+   */
+  async pinPack(sessionId: string, packId: string, packVersion: number): Promise<boolean> {
+    const updated = await this.db
+      .update(chatSessions)
+      .set({ packId, packVersion })
+      .where(and(eq(chatSessions.id, sessionId), isNull(chatSessions.packId)))
+      .returning({ id: chatSessions.id });
+    return updated.length > 0;
+  }
+
+  /**
+   * The pack this session was pinned to, if any.
+   *
+   * Read on exactly one path: the orchestrator finding its Redis envelope gone. That is the case
+   * {@link pinPack} exists for, and reading it anywhere else would put a query on the chat hot
+   * path to learn something the envelope already knows.
+   */
+  async findPackPin(sessionId: string): Promise<{ packId: string; packVersion: number } | null> {
+    const rows = await this.db
+      .select({ packId: chatSessions.packId, packVersion: chatSessions.packVersion })
+      .from(chatSessions)
+      .where(eq(chatSessions.id, sessionId))
+      .limit(1);
+    const row = rows[0];
+    // Half a pin is unreachable — `chat_sessions_pack_pin_chk` rejects it — but the columns are
+    // independently nullable in the type, and narrowing here is what lets the caller treat the
+    // result as a whole pin rather than two maybes.
+    if (!row?.packId || row.packVersion === null) return null;
+    return { packId: row.packId, packVersion: row.packVersion };
   }
 
   async insertMessage(input: NewChatMessage): Promise<ChatMessage> {
