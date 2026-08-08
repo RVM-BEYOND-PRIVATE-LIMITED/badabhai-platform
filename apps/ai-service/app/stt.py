@@ -410,6 +410,7 @@ class SttAdapter:
         if not self._settings.sarvam_api_key:
             raise RuntimeError("SARVAM_API_KEY is not set")
 
+
         # Platform cap FIRST — before any storage/network spend on a doomed note.
         # Upload validation (voiceDurationSecondsSchema <= 120) makes this
         # unreachable in practice; keep it fail-closed anyway.

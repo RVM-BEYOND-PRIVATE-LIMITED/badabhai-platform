@@ -179,6 +179,54 @@ jobs:
         if: steps.guard.outputs.wired == 'true'
         run: pnpm db:migrate
 
+      # ---- SEED: the reference data the INTERVIEW reads on every turn (B-1 / R2). ----
+      #
+      # Migrating is no longer sufficient. Before the OIE Phase 8 cutover a chat turn called the
+      # ai-service and needed no reference data at all, so a migrated-but-unseeded database was
+      # fine. It is not fine now: `ProfilingOrchestrator` resolves a question pack in-process on
+      # every turn and fails CLOSED when the universal pack is missing, so an unseeded staging
+      # answers every worker with the unavailable line — while `/health` stays green, because
+      # nothing about an empty reference table is unhealthy.
+      #
+      # These steps existed only in ci.yml's e2e job, i.e. against a throwaway container that is
+      # deleted at the end of the run. Nothing put the same rows into the database anyone actually
+      # uses. That gap is B-1, and the boot-time ERROR log added in this PR is the second wall
+      # behind it — one tells you at deploy time, the other tells you at start-up.
+      #
+      # ORDER IS NOT ARBITRARY: `profiling_family_binding` references ISCO unit codes that only
+      # exist once the domains are in, and `db:normalize:aliases` has to run BETWEEN the domain
+      # seed and any retrieval — `verify-job-domains.ts` states that an un-normalized alias is
+      # "invisible to L0/L2 retrieval", and it currently runs in NO workflow at all, so the
+      # occupation ladder degrades silently to trigram-only.
+      #
+      # `--apply` IS REQUIRED. Every script in this family is DRY-RUN by default: without the flag
+      # they print what they WOULD write, exit 0, and touch nothing. That is not hypothetical —
+      # the first version of ci.yml's equivalent steps omitted it, both went green, and the verify
+      # below then failed with "the pack tables are EMPTY". A step that passes while doing nothing
+      # is worse than no step, because the green tick is the thing you would trust.
+      #
+      # All of it is PII-free public reference data with deterministic ids, so a re-run is a
+      # row-level no-op and this is safe on every deploy.
+      - name: Seed occupation catalogue + question packs
+        if: steps.guard.outputs.wired == 'true'
+        run: |
+          set -eo pipefail
+          pnpm --filter @badabhai/db db:seed:domains --apply
+          pnpm --filter @badabhai/db db:normalize:aliases --apply
+          pnpm --filter @badabhai/db db:seed:packs --apply
+
+      # The deploy gate the repo already owns, run against the LIVE database rather than the
+      # corpus. ci.yml's `--corpus` variant checks the JSONL; this one checks what actually
+      # LANDED — including "exactly one active pack per (family, locale)" and "a universal pack
+      # exists", neither of which a corpus read can prove. ci.yml:123's own comment says "the
+      # live-database checks stay on the deploy path"; until now they were on no path.
+      - name: Verify question packs + occupation catalogue (live DB)
+        if: steps.guard.outputs.wired == 'true'
+        run: |
+          set -eo pipefail
+          pnpm --filter @badabhai/db db:verify:packs
+          pnpm --filter @badabhai/db db:verify:domains
+
       # ---- DEPLOY: trigger the host (optional webhook). NEVER echo the hook URL. ----
       - name: Trigger host deploy (optional webhook)
         if: steps.guard.outputs.wired == 'true'

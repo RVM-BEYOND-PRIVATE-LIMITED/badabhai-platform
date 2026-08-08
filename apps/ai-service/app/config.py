@@ -497,7 +497,19 @@ class Settings(BaseSettings):
     # PRIVATE bucket holding uploaded voice notes; object key = the request's
     # ``storage_path``. MUST be created PRIVATE out-of-band (Storage object ACLs
     # are not covered by RLS/migrations).
-    voice_notes_bucket: str = "worker-voice-notes"
+    #
+    # EMPTY BY DEFAULT, AND THAT IS A CHANGE. This used to default to the literal
+    # ``"worker-voice-notes"`` while apps/api's ``VOICE_NOTES_BUCKET`` defaults to ``""`` —
+    # a split brain across two services reading the SAME environment variable name. Neither
+    # compose file declares it, so in any containerised environment both services ran on
+    # their own defaults, and arming ONE side (say the API, pointed at a differently named
+    # bucket) produced total silent failure: the API mints signed uploads into bucket X, this
+    # service fetches from ``worker-voice-notes``, every transcription fails closed to an empty
+    # transcript, and ``/health`` stays green on both sides because neither reports a bucket.
+    #
+    # Matching the API's fail-closed default makes the divergence structurally impossible: an
+    # unset variable now means "unset" on both sides rather than "unset here, guessed there".
+    voice_notes_bucket: str = ""
 
     # Observability (Langfuse). Optional — tracing is silently disabled if either
     # key is missing, so local dev never depends on Langfuse being configured.
