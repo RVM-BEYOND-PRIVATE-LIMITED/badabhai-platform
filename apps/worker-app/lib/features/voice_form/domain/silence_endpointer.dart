@@ -14,7 +14,15 @@ class EndpointerThresholds {
     this.floorReestimateClampDb = 10.0,
     this.floorReestimateAlpha = 0.05,
     this.maxCapOuts = 3,
-  });
+  })  :
+        // The class invites field retuning (#680.6): the on/off gate is only
+        // hysteresis if OFF sits BELOW ON. A retune that crosses them silently
+        // degenerates the gate (speech flaps on/off on a single sample), so
+        // catch it at construction rather than as a field mystery.
+        assert(offDeltaDb < onDeltaDb,
+            'hysteresis needs offDeltaDb < onDeltaDb'),
+        assert(onDeltaDb > 0 && offDeltaDb > 0,
+            'deltas are dB ABOVE the floor and must be positive');
 
   /// Speech starts when the level rises this many dB ABOVE the noise floor.
   final double onDeltaDb;

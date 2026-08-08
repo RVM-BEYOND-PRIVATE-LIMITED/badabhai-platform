@@ -34,6 +34,32 @@ void main() {
   });
 
   test(
+      'the auto-stop TIMER fires at the cap: it stops the plugin and hands back '
+      'a cap-length clip (#680.6 / #664)', () async {
+    when(() => plugin.stop()).thenAnswer((_) async => 'capped.m4a');
+    final SessionVoiceRecorder recorder = SessionVoiceRecorder(
+      recorder: plugin,
+      // A short cap so the REAL timer fires in-test. fakeAsync can't be used
+      // here: start()'s temp-dir sweep is real IO fakeAsync cannot pump.
+      maxDuration: const Duration(seconds: 1),
+    );
+    await recorder.start(); // arms Timer(1s)
+
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    // The TIMER — not a manual stop() — finalised the clip: the plugin was
+    // stopped exactly once by the cap firing.
+    verify(() => plugin.stop()).called(1);
+
+    // The next stop() hands back that already-finalised clip; its DECLARED
+    // length is the cap (the #664 divergence the auto-stop exists to bound),
+    // and it does not double-stop the plugin.
+    final RecordedClip? clip = await recorder.stop();
+    expect(clip, isNotNull);
+    expect(clip!.durationSeconds, 1);
+    verifyNever(() => plugin.stop());
+  });
+
+  test(
       'retain() protects an in-flight SAME-SESSION clip from the sweep; '
       'release() lets the very next start() reclaim it (#625, #654 fix)',
       () async {

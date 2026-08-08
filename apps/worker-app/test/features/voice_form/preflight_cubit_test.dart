@@ -175,6 +175,32 @@ void main() {
     expect(cubit.state, isA<PreflightUnavailable>());
   });
 
+  test(
+      'a consent gate (403) surfaces as PreflightFailed(ConsentRequiredFailure) '
+      'so the screen can route to consent, not "voice off" (#680.4)', () async {
+    when(() => probe.probe()).thenThrow(const ConsentRequiredFailure());
+    final PreflightCubit cubit = build();
+    addTearDown(cubit.close);
+    await runWith(cubit, <double>[-9, -55, -54, -56, -53]);
+
+    expect(cubit.state, isA<PreflightFailed>());
+    expect((cubit.state as PreflightFailed).failure,
+        isA<ConsentRequiredFailure>());
+  });
+
+  test(
+      'a session expiry (401) surfaces as PreflightFailed(UnauthorizedFailure) '
+      'so the screen can route to re-login (#680.4)', () async {
+    when(() => probe.probe()).thenThrow(const UnauthorizedFailure());
+    final PreflightCubit cubit = build();
+    addTearDown(cubit.close);
+    await runWith(cubit, <double>[-9, -55, -54, -56, -53]);
+
+    expect(cubit.state, isA<PreflightFailed>());
+    expect(
+        (cubit.state as PreflightFailed).failure, isA<UnauthorizedFailure>());
+  });
+
   test('run() is re-entrant-safe — a second call is a no-op', () async {
     final PreflightCubit cubit = build();
     addTearDown(cubit.close);

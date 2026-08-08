@@ -241,14 +241,16 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
           return;
         }
       }
-      // One levels subscription for the whole session — feeds the endpointer for
-      // auto-advance; never re-taken between questions (it survives stop/start).
-      _levelsSub = _recorder.levels(_levelInterval).listen(_onLevel);
-      // Record-state stream WITH onError (#636): a Bluetooth SCO drop arrives as
-      // a stream error, not a silent stop — handle it, don't let it kill us.
-      _statesSub = _recorder
-          .states()
-          .listen((_) {}, onError: _onRecordStateError);
+      // One levels + one record-state subscription for the whole session — never
+      // re-taken between questions (they survive stop/start), and GUARDED so a
+      // reset()->start() retry (#680.5) can't leak a second pair. Levels feeds
+      // the endpointer for auto-advance; states carries a Bluetooth SCO drop as
+      // a stream error (#636) rather than a silent stop.
+      if (_levelsSub == null) {
+        _levelsSub = _recorder.levels(_levelInterval).listen(_onLevel);
+        _statesSub =
+            _recorder.states().listen((_) {}, onError: _onRecordStateError);
+      }
 
       final VoiceFormStep step = await _gateway.start();
       if (_torndown || !_foreground || gen != _interruptGen) return;
@@ -258,6 +260,20 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     } catch (error) {
       if (!_torndown) emit(VoiceFormError(mapError(error)));
     }
+  }
+
+  /// Recover from a terminal [VoiceFormError] (#680.5): return to Idle so the UI
+  /// can call [start] again, rather than stranding the worker on any transient
+  /// failure — a likely path on a 2G factory floor, not an edge case. Mirrors
+  /// `VoiceNoteCubit.reset`. The mic subscriptions are guarded in [start], so a
+  /// re-start never leaks a second pair.
+  ///
+  /// NOTE: [start] re-runs [VoiceFormGateway.start], which resumes the worker's
+  /// server-side session off their auth. A resume that lands on the RIGHT
+  /// question (not the first) is the gateway's responsibility (backend B6);
+  /// until then a restart may re-ask from the top.
+  void reset() {
+    if (state is VoiceFormError) emit(const VoiceFormIdle());
   }
 
   /// The worker finished speaking (silence endpoint / cap-out / manual "next").

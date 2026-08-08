@@ -316,16 +316,29 @@ void main() {
       // The impatient back press: blocked, and told the real reason. Pumped by
       // hand — the processing spinner animates indefinitely, so pumpAndSettle
       // can never settle here (same reason the chat typing cue is static).
+      // #680.1 CHANGED THIS. #635 raised the transcribe budget to the server's
+      // ~140s floor, which turned this hold into a 2.5-minute trap with only a
+      // snackbar. The transcribe leg now offers an explicit abandon behind a
+      // confirm; the SEND leg keeps the #373 hold (leaving there strands a
+      // message the server already has). Back must still never pop SILENTLY.
       await tester.tap(find.byType(BackButton));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 750)); // snackbar in
+      await tester.pump(const Duration(milliseconds: 750)); // dialog in
 
       expect(find.text('HOME'), findsNothing,
-          reason: 'the route must not pop while the transcribe leg is running');
+          reason: 'back must not pop the route on its own');
+      expect(find.text(kVoiceAbandonTitle), findsOneWidget,
+          reason: 'the transcribe leg offers a way out, not a dead end');
       expect(find.text('Aapki baat likh rahe hain… thoda intezaar karein.'),
           findsOneWidget);
-      expect(find.text(kVoiceBackBlockedLabel), findsOneWidget,
-          reason: 'a blocked back press must never be a silent no-op');
+
+      // "Rukein" keeps them on the wait — the escape hatch is opt-in.
+      await tester.tap(find.text(kVoiceAbandonStay));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 750));
+      expect(find.text('HOME'), findsNothing,
+          reason: 'declining the abandon must leave the pipeline running');
+      expect(find.text(kVoiceAbandonTitle), findsNothing);
 
       // The transcribe leg lands on the CONFIRM turn — still nothing sent.
       when(() => repo.sendConfirmedTranscript(any())).thenAnswer((_) async =>

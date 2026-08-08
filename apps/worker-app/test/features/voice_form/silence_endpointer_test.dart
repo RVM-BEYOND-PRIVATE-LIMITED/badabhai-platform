@@ -125,4 +125,15 @@ void main() {
     expect(SilenceEndpointer().maxAnswer,
         SessionVoiceRecorder.profilingAnswerMaxDuration);
   });
+
+  test('a non-hysteresis threshold pair is rejected at construction (#680.6)',
+      () {
+    // off must sit BELOW on, or the gate flaps on a single sample.
+    expect(() => EndpointerThresholds(onDeltaDb: 6, offDeltaDb: 9),
+        throwsA(isA<AssertionError>()));
+    expect(() => EndpointerThresholds(onDeltaDb: -1),
+        throwsA(isA<AssertionError>()));
+    // The defaults are valid.
+    expect(const EndpointerThresholds(), isA<EndpointerThresholds>());
+  });
 }
