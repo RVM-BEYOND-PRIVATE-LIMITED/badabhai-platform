@@ -348,12 +348,21 @@ function toItem(row: PackItemRow, options: readonly PackOptionRow[]): unknown {
  * record; when all three are null the chip's LABEL is the value, which is why `value` is nullable
  * rather than defaulted here — `answer-capture.ts` owns that fallback, and duplicating it would
  * give two files one rule.
+ *
+ * THE TYPE IS THE POINT, AND IT USED TO BE THROWN AWAY HERE. `String()` on the boolean and the
+ * number turned `value_bool: true` into the five characters `"true"`, and every layer downstream
+ * of this line decides what to do by looking at the value's SHAPE — `classifyAttributeValue`
+ * picks `worker_attributes.value_text` over `value_bool`, so the matcher's own inventory query
+ * cannot see the row; the review screen renders the worker their answer as `true` rather than
+ * `Haan`; and `relocation_willingness` is `z.boolean()` on the draft, so `WorkerProfileDraftSchema`
+ * THROWS in the extraction job for a worker who tapped "Haan, jaa sakta hoon". Four options in the
+ * shipped corpus carry `value_bool` and they cover both destinations.
+ *
+ * `??` rather than a truthiness chain, deliberately: `value_bool: false` and `value_number: 0` are
+ * answers, and every other operator here would silently fall through them to the label.
  */
 function toOption(row: PackOptionRow): unknown {
-  const value =
-    row.valueText ??
-    (row.valueNumber !== null ? String(row.valueNumber) : null) ??
-    (row.valueBool !== null ? String(row.valueBool) : null);
+  const value: unknown = row.valueText ?? row.valueNumber ?? row.valueBool ?? null;
   return {
     option_key: row.optionKey,
     label_text: row.labelText,
