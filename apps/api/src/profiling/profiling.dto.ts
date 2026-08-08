@@ -2,6 +2,10 @@ import { z } from "zod";
 import { ANSWER_TYPES } from "@badabhai/ai-contracts";
 import { uuidSchema, safeTextSchema } from "@badabhai/validators";
 
+// The ENGINE'S closed set of turn kinds, not a wire copy of it (#706). Importing the value is what
+// makes "the two cannot drift" a fact rather than a test — see `question_kind` below.
+import { TURN_KINDS } from "./conversation-state";
+
 /**
  * The voice-form wire contract.
  *
@@ -126,11 +130,44 @@ export type FinalizeProfilingDto = z.infer<typeof FinalizeProfilingSchema>;
 const ProfilingOptionSchema = z.object({
   option_key: z.string(),
   label_text: z.string(),
+  /**
+   * The "none of these" escape, as a FLAG rather than as copy the client has to recognise (#706).
+   *
+   * The chat surface got this in #704 and this one did not, which left the escape hatch —
+   * "Kuch aur" — addressable only by matching display text against a literal duplicating
+   * `DISAMBIGUATION_ESCAPE_LABEL`, with no shared source and nothing binding the two. A copy
+   * change would silently strand whatever branch the client wrote against it, and this is the
+   * surface where the escape is the option a confused worker most needs to find.
+   *
+   * DEFAULTED, not required: additive to a schema a shipped client already reads, so a client
+   * predating it is unaffected and every pack option (which never sets it) reads `false`.
+   */
+  is_none_of_above: z.boolean().default(false),
 });
 
 const ProfilingQuestionSchema = z.object({
   /** Null on the disambiguation turn, which belongs to no pack. */
   question_key: z.string().nullable(),
+  /**
+   * WHAT KIND of question this is — the thing a client was otherwise obliged to infer (#706).
+   *
+   * `z.enum(TURN_KINDS)` AND NOT A SECOND ENUM. The engine's closed set is the wire's closed set
+   * here, so there is no containment to police and no way for the two to drift; the chat surface
+   * declares a superset only because `question_kind` shipped there before `TurnKind` existed.
+   *
+   * Without it the only way to recognise a disambiguation turn was `question_key === null` — an
+   * implicit contract reverse-engineered from a comment, and precisely the shape that let the chat
+   * surface render a trade list in the horizontal chip scroller until #695. On this surface the
+   * worker is being READ TO: "which of these did you mean?" and "what work do you do?" are
+   * different interactions, and a client that cannot tell them apart cannot speak them differently.
+   *
+   * `close` IS DECLARED AND UNREACHABLE HERE, which is not an oversight. A completed turn becomes
+   * `{ kind: "done" }` one level up, so no question step ever carries it — but re-deriving a
+   * narrower enum for that would be the second declaration this field exists to avoid.
+   *
+   * DEFAULTED to `ask`, so a client predating the field is unaffected.
+   */
+  question_kind: z.enum(TURN_KINDS).default("ask"),
   prompt_text: z.string().min(1),
   answer_type: z.enum(ANSWER_TYPES).nullable(),
   options: z.array(ProfilingOptionSchema),

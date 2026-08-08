@@ -3,9 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import type { AnswerRecord, QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
 
+import { DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
+
 import type { ChatTurnOutcome } from "../chat/chat.service";
+import { TURN_KINDS } from "./conversation-state";
 import type { ServedQuestion, SessionView, TurnResult } from "./orchestrator.service";
 import { ProfilingSessionService } from "./profiling-session.service";
+import { ProfilingStepSchema } from "./profiling.dto";
 import { clipId } from "./reply-closure";
 
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -109,11 +113,13 @@ function makeWorld(
       correctionCount: number;
     } | null;
     corrected?:
-      | { kind: "corrected"; value: unknown; correctionCount: number }
+      | { kind: "corrected"; value: unknown; correctionCount: number; answerSetHash: string }
       | { kind: "unreadable" }
       | { kind: "capped"; cap: number };
     /** A profile row already exists for this worker — i.e. the correction is landing late. */
     profile?: { id: string } | null;
+    /** What `rebuildAfterCorrection` reports. `null` = the rebuild could not be queued. */
+    rebuild?: { ai_job_id: string; status: string } | null;
   } = {},
 ) {
   const session =
@@ -135,7 +141,12 @@ function makeWorld(
     viewSettled: vi.fn(async () => (opts.settled === undefined ? null : opts.settled)),
     correctAnswer: vi.fn(
       async () =>
-        opts.corrected ?? { kind: "corrected" as const, value: "Pune", correctionCount: 1 },
+        opts.corrected ?? {
+          kind: "corrected" as const,
+          value: "Pune",
+          correctionCount: 1,
+          answerSetHash: "a".repeat(64),
+        },
     ),
     viewSession: vi.fn(
       async (): Promise<SessionView | null> =>
@@ -155,6 +166,11 @@ function makeWorld(
     }),
   };
   const workers = { latestProfile: vi.fn(async () => opts.profile ?? null) };
+  const profiles = {
+    rebuildAfterCorrection: vi.fn(async () =>
+      opts.rebuild === undefined ? { ai_job_id: "job_1", status: "queued" } : opts.rebuild,
+    ),
+  };
   const service = new ProfilingSessionService(
     chat as never,
     chatService as never,
@@ -162,8 +178,18 @@ function makeWorld(
     transcription as never,
     voiceAnswers as never,
     workers as never,
+    profiles as never,
   );
-  return { service, chat, chatService, orchestrator, transcription, voiceAnswers, workers };
+  return {
+    service,
+    chat,
+    chatService,
+    orchestrator,
+    transcription,
+    voiceAnswers,
+    workers,
+    profiles,
+  };
 }
 
 /** The `answer` body for a chip tap on the material question. */
@@ -363,11 +389,114 @@ describe("the step a client draws", () => {
 
     expect(step).toMatchObject({ kind: "question" });
     if (step.kind !== "question") throw new Error("unreachable");
+    // `value` and `implies_skill_id` stay off: engine business. `is_none_of_above` is on, because
+    // it describes how the option should be PRESENTED (#706).
     expect(step.question.options).toEqual([
-      { option_key: "mild_steel", label_text: "Mild steel" },
-      { option_key: "stainless", label_text: "Stainless steel" },
+      { option_key: "mild_steel", label_text: "Mild steel", is_none_of_above: false },
+      { option_key: "stainless", label_text: "Stainless steel", is_none_of_above: false },
     ]);
     expect(step.question.answer_type).toBe("multi_select");
+  });
+
+  it("an ordinary pack question is `ask`", async () => {
+    const { service } = makeWorld();
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+    if (step.kind !== "question") throw new Error("unreachable");
+    expect(step.question.question_kind).toBe("ask");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The disambiguation offer on the LOW-LITERACY surface (#706)
+// ---------------------------------------------------------------------------
+
+/** What the orchestrator's offer branch produces, built the way `identify.service.ts` builds it. */
+const OFFER_TURN = turn({
+  kind: "disambiguate",
+  reply: "Aap in mein se kaun sa kaam karte hain?",
+  questionKey: null,
+  answerType: "single_select",
+  options: [
+    option("occ_a", "Welder"),
+    { ...option("kuch_aur", DISAMBIGUATION_ESCAPE_LABEL), is_none_of_above: true },
+  ],
+});
+
+const offerOutcome = {
+  kind: "turn" as const,
+  turn: OFFER_TURN,
+  buffered: {} as never,
+  terminal: false,
+};
+
+describe("a disambiguation offer announces itself on the voice form (#706)", () => {
+  it("carries question_kind `disambiguate` instead of leaving it to be inferred", async () => {
+    // `question_key === null` was the only signal, which is an implicit contract a client had to
+    // reverse-engineer from a comment — and the exact shape that let the CHAT surface ship the
+    // wrong widget until #695. Here the worker is being read to, so "which of these did you mean?"
+    // and "what work do you do?" have to be speakable differently.
+    const { service } = makeWorld({ outcome: offerOutcome });
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+    if (step.kind !== "question") throw new Error("unreachable");
+    expect(step.question.question_kind).toBe("disambiguate");
+    expect(step.question.question_key).toBeNull();
+  });
+
+  it("flags the escape option, so the client stops matching on display copy", async () => {
+    const { service } = makeWorld({ outcome: offerOutcome });
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+    if (step.kind !== "question") throw new Error("unreachable");
+    const escapes = step.question.options.filter((o) => o.is_none_of_above);
+    expect(escapes).toHaveLength(1);
+    // Bound to the constant the server built it from — a copy change now moves the label without
+    // stranding the client's branch.
+    expect(escapes[0]?.label_text).toBe(DISAMBIGUATION_ESCAPE_LABEL);
+  });
+
+  it("declares the ENGINE's kinds, not a second copy of them", () => {
+    // The chat surface declares a superset only because `question_kind` shipped there before
+    // `TurnKind` existed. Here the schema IS the enum, so there is nothing to drift — this asserts
+    // that, rather than a containment that a hand-written literal array could quietly break.
+    const parse = (question_kind: string) =>
+      ProfilingStepSchema.safeParse({
+        kind: "question",
+        index: 1,
+        total: 11,
+        question: {
+          question_key: null,
+          question_kind,
+          prompt_text: "x",
+          answer_type: "single_select",
+          options: [],
+          why_text: null,
+          tts_clip_id: "a".repeat(16),
+        },
+      }).success;
+
+    for (const kind of TURN_KINDS) expect(parse(kind), `${kind} is not on the wire`).toBe(true);
+    expect(parse("interrogate")).toBe(false);
+  });
+
+  it("DEFAULTS both new fields, so a payload predating them still parses", () => {
+    // Additive to a contract a shipped client already reads (#698): the absent fields must read as
+    // today's behaviour rather than failing the parse.
+    const parsed = ProfilingStepSchema.safeParse({
+      kind: "question",
+      index: 1,
+      total: 11,
+      question: {
+        question_key: "q_city",
+        prompt_text: "Aap kis sheher mein rehte hain?",
+        answer_type: "single_select",
+        options: [{ option_key: "pune", label_text: "Pune" }],
+        why_text: null,
+        tts_clip_id: "a".repeat(16),
+      },
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success || parsed.data.kind !== "question") throw new Error("unreachable");
+    expect(parsed.data.question.question_kind).toBe("ask");
+    expect(parsed.data.question.options[0]?.is_none_of_above).toBe(false);
   });
 
   it("addresses the audio by CONTENT, so a clip can never be the wrong question's", async () => {
@@ -882,18 +1011,85 @@ describe("correcting a settled answer", () => {
     ).rejects.toThrow(/unknown option/i);
   });
 
-  it("reports that a profile already built is now stale, rather than silently rebuilding it", async () => {
-    // The rebuild crosses three deliberate dedupe guards and is a separate ruling (#700). What
-    // this route owes is to say so, not to decide it.
-    const { service } = makeWorld({ settled: settledWorld(), profile: { id: "prof_1" } });
-    const result = await service.correct(WORKER, dto, CTX);
-    expect(result.profile_rebuild_required).toBe(true);
-  });
+  /**
+   * THE BOUNDARY THE OWNER NAMED (ruling 2026-08-08), and it is exactly where this and #420 could
+   * otherwise blur into each other.
+   *
+   * #420 was TWO triggers firing on UNCHANGED data. This is ONE trigger firing because the data
+   * CHANGED. The line between them is whether an extraction has already READ the answers:
+   *
+   *   not yet extracted -> the queued extraction reads `conversation_state` when it RUNS, which is
+   *                        after this correction committed, so it builds from the corrected
+   *                        answers by itself. Firing here would be #420's shape exactly.
+   *   already extracted -> nothing will ever read them again. Rebuild.
+   */
+  describe("the rebuild boundary", () => {
+    it("does NOT take the rebuild path when the session was never extracted", async () => {
+      const { service, profiles } = makeWorld({ settled: settledWorld(), profile: null });
 
-  it("does not claim a rebuild is needed when no profile exists yet", async () => {
-    const { service } = makeWorld({ settled: settledWorld(), profile: null });
-    const result = await service.correct(WORKER, dto, CTX);
-    expect(result.profile_rebuild_required).toBe(false);
+      const result = await service.correct(WORKER, dto, CTX);
+
+      expect(profiles.rebuildAfterCorrection).not.toHaveBeenCalled();
+      // FALSE means "no rebuild is underway", and here that is correct rather than a gap: the
+      // ordinary extraction has not run yet and will pick the correction up on its own.
+      expect(result.profile_rebuild_required).toBe(false);
+    });
+
+    it("DOES take it when a profile has already been built", async () => {
+      const { service, profiles } = makeWorld({
+        settled: settledWorld(),
+        profile: { id: "prof_1" },
+      });
+
+      const result = await service.correct(WORKER, dto, CTX);
+
+      expect(profiles.rebuildAfterCorrection).toHaveBeenCalledWith(
+        {
+          worker_id: WORKER,
+          session_id: SESSION,
+          // KEYED ON THE DATA, not on the session — that is what makes it structurally
+          // incapable of colliding with #420's session-scoped guards.
+          answer_set_hash: "a".repeat(64),
+        },
+        CTX,
+      );
+      expect(result.profile_rebuild_required).toBe(true);
+    });
+
+    it("passes the hash of the map that was JUST WRITTEN, not a recomputed one", async () => {
+      const { service, profiles } = makeWorld({
+        settled: settledWorld(),
+        profile: { id: "prof_1" },
+        corrected: {
+          kind: "corrected",
+          value: "Pune",
+          correctionCount: 3,
+          answerSetHash: "b".repeat(64),
+        },
+      });
+
+      await service.correct(WORKER, dto, CTX);
+
+      expect(profiles.rebuildAfterCorrection).toHaveBeenCalledWith(
+        expect.objectContaining({ answer_set_hash: "b".repeat(64) }),
+        CTX,
+      );
+    });
+
+    it("still reports the correction as stored when the rebuild could not be queued", async () => {
+      // The correction is durable in both stores before this runs. Failing the worker's call
+      // because a QUEUE was unreachable would report it as lost when it is not.
+      const { service } = makeWorld({
+        settled: settledWorld(),
+        profile: { id: "prof_1" },
+        rebuild: null,
+      });
+
+      const result = await service.correct(WORKER, dto, CTX);
+
+      expect(result.row.display_value).toBe("Pune");
+      expect(result.profile_rebuild_required).toBe(false);
+    });
   });
 
   it("422s a spoken correction whose clip could not be transcribed — never a silent no-op", async () => {

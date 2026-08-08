@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 
 import '../domain/voice_models.dart';
@@ -132,6 +133,15 @@ class SessionVoiceRecorder implements VoiceRecorder {
   /// Drop [path]'s protection — call once its upload has resolved (success OR a
   /// terminal failure) so hygiene can reclaim it on a later sweep.
   void release(String path) => _retained.remove(path);
+
+  /// What is currently protected from the sweep — a TEST SEAM (#717).
+  ///
+  /// A leaked retain is invisible from the outside: nothing fails, the clip is simply never
+  /// reclaimed for the life of this (session-scoped, long-lived) recorder. That is exactly
+  /// the kind of defect a test has to be able to see, and the upload moving into the cubit
+  /// added a new way to reach it.
+  @visibleForTesting
+  Set<String> get retainedPaths => Set<String>.unmodifiable(_retained);
 
   /// Amplitude readings for the endpointer. A SINGLE subscription taken once per
   /// session survives every stop/start — the plugin's amplitude stream is not

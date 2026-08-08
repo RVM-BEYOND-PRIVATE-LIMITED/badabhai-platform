@@ -135,9 +135,35 @@ describe("identification never runs when it should not", () => {
     });
     const result = await svc.identify(
       env({ occupation: CANDIDATE as never, occupationFamilyId: "fam_tailoring" }),
-      "tempo bhi hai ghar pe",
+      // Carries a first-person claim ON PURPOSE, so CONDITION 0 lets it through and the
+      // sub-`auto` status is what actually blocks it. With "tempo bhi hai ghar pe" here this
+      // test passed without ever reaching the check it is named after.
+      "ab main tempo bhi chalata hoon",
       CTX,
     );
+    expect(result.patch).toEqual({});
+    expect(result.pinned).toBeNull();
+  });
+
+  it("does not re-pin on an ANSWER to the question on screen, only on a claim", async () => {
+    // THE REGRESSION THIS EXISTS FOR, observed in a live interview: a CNC worker was asked
+    // "Aap kaunsi machine chalate hain?" and tapped the pack's own "Koi aur machine" chip. The
+    // ladder ran on that chip label, returned an `auto` match on a different family, and re-pinned
+    // the interview to Milker on turn three -- where, the budget being one, it stayed.
+    //
+    // The chip label is asserted rather than a paraphrase because it is the exact string the
+    // client sends when a worker taps that option, and a chip tap is the single least ambiguous
+    // "this is an answer, not a claim" signal in the whole system.
+    const { svc, occupation } = make({
+      resolve: resolveResult({ status: "auto", pinned: { ...CANDIDATE, familyId: "fam_dairy" } }),
+    });
+    const result = await svc.identify(
+      env({ occupation: CANDIDATE as never, occupationFamilyId: "fam_machining" }),
+      "Koi aur machine",
+      CTX,
+    );
+    // Not merely refused -- never asked. The four retrieval layers must not run on a pack answer.
+    expect(occupation.resolve).not.toHaveBeenCalled();
     expect(result.patch).toEqual({});
     expect(result.pinned).toBeNull();
   });

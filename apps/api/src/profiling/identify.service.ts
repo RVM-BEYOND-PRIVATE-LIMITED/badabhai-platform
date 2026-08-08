@@ -24,6 +24,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { OccupationPin, QuestionPackOption } from "@badabhai/ai-contracts";
 import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
+import { hasFirstPersonClaim } from "@badabhai/profiling-lexicon";
 
 import { AiService } from "../ai/ai.service";
 import { EventsService } from "../events/events.service";
@@ -259,6 +260,32 @@ export class IdentifyService {
     ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
   ): Promise<IdentifyResult> {
     if (envelope.occupationRepins >= MAX_OCCUPATION_REPINS) return NO_OP;
+
+    // CONDITION 0, AND THE ONE THAT MAKES THE OTHER TWO REACHABLE SAFELY: the worker must be
+    // CLAIMING a trade, not answering the question on screen.
+    //
+    // Without this the ladder ran over every message once pinned, and a pack answer is exactly the
+    // shape that fools it — a CNC worker who taps the "Koi aur machine" chip on the machine-type
+    // question was re-pinned to Milker on turn three, and because the budget is one, stayed there
+    // for the rest of the interview. The occupation is not a per-turn opinion; it is a claim, and
+    // `identify` already says so eight lines up: "re-running retrieval on turn nine, when the
+    // worker is describing their machines, not their trade, is how a welder becomes a machine
+    // operator halfway through their own interview".
+    //
+    // First-person claim is the right shape for it because it is what SEPARATES the two cases:
+    // "ab tempo chalata hun" carries a first-person verb and "koi aur machine" carries nothing.
+    // It is the same predicate the plan names for this, and it costs a regex instead of the four
+    // retrieval layers this used to run on every single turn. Its `claimBlockers` half is a bonus
+    // that matters here: "bhai welder hai" cannot re-pin a worker onto their brother's trade.
+    //
+    // KNOWN LIMIT, stated rather than discovered later: `firstPersonClaim` is Latin-Hinglish only,
+    // so a re-pin typed in Devanagari does not fire and the worker keeps their original pin. That
+    // is the failure this file already chooses everywhere else -- "a less specific interview and
+    // never a lost one" -- and it is strictly better than the ungated behaviour it replaces, which
+    // mis-pinned Devanagari and Latin answers alike. Widening the predicate is a lexicon change
+    // shared with the skill-claim consumers (TD98/TD101), so it belongs in its own reviewed diff
+    // against the dual-language fixture, not here.
+    if (!hasFirstPersonClaim(text)) return NO_OP;
 
     const result = await this.occupation.resolve(text);
     if (result.status !== "auto") return NO_OP;

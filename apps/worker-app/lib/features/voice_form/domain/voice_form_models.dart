@@ -1,7 +1,5 @@
 import 'package:equatable/equatable.dart';
 
-import '../../voice/domain/voice_models.dart';
-
 /// The shape of a question, which decides how it is answered (#630). 85% of the
 /// 466-item pack is a choice question, and the capture layer has no fuzzy
 /// speech→option_key path, so a choice question MUST be answerable by chip.
@@ -81,13 +79,22 @@ enum VoiceAnswerKind { spoken, chips, boolean, text }
 
 /// The worker's answer to one question. Exactly one payload field is set,
 /// selected by [kind]:
-///  - [spoken] — a recorded [clip] (the only kind that triggers STT),
+///  - [spoken] — a registered [voiceNoteId] (the only kind that triggers STT),
 ///  - [chips]  — [optionKeys] (single or multi select; NEVER label text),
 ///  - [boolean]— [boolValue] (a Haan/Nahi tap),
 ///  - [text]   — literal [text] (e.g. "Nahi pata", which the engine maps to
 ///    `declined` — there is no client-side skip concept).
+///
+/// A SPOKEN ANSWER CARRIES AN ID, NOT A CLIP (#717, owner ruling 2026-08-08). The upload is
+/// the CUBIT's job: it registers the clip through [VoiceNoteRegistrar] and hands the
+/// resulting id here, so `VoiceFormGateway` stays a pure wire adapter — one HTTP call per
+/// method, the same shape as every other member of that interface. Carrying a `RecordedClip`
+/// instead would have forced the gateway to grow an uploader and a second round trip inside
+/// `submit`, and it is the id, not the bytes, that the engine's `{kind:'spoken',
+/// voice_note_id}` body has ever wanted. It also means the raw audio has already left the
+/// device (and been deleted) before an answer object exists.
 class VoiceAnswer extends Equatable {
-  const VoiceAnswer.spoken(RecordedClip this.clip)
+  const VoiceAnswer.spoken(String this.voiceNoteId)
       : kind = VoiceAnswerKind.spoken,
         optionKeys = const <String>[],
         boolValue = null,
@@ -95,24 +102,27 @@ class VoiceAnswer extends Equatable {
 
   const VoiceAnswer.chips(this.optionKeys)
       : kind = VoiceAnswerKind.chips,
-        clip = null,
+        voiceNoteId = null,
         boolValue = null,
         text = null;
 
   const VoiceAnswer.boolean(bool this.boolValue)
       : kind = VoiceAnswerKind.boolean,
-        clip = null,
+        voiceNoteId = null,
         optionKeys = const <String>[],
         text = null;
 
   const VoiceAnswer.text(String this.text)
       : kind = VoiceAnswerKind.text,
-        clip = null,
+        voiceNoteId = null,
         optionKeys = const <String>[],
         boolValue = null;
 
   final VoiceAnswerKind kind;
-  final RecordedClip? clip;
+
+  /// The registered voice note this answer is, for a [spoken] answer. An opaque server id —
+  /// never a device path, and never the transcript.
+  final String? voiceNoteId;
   final List<String> optionKeys;
   final bool? boolValue;
   final String? text;
@@ -121,7 +131,7 @@ class VoiceAnswer extends Equatable {
 
   @override
   List<Object?> get props =>
-      <Object?>[kind, clip, optionKeys, boolValue, text];
+      <Object?>[kind, voiceNoteId, optionKeys, boolValue, text];
 }
 
 /// Result of starting the session or submitting an answer: the engine either
@@ -152,6 +162,30 @@ class NextQuestion extends VoiceFormStep {
 /// The engine has no more questions — move to review + submit.
 class VoiceFormDone extends VoiceFormStep {
   const VoiceFormDone();
+}
+
+/// NOTHING WAS WRITTEN AND THE WORKER MAY SEND THAT AGAIN — the engine's third outcome
+/// (#717), which until now had nowhere to land.
+///
+/// `ProfilingStepSchema` carries this variant precisely so a lost CAS or a failed
+/// transcription is NOT an error: its own doc says a 5xx there "would make an offline queue
+/// treat a recoverable turn as a dead letter". With only [NextQuestion] and [VoiceFormDone]
+/// to return, the gateway had no choice but to throw — and a thrown `Failure` becomes
+/// `VoiceFormError`, whose single action on the screen is `onExit`. The server said "say
+/// that again" and the client ended the interview.
+///
+/// [reply] is the ENGINE'S OWN LINE, not client copy: it is on-persona, already inside the
+/// reply closure, and therefore has rendered audio — which matters on the surface where the
+/// worker cannot read the text fallback.
+class RetryCurrentQuestion extends VoiceFormStep {
+  const RetryCurrentQuestion(this.reply);
+
+  /// What to say before re-arming. Never empty — the gateway substitutes the honest
+  /// fallback line when the server sends no reply.
+  final String reply;
+
+  @override
+  List<Object?> get props => <Object?>[reply];
 }
 
 /// Where the mic is in the answer cycle for the current question. Nested inside

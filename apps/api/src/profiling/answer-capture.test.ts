@@ -251,6 +251,58 @@ describe("every typed field falls back to NO capture rather than a guess", () =>
       expect(captureAnswer(unreadable, q).values, q.question_key).toHaveLength(0);
     }
   });
+
+  it("a typed field that abstains still gets its own reviewed chips tried", () => {
+    // THE REGRESSION, and it was live on every interview. `availability` and `relocation` are the
+    // only two items in the corpus carrying BOTH a typed target field and options, and both sit in
+    // `qp_universal`. A typed normalizer returning null used to return straight out of
+    // `normalizeFor`, so their chips were never matched -- and `parseRelocationWillingness`
+    // returns null for all three of relocation's own labels.
+    // Booleans, because that is what the shipped corpus carries: `relocation`'s yes/no chips are
+    // `value_bool` rows, and `pack-registry` now hands them over as booleans instead of "true".
+    const reloc = item({
+      question_key: "q_reloc2",
+      target_field: "relocation_willingness",
+      answer_type: "single_select",
+      options: [
+        { option_key: "yes", label_text: "Haan, jaa sakta hoon", value: true },
+        { option_key: "no", label_text: "Nahi, yahi rehna hai", value: false },
+      ] as never,
+    });
+    expect(only(captureAnswer("Nahi, yahi rehna hai", reloc)).valueNormalized).toBe(false);
+  });
+
+  it("refuses an option whose value contradicts the field's declared type", () => {
+    // `relocation` is a `boolean` field that ships a THIRD chip carrying the text "conditional".
+    // Tapping it used to put a string into `z.boolean()` and fail the whole extraction job -- the
+    // profile, not the field. One unread answer is the cheaper half of that trade.
+    const reloc = item({
+      question_key: "q_reloc3",
+      target_field: "relocation_willingness",
+      answer_type: "single_select",
+      options: [
+        {
+          option_key: "maybe",
+          label_text: "Sahi kaam mile to soch sakta hoon",
+          value: "conditional",
+        },
+      ] as never,
+    });
+    expect(captureAnswer("Sahi kaam mile to soch sakta hoon", reloc).values).toHaveLength(0);
+  });
+
+  it("but a typed field NEVER falls through to verbatim", () => {
+    // The boundary that makes the fall-through above safe. `salary_expected` is filtered on by
+    // RANGE and `current_city` by EQUALITY, so a sentence in either is not a poorer value, it is
+    // an unmatchable one. No option matched must still mean unread -- never the raw message.
+    const salary = item({
+      question_key: "q_sal2",
+      target_field: "salary_expected",
+      answer_type: "single_select",
+      options: [{ option_key: "a", label_text: "Das hazaar", value: 10000 }] as never,
+    });
+    expect(captureAnswer("jo bhi mile theek hai", salary).values).toHaveLength(0);
+  });
 });
 
 describe("the normalizer map is keyed on REAL vocabulary ids", () => {
@@ -532,12 +584,23 @@ describe("relocation was answerable by tapping and not by typing (#713)", () => 
     expect(captureAnswer("shayad", RELOCATION).values).toHaveLength(0);
   });
 
-  it("leaves the exact chip labels exactly as they were", () => {
+  it("leaves the two BOOLEAN chip labels exactly as they were", () => {
     expect(only(captureAnswer("Haan, jaa sakta hoon", RELOCATION)).valueNormalized).toBe(true);
     expect(only(captureAnswer("Nahi, yahi rehna hai", RELOCATION)).valueNormalized).toBe(false);
-    expect(
-      only(captureAnswer("sahi kaam mile to soch sakta hoon", RELOCATION)).valueNormalized,
-    ).toBe("conditional");
+  });
+
+  it("the `conditional` chip captures NOTHING — a pre-existing gap, recorded not papered over", () => {
+    // NOT this change. `keepIfWellTyped` (#722) re-checks a captured value against the target
+    // field's declared type, and `relocation_willingness` is `z.boolean()` on the draft — so the
+    // `maybe` option's `value_text: "conditional"` is refused, by the chip-exact branch this fix
+    // does not touch. Refusing is CORRECT (a string there throws in extraction, which is the very
+    // defect #710 fixed), but it means a worker who taps "Sahi kaam mile to soch sakta hoon" has
+    // their answer dropped.
+    //
+    // Pinned here so the gap is visible and this suite fails loudly if someone "fixes" it by
+    // widening the type check rather than by deciding what a conditional willingness should
+    // actually store. That decision is the corpus owner's, and it is filed separately.
+    expect(captureAnswer("sahi kaam mile to soch sakta hoon", RELOCATION).values).toHaveLength(0);
   });
 
   it("stores a BOOLEAN, the same value the chip stores — not the string 'true'", () => {

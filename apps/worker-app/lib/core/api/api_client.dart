@@ -718,6 +718,45 @@ class ApiClient {
     return VoiceUploadTicket.fromJson(json);
   }
 
+  // ---- Voice-form profiling (#699) — worker-authed + consent-gated, exactly
+  // like /chat/*. The worker is taken from the token; no id is ever in a body.
+  // These return the raw JSON so the parsing lives in HttpVoiceFormGateway (which
+  // owns the voice_form domain shapes; ApiClient must not depend on them). A
+  // missing/foreign session is a 404, a stale answer a 409 — both surface as
+  // ApiException for the gateway to handle. ---------------------------------
+
+  /// POST /profiling/session — reattach to a live interview or open one. Empty
+  /// body (the server rejects any field). Returns `{session_id, step}`.
+  Future<Map<String, dynamic>> profilingStart({required String authToken}) =>
+      _post('/profiling/session', const <String, dynamic>{},
+          authToken: authToken);
+
+  /// POST /profiling/answer — submit ONE answer. [body] is
+  /// `{session_id, question_key, answer}`; option KEYS only, never labels.
+  /// Returns `{step}`.
+  Future<Map<String, dynamic>> profilingAnswer({
+    required String authToken,
+    required Map<String, dynamic> body,
+  }) =>
+      _post('/profiling/answer', body, authToken: authToken);
+
+  /// POST /profiling/finalize — commit the reviewed session. Idempotent. Returns
+  /// `{session_id, committed}`.
+  Future<Map<String, dynamic>> profilingFinalize({
+    required String authToken,
+    required String sessionId,
+  }) =>
+      _post('/profiling/finalize', <String, dynamic>{'session_id': sessionId},
+          authToken: authToken);
+
+  /// GET /profiling/session/:id — the review rows (and completeness) for the
+  /// review screen. Returns `{session_id, complete, rows}`.
+  Future<Map<String, dynamic>> profilingSession({
+    required String authToken,
+    required String sessionId,
+  }) =>
+      _get('/profiling/session/$sessionId', authToken: authToken);
+
   /// Fetches a registered voice note + its transcript once STT has landed
   /// (GET /voice/:voiceNoteId — WorkerAuthGuard). Worker-scoped: requires
   /// [authToken]; the server checks the note belongs to the token's worker.
