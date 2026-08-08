@@ -271,6 +271,13 @@ class AuthSessionManager extends ChangeNotifier {
       // Nothing more we can do — deliberately ignored.
     }
     _session.clear();
+    // THIS ADMITS A DIFFERENT WORKER, so it owes the same purge every other
+    // session-ending path fires. A restored-backup handset lands here, drops to
+    // phone login, and whoever logs in next inherits the session-scoped caches —
+    // which now include queued voice clips, i.e. raw audio, not just a cached
+    // name. Clearing the store without clearing them is the cross-worker leak
+    // `onSessionCleared` exists to prevent.
+    onSessionCleared?.call();
   }
 
   // --- OTP login ------------------------------------------------------------

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart' show PaintingBinding;
 import 'package:get_it/get_it.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -47,6 +49,7 @@ import '../../features/voice/domain/voice_recorder.dart';
 import '../../features/voice/presentation/cubit/voice_note_cubit.dart';
 import '../../features/voice_form/data/silent_question_audio_player.dart';
 import '../../features/voice_form/data/tts_asset_resolver.dart';
+import '../../features/voice_form/data/voice_clip_queue.dart';
 import '../../features/voice_form/data/voice_preflight_probe.dart';
 import '../../features/voice_form/domain/question_audio_player.dart';
 import '../../features/voice_form/domain/silence_endpointer.dart';
@@ -295,6 +298,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => VoicePreflightProbe(
         locator<ApiClient>(), locator<SessionRepository>()),
   );
+  // #637 offline clip queue — a DI singleton so the logout purge
+  // (_clearSessionScopedCaches) can wipe it: its prefs keys + on-disk audio are
+  // NOT worker-bound and outlive the session (#692 H1).
+  locator.registerLazySingleton<VoiceClipQueue>(() => VoiceClipQueue());
   // Read-aloud (#631): the ship-now default is SILENT — the session degrades to
   // text-only until the TTS corpus (ai-service A3) and an on-device audio-focus
   // prototype land. TTS is an enhancement, never a gate on answering.
@@ -538,6 +545,12 @@ void _clearSessionScopedCaches() {
   }
   if (locator.isRegistered<NotificationPrefsRepository>()) {
     locator<NotificationPrefsRepository>().onLogout();
+  }
+  // #692 H1 — purge the offline voice-clip queue: its prefs keys + on-disk audio
+  // are not worker-bound, so on a shared handset the next worker's drain loop
+  // would upload the previous worker's clips under their own session.
+  if (locator.isRegistered<VoiceClipQueue>()) {
+    unawaited(locator<VoiceClipQueue>().clearAll());
   }
   // Evict the previous worker's DECODED photos from Flutter's global image cache,
   // so a re-login can never repaint them from memory even before a fresh fetch.
