@@ -227,7 +227,7 @@ moment the thing it drives becomes adaptive.
 | # | Item | State |
 |---|---|---|
 | ~~**B-1**~~ | Packs **seeded** in each environment | **RESOLVED by #689, and the row's own evidence was half wrong.** Re-measured: `db:seed:packs --apply` DOES run in ci.yml's e2e job (with `--apply`, and with the live-DB `db:verify:packs` after it) — but against a throwaway container that is deleted at the end of the run. The headline held: it was on **no deploy path and in no runbook**. `staging-cd.yml` now seeds domains → normalizes aliases → seeds packs → verifies both against the live database, immediately after `db:migrate`. A SEPARATE hole surfaced while checking: `db:normalize:aliases` and `db:verify:domains` ran in **zero** workflows, and `verify-job-domains.ts` states that an un-normalized alias is *"invisible to L0/L2 retrieval"* — so CI was exercising a silently degraded occupation ladder. Both now run in CI and on the deploy path. |
-| **B-2** | Sarvam TTS accepts **romanized** Hinglish at `hi-IN` | Unknown. 0 of 466 pack items contain a Devanagari codepoint. Resolved by V0. |
+| **B-2** | Sarvam TTS accepts **romanized** Hinglish at `hi-IN` | **RUN 2026-08-08 — the loudest failure is ruled out, the verdict is not in.** 20 REAL calls (`--matrix`, 5 probes × roman/Devanagari × `hi-IN`/`en-IN`), `is_mock=False` on every one, zero errors, **₹15** against the ₹450 ceiling. Roman/Devanagari duration ratio on identical content: **1.04–1.24 across all 10 pairs, 0 divergent** — so roman text is being SPOKEN, not spelled out letter by letter, which was the failure that would have forced a transliteration sidecar. **Duration parity is not intelligibility**: whether a welder in Pune understands the roman clip still needs a native ear, and that is the part a machine cannot close. Audio in `tts-probe/`. |
 | **B-3** | Round-trip latency for a ≤30s answer | Unmeasured. Every number in the repo is a timeout, never an observation. Resolved by V0. |
 | ~~**B-4**~~ | Where `attribute` answers land | **RESOLVED** — owner ruled `worker_attributes`; the table shipped in V1 (migration 0071). The *wiring* is V2. |
 | ~~**B-5**~~ | `envelope.occupation` is never written | **RESOLVED** by V3 (#650). Measured live: "main welder hoon" → `jd_nco_7212_0301` via `l0_exact` at 0.97 → the WELDING pack served → 13-turn interview → 10 typed rows in `worker_pack_answer`. |
@@ -503,6 +503,34 @@ the DSAR voice leg changes only to a **prefix sweep**, which deletes strictly mo
 Complexity: S ≤2d, M 3–5d, L 6–10d, XL >10d.
 
 ### Phase V0 — Empirical gates *(Owners: Divyanshu + Prakash · S · **blocks everything**)*
+
+> **RUNG 0 RAN 2026-08-08, greenlit by the owner. The machine half is done; the human half is not.**
+>
+> ```
+> python -m app.cli.tts_smoke --matrix
+> REAL Sarvam TTS: ON   bulbul:v2 / anushka / hi-IN / 22050 wav
+> 20 calls   is_mock=False on all 20   0 errors   estimated spend Rs 15.0
+> ```
+>
+> Roman vs Devanagari duration on IDENTICAL content, per pair:
+>
+> ```
+> city             1.06 / 1.11      salary           1.05 / 1.07
+> experience       1.11 / 1.11      trade            1.24 / 1.16
+> mixed_technical  1.04 / 1.07      (en-IN / hi-IN)
+> 0 divergent pairs of 10
+> ```
+>
+> **What that rules out and what it does not.** A roman string read as English letters —
+> "aa-pe-kaa" — takes far longer than the same sentence read as Hindi, so a ratio near 1.0 is
+> strong evidence bulbul is SPEAKING the roman text rather than spelling it. That was the failure
+> mode that would have forced a transliteration sidecar for all 466 items, with its own review and
+> drift surface. It did not happen.
+>
+> **Duration parity is not intelligibility.** Whether a welder in Pune UNDERSTANDS the roman clip
+> is the actual B-2 question and no measurement here answers it. Two native speakers from the
+> target demographic still have to listen — that is the acceptance below, and it is unchanged.
+> The clips are ready for them; the spend is already sunk at ₹15.
 
 **Objective.** Answer the two questions that can invalidate the design, for ~₹470 and one afternoon,
 **before any UI is built**.
