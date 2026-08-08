@@ -1,0 +1,360 @@
+import 'dart:async';
+
+import 'package:equatable/equatable.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../../../core/error/failure.dart';
+import '../../../../core/error/failure_mapper.dart';
+import '../../../voice/data/session_voice_recorder.dart';
+import '../../../voice/domain/voice_models.dart';
+import '../../domain/question_audio_player.dart';
+import '../../domain/silence_endpointer.dart';
+import '../../domain/voice_form_gateway.dart';
+import '../../domain/voice_form_models.dart';
+
+// ---------------- States ----------------
+
+sealed class VoiceFormState extends Equatable {
+  const VoiceFormState();
+
+  @override
+  List<Object?> get props => <Object?>[];
+}
+
+/// Nothing started yet.
+class VoiceFormIdle extends VoiceFormState {
+  const VoiceFormIdle();
+}
+
+/// Opening the session / fetching the first question.
+class VoiceFormPreparing extends VoiceFormState {
+  const VoiceFormPreparing();
+}
+
+/// A question is on screen. [micPhase] carries where the mic is in the answer
+/// cycle (priming → listening → holding → uploading) without a state explosion.
+class VoiceFormAsking extends VoiceFormState {
+  const VoiceFormAsking({
+    required this.question,
+    required this.index,
+    required this.total,
+    required this.micPhase,
+  });
+
+  final VoiceQuestion question;
+  final int index;
+  final int total;
+  final MicPhase micPhase;
+
+  VoiceFormAsking copyWith({MicPhase? micPhase}) => VoiceFormAsking(
+        question: question,
+        index: index,
+        total: total,
+        micPhase: micPhase ?? this.micPhase,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[question, index, total, micPhase];
+}
+
+/// A hard interruption (incoming call, backgrounding — #636). The current
+/// [question] is preserved so the worker resumes exactly where they left off.
+class VoiceFormInterrupted extends VoiceFormState {
+  const VoiceFormInterrupted({
+    required this.question,
+    required this.index,
+    required this.total,
+  });
+
+  final VoiceQuestion question;
+  final int index;
+  final int total;
+
+  @override
+  List<Object?> get props => <Object?>[question, index, total];
+}
+
+/// Every question answered. The review screen (#632) shows [answers]; it is the
+/// ONLY place the session is committed.
+class VoiceFormReview extends VoiceFormState {
+  const VoiceFormReview(this.answers);
+
+  final List<VoiceAnswer> answers;
+
+  @override
+  List<Object?> get props => <Object?>[answers];
+}
+
+/// Committing the reviewed session.
+class VoiceFormSubmitting extends VoiceFormState {
+  const VoiceFormSubmitting();
+}
+
+/// Committed — the profile is in.
+class VoiceFormComplete extends VoiceFormState {
+  const VoiceFormComplete();
+}
+
+/// Something honest went wrong ([failure] carries worker-safe copy).
+class VoiceFormError extends VoiceFormState {
+  const VoiceFormError(this.failure);
+
+  final Failure failure;
+
+  @override
+  List<Object?> get props => <Object?>[failure];
+}
+
+// ---------------- Cubit ----------------
+
+/// The voice-form session state machine (#628): permission (once) → preparing →
+/// asking (one clip per question) → review → submitting → complete.
+///
+/// The advance ordering is load-bearing:
+///
+///   stop → retain → queue upload → render Q(n+1) → TTS → start → 250ms prime →
+///   arm endpointer
+///
+/// Each answer is its own clip; the just-stopped clip is [retain]ed so the
+/// stale-clip sweep can never eat it while its upload is in flight, and the mic
+/// is warmed for Q(n+1) only AFTER the prompt is read, so the prompt is never
+/// captured. Answers submit BLOCKING, one at a time — the engine needs answer n
+/// to choose question n+1, so there is no optimistic advance.
+class VoiceFormCubit extends Cubit<VoiceFormState> {
+  VoiceFormCubit({
+    required VoiceFormGateway gateway,
+    required SessionVoiceRecorder recorder,
+    required SilenceEndpointer endpointer,
+    required QuestionAudioPlayer tts,
+    Duration primeDelay = const Duration(milliseconds: 250),
+    Duration levelInterval = const Duration(milliseconds: 100),
+    Future<void> Function(Duration)? sleep,
+  })  : _gateway = gateway,
+        _recorder = recorder,
+        _endpointer = endpointer,
+        _tts = tts,
+        _primeDelay = primeDelay,
+        _levelInterval = levelInterval,
+        _sleep = sleep ?? Future<void>.delayed,
+        super(const VoiceFormIdle());
+
+  final VoiceFormGateway _gateway;
+  final SessionVoiceRecorder _recorder;
+  final SilenceEndpointer _endpointer;
+  final QuestionAudioPlayer _tts;
+  final Duration _primeDelay;
+  final Duration _levelInterval;
+  final Future<void> Function(Duration) _sleep;
+
+  final List<VoiceAnswer> _answers = <VoiceAnswer>[];
+
+  StreamSubscription<MicLevel>? _levelsSub;
+
+  /// True from the first synchronous line of an advance until it settles — the
+  /// idempotency guard. A double endpoint-signal or a tap-during-silence-advance
+  /// must NOT fire two submits or capture two clips.
+  bool _advancing = false;
+
+  /// True while `_recorder.start()` is awaiting, so [close] during that window
+  /// still releases the mic.
+  bool _startingMic = false;
+
+  /// True once permission was requested — asked exactly once per session.
+  bool _permissionAsked = false;
+
+  /// Opens the session. Requests mic permission exactly once, then presents Q1.
+  Future<void> start() async {
+    if (state is! VoiceFormIdle) return;
+    emit(const VoiceFormPreparing());
+    try {
+      if (!_permissionAsked) {
+        _permissionAsked = true;
+        final bool granted = await _recorder.ensurePermission();
+        if (isClosed) return;
+        if (!granted) {
+          emit(const VoiceFormError(MicPermissionFailure()));
+          return;
+        }
+      }
+      // One levels subscription for the whole session — feeds the endpointer for
+      // auto-advance; never re-taken between questions (it survives stop/start).
+      _levelsSub = _recorder.levels(_levelInterval).listen(_onLevel);
+
+      final VoiceFormStep step = await _gateway.start();
+      if (isClosed) return;
+      await _route(step);
+    } on Failure catch (failure) {
+      if (!isClosed) emit(VoiceFormError(failure));
+    } catch (error) {
+      if (!isClosed) emit(VoiceFormError(mapError(error)));
+    }
+  }
+
+  /// The worker finished speaking (silence endpoint / cap-out / manual "next").
+  /// Stops the clip, retains it, submits it, and advances. Idempotent.
+  Future<void> answerBySpeaking() => _advance(spoken: true);
+
+  /// The worker tapped a choice chip (#630) instead of speaking. Discards the
+  /// open clip and submits the choice. Idempotent.
+  Future<void> answerByChoice(String choice) =>
+      _advance(spoken: false, choice: choice);
+
+  Future<void> _advance({required bool spoken, String? choice}) async {
+    if (_advancing) return; // idempotency: one advance per question
+    final VoiceFormState current = state;
+    if (current is! VoiceFormAsking) return;
+    _advancing = true;
+    try {
+      final VoiceAnswer answer;
+      String? retainPath;
+      if (spoken) {
+        final RecordedClip? clip = await _recorder.stop(); // stop
+        if (clip == null) {
+          // Nothing captured (a mis-trigger). Re-arm the same question rather
+          // than submit an empty answer the engine would reject.
+          if (!isClosed) await _rearm(current);
+          return;
+        }
+        _recorder.retain(clip.path); // retain — protect the in-flight upload
+        retainPath = clip.path;
+        answer = VoiceAnswer.spoken(clip);
+      } else {
+        await _recorder.cancel(); // discard the open clip — they tapped instead
+        answer = VoiceAnswer.chosen(choice!);
+      }
+      if (isClosed) {
+        // close() raced the stop()/cancel() await above — it already fired
+        // _recorder.cancel() for us (see close()), but that doesn't drop a
+        // retained path from OUR set; do that here or it's stuck retained
+        // for the life of the (shared, longer-lived) recorder singleton.
+        if (retainPath != null) _recorder.release(retainPath);
+        return;
+      }
+
+      emit(current.copyWith(micPhase: MicPhase.uploading));
+      final VoiceFormStep step;
+      try {
+        step = await _gateway.submit(answer); // queue upload
+      } finally {
+        // ALWAYS, not only on success — a submit() that throws (network
+        // drop, timeout) must not leave this clip permanently retained; the
+        // stale-clip sweep can only ever reclaim a released path.
+        if (retainPath != null) _recorder.release(retainPath);
+      }
+      if (isClosed) return;
+      _answers.add(answer);
+      await _route(step);
+    } on Failure catch (failure) {
+      if (!isClosed) emit(VoiceFormError(failure));
+    } catch (error) {
+      if (!isClosed) emit(VoiceFormError(mapError(error)));
+    } finally {
+      _advancing = false;
+    }
+  }
+
+  Future<void> _route(VoiceFormStep step) async {
+    switch (step) {
+      case NextQuestion():
+        await _present(step);
+      case VoiceFormDone():
+        emit(VoiceFormReview(List<VoiceAnswer>.of(_answers)));
+    }
+  }
+
+  /// Render Q(n+1) → TTS → start → 250ms prime → arm. Starting the clip only
+  /// after the prompt is read keeps the prompt out of the answer; the prime lets
+  /// the codec settle before the endpointer is armed, so the first syllable is
+  /// captured but not mis-detected.
+  Future<void> _present(NextQuestion next) async {
+    emit(VoiceFormAsking(
+      question: next.question,
+      index: next.index,
+      total: next.total,
+      micPhase: MicPhase.priming,
+    ));
+    await _tts.play(next.question); // read aloud — mic not yet live
+    if (isClosed) return;
+
+    _startingMic = true;
+    try {
+      await _recorder.start(); // start THIS question's clip
+    } finally {
+      _startingMic = false;
+    }
+    if (isClosed) {
+      await _recorder.cancel(); // closed during the start window — release it
+      return;
+    }
+
+    await _sleep(_primeDelay); // 250ms prime
+    if (isClosed) return;
+    _endpointer.arm();
+
+    emit(VoiceFormAsking(
+      question: next.question,
+      index: next.index,
+      total: next.total,
+      micPhase: _endpointer.manualOnly ? MicPhase.holding : MicPhase.listening,
+    ));
+  }
+
+  Future<void> _rearm(VoiceFormAsking current) async {
+    _startingMic = true;
+    try {
+      await _recorder.start();
+    } finally {
+      _startingMic = false;
+    }
+    if (isClosed) {
+      await _recorder.cancel();
+      return;
+    }
+    await _sleep(_primeDelay);
+    if (isClosed) return;
+    _endpointer.arm();
+    emit(current.copyWith(
+        micPhase:
+            _endpointer.manualOnly ? MicPhase.holding : MicPhase.listening));
+  }
+
+  /// Amplitude tap: feed the endpointer while listening; a returned signal
+  /// (clean endpoint OR cap-out) advances. The [_advancing] guard makes repeated
+  /// signals idempotent.
+  void _onLevel(MicLevel level) {
+    final VoiceFormState current = state;
+    if (current is! VoiceFormAsking) return;
+    if (current.micPhase != MicPhase.listening) return;
+    final EndpointerSignal signal = _endpointer.add(level.dbfs);
+    if (signal == EndpointerSignal.none) return;
+    unawaited(answerBySpeaking());
+  }
+
+  /// Commit the reviewed session — the only submit path (#632).
+  Future<void> submitReviewed() async {
+    if (state is! VoiceFormReview) return;
+    emit(const VoiceFormSubmitting());
+    try {
+      await _gateway.finalize();
+      if (!isClosed) emit(const VoiceFormComplete());
+    } on Failure catch (failure) {
+      if (!isClosed) emit(VoiceFormError(failure));
+    } catch (error) {
+      if (!isClosed) emit(VoiceFormError(mapError(error)));
+    }
+  }
+
+  @override
+  Future<void> close() async {
+    await _levelsSub?.cancel();
+    _levelsSub = null;
+    await _tts.stop();
+    // Release the mic — covers a live recording AND the start() await window
+    // (_startingMic). cancel() is idempotent and best-effort.
+    if (_startingMic || state is VoiceFormAsking) {
+      await _recorder.cancel();
+    }
+    await _recorder.dispose(); // disposed exactly once, only here
+    return super.close();
+  }
+}

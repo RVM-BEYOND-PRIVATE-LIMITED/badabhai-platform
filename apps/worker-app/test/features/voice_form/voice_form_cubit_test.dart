@@ -1,0 +1,263 @@
+import 'dart:async';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:record/record.dart';
+
+import 'package:badabhai_worker_app/features/voice/data/session_voice_recorder.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/question_audio_player.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointer.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
+import 'package:badabhai_worker_app/features/voice_form/presentation/cubit/voice_form_cubit.dart';
+
+class MockAudioRecorder extends Mock implements AudioRecorder {}
+
+/// A scripted gateway over [total] questions — counts submits + finalizes.
+class FakeGateway implements VoiceFormGateway {
+  FakeGateway(this.total);
+  final int total;
+  int served = 0;
+  int submits = 0;
+  int finalizes = 0;
+
+  VoiceQuestion _q(int i) => VoiceQuestion(id: 'q$i', prompt: 'Question $i');
+
+  @override
+  Future<VoiceFormStep> start() async {
+    served = 1;
+    return NextQuestion(_q(1), index: 1, total: total);
+  }
+
+  @override
+  Future<VoiceFormStep> submit(VoiceAnswer answer) async {
+    submits++;
+    if (served >= total) return const VoiceFormDone();
+    served++;
+    return NextQuestion(_q(served), index: served, total: total);
+  }
+
+  @override
+  Future<void> finalize() async => finalizes++;
+}
+
+class FakeTts implements QuestionAudioPlayer {
+  int plays = 0;
+  int stops = 0;
+  @override
+  Future<void> play(VoiceQuestion question) async => plays++;
+  @override
+  Future<void> stop() async => stops++;
+}
+
+void main() {
+  setUpAll(() {
+    registerFallbackValue(const RecordConfig());
+    registerFallbackValue(Duration.zero);
+  });
+
+  late MockAudioRecorder plugin;
+  late StreamController<Amplitude> amp;
+  late int stopN;
+
+  setUp(() {
+    plugin = MockAudioRecorder();
+    amp = StreamController<Amplitude>.broadcast();
+    stopN = 0;
+    when(() => plugin.hasPermission()).thenAnswer((_) async => true);
+    when(() => plugin.start(any(), path: any(named: 'path')))
+        .thenAnswer((_) async {});
+    when(() => plugin.cancel()).thenAnswer((_) async {});
+    when(() => plugin.dispose()).thenAnswer((_) async {});
+    when(() => plugin.onAmplitudeChanged(any())).thenAnswer((_) => amp.stream);
+    // Each stop yields a DISTINCT clip path.
+    when(() => plugin.stop())
+        .thenAnswer((_) async => 'clip-${stopN++}.m4a');
+  });
+
+  tearDown(() => amp.close());
+
+  VoiceFormCubit build({VoiceFormGateway? gateway, FakeTts? tts}) =>
+      VoiceFormCubit(
+        gateway: gateway ?? FakeGateway(8),
+        recorder: SessionVoiceRecorder(recorder: plugin),
+        endpointer: SilenceEndpointer(),
+        tts: tts ?? FakeTts(),
+        sleep: (_) async {}, // no-op prime delay
+      );
+
+  /// Drive the whole 8-question session by speaking each answer.
+  Future<VoiceFormCubit> runFullSession(FakeGateway gateway) async {
+    final VoiceFormCubit cubit = build(gateway: gateway);
+    await cubit.start();
+    expect(cubit.state, isA<VoiceFormAsking>());
+    for (int i = 0; i < gateway.total; i++) {
+      await cubit.answerBySpeaking();
+    }
+    return cubit;
+  }
+
+  test('permission is requested exactly once across 8 questions', () async {
+    final FakeGateway gateway = FakeGateway(8);
+    final VoiceFormCubit cubit = await runFullSession(gateway);
+    addTearDown(cubit.close);
+
+    expect(cubit.state, isA<VoiceFormReview>());
+    verify(() => plugin.hasPermission()).called(1);
+  });
+
+  test('8 advances yield 8 distinct clip paths', () async {
+    final FakeGateway gateway = FakeGateway(8);
+    final VoiceFormCubit cubit = await runFullSession(gateway);
+    addTearDown(cubit.close);
+
+    final VoiceFormReview review = cubit.state as VoiceFormReview;
+    final List<String> paths = review.answers
+        .map((VoiceAnswer a) => a.clip!.path)
+        .toList(growable: false);
+    expect(paths, hasLength(8));
+    expect(paths.toSet(), hasLength(8), reason: 'every clip path is distinct');
+  });
+
+  test('the recorder is never disposed mid-session; disposed exactly once on '
+      'close', () async {
+    final FakeGateway gateway = FakeGateway(8);
+    final VoiceFormCubit cubit = await runFullSession(gateway);
+    verifyNever(() => plugin.dispose()); // untouched through the whole session
+
+    await cubit.close();
+    verify(() => plugin.dispose()).called(1);
+  });
+
+  test('advance is idempotent — a double trigger fires ONE submit + ONE stop',
+      () async {
+    final FakeGateway gateway = FakeGateway(8);
+    final VoiceFormCubit cubit = build(gateway: gateway);
+    addTearDown(cubit.close);
+    await cubit.start();
+
+    // Fire two advances for the SAME question before the first settles.
+    final Future<void> a = cubit.answerBySpeaking();
+    final Future<void> b = cubit.answerBySpeaking();
+    await Future.wait(<Future<void>>[a, b]);
+
+    expect(gateway.submits, 1, reason: 'the second trigger is a no-op');
+    verify(() => plugin.stop()).called(1);
+  });
+
+  test('a spoken answer retains its clip before submit and releases it after',
+      () async {
+    final FakeGateway gateway = FakeGateway(1);
+    final VoiceFormCubit cubit = build(gateway: gateway);
+    addTearDown(cubit.close);
+    await cubit.start();
+    await cubit.answerBySpeaking();
+
+    // One question, one answer ⇒ straight to review.
+    expect(cubit.state, isA<VoiceFormReview>());
+    expect(gateway.submits, 1);
+    // A single-question session finalises through the only submit path.
+    await cubit.submitReviewed();
+    expect(cubit.state, isA<VoiceFormComplete>());
+    expect(gateway.finalizes, 1);
+  });
+
+  test('a denied mic → VoiceFormError, no session', () async {
+    when(() => plugin.hasPermission()).thenAnswer((_) async => false);
+    final FakeGateway gateway = FakeGateway(8);
+    final VoiceFormCubit cubit = build(gateway: gateway);
+    addTearDown(cubit.close);
+    await cubit.start();
+
+    expect(cubit.state, isA<VoiceFormError>());
+    expect(gateway.submits, 0);
+    verifyNever(() => plugin.start(any(), path: any(named: 'path')));
+  });
+
+  test('close() inside the start() await window still releases the mic',
+      () async {
+    final Completer<void> startEntered = Completer<void>();
+    final Completer<void> startBlock = Completer<void>();
+    when(() => plugin.start(any(), path: any(named: 'path')))
+        .thenAnswer((_) async {
+      if (!startEntered.isCompleted) startEntered.complete();
+      await startBlock.future; // hang inside the start() await window
+    });
+
+    final VoiceFormCubit cubit = build(gateway: FakeGateway(8));
+    unawaited(cubit.start());
+    await startEntered.future; // now suspended on recorder.start()
+
+    await cubit.close();
+    verify(() => plugin.cancel()).called(greaterThanOrEqualTo(1));
+    verify(() => plugin.dispose()).called(1);
+  });
+
+  test(
+      'REGRESSION: close() racing _advance()\'s stop() does not throw an '
+      'uncaught StateError out of emit() (#660 fix)', () async {
+    final Completer<void> stopEntered = Completer<void>();
+    final Completer<void> stopBlock = Completer<void>();
+    when(() => plugin.stop()).thenAnswer((_) async {
+      if (!stopEntered.isCompleted) stopEntered.complete();
+      await stopBlock.future; // hang inside _advance()'s stop() await
+      return 'clip-0.m4a';
+    });
+
+    final VoiceFormCubit cubit = build(gateway: FakeGateway(8));
+    await cubit.start();
+    expect(cubit.state, isA<VoiceFormAsking>());
+
+    // Fire the answer but don't await it yet — it suspends on stop().
+    final Future<void> advancing = cubit.answerBySpeaking();
+    await stopEntered.future;
+
+    // Tear the screen down WHILE _advance() is mid-flight. Before the fix,
+    // letting stopBlock complete now drives _advance() straight into an
+    // `emit()` on a closed bloc — an uncaught StateError propagating out of
+    // this unawaited Future is exactly the failure Flutter's test zone would
+    // catch and fail this test with.
+    final Future<void> closing = cubit.close();
+    stopBlock.complete();
+
+    await Future.wait(<Future<void>>[advancing, closing]);
+    // Reaching here at all is the assertion: no uncaught StateError escaped.
+  });
+
+  test(
+      'REGRESSION: a submit() that throws leaves VoiceFormCubit in a clean '
+      'error state, not silently stuck (#660 fix)', () async {
+    final _ThrowingSubmitGateway gateway = _ThrowingSubmitGateway();
+    final VoiceFormCubit cubit = build(gateway: gateway);
+    addTearDown(cubit.close);
+    await cubit.start();
+    expect(cubit.state, isA<VoiceFormAsking>());
+
+    await cubit.answerBySpeaking();
+
+    expect(cubit.state, isA<VoiceFormError>());
+    expect(gateway.submitAttempts, 1);
+  });
+}
+
+/// A gateway whose [submit] always throws — for proving the retain/release
+/// pairing survives an upload failure rather than leaking the clip's retain.
+class _ThrowingSubmitGateway implements VoiceFormGateway {
+  int submitAttempts = 0;
+
+  @override
+  Future<VoiceFormStep> start() async => const NextQuestion(
+        VoiceQuestion(id: 'q1', prompt: 'Question 1'),
+        index: 1,
+        total: 1,
+      );
+
+  @override
+  Future<VoiceFormStep> submit(VoiceAnswer answer) async {
+    submitAttempts++;
+    throw Exception('network drop');
+  }
+
+  @override
+  Future<void> finalize() async {}
+}
