@@ -439,6 +439,11 @@ class _InviteCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppRadii.md),
               border: Border.all(color: AppColors.borderSubtle),
             ),
+            // #608 — GENERATION ONLY. The platform never SCANS a QR: an
+            // agent-scans-worker loop is ruled out by ADR-0022 (faceless
+            // boundary) + consent invariant #6. Enforced by
+            // test/no_qr_scanner_test.dart — do not add a scanner without a
+            // product call.
             child: QrImageView(
               data: url.isNotEmpty ? url : invite.code,
               size: 148,
