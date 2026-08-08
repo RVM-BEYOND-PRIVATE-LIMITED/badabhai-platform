@@ -341,6 +341,12 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
             if domain_match is not None
             else None
         ),
+        # The router's own diagnosis of the LLM leg, carried across the wire instead of only
+        # into the log line — the same gap `/voice/transcribe` had, where three distinct
+        # failures and one silent worker all reached apps/api as the same empty result.
+        # `meta.error_code` is None on every healthy call (real or mock posture) and carries
+        # the spend-cap / transport reason when the router refused or the provider failed.
+        error_code=meta.error_code,
     )
 
 

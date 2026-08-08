@@ -149,35 +149,32 @@ export class AiService {
   async extractProfile(input: ProfileExtractionInput): Promise<ProfileExtractionOutput> {
     const remote = await this.post("/profile/extract", input, ProfileExtractionOutputSchema);
     if (remote) return remote;
-    // Mock fallback (AI service unreachable): still surface operational metadata so
-    // an ai_jobs row records that this job ran on the MOCK path (real_call=false,
-    // zero cost/tokens) instead of leaving cost/usage blank. PII-free.
+    // THE FALLBACK HAS TO CONFESS — the same fix `transcribe` got, for the same reason.
+    //
+    // Returning an empty draft is right: never fabricate a worker's profile. But the object
+    // this returned was otherwise INDISTINGUISHABLE from a successful extraction of a worker
+    // who said nothing — `blocked: false`, `extraction_status` defaulting to `"completed"`,
+    // and `is_mock: true`, which is NOT a discriminator because the ai-service sets
+    // `is_mock = not real_call` on its own success path and `AI_ENABLE_REAL_CALLS=false` is
+    // the committed default. So a healthy mock extraction and a total outage arrived here
+    // identically. `extract_service_unreachable` is authored on THIS side because it describes
+    // something only this side can know: the request never arrived.
+    //
+    // `ai_metadata: null`, AND THAT IS A DELIBERATE REVERSAL. It used to synthesize a record
+    // claiming `success: true, error_code: null, model_name: "mock"` for a call that never left
+    // the process — which then reached `ai_jobs` as usage and emitted an `ai.cost_recorded`
+    // event describing a provider call that did not happen. Null is what the sibling
+    // `/profile/parse` path already does and what `recordAiCost` already documents as its
+    // contract ("no metadata = no real call to record"); the caller's own comment on this path
+    // said null too. The diagnosis moves to `error_code`, which cannot be mistaken for a
+    // successful call the way fabricated metadata could.
     return ProfileExtractionOutputSchema.parse({
       profile: DraftProfileSchema.parse({}),
       blocked: false,
       is_mock: true,
-      ai_metadata: this.mockCallMetadata("profile_extraction"),
+      ai_metadata: null,
+      error_code: "extract_service_unreachable",
     });
-  }
-
-  /** Operational AICallMetadata for the local mock path — a real LLM call did NOT happen. */
-  private mockCallMetadata(taskType: string) {
-    return {
-      ai_call_id: randomUUID(),
-      task_type: taskType,
-      model_name: "mock",
-      provider: "mock",
-      real_call: false,
-      input_tokens: 0,
-      output_tokens: 0,
-      estimated_cost_inr: 0,
-      latency_ms: 0,
-      success: true,
-      error_code: null,
-      cost_alert: false,
-      above_target: false,
-      created_at: new Date().toISOString(),
-    };
   }
 
   async generateResume(input: ResumeGenerationInput): Promise<ResumeGenerationOutput> {
