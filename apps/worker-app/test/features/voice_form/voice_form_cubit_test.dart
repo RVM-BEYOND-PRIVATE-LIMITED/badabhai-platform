@@ -20,6 +20,7 @@ class FakeGateway implements VoiceFormGateway {
   int served = 0;
   int submits = 0;
   int finalizes = 0;
+  final List<VoiceAnswer> received = <VoiceAnswer>[];
 
   VoiceQuestion _q(int i) => VoiceQuestion(id: 'q$i', prompt: 'Question $i');
 
@@ -32,6 +33,7 @@ class FakeGateway implements VoiceFormGateway {
   @override
   Future<VoiceFormStep> submit(VoiceAnswer answer) async {
     submits++;
+    received.add(answer);
     if (served >= total) return const VoiceFormDone();
     served++;
     return NextQuestion(_q(served), index: served, total: total);
@@ -175,6 +177,41 @@ void main() {
     expect(cubit.state, isA<VoiceFormError>());
     expect(gateway.submits, 0);
     verifyNever(() => plugin.start(any(), path: any(named: 'path')));
+  });
+
+  test('a chip answer submits option_keys and makes NO STT call (#630)',
+      () async {
+    final FakeGateway gateway = FakeGateway(2);
+    final VoiceFormCubit cubit = build(gateway: gateway);
+    addTearDown(cubit.close);
+    await cubit.start();
+    clearInteractions(plugin);
+
+    await cubit.answerByChips(<String>['night']);
+
+    expect(gateway.received.single.kind, VoiceAnswerKind.chips);
+    expect(gateway.received.single.optionKeys, <String>['night']);
+    // No STT: the clip is discarded (cancel), never stopped-and-uploaded.
+    verifyNever(() => plugin.stop());
+    verify(() => plugin.cancel()).called(1);
+  });
+
+  test('a boolean answer is one tap; a multi-select submits N keys (#630)',
+      () async {
+    final FakeGateway gateway = FakeGateway(3);
+    final VoiceFormCubit cubit = build(gateway: gateway);
+    addTearDown(cubit.close);
+    await cubit.start();
+
+    await cubit.answerByBoolean(true);
+    await cubit.answerByChips(<String>['welding', 'fitting']);
+    await cubit.answerByText('Nahi pata');
+
+    expect(gateway.received[0].kind, VoiceAnswerKind.boolean);
+    expect(gateway.received[0].boolValue, isTrue);
+    expect(gateway.received[1].optionKeys, <String>['welding', 'fitting']);
+    expect(gateway.received[2].kind, VoiceAnswerKind.text);
+    expect(gateway.received[2].text, 'Nahi pata');
   });
 
   test('replay() stops the mic for the WHOLE of playback, then re-arms (#631)',
