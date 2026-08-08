@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:meta/meta.dart';
+
 import '../../../core/api/api_client.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/observability/analytics.dart';
@@ -84,8 +86,31 @@ class VoiceActionSpine {
   final ApiClient _api;
   final SessionRepository _session;
 
-  /// The surface every voice-form action is tagged with server-side.
-  static const String kSourceSurface = 'voice_form';
+  /// The `source_surface` every action is tagged with server-side.
+  ///
+  /// `worker_app`, NOT `voice_form`. `ACTION_SOURCE_SURFACES` is
+  /// `["worker_app", "ops_console", "system"]` — it names the APPLICATION that produced
+  /// the action, not the screen. `source_surface` is a `z.enum` on a `.strict()` schema,
+  /// so `voice_form` made every flush a 400 that this class then swallowed as
+  /// best-effort: a spine sink that never wrote to the spine, silently, which is the
+  /// exact failure #707 was opened to end.
+  ///
+  /// Source of truth: `packages/event-schema/src/payloads.ts` (ACTION_SOURCE_SURFACES).
+  /// `apps/api/src/actions/worker-app-action-contract.test.ts` READS THIS CONSTANT out of
+  /// this file and parses the resulting body with the real schema, because a Dart literal
+  /// and a TypeScript enum cannot otherwise disagree loudly — a `MockClient` returns 201
+  /// to anything, which is exactly how this shipped green.
+  static const String kSourceSurface = 'worker_app';
+
+  /// The screen, which the surface enum has no room for, carried in `context` instead.
+  /// A short enum-ish string: primitives only, ≤40-char key, ≤120-char value, and it
+  /// passes the server's fail-closed PII guard.
+  static const String kScreen = 'voice_form';
+
+  /// The server bounds ONE request at 100 actions and rejects the whole batch above it.
+  /// A long session with many replays can exceed that, and a 400 here would drop every
+  /// buffered signal at once rather than the excess — so the flush is chunked.
+  static const int kMaxPerRequest = 100;
 
   /// Best-effort batch write. Never throws. A 401/403 (consent revoked / session
   /// gone) is a STOP — dropped, never retried; any other status (the abuse cap,
@@ -95,21 +120,38 @@ class VoiceActionSpine {
     if (events.isEmpty) return;
     final String? token = _session.sessionToken;
     if (token == null) return; // no session → nothing to attribute to
-    final List<Map<String, dynamic>> actions = events
-        .map((BbAnalyticsEvent e) => <String, dynamic>{
-              'action_type': e.name,
-              'source_surface': kSourceSurface,
-              // Ids/enums/counts only — the same PII bar analytics_pii_test holds.
-              'context': e.parameters,
-            })
-        .toList();
-    try {
-      await _api.recordWorkerActions(authToken: token, actions: actions);
-    } on ApiException catch (e) {
-      // 401/403 → STOP. Everything else → drop (best-effort).
-      if (e.statusCode == 401 || e.statusCode == 403) return;
-    } catch (_) {
-      // Transport failure — dropped, never surfaced.
+    final List<Map<String, dynamic>> actions =
+        events.map(toAction).toList(growable: false);
+    for (int i = 0; i < actions.length; i += kMaxPerRequest) {
+      final int end =
+          i + kMaxPerRequest < actions.length ? i + kMaxPerRequest : actions.length;
+      try {
+        await _api.recordWorkerActions(
+          authToken: token,
+          actions: actions.sublist(i, end),
+        );
+      } on ApiException catch (e) {
+        // 401/403 → STOP, and stop for the WHOLE flush: consent is gone or the session
+        // is dead, so every remaining chunk would fail the same way.
+        if (e.statusCode == 401 || e.statusCode == 403) return;
+        // Anything else (the hourly abuse cap, a 5xx) → drop this chunk and keep going.
+      } catch (_) {
+        // Transport failure — dropped, never surfaced.
+      }
     }
   }
+
+  /// One buffered event → the `.strict()` body the server accepts.
+  ///
+  /// Exposed so a test can assert the SHAPE without a mock HTTP server that would accept
+  /// whatever it is handed — which is how `source_surface: 'voice_form'` passed a green
+  /// suite while every real request 400'd.
+  @visibleForTesting
+  static Map<String, dynamic> toAction(BbAnalyticsEvent e) => <String, dynamic>{
+        'action_type': e.name,
+        'source_surface': kSourceSurface,
+        // Ids/enums/counts only — the same PII bar analytics_pii_test holds. The screen
+        // rides here because the surface enum is application-level.
+        'context': <String, Object>{...e.parameters, 'screen': kScreen},
+      };
 }

@@ -35,12 +35,52 @@ void main() {
     final List<dynamic> actions = body['actions'] as List<dynamic>;
     expect(actions, hasLength(2));
     expect(actions[0]['action_type'], 'question_audio_played');
-    expect(actions[0]['source_surface'], 'voice_form');
-    expect(actions[0]['context'], <String, dynamic>{'question_index': 3});
+    expect(actions[0]['source_surface'], VoiceActionSpine.kSourceSurface);
+    expect(actions[0]['context'],
+        <String, dynamic>{'question_index': 3, 'screen': 'voice_form'});
     expect(actions[1]['action_type'], 'profiling_answer_spoken');
-    expect(actions[1]['context'], <String, dynamic>{'question_index': 5});
+    expect(actions[1]['context'],
+        <String, dynamic>{'question_index': 5, 'screen': 'voice_form'});
     // No worker id / text ever in the body (ids/enums/counts only).
     expect(hasNoPii(body), isTrue);
+
+    // THE BODY IS ONLY .strict()-LEGAL IF THESE ARE THE ONLY KEYS. `MockClient` returns
+    // 201 to anything, so nothing here can observe a server rejection — which is how
+    // `source_surface: 'voice_form'` shipped green while every real flush 400'd. The
+    // ENUM MEMBERSHIP itself is asserted on the other side of the wire, by
+    // apps/api/src/actions/worker-app-action-contract.test.ts, which reads this same
+    // constant out of the Dart and parses the body with the real zod schema.
+    for (final dynamic a in actions) {
+      expect(
+        (a as Map<String, dynamic>).keys.toSet(),
+        <String>{'action_type', 'source_surface', 'context'},
+        reason: 'the server schema is .strict() — an extra key is a 400',
+      );
+    }
+  });
+
+  test('chunks at the server bound, so an oversized flush loses nothing (#707)',
+      () async {
+    // Above 100 the server rejects the WHOLE request, so an unchunked flush would drop
+    // every buffered signal rather than the excess.
+    final List<int> sizes = <int>[];
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async {
+        final Map<String, dynamic> b =
+            jsonDecode(req.body) as Map<String, dynamic>;
+        sizes.add((b['actions'] as List<dynamic>).length);
+        return http.Response('{}', 201);
+      }),
+    );
+
+    await VoiceActionSpine(api, _session()).flush(<BbAnalyticsEvent>[
+      for (int i = 0; i < 250; i++)
+        BbAnalytics.questionAudioPlayed(questionIndex: i + 1),
+    ]);
+
+    expect(sizes, <int>[100, 100, 50]);
+    expect(sizes.every((int n) => n <= VoiceActionSpine.kMaxPerRequest), isTrue);
   });
 
   test('a 403 (consent revoked) is a STOP — swallowed, never thrown (#707)',
