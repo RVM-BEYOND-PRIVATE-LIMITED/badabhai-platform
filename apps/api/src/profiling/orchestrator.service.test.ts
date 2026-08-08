@@ -17,7 +17,7 @@ import {
   narrowProfilingEnvelope,
   type ProfilingEnvelope,
 } from "./conversation-state";
-import { toPackOption } from "./identify.service";
+import { DISAMBIGUATION_PROMPT, toPackOption } from "./identify.service";
 import {
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_CLARIFIES,
@@ -1113,6 +1113,55 @@ describe("openTurn — putting the first question on screen", () => {
     const result = await orchestrator.openTurn(open());
 
     expect(result.reply).toBe(CITY.retry_text);
+  });
+
+  it("re-serves the OUTSTANDING OFFER, not the stale pack question underneath it", async () => {
+    // `identify()`'s offer branch never clears `servedQuestionKey`, so a session mid-offer still
+    // carries the pack key from the turn before — and `openTurn` runs on every cold start and
+    // resume-after-kill, which is exactly when a worker comes back to an offer they never
+    // answered. Re-serving `q_city` there silently replaces the offer, and answering it 409s
+    // against `viewSession`, which has always reported `questionKey: null` for the same session.
+    const { orchestrator, store } = makeWorld();
+    seed(store, {
+      needsDisambiguation: true,
+      disambiguationOffer: [
+        { label: "Welder", jobDomainId: "jd_welder", familyId: "fam_welding" },
+        { label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null },
+      ],
+      servedQuestionKey: "q_city",
+    });
+
+    const result = await orchestrator.openTurn(open());
+
+    expect(result.kind).toBe("disambiguate");
+    expect(result.questionKey).toBeNull();
+    expect(result.reply).toBe(DISAMBIGUATION_PROMPT);
+    expect(result.options.map((o) => o.label_text)).toEqual([
+      "Welder",
+      DISAMBIGUATION_ESCAPE_LABEL,
+    ]);
+    expect(result.answerType).toBe("single_select");
+  });
+
+  it("agrees with viewSession about what is on screen — one rule, two readers", async () => {
+    // The defect was a DIVERGENCE, not either branch alone, so the assertion is the agreement.
+    const { orchestrator, store } = makeWorld();
+    seed(store, {
+      needsDisambiguation: true,
+      disambiguationOffer: [
+        { label: "Welder", jobDomainId: "jd_welder", familyId: "fam_welding" },
+        { label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null },
+      ],
+      servedQuestionKey: "q_city",
+    });
+
+    const opened = await orchestrator.openTurn(open());
+    const viewed = await orchestrator.viewSession(SESSION, T0);
+
+    if (viewed === null || viewed.served === null) throw new Error("viewSession served nothing");
+    expect(opened.questionKey).toBe(viewed.served.questionKey);
+    expect(opened.reply).toBe(viewed.served.promptText);
+    expect(opened.options).toEqual(viewed.served.options);
   });
 
   it("fails closed when no pack resolves, writing nothing", async () => {

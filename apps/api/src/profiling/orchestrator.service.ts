@@ -380,6 +380,36 @@ export class ProfilingOrchestrator {
       const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
       const answers = answersOf(envelope);
 
+      // CHIPS ON SCREEN OUTRANK THE PACK QUESTION, before the re-serve below can find a stale key.
+      //
+      // `identify()`'s offer branch patches `needsDisambiguation`, `disambiguationOffer`, `phase`
+      // and `catalogVersion` — it does NOT clear `servedQuestionKey`, so a session mid-offer still
+      // carries the pack key from the turn before. Without this, reopening re-served that question
+      // as an ordinary ask and silently replaced the pending offer, while `viewSession` (which has
+      // applied this precedence all along) reported `questionKey: null` for the same session. The
+      // two readers disagreed about what the worker was looking at, and answering the re-served
+      // question 409'd on the stale-answer guard. `openTurn` runs on every cold start and
+      // resume-after-kill, which is exactly when a worker returns to an offer they never answered.
+      const offer = outstandingOffer(envelope);
+      if (offer) {
+        return {
+          reply: offer.prompt,
+          kind: "disambiguate",
+          questionKey: null,
+          options: offer.options,
+          whyText: null,
+          answerType: "single_select",
+          progress: progressOf(items, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: true,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        };
+      }
+
       // ALREADY OPEN. Re-serve, write nothing. `servedText` rather than `prompt_text`, so a
       // session reopened after a re-ask hears the wording it last heard and not the opening
       // phrasing from two turns ago — the regression `servedText` exists to prevent, and one a
@@ -392,17 +422,8 @@ export class ProfilingOrchestrator {
         );
         return {
           reply: text,
-          // A re-serve of a PACK question: `servedQuestionKey` matched an item, so what is being
-          // re-served is that item and `ask` describes it truthfully.
-          //
-          // WHAT THIS DOES NOT CLAIM is that no offer is outstanding. Nothing clears
-          // `servedQuestionKey` when `identify()` offers chips, so a session WITH chips on screen
-          // still carries the pack key from the turn before and lands here — re-serving the stale
-          // question while `viewSession` (which applies the opposite precedence, deliberately)
-          // reports `questionKey: null`. The two entry points then disagree about what the worker
-          // is looking at, and answering the re-served question 409s on the stale-answer guard.
-          // That divergence predates the kind field and is tracked separately; this comment exists
-          // so the hardcoded `ask` is not read as evidence the case cannot arise.
+          // A re-serve of a PACK question, and now genuinely only that: an outstanding offer was
+          // returned above, so reaching here means `servedQuestionKey` is the live question.
           kind: "ask",
           questionKey: served.question_key,
           options: served.options,
@@ -936,19 +957,19 @@ export class ProfilingOrchestrator {
       : [];
     const answers = answersOf(envelope);
 
-    // THE DISAMBIGUATION OFFER OUTRANKS THE PACK QUESTION, in the same order `decide` applies it:
-    // when chips are on screen there IS no pack question, and a stale `servedQuestionKey` from
-    // before the offer would otherwise be reported as what the worker is looking at.
-    if (envelope.needsDisambiguation && envelope.disambiguationOffer.length > 0) {
+    // THE DISAMBIGUATION OFFER OUTRANKS THE PACK QUESTION — see {@link outstandingOffer}, which
+    // both readers of a reopened session share so they cannot answer this differently again.
+    const offer = outstandingOffer(envelope);
+    if (offer) {
       return {
         buffer,
         envelope,
         items,
         served: {
           questionKey: null,
-          promptText: DISAMBIGUATION_PROMPT,
+          promptText: offer.prompt,
           answerType: "single_select",
-          options: envelope.disambiguationOffer.map((chip, index) => toPackOption(chip, index)),
+          options: offer.options,
           whyText: null,
           progress: progressOf(items, answers),
         },
@@ -1206,6 +1227,26 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
     // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
     // client retrying on a flaky connection drive one Postgres UPDATE per retry.
     checkpointDue: false,
+  };
+}
+
+/**
+ * The chips a reopened session is still waiting on, or null.
+ *
+ * ONE PRECEDENCE DECISION, SHARED BY BOTH READERS OF A REOPENED SESSION. `viewSession` and
+ * `openTurn` each have to answer "what is this worker looking at", and they answered it
+ * differently: `viewSession` returned the offer, `openTurn` re-served the stale
+ * `servedQuestionKey` — which `identify()`'s offer branch never clears — as an ordinary ask. A
+ * worker who reopened mid-offer got the previous pack question, and answering it 409'd against
+ * the other reader's view. Two call sites of one rule is how that happened; this is the rule.
+ */
+function outstandingOffer(
+  envelope: ProfilingEnvelope,
+): { prompt: string; options: QuestionPackOption[] } | null {
+  if (!envelope.needsDisambiguation || envelope.disambiguationOffer.length === 0) return null;
+  return {
+    prompt: DISAMBIGUATION_PROMPT,
+    options: envelope.disambiguationOffer.map((chip, index) => toPackOption(chip, index)),
   };
 }
 

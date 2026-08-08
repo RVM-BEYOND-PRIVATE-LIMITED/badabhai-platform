@@ -534,6 +534,26 @@ describe("a disambiguation offer is not an ordinary ask", () => {
     for (const option of res.suggested_options) {
       expect(Object.keys(option).sort()).toEqual(["is_none_of_above", "label_text", "option_key"]);
     }
+
+    // ASSERTED AT THE SCHEMA, because the schema is what actually holds it. `res` has already been
+    // through `PostMessageResponseSchema.parse`, whose default strip mode removes any key the
+    // shape does not declare — so the loop above passes whether or not `toWireOption` forwards
+    // `value`, and on its own it pins nothing. What can really regress is someone DECLARING one of
+    // these on the DTO, and this is the assertion that fails when they do.
+    const parsed = PostMessageResponseSchema.shape.suggested_options.parse([
+      {
+        option_key: "occ_a",
+        label_text: "Welder",
+        is_none_of_above: false,
+        value: "Welder",
+        implies_skill_id: "sk_welding",
+      },
+    ]);
+    expect(Object.keys(parsed[0] ?? {}).sort()).toEqual([
+      "is_none_of_above",
+      "label_text",
+      "option_key",
+    ]);
   });
 
   it("keeps `suggested_followups` unchanged, so a client predating the field sees no difference", async () => {
