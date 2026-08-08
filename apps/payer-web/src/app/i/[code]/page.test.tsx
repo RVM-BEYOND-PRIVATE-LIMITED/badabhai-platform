@@ -68,8 +68,8 @@ describe("/i/[code] — install CTA carries the referral payload", () => {
   });
 
   it("uses the CONFIGURED app id, never a hardcoded one", async () => {
-    process.env.NEXT_PUBLIC_WORKER_APP_ID = "in.badabhai.worker.internal";
-    expect(hrefOf(await render("abcdef012345"))).toContain("id=in.badabhai.worker.internal");
+    process.env.NEXT_PUBLIC_WORKER_APP_ID = "com.badabhai.workerapp.internal";
+    expect(hrefOf(await render("abcdef012345"))).toContain("id=com.badabhai.workerapp.internal");
     delete process.env.NEXT_PUBLIC_WORKER_APP_ID;
   });
 

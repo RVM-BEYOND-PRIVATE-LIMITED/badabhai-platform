@@ -44,6 +44,24 @@ Until it is replaced:
 4. Confirm `package_name` matches the worker app's real application id (it must also match
    `NEXT_PUBLIC_WORKER_APP_ID`, which the landing page uses to build the Play Store URL).
 
+## Guarding it (so it can't silently rot) — #609
+
+The whole failure mode here is that it is **invisible from the code**: everything
+looks wired, but a placeholder fingerprint or a drifted `package_name` silently
+sends every "already installed" link to the browser. Two guards make it loud:
+
+- **CI (always on):** `src/app/assetlinks.test.ts` (vitest) asserts the file is a
+  single well-formed `android_app` delegate statement, that `package_name` stays
+  in sync with `NEXT_PUBLIC_WORKER_APP_ID`, and that the fingerprint array is
+  non-empty. This catches the drift/malformation modes — it does **not** fail on
+  the placeholder, which is expected until the value is filled in.
+- **Release gate (run at deploy):** `pnpm --filter payer-web verify:assetlinks`
+  (`scripts/verify-assetlinks-release.mjs`) **hard-fails** while the placeholder
+  (or any non-SHA-256 value) is present. Wire it into the payer-web deploy
+  pipeline as a pre-publish step so a release cannot ship the launch gate broken.
+
+Once the real fingerprint is pasted in, both go green and stay green.
+
 ## Verifying it after deploy
 
 ```bash

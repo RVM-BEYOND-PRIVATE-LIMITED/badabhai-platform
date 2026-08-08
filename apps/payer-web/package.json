@@ -10,6 +10,7 @@
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
+    "verify:assetlinks": "node scripts/verify-assetlinks-release.mjs",
     "clean": "rimraf --glob .next .turbo *.tsbuildinfo"
   },
   "dependencies": {
