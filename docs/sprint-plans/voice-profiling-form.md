@@ -3,7 +3,7 @@
 Hinglish voice-driven sequential Q&A for the worker app: questions shown one at a time, read aloud,
 answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam TTS out.
 
-**Status date:** 2026-08-08 · **HEAD:** `22d27364`
+**Status date:** 2026-08-08 · **HEAD:** `e79fecec`
 
 ---
 
@@ -40,7 +40,43 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **B-8b** — one definition of "the current profile"; 7 readers, one unordered, one un-deduped | PR #678 → `d5365b57` | **on `main`** |
 | **B-8a** — a call that never left the process claimed `success: true` and emitted a cost row | PR #681 → `ff676fe8` | **on `main`** |
 | **V4b** — `VoiceTranscriptionService` extracted; `VoiceModule` exports; the DSAR **orphan** sweep | PR #682 → `f9f89759` | **on `main`** |
-| **V5 (the render half)** — the 433-clip manifest measured, `tts_render.py`, TS↔Python identity parity | PR #683 | **on `main`** |
+| **V5 (the render half)** — the 433-clip manifest measured, `tts_render.py`, TS↔Python identity parity | PR #683 → `aea376d1` | **on `main`** |
+
+### Verified live on merged `main` (2026-08-08)
+
+A real 13-turn interview through `POST /chat/message`, `ai_posture: mock` throughout — so not one
+word of it came from a model — followed by direct inspection of every table that should have
+gained a row.
+
+```
+session        aa302c59   pack pinned qp_welding:1   status=ended       [#661]
+worker_pack_answer   10   worker_attributes  4   worker_profiles  1     [#670]
+cost record    task=profile_parse real=false inr=0                      [#665 + #672]
+PII in events  0
+```
+
+Two things could not be shown by running the product forward, because they are about a failure
+that has to be CONSTRUCTED. Both were exercised against the live database with the real
+repositories:
+
+| | |
+|---|---|
+| `latestProfile` with an empty later row present | returns the REAL profile |
+| `ReachRepository.findSignalRowByWorkerId` | deterministic, returns the real profile |
+| payer-pool slots for a two-profile worker | **1** (was 2) |
+
+R2 was exercised on both branches: `PROFILING_PACK_LOCALE=hi-IN` logs `universal pack ready:
+qp_universal v1 (8 items)`; `hi` — a locale matching zero rows, which is what an unseeded or
+mis-configured environment looks like — logs the ERROR naming the locale and the seed command.
+
+**A NOTE ON THE CANNED DEMO DRIVER, because it produced a scare.** The first runs today reported
+6 answers and **0** attributes, which reads exactly like a broken attribute write. It was not.
+#666 added mid-interview occupation RE-PINNING, which changed the order questions arrive in, and
+the driver replays a FIXED answer list — so from turn 2 every answer landed against a different
+question than it was written for (`primary_trade` came back `declined`; `welding_process`
+captured "8 saal"). Re-run with a driver that answers the question actually in front of it, the
+same code produced 10 answers and 4 attributes. A fixed-script harness stops being evidence the
+moment the thing it drives becomes adaptive.
 
 ### Already built and reusable (this is most of the system)
 
