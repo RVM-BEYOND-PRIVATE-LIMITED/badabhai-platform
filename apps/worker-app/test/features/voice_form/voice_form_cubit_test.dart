@@ -270,6 +270,35 @@ void main() {
     // Reaching here at all is the assertion: no uncaught StateError escaped.
   });
 
+  test(
+      'REGRESSION: close() racing reRecord()\'s cancel() does not re-arm the '
+      'mic after teardown (#629)', () async {
+    final Completer<void> cancelEntered = Completer<void>();
+    final Completer<void> cancelBlock = Completer<void>();
+
+    final VoiceFormCubit cubit = build(gateway: FakeGateway(8));
+    await cubit.start(); // Q1 presented, mic armed
+    clearInteractions(plugin);
+
+    when(() => plugin.cancel()).thenAnswer((_) async {
+      if (!cancelEntered.isCompleted) cancelEntered.complete();
+      await cancelBlock.future; // hang inside reRecord()'s cancel() await
+    });
+
+    final Future<void> reRecording = cubit.reRecord();
+    await cancelEntered.future;
+
+    // Tear down mid-reRecord. Without the isClosed guard the continuation
+    // re-armed a recorder close() had already disposed — starting the mic
+    // again AFTER teardown.
+    final Future<void> closing = cubit.close();
+    cancelBlock.complete();
+
+    await Future.wait(<Future<void>>[reRecording, closing]);
+
+    verifyNever(() => plugin.start(any(), path: any(named: 'path')));
+  });
+
   test('close() inside the start() await window still releases the mic',
       () async {
     final Completer<void> startEntered = Completer<void>();
