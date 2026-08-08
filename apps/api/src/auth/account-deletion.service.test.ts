@@ -415,6 +415,15 @@ describe("AccountDeletionService", () => {
     expect(h.storage.deletePdf).toHaveBeenCalledTimes(1);
     expect(h.storage.deletePdf).toHaveBeenCalledWith("r1.pdf", "worker-resumes");
     expect(h.storage.deletePdf).not.toHaveBeenCalledWith("worker/sess/v1.ogg", expect.anything());
+    // …and the ORPHAN SWEEP is dormant too. Asserted explicitly because
+    // `deleteByPrefix` is a shared mock that other legs (photos,
+    // conversations) also drive and that defaults to 0: without naming the
+    // voice prefix, moving the sweep OUTSIDE the VOICE_NOTES_BUCKET guard
+    // would still pass this test.
+    expect(h.storage.deleteByPrefix).not.toHaveBeenCalledWith(
+      `voice-notes/${WORKER_ID}/`,
+      expect.anything(),
+    );
 
     const emitted = h.events.emit.mock.calls[0]![0];
     expect(emitted.payload.storage_objects_deleted).toBe(1); // resume only
