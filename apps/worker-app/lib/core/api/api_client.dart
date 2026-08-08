@@ -374,6 +374,24 @@ class ApiClient {
     );
   }
 
+  /// POST /workers/me/actions/batch (#707) — record worker engagement action
+  /// signals on the event spine (WorkerAuthGuard + ConsentGuard). The acting
+  /// worker comes from [authToken]; the body carries NO worker_id (the schema is
+  /// strict). [actions] is a list of `{action_type, source_surface, context}` —
+  /// `context` is ids/enums/counts only, never worker text (a fail-closed PII
+  /// guard rejects it server-side). Best-effort telemetry: the caller swallows
+  /// failures and never retries on a critical path.
+  Future<void> recordWorkerActions({
+    required String authToken,
+    required List<Map<String, dynamic>> actions,
+  }) async {
+    await _post(
+      '/workers/me/actions/batch',
+      <String, dynamic>{'actions': actions},
+      authToken: authToken,
+    );
+  }
+
   /// GET /workers/me/resume-fields — the worker-editable "safe fields" (their OWN
   /// name spelling + display prefs) for the edit screen. Worker-scoped
   /// (WorkerAuthGuard + ConsentGuard); the worker is taken from [authToken], never

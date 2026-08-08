@@ -44,7 +44,7 @@ void main() {
     test('records buffer synchronously; flush emits then drains', () async {
       final List<BbAnalyticsEvent> sunk = <BbAnalyticsEvent>[];
       final VoiceFormActionLog log =
-          VoiceFormActionLog(sink: (BbAnalyticsEvent e) async => sunk.add(e));
+          VoiceFormActionLog(sink: (List<BbAnalyticsEvent> b) async => sunk.addAll(b));
 
       log.recordQuestionAudioPlayed(3);
       log.recordAnswerSpoken(3);
@@ -61,7 +61,7 @@ void main() {
 
     test('flush is best-effort — a throwing sink never propagates', () async {
       final VoiceFormActionLog log = VoiceFormActionLog(
-          sink: (BbAnalyticsEvent e) async => throw Exception('offline'));
+          sink: (List<BbAnalyticsEvent> b) async => throw Exception("offline"));
       log.recordAnswerSpoken(1);
       await log.flush(); // must not throw
       expect(log.pending, 0, reason: 'drained regardless of sink failure');
@@ -76,7 +76,7 @@ void main() {
     setUp(() {
       plugin = MockAudioRecorder();
       sunk = <BbAnalyticsEvent>[];
-      log = VoiceFormActionLog(sink: (BbAnalyticsEvent e) async => sunk.add(e));
+      log = VoiceFormActionLog(sink: (List<BbAnalyticsEvent> b) async => sunk.addAll(b));
       when(() => plugin.hasPermission()).thenAnswer((_) async => true);
       when(() => plugin.start(any(), path: any(named: 'path')))
           .thenAnswer((_) async {});
