@@ -672,6 +672,45 @@ class MockApiClient extends ApiClient {
     // no-op success.
     _deletionScheduledFor = null;
   }
+
+  // ── Network methods that were missing an override (#719 + gap scan). ──
+  // Without these, mock mode falls through to the real ApiClient and fires a
+  // request at mock://local (e.g. VoiceFormActionLog.flush → recordWorkerActions
+  // on every flush). Each is a no-op / canned value; no request leaves the
+  // device, honoring the class contract above.
+
+  @override
+  Future<void> recordWorkerActions({
+    required String authToken,
+    required List<Map<String, dynamic>> actions,
+  }) async {
+    await _delay();
+  }
+
+  @override
+  Future<String?> latestChatSessionId({required String authToken}) async {
+    await _delay();
+    return null;
+  }
+
+  @override
+  Future<bool> getNotificationPrefs({required String authToken}) async {
+    await _delay();
+    return true;
+  }
+
+  @override
+  Future<void> updateNotificationPrefs({
+    required bool enabled,
+    required String authToken,
+  }) async {
+    await _delay();
+  }
+
+  @override
+  Future<void> markNotificationsRead({required String authToken}) async {
+    await _delay();
+  }
 }
 
 /// One canned assistant turn (reply + suggested follow-up chips + the engine's
