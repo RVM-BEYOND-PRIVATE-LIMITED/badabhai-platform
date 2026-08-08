@@ -33,13 +33,17 @@ void main() {
   });
 
   test(
-      'retain() protects an in-flight clip from the sweep even though it is '
-      'old; release() lets the next sweep reclaim it (#625)', () async {
+      'retain() protects an in-flight SAME-SESSION clip from the sweep; '
+      'release() lets the very next start() reclaim it (#625, #654 fix)',
+      () async {
     final String temp = Directory.systemTemp.path;
     final String sep = Platform.pathSeparator;
-    // An OLD clip (timestamp 1 ⇒ 1970) that the sweep would normally delete —
-    // it stands in for Q(n-1)'s clip whose upload is still in flight.
-    final File inflight = File('$temp${sep}bb-voice-1.m4a');
+    // A clip timestamped NOW — this is the realistic case: Q(n-1)'s answer,
+    // produced by this very recorder instance moments ago, upload still in
+    // flight. A construction-time cutoff would never treat this as sweepable
+    // regardless of retain/release; the fix must not depend on age at all.
+    final File inflight = File(
+        '$temp${sep}bb-voice-session-${DateTime.now().millisecondsSinceEpoch}.m4a');
     await inflight.writeAsBytes(<int>[1]);
     addTearDown(() async {
       if (await inflight.exists()) await inflight.delete();
@@ -55,11 +59,13 @@ void main() {
         reason: 'a retained in-flight clip must not be swept');
     await recorder.cancel();
 
-    // Released → the next start()'s sweep reclaims it.
+    // Released → the very NEXT start()'s sweep reclaims it, in this same
+    // process — proving the fix does not wait for a future app run.
     recorder.release(inflight.path);
     await recorder.start();
     expect(await inflight.exists(), isFalse,
-        reason: 'once released, the stale clip is swept again');
+        reason: 'once released, a same-session clip is swept on the next '
+            'start() — not just a previous run\'s leftover');
     await recorder.cancel();
   });
 
@@ -69,8 +75,8 @@ void main() {
     final StreamController<Amplitude> amp =
         StreamController<Amplitude>.broadcast();
     when(() => plugin.onAmplitudeChanged(any())).thenAnswer((_) => amp.stream);
-    when(() => plugin.stop())
-        .thenAnswer((_) async => '${Directory.systemTemp.path}/bb-voice-9.m4a');
+    when(() => plugin.stop()).thenAnswer(
+        (_) async => '${Directory.systemTemp.path}/bb-voice-session-9.m4a');
     addTearDown(amp.close);
 
     final SessionVoiceRecorder recorder =
@@ -116,11 +122,12 @@ void main() {
     expect(seen, <RecordState>[RecordState.record, RecordState.stop]);
   });
 
-  test('this session\'s clips are never swept (cutoff), unlike a prior run\'s',
-      () async {
+  test(
+      'a prior run\'s leftover session clip IS swept — age plays no part, '
+      'only active/retained does (#654 fix)', () async {
     final String temp = Directory.systemTemp.path;
     final String sep = Platform.pathSeparator;
-    final File prior = File('$temp${sep}bb-voice-2.m4a'); // 1970 — prior run
+    final File prior = File('$temp${sep}bb-voice-session-2.m4a'); // 1970
     await prior.writeAsBytes(<int>[1]);
     addTearDown(() async {
       if (await prior.exists()) await prior.delete();
@@ -129,7 +136,32 @@ void main() {
     final SessionVoiceRecorder recorder =
         SessionVoiceRecorder(recorder: plugin);
     await recorder.start(); // sweep runs
-    expect(await prior.exists(), isFalse); // a previous run's clip IS swept
+    expect(await prior.exists(), isFalse); // untouched, unretained ⇒ swept
+    await recorder.cancel();
+  });
+
+  test(
+      'never touches a bb-voice-*.m4a clip belonging to the OTHER recorder '
+      '(RecordPackageVoiceRecorder\'s disjoint namespace) (#654 fix)',
+      () async {
+    final String temp = Directory.systemTemp.path;
+    final String sep = Platform.pathSeparator;
+    // No "session-" — this is what RecordPackageVoiceRecorder writes, and
+    // what its OWN sweep matches. SessionVoiceRecorder must never delete it,
+    // retained or not, or an in-flight chat voice-note upload could vanish
+    // out from under a concurrently-running profiling interview.
+    final File other = File('$temp${sep}bb-voice-1.m4a');
+    await other.writeAsBytes(<int>[1]);
+    addTearDown(() async {
+      if (await other.exists()) await other.delete();
+    });
+
+    final SessionVoiceRecorder recorder =
+        SessionVoiceRecorder(recorder: plugin);
+    await recorder.start(); // sweep runs
+    expect(await other.exists(), isTrue,
+        reason: 'a clip outside this recorder\'s bb-voice-session- namespace '
+            'must never be swept by it');
     await recorder.cancel();
   });
 }
