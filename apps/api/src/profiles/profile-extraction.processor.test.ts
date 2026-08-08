@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { Logger } from "@nestjs/common";
 import { describe, it, expect, vi } from "vitest";
 import { DraftProfileSchema, WorkerProfileDraftSchema } from "@badabhai/ai-contracts";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
@@ -63,6 +64,12 @@ function make(
     sessionThrows?: boolean;
     /** What `/profile/parse` returned. `null` = unreachable/blocked/mis-shaped. */
     parsed?: unknown;
+    /**
+     * `ProfileExtractionOutput.error_code` — WHY a degraded extraction is degraded.
+     * `"extract_service_unreachable"` is what `AiService.extractProfile` now authors when the
+     * request never left the process; `undefined` reproduces a healthy response.
+     */
+    errorCode?: string;
   } = {},
 ) {
   const draft = opts.profile ?? DraftProfileSchema.parse({});
@@ -131,6 +138,7 @@ function make(
             // `undefined` reproduces an ai-service with DOMAIN_MATCH_ENABLED off:
             // the key is absent, which the processor must read as "did not run".
             job_domain_match: opts.domainMatch,
+            error_code: opts.errorCode ?? null,
           }),
   };
   ai.parseProfile = vi.fn().mockResolvedValue("parsed" in opts ? opts.parsed : null);
@@ -516,6 +524,30 @@ describe("ProfileExtractionProcessor — T3 profile_status follows CONTENT, not 
     skills: ["skill_milling"],
     machines: ["haas_vf2"],
     experience: { total_years: 5 },
+  });
+
+  it("an OUTAGE and a worker with nothing to say no longer share one warning (B-8a)", async () => {
+    // Both produce `blocked: false` + an empty draft + `is_mock: true`, so until
+    // `error_code` existed the processor could only log "check ai-service reachability" —
+    // an instruction to go and find out, because nothing in the result could say. The two
+    // cases must now be distinguishable IN THE LOG, since the recorded row is identical by
+    // design (both are honestly "draft").
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const outage = make({ errorCode: "extract_service_unreachable" });
+      await outage.proc.process(makeJob());
+      const outageLine = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes("NO extracted content"));
+      expect(outageLine).toContain("cause=extract_service_unreachable");
+
+      warn.mockClear();
+      const quiet = make(); // reachable, healthy, and the worker said nothing usable
+      await quiet.proc.process(makeJob());
+      const quietLine = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes("NO extracted content"));
+      expect(quietLine).toContain("the interview itself produced nothing");
+      expect(quietLine).not.toContain("cause=");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("the AI-DOWN fabrication is recorded as 'draft', never 'extracted'", async () => {

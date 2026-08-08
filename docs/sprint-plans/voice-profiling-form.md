@@ -3,7 +3,7 @@
 Hinglish voice-driven sequential Q&A for the worker app: questions shown one at a time, read aloud,
 answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam TTS out.
 
-**Status date:** 2026-08-07 · **HEAD:** `4d0989f8`
+**Status date:** 2026-08-08 · **HEAD:** `e79fecec`
 
 ---
 
@@ -35,6 +35,48 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **V4 (the three defects)** — a worker's answer could vanish behind a green tick | PR #664 → `40e61575` | **on `main`** |
 | **V7** — the interview's one LLM call was unledgered; `aiTaskType` widened 3 → 8 | PR #665 → `46a1fa17` | **on `main`** |
 | **V5 (the enumeration half)** — the 433-clip reply closure + the `{{…}}` corpus guard | PR #667 | **on `main`** |
+| **The 77%'s writer** — a table and a projector that nothing joined | PR #670 → `5394c292` | **on `main`** |
+| A mock call reporting real rupees | PR #672 → `ca5cd4e3` | **on `main`** |
+| **B-8b** — one definition of "the current profile"; 7 readers, one unordered, one un-deduped | PR #678 → `d5365b57` | **on `main`** |
+| **B-8a** — a call that never left the process claimed `success: true` and emitted a cost row | PR #681 → `ff676fe8` | **on `main`** |
+| **V4b** — `VoiceTranscriptionService` extracted; `VoiceModule` exports; the DSAR **orphan** sweep | PR #682 → `f9f89759` | **on `main`** |
+| **V5 (the render half)** — the 433-clip manifest measured, `tts_render.py`, TS↔Python identity parity | PR #683 → `aea376d1` | **on `main`** |
+
+### Verified live on merged `main` (2026-08-08)
+
+A real 13-turn interview through `POST /chat/message`, `ai_posture: mock` throughout — so not one
+word of it came from a model — followed by direct inspection of every table that should have
+gained a row.
+
+```
+session        aa302c59   pack pinned qp_welding:1   status=ended       [#661]
+worker_pack_answer   10   worker_attributes  4   worker_profiles  1     [#670]
+cost record    task=profile_parse real=false inr=0                      [#665 + #672]
+PII in events  0
+```
+
+Two things could not be shown by running the product forward, because they are about a failure
+that has to be CONSTRUCTED. Both were exercised against the live database with the real
+repositories:
+
+| | |
+|---|---|
+| `latestProfile` with an empty later row present | returns the REAL profile |
+| `ReachRepository.findSignalRowByWorkerId` | deterministic, returns the real profile |
+| payer-pool slots for a two-profile worker | **1** (was 2) |
+
+R2 was exercised on both branches: `PROFILING_PACK_LOCALE=hi-IN` logs `universal pack ready:
+qp_universal v1 (8 items)`; `hi` — a locale matching zero rows, which is what an unseeded or
+mis-configured environment looks like — logs the ERROR naming the locale and the seed command.
+
+**A NOTE ON THE CANNED DEMO DRIVER, because it produced a scare.** The first runs today reported
+6 answers and **0** attributes, which reads exactly like a broken attribute write. It was not.
+#666 added mid-interview occupation RE-PINNING, which changed the order questions arrive in, and
+the driver replays a FIXED answer list — so from turn 2 every answer landed against a different
+question than it was written for (`primary_trade` came back `declined`; `welding_process`
+captured "8 saal"). Re-run with a driver that answers the question actually in front of it, the
+same code produced 10 answers and 4 attributes. A fixed-script harness stops being evidence the
+moment the thing it drives becomes adaptive.
 
 ### Already built and reusable (this is most of the system)
 
@@ -56,21 +98,28 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 
 | # | Item | State |
 |---|---|---|
-| **B-1** | Packs **seeded** in each environment | `db:seed:packs` appears in **no workflow, no runbook, no e2e**. CI runs only `--corpus` (DB-free). Unverified per environment. |
+| ~~**B-1**~~ | Packs **seeded** in each environment | **RESOLVED by #689, and the row's own evidence was half wrong.** Re-measured: `db:seed:packs --apply` DOES run in ci.yml's e2e job (with `--apply`, and with the live-DB `db:verify:packs` after it) — but against a throwaway container that is deleted at the end of the run. The headline held: it was on **no deploy path and in no runbook**. `staging-cd.yml` now seeds domains → normalizes aliases → seeds packs → verifies both against the live database, immediately after `db:migrate`. A SEPARATE hole surfaced while checking: `db:normalize:aliases` and `db:verify:domains` ran in **zero** workflows, and `verify-job-domains.ts` states that an un-normalized alias is *"invisible to L0/L2 retrieval"* — so CI was exercising a silently degraded occupation ladder. Both now run in CI and on the deploy path. |
 | **B-2** | Sarvam TTS accepts **romanized** Hinglish at `hi-IN` | Unknown. 0 of 466 pack items contain a Devanagari codepoint. Resolved by V0. |
 | **B-3** | Round-trip latency for a ≤30s answer | Unmeasured. Every number in the repo is a timeout, never an observation. Resolved by V0. |
 | ~~**B-4**~~ | Where `attribute` answers land | **RESOLVED** — owner ruled `worker_attributes`; the table shipped in V1 (migration 0071). The *wiring* is V2. |
 | ~~**B-5**~~ | `envelope.occupation` is never written | **RESOLVED** by V3 (#650). Measured live: "main welder hoon" → `jd_nco_7212_0301` via `l0_exact` at 0.97 → the WELDING pack served → 13-turn interview → 10 typed rows in `worker_pack_answer`. |
-| **B-6** | The two surfaces do not share a parse/build pipeline | `/profile/parse` and `projectProfile` have zero callers; the chat uses `/profile/extract`. See §1a. **Still open after V3** — the cutover made the interview deterministic but did not move the voice side onto `ProfilesRepository.create`. |
+| ~~**B-6**~~ | The two surfaces do not share a parse/build pipeline | **RESOLVED, and this row was STALE rather than open.** Re-derived against code 2026-08-08: `/profile/parse` has a live caller (`ProfileExtractionProcessor.extractOrParse:483`), `projectProfile` has a live caller beside it (`:552`), and `worker_profiles` has exactly ONE writer — `ProfilesRepository.create` — which both legs converge on. It closed with the V3 cutover (#650) and was completed by #670. The dual leg that remains is the upstream AI CALL only (`/profile/parse` vs `/profile/extract`) and it branches on DATA — a pre-cutover session has no answer map — so it drains to zero within one queue's lifetime. Lesson: a doc row saying "zero callers" is a measurement with an expiry date. |
 | ~~**B-7**~~ | The pack pin was never written to `chat_sessions` | **RESOLVED** by #661. Found by running the product, not by reading it: the live database showed `pack pinned: (none)` for a session that had just been served thirteen welding questions. The columns shipped in V1 with a comment justifying them and no writer; a Redis eviction therefore re-ran retrieval and could hand a resumed interview a different pack. Now written write-once at pin time, read back only when the envelope is gone, and recorded by `profile.pack_pinned`. |
-| **B-8** | Two live defects on `ProfilesRepository.create`, logged during the §1a survey | An unreachable ai-service fabricates an **empty draft profile**; `create` is insert-only, so a later empty extraction can shadow a good one. Neither is voice-specific — both bite the chat today. Not yet scheduled. |
+| ~~**B-8a**~~ | An unreachable ai-service fabricates an **empty draft profile** | **RESOLVED — in two halves, months apart.** The CONSEQUENCE was closed earlier: `decideProfileStatus` runs `hasExtractedContent` over the row it is about to write, so the fabrication persists as `"draft"` and both dedupe guards re-run extraction — the worker self-heals. **The signal is now closed too, by #681:** `ProfileExtractionOutputSchema` gained `error_code` (additive, defaulted, mirrored in Pydantic and in the golden key fixture), the unreachable fallback authors `extract_service_unreachable`, and it no longer synthesizes `ai_metadata` — so no `ai_jobs` usage row and no `ai.cost_recorded` event describe a provider call that did not happen. `is_mock` was never a discriminator: the ai-service returns `is_mock = not real_call`, so every healthy extraction under the committed `AI_ENABLE_REAL_CALLS=false` default carries it too. |
+| ~~**B-8b**~~ | `create` is insert-only, so a later empty extraction shadows a good one | **RESOLVED by #678, and it was worse than logged.** Seven readers each answered "which row is the profile" differently: five ordered by `created_at DESC` alone, `ReachRepository.findSignalRowByWorkerId` had **no `ORDER BY` at all**, and `ReachRepository.listSignalRows` had neither ordering nor per-worker dedup — so a re-interviewed worker occupied **two** payer-pool slots and was counted twice in PACE supply. Now one exported `CURRENT_PROFILE_ORDER`, keyed off `profile_status` — which already IS the persisted `hasExtractedContent` decision, so no SQL mirror of it was needed and no second definition exists to drift. |
 
-### 1a. ONE PIPELINE — and the two surfaces do not share one today
+### 1a. ONE PIPELINE — CLOSED (re-derived against code, 2026-08-08)
 
 Owner ruling: the voice form must parse and build the profile *exactly* the way the chat does. Two
 ways of doing the same thing is two things to keep correct.
 
-They do not share one today, and the gap is bigger than "a different function":
+**They share one now, and the table below is kept as the RECORD OF WHAT WAS TRUE, not of what is.**
+Every cell in the OIE column has since gained a caller: `AiService.parseProfile` is invoked from
+`ProfileExtractionProcessor.extractOrParse`, its result runs the six gates a second time, and
+`projectProfile` feeds the SAME `ProfilesRepository.create` the chat leg reaches. There is exactly one
+`.insert(workerProfiles)` in application code.
+
+The original gap, for the record:
 
 | | Chat (live) | OIE / voice (as designed) |
 |---|---|---|
@@ -85,7 +134,8 @@ a `WorkerProfileDraft` (deterministic `projectProfile`, plus the gated `/profile
 it is available) and hands it to **that** service. It does not open a second write path, and it does
 not touch the chat's own trigger.
 
-Two live defects this exposes, both logged for V4/V7 rather than fixed here:
+Two live defects this exposed. **Both are now resolved — see B-8a/B-8b above** — and they are kept here
+because the second turned out to be a whole class rather than one query:
 
 1. `AiService.extractProfile` **fabricates** an empty draft when the ai-service is unreachable —
    `DraftProfileSchema.parse({})` with `blocked: false`. A degraded call is indistinguishable from a
@@ -469,13 +519,15 @@ at 0.97 → `qp_welding` served → a 13-turn interview completes → **10 typed
 **0 events** containing a raw utterance or a phone number. `ai_posture: mock` throughout, so not one
 word of it came from a model.
 
-**Still owed from V3's scope:** the path-equivalence test, and the §1a convergence (B-6) — the voice
-side moving onto `ProfilesRepository.create` via `ProfilesService`. `openTurn()`, the mode-lock and
-the 409-on-stale-`question_key` are moot until a second surface exists.
+**Still owed from V3's scope:** the path-equivalence test — and note it is now a test of ONE path, since
+the cutover deleted the model-driven one, so what it would pin is the pre/post-cutover branch inside
+`extractOrParse` rather than two surfaces. The §1a convergence (B-6) is CLOSED: both legs reach
+`ProfilesRepository.create`. `openTurn()`, the mode-lock and the 409-on-stale-`question_key` remain moot
+until a second surface exists.
 
 ---
 
-### Phase V4 — Transcription seam *(Owner: Prakash · M · **the three defects DONE**, PR #664 → `40e61575`)*
+### Phase V4 — Transcription seam *(Owner: Prakash · M · **DONE** — defects PR #664 · seam PR #682)*
 
 > **The defect half landed; the seam half has not.** All three bugs this phase named turned out to be
 > the same mistake wearing three hats — *a failure recorded as a success* — and none of them needed
@@ -494,10 +546,34 @@ the 409-on-stale-`question_key` are moot until a second surface exists.
 >   against null explicitly, because an empty string is a real transcript and cost the same as a
 >   full one.
 >
-> **Not built, deliberately: the synchronous ≤30s path.** It has no consumer until V6 ships, its
-> latency is B-3 (still unmeasured), and a config-gated route nothing calls is the "built dark"
-> pattern this plan was written to stop repeating. `VoiceTranscriptionService` extraction remains
-> owed — the processor does service work inside a queue handler, which §4 forbids.
+> **The seam half landed in #682.** `VoiceTranscriptionService` now holds everything that is not
+> queue plumbing — idempotency, the provider call, the degraded-result decision, persistence and
+> the terminal record — and `VoiceModule` gained the `exports` block it never had, so a second
+> caller can reuse the sequence instead of forking it. The processor is 30 lines: the payload, the
+> attempt arithmetic, the rethrow. `terminal` is passed IN as a policy input rather than derived,
+> because "will this be retried?" is a fact only the caller knows — a synchronous caller passes
+> `true`. Every pre-existing behavioural test still drives through `proc.process(...)`, which is
+> what makes the suite a regression proof rather than a rewrite.
+>
+> The **DSAR orphan sweep** landed with it. `listVoiceStorageKeys` can only enumerate audio that
+> has a ROW, and upload is two calls — a signed PUT, then a separate insert. A client that
+> completes the PUT and never makes the second call left raw worker audio no row pointed at,
+> invisible to the query, surviving erasure forever. Added BESIDE the per-row loop, never
+> replacing it: legacy `storage_path` values predate the minted-key shape guard and sit outside
+> `voice-notes/{workerId}/`.
+>
+> **Still not built, deliberately: the synchronous ≤30s path.** It has no consumer until V6 ships,
+> its latency is B-3 (still unmeasured), and a config-gated route nothing calls is the "built
+> dark" pattern this plan was written to stop repeating. The extraction above is what makes it a
+> small change when V6 arrives.
+>
+> **`translate_to_english` is NOT flipped, and that is a deliberate hold.** Measured: apps/api
+> sets it nowhere, so the ai-service default `True` governs and the translate leg fires on every
+> transcription — real Sarvam spend on NO ledger (`translate.py` imports no cost tracker and takes
+> no `worker_ref`), which is R9 recurring. Flipping it globally is not mine to do: `GET /voice/:id`
+> returns `transcript_english` to an existing client, so `false` changes a shipped response. It
+> belongs to the form surface when the form surface exists, or to an owner ruling. Dormant
+> meanwhile — `VOICE_NOTES_BUCKET` is unset, so the leg fires zero times today.
 
 <details><summary>Original V4 scope, as planned</summary>
 
@@ -546,7 +622,7 @@ from chat.
 
 ---
 
-### Phase V5 — TTS pipeline *(Owner: Divyanshu · L · **enumeration DONE**, PR #667 · render still after V0)*
+### Phase V5 — TTS pipeline *(Owner: Divyanshu · L · **DONE** — enumeration #667 · render #683 · `--apply` gated on B-2)*
 
 > **Split, because only half of it depends on the listening test.** *What* to render is a property
 > of the engine; *how it should sound* is the open question B-2 answers. The first half shipped.
@@ -576,10 +652,38 @@ from chat.
 > second wall inside the closure. Measured: 0 of 466 items carry a template token today, so it is a
 > guard and not a repair.
 >
-> **Still owed:** `tts_render.py` over the closure, the golden closure file asserted from both TS
-> and Python (the `normalize()` parity vectors), and the boot test that no FastAPI router imports
-> `tts_adapter`. All three are cheap once B-2 says whether the corpus needs a transliteration
-> sidecar.
+> **The render half landed in #683 — and one of the three was already done.** The boot test
+> (`test_no_router_can_reach_the_tts_adapter`) shipped with V0 in #645, *before* the PR that
+> listed it as owed; it was hardened from `glob` to `rglob` so a future router subpackage cannot
+> walk around it.
+>
+> **433 is now MEASURED, not claimed.** `replyClosure` had zero callers outside a unit suite that
+> ran it on two hand-built items, so the number in the table above was asserted by nothing. It is
+> now generated from the live engine over the real 101 packs and committed as
+> `packages/db/data/question-packs/reply-closure.json` — a reviewable render manifest, because a
+> diff on that file is the diff on what a worker hears and on what the render costs. The measured
+> split matches the estimate exactly: 150 clarify / 143 why / 129 prompt / 7 constant / 4 retry.
+>
+> **A REAL cross-language defect, measured not reasoned.** Banning `\s` was only half the job:
+> `String.prototype.trim()` and Python's `str.strip()` strip DIFFERENT sets, and **six** codepoints
+> disagree across the two runtimes this repo runs — JS strips U+FEFF and Python does not; Python
+> strips U+001C–U+001F and U+0085 and JS does not. A BOM on a pack file would have produced a
+> different clip id on each side: the pre-rendered audio and the runtime reply silently disagreeing
+> about which clip is which, on the one surface where the worker cannot read the screen to notice.
+> Both sides dropped their built-in trim for the same anchored `[ 	
+]` class, so neither
+> runtime's whitespace notion is consulted by either language. It also fixed an internal
+> contradiction: `.trim()` stripped a LEADING non-breaking space while the comment beside it
+> declared NBSP meaningful — the existing vector only covered an interior one.
+>
+> **`tts_render.py` ships dry-run by default** and REFUSES `--apply` when real calls are blocked,
+> rather than walking 433 clips writing nothing and reporting either 433 failures (wrong — nothing
+> was attempted) or success over an empty directory. Mock is a posture, not a render. Measured
+> cost of the full catalogue: **₹324.75**.
+>
+> **Still gated on B-2:** actually running `--apply`. Whether the corpus needs a transliteration
+> sidecar is what the listening test answers, and rendering before that answer spends operator
+> budget on possibly-mispronounced audio.
 
 - `app/tts.py` — `TtsAdapter`, `TTS_TASK_TYPE = "tts_synthesis"` (**its own allowlist key**, so TTS can
   be flipped independently of STT), gate chain mirroring `stt.py:207-248` **in order**, fail-closed to
@@ -712,7 +816,7 @@ embeds the object key) · the pre-rendered TTS route takes `question_key`, never
 | # | Risk | Consequence | Mitigation |
 |---|---|---|---|
 | R1 | **77% of items have no destination** | The form asks ~8–9 questions per session and discards the answers, each a paid STT call | **V2 — owner decision** |
-| R2 | Packs in git, in no database | Every worker gets `UNAVAILABLE_REPLY`, silently | B-1 + boot-time `loadUniversal()` ERROR log; seed step in `staging-cd.yml` |
+| ~~R2~~ | Packs in git, in no database | Every worker gets `UNAVAILABLE_REPLY`, silently | **CLOSED (#689) with both walls.** `PackRegistryService` implements `OnModuleInit` and logs at **ERROR** naming the locale and the exact seed command when even the universal pack is missing — fire-and-forget so a slow database cannot delay `listen`, and never a throw, because a crash-loop hides the very message the check exists to print. The seed step landed in `staging-cd.yml` beside it: one tells you at deploy time, the other at start-up. |
 | R3 | Sarvam TTS on romanized Hinglish | Confident nonsense in an English voice is worse than silence for a non-reader | **V0 rung 0** before anything is built |
 | R4 | Round-trip latency unmeasured; only bound in code is 10× the client budget | The "seamless" promise cannot be made | V0; chips remove 85% of round-trips, which is the real mitigation |
 | R5 | `envelope.occupation` never written | 100 trade packs unreachable | V3 |

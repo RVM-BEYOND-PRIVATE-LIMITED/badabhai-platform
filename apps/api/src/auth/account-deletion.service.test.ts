@@ -352,6 +352,53 @@ describe("AccountDeletionService", () => {
     expect(emitted.payload.storage_objects_failed).toBe(0);
   });
 
+  it("VOICE BUCKET SET: sweeps the worker's audio PREFIX too, so orphans cannot survive a DSAR", async () => {
+    // THE GAP. `voiceKeys` comes from `SELECT storage_path FROM voice_notes WHERE worker_id=$1`,
+    // so it can only enumerate audio we hold a ROW for. Upload is two calls — a signed PUT into
+    // `voice-notes/{workerId}/{uuid}.m4a`, then a SEPARATE POST that inserts the row. A client
+    // that completes the PUT and never makes the second call leaves raw worker audio in the
+    // bucket that no row points at, invisible to the query, surviving erasure forever.
+    const h = make({
+      voiceKeys: ["voice-notes/w/known.m4a"],
+      voiceBucket: "worker-audio",
+      sessions: 1,
+    });
+    // Two objects under the prefix that no row knows about.
+    h.storage.deleteByPrefix.mockImplementation(async (prefix: string) =>
+      prefix === `voice-notes/${WORKER_ID}/` ? 2 : 0,
+    );
+
+    await h.svc.execute(WORKER_ID);
+
+    expect(h.storage.deleteByPrefix).toHaveBeenCalledWith(
+      `voice-notes/${WORKER_ID}/`,
+      "worker-audio",
+    );
+    // BOTH legs run: the per-row delete still covers legacy `storage_path` values written before
+    // the minted-key shape guard existed, which sit OUTSIDE `voice-notes/{workerId}/` and would
+    // stop being erased if the prefix sweep replaced the loop.
+    expect(h.storage.deletePdf).toHaveBeenCalledWith("voice-notes/w/known.m4a", "worker-audio");
+
+    // 1 known row + 2 orphans, all counted in the DSAR receipt.
+    expect(h.events.emit.mock.calls[0]![0].payload.storage_objects_deleted).toBe(3);
+  });
+
+  it("a failing voice-prefix sweep is counted and logged, never fatal — the erasure continues", async () => {
+    const h = make({ voiceKeys: [], voiceBucket: "worker-audio", sessions: 1 });
+    h.storage.deleteByPrefix.mockImplementation(async (prefix: string) => {
+      if (prefix === `voice-notes/${WORKER_ID}/`) throw new Error("storage batch-delete 503");
+      return 0;
+    });
+
+    await h.svc.execute(WORKER_ID);
+
+    const emitted = h.events.emit.mock.calls[0]![0];
+    expect(emitted.payload.storage_objects_failed).toBe(1);
+    // The row cascade must still have happened — a storage blip cannot leave a worker
+    // half-deleted with their rows intact.
+    expect(h.workers.hardDelete).toHaveBeenCalledOnce();
+  });
+
   it("VOICE BUCKET UNSET (default ''): audio erase is DORMANT — deletePdf NOT called for voice keys", async () => {
     // The dormant seam: voiceKeys exist on rows but with no backend audio bucket today the erase
     // is skipped (no speculative behavior). Only the resume PDF leg deletes.
@@ -368,6 +415,15 @@ describe("AccountDeletionService", () => {
     expect(h.storage.deletePdf).toHaveBeenCalledTimes(1);
     expect(h.storage.deletePdf).toHaveBeenCalledWith("r1.pdf", "worker-resumes");
     expect(h.storage.deletePdf).not.toHaveBeenCalledWith("worker/sess/v1.ogg", expect.anything());
+    // …and the ORPHAN SWEEP is dormant too. Asserted explicitly because
+    // `deleteByPrefix` is a shared mock that other legs (photos,
+    // conversations) also drive and that defaults to 0: without naming the
+    // voice prefix, moving the sweep OUTSIDE the VOICE_NOTES_BUCKET guard
+    // would still pass this test.
+    expect(h.storage.deleteByPrefix).not.toHaveBeenCalledWith(
+      `voice-notes/${WORKER_ID}/`,
+      expect.anything(),
+    );
 
     const emitted = h.events.emit.mock.calls[0]![0];
     expect(emitted.payload.storage_objects_deleted).toBe(1); // resume only

@@ -80,9 +80,28 @@ export function clipId(text: string): string {
  * to produce byte-identical results in both or the TS closure and the Python renderer will disagree
  * about which clips exist. The Devanagari danda and the non-breaking space are NOT whitespace here,
  * on purpose — both carry meaning in the corpus.
+ *
+ * AND `.trim()` IS GONE, FOR THE SAME REASON IT BANNED `\s`. Trimming with the explicit class was
+ * the missing half: `String.prototype.trim` strips the ECMAScript WhiteSpace set, Python's
+ * `str.strip()` strips the Python one, and they are NOT the same set. Measured across the two
+ * runtimes this repo actually uses, six codepoints disagree:
+ *
+ *   U+FEFF          JS strips it, Python keeps it   ← a BOM on a pack file reaches here
+ *   U+001C..U+001F  Python strips them, JS keeps them
+ *   U+0085 (NEL)    Python strips it, JS keeps it
+ *
+ * A leading BOM would therefore have produced a DIFFERENT clip id on each side — the pre-rendered
+ * audio and the runtime reply silently disagreeing about which clip is which, on the one surface
+ * where the worker cannot read the screen to notice. That is precisely the divergence the `\s` ban
+ * exists to prevent, walked in through the other door.
+ *
+ * The explicit form also FIXES an inconsistency with the paragraph above: `.trim()` treats the
+ * non-breaking space as whitespace, so it stripped a LEADING U+00A0 while the comment declared
+ * NBSP meaningful. The existing NBSP vector only tested an INTERIOR one, which is why nothing
+ * caught it. Edges and interior now agree — NBSP is preserved in both.
  */
 export function normalizeReplyText(text: string): string {
-  return text.replace(/[ \t\r\n]+/g, " ").trim();
+  return text.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "").replace(/[ \t\r\n]+/g, " ");
 }
 
 /**

@@ -17,7 +17,7 @@
 
 import { createHash } from "node:crypto";
 
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import {
   QuestionPackSchema,
@@ -55,7 +55,7 @@ interface CacheEntry {
 }
 
 @Injectable()
-export class PackRegistryService {
+export class PackRegistryService implements OnModuleInit {
   private readonly logger = new Logger(PackRegistryService.name);
   private readonly cache = new Map<string, CacheEntry>();
 
@@ -63,6 +63,56 @@ export class PackRegistryService {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly repo: PackRepository,
   ) {}
+
+  /**
+   * R2 — SAY SO AT BOOT IF THE PACKS ARE NOT SEEDED.
+   *
+   * The packs live in git and reach a database only via `db:seed:packs --apply`, which runs in
+   * CI's e2e job and on NO deploy path. An environment that migrated but never seeded looks
+   * completely healthy: `/health` is green, the process serves traffic, and every worker's very
+   * first turn resolves no pack and gets the unavailable line — forever, silently. The failure
+   * presents as "the orchestrator is broken", which is the wrong thing to go and debug.
+   *
+   * LOGS AT ERROR, NEVER THROWS, and both halves are deliberate. An unseeded database must not
+   * stop the process from starting — that would take down every unrelated route (auth, payer
+   * portal, resumes) over one missing seed, and it would make the container crash-loop instead of
+   * telling anyone what is wrong. ERROR is what reaches an operator; a throw is what hides the
+   * message inside a restart loop.
+   *
+   * FIRE-AND-FORGET, so a slow or unreachable database cannot delay `listen`. Copied deliberately
+   * from `OccupationIndexService.onModuleInit`, which already does exactly this for the
+   * occupation catalogue — the identical failure mode one table over.
+   */
+  onModuleInit(): void {
+    void this.assertUniversalPackSeeded();
+  }
+
+  private async assertUniversalPackSeeded(): Promise<void> {
+    try {
+      const universal = await this.loadUniversal(Date.now());
+      if (universal === null) {
+        this.logger.error(
+          `NO UNIVERSAL QUESTION PACK for locale "${this.config.PROFILING_PACK_LOCALE}". Every ` +
+            `interview will fail closed to the unavailable reply. Run ` +
+            `\`pnpm --filter @badabhai/db db:seed:packs --apply\` against this database, then ` +
+            `\`db:verify:packs\`. (A locale mismatch presents identically: the packs are seeded ` +
+            `as "hi-IN", and PROFILING_PACK_LOCALE is free-form, so "hi" or "hi_IN" matches zero ` +
+            `rows with no other error.)`,
+        );
+        return;
+      }
+      this.logger.log(
+        `universal pack ready: ${universal.pack_id} v${universal.version} ` +
+          `(${universal.items.length} items, locale ${universal.locale})`,
+      );
+    } catch (error) {
+      // A boot-time probe must never become a way to fail boot. The database being unreachable
+      // right now is a different (and louder) problem than the packs being unseeded.
+      this.logger.error(
+        `universal pack check could not run: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   /**
    * Resolve the pack for a freshly pinned occupation, walking the chain from most specific to

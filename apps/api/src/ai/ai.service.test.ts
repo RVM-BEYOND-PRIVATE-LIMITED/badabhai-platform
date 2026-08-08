@@ -189,12 +189,45 @@ describe("AiService", () => {
       expect(result.profile).toBeDefined();
     });
 
-    it("falls back to mock extraction when remote unreachable", async () => {
+    it("CONFESSES when the remote is unreachable instead of looking like a quiet worker", async () => {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
 
       const result = await ai.extractProfile({ transcript: "some text" });
+      // The empty draft is correct — never fabricate a profile. What was missing is any way
+      // to tell this apart from a successful extraction of a worker who said nothing.
+      expect(result.error_code).toBe("extract_service_unreachable");
+      expect(result.profile.canonical_role_id).toBeNull();
+      expect(result.profile.skills).toEqual([]);
+      // `is_mock` is NOT the discriminator and never was: the ai-service returns
+      // `is_mock = not real_call`, so a perfectly healthy extraction under the committed
+      // AI_ENABLE_REAL_CALLS=false default carries it too. Asserted here so a future reader
+      // does not mistake it for one.
       expect(result.is_mock).toBe(true);
-      expect(result.ai_metadata!.real_call).toBe(false);
+      // NO FABRICATED CALL RECORD. This used to synthesize metadata claiming
+      // `success: true, error_code: null, model_name: "mock"` for a request that never left
+      // the process — which reached `ai_jobs` as usage and emitted `ai.cost_recorded` for a
+      // provider call that did not happen.
+      expect(result.ai_metadata).toBeNull();
+    });
+
+    it("a healthy MOCK-posture extraction is not mistaken for an outage", async () => {
+      // The other half of the same claim: `error_code` must stay null when the service is
+      // reachable, or the new field would just relabel every mock environment as broken.
+      vi.stubGlobal("fetch",
+        vi.fn().mockResolvedValue(fakeResponse({
+          json: async () => ({
+            profile: {},
+            blocked: false,
+            is_mock: true,
+            ai_metadata: mockMeta({ real_call: false }),
+          }),
+        })),
+      );
+
+      const result = await ai.extractProfile({ transcript: "some text" });
+      expect(result.is_mock).toBe(true);
+      expect(result.error_code).toBeNull();
+      expect(result.ai_metadata).not.toBeNull();
     });
   });
 
@@ -385,24 +418,30 @@ describe("AiService", () => {
   });
 
   // ---------------------------------------------------------------
-  //  mockCallMetadata (private utility)
+  //  No fabricated call records (was: mockCallMetadata)
   // ---------------------------------------------------------------
-  describe("mockCallMetadata", () => {
-    it("returns the correct metadata shape", async () => {
+  describe("a call that never left the process leaves no call record", () => {
+    // `mockCallMetadata` is GONE. It was a private helper with exactly one caller —
+    // `extractProfile`'s unreachable fallback — and it asserted `success: true,
+    // error_code: null` about a request that was never sent. The old test pinned that shape
+    // faithfully, which is why it is replaced rather than edited: the shape itself was the
+    // defect, so a test that guards it guards the wrong thing.
+    it("is not reachable by any name — no unreferenced fabricator survives", () => {
       config = mockConfig();
       ai = new AiService(config);
+      expect((ai as unknown as Record<string, unknown>)["mockCallMetadata"]).toBeUndefined();
+    });
 
-      // Access private method via bracket notation
-      const meta = (ai as never as { mockCallMetadata(t: string): unknown }).mockCallMetadata("profile_extraction") as Record<string, unknown>;
-      expect(meta.task_type).toBe("profile_extraction");
-      expect(meta.model_name).toBe("mock");
-      expect(meta.provider).toBe("mock");
-      expect(meta.real_call).toBe(false);
-      expect(meta.input_tokens).toBe(0);
-      expect(meta.output_tokens).toBe(0);
-      expect(meta.estimated_cost_inr).toBe(0);
-      expect(meta.success).toBe(true);
-      expect(meta.error_code).toBeNull();
+    it("emits no ai_metadata on ANY unreachable AI leg, so no cost row can be derived", async () => {
+      config = mockConfig();
+      ai = new AiService(config);
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+
+      // `recordAiCost` and `recordSpendCap` both no-op on null metadata — that is their
+      // documented contract ("no metadata = no real call to record"), and until now
+      // `extractProfile` was the one caller that broke it.
+      expect((await ai.extractProfile({ transcript: "x" })).ai_metadata).toBeNull();
+      expect(await ai.parseProfile({} as never)).toBeNull();
     });
   });
 

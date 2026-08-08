@@ -192,6 +192,26 @@ services:
       GEMINI_FLASH_API_KEY: ${GEMINI_FLASH_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
+      # ---- Voice storage: DELIBERATELY STILL NOT DECLARED, and the reason has changed.
+      #
+      # `VOICE_NOTES_BUCKET` is read by BOTH the api (which mints the signed upload URL) and
+      # this service (which fetches the object to transcribe), and no compose file declares it,
+      # so each container runs on its library default. Those defaults USED TO DISAGREE — the
+      # api's is "" and this service's was the literal "worker-voice-notes" — which made arming
+      # one side alone a silent TOTAL failure: the api mints uploads into bucket X, this service
+      # reads from another, every transcription fails closed to an empty transcript, and
+      # `/health` stays green on both because neither reports a bucket.
+      #
+      # That divergence is now closed at the SOURCE rather than papered over here: this
+      # service's default is `""` too (app/config.py), and `stt.py` refuses the real path with a
+      # named reason when it is empty. Unset therefore means "unset" on both sides.
+      #
+      # The pass-through entry itself stays out on purpose. It belongs with SUPABASE_* and
+      # SARVAM_API_KEY as one V8 change — the api block above records why storage creds are not
+      # added piecemeal ("keeping the required-secret set equal to the owner's STAGING-SECRETS-1
+      # list"), and declaring the bucket for one service while the other cannot see it would be
+      # a new asymmetry in place of the one just removed.
+
       # ---- TD27 shared spend ledger. Unset = the in-process backend, which is
       # exact (not approximate) here because the image runs ONE uvicorn worker.
       # It MUST be set — to the box-local redis, i.e. redis://redis:6379/0, which

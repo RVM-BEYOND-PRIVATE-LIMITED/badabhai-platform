@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:record/record.dart';
 
+import 'package:badabhai_worker_app/features/voice/data/record_package_voice_recorder.dart';
 import 'package:badabhai_worker_app/features/voice/data/session_voice_recorder.dart';
 import 'package:badabhai_worker_app/features/voice/domain/voice_models.dart';
 import 'package:badabhai_worker_app/features/voice/domain/voice_recorder.dart';
@@ -120,6 +121,91 @@ void main() {
     states.add(RecordState.stop);
     await pumpEventQueue();
     expect(seen, <RecordState>[RecordState.record, RecordState.stop]);
+  });
+
+  test(
+      'start() captures the 16kHz/24kbps NS+AEC session config, autoGain OFF '
+      '(#633)', () async {
+    final SessionVoiceRecorder recorder =
+        SessionVoiceRecorder(recorder: plugin);
+    await recorder.start();
+
+    final RecordConfig cfg = verify(
+      () => plugin.start(captureAny(), path: any(named: 'path')),
+    ).captured.single as RecordConfig;
+
+    expect(cfg.encoder, AudioEncoder.aacLc);
+    expect(cfg.numChannels, 1);
+    expect(cfg.sampleRate, 16000);
+    expect(cfg.bitRate, 24000);
+    expect(cfg.noiseSuppress, isTrue);
+    expect(cfg.echoCancel, isTrue);
+    // Load-bearing: AGC would compress the range the endpointer thresholds on.
+    expect(cfg.autoGain, isFalse);
+    expect(cfg.audioInterruption, AudioInterruptionMode.pauseResume);
+    expect(cfg.androidConfig.audioSource, AndroidAudioSource.voiceRecognition);
+
+    await recorder.cancel();
+  });
+
+  test(
+      'the SINGLE-SHOT recorder does not inherit the session config — its own '
+      'start() still passes 44.1kHz-default, NS/AEC off (#633)', () async {
+    // Asserted against the REAL RecordPackageVoiceRecorder, not a hand-rolled
+    // literal: a test that re-declares `RecordConfig(...)` locally and checks
+    // the package's defaults would pass unchanged even if the single-shot
+    // recorder were mutated to use the session settings — which is the exact
+    // bleed this test exists to catch.
+    final MockAudioRecorder singleShotPlugin = MockAudioRecorder();
+    when(() => singleShotPlugin.start(any(), path: any(named: 'path')))
+        .thenAnswer((_) async {});
+    when(() => singleShotPlugin.cancel()).thenAnswer((_) async {});
+
+    final RecordPackageVoiceRecorder singleShot =
+        RecordPackageVoiceRecorder(recorder: singleShotPlugin);
+    await singleShot.start();
+
+    final RecordConfig cfg = verify(
+      () => singleShotPlugin.start(captureAny(), path: any(named: 'path')),
+    ).captured.single as RecordConfig;
+
+    expect(cfg.sampleRate, 44100);
+    expect(cfg.noiseSuppress, isFalse);
+    expect(cfg.echoCancel, isFalse);
+    expect(SessionVoiceRecorder.sessionConfig.sampleRate, 16000); // and differs
+
+    await singleShot.cancel();
+  });
+
+  test(
+      'a profiling answer that runs long is clamped to 30s on submit — the '
+      '120s contract cap is never the bound (#634)', () async {
+    DateTime now = DateTime(2026, 8, 7, 10, 0, 0);
+    when(() => plugin.stop()).thenAnswer(
+        (_) async => '${Directory.systemTemp.path}/bb-voice-session-777.m4a');
+
+    final SessionVoiceRecorder recorder =
+        SessionVoiceRecorder(recorder: plugin, clock: () => now);
+    await recorder.start();
+    now = now.add(const Duration(seconds: 40)); // worker rambled past the cap
+    final RecordedClip? clip = await recorder.stop();
+
+    expect(clip, isNotNull);
+    expect(clip!.durationSeconds, 30,
+        reason: 'submit must be ≤30s — never the 40s recorded, never 120s');
+  });
+
+  test('the 30s profiling cap sits under the untouched 120s contract cap (#634)',
+      () {
+    expect(SessionVoiceRecorder.profilingAnswerMaxDuration,
+        const Duration(seconds: 30));
+    // The API-contract mirror is preserved; #634 does not modify the 120s
+    // constant in packages/types|validators.
+    expect(SessionVoiceRecorder.defaultMaxDuration,
+        const Duration(seconds: 120));
+    expect(SessionVoiceRecorder.profilingAnswerMaxDuration.inSeconds,
+        lessThan(SessionVoiceRecorder.defaultMaxDuration.inSeconds),
+        reason: 'the 30s cap must always fire before the 120s guard');
   });
 
   test(

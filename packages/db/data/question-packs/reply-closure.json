@@ -1,0 +1,2178 @@
+{
+  "schema_version": 1,
+  "clip_count": 433,
+  "producers": {
+    "clarify": 150,
+    "why": 143,
+    "prompt": 129,
+    "constant": 7,
+    "retry": 4
+  },
+  "clips": [
+    {
+      "id": "002b632ca4de7f21",
+      "text": "Chip level wale ka rate zyada hai. Kya aap chip level ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "016bf496584744a4",
+      "text": "Har machine ka licence alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "02b98d6bd6f040b7",
+      "text": "Har device ka kaam alag hota hai. Aap kya thik karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "03489806f9f73b91",
+      "text": "Doodh ke kaam me safai zaroori hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0360e9d8b4ff4bfa",
+      "text": "Aap kaunsi dukan par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "039739b68b057e5b",
+      "text": "Engine ka kaam alag rate par hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0470023a8052a232",
+      "text": "Har chinai kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0475071cce3ae8db",
+      "text": "Installation ka kaam alag milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "053f2c388f8a8004",
+      "text": "Machine wale ko badi jagah kaam milta hai. Kya aap safai ki machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "05e86c803712bef8",
+      "text": "Theek hai. Aaram se batayiye, koi jaldi nahi.",
+      "producer": "constant"
+    },
+    {
+      "id": "06bdba1a550388e6",
+      "text": "Machine ka naam employer poochte hain. Aap kaunsi machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "075db7e58945ef13",
+      "text": "Har jagah ka service alag hota hai. Aap kahaan service karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "07693866bb3f9908",
+      "text": "Ghar aur factory ka kaam alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "079d1f2230c997c9",
+      "text": "Naap lena master darzi ka kaam hai. Kya aap naap lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "0801eb8a50f219ec",
+      "text": "Fine kaam wale ka rate zyada hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0822cffd9e9de65a",
+      "text": "Kya aap export line par kaam kar chuke hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "08807e5d64ac3aca",
+      "text": "Kya aap khambe par chadh kar kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "08e58977bcae54ca",
+      "text": "Aap kahaan kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "08f2a3074de52185",
+      "text": "Kya aapke paas bijli ka licence hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "091993e1dc3a72f3",
+      "text": "Pump ka kaam alag se milta hai. Kya aap motor ya pump lagate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "0971591e80e323d2",
+      "text": "Har bakery item ka hunar alag hai. Aap kya banate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "0a838d038ab44683",
+      "text": "Armed guard ka vetan zyada hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0c158b3abbe3294c",
+      "text": "Machine wale ka kaam tez hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0c1590d0395744e7",
+      "text": "Har dukan ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0c15d9e7f5b90aa5",
+      "text": "Aap se vinamra rehne ki request hai. Kaam ki baat karte hain.",
+      "producer": "constant"
+    },
+    {
+      "id": "0c178420e4521aca",
+      "text": "Kya aap lambi duri ja sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "0ca26ed08238bdd1",
+      "text": "Aapke aas-paas ki naukri dikhane ke liye sheher zaroori hai. Abhi aap kaunse sheher mein hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "0da00b5c4e974f4f",
+      "text": "Kya aap overhead welding kar lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "0dd33a1aea0cc1d7",
+      "text": "Har gaadi ka licence alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0dfeb6e82e8aea98",
+      "text": "Site par raat ka kaam aam hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0e3b4513d6c2036c",
+      "text": "Aap kya thik karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "0e438850953e8f00",
+      "text": "Line par target poocha jaata hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0e612e8945e29d09",
+      "text": "Certificate se behtar vetan milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0e9fb9e6db1b117f",
+      "text": "Team sambhalne wale ka rate zyada hai. Kya aap mazdooron ko sambhalte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "0ea23743b172d2d3",
+      "text": "Kya aap dulhan ka makeup karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "0efdec8f405b0973",
+      "text": "Aap plant me kya karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "0f075c882a98a8d9",
+      "text": "Gas charging ek alag hunar hai. Kya aap gas charging karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "0f43e276959d8b42",
+      "text": "Apni gaadi wale ki kamai alag hoti hai. Kya gaadi aapki apni hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "0fdaf128b01465cb",
+      "text": "Kya aap bhaari saman utha sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "1031fb266010059a",
+      "text": "Kya aap unchai par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "10ac5f9b3967210d",
+      "text": "Grahak se baat karne wale alag rakhe jaate hain. Kya aap grahak se baat karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "10d3c044d91947b3",
+      "text": "Grade jaanne wale ko badi site milti hai. Kya aap concrete ka grade jaante hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "11780093039e2c1f",
+      "text": "Aap ek shift me kitne piece karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "147058efd2c57974",
+      "text": "Kya aap soldering kar lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "15f57879954f882d",
+      "text": "Plant me safety zaroori hoti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "1633b3d24e524ebe",
+      "text": "Lambi duri ka paisa alag hota hai. Kya aap lambi duri ja sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "17f6e39c6d40b559",
+      "text": "Kaam ke hisaab se jagah dhoondhte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "191b970c765438c0",
+      "text": "Kitne logon ka khana bana lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "191e8ca3df36fd89",
+      "text": "Unchai wale kaam ka rate zyada hai. Kya aap unchai par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "19c154be871981a2",
+      "text": "Banana aur marammat alag kaam hai.",
+      "producer": "why"
+    },
+    {
+      "id": "19fd567d77b07d38",
+      "text": "Breakdown wale ko turant kaam milta hai. Kya aap breakdown thik karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "1a5bfa8cc6ff4a10",
+      "text": "Banane wali cheez se hunar pata chalta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "1b2167a3f28e1927",
+      "text": "LT aur HT line ka kaam alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "1b4c542192aa43c2",
+      "text": "Aap kaunsi badi gaadi chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "1c1b359ac615917e",
+      "text": "Isse hum aapke kaam ke hisaab se sahi naukri dhoondh sakte hain. Aap kis tarah ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "1d152a0f7aa1a57b",
+      "text": "Plant me shift badalti rehti hai. Kya aap rotating shift kar sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "1dd9dab7e16b0838",
+      "text": "Ghante ke hisaab se vetan tay hota hai. Aap din me kitne ghante kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "1e317552e3084248",
+      "text": "Safedi aur scaffolding alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "1f0d5b9b4fa96188",
+      "text": "Machine ka tajurba employer poochte hain. Aap kaunsi machine par kaam kar chuke hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "1f89f2dab925eaeb",
+      "text": "Isse hum aapke kaam ke hisaab se sahi naukri dhoondh sakte hain. Aap kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "1ffb78ea33c4d7a3",
+      "text": "Pump par kai tarah ke kaam hote hain. Aap pump par kya karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "2276dc17faa6989f",
+      "text": "Kuch naukri ke liye padhai ka record maanga jaata hai. Aapne kahaan tak padhai ki hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "23b2947d851e0207",
+      "text": "Har gaadi ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "23e53f2ca78fb09e",
+      "text": "Billing wale ko counter milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "2478a5edaef078a5",
+      "text": "Aapne kahaan tak padhai ki hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "24d91ccea3955b25",
+      "text": "Har gaadi ka licence alag hota hai. Aap kya chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "25d73544d576dcbd",
+      "text": "Stock wale ko store ka kaam milta hai. Kya aap stock sambhalte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "26621fb095b49ba8",
+      "text": "Chemical wale kaam ki training hoti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "26a141f7f21195d6",
+      "text": "Engine ka kaam alag rate par hota hai. Kya aap engine kholte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "27d03801c8c3ccc7",
+      "text": "Aap in mein se kaun sa kaam karte hain?",
+      "producer": "constant"
+    },
+    {
+      "id": "27e2921340c682d2",
+      "text": "Hath aur machine packing alag hai. Aap kaise packing karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "29d7b854668860c0",
+      "text": "High voltage ka alag rate hota hai. Aap kitne volt tak ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "2a7708d1c20e37d3",
+      "text": "High voltage ka alag rate hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "2ad94248940fac86",
+      "text": "Kya aap motor ya pump lagate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "2af275b3fb9b614a",
+      "text": "Kya aap drawing padh lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "2b2ed8faeacf40a7",
+      "text": "Har dukan ka kaam alag hota hai. Aap kaunsi dukan par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "2b5dda572df653cc",
+      "text": "Season wale kaam ki timing alag hoti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "2ba0145326cb38c3",
+      "text": "Banane wali cheez se hunar pata chalta hai. Aap kya banate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "2ba82175ec6e6c6d",
+      "text": "Kya aap safai ki machine chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "2bd6531e2b42022e",
+      "text": "Aapke paas kaunsa licence hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "2c1393f48e2c10cb",
+      "text": "Aap kaunsi fasal ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "2c7b9f3afb5013a0",
+      "text": "Aap kya assemble karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "2d41b439cd3f5483",
+      "text": "Furniture aur gaadi body alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "2d6d927a69133335",
+      "text": "Rickshaw aur thela alag kaam hai. Aap kya chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "2d9135600ac523e4",
+      "text": "Kya aap plant ki machine chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "2d94c1a885805d0c",
+      "text": "Aap kis tarah ka fitting kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "2e2a56d3893fcada",
+      "text": "Licence wale ko badi jagah kaam milta hai. Kya aapke paas bijli ka licence hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "2eb3c91c5a003736",
+      "text": "Samajh sakta hoon. Aapki baat sahi hai.",
+      "producer": "constant"
+    },
+    {
+      "id": "2ecf3f8855393123",
+      "text": "QC wale ko alag se rakha jaata hai. Kya aap quality check karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "2f1d3961029c3b41",
+      "text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "producer": "why"
+    },
+    {
+      "id": "2f600516d6bdd4da",
+      "text": "Har jagah ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "3067a7e4c25312a1",
+      "text": "Mahine ka kitna milna chahiye?",
+      "producer": "retry"
+    },
+    {
+      "id": "323f7239bc422fdd",
+      "text": "Plant me safety training zaroori hoti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "32789b4bd75862f9",
+      "text": "Chadhne wale ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "32aa231f6eb56524",
+      "text": "Forklift wale ka vetan zyada hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "3350a2cbfd799ab8",
+      "text": "Har badi gaadi ka kaam alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "34d34720d74d5bb2",
+      "text": "Team sambhalne wale ka rate zyada hai.",
+      "producer": "why"
+    },
+    {
+      "id": "3527f189b599f33d",
+      "text": "Kya aap garmi wali jagah kaam kar sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "35de1975b5076b81",
+      "text": "CCTV wale ko control room milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "379634fd24c9fff8",
+      "text": "Kya aap cash sambhalte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "379b0553f23e9c82",
+      "text": "Service ke hisaab se jagah dhoondhte hain. Aap kaunsi service dete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "384662507ca31241",
+      "text": "Stock wale ko godam sambhalne milta hai. Kya aap stock ginte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "389663207a4a0c88",
+      "text": "Furniture aur shuttering alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "39648da74ad7a5e1",
+      "text": "Aap din ki shift chahte hain ya raat ki?",
+      "producer": "prompt"
+    },
+    {
+      "id": "39720ccbae698be6",
+      "text": "Diesel aur petrol ka kaam alag hai. Aap kaunse fuel ki gaadi par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "398400b463ed3333",
+      "text": "Cutting master ka rate alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "398cab60a3d6966b",
+      "text": "Drawing padhna zaroori hai kai jagah.",
+      "producer": "why"
+    },
+    {
+      "id": "3990c08baca6b013",
+      "text": "Abhi aap kaunse sheher mein hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "3a3a4c07193c0c81",
+      "text": "Hathkargha aur power loom alag hai. Aap kaunsa karghah chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "3a47886e08aa9d8e",
+      "text": "Kheti me kai tarah ke kaam hote hain.",
+      "producer": "why"
+    },
+    {
+      "id": "3a63d7a4396571ea",
+      "text": "AC aur fridge ka kaam alag hota hai. Aap kis cheez par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "3c751c32d2659bf1",
+      "text": "Bijli ke kaam me safety zaroori hai.",
+      "producer": "why"
+    },
+    {
+      "id": "3df67ebd161ec97a",
+      "text": "Aap kaunsi gaadi chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "3f3c1edaeac58d61",
+      "text": "Export line ka tajurba zyada maanga jaata hai. Kya aap export line par kaam kar chuke hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "3f621743c8d8204e",
+      "text": "Aapki mehnat samajh aati hai. Thoda aur batayiye.",
+      "producer": "constant"
+    },
+    {
+      "id": "4110788e0572982c",
+      "text": "Aap kaunsa chinai kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "4182e9d84f15f225",
+      "text": "Forklift wale ka vetan zyada hota hai. Kya aap forklift chala lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "41b8f03cbf848ab8",
+      "text": "Aap dairy me kya karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "42a0cb94346f5908",
+      "text": "Aap kaunsa kapda silte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "43f71774dc4cf35f",
+      "text": "Kya aap nayi machine lagate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "43fdf33d7bc0620c",
+      "text": "Gaadi chalane wale ka vetan alag hai. Kya aap kachra gaadi chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "44a8830052ba67d8",
+      "text": "Hath aur machine ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "44ff7d290ed09184",
+      "text": "Kya aap finishing ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "45173536b99f0c57",
+      "text": "Bina licence badi site par kaam nahi milta.",
+      "producer": "why"
+    },
+    {
+      "id": "45492d64966fde2a",
+      "text": "Kya aap koi hunar seekh rahe hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "4549ff8e3874a615",
+      "text": "Design wale ka rate zyada hota hai. Kya aap design bana lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "45e2c31cb7117c83",
+      "text": "Har bakery item ka hunar alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "466616f2fd73914f",
+      "text": "Season wale kaam ki timing alag hoti hai. Kya aap season ke hisaab se kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "46b024a1316ceb93",
+      "text": "Har fasal ka kaam alag hota hai. Aap kaunsi fasal ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "46bbba31b9e8a13c",
+      "text": "Kya aapke paas licence hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "4769976c7a76ff57",
+      "text": "Kya aap quality check karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "47bf9e1d5fe46818",
+      "text": "Naap lena master darzi ka kaam hai.",
+      "producer": "why"
+    },
+    {
+      "id": "483d0b0c9c4ac289",
+      "text": "Billing wale ko counter ka kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "4919f2d3245d0086",
+      "text": "Fitting ke kai tarah hote hain. Aap kis tarah ka fitting kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "49258aae0691c468",
+      "text": "Ghar aur hotel ka kaam alag hota hai. Aap kahaan khana banate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "4b4483662f2d19dd",
+      "text": "Fitting ke kai tarah hote hain.",
+      "producer": "why"
+    },
+    {
+      "id": "4b7b40bfc4dc7322",
+      "text": "Home service ki maang badh rahi hai. Kya aap ghar jaakar service dete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "4d2d96583838f250",
+      "text": "Grade jaanne wale ko badi site milti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "4e52aed1d979a772",
+      "text": "Pump ka kaam alag se milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "4e83dcf832f5c32a",
+      "text": "Design wale ka rate zyada hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "4f89f2fee57b9d27",
+      "text": "Aap kaunsa karghah chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "50d238b27d1713e6",
+      "text": "Kya aap concrete ka grade jaante hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "510fab0c04265dc7",
+      "text": "Har jagah ka service alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "51cfdf2fee1efec8",
+      "text": "Rehne wale ka vetan alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "5218f37e3cce21ee",
+      "text": "Licence bina gaadi ka kaam nahi milta. Kya aapke paas licence hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "52c16683209cf191",
+      "text": "Pump par kai tarah ke kaam hote hain.",
+      "producer": "why"
+    },
+    {
+      "id": "534c0a5816c7c768",
+      "text": "Chemical wale kaam ki training hoti hai. Kya aap chemical se safai karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "5450b933edf75419",
+      "text": "Dairy me kai tarah ke kaam hote hain. Aap dairy me kya karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "54529197467ba4f2",
+      "text": "QC wale ko alag se rakha jaata hai.",
+      "producer": "why"
+    },
+    {
+      "id": "548bca45db06886f",
+      "text": "Oven ke hisaab se kaam milta hai. Aap kaunsa oven chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "5559d7d175e8102b",
+      "text": "Kya aap polish ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5568c594a2fec706",
+      "text": "Overhead welding ka alag rate milta hai. Kya aap overhead welding kar lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "55998ba805e5ce9b",
+      "text": "Har ghar ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "559be5050f452515",
+      "text": "Ghante ke hisaab se vetan tay hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "5688480046b4bee9",
+      "text": "LT aur HT line ka kaam alag hai. Aap kaunsi line par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "580c6706489a864b",
+      "text": "Har fasal ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "581c4d92016b6e07",
+      "text": "Polish alag se paisa deta hai. Kya aap polish ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "58b8cb407f637924",
+      "text": "Mixer aur plant ka kaam alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "5944708c1e43f46b",
+      "text": "Taul wale ko store me kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "59e2fd2d7781105a",
+      "text": "Aap kaunsi machine chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5a8992e83556e96b",
+      "text": "AC aur fridge ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "5ac50db4be1a1972",
+      "text": "Soldering bina board ka kaam nahi hota. Kya aap soldering kar lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "5ae5ac265bfadb5b",
+      "text": "Kya aap machine se silai karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5bbb3afdfd3faff4",
+      "text": "Plant me safety training zaroori hoti hai. Kya aapne safety training li hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "5bcde295a44f7740",
+      "text": "Aap kaunse sheher mein rehte hain?",
+      "producer": "retry"
+    },
+    {
+      "id": "5c64bd6bb2b5a234",
+      "text": "Safedi aur scaffolding alag hai. Aap kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "5d5083090dbecd42",
+      "text": "Aap kya paint karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5d88144e36e7933e",
+      "text": "Machine se kaam tez hota hai. Kya aap machine se silai karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "5dbdaee94d9ada42",
+      "text": "Kya aap engine kholte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5e5804e2386efd72",
+      "text": "Kya aapne beauty ka course kiya hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5e8744f9cd8d92eb",
+      "text": "Kya aap ghar par rehkar kaam kar sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "5febf17aba083517",
+      "text": "Aap kaunse fuel ki gaadi par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "601b7f7c15c16504",
+      "text": "Kai jagah bhaari kaam hota hai. Kya aap bhaari saman utha sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "61040587974d4b99",
+      "text": "Kya aap programme feed kar lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "618a9edd1ef9297b",
+      "text": "Aap kaunsa kachra uthate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "63269c6fc35a3893",
+      "text": "Ghar aur factory ka kaam alag hai. Aap kis tarah ka bijli kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "6376d89f848c3b19",
+      "text": "Cash wale par bharosa chahiye hota hai. Kya aap cash sambhalte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "649b829837dc22be",
+      "text": "Kya aap chip level ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "64da5f6bd4a46305",
+      "text": "Kya aap stock sambhalte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "64fb204a263df711",
+      "text": "Micrometer wale ko fine kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "657bd0b7fdfbe06e",
+      "text": "Is kaam mein aapko kitne saal ho gaye?",
+      "producer": "prompt"
+    },
+    {
+      "id": "660cab3cbd86be31",
+      "text": "Kya aap taul ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "663469a2c470dc01",
+      "text": "PVC aur GI ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "674917c8cfccf94f",
+      "text": "Plant me safety zaroori hoti hai. Kya aapne safety training li hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "67b7218b090c3900",
+      "text": "Programme wale operator ko zyada vetan milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "68cca9462ec037b9",
+      "text": "Licence wale ko badi company rakhti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "6922a94f523e8dc9",
+      "text": "Tool room me drawing zaroori hai.",
+      "producer": "why"
+    },
+    {
+      "id": "698bfe3ab8d95ec1",
+      "text": "Auto electrician ki alag maang hai.",
+      "producer": "why"
+    },
+    {
+      "id": "6a846e2ad54ddece",
+      "text": "Kya aap sheher ke raaste jaante hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "6b7dc2651b1467bd",
+      "text": "Gas, arc, MIG ya TIG mein se kaunsi?",
+      "producer": "retry"
+    },
+    {
+      "id": "6c268c71c7b5d677",
+      "text": "Bhatti ke paas kaam mushkil hota hai. Kya aap garmi wali jagah kaam kar sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "6c4c7eb78b711ac9",
+      "text": "Ghar aur building ka kaam alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "6de0f01be0536359",
+      "text": "Isse hum aapke kaam ke hisaab se sahi naukri dhoondh sakte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "6e23eae90710b760",
+      "text": "Stock wale ko store ka kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "6e24690b6ee024c5",
+      "text": "Apni gaadi wale ki kamai alag hoti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "6e318970f8747257",
+      "text": "Kya aap kachra gaadi chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "6e83af1496ea88e2",
+      "text": "Billing wale ko counter ka kaam milta hai. Kya aap billing kar lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "6e9542f059d89c19",
+      "text": "Kya aap breakdown thik karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "6ee77e63df8b4ceb",
+      "text": "Die aur jig ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "6ffb4d760f47031b",
+      "text": "Ghar aur hotel ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "7074400b44095870",
+      "text": "Kya aap gaadi ki wiring karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "715b9afb0f56cbce",
+      "text": "Aap ek din me kitne piece kar lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "72620660371ffe9f",
+      "text": "Har jagah ki safai alag hoti hai. Aap kahaan safai karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "729b17e60ca6b393",
+      "text": "Har khane ka alag hunar hota hai. Aap kaunsa khana banate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "72c1b647248c47e5",
+      "text": "Masala banane wale ki alag maang hai. Kya aap masala banate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "72e34f00aa77abec",
+      "text": "Kya aap forklift chala lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "73579872d71349cd",
+      "text": "Kaleen aur kapda bunai alag hai. Aap kya bunte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "73ad82524c63eb4a",
+      "text": "Aap pump par kya karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "73f665b8a45aab30",
+      "text": "Kya aap hathiyar wali duty kar sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "7410955ab23cdc8b",
+      "text": "Tajurba dekhkar employer behtar offer dete hain.",
+      "producer": "why"
+    },
+    {
+      "id": "742d319e6b42e301",
+      "text": "Course wale ko parlour jaldi rakhta hai. Kya aapne beauty ka course kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "755cbb615c93f115",
+      "text": "Badi jagah English maangi jaati hai. Kya aap English bol lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "76d231db42516a8e",
+      "text": "Aap kaam kab se shuru kar sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "787a37dfb2a8e266",
+      "text": "Aap kya karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "78cc6a0b0b24438a",
+      "text": "Abhi thodi dikkat aa rahi hai. Ek minute baad dobara bhejiye.",
+      "producer": "constant"
+    },
+    {
+      "id": "78fd6cfb106d4661",
+      "text": "Aap kaunsi welding karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "799df871fe3e85d4",
+      "text": "Kya aap ghar jaakar service dete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "79c9c07b4869c7f2",
+      "text": "Raat wali duty ka paisa zyada hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "79f56a4fff51f5da",
+      "text": "Ghar aur gaadi ka paint alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "7a7899f4a5ae4e52",
+      "text": "Kya aap chemical se safai karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "7a8f2ed92c5a5c0d",
+      "text": "Rehne wale ka vetan alag hota hai. Kya aap ghar par rehkar kaam kar sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "7c5b051373532235",
+      "text": "Finishing se saman ka daam badhta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "7fa1afd7885c903a",
+      "text": "Har kapde ki silai alag hoti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "7fdc3e8ad08449a7",
+      "text": "Die aur jig ka kaam alag hota hai. Aap kya banate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "816ee2a1de2baf3b",
+      "text": "Site par raat ka kaam aam hai. Kya aap raat ki shift kar sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "819df03444416b5c",
+      "text": "Rickshaw aur thela alag kaam hai.",
+      "producer": "why"
+    },
+    {
+      "id": "81a65b104487151e",
+      "text": "Aap kaunse maapne ke auzaar use karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "825e74e61acda6be",
+      "text": "Kya aap masala banate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "829ac65837ada995",
+      "text": "Raaste jaanne wale ko cab kaam milta hai. Kya aap sheher ke raaste jaante hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "82d9cc42c8454740",
+      "text": "Har jagah ka kaam alag hota hai. Aap kahaan loading karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "82f09e1609414cfc",
+      "text": "Micrometer wale ko fine kaam milta hai. Aap kaunse maapne ke auzaar use karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "83575a76a5485452",
+      "text": "Kya aap rotating shift kar sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "83c136e1dd3a65f7",
+      "text": "Aap kis mistri ke saath kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "842fac6c7b915b53",
+      "text": "Kya aap billing machine chala lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "852024c677f73446",
+      "text": "Kya aap gas charging karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "8586edec2b09e8dd",
+      "text": "Kya aap billing kar lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "85b73597b040a6f8",
+      "text": "Seekhne walon ko training wali jagah milti hai. Kya aap koi hunar seekh rahe hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "8605a9f48637f86c",
+      "text": "Aap kya chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "871eef517f4dba25",
+      "text": "Spray ka kaam alag hunar hai. Kya aap spray gun chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "879c42828b42541c",
+      "text": "Aap hath se kaam karte hain ya machine se?",
+      "producer": "prompt"
+    },
+    {
+      "id": "87f7be19114943cd",
+      "text": "Kya aap season ke hisaab se kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "87fda6640eb6521c",
+      "text": "Factory aur site ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "89d7f3e79236a51c",
+      "text": "Har kachre ka kaam alag hota hai. Aap kaunsa kachra uthate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "8ae77cc90d8f82b8",
+      "text": "Har jagah ki duty alag hoti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "8c218b4fa7a40693",
+      "text": "Raaste jaanne wale ko cab kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "8c2443dda053dee0",
+      "text": "Aap kis tarah ka nal kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "8c2baaaf25468152",
+      "text": "Sinchai jaanne wale ki maang hai. Kya aap sinchai ka kaam jaante hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "8c3dc042deff8835",
+      "text": "Kya aapne safai ki training li hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "8ce51ae30a307a93",
+      "text": "Har jagah ki safai alag hoti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "8d4bff300e2b4bc0",
+      "text": "Diesel aur petrol ka kaam alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "8daa89666d47d67b",
+      "text": "Har device ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "8db0290089983a68",
+      "text": "Aap kaunsi machine par kaam kar chuke hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "8dc824bfd23dde76",
+      "text": "Kya aap spray gun chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "8e47bce4b2f5e29a",
+      "text": "Aap mahine ka kitna vetan chahte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "8eee066a7d0bbb95",
+      "text": "Bhatti aur mill ka kaam alag hai. Aap plant me kya karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "8f9464e4f76933e2",
+      "text": "Factory wale safety training wale ko pehle rakhte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "90a0845edc6e4170",
+      "text": "Kya aapke paas apne auzaar hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "90f5cc39c3b8a970",
+      "text": "Factory wale safety training wale ko pehle rakhte hain. Kya aapne safety training li hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "9162a47c2c835819",
+      "text": "Kya aap naap lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "92c019cc888a9950",
+      "text": "Machine wale ko badi jagah kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "93b09973fc18ca28",
+      "text": "Har machine ka kaam alag hota hai. Aap kaunsi machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "93f61ba2285422cd",
+      "text": "Polish alag se paisa deta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "948919d86bb594ae",
+      "text": "Har machine ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "968d415276e0c358",
+      "text": "Breakdown wale ko turant kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "987415f0e1349e95",
+      "text": "Bijli ke kaam me safety zaroori hai. Kya aapne safety training li hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "98dc165375a41667",
+      "text": "Aapke aas-paas ki naukri dikhane ke liye sheher zaroori hai. Aap kaunse sheher mein rehte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "99aa47ab55aa2d69",
+      "text": "Service ke hisaab se jagah dhoondhte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "99addaf8a6e30f77",
+      "text": "Machine wale ko plant me kaam milta hai. Kya aap plant ki machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "99f9021cc603681a",
+      "text": "Machine ka tajurba employer poochte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "9a176133fb0e8db5",
+      "text": "Doodh ke kaam me safai zaroori hai. Kya aapne safai ki training li hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "9a899d1a5e1abe5f",
+      "text": "Machine ka naam employer poochte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "9b08f465f1b94121",
+      "text": "Kya aap kapda cutting karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "9b6bb4b145ce8ce8",
+      "text": "Kya aapke paas welding ka certificate hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "9cc8a65c4efe401c",
+      "text": "Cutting master ka rate alag hota hai. Kya aap kapda cutting karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "9d15d4b24ba624f1",
+      "text": "Bhatti ke paas kaam mushkil hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "9d9a5965ab15d907",
+      "text": "Drawing padhna zaroori hai kai jagah. Kya aap drawing padh lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "9eb2ecc17772d089",
+      "text": "Sahi vetan wali naukri hi dikhayenge. Aap mahine ka kitna vetan chahte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "9f2ef788711094b2",
+      "text": "Aap veg banate hain ya non-veg bhi?",
+      "producer": "prompt"
+    },
+    {
+      "id": "9f609d6e457e345e",
+      "text": "Aapke aas-paas ki naukri dikhane ke liye sheher zaroori hai.",
+      "producer": "why"
+    },
+    {
+      "id": "9f89c3ee6873f815",
+      "text": "Home service ki maang badh rahi hai.",
+      "producer": "why"
+    },
+    {
+      "id": "a01d21acf280bc8f",
+      "text": "Gaadi chalane wale ka vetan alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "a0c010069eaed6c6",
+      "text": "Kya aapke paas guard ka licence hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "a0e6ffad17ff1746",
+      "text": "Badi jagah English maangi jaati hai.",
+      "producer": "why"
+    },
+    {
+      "id": "a10a5e822d9998f7",
+      "text": "Piece rate wali jagah ye poochte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "a1201448053c1ee2",
+      "text": "Licence wale ko badi company rakhti hai. Kya aapke paas guard ka licence hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "a1a235fa11580e95",
+      "text": "Course wale ko parlour jaldi rakhta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "a2471ea03c47a4ac",
+      "text": "Aap kitne volt tak ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "a38a2cc1d77279fb",
+      "text": "Mixer aur plant ka kaam alag hai. Aap kaunsi machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "a4a48fde5c0c4ddb",
+      "text": "Bhatti aur mill ka kaam alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "a4a51c75f8d6ae2f",
+      "text": "Kya aap raat ki duty kar sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "a547c5dcaa250346",
+      "text": "Aap kahaan safai karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "a61ce4780d94cc82",
+      "text": "Aap kya bunte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "a63262e0ed21784b",
+      "text": "Kuch naukri ke liye padhai ka record maanga jaata hai.",
+      "producer": "why"
+    },
+    {
+      "id": "a6eef2e98b7bc02a",
+      "text": "Aap kaunsa oven chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "a764258176c7c562",
+      "text": "Kya gaadi aapki apni hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "a7df40d1365d5d05",
+      "text": "Kai jagah bhaari kaam hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "a8372acbc4d864b3",
+      "text": "Level ka kaam mistri ka hunar hai.",
+      "producer": "why"
+    },
+    {
+      "id": "a84ffdd313d31a8c",
+      "text": "Licence bina gaadi ka kaam nahi milta.",
+      "producer": "why"
+    },
+    {
+      "id": "a862af9cf040d31b",
+      "text": "Aap kya banate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "aa3bbc93ae03556c",
+      "text": "HMV bina badi gaadi nahi chala sakte.",
+      "producer": "why"
+    },
+    {
+      "id": "aaf7da1bacce20ab",
+      "text": "Aap kis cheez par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "ab74a6d42365bb64",
+      "text": "Kya aap English bol lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "abad47c8c357671a",
+      "text": "Kya aap doosre sheher jaa sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "ac3ba12d4d22926a",
+      "text": "Banana aur marammat alag kaam hai. Aap kya karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "adfa0a6cecb85a59",
+      "text": "CCTV wale ko control room milta hai. Kya aap CCTV dekh sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "adff3bf1965b7744",
+      "text": "Billing wale ko counter milta hai. Kya aap billing machine chala lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "aeb1cf1983f81cbd",
+      "text": "Furniture aur shuttering alag hai. Aap kaunsa lakdi kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "aee18e366ee85019",
+      "text": "Unchai wale kaam ka rate zyada hai.",
+      "producer": "why"
+    },
+    {
+      "id": "afaa06fffab6a425",
+      "text": "Hath aur machine packing alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "afc68b13a3a9f694",
+      "text": "Mistri ke hisaab se kaam milta hai. Aap kis mistri ke saath kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "b03157c5f9e3e0f4",
+      "text": "Har kapde ki silai alag hoti hai. Aap kaunsa kapda silte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "b0c97f3f7a510e8b",
+      "text": "Plant me shift badalti rehti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "b1ebb0a46df70fe5",
+      "text": "Employer ko pata hona chahiye ki aap kab mil sakte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "b4c68d0d6c6205d8",
+      "text": "Aap kaunse material par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "b4f0e8b527a62dca",
+      "text": "Aap kahaan guard ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "b589558891771717",
+      "text": "Badi jagah bulk cooking maangi jaati hai.",
+      "producer": "why"
+    },
+    {
+      "id": "b5d029a3347b6f9a",
+      "text": "Dukan wale ko alag tarah ka kaam milta hai. Kya aapki apni dukan hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "b646d46f4d31d612",
+      "text": "Kya aapki apni dukan hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "b68f933fe75da2a6",
+      "text": "Aap kaunsa ghar ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "b6cff971da69c346",
+      "text": "Har machine ka licence alag hota hai. Aap kaunsi machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "b6e8f8ba035818f4",
+      "text": "Taul wale ko store me kaam milta hai. Kya aap taul ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "b9f3e60ea4da0d34",
+      "text": "Kitne saal se ye kaam kar rahe hain?",
+      "producer": "retry"
+    },
+    {
+      "id": "bab777a32cbd0655",
+      "text": "Sahi vetan wali naukri hi dikhayenge. Mahine ka kitna milna chahiye?",
+      "producer": "clarify"
+    },
+    {
+      "id": "bae03890ab34ac43",
+      "text": "Jagah ke hisaab se sahi naukri dikhate hain. Aap kahaan kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "bb34f950d21862c1",
+      "text": "Cash wale par bharosa chahiye hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "bbd6b9d220846759",
+      "text": "Tajurba dekhkar employer behtar offer dete hain. Kitne saal se ye kaam kar rahe hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "bc21aec5c7bfb418",
+      "text": "Aap din me kitne ghante kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "bc5d5d22f942ba77",
+      "text": "Apne auzaar wale ko kaam jaldi milta hai. Kya aapke paas apne auzaar hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "bc84e35f8ff00f7a",
+      "text": "Aap kaunsi line par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "bca52b2c1ecc5460",
+      "text": "Har welding alag hoti hai, isse sahi naukri milti hai. Aap kaunsi welding karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "bd2f304da1df76d1",
+      "text": "Machine wale ko plant me kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "bd61ffc2ab39a7f8",
+      "text": "Certificate se behtar vetan milta hai. Kya aapke paas welding ka certificate hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "bda29800e714fec8",
+      "text": "Oven ke hisaab se kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "bdae268e74ec31c6",
+      "text": "Steel aur aluminium ka kaam alag hota hai. Aap kaunse material par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "be3376ddb4e18224",
+      "text": "Badi jagah bulk cooking maangi jaati hai. Kitne logon ka khana bana lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "be61683c035f7fb5",
+      "text": "Sinchai jaanne wale ki maang hai.",
+      "producer": "why"
+    },
+    {
+      "id": "bed66e51d0bb006e",
+      "text": "Factory aur site ka kaam alag hota hai. Aap factory mein kaam karte hain ya site par?",
+      "producer": "clarify"
+    },
+    {
+      "id": "bf248023554caaed",
+      "text": "Machine wale ka kaam tez hota hai. Kya aap lakdi ki machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "bf85722d5e1a63b5",
+      "text": "Kai jagah sirf veg cook chahiye.",
+      "producer": "why"
+    },
+    {
+      "id": "c086018f44ccf90e",
+      "text": "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
+      "producer": "constant"
+    },
+    {
+      "id": "c1dcfa840b84423a",
+      "text": "Mistri ke hisaab se kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "c1f30db22a3d9d92",
+      "text": "Level ka kaam mistri ka hunar hai. Kya aap level aur sutli se kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "c2dd65ade830a9f0",
+      "text": "Kya aap CCTV dekh sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "c36657493137de7e",
+      "text": "Gas charging ek alag hunar hai.",
+      "producer": "why"
+    },
+    {
+      "id": "c391fa9b9e342493",
+      "text": "Kya aap fine tolerance ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "c3a2781e2730821d",
+      "text": "Dairy me kai tarah ke kaam hote hain.",
+      "producer": "why"
+    },
+    {
+      "id": "c3be509215673483",
+      "text": "Har ghar ka kaam alag hota hai. Aap kaunsa ghar ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "c4771076f2b35ea5",
+      "text": "Har service ka alag hunar hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "c6bfdd6575340071",
+      "text": "HMV bina badi gaadi nahi chala sakte. Aapke paas kaunsa licence hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "c784b76aedaf3ed8",
+      "text": "Aap kaise packing karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "c8cf612abb61a35b",
+      "text": "Finishing se saman ka daam badhta hai. Kya aap finishing ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "c8d69fd6be5b40f4",
+      "text": "Shift ke hisaab se naukri chhaant kar dikhate hain. Aap din ki shift chahte hain ya raat ki?",
+      "producer": "clarify"
+    },
+    {
+      "id": "c99277ee98b7009b",
+      "text": "Kya aap grahak se baat karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "ca465dac1a9ad2d2",
+      "text": "Har jagah ki duty alag hoti hai. Aap kahaan guard ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ca5367ae064e0fc1",
+      "text": "Bina licence badi site par kaam nahi milta. Kya aapke paas licence hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "cb7d9d64c5b01200",
+      "text": "Kya aap design bana lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "cc14b83a81bc5069",
+      "text": "Licence bina gaadi ka kaam nahi milta. Aapke paas kaunsa licence hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "cd3aeff986c531c6",
+      "text": "Kya aap mazdooron ko sambhalte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "cd40c14599644dc2",
+      "text": "Seekhne walon ko training wali jagah milti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "cd6cf956103868ca",
+      "text": "Aap kahaan khana banate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "ce2bc2c7fc635e2b",
+      "text": "Aap kaunsa khana banate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "ce4b0db4c306947b",
+      "text": "Shift ke hisaab se naukri chhaant kar dikhate hain.",
+      "producer": "why"
+    },
+    {
+      "id": "ced94bb42f4feead",
+      "text": "Kaleen aur kapda bunai alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "d00c8826fff7a1a5",
+      "text": "Aap kaunsa kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d020504664c2bbd2",
+      "text": "Tractor wale ko zyada kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "d0cb3c3c10f69ee4",
+      "text": "Har gaadi ka kaam alag hota hai. Aap kaunsi gaadi thik karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d19d57ea9ca00a60",
+      "text": "Kheti me kai tarah ke kaam hote hain. Aap kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d1aa8b052cd6c6f5",
+      "text": "Chip level wale ka rate zyada hai.",
+      "producer": "why"
+    },
+    {
+      "id": "d2114dcd4804016c",
+      "text": "Kya aap sinchai ka kaam jaante hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d307bd88ae564b5c",
+      "text": "Lambi duri ka paisa alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "d374cada09738c91",
+      "text": "PVC aur GI ka kaam alag hota hai. Aap kaunse pipe ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d3d1eb36a674cc08",
+      "text": "Aap kaunsi service dete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d3dd97ebd3671f4a",
+      "text": "Tajurba dekhkar employer behtar offer dete hain. Is kaam mein aapko kitne saal ho gaye?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d44064c98b1c690f",
+      "text": "Aap kis tarah ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d45622b7bb53b8b6",
+      "text": "Aap kis tarah ka bijli kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d5ff946d5cb28216",
+      "text": "Tractor wale ko zyada kaam milta hai. Kya aap tractor chala lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d613e826f1bc08d7",
+      "text": "Tool room me drawing zaroori hai. Kya aap drawing padh lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d63e472dc1e7772b",
+      "text": "Kya aap stock ginte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d63ed09fa5274ca8",
+      "text": "Aap kaunsi gaadi thik karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "d8f7660181858b96",
+      "text": "Armed guard ka vetan zyada hota hai. Kya aap hathiyar wali duty kar sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "dad557fe0976e549",
+      "text": "Kya aapne safety training li hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "dc78002e6b0e17d1",
+      "text": "Kya aap level aur sutli se kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "dd4b966dca039566",
+      "text": "Fine kaam wale ka rate zyada hota hai. Kya aap fine tolerance ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "dd7e7e5fdcc5f857",
+      "text": "Raat wali duty ka paisa zyada hota hai. Kya aap raat ki duty kar sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ddc203639933d3bb",
+      "text": "Doosre sheher mein bhi achhi naukri mil sakti hai. Kya aap doosre sheher jaa sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "de19c1ed4cb5e54e",
+      "text": "Har welding alag hoti hai, isse sahi naukri milti hai. Gas, arc, MIG ya TIG mein se kaunsi?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e0185b5fce786c98",
+      "text": "Har gaadi ka licence alag hota hai. Aap kaunsi gaadi chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e0984aa33a590ce6",
+      "text": "Aap kaunse pipe ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "e09da6c42ba700b0",
+      "text": "Har chinai kaam alag hota hai. Aap kaunsa chinai kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e0e58b0abb222bc9",
+      "text": "Spray ka kaam alag hunar hai.",
+      "producer": "why"
+    },
+    {
+      "id": "e23487511a448209",
+      "text": "Masala banane wale ki alag maang hai.",
+      "producer": "why"
+    },
+    {
+      "id": "e2d62d452a00f168",
+      "text": "Bridal ka paisa sabse zyada hota hai. Kya aap dulhan ka makeup karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e2e7fc0c9caaaa84",
+      "text": "Ghar aur gaadi ka paint alag hai. Aap kya paint karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e30f7ea97325c22b",
+      "text": "Aap factory mein kaam karte hain ya site par?",
+      "producer": "prompt"
+    },
+    {
+      "id": "e4269c9146173fa9",
+      "text": "Stock wale ko godam sambhalne milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "e60226cfc8ab1ad3",
+      "text": "Har khane ka alag hunar hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "e69799f0a3543c3a",
+      "text": "Har service ka alag hunar hota hai. Aap kaunsi service dete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e6d48607b10dbc8d",
+      "text": "Furniture aur gaadi body alag hai. Aap kya banate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e7054a12c3f63a6c",
+      "text": "Employer ko pata hona chahiye ki aap kab mil sakte hain. Aap kaam kab se shuru kar sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e7432626b55ea84c",
+      "text": "Kya aap tractor chala lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "e766822b0dbe5125",
+      "text": "Aap kahaan loading karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "e7a95f1af488f9be",
+      "text": "Export line ka tajurba zyada maanga jaata hai.",
+      "producer": "why"
+    },
+    {
+      "id": "e7ad629a41e33637",
+      "text": "Licence wale ko badi jagah kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "e918aa44af7420cc",
+      "text": "Grahak se baat karne wale alag rakhe jaate hain.",
+      "producer": "why"
+    },
+    {
+      "id": "e953c4108ba089fe",
+      "text": "Installation ka kaam alag milta hai. Kya aap nayi machine lagate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ec4b54421ee627bd",
+      "text": "Sahi vetan wali naukri hi dikhayenge.",
+      "producer": "why"
+    },
+    {
+      "id": "ec62a8ad46b29de5",
+      "text": "Chadhne wale ka kaam alag hota hai. Kya aap khambe par chadh kar kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "eca4635d2d5da4ad",
+      "text": "Doosre sheher mein bhi achhi naukri mil sakti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "ed3e3479232e8d91",
+      "text": "Machine se kaam tez hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "ed40f21f7c0b43c7",
+      "text": "Kya aap raat ki shift kar sakte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "ee0cc162a11b8bfe",
+      "text": "Har product ki line alag hoti hai. Aap kya assemble karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ee4f5f0765b52bb7",
+      "text": "Bridal ka paisa sabse zyada hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "ee5d2174cf147780",
+      "text": "Hathkargha aur power loom alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "efabd886813c0c62",
+      "text": "Aap kahaan service karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "f1db9f33aa56f716",
+      "text": "Kya aap lakdi ki machine chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "f21d39b3c32db933",
+      "text": "Auto electrician ki alag maang hai. Kya aap gaadi ki wiring karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "f2ad05c189a792d0",
+      "text": "Har product ki line alag hoti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "f2f9b6bb7f64fa2e",
+      "text": "Soldering bina board ka kaam nahi hota.",
+      "producer": "why"
+    },
+    {
+      "id": "f323233f1fdcbbc0",
+      "text": "Kaam ke hisaab se jagah dhoondhte hain. Aap kis tarah ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "f40965d0cf92faab",
+      "text": "Programme wale operator ko zyada vetan milta hai. Kya aap programme feed kar lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "f5a1ee2dde513578",
+      "text": "Apne auzaar wale ko kaam jaldi milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "f6b5de62d33ffd95",
+      "text": "Kai jagah sirf veg cook chahiye. Aap veg banate hain ya non-veg bhi?",
+      "producer": "clarify"
+    },
+    {
+      "id": "f774396ac5c284fc",
+      "text": "Ghar aur building ka kaam alag hai. Aap kis tarah ka nal kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "f921ec2949302896",
+      "text": "Aap kaunsa lakdi kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "f9d1d8ac2be0a383",
+      "text": "Dukan wale ko alag tarah ka kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "fbea2298ab35e80f",
+      "text": "Hath aur machine ka kaam alag hota hai. Aap hath se kaam karte hain ya machine se?",
+      "producer": "clarify"
+    },
+    {
+      "id": "fbef9a02192422ba",
+      "text": "Overhead welding ka alag rate milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "fc2ef5e5551ae835",
+      "text": "Har welding alag hoti hai, isse sahi naukri milti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "fca2d7c7306c6b45",
+      "text": "Steel aur aluminium ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "fda15a624e4c3002",
+      "text": "Har badi gaadi ka kaam alag hai. Aap kaunsi badi gaadi chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "fdf773c52c77d43e",
+      "text": "Line par target poocha jaata hai. Aap ek shift me kitne piece karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ff6eab4528653fce",
+      "text": "Har kachre ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "ff8a436324119377",
+      "text": "Piece rate wali jagah ye poochte hain. Aap ek din me kitne piece kar lete hain?",
+      "producer": "clarify"
+    }
+  ]
+}

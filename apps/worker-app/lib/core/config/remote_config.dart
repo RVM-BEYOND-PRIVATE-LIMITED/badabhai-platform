@@ -39,6 +39,12 @@ class BbRemoteConfig {
   /// Hide the "invite a friend" entry point.
   static const String kKeyInviteEntryHidden = 'worker_invite_entry_hidden';
 
+  /// Hide the voice-driven profiling FORM (the whole #627–#639 module). Distinct
+  /// from [kKeyVoiceEntryHidden], which only hides the mic inside the existing
+  /// chat. Compiled default is HIDDEN — the module ships dark and is flipped on
+  /// only once staging validates it.
+  static const String kKeyVoiceFormHidden = 'worker_voice_form_hidden';
+
   /// Non-empty ⇒ show a maintenance notice above the chat composer. The STRING
   /// is the notice, so ops can say what is actually wrong instead of shipping a
   /// build. Worker-facing copy: it must obey the persona rules (aap-form, no
@@ -60,6 +66,10 @@ class BbRemoteConfig {
   /// The invite row is VISIBLE today.
   static const bool kDefaultInviteEntryHidden = false;
 
+  /// The voice-form module is HIDDEN today — it ships dark, behind a staging
+  /// flip. This default is deliberately the opposite of the other kill switches.
+  static const bool kDefaultVoiceFormHidden = true;
+
   /// No maintenance notice is shown today (empty = show nothing).
   static const String kDefaultChatMaintenanceNotice = '';
 
@@ -68,6 +78,23 @@ class BbRemoteConfig {
 
   /// The worker app shows no free-quota line today (empty = show nothing).
   static const String kDefaultFreeQuotaCopy = '';
+
+  /// EVERY remote key with the default its getter falls back to — the single
+  /// source for `setDefaults` AND for the activated snapshot.
+  ///
+  /// A key absent here is invisible to Remote Config no matter how many
+  /// getters reference it: the snapshot never carries it, so `_bool`/`_string`
+  /// return the compiled constant forever and the console parameter is inert.
+  /// A new key belongs in this map, and the fetch path picks it up for free.
+  /// `bool` values are read with `getBool`, everything else with `getString`.
+  static const Map<String, Object> kDefaults = <String, Object>{
+    kKeyVoiceEntryHidden: kDefaultVoiceEntryHidden,
+    kKeyInviteEntryHidden: kDefaultInviteEntryHidden,
+    kKeyVoiceFormHidden: kDefaultVoiceFormHidden,
+    kKeyChatMaintenanceNotice: kDefaultChatMaintenanceNotice,
+    kKeyBoostVisible: kDefaultBoostVisible,
+    kKeyFreeQuotaCopy: kDefaultFreeQuotaCopy,
+  };
 
   /// The activated snapshot, or null until a fetch has succeeded. Read
   /// SYNCHRONOUSLY by widgets, which is why it is a plain map and not a live
@@ -90,6 +117,12 @@ class BbRemoteConfig {
   /// to be paused).
   bool get inviteEntryHidden =>
       _bool(kKeyInviteEntryHidden, kDefaultInviteEntryHidden);
+
+  /// Kill switch (#638): hide the whole voice-form module. Compiled default is
+  /// HIDDEN — when true, the entry chooser never renders and profiling routes
+  /// straight to the existing chat, exactly as it does today.
+  bool get voiceFormHidden =>
+      _bool(kKeyVoiceFormHidden, kDefaultVoiceFormHidden);
 
   /// Maintenance notice for the profiling chat, or '' for "nothing to say".
   String get chatMaintenanceNotice =>
@@ -147,22 +180,19 @@ class BbRemoteConfig {
       // these to stop an active incident, so cache only briefly.
       minimumFetchInterval: const Duration(minutes: 5),
     ));
-    // Seed the plugin with the SAME defaults the getters fall back to, so the
-    // two can never disagree.
-    await rc.setDefaults(<String, Object>{
-      kKeyVoiceEntryHidden: kDefaultVoiceEntryHidden,
-      kKeyInviteEntryHidden: kDefaultInviteEntryHidden,
-      kKeyChatMaintenanceNotice: kDefaultChatMaintenanceNotice,
-      kKeyBoostVisible: kDefaultBoostVisible,
-      kKeyFreeQuotaCopy: kDefaultFreeQuotaCopy,
-    });
+    // ONE source of truth for both halves. They were two hand-maintained
+    // literals, and `worker_voice_form_hidden` shipped in NEITHER — so the
+    // getter always read the compiled default and the console parameter did
+    // nothing at all. Worse, adding it to the snapshot alone would have made
+    // `getBool` return Firebase's static `false` for a parameter no console
+    // defines, flipping the un-validated module VISIBLE on every device that
+    // completed a fetch. Driving both from [kDefaults] makes forgetting one
+    // half unrepresentable.
+    await rc.setDefaults(kDefaults);
     await rc.fetchAndActivate();
     _snapshot = <String, Object>{
-      kKeyVoiceEntryHidden: rc.getBool(kKeyVoiceEntryHidden),
-      kKeyInviteEntryHidden: rc.getBool(kKeyInviteEntryHidden),
-      kKeyChatMaintenanceNotice: rc.getString(kKeyChatMaintenanceNotice),
-      kKeyBoostVisible: rc.getBool(kKeyBoostVisible),
-      kKeyFreeQuotaCopy: rc.getString(kKeyFreeQuotaCopy),
+      for (final MapEntry<String, Object> e in kDefaults.entries)
+        e.key: e.value is bool ? rc.getBool(e.key) : rc.getString(e.key),
     };
   }
 

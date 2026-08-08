@@ -388,6 +388,15 @@ jobs:
       - name: Seed job domains (occupation catalogue)
         run: pnpm --filter @badabhai/db db:seed:domains --apply
 
+      # NORMALIZE BETWEEN THE SEED AND ANY RETRIEVAL — and this ran in NO workflow at all.
+      #
+      # `verify-job-domains.ts` states it plainly: an un-normalized alias is "invisible to L0/L2
+      # retrieval". So CI seeded the catalogue and then exercised an occupation ladder missing its
+      # exact- and trigram-match keys, degrading to whatever still happened to hit — which passes,
+      # just less accurately, which is the worst kind of gap because nothing goes red.
+      - name: Normalize occupation aliases
+        run: pnpm --filter @badabhai/db db:normalize:aliases --apply
+
       - name: Seed question packs
         run: pnpm --filter @badabhai/db db:seed:packs --apply
 
@@ -397,6 +406,13 @@ jobs:
       # pack exists", neither of which a corpus read can prove.
       - name: Verify question packs (db:verify:packs)
         run: pnpm --filter @badabhai/db db:verify:packs
+
+      # The catalogue's own gate, and it ran in no workflow either. It is what turns the
+      # normalize step above from a hopeful extra into a checked one: it fails on aliases that
+      # would be invisible to L0/L2 retrieval, which is the exact degradation nothing else
+      # notices.
+      - name: Verify occupation catalogue (db:verify:domains)
+        run: pnpm --filter @badabhai/db db:verify:domains
 
       # D1 — the Matching V1 match vocabulary. Needed here for TWO reasons, and the second
       # is the load-bearing one:
@@ -452,6 +468,12 @@ jobs:
       #                    skip→apply flip, and cannot tear under two racing applies — is
       #                    a property of Postgres. It uses two connection pools on purpose
       #                    (postgres.js pipelines one pool, which would fake the race).
+      #   * current-profile-order — B-8b, "which `worker_profiles` row IS this worker's
+      #                    profile". Seven readers each answered differently; one had no
+      #                    ORDER BY at all and one had no per-worker dedup, so a
+      #                    re-interviewed worker entered the payer pool twice. Every claim
+      #                    is a property of an ORDER BY / DISTINCT ON, so a fake db can only
+      #                    show the expression is present, never that it evaluates.
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (0000–0059, journal-driven)
@@ -464,7 +486,7 @@ jobs:
       # with no database and must keep skipping these three files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a three-file run cannot meet them.
-      - name: Matching V1 DB gates (rank parity + boost fences + apply freeze)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -473,15 +495,15 @@ jobs:
           # `test -- rank-parity` runs `vitest run -- rank-parity`, where vitest
           # ignores the filter and reruns the whole 2820-test suite. Measured, not
           # assumed — that is what the first push of this branch actually did.
-          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
           #     exit 0 reporting "16 skipped" — precisely how these gates sat green for
           #     their whole life while proving nothing. Assert per FILE, because a
           #     suite-wide "some test passed" check is satisfied by unrelated tests.
-          for f in rank-parity boost-fences apply-freeze; do
-            line=$(grep -E "src/match/${f}\.test\.ts" db-gates.log | head -1 || true)
+          for f in rank-parity boost-fences apply-freeze current-profile-order; do
+            line=$(grep -E "src/(match|profiles)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -498,8 +520,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +3 passed \(3\)' db-gates.log; then
-            echo "::error::Expected exactly the 3 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +4 passed \(4\)' db-gates.log; then
+            echo "::error::Expected exactly the 4 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi

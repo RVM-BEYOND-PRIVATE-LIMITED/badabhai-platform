@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/commo
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
-import { conversationWorkerPrefix } from "@badabhai/validators";
+import { conversationWorkerPrefix, uuidSchema } from "@badabhai/validators";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
@@ -185,6 +185,18 @@ export class AccountDeletionService {
    * silently; the durable record is the `worker.account_deleted` event.
    */
   async execute(workerId: string): Promise<void> {
+    // FAIL CLOSED ON THE ID BEFORE ANY DESTRUCTIVE PREFIX IS BUILT.
+    //
+    // This method now composes THREE storage prefixes from `workerId` — voice,
+    // photos and conversations — and each one deletes everything beneath it.
+    // Their safety currently rests on facts held in other files: the only
+    // caller reads `workers.id` (a `uuid` column), and the `if (!worker)`
+    // guard below rejects an id no row matches. That is true today and cheap
+    // to lose — an admin or DSAR endpoint taking a worker id from a request
+    // body would inherit a raw interpolation into a delete-by-prefix.
+    // `conversationWorkerPrefix` already parses for exactly this reason; this
+    // extends the same guarantee to the other two legs.
+    uuidSchema.parse(workerId);
     const idPrefix = workerId.slice(0, 8);
 
     // Load the worker FIRST so a re-run on an already-deleted worker is a clean no-op (the
@@ -255,6 +267,40 @@ export class AccountDeletionService {
             })`,
           );
         }
+      }
+
+      // …AND THE ORPHANS THE LOOP ABOVE STRUCTURALLY CANNOT SEE.
+      //
+      // `voiceKeys` comes from `SELECT storage_path FROM voice_notes WHERE worker_id = $1`, so it
+      // enumerates audio we hold a ROW for. Upload is two steps: `POST /voice/upload-url` mints a
+      // signed PUT into `voice-notes/{workerId}/{uuid}.m4a`, and a SEPARATE `POST /voice/upload`
+      // inserts the row. A client that completes the PUT and never makes the second call — app
+      // killed, network dropped, or simply choosing not to — leaves raw worker audio in the
+      // bucket that no row points at. That object is invisible to the query, so it survived a
+      // DSAR erasure indefinitely. The DPDP obligation is to erase the worker's personal data,
+      // not the rows we happen to have indexed it by.
+      //
+      // ADDED BESIDE the per-row loop rather than replacing it, which matters: the minted-key
+      // shape guard (`voice.service.ts`) only constrains rows created after it landed, so a
+      // legacy `storage_path` outside `voice-notes/{workerId}/` would stop being erased if the
+      // loop went away. The two sets overlap harmlessly — deleting an already-deleted key is a
+      // no-op, and `deleteByPrefix` returns 0 for an empty prefix.
+      //
+      // This is the same sweep the PHOTO leg below already does, and its comment already gives
+      // the reason. The voice leg simply never got it.
+      try {
+        const orphansDeleted = await this.storage.deleteByPrefix(
+          `voice-notes/${workerId}/`,
+          this.config.VOICE_NOTES_BUCKET,
+        );
+        storageDeleted += orphansDeleted;
+      } catch (err) {
+        storageFailed += 1;
+        this.logger.warn(
+          `account deletion voice-prefix delete failed worker=${idPrefix} (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
       }
     }
 

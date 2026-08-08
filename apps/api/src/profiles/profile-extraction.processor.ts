@@ -152,9 +152,17 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // one — it is what an unreachable ai-service looks like from in here. Opaque job
       // id only, never transcript/PII (§2 no-PII-in-logs).
       if (profileStatus === "draft" && !result.blocked) {
+        // NAMES THE CAUSE WHEN THE CAUSE IS KNOWABLE. This line used to end with "check
+        // ai-service reachability" — an instruction to go and find out, because nothing in
+        // the result could say. `error_code` is that missing field: an outage now logs as an
+        // outage, and a worker who genuinely said nothing logs as exactly that, so the two
+        // stop sharing one warning an operator has to disambiguate by hand.
+        const cause = result.error_code
+          ? `cause=${result.error_code}`
+          : `no error reported — the interview itself produced nothing`;
         this.logger.warn(
           `extraction job ${aiJobId} produced NO extracted content; recorded as "draft" ` +
-            `(re-extractable) instead of "extracted" — check ai-service reachability`,
+            `(re-extractable) instead of "extracted" — ${cause}`,
         );
       }
       const aiMeta = result.ai_metadata; // operational usage/cost (null on the mock/AI-down path)

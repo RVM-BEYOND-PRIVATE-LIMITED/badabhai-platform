@@ -149,6 +149,40 @@ describe("clip identity", () => {
     expect(normalizeReplyText("बात। हो")).toBe("बात। हो");
     expect(normalizeReplyText("a b")).toBe("a b");
   });
+
+  // THE SIX CODEPOINTS THAT USED TO DIVERGE — mirrored one-for-one in
+  // `apps/ai-service/tests/test_reply_closure_parity.py`, because a vector on one side only
+  // proves that side is self-consistent.
+  //
+  // Banning `\s` was half the job. `String.prototype.trim()` and Python's `str.strip()` strip
+  // DIFFERENT sets, measured across the two runtimes this repo actually runs: JS strips U+FEFF
+  // and Python does not; Python strips U+001C..U+001F and U+0085 and JS does not. Neither
+  // built-in is consulted now, so all six survive normalization identically in both languages.
+  //
+  // Written as \u ESCAPES on purpose: a literal BOM or NEL in source is invisible in review and
+  // one reformat away from being silently eaten — which is the same class of accident the vectors
+  // are here to catch.
+  it.each([
+    ["\uFEFFBOM leads", "\uFEFFBOM leads"],
+    ["BOM trails\uFEFF", "BOM trails\uFEFF"],
+    ["\u001Cfile separator", "\u001Cfile separator"],
+    ["\u001Funit separator", "\u001Funit separator"],
+    ["\u0085next line", "\u0085next line"],
+  ])("preserves the edge codepoint that trim() and strip() disagreed about (%#)", (raw, expected) => {
+    expect(normalizeReplyText(raw)).toBe(expected);
+  });
+
+  it("preserves a LEADING non-breaking space, not only an interior one", () => {
+    // The inconsistency the interior-only vector above could never catch: `.trim()` treated NBSP
+    // as whitespace, so it stripped a leading one while the comment beside it declared NBSP
+    // meaningful. Edges and interior now agree.
+    expect(normalizeReplyText("\u00A0nbsp leads")).toBe("\u00A0nbsp leads");
+    expect(normalizeReplyText("nbsp trails\u00A0")).toBe("nbsp trails\u00A0");
+  });
+
+  it("still collapses the runs it IS supposed to, at the edges too", () => {
+    expect(normalizeReplyText("  \t padded \r\n ")).toBe("padded");
+  });
 });
 
 describe("the guards", () => {

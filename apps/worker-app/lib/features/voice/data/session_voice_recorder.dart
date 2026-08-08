@@ -39,24 +39,73 @@ import '../domain/voice_recorder.dart';
 class SessionVoiceRecorder implements VoiceRecorder {
   /// [recorder] is a test seam (the real [AudioRecorder] touches the platform
   /// channel, which throws under `flutter test`). [maxDuration] is the hard cap
-  /// seam; production uses [defaultMaxDuration].
+  /// seam; production uses [profilingAnswerMaxDuration].
   SessionVoiceRecorder({
     AudioRecorder? recorder,
-    Duration maxDuration = defaultMaxDuration,
+    Duration maxDuration = profilingAnswerMaxDuration,
+    DateTime Function()? clock,
   })  : _injected = recorder,
-        _maxDuration = maxDuration;
+        _maxDuration = maxDuration,
+        _clock = clock ?? DateTime.now;
 
-  /// The hard cap — mirrors the API contract's `duration_seconds` ≤ 120. The
-  /// voice form applies a tighter per-answer cap on top (#634).
+  /// The API contract's absolute ceiling (`duration_seconds` ≤ 120), mirrored
+  /// from the 120s constant in packages/types|validators — which #634 does NOT
+  /// modify. Kept only as documentation of the backstop; the 30s profiling cap
+  /// below always fires first, so this is never the bound on a profiling answer.
   static const Duration defaultMaxDuration = Duration(seconds: 120);
+
+  /// Hard cap on a profiling ANSWER (#634) and this recorder's DEFAULT cap. At
+  /// ≤30s Sarvam takes a single sync call (ai-service `stt.py`,
+  /// `SARVAM_SYNC_MAX_SECONDS = 30`) and never enters the chunked path — which
+  /// removes, in one move, the chunked-wave latency ceiling, the 5-chunk cost
+  /// reservation, AND the Devanagari-danda chunk-seam privacy gap entirely,
+  /// because no seams exist. The auto-stop timer arms at this value and the
+  /// submitted `durationSeconds` is clamped to it, so a ≤30s clip is what
+  /// reaches the server, always. The 120s guard sits behind it and never fires.
+  static const Duration profilingAnswerMaxDuration = Duration(seconds: 30);
 
   final AudioRecorder? _injected;
   final Duration _maxDuration;
+
+  /// Time source for per-answer duration accounting — a test seam so the 30s
+  /// clamp is assertable without wall-clock waits. Clip file names and the
+  /// stale-sweep cutoff deliberately stay on real time (uniqueness + hygiene).
+  final DateTime Function() _clock;
 
   /// LAZY: constructing [AudioRecorder] performs a platform-channel call, so it
   /// must not run at DI-wiring time.
   AudioRecorder? _recorder;
   AudioRecorder get _rec => _recorder ??= _injected ?? AudioRecorder();
+
+  /// The session-only capture config (#633). Deliberately distinct from the
+  /// single-shot [RecordPackageVoiceRecorder]'s config, which stays untouched.
+  ///
+  ///  - **16 kHz / 24 kbps** — the right sample rate for speech ASR (saarika) and
+  ///    ~5× fewer bytes than the 44.1 kHz default; a 45s clip is ~135 KB vs
+  ///    ~700 KB, which matters a great deal on 2G.
+  ///  - **noiseSuppress + echoCancel** — the mic stays warm across the whole
+  ///    session while TTS plays the next question; AEC keeps that prompt out of
+  ///    the answer, NS cleans factory-floor hum.
+  ///  - **autoGain: false — load-bearing.** AGC compresses exactly the dynamic
+  ///    range the silence endpointer (#626) thresholds on; with it on, the
+  ///    pre-flight noise floor is no longer comparable to in-answer amplitudes
+  ///    and auto-advance breaks quietly. Leave it OFF.
+  ///  - **pauseResume** — auto-pause/resume around phone-call interruptions so a
+  ///    mid-answer call doesn't strand the recorder stopped.
+  ///  - **voiceRecognition** source — Android's speech-tuned capture path.
+  static const RecordConfig sessionConfig = RecordConfig(
+    encoder: AudioEncoder.aacLc,
+    numChannels: 1,
+    sampleRate: 16000,
+    bitRate: 24000,
+    noiseSuppress: true,
+    echoCancel: true,
+    autoGain: false,
+    audioInterruption: AudioInterruptionMode.pauseResume,
+    androidConfig: AndroidRecordConfig(
+      audioSource: AndroidAudioSource.voiceRecognition,
+    ),
+  );
 
   /// `session-` in the name is deliberate and load-bearing: it keeps this
   /// recorder's clips in a namespace disjoint from [RecordPackageVoiceRecorder]
@@ -113,12 +162,9 @@ class SessionVoiceRecorder implements VoiceRecorder {
     final String path =
         '${Directory.systemTemp.path}${Platform.pathSeparator}'
         'bb-voice-session-${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _rec.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
-      path: path,
-    );
+    await _rec.start(sessionConfig, path: path);
     _activePath = path;
-    _startedAt = DateTime.now();
+    _startedAt = _clock();
     _autoStopTimer = Timer(_maxDuration, () {
       _autoStopped = _finishStop(cappedAtMax: true);
     });
@@ -182,7 +228,7 @@ class SessionVoiceRecorder implements VoiceRecorder {
     final int maxSeconds = _maxDuration.inSeconds;
     int seconds = cappedAtMax
         ? maxSeconds
-        : DateTime.now().difference(startedAt).inSeconds;
+        : _clock().difference(startedAt).inSeconds;
     if (seconds < 1) seconds = 1;
     if (seconds > maxSeconds && maxSeconds >= 1) seconds = maxSeconds;
     return RecordedClip(path: path, durationSeconds: seconds);
