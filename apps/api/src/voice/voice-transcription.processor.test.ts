@@ -15,6 +15,14 @@ const JOB = {
   requestId: "req-1",
 } satisfies VoiceTranscriptionJobData;
 
+/** The `voice_notes` row for [JOB] — the AUTHORITY for storage path, owner and duration. */
+const ROW = {
+  id: JOB.voiceNoteId,
+  workerId: JOB.workerId,
+  storagePath: JOB.storagePath,
+  durationSeconds: JOB.durationSeconds,
+};
+
 const MOCK_TRANSCRIPT = "main vmc operator hoon";
 const MOCK_ENGLISH = "i am a vmc operator";
 
@@ -31,16 +39,27 @@ function make(
     findById?: unknown;
     transcribeThrows?: boolean;
     /** The `voice_notes` row as it stands when the attempt starts. */
-    note?: { transcriptText: string | null } | undefined;
+    note?: Record<string, unknown> | undefined;
     /** A degraded adapter result: an empty transcript that SAYS why it is empty. */
     errorCode?: string;
   } = {},
 ) {
   const voice = {
     setTranscript: vi.fn().mockResolvedValue(undefined),
-    // Defaults to a row with NO transcript — i.e. this audio has not been paid for yet.
+    // Defaults to a row with NO transcript — i.e. this audio has not been paid for yet — in
+    // the REAL row shape: transcription now reads storage_path,
+    // worker_id and duration from here rather than from the job payload, so a
+    // fixture missing them is a fixture that cannot pass the ownership guard.
     findById: vi.fn().mockResolvedValue(
-      opts.note === undefined ? { id: JOB.voiceNoteId, transcriptText: null } : opts.note,
+      opts.note === undefined
+        ? {
+            id: JOB.voiceNoteId,
+            workerId: JOB.workerId,
+            storagePath: JOB.storagePath,
+            durationSeconds: JOB.durationSeconds,
+            transcriptText: null,
+          }
+        : opts.note,
     ),
   };
   const aiJobs = {
@@ -221,7 +240,7 @@ describe("VoiceTranscriptionProcessor", () => {
     // completion emit throwing, the worker being killed between the two.
     const { proc, voice, aiJobs, ai } = make({
       findById: { status: "running" },
-      note: { transcriptText: MOCK_TRANSCRIPT },
+      note: { ...ROW, transcriptText: MOCK_TRANSCRIPT },
     });
 
     const res = await proc.process(makeJob({ attemptsMade: 1, attempts: 3 }));
@@ -235,7 +254,7 @@ describe("VoiceTranscriptionProcessor", () => {
   it("treats an EMPTY stored transcript as already paid for, not as absent", async () => {
     // Compared against null explicitly, never truthiness. An empty string is a real transcript
     // (the worker said nothing) and it cost exactly as much as a full one.
-    const { proc, ai, aiJobs } = make({ findById: { status: "running" }, note: { transcriptText: "" } });
+    const { proc, ai, aiJobs } = make({ findById: { status: "running" }, note: { ...ROW, transcriptText: "" } });
 
     await proc.process(makeJob({ attemptsMade: 1, attempts: 3 }));
 
@@ -290,5 +309,91 @@ describe("VoiceTranscriptionProcessor — the BullMQ adapter, and only that", ()
     const transcribe = vi.fn().mockRejectedValue(new Error("transcription degraded: x"));
     const proc = new VoiceTranscriptionProcessor({ transcribe } as never);
     await expect(proc.process(makeJob())).rejects.toThrow("transcription degraded");
+  });
+});
+
+describe("VoiceTranscriptionService — the ROW owns the audio, not the payload (#686)", () => {
+  const OTHER_WORKER = "99999999-9999-4999-8999-999999999999";
+
+  it("REFUSES a payload naming another worker: no provider call, no write, no event", async () => {
+    // The IDOR the export opens up. Authorization lives in VoiceService today; the moment a
+    // second (request-path) caller exists, a caller who can name someone else's
+    // voice_note_id would otherwise have that audio fetched, billed to them, and the
+    // transcript written onto a row of their choosing.
+    const { service:svc, ai, voice, aiJobs, events } = make({
+      note: { ...ROW, workerId: OTHER_WORKER, transcriptText: null },
+    });
+
+    await expect(svc.transcribe(JOB, { terminal: true })).rejects.toThrow(
+      /does not belong/i,
+    );
+
+    expect(ai.transcribe).not.toHaveBeenCalled(); // nothing fetched, nothing billed
+    expect(voice.setTranscript).not.toHaveBeenCalled(); // nothing written
+    expect(aiJobs.markRunning).not.toHaveBeenCalled();
+    // The guard sits BEFORE the try, so a refused call must not stamp a terminal
+    // failure onto a job it was never entitled to touch.
+    expect(aiJobs.markFailed).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("the refusal message names no ids — it must not confirm whose note it is", async () => {
+    const { service:svc } = make({ note: { ...ROW, workerId: OTHER_WORKER, transcriptText: null } });
+
+    const err = await svc.transcribe(JOB, { terminal: true }).catch((e: unknown) => e);
+    const message = err instanceof Error ? err.message : String(err);
+
+    expect(message).not.toContain(OTHER_WORKER);
+    expect(message).not.toContain(JOB.voiceNoteId);
+    expect(message).not.toContain(JOB.storagePath);
+  });
+
+  it("a missing row fails closed rather than transcribing the payload's path", async () => {
+    const { service:svc, ai } = make({ note: null as never });
+
+    await expect(svc.transcribe(JOB, { terminal: true })).rejects.toThrow(/not found/i);
+    expect(ai.transcribe).not.toHaveBeenCalled();
+  });
+
+  it("reads storage_path, duration and worker_ref from the ROW, ignoring the payload",
+    async () => {
+      // A payload that disagrees with the row on everything EXCEPT the owner — the guard
+      // passes, and the provider call must still be driven entirely by the row.
+      const { service:svc, ai } = make({
+        note: {
+          ...ROW,
+          storagePath: "worker/sess/REAL.ogg",
+          durationSeconds: 7,
+          transcriptText: null,
+        },
+      });
+
+      await svc.transcribe(
+        { ...JOB, storagePath: "attacker/OTHER.ogg", durationSeconds: 999 },
+        { terminal: false },
+      );
+
+      expect(ai.transcribe).toHaveBeenCalledWith(
+        expect.objectContaining({
+          storage_path: "worker/sess/REAL.ogg",
+          duration_seconds: 7,
+          worker_ref: JOB.workerId,
+        }),
+      );
+    });
+
+  it("still transcribes normally when the payload agrees with the row", async () => {
+    // The guard must not break the queue path, whose payload is built from the row anyway.
+    const { service:svc, ai, voice } = make();
+
+    await svc.transcribe(JOB, { terminal: false });
+
+    expect(ai.transcribe).toHaveBeenCalledTimes(1);
+    expect(voice.setTranscript).toHaveBeenCalledWith(
+      JOB.voiceNoteId,
+      MOCK_TRANSCRIPT,
+      0.9,
+      MOCK_ENGLISH,
+    );
   });
 });

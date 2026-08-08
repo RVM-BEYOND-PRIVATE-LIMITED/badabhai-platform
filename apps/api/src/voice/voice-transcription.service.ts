@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { EventsService } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
 import { AiJobsRepository } from "../profiles/ai-jobs.repository";
@@ -53,8 +53,6 @@ export class VoiceTranscriptionService {
     const {
       voiceNoteId,
       workerId,
-      storagePath,
-      durationSeconds,
       languageCode,
       aiJobId,
       correlationId,
@@ -83,7 +81,44 @@ export class VoiceTranscriptionService {
     // legitimate transcript (the worker said nothing into the mic) and it cost exactly as much
     // as a full one.
     const note = await this.voice.findById(voiceNoteId);
-    if (note?.transcriptText !== null && note?.transcriptText !== undefined) {
+
+    // THE ROW IS THE AUTHORITY ON WHOSE AUDIO THIS IS — not the payload.
+    //
+    // `storage_path` is the argument that decides WHICH BYTES get fetched and sent to the
+    // provider, and `worker_id` decides whose budget pays and whose id rides the event. Taking
+    // either from the caller means a caller who can name another worker's `voice_note_id` can
+    // have that worker's audio transcribed, billed to them, and the transcript written onto a
+    // row of the attacker's choosing — readable afterwards through `GET /voice/:id`.
+    //
+    // That is unreachable through the queue, whose only producer is
+    // `VoiceService.requestTranscription` (it 404s on `note.workerId !== workerId`). But the
+    // stated purpose of exporting this service is a SECOND, synchronous caller on the request
+    // path, where ids naturally come from the request. Authorization that lives only in one
+    // caller stops being authorization the moment there are two, so it lives here — the row is
+    // already loaded for the already-paid guard below, which makes this nearly free.
+    //
+    // Guards sit BEFORE the try: a rejected call must not write `markFailed` or emit a
+    // `transcription_failed` against a job it was never entitled to touch.
+    if (!note) {
+      throw new NotFoundException(`voice note ${voiceNoteId} not found`);
+    }
+    if (note.workerId !== workerId) {
+      // No ids in the message — this is reachable from a request path, and the response must
+      // not confirm whose note it is. The log below carries prefixes for the audit trail.
+      this.logger.warn(
+        `transcription REFUSED: job ${aiJobId} claims worker ${workerId.slice(0, 8)}… for a ` +
+          `voice note owned by ${note.workerId.slice(0, 8)}…`,
+      );
+      throw new ForbiddenException("voice note does not belong to this worker");
+    }
+
+    // Everything downstream reads the ROW, so the payload cannot influence which audio is
+    // fetched, how long it is billed as, or whose budget pays.
+    const storagePath = note.storagePath;
+    const ownerId = note.workerId;
+    const durationSeconds = note.durationSeconds;
+
+    if (note.transcriptText !== null && note.transcriptText !== undefined) {
       this.logger.log(
         `voice note ${voiceNoteId} already carries a transcript; completing job ${aiJobId} ` +
           `without a second provider call`,
@@ -103,7 +138,7 @@ export class VoiceTranscriptionService {
         // Opaque UUID (PII-free) — attributes real STT chunk spend (D-2: a 120s
         // note is up to 5 provider calls) to this worker's TD27 per-user daily
         // budget, same as chat/extraction/resume already do.
-        worker_ref: workerId,
+        worker_ref: ownerId,
       });
 
       // A DEGRADED RESULT IS A FAILURE, AND IT USED TO BE RECORDED AS A SUCCESS.
@@ -146,7 +181,7 @@ export class VoiceTranscriptionService {
         subject: { subject_type: "voice_note", subject_id: voiceNoteId },
         payload: {
           voice_note_id: voiceNoteId,
-          worker_id: workerId,
+          worker_id: ownerId,
           ai_job_id: aiJobId,
           transcript_confidence: result.confidence,
           transcript_length: result.transcript_text.length,
@@ -170,7 +205,7 @@ export class VoiceTranscriptionService {
           event_name: "voice_note.transcription_failed",
           actor: { actor_type: "system" },
           subject: { subject_type: "ai_job", subject_id: aiJobId },
-          payload: { voice_note_id: voiceNoteId, worker_id: workerId, ai_job_id: aiJobId, reason },
+          payload: { voice_note_id: voiceNoteId, worker_id: ownerId, ai_job_id: aiJobId, reason },
           // One terminal failure per job (final attempt). Shares the key namespace
           // with the enqueue-failure emit in VoiceService — mutually exclusive.
           idempotencyKey: `voice_note.transcription_failed:${aiJobId}`,
