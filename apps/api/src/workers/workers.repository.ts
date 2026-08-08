@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import {
+  CURRENT_PROFILE_ORDER,
   type Database,
   workers,
   workerProfiles,
@@ -48,9 +49,12 @@ export class WorkersRepository {
       .select()
       .from(workerProfiles)
       .where(inArray(workerProfiles.workerId, ids))
-      .orderBy(desc(workerProfiles.createdAt));
+      .orderBy(...CURRENT_PROFILE_ORDER);
 
-    // First row per worker is the latest (rows are ordered created_at desc).
+    // First row per worker is that worker's CURRENT profile, because the rows arrive in
+    // `CURRENT_PROFILE_ORDER` — the same order `latestProfile` resolves one worker with. The
+    // ops console showing a different profile than `GET /workers/me/profile` for the same
+    // worker was one of the symptoms.
     const latestByWorker = new Map<string, WorkerProfile>();
     for (const p of profileRows) {
       if (!latestByWorker.has(p.workerId)) latestByWorker.set(p.workerId, p);
@@ -268,12 +272,19 @@ export class WorkersRepository {
     return rows[0];
   }
 
+  /**
+   * The worker's CURRENT profile — `CURRENT_PROFILE_ORDER`, not merely the newest row.
+   *
+   * The rename would be honest but the name is load-bearing at four call sites, so the
+   * behaviour moved and the name did not: this used to return whichever row was written last,
+   * which after an AI-down extraction is an EMPTY placeholder shadowing a real profile.
+   */
   async latestProfile(workerId: string): Promise<WorkerProfile | undefined> {
     const rows = await this.db
       .select()
       .from(workerProfiles)
       .where(eq(workerProfiles.workerId, workerId))
-      .orderBy(desc(workerProfiles.createdAt))
+      .orderBy(...CURRENT_PROFILE_ORDER)
       .limit(1);
     return rows[0];
   }

@@ -1,6 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, eq, isNull } from "drizzle-orm";
-import { type Database, workerProfiles, workers, jobs, type JobNeededBy } from "@badabhai/db";
+import {
+  CURRENT_PROFILE_ORDER,
+  type Database,
+  workerProfiles,
+  workers,
+  jobs,
+  type JobNeededBy,
+} from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import type { WorkerProfileSignalRow } from "./reach.mappers";
 
@@ -73,19 +80,39 @@ export class ReachRepository {
    */
   async listSignalRows(): Promise<WorkerProfileSignalRow[]> {
     const rows = await this.db
-      .select(ReachRepository.SIGNAL_COLUMNS)
+      // ONE ROW PER WORKER, and it was not one before. `worker_profiles` carries a row per
+      // extraction job and nothing constrains a worker to one, so this read — which had
+      // neither dedup nor ordering — put a re-interviewed worker into the payer applicant pool
+      // TWICE and counted him twice in PACE supply. That silently contradicted this
+      // repository's own "count in == count out over the eligible pool stays structural"
+      // claim: the pool was larger than the population it described.
+      //
+      // DISTINCT ON is the right tool rather than a GROUP BY or a TS-side dedup: it keeps the
+      // whole thing one query over the same projection, and it lets `CURRENT_PROFILE_ORDER`
+      // decide WHICH of the worker's rows survives — so the row a payer ranks is the same row
+      // `GET /workers/me/profile` shows him. Postgres requires the DISTINCT ON expression to
+      // lead the ORDER BY; the ranking tail follows it.
+      .selectDistinctOn([workerProfiles.workerId], ReachRepository.SIGNAL_COLUMNS)
       .from(workerProfiles)
       .innerJoin(workers, eq(workerProfiles.workerId, workers.id))
-      .where(isNull(workers.deletionScheduledAt));
+      .where(isNull(workers.deletionScheduledAt))
+      .orderBy(workerProfiles.workerId, ...CURRENT_PROFILE_ORDER);
     return rows;
   }
 
-  /** One worker's signal row (View B), or `undefined` if it has no profile. */
+  /**
+   * One worker's signal row (View B), or `undefined` if it has no profile.
+   *
+   * The `LIMIT 1` here previously had NO `ORDER BY`, so which of a worker's profiles a payer
+   * saw was whatever the planner emitted first — not merely wrong, but capable of changing
+   * between two identical requests as the table grew or was vacuumed.
+   */
   async findSignalRowByWorkerId(workerId: string): Promise<WorkerProfileSignalRow | undefined> {
     const rows = await this.db
       .select(ReachRepository.SIGNAL_COLUMNS)
       .from(workerProfiles)
       .where(eq(workerProfiles.workerId, workerId))
+      .orderBy(...CURRENT_PROFILE_ORDER)
       .limit(1);
     return rows[0];
   }
