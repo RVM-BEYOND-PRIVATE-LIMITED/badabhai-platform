@@ -947,16 +947,32 @@ and that the latency histogram counted every turn.
 | Per-profile AI cost ≤ ₹15 | Needs real provider spend | `ai_jobs.cost_inr` for `profile_extraction` |
 | Family precision ≥ 0.97 | **Met on the gold set: 98.2%**, and armed in CI | `pnpm db:eval:occupation` |
 
-**Two deferrals, logged rather than dropped.**
+**Both carried deferrals CLOSED in this phase.**
 
-- **`MAX_OCCUPATION_REPINS` stays at zero re-pins** (stricter than risk #12's 1). Phase 8 deferred this to
-  "Phase 9, with real utterances to judge against" — and those are precisely what does not exist.
-  Nothing in the engine yet distinguishes "I changed trades" from "I mentioned a second machine", and
-  choosing a threshold without evidence is guessing at a behaviour that silently discards a worker's
-  pack. *Owner: joint. Blocked on: production utterances.*
-- **`docs/architecture/overview.md` and `AI-PROFILING-ARCHITECTURE-STATUS.md` do not exist** in this
-  repository (`docs/` holds `sprint-plans/`, `adr/`, `registers/`). ADR-0038 was written in Phase 8
-  instead. Creating a whole architecture overview is not this plan's scope. *Owner: joint, separate PR.*
+- **`MAX_OCCUPATION_REPINS = 1`, exactly as risk #12 specifies.** Phase 8 shipped zero re-pins and
+  deferred this to "Phase 9, with real utterances to judge against". The re-read that closed it: what
+  needed utterances was picking a *confidence threshold* — and the guard does not need a new one. Two
+  conditions, both reusing thresholds the ladder already calibrates: the match must be `auto` (clearing
+  AUTO_FLOOR **and** AUTO_MARGIN at family level) **and** on a **different family**. Together they are
+  the distinction Phase 8 said was missing between "I changed trades" and "I mentioned a second
+  machine": naming a second machine inside your own trade does not produce a confident, well-separated
+  match on a different family, and comparing job *domains* instead would fire on the "Welder, Gas" vs
+  "Welder, Electric" coin flip and swap the pack for the one the interview already had.
+  A re-pin **never discards an answer** — only `unanswered` records, so the new pack's questions arrive
+  fresh — and never refunds `engineAsks`, which is what guarantees termination.
+- **`docs/architecture/overview.md` written.** It did not exist; nor does `AI-PROFILING-ARCHITECTURE-STATUS.md`,
+  and no directory named in the Phase 8 bullet existed either. Rather than treat "the file is missing"
+  as "the deliverable is out of scope", the overview is now written for the profiling path
+  specifically — deliberately not a whole-platform document, because one that claims to describe
+  everything goes stale faster than anyone repairs it. `AI-PROFILING-ARCHITECTURE-STATUS.md` is
+  **not** recreated: it was a status snapshot of a design this plan superseded, and ADR-0038 plus this
+  overview carry everything it would have said. *Logged as consciously dropped, not missed.*
+
+**One latent defect found while closing the second.** `docs/registers/` does not exist in the
+repository, and both growth runners wrote their packet with a bare `writeFileSync` — an ENOENT on any
+fresh checkout, reading as a broken script rather than "run me first". Both now `mkdirSync` recursively,
+and `growth-occupation.ts` was re-anchored to `__dirname` to match `growth-cluster.ts`: a cwd-relative
+path silently writes a different packet depending on whether you run from the repo root or `packages/db`.
 
 ---
 

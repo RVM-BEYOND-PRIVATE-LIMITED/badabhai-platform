@@ -50,7 +50,7 @@
  *   (DATABASE_URL from env/.env; AI_SERVICE_URL defaults to http://localhost:8000;
  *    GROWTH_REPORT_PATH overrides the packet location.)
  */
-import { copyFileSync, existsSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { config } from "dotenv";
@@ -547,6 +547,10 @@ async function main(): Promise<void> {
       console.log(`[growth] previous packet backed up → ${backupPath}`);
     }
     const packet = renderPacket(new Date().toISOString(), partial, sections);
+    // `docs/registers/` is not in the repo until a packet is committed, and a bare write into
+    // a missing directory is an ENOENT that reads like a broken script rather than "run me
+    // first". Recursive, so it is a no-op once the directory exists.
+    mkdirSync(path.dirname(reportPath), { recursive: true });
     writeFileSync(reportPath, packet, "utf8");
     console.log(`[growth] packet written → ${reportPath}${partial ? " (PARTIAL)" : ""}`);
 

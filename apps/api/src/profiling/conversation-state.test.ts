@@ -75,6 +75,8 @@ const FULL: ProfilingEnvelope = {
   // Every bucket distinct and non-zero, for the same reason as every other field here: a
   // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.
   turnLatency: { le_100: 4, le_200: 3, le_400: 2, le_800: 1, gt_800: 5, max_ms: 1234 },
+  occupationFamilyId: "fam_welding",
+  occupationRepins: 1,
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {
