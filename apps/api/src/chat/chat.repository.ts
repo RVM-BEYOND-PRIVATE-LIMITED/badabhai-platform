@@ -9,6 +9,7 @@ import {
   type ChatMessage,
   type NewChatMessage,
   type NewWorkerPackAnswer,
+  type WorkerPackAnswer,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -77,6 +78,27 @@ export class ChatRepository {
    * NO `.returning()`. Nothing needs the ids, and returning twelve rows across the transaction
    * boundary is bytes spent on the path where the worker is waiting for their closing reply.
    */
+  /**
+   * The settled answers for one session, in the order they were answered.
+   *
+   * THE REVIEW SCREEN'S SOURCE, and it has to be this one rather than the Redis envelope.
+   * Measured live: the engine closing the interview triggers the flush, and the flush drops the
+   * Redis key the moment its transaction commits — so by the time a worker reaches a review
+   * screen that exists precisely to be shown AFTER the last question, the envelope is gone. The
+   * first live run returned `rows: 0` against twelve rows sitting in this table.
+   *
+   * Session-scoped rather than worker-scoped: `wpa_worker_question_uq` means a re-interview
+   * UPDATES the same row, so filtering by worker would show a worker their answers from a
+   * previous session as if they had just given them.
+   */
+  async listPackAnswers(sessionId: string): Promise<WorkerPackAnswer[]> {
+    return this.db
+      .select()
+      .from(workerPackAnswers)
+      .where(eq(workerPackAnswers.chatSessionId, sessionId))
+      .orderBy(workerPackAnswers.answeredAt);
+  }
+
   async insertPackAnswers(tx: Tx, rows: NewWorkerPackAnswer[]): Promise<void> {
     if (rows.length === 0) return;
     await tx

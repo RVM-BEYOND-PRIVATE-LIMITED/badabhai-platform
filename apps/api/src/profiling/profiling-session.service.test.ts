@@ -92,6 +92,8 @@ function makeWorld(
     view?: SessionView | null;
     outcome?: ChatTurnOutcome;
     opened?: TurnResult;
+    /** `worker_pack_answer` rows, as the flush leaves them. */
+    flushed?: Record<string, unknown>[];
     transcribed?:
       | { ok: true; text: string; durationSeconds: number | null }
       | { ok: false; errorCode: string };
@@ -103,6 +105,7 @@ function makeWorld(
   const chat = {
     findSession: vi.fn(async () => session),
     findLatestSessionByWorker: vi.fn(async () => opts.latest ?? undefined),
+    listPackAnswers: vi.fn(async () => opts.flushed ?? []),
   };
   const chatService = {
     startSession: vi.fn(async () => ({ session_id: OTHER_SESSION })),
@@ -636,5 +639,101 @@ describe("a spoken answer", () => {
 
     await expect(service.answer(INTRUDER, spoken(), CTX)).rejects.toBeInstanceOf(NotFoundException);
     expect(transcription.transcribeNow).not.toHaveBeenCalled();
+  });
+});
+
+describe("the review reads what SURVIVED the interview, not what is still in Redis", () => {
+  const FLUSHED = [
+    {
+      questionKey: "q_city",
+      status: "answered",
+      answerText: "Pune",
+      answerNumber: null,
+      answerBool: null,
+      answerOptionKeys: null,
+    },
+    {
+      questionKey: "q_cert",
+      status: "declined",
+      answerText: null,
+      answerNumber: null,
+      answerBool: null,
+      answerOptionKeys: null,
+    },
+    {
+      questionKey: "q_safety",
+      status: "answered",
+      answerText: null,
+      answerNumber: null,
+      answerBool: true,
+      answerOptionKeys: null,
+    },
+    {
+      questionKey: "q_material",
+      status: "answered",
+      answerText: null,
+      answerNumber: null,
+      answerBool: null,
+      answerOptionKeys: ["mild_steel", "stainless"],
+    },
+  ];
+
+  it("reads the FLUSHED rows — the envelope is gone by the time the review is shown", async () => {
+    // THE DEFECT THIS PINS, found by running the product: the engine closing the interview
+    // triggers the flush, and the flush drops the Redis key the instant its transaction commits.
+    // A review built from the envelope therefore returned ZERO rows at exactly the moment the
+    // review exists for — measured live against twelve durable `worker_pack_answer` rows.
+    const { service } = makeWorld({
+      view: null,
+      session: { id: SESSION, workerId: WORKER, status: "ended" },
+      flushed: FLUSHED,
+    });
+
+    const result = await service.review(WORKER, SESSION);
+
+    expect(result.rows).toHaveLength(4);
+    expect(result.rows[0]).toMatchObject({ question_key: "q_city", display_value: "Pune" });
+  });
+
+  it("renders each stored shape the way a worker reads it", async () => {
+    const { service } = makeWorld({
+      view: null,
+      session: { id: SESSION, workerId: WORKER, status: "ended" },
+      flushed: FLUSHED,
+    });
+
+    const rows = (await service.review(WORKER, SESSION)).rows;
+
+    expect(rows.find((r) => r.question_key === "q_safety")?.display_value).toBe("Haan");
+    expect(rows.find((r) => r.question_key === "q_material")?.display_value).toBe(
+      "mild_steel, stainless",
+    );
+    // "nahi pata" is a COMPLETE answer, and it renders as no value rather than as a gap.
+    expect(rows.find((r) => r.question_key === "q_cert")?.display_value).toBeNull();
+  });
+
+  it("falls back to the live envelope MID-interview, when nothing has been flushed yet", async () => {
+    const { service } = makeWorld({
+      flushed: [],
+      view: {
+        buffer: {} as never,
+        envelope: {
+          answerMap: [answer({ question_key: "q_city", value_normalized: "Pune" })],
+        } as never,
+        items: [item("q_city", "Aap kis sheher mein rehte hain?")],
+        served: served(),
+      },
+    });
+
+    const result = await service.review(WORKER, SESSION);
+
+    expect(result.rows).toEqual([
+      {
+        question_key: "q_city",
+        prompt_text: "Aap kis sheher mein rehte hain?",
+        status: "answered",
+        display_value: "Pune",
+      },
+    ]);
   });
 });

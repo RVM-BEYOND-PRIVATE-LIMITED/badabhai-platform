@@ -491,7 +491,9 @@ export class ProfilingOrchestrator {
     }
 
     const turn = buffer.turnCount + 1;
-    const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+    // `let`, because a MID-TURN RE-PIN replaces the pack this was built from. See the reassignment
+    // below the identify step.
+    let items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
     const askedItem =
       items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null;
 
@@ -714,6 +716,14 @@ export class ProfilingOrchestrator {
       if (repinned) {
         engine = repinned.engine;
         next = { ...next, packId: repinned.packId, packVersion: repinned.packVersion };
+        // AND THE ITEM LIST WITH IT. Measured live: the turn that pins "main welder hoon" serves
+        // `welding_process` — a row that exists only in the pack just resolved — while `items`
+        // still held the universal pack's eight. So `shapeOf` found nothing and the client was
+        // handed `answer_type: null` for the first question of the worker's own trade, which on a
+        // select question means no chips and a worker who cannot type has no way to answer.
+        // `essentialsOf` read the same stale list, and reported the universal pack's mandatory
+        // questions as the outstanding ones on exactly the turn the real pack arrived.
+        items = [...(repinned.engine.occupation?.items ?? []), ...repinned.engine.universal.items];
       }
     }
 

@@ -7,7 +7,7 @@ import {
   NotFoundException,
   forwardRef,
 } from "@nestjs/common";
-import type { AnswerRecord, QuestionPackOption } from "@badabhai/ai-contracts";
+import type { QuestionPackOption } from "@badabhai/ai-contracts";
 
 import { ChatRepository } from "../chat/chat.repository";
 import { ChatService, type ChatTurnOutcome } from "../chat/chat.service";
@@ -249,28 +249,50 @@ export class ProfilingSessionService {
     }
 
     const view = await this.orchestrator.viewSession(sessionId, new Date());
-    if (!view) {
-      // No buffer: either the interview never started or its TTL lapsed. Both are "there is
-      // nothing to review", which is a truthful empty answer rather than an error.
-      return { session_id: sessionId, complete: session.status !== "active", rows: [] };
-    }
+    const prompts = new Map(
+      (view?.items ?? []).map((item) => [item.question_key, item.prompt_text]),
+    );
 
-    const prompts = new Map(view.items.map((item) => [item.question_key, item.prompt_text]));
-    // `envelope.answerMap` rather than `answersOf`, because the review is a LIST and the array is
-    // the contract's stable order. Keying it first would hand the screen whatever order the object
-    // happened to hold, which for a worker reading their answers back is not the same screen twice.
-    const rows = view.envelope.answerMap
-      .filter((record) => record.status !== "superseded")
-      .map((record) => ({
-        question_key: record.question_key,
-        prompt_text: prompts.get(record.question_key) ?? record.question_key,
-        status: record.status as "answered" | "declined" | "unanswered",
-        display_value: this.displayValue(record),
-      }));
+    // POSTGRES FIRST, AND THAT ORDER IS THE WHOLE FIX. The review screen exists to be shown AFTER
+    // the last question — but the engine closing the interview triggers the flush, and the flush
+    // drops the Redis key the instant its transaction commits. Reading the envelope therefore
+    // returned an EMPTY review at exactly the moment the review is for. Measured live: `rows: 0`
+    // against twelve `worker_pack_answer` rows already durable in Postgres.
+    //
+    // The envelope is still the right source MID-INTERVIEW, where nothing has been flushed yet —
+    // so it is the fallback rather than the replacement, and a worker who backs into the review
+    // half way through still sees what they have answered so far.
+    const flushed = await this.chat.listPackAnswers(sessionId);
+    const rows =
+      flushed.length > 0
+        ? flushed.map((row) => ({
+            question_key: row.questionKey,
+            prompt_text: prompts.get(row.questionKey) ?? row.questionKey,
+            status: row.status as "answered" | "declined" | "unanswered",
+            display_value: this.displayValueOf(
+              row.answerBool ?? row.answerNumber ?? row.answerText ?? row.answerOptionKeys,
+              row.status,
+            ),
+          }))
+        : // `envelope.answerMap` rather than `answersOf`, because the review is a LIST and the
+          // array is the contract's stable order. Keying it first would hand the screen whatever
+          // order the object happened to hold, which for a worker reading their answers back is
+          // not the same screen twice.
+          (view?.envelope.answerMap ?? [])
+            .filter((record) => record.status !== "superseded")
+            .map((record) => ({
+              question_key: record.question_key,
+              prompt_text: prompts.get(record.question_key) ?? record.question_key,
+              status: record.status as "answered" | "declined" | "unanswered",
+              display_value: this.displayValueOf(
+                record.value_normalized ?? record.value_raw,
+                record.status,
+              ),
+            }));
 
     return {
       session_id: sessionId,
-      complete: view.buffer.completedAt !== undefined || session.status !== "active",
+      complete: view?.buffer.completedAt !== undefined || session.status !== "active",
       rows,
     };
   }
@@ -367,13 +389,21 @@ export class ProfilingSessionService {
     return matched.join(", ");
   }
 
-  /** The rendered value for one review row, or null when the worker declined or never answered. */
-  private displayValue(record: AnswerRecord): string | null {
-    if (record.status !== "answered") return null;
-    const value = record.value_normalized ?? record.value_raw;
+  /**
+   * The rendered value for one review row, or null when the worker declined or never answered.
+   *
+   * ONE FUNCTION FOR BOTH SOURCES. The flushed row and the live envelope hold the same values in
+   * different shapes, and rendering them separately is how a worker's answer would come to look
+   * different depending on whether the interview had finished — which is the one comparison the
+   * review screen exists to make.
+   */
+  private displayValueOf(value: unknown, status: string): string | null {
+    if (status !== "answered") return null;
     if (value === null || value === undefined) return null;
     if (Array.isArray(value)) return value.map((v) => String(v)).join(", ");
     if (typeof value === "boolean") return value ? "Haan" : "Nahi";
+    // `numeric` columns arrive as strings from postgres-js; `String()` is a no-op on those and
+    // the right rendering for a number either way.
     return String(value);
   }
 
