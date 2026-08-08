@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/commo
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
-import { conversationWorkerPrefix } from "@badabhai/validators";
+import { conversationWorkerPrefix, uuidSchema } from "@badabhai/validators";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
@@ -185,6 +185,18 @@ export class AccountDeletionService {
    * silently; the durable record is the `worker.account_deleted` event.
    */
   async execute(workerId: string): Promise<void> {
+    // FAIL CLOSED ON THE ID BEFORE ANY DESTRUCTIVE PREFIX IS BUILT.
+    //
+    // This method now composes THREE storage prefixes from `workerId` — voice,
+    // photos and conversations — and each one deletes everything beneath it.
+    // Their safety currently rests on facts held in other files: the only
+    // caller reads `workers.id` (a `uuid` column), and the `if (!worker)`
+    // guard below rejects an id no row matches. That is true today and cheap
+    // to lose — an admin or DSAR endpoint taking a worker id from a request
+    // body would inherit a raw interpolation into a delete-by-prefix.
+    // `conversationWorkerPrefix` already parses for exactly this reason; this
+    // extends the same guarantee to the other two legs.
+    uuidSchema.parse(workerId);
     const idPrefix = workerId.slice(0, 8);
 
     // Load the worker FIRST so a re-run on an already-deleted worker is a clean no-op (the
