@@ -23,15 +23,15 @@ import type { CrosswalkEntry } from "./types-crosswalk.js";
  */
 export const FIELD_CROSSWALK: Readonly<Record<string, CrosswalkEntry>> = {
   // --- required -----------------------------------------------------------
-  trade: { draftPath: "primary_role", type: "string" },
-  skills: { draftPath: "skills", type: "string_array" },
-  experience_years: { draftPath: "experience_years", type: "number", unit: "years" },
-  current_city: { draftPath: "current_city", type: "string" },
-  preferred_locations: { draftPath: "preferred_locations", type: "string_array" },
+  trade: { draftPath: "primary_role", type: "string", required: true },
+  skills: { draftPath: "skills", type: "string_array", required: true },
+  experience_years: { draftPath: "experience_years", type: "number", unit: "years", required: true },
+  current_city: { draftPath: "current_city", type: "string", required: true },
+  preferred_locations: { draftPath: "preferred_locations", type: "string_array", required: true },
   // THE RENAME THIS TABLE EXISTS FOR. `salary_expected` (RFS) is `expected_salary` (draft), and
   // the two have been re-derived independently before.
-  salary_expected: { draftPath: "expected_salary", type: "number", unit: "inr_per_month" },
-  availability: { draftPath: "availability", type: "enum" },
+  salary_expected: { draftPath: "expected_salary", type: "number", unit: "inr_per_month", required: true },
+  availability: { draftPath: "availability", type: "enum", required: true },
 
   // --- optional -----------------------------------------------------------
   // Trade-agnostic by construction: one phrase carries a VMC and a Fanuc for a machinist, an
@@ -75,3 +75,36 @@ export const CROSSWALK_DRAFT_FIELDS: ReadonlySet<string> = new Set(
     "controllers",
   ].filter((f): f is string => f !== null),
 );
+
+/**
+ * The closed `target_fields` list for a `POST /profile/parse` request.
+ *
+ * GATE 5 IS ONLY AS CLOSED AS THIS LIST. Any `field_id` the model returns that is not here is
+ * dropped and counted — so building it from the crosswalk, which the exhaustiveness test already
+ * pins against the RFS vocabulary, is what stops the two from drifting apart a third time. A
+ * hand-maintained second list is a second thing to forget.
+ *
+ * FIELDS WITH NO DRAFT DESTINATION ARE STILL INCLUDED. `work_history` and `languages` have
+ * nowhere to land in `WorkerProfileDraft` today, but the parse call reads them for the resume
+ * narrative; omitting them here would make gate 5 reject values the interview deliberately
+ * collected.
+ *
+ * SORTED, so the request body content-hashes identically across processes and deployments.
+ * Object key order is stable in practice and guaranteed by nothing.
+ */
+export const PARSE_TARGET_FIELDS: readonly {
+  readonly field_id: string;
+  readonly type: string;
+  readonly unit: string | null;
+  readonly required: boolean;
+}[] = Object.keys(FIELD_CROSSWALK)
+  .sort()
+  .map((field_id) => {
+    const entry = FIELD_CROSSWALK[field_id] as CrosswalkEntry;
+    return {
+      field_id,
+      type: entry.type,
+      unit: entry.unit ?? null,
+      required: entry.required === true,
+    };
+  });

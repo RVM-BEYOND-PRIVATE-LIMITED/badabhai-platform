@@ -14,6 +14,7 @@ from ..ai.model_config import rate_inr_per_1k
 from ..ai.skill_store import get_skill_store
 from ..config import get_settings
 from ..contracts import (
+    AICallMetadata,
     DraftProfile,
     JobDomainMatch,
     ProfileExtractionInput,
@@ -472,7 +473,12 @@ async def profile_parse(body: ProfileParseInput) -> ProfileParseOutput:
     #    error to raise — it is simply an overlay that contributed nothing.
     parsed = _read_parse_output(content)
     if parsed is None:
-        return _parse_response(parse_gates.GateResult(), body, [*notes, "parse_output_invalid"])
+        # The call HAPPENED and was billed — an off-contract body does not refund it. The cost
+        # rides out even though the overlay contributed nothing, which is exactly the case a
+        # spend investigation needs to see.
+        return _parse_response(
+            parse_gates.GateResult(), body, [*notes, "parse_output_invalid"], meta
+        )
 
     # 4. THE SIX GATES, before the response leaves.
     gated = parse_gates.apply_parse_gates(
@@ -502,7 +508,7 @@ async def profile_parse(body: ProfileParseInput) -> ProfileParseOutput:
             }
         },
     )
-    return _parse_response(gated, body, notes)
+    return _parse_response(gated, body, notes, meta)
 
 
 def _read_parse_output(content: str) -> ProfileParseOutput | None:
@@ -526,14 +532,20 @@ def _parse_response(
     gated: parse_gates.GateResult,
     body: ProfileParseInput,
     notes: list[str],
+    meta: AICallMetadata | None = None,
 ) -> ProfileParseOutput:
     """Assemble the response. `unparsed_field_ids` is computed HERE, from what actually survived the
     gates — never taken from the model, which has every incentive to claim it parsed more than it
     cited. `notes` is filtered to the closed set as the last act before the response leaves, so a
-    code added carelessly upstream is dropped rather than published."""
+    code added carelessly upstream is dropped rather than published.
+
+    `meta` defaults to None so the early-return degradation paths (the deadline, an off-contract
+    body) stay one-liners and report NO cost rather than a zero one — the caller passes it only
+    where a call actually completed."""
     accepted = gated.accepted
     return ProfileParseOutput(
         fields=dict(accepted),
         unparsed_field_ids=[t.field_id for t in body.target_fields if t.field_id not in accepted],
         notes=[note for note in dict.fromkeys(notes) if note in PARSE_NOTES],
+        ai_metadata=meta,
     )

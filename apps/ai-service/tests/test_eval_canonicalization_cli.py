@@ -72,7 +72,7 @@ def test_per_field_offline_reports_fields_and_attribution(capsys):
 
 
 def test_per_field_real_uses_both_endpoints_via_stubs(capsys, monkeypatch):
-    """--per-field --real wires /profile/extract + /profiling/respond +
+    """--per-field --real wires /profile/extract + /profile/parse +
     /pseudonymize. We stub all three so the wiring is covered WITHOUT a live
     server or any LLM call (fabricated data only)."""
 
@@ -92,12 +92,12 @@ def test_per_field_real_uses_both_endpoints_via_stubs(capsys, monkeypatch):
 
     monkeypatch.setattr(cli, "_make_real_field_extract_fn", fake_field_extract)
     monkeypatch.setattr(cli, "_make_real_pseudonymize_fn", fake_pseudo)
-    monkeypatch.setattr(cli, "_smoke_profiling_respond", lambda base_url: True)
+    monkeypatch.setattr(cli, "_smoke_profile_parse", lambda base_url: True)
 
     rc = cli.main(["--per-field", "--real", "--base-url", "http://localhost:9999"])
     out = capsys.readouterr().out
     assert "--per-field --real" in out
-    assert "profile/extract" in out and "profiling/respond" in out
+    assert "profile/extract" in out and "profile/parse" in out
     assert "Miss attribution" in out
     # Heuristic-equivalent stub can't clear the hard tier -> exit 1.
     assert rc == 1
@@ -113,7 +113,7 @@ def _patch_respond_and_pseudo(monkeypatch):
         return lambda text: pseudonymize(text).text
 
     monkeypatch.setattr(cli, "_make_real_pseudonymize_fn", fake_pseudo)
-    monkeypatch.setattr(cli, "_smoke_profiling_respond", lambda base_url: True)
+    monkeypatch.setattr(cli, "_smoke_profile_parse", lambda base_url: True)
 
 
 def test_per_field_real_invalid_when_cases_fall_back_to_mock(capsys, monkeypatch):

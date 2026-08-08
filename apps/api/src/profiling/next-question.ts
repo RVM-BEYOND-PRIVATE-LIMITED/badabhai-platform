@@ -401,3 +401,64 @@ export function clarify(state: EngineState, packs: EnginePacks): Decision | null
     isReserve: true,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Served text
+// ---------------------------------------------------------------------------
+
+/**
+ * The fixed replies the engine serves directly, belonging to no pack.
+ *
+ * HERE RATHER THAN ON THE SERVICES THAT USE THEM, so that enumerating everything a worker can
+ * hear does not require booting Nest. `reply-closure.ts` feeds a batch TTS renderer; importing
+ * `orchestrator.service.ts` for a string constant pulled the entire DI graph — repositories,
+ * Redis, the occupation ladder — into a process whose whole job is to read JSON and hash text.
+ *
+ * Re-exported from their original modules, so every existing import site is unchanged.
+ */
+
+/** The fixed de-escalation line. ONE line, never varied — see the orchestrator's note. */
+export const DE_ESCALATION_REPLY_TEXT =
+  "Aap se vinamra rehne ki request hai. Kaam ki baat karte hain.";
+
+/** The closed appreciation set for a hardship turn, indexed by turn — never at random. */
+export const HARDSHIP_REPLY_TEXTS = [
+  "Samajh sakta hoon. Aapki baat sahi hai.",
+  "Aapki mehnat samajh aati hai. Thoda aur batayiye.",
+  "Theek hai. Aaram se batayiye, koi jaldi nahi.",
+] as const;
+
+/** Served when the interview ends normally. */
+export const CLOSING_REPLY_TEXT = "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
+
+/** The disambiguation question, verbatim — asked ABOUT the packs, so it lives in none of them. */
+export const DISAMBIGUATION_PROMPT_TEXT = "Aap in mein se kaun sa kaam karte hain?";
+
+/**
+ * `why_text`, then the question again — one message, because the client renders one bubble.
+ *
+ * `servedText`, NOT `prompt_text`, AND THAT IS A FIX RATHER THAN A STYLE CHOICE. The silent-turn
+ * branch of the orchestrator carries a comment explaining that re-serving raw `prompt_text` walks
+ * the interview BACKWARDS to the opening wording after the retry wording has already been served
+ * — and then this function did exactly that. A worker who has been re-asked once (so they are
+ * looking at `retry_text`) and then asks "yeh kyun poochh rahe ho?" got the explanation followed
+ * by the ORIGINAL phrasing, which reads as the app forgetting the last thing it said. In a voice
+ * form it is worse: they cannot scroll back to check, they just hear the question change shape.
+ *
+ * Blast radius today is five items — `retry_text` is authored on 5 of 466 — which is exactly why
+ * it survived. The plan calls for ~20 hand-authored retries plus 8 answer-type templates.
+ *
+ * `Pick`, because this reads one field: a whole `Decision` would force `replyClosure` to fabricate
+ * seven fields it has no opinion about just to ask what the join produces.
+ */
+export function joinClarify(
+  decision: Pick<Decision, "promptText">,
+  askedItem: QuestionPackItem | null,
+  askNumber: number,
+): string {
+  const why = decision.promptText;
+  const question = askedItem ? servedText(askedItem, askNumber) : "";
+  if (!question || why === question) return why;
+  return `${why} ${question}`;
+}
+

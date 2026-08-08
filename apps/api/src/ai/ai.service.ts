@@ -3,21 +3,22 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import {
-  ProfilingTurnOutputSchema,
   ProfileExtractionOutputSchema,
-  ProfilingOpeningOutputSchema,
   ResumeGenerationOutputSchema,
   DraftProfileSchema,
   TranscriptionOutputSchema,
   SkillCanonicalizationSchema,
   JobPostingChatOpeningOutputSchema,
   JobPostingChatTurnOutputSchema,
+  PseudonymizationOutputSchema,
+  ProfileParseOutputSchema,
+  type PseudonymizationOutput,
+  type ProfileParseInput,
+  type ProfileParseOutput,
   type JobPostingChatTurnInput,
   type JobPostingChatTurnOutput,
   type SkillCanonicalizationInput,
   type SkillCanonicalization,
-  type ProfilingTurnInput,
-  type ProfilingTurnOutput,
   type ProfileExtractionInput,
   type ProfileExtractionOutput,
   type ResumeGenerationInput,
@@ -63,13 +64,6 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
 
   /**
-   * Memoized one-shot openers, keyed by role family. SUCCESSES ONLY — see
-   * `profilingOpening`. In-process and unbounded is fine: the key space is the
-   * role-family set (one today), not anything worker-derived.
-   */
-  private readonly openingCache = new Map<string, string>();
-
-  /**
    * ADR-0035 — the same successes-only memo for the job-posting chat opener, kept
    * SEPARATE from {@link openingCache} so a role-family key and a trade-hint key can
    * never collide and serve a worker opener to a payer.
@@ -85,61 +79,19 @@ export class AiService {
 
   constructor(@Inject(SERVER_CONFIG) private readonly config: ServerConfig) {}
 
-  /**
-   * One LLM-driven interview turn, or `null` when the AI service is unreachable or
-   * rejects the call.
-   *
-   * NO MOCK FALLBACK ANY MORE, and the deletion is the point. This used to advance a
-   * local `mockProfilingTurn` — 287 lines of TS that walked a hardcoded topic order so
-   * a worker mid-interview kept moving during an outage. That was defensible only while
-   * the ai-service ran the SAME deterministic script: the two engines asked the same
-   * questions in the same order, so the local one was a copy rather than a rival.
-   *
-   * It is not a copy now. The interview is conducted by a model that adapts to whatever
-   * trade the worker actually does, reads the transcript, and fills a Resume Field Set.
-   * A TS stand-in could not do any of that — it would ask CNC questions to a cook and
-   * write its answers into the same `captured` map the model owns, which is worse than
-   * an honest outage: the worker gets a profile the real engine would never have
-   * produced, and nothing marks it as degraded.
-   *
-   * `null` therefore means "no turn happened". {@link ChatService} serves its own
-   * degraded line and leaves the transcript buffer's assistant side untouched, so the
-   * outage costs one turn and never a topic. Identical reasoning to
-   * {@link jobPostingChatRespond}, which has always worked this way.
-   */
-  async profilingRespond(input: ProfilingTurnInput): Promise<ProfilingTurnOutput | null> {
-    // `input` carries the buffered history + the captured RFS state, so the remote
-    // service can conduct the interview without holding any per-session state itself.
-    return this.post("/profiling/respond", input, ProfilingTurnOutputSchema);
-  }
-
-  /**
-   * The one-shot composite opener, or `null` when the AI service cannot supply it.
-   *
-   * NO MOCK FALLBACK, deliberately. Every other method here falls back to a local
-   * mock so the caller always gets something; this one must not, because a local
-   * fallback would be a THIRD copy of the opener copy (after `question_bank.py` and
-   * the Flutter const) and they would drift. `null` means "render your own const",
-   * which is exactly what the client already does today.
-   *
-   * Successes are memoized per role family: the opener is a module constant on the
-   * other side, so re-fetching it on every chat mount is a pointless hop on a 2G
-   * connection. Failures are NEVER cached — a single blip must not pin every later
-   * session to the fallback for the lifetime of the process.
-   */
-  async profilingOpening(roleFamily = "cnc_vmc"): Promise<string | null> {
-    const cached = this.openingCache.get(roleFamily);
-    if (cached !== undefined) return cached;
-
-    const remote = await this.post(
-      "/profiling/opening",
-      { role_family: roleFamily },
-      ProfilingOpeningOutputSchema,
-    );
-    const text = remote?.opening_text?.trim() ? remote.opening_text : null;
-    if (text !== null) this.openingCache.set(roleFamily, text);
-    return text;
-  }
+  // ── DELETED WITH THE LLM INTERVIEW (OIE Phase 8) ────────────────────────────────────
+  //
+  // `profilingRespond` and `profilingOpening` lived here, and both routes behind them are
+  // gone. The worker interview is deterministic: `ProfilingOrchestrator` picks the next
+  // question from a reviewed pack, in-process, with no model and no network hop. The
+  // opener is a reviewed constant (`CHAT_OPENING_TEXT` in `ChatService`) rather than a
+  // `capable`-tier call spent on the chat MOUNT before the worker had said anything.
+  //
+  // `openingCache` went with them. `jobPostingOpeningCache` below is a DIFFERENT map for a
+  // DIFFERENT conversation and is untouched — the payer side still has an LLM interview.
+  //
+  // THE ONE LLM CALL LEFT ON THIS PATH IS `parseProfile`, at the very end. That is the
+  // whole economic case for the project: ~12 `capable` calls per interview became 1.
 
   /**
    * ADR-0035 — the payer-facing job-posting chat opener, or `null` when the AI service
@@ -297,7 +249,63 @@ export class AiService {
   async transcribe(input: TranscriptionInput): Promise<TranscriptionOutput> {
     const remote = await this.post("/voice/transcribe", input, TranscriptionOutputSchema, 270_000);
     if (remote) return remote;
-    return TranscriptionOutputSchema.parse({ transcript_text: "", confidence: 0, english_text: "", is_mock: true });
+    // THE FALLBACK HAS TO CONFESS. Returning an empty transcript is right — never fabricate the
+    // worker's words — but the object above this line was otherwise INDISTINGUISHABLE from a
+    // successful call on a worker who said nothing: same empty string, same zero confidence, and
+    // (until `error_code` existed) no field capable of telling the two apart. The processor
+    // stored it and marked the job completed, so an ai-service outage read as a wave of silent
+    // workers. `stt_service_unreachable` is authored HERE because it describes something only
+    // this side can know: the request never arrived.
+    return TranscriptionOutputSchema.parse({
+      transcript_text: "",
+      confidence: 0,
+      english_text: "",
+      is_mock: true,
+      error_code: "stt_service_unreachable",
+    });
+  }
+
+  /**
+   * THE ONE LLM CALL IN THE WHOLE INTERVIEW (OIE Phase 8).
+   *
+   * `/profile/parse` receives the deterministic answer map as its PRIMARY input and the
+   * transcript as an indexed evidence store. It is never asked "what is this worker's salary";
+   * it is asked "the worker's answer for `salary_expected` was `pandrah hazaar mahina` — return
+   * the typed value and quote the span it came from". The framing IS the enforcement, and the
+   * six gates on both sides of the wire are what make it hold.
+   *
+   * `null` ON EVERY FAILURE, and that is the fail-closed design rather than a convenience. The
+   * caller projects a real profile from the answer map alone when this returns null — down,
+   * blocked, mis-shaped, all one outcome — so the worker gets a profile regardless and the LLM
+   * is an overlay adding coverage regexes cannot reach.
+   *
+   * NO MOCK FALLBACK. A fabricated parse result would be indistinguishable from a real one at
+   * every later read, and `deterministic_only` is a strictly more honest answer.
+   */
+  async parseProfile(input: ProfileParseInput): Promise<ProfileParseOutput | null> {
+    return this.post("/profile/parse", input, ProfileParseOutputSchema);
+  }
+
+  /**
+   * Run text through the pseudonymization gateway and get the masked version back.
+   *
+   * NOT AN AI CALL. `/pseudonymize` is a regex-and-gazetteer pass with no model behind it, no
+   * router entry and no spend — which is what makes it callable from the deterministic
+   * interview without violating the plan's "zero LLM calls between session start and
+   * completion". It is the same gateway every LLM path already goes through; this exposes it
+   * to the ONE Nest caller that holds raw worker text and needs a masked copy of it (the
+   * occupation growth queue, whose table contract is pseudonymized-only).
+   *
+   * `null` on unreachable/non-OK, like every other method here. `blocked: true` is NOT null and
+   * must not be treated as one: it means the text carried PII the gateway would not mask, which
+   * is a definitive "do not store this", not an outage.
+   */
+  async pseudonymize(text: string): Promise<PseudonymizationOutput | null> {
+    return this.post(
+      "/pseudonymize",
+      { text, request_id: randomUUID() },
+      PseudonymizationOutputSchema,
+    );
   }
 
   /**

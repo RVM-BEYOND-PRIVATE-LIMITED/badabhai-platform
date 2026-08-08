@@ -81,4 +81,9 @@ async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
         language_code=result.language_code,
         is_mock=result.is_mock,
         english_text=english_text,
+        # The line above this one used to be the end of the response, and the code the
+        # adapter had just computed went only to the log statement above. Returning it
+        # is what lets the backend tell an empty transcript that MEANS silence from one
+        # that means the provider was never called.
+        error_code=result.error_code,
     )

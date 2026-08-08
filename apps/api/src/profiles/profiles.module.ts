@@ -7,6 +7,7 @@ import { ProfilesController } from "./profiles.controller";
 import { ProfilesService } from "./profiles.service";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
+import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { AiJobsController } from "./ai-jobs.controller";
 import { WorkerAiJobsController } from "./worker-ai-jobs.controller";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
@@ -48,6 +49,8 @@ import {
     ProfilesService,
     ProfilesRepository,
     AiJobsRepository,
+    // `worker_attributes` — where `attribute`-kind answers land (77% of the pack corpus).
+    WorkerAttributesRepository,
     ProfileExtractionProcessor,
     AiJobsRetentionSweepProcessor,
   ],

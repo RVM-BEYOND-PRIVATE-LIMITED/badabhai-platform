@@ -25,9 +25,22 @@ function makeJob(over: { attemptsMade?: number; attempts?: number } = {}) {
   } as never;
 }
 
-function make(opts: { findById?: unknown; transcribeThrows?: boolean } = {}) {
+function make(
+  opts: {
+    findById?: unknown;
+    transcribeThrows?: boolean;
+    /** The `voice_notes` row as it stands when the attempt starts. */
+    note?: { transcriptText: string | null } | undefined;
+    /** A degraded adapter result: an empty transcript that SAYS why it is empty. */
+    errorCode?: string;
+  } = {},
+) {
   const voice = {
     setTranscript: vi.fn().mockResolvedValue(undefined),
+    // Defaults to a row with NO transcript — i.e. this audio has not been paid for yet.
+    findById: vi.fn().mockResolvedValue(
+      opts.note === undefined ? { id: JOB.voiceNoteId, transcriptText: null } : opts.note,
+    ),
   };
   const aiJobs = {
     findById: vi.fn().mockResolvedValue(opts.findById ?? undefined),
@@ -39,12 +52,23 @@ function make(opts: { findById?: unknown; transcribeThrows?: boolean } = {}) {
   const ai = {
     transcribe: opts.transcribeThrows
       ? vi.fn().mockRejectedValue(new Error("boom"))
-      : vi.fn().mockResolvedValue({
-          transcript_text: MOCK_TRANSCRIPT,
-          confidence: 0.9,
-          english_text: MOCK_ENGLISH,
-          is_mock: true,
-        }),
+      : vi.fn().mockResolvedValue(
+          opts.errorCode
+            ? {
+                transcript_text: "",
+                confidence: 0,
+                english_text: "",
+                is_mock: true,
+                error_code: opts.errorCode,
+              }
+            : {
+                transcript_text: MOCK_TRANSCRIPT,
+                confidence: 0.9,
+                english_text: MOCK_ENGLISH,
+                is_mock: true,
+                error_code: null,
+              },
+        ),
   };
   const proc = new VoiceTranscriptionProcessor(
     voice as never,
@@ -123,5 +147,90 @@ describe("VoiceTranscriptionProcessor", () => {
     expect(aiJobs.markFailed).toHaveBeenCalledOnce();
     expect(events.emit).toHaveBeenCalledOnce();
     expect(events.emit.mock.calls[0]![0].event_name).toBe("voice_note.transcription_failed");
+  });
+  // --- The silent-failure defect (plan §7.2) --------------------------------
+  //
+  // Four different empty transcripts used to arrive here identical, because the adapter's
+  // `error_code` was logged on the ai-service and then dropped at the response boundary. Three
+  // of them are failures; only the fourth is a worker who said nothing.
+
+  it.each([
+    ["stt_budget_blocked", "we refused to call the provider"],
+    ["stt_call_failed", "the provider call failed"],
+    ["stt_service_unreachable", "the ai-service never answered"],
+  ])("a degraded result (%s) is NEVER stored or completed", async (code) => {
+    const { proc, voice, aiJobs, events } = make({ errorCode: code });
+
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow(code);
+
+    // The worker's answer was not transcribed, so nothing may claim it was.
+    expect(voice.setTranscript).not.toHaveBeenCalled();
+    expect(aiJobs.markCompleted).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled(); // non-final attempt — BullMQ retries
+  });
+
+  it("a degraded result on the FINAL attempt fails the job and names the code", async () => {
+    // The reason has to survive to the audit trail, or "why did this worker's answer vanish"
+    // is unanswerable after the fact.
+    const { proc, aiJobs, events } = make({ errorCode: "stt_call_failed" });
+
+    await expect(proc.process(makeJob({ attemptsMade: 2, attempts: 3 }))).rejects.toThrow();
+
+    expect(aiJobs.markFailed).toHaveBeenCalledOnce();
+    expect(String(aiJobs.markFailed.mock.calls[0]![1])).toContain("stt_call_failed");
+    expect(events.emit).toHaveBeenCalledOnce();
+    const call = events.emit.mock.calls[0]![0];
+    expect(call.event_name).toBe("voice_note.transcription_failed");
+    expect(String(call.payload.reason)).toContain("stt_call_failed");
+  });
+
+  it("an empty transcript with NO error code is a real answer — the worker said nothing", async () => {
+    // The case that makes the three above meaningful. Silence is a legitimate outcome and must
+    // still complete, or every worker who pauses too long gets a failed job.
+    const { proc, voice, aiJobs, events } = make();
+    proc["ai"].transcribe = vi.fn().mockResolvedValue({
+      transcript_text: "",
+      confidence: 0,
+      english_text: "",
+      is_mock: true,
+      error_code: null,
+    });
+
+    await proc.process(makeJob());
+
+    expect(voice.setTranscript).toHaveBeenCalledWith(JOB.voiceNoteId, "", 0, "");
+    expect(aiJobs.markCompleted).toHaveBeenCalledOnce();
+    expect(events.emit.mock.calls[0]![0].event_name).toBe("voice_note.transcription_completed");
+  });
+
+  // --- The retry double-charge (plan §7.3) ----------------------------------
+
+  it("never re-calls the provider for audio already transcribed, whatever the job status says", async () => {
+    // `markRunning` fires at the top of EVERY attempt, so the job-status guard sees `running`
+    // on a retry and lets a second Sarvam call through. That is a real double-charge whenever
+    // the call succeeded and something after it did not — `setTranscript` blipping, the
+    // completion emit throwing, the worker being killed between the two.
+    const { proc, voice, aiJobs, ai } = make({
+      findById: { status: "running" },
+      note: { transcriptText: MOCK_TRANSCRIPT },
+    });
+
+    const res = await proc.process(makeJob({ attemptsMade: 1, attempts: 3 }));
+
+    expect(ai.transcribe).not.toHaveBeenCalled(); // the whole point
+    expect(voice.setTranscript).not.toHaveBeenCalled();
+    expect(aiJobs.markCompleted).toHaveBeenCalledOnce(); // the job catches up to the row
+    expect(res).toEqual({ voice_note_id: JOB.voiceNoteId });
+  });
+
+  it("treats an EMPTY stored transcript as already paid for, not as absent", async () => {
+    // Compared against null explicitly, never truthiness. An empty string is a real transcript
+    // (the worker said nothing) and it cost exactly as much as a full one.
+    const { proc, ai, aiJobs } = make({ findById: { status: "running" }, note: { transcriptText: "" } });
+
+    await proc.process(makeJob({ attemptsMade: 1, attempts: 3 }));
+
+    expect(ai.transcribe).not.toHaveBeenCalled();
+    expect(aiJobs.markCompleted).toHaveBeenCalledOnce();
   });
 });

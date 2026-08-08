@@ -1,3 +1,5 @@
+import '../../voice/data/session_voice_recorder.dart';
+
 /// Tunable thresholds for [SilenceEndpointer]. Every value is injectable so the
 /// field-measurement data (factories, roadsides, workshops) can retune the
 /// endpointer without a code change.
@@ -79,13 +81,20 @@ enum EndpointerPhase { idle, listening, speaking, trailingSilence, done, manualO
 class SilenceEndpointer {
   SilenceEndpointer({
     this.thresholds = const EndpointerThresholds(),
-    this.maxAnswer = const Duration(seconds: 30),
+    this.maxAnswer = SessionVoiceRecorder.profilingAnswerMaxDuration,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
   final EndpointerThresholds thresholds;
 
   /// The per-answer hard stop. Hitting it without a clean endpoint is a cap-out.
+  ///
+  /// Defaulted FROM the recorder's own cap rather than re-declaring 30s here:
+  /// this is the LOGICAL cap-out that drives auto-advance and the manual-only
+  /// streak, the recorder's is the MECHANICAL stop that ends the clip. They
+  /// must fire together — two independent literals would silently drift the
+  /// moment either is retuned, leaving the endpointer waiting for an answer
+  /// the recorder already stopped capturing.
   final Duration maxAnswer;
 
   final DateTime Function() _clock;

@@ -130,10 +130,18 @@ function isVetoed(text: string, span: { start: number; end: number } | undefined
 function normalizeFor(item: QuestionPackItem, text: string): unknown | undefined {
   // A chip answer is the worker's answer of record VERBATIM. The label is reviewed static data, so
   // there is nothing to normalize and nothing to second-guess.
+  //
+  // A `multi_select` chip is still a LIST OF ONE. Returning the bare value here would make the
+  // same question produce a different SHAPE depending on whether the worker tapped the chip or
+  // said the words — and since `value_kind` is derived from the shape, that is the difference
+  // between a `text` row and a `text_list` row in `worker_attributes` for one attribute.
   const chip = item.options.find(
     (option) => option.label_text.toLowerCase() === text.trim().toLowerCase(),
   );
-  if (chip) return chip.value ?? chip.label_text;
+  if (chip) {
+    const value = chip.value ?? chip.label_text;
+    return item.answer_type === "multi_select" ? [value] : value;
+  }
 
   const field = item.target_field;
   const normalizer = field ? NORMALIZER_BY_FIELD[field] : undefined;
@@ -229,33 +237,65 @@ function closedVocabulary(item: QuestionPackItem): boolean {
 }
 
 /**
+ * Alternatives inside one chip label. Hinglish "ya" and Hindi "या" both mean "or".
+ *
+ * A LABEL IS WORKER-FACING COPY, NOT A TOKEN, and that is why this exists. The welding pack
+ * offers "Loha ya mild steel" — *iron or mild steel* — as ONE option, because a chip has to be
+ * readable. A worker who says "mild steel aur stainless steel" names both materials, but matching
+ * whole labels finds only the stainless one, because "Loha ya mild steel" is not a substring of
+ * anything anyone says. Measured on a real session against the seeded corpus, not imagined.
+ */
+const LABEL_ALTERNATIVES = /\s+ya\s+|\s+या\s+|\s*\/\s*/;
+
+/** Needles worth searching for, longest first. Short fragments are dropped as noise. */
+function needlesFor(labelText: string): string[] {
+  const whole = labelText.toLowerCase().trim();
+  const parts = whole
+    .split(LABEL_ALTERNATIVES)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3);
+  // The whole label first: when a worker DOES say it in full, that is the strongest evidence and
+  // it should consume its characters before any fragment of it can.
+  return [...new Set([whole, ...parts])].sort((a, b) => b.length - a.length);
+}
+
+/**
  * Which of this item's options the worker's words contain.
  *
  * Substring, case-insensitive, against the NEGATION-MASKED text — so "split AC hai, fridge nahi"
  * yields `split_ac` alone. Reusing the negation engine here rather than scanning the raw string is
  * what stops a refused option from being recorded as a claimed one.
  *
- * Longest label first, so a label that CONTAINS another ("Split AC" vs "AC") claims its characters
- * before the shorter one can, and the shorter one is then only matched if it appears elsewhere.
+ * Longest needle first, ACROSS options, so a label that contains another ("Split AC" vs "AC")
+ * claims its characters before the shorter one can. Sorting per-option was not enough once labels
+ * decomposed into alternatives: a two-character-longer fragment of option B must not lose to the
+ * whole label of option A merely because A was scanned first.
  */
 function matchOptions(item: QuestionPackItem, text: string): unknown[] {
   const masked = applyNegation(text).masked.toLowerCase();
-  const byLength = [...item.options].sort((a, b) => b.label_text.length - a.label_text.length);
+
+  const needles = item.options
+    .flatMap((option) => needlesFor(option.label_text).map((needle) => ({ option, needle })))
+    .sort((a, b) => b.needle.length - a.needle.length);
 
   let remaining = masked;
-  const hits: { order: number; value: unknown }[] = [];
-  for (const option of byLength) {
-    const label = option.label_text.toLowerCase();
-    const at = remaining.indexOf(label);
+  const hits = new Map<string, { order: number; value: unknown }>();
+  for (const { option, needle } of needles) {
+    if (hits.has(option.option_key)) continue; // one hit per option, whichever needle landed first
+    const at = remaining.indexOf(needle);
     if (at < 0) continue;
-    // Consume the matched characters so a shorter contained label cannot double-count them.
+    // Consume the matched characters so a shorter contained needle cannot double-count them.
     // Replaced with spaces rather than deleted, to keep every other offset where it was.
-    remaining = remaining.slice(0, at) + " ".repeat(label.length) + remaining.slice(at + label.length);
-    hits.push({ order: masked.indexOf(label), value: option.value ?? option.label_text });
+    remaining =
+      remaining.slice(0, at) + " ".repeat(needle.length) + remaining.slice(at + needle.length);
+    hits.set(option.option_key, {
+      order: masked.indexOf(needle),
+      value: option.value ?? option.label_text,
+    });
   }
 
   // Report in the order the worker SAID them, not in the order we happened to scan.
-  return hits.sort((a, b) => a.order - b.order).map((hit) => hit.value);
+  return [...hits.values()].sort((a, b) => a.order - b.order).map((hit) => hit.value);
 }
 
 /**
