@@ -548,6 +548,28 @@ const LAYER_TO_CONTRACT = {
 } as const;
 
 /**
+ * The synthesised chip key, as a slug `QuestionPackOptionSchema` will actually accept.
+ *
+ * `occ_${index}` WAS NOT ONE. `option_key` is `slugKey` — `/^[a-z_]+$/`, no digits — so every
+ * catalogue chip failed that parse, and nothing caught it because {@link toPackOption} is TYPED
+ * as a `QuestionPackOption` rather than parsed into one. The cost was not cosmetic: `narrowLastTurn`
+ * validates cached chips with `z.array(QuestionPackOptionSchema).safeParse`, which is all-or-nothing,
+ * so one `occ_0` emptied the whole offer on the way out of Redis while `kind: "disambiguate"`
+ * survived — a single-select with no options, on a replay, for a worker who cannot type.
+ *
+ * Bijective base-26, so it stays a slug at any offer size: 0→`occ_a`, 25→`occ_z`, 26→`occ_aa`.
+ */
+function occKey(index: number): string {
+  let n = index;
+  let suffix = "";
+  do {
+    suffix = String.fromCharCode(97 + (n % 26)) + suffix;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return `occ_${suffix}`;
+}
+
+/**
  * A chip as the client already knows how to render it.
  *
  * REUSING `QuestionPackOption` RATHER THAN MINTING A SECOND CHIP SHAPE is what keeps the
@@ -555,10 +577,11 @@ const LAYER_TO_CONTRACT = {
  * option labels, and a disambiguation chip is an option like any other as far as the wire is
  * concerned. `option_key` is synthesised because these chips come from the catalogue, not from
  * a pack row — and it is never read back, since the tap is resolved through the stored offer.
+ * Never read back is exactly why the shape of the key was free to be wrong for as long as it was.
  */
 export function toPackOption(chip: OfferedChip, index: number): QuestionPackOption {
   return {
-    option_key: chip.jobDomainId === null ? DISAMBIGUATION_ESCAPE_KEY : `occ_${index}`,
+    option_key: chip.jobDomainId === null ? DISAMBIGUATION_ESCAPE_KEY : occKey(index),
     label_text: chip.label,
     // The label IS the value: a disambiguation chip's answer of record is the words the worker
     // tapped, and the occupation it resolves to is carried by the stored offer, not by this.

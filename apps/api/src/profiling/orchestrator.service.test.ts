@@ -2,11 +2,22 @@ import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 
-import type { QuestionPack, QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
+import {
+  QuestionPackOptionSchema,
+  type QuestionPack,
+  type QuestionPackItem,
+  type QuestionPackOption,
+} from "@badabhai/ai-contracts";
 import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 
 import type { TranscriptBuffer } from "../chat/chat-transcript.buffer";
-import { emptyProfilingEnvelope, inboundHash, type ProfilingEnvelope } from "./conversation-state";
+import {
+  emptyProfilingEnvelope,
+  inboundHash,
+  narrowProfilingEnvelope,
+  type ProfilingEnvelope,
+} from "./conversation-state";
+import { toPackOption } from "./identify.service";
 import {
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_CLARIFIES,
@@ -106,9 +117,17 @@ function makeWorld(
   let interjected = false;
 
   const buffer = {
+    // THROUGH THE REAL NARROWER, because that is what `ChatTranscriptBuffer.load` does and it is
+    // not a formality: `narrowProfilingEnvelope` re-validates every cached field against the
+    // contract, and a JSON round-trip alone reports whatever was written. A fake that skipped it
+    // let a cached offer whose chips the contract REJECTS look intact in tests and arrive empty in
+    // production — the exact gap that hid the `occ_0` key.
     load: vi.fn(async (id: string) => {
       const held = store.get(id);
-      return held ? (JSON.parse(JSON.stringify(held)) as TranscriptBuffer) : null;
+      if (!held) return null;
+      const raw = JSON.parse(JSON.stringify(held)) as TranscriptBuffer;
+      const profiling = narrowProfilingEnvelope(raw.profiling);
+      return { ...raw, ...(profiling ? { profiling } : { profiling: undefined }) };
     }),
     saveWithCas: vi.fn(async (id: string, next: TranscriptBuffer, expectedRev: number) => {
       if (opts.interject && !interjected) {
@@ -668,23 +687,14 @@ describe("determinism", () => {
 });
 
 describe("the disambiguation offer announces itself (#695)", () => {
+  // BUILT BY THE REAL PRODUCER, not hand-written. A literal fixture here asserted a key shape
+  // (`occ_0`) that `toPackOption` happened to emit and the CONTRACT rejects, so the offer that
+  // reached these tests was one the narrower would have emptied on the way out of Redis.
   const OFFER = {
     prompt: "Aap in mein se kaun sa kaam karte hain?",
     options: [
-      {
-        option_key: "occ_0",
-        label_text: "Welder",
-        value: "Welder",
-        implies_skill_id: null,
-        is_none_of_above: false,
-      },
-      {
-        option_key: DISAMBIGUATION_ESCAPE_KEY,
-        label_text: DISAMBIGUATION_ESCAPE_LABEL,
-        value: DISAMBIGUATION_ESCAPE_LABEL,
-        implies_skill_id: null,
-        is_none_of_above: true,
-      },
+      toPackOption({ label: "Welder", jobDomainId: "jd_welder", familyId: "fam_welding" }, 0),
+      toPackOption({ label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null }, 1),
     ],
   };
 
@@ -725,6 +735,62 @@ describe("the disambiguation offer announces itself (#695)", () => {
     expect(replayed.kind).toBe(first.kind);
     expect(replayed.kind).toBe("disambiguate");
     expect(replayed.options).toEqual(first.options);
+  });
+
+  it("every synthesised chip key is a key the CONTRACT accepts, at any offer size", () => {
+    // THE DEFECT THAT MADE THE TEST ABOVE INERT. `toPackOption` is typed as a
+    // `QuestionPackOption`, never parsed into one, so `occ_${index}` type-checked for as long as
+    // it existed while `option_key`'s `slugKey` (/^[a-z_]+$/) forbids digits. `narrowLastTurn`
+    // parses cached chips all-or-nothing, so one `occ_0` emptied the ENTIRE offer coming back out
+    // of Redis while `kind: "disambiguate"` survived — the replay this suite exists to protect,
+    // arriving as a single-select with nothing in it.
+    //
+    // Asserted against the SCHEMA rather than against a literal, so the day the key shape changes
+    // again it is the contract that decides whether the new one is legal.
+    const chip = { label: "Welder", jobDomainId: "jd_welder", familyId: "fam_welding" };
+    for (const index of [0, 1, 25, 26, 27, 51, 52, 700]) {
+      const parsed = QuestionPackOptionSchema.safeParse(toPackOption(chip, index));
+      expect(parsed.success, `index ${index} produced an illegal option_key`).toBe(true);
+    }
+    // The escape hatch is a real constant, not a synthesised one — it must pass too, and it must
+    // still BE the constant: the client's "none of these" branch keys off this, not off copy.
+    const escape = toPackOption(
+      { label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null },
+      0,
+    );
+    expect(QuestionPackOptionSchema.safeParse(escape).success).toBe(true);
+    expect(escape.option_key).toBe(DISAMBIGUATION_ESCAPE_KEY);
+    expect(escape.is_none_of_above).toBe(true);
+    // Distinct indices must not collide, or two chips would answer to one key.
+    const keys = [0, 1, 25, 26, 27, 51, 52].map((i) => toPackOption(chip, i).option_key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("FAILS CLOSED when a cached offer comes back without its chips", async () => {
+    // Belt to the braces above. If a chip ever fails the contract again — a new field, a stricter
+    // rule, an entry written by an older deploy — `narrowLastTurn` empties the list and `kind`
+    // survives on its own. Serving that pair is worse than spending a turn: the client is told to
+    // draw a single-select and given nothing to put in it, and on the voice form the worker has no
+    // other way to answer. The replay must decline, not degrade.
+    const { orchestrator, store } = makeWorld({ identifyOffer: OFFER });
+    seed(store);
+    const first = await orchestrator.takeTurn(say("welding ka kaam"));
+    expect(first.kind).toBe("disambiguate");
+
+    // Corrupt the CACHED chips only — exactly what an unparseable option_key does downstream.
+    const held = store.get(SESSION) as TranscriptBuffer;
+    const envelope = held.profiling as ProfilingEnvelope;
+    store.set(SESSION, {
+      ...held,
+      profiling: {
+        ...envelope,
+        lastTurn: { ...envelope.lastTurn!, options: [] },
+      } as ProfilingEnvelope,
+    });
+
+    const replayed = await orchestrator.takeTurn(say("welding ka kaam"));
+    expect(replayed.replayed).toBeFalsy();
+    expect(replayed.options.length).toBeGreaterThan(0);
   });
 });
 

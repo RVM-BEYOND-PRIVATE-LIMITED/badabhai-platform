@@ -392,8 +392,17 @@ export class ProfilingOrchestrator {
         );
         return {
           reply: text,
-          // A re-serve of a PACK question — `servedQuestionKey` is non-null to have found it, and
-          // a disambiguation turn has no key to be found by.
+          // A re-serve of a PACK question: `servedQuestionKey` matched an item, so what is being
+          // re-served is that item and `ask` describes it truthfully.
+          //
+          // WHAT THIS DOES NOT CLAIM is that no offer is outstanding. Nothing clears
+          // `servedQuestionKey` when `identify()` offers chips, so a session WITH chips on screen
+          // still carries the pack key from the turn before and lands here — re-serving the stale
+          // question while `viewSession` (which applies the opposite precedence, deliberately)
+          // reports `questionKey: null`. The two entry points then disagree about what the worker
+          // is looking at, and answering the re-served question 409s on the stale-answer guard.
+          // That divergence predates the kind field and is tracked separately; this comment exists
+          // so the hardcoded `ask` is not read as evidence the case cannot arise.
           kind: "ask",
           questionKey: served.question_key,
           options: served.options,
@@ -1163,6 +1172,15 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
   // A NEGATIVE age is not a hit. Clock skew between instances would otherwise make a stale entry
   // look arbitrarily fresh, and replaying an old reply is worse than spending a turn.
   if (!Number.isFinite(age) || age < 0 || age > REPLY_CACHE_WINDOW_MS) return null;
+  // AN OFFER THAT LOST ITS CHIPS IS NOT A REPLAY, IT IS A DEAD END — fail closed (§3).
+  //
+  // `narrowLastTurn` parses cached options all-or-nothing, so any chip the contract rejects empties
+  // the list, while `kind` narrows independently and survives. Serving that pair tells the client to
+  // draw a single-select with nothing in it: on chat a scroller with no chips, on the voice form a
+  // question a worker who cannot type has no way at all to answer. Returning null re-runs the turn,
+  // which costs one turn; serving it costs the session. All-or-nothing is kept deliberately over
+  // per-chip narrowing — a PARTIAL offer would hide the same failure behind a plausible screen.
+  if (last.kind === "disambiguate" && last.options.length === 0) return null;
   return {
     reply: last.reply,
     // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
