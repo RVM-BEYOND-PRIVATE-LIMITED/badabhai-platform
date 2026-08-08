@@ -22,6 +22,9 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
   /// Server session id, learned on [start] and echoed on every later call.
   String? _sessionId;
 
+  @override
+  String? get sessionId => _sessionId;
+
   /// The question_key the client believes is on screen — the stale-answer guard
   /// sent with [submit]. Null on the disambiguation turn (the server allows it).
   String? _currentQuestionKey;
@@ -84,11 +87,20 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
           await _api.profilingFinalize(authToken: _token, sessionId: id);
       final bool committed = json['committed'] == true;
       if (!committed) {
-        // The flush failed (or the engine has not closed the interview yet, a
-        // 409 that surfaces as committed:false) — retryable, the worker may
-        // submit again from the review screen.
+        // 200 WITH `committed: false` — the re-drive ran and did not commit. Real, and
+        // rarer than the 409 below; retryable from the review screen either way.
         throw const VoiceUnavailableFailure();
       }
+    } on ApiException catch (e) {
+      // 409 — "the engine decides when an interview closes". THE OTHER retryable outcome,
+      // and the frequent one. This comment used to claim it "surfaces as committed:false";
+      // it does not. `ProfilingSessionService.finalize` throws `ConflictException`, which
+      // arrives here as an `ApiException` — not a `Failure`, so it fell through to
+      // `mapError`, which has no 409 arm and returns the generic `ServerFailure(409)`
+      // "Something went wrong". The review screen then dead-ended on opaque copy for the
+      // one condition the worker could actually have retried out of.
+      if (e.statusCode == 409) throw const VoiceUnavailableFailure();
+      throw mapError(e);
     } on Failure {
       rethrow;
     } catch (error) {
@@ -98,9 +110,16 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
 
   // ---- wire → domain --------------------------------------------------------
 
-  /// Answer → the discriminated-union body. Sends option KEYS, never labels.
-  /// A `spoken` answer has no wire shape yet (the follow-up backend PR), so it is
-  /// rejected loudly rather than sent as something the server cannot store.
+  /// Answer → the discriminated-union body. Sends option KEYS, never labels, and for a
+  /// spoken answer the REGISTERED `voice_note_id` — never bytes, never a device path.
+  ///
+  /// ALL FOUR MEMBERS, since #717. This threw `UnsupportedError` on `spoken` with the note
+  /// that it "has no wire shape yet"; that was false on the commit it shipped in.
+  /// `ProfilingAnswerSchema` has carried `{kind: 'spoken', voice_note_id}` since #702 and
+  /// `ProfilingSessionService.answer` dispatches it into transcribe-then-turn. Since every
+  /// `text`/`number`/`city`/`salary`/`duration` question renders as `open` — no chips, mic
+  /// only — and the universal pack OPENS with four of them, that throw made the first
+  /// question of every interview unanswerable.
   Map<String, dynamic> _answerJson(VoiceAnswer answer) {
     switch (answer.kind) {
       case VoiceAnswerKind.text:
@@ -113,8 +132,10 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
       case VoiceAnswerKind.boolean:
         return <String, dynamic>{'kind': 'boolean', 'value': answer.boolValue};
       case VoiceAnswerKind.spoken:
-        throw UnsupportedError(
-            'spoken answers have no wire shape yet (#699 follow-up)');
+        return <String, dynamic>{
+          'kind': 'spoken',
+          'voice_note_id': answer.voiceNoteId,
+        };
     }
   }
 
@@ -133,13 +154,17 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
       case 'done':
         return const VoiceFormDone();
       case 'unavailable':
-        // NOT an error in the engine's sense (nothing was written), but the
-        // client surfaces it as a retryable failure carrying the server's reply
-        // — the worker sends again, and it is never dead-lettered in the offline
-        // queue (that path is only for spoken clips, which do not reach here).
-        throw VoiceUnavailableFailure(
+        // A STEP, NOT A FAILURE (#717). Nothing was written and the worker may send that
+        // again — which is the whole reason this variant exists rather than a 5xx. Throwing
+        // it made the cubit emit `VoiceFormError`, whose only action on screen is `onExit`:
+        // the server said "say that again" and the client ended the interview.
+        return RetryCurrentQuestion(
             step['reply'] as String? ?? const VoiceUnavailableFailure().message);
       default:
+        // An UNKNOWN kind is different, and stays a failure. The union is closed on the
+        // server, so a value this client has never seen means the two have diverged —
+        // guessing "probably retryable" would re-arm the mic against a question that may no
+        // longer be on screen. Fail closed.
         throw const VoiceUnavailableFailure();
     }
   }

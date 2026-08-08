@@ -12,6 +12,7 @@ import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointe
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/cubit/voice_form_cubit.dart';
+import 'voice_form_doubles.dart';
 
 class MockAudioRecorder extends Mock implements AudioRecorder {}
 
@@ -23,6 +24,9 @@ class FakeTts implements QuestionAudioPlayer {
 }
 
 class OneQGateway implements VoiceFormGateway {
+  @override
+  String? get sessionId => 'sess-test';
+
   @override
   Future<VoiceFormStep> start() async =>
       const NextQuestion(VoiceQuestion(id: 'q1', prompt: 'Q1'),
@@ -94,6 +98,8 @@ void main() {
           recorder: SessionVoiceRecorder(recorder: plugin),
           endpointer: SilenceEndpointer(),
           tts: FakeTts(),
+          registrar: FakeRegistrar(),
+          session: testSession(),
           sleep: (_) async {},
           actionLog: log,
         );

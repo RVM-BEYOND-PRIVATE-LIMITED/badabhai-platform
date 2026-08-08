@@ -7,8 +7,10 @@ import 'package:record/record.dart' show RecordState;
 
 import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_mapper.dart';
+import '../../../../core/session/session_repository.dart';
 import '../../../voice/data/session_voice_recorder.dart';
 import '../../../voice/domain/voice_models.dart';
+import '../../../voice/domain/voice_pipeline.dart';
 import '../../data/voice_form_action_log.dart';
 import '../../domain/question_audio_player.dart';
 import '../../domain/silence_endpointer.dart';
@@ -134,6 +136,8 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     required SessionVoiceRecorder recorder,
     required SilenceEndpointer endpointer,
     required QuestionAudioPlayer tts,
+    required VoiceNoteRegistrar registrar,
+    required SessionRepository session,
     Duration primeDelay = const Duration(milliseconds: 250),
     Duration levelInterval = const Duration(milliseconds: 100),
     Future<void> Function(Duration)? sleep,
@@ -142,6 +146,8 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         _recorder = recorder,
         _endpointer = endpointer,
         _tts = tts,
+        _registrar = registrar,
+        _session = session,
         _primeDelay = primeDelay,
         _levelInterval = levelInterval,
         _sleep = sleep ?? Future<void>.delayed,
@@ -152,6 +158,13 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   final SessionVoiceRecorder _recorder;
   final SilenceEndpointer _endpointer;
   final QuestionAudioPlayer _tts;
+
+  /// Clip → registered `voice_note_id` (#717). THE UPLOAD IS THE CUBIT'S JOB, not the
+  /// gateway's: the gateway is a wire adapter with one HTTP call per method, and the clip
+  /// lives here. Shares the chat voice-note flow's uploader — signed-url mint, PUT, and the
+  /// on-device temp file deleted whether the attempt succeeded or not.
+  final VoiceNoteRegistrar _registrar;
+  final SessionRepository _session;
   final Duration _primeDelay;
   final Duration _levelInterval;
   final Future<void> Function(Duration) _sleep;
@@ -303,9 +316,15 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     if (current is! VoiceFormAsking) return;
     _advancing = true;
     final int gen = _interruptGen; // #691 — abort if an interruption lands
+    // HOISTED OUT OF THE TRY so ONE `finally` owns the release (#717). The retain used to be
+    // dropped in two places — the interruption check and a `finally` around `submit` — which
+    // covered every path that existed at the time. The upload now happens BEFORE submit, and
+    // an upload that throws (a 503 with voice disabled, a stalled PUT) reached neither, so
+    // the clip stayed retained for the life of the shared recorder and the stale-clip sweep
+    // could never reclaim it. One exit, one release.
+    String? retainPath;
     try {
       final VoiceAnswer answer;
-      String? retainPath;
       if (chosen == null) {
         final RecordedClip? clip = await _recorder.stop(); // stop
         if (clip == null) {
@@ -328,7 +347,16 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         }
         _recorder.retain(clip.path); // retain — protect the in-flight upload
         retainPath = clip.path;
-        answer = VoiceAnswer.spoken(clip);
+        // UPLOAD HERE, NOT IN THE GATEWAY (#717). The engine answers at a `voice_note_id`,
+        // so the clip becomes one before an answer object exists: mint a signed slot, PUT
+        // the bytes, register the path. The uploader deletes the on-device copy in its own
+        // `finally`, success or failure, so raw audio never outlives the attempt.
+        //
+        // Shown as `uploading` FIRST, because this is the leg that actually takes the time
+        // on a 2G uplink — up to 30s. Leaving the mic phase on `listening` through it would
+        // read to the worker as "still listening" while nothing is being recorded.
+        emit(current.copyWith(micPhase: MicPhase.uploading));
+        answer = VoiceAnswer.spoken(await _registerClip(clip));
       } else {
         // A chip/boolean/text answer — discard the open clip (no STT call) and
         // submit the chosen answer.
@@ -344,28 +372,16 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       // `resumeSession()` then no-ops on resume — because the state is Asking
       // again — so the mid-session permission re-check is skipped in exactly the
       // case the pause was long enough for permission to be revoked.
-      //
-      // Release before returning: the retain is ours, and the interruption path
-      // does not know about it.
       if (_torndown || gen != _interruptGen) {
         // close() raced the stop()/cancel() await above — it already fired
         // _recorder.cancel() for us (see close()), but that doesn't drop a
-        // retained path from OUR set; do that here or it's stuck retained
-        // for the life of the (shared, longer-lived) recorder singleton.
-        if (retainPath != null) _recorder.release(retainPath);
+        // retained path from OUR set. The outer `finally` does that on every
+        // exit from here, this one included.
         return;
       }
 
       emit(current.copyWith(micPhase: MicPhase.uploading));
-      final VoiceFormStep step;
-      try {
-        step = await _gateway.submit(answer); // queue upload
-      } finally {
-        // ALWAYS, not only on success — a submit() that throws (network drop,
-        // timeout) must not leave this clip permanently retained; the
-        // stale-clip sweep can only ever reclaim a released path.
-        if (retainPath != null) _recorder.release(retainPath);
-      }
+      final VoiceFormStep step = await _gateway.submit(answer);
       // #691 — a `paused` during the (up to 30s) submit MUST NOT be walked over:
       // if the interruption generation moved, this advance is stale — the mic is
       // cancelled and the state is VoiceFormInterrupted; do not present or arm.
@@ -382,7 +398,24 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       unawaited(_actions.flush());
     } finally {
       _advancing = false;
+      // EVERY exit — success, interruption, teardown, a throw from the upload or the submit.
+      // The stale-clip sweep can only ever reclaim a path that has been released, and the
+      // recorder outlives this cubit.
+      if (retainPath != null) _recorder.release(retainPath);
     }
+  }
+
+  /// The recorded clip → a registered `voice_note_id`, against the engine's session (#717).
+  ///
+  /// A missing session id is [UnauthorizedFailure] rather than a silent skip: it means
+  /// `start()` never completed, so there is no interview to answer and no row to attach the
+  /// note to. Failing here is also what keeps the raw audio from being uploaded with nowhere
+  /// to belong.
+  Future<String> _registerClip(RecordedClip clip) async {
+    final String? token = _session.sessionToken;
+    final String? sessionId = _gateway.sessionId;
+    if (token == null || sessionId == null) throw const UnauthorizedFailure();
+    return _registrar.register(clip, authToken: token, sessionId: sessionId);
   }
 
   Future<void> _route(VoiceFormStep step, int gen) async {
@@ -392,7 +425,38 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       case VoiceFormDone():
         unawaited(_actions.flush()); // best-effort, off the critical path (#639)
         emit(VoiceFormReview(List<VoiceAnswer>.of(_answers)));
+      case RetryCurrentQuestion():
+        await _retry(step, gen);
     }
+  }
+
+  /// Nothing was written — RE-ASK the same question rather than ending the interview (#717).
+  ///
+  /// NOT AN ERROR, and that is the whole point of the step existing. A lost CAS or a failed
+  /// transcription used to arrive as `VoiceFormError`, whose only action on screen is
+  /// `onExit`, so the interview ended on the one outcome the server explicitly marked
+  /// retryable — on a flaky uplink, which is where this happens.
+  ///
+  /// RE-PRESENTED, NOT SILENTLY RE-ARMED. `_rearm` (the empty-take path) reopens the mic
+  /// without speaking, which is right when the worker just said nothing and knows it. Here
+  /// they DID speak and the turn evaporated, so hearing the question again is the only
+  /// signal they get that it needs saying once more — and on this surface it has to be
+  /// audible, not a line of text. `_present` speaks then arms, so the retry is exactly a
+  /// re-ask of the question already on screen.
+  ///
+  /// A `start()` that lands here has no question yet — there is nothing to re-ask, so that
+  /// stays a failure, carrying the engine's own line.
+  Future<void> _retry(RetryCurrentQuestion step, int gen) async {
+    final VoiceFormState current = state;
+    if (current is! VoiceFormAsking) {
+      emit(VoiceFormError(VoiceUnavailableFailure(step.reply)));
+      return;
+    }
+    // The answer never landed, so it is NOT appended to `_answers` and the question stands.
+    await _present(
+      NextQuestion(current.question, index: current.index, total: current.total),
+      gen,
+    );
   }
 
   /// Render Q(n+1) → TTS → start → 250ms prime → arm. Starting the clip only

@@ -325,12 +325,25 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
       recorder: locator<SessionVoiceRecorder>(),
       endpointer: locator<SilenceEndpointer>(),
       tts: locator<QuestionAudioPlayer>(),
+      // #717 — the cubit owns the upload: a spoken answer becomes a registered
+      // `voice_note_id` here, and the gateway stays a pure wire adapter.
+      registrar: locator<VoiceNoteRegistrar>(),
+      session: locator<SessionRepository>(),
     ),
   );
   locator.registerLazySingleton<VoiceStorageUploader>(
     () => kUseMocks
         ? const MockVoiceStorageUploader()
         : RealVoiceStorageUploader(api: locator<ApiClient>()),
+  );
+  // Clip → registered `voice_note_id` (#717). Built ON the uploader above rather than
+  // beside it, so the voice form and the chat voice-note flow share one upload leg and
+  // mock mode keeps working through `MockVoiceStorageUploader` for free.
+  locator.registerLazySingleton<VoiceNoteRegistrar>(
+    () => RealVoiceNoteRegistrar(
+      uploader: locator<VoiceStorageUploader>(),
+      api: locator<ApiClient>(),
+    ),
   );
   locator.registerLazySingleton<VoiceTranscriptResolver>(
     () => kUseMocks

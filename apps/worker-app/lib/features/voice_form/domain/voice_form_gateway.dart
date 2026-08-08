@@ -16,6 +16,16 @@ import 'voice_form_models.dart';
 /// answer clip crosses only as a signed-upload reference the impl mints — never
 /// raw audio bytes through this interface, never a path in a log.
 abstract interface class VoiceFormGateway {
+  /// The engine's session id, learned on [start] and null before it. Null after a [start]
+  /// that failed.
+  ///
+  /// EXPOSED, NOT USED INTERNALLY (#717). The cubit registers a spoken answer's clip against
+  /// this session before submitting the id — a profiling session IS a `chat_sessions` row,
+  /// so it is exactly what `POST /voice/upload` wants. A getter rather than an upload method
+  /// here is the point of the ruling: this interface stays one HTTP call per method, and the
+  /// upload seam lives where the clip does.
+  String? get sessionId;
+
   /// Open the session; returns the first [NextQuestion] (or [VoiceFormDone] for
   /// an empty pack). Requests worker auth internally.
   Future<VoiceFormStep> start();

@@ -128,8 +128,11 @@ void main() {
     expect(hits, <String>['/profiling/session', '/profiling/answer', '/profiling/session']);
   });
 
-  test('an "unavailable" step surfaces a retryable VoiceUnavailableFailure — '
-      'never dead-lettered (#699)', () async {
+  test('an "unavailable" step is a RETRYABLE STEP, not a failure (#717)', () async {
+    // It used to throw. A thrown Failure becomes VoiceFormError, whose only action on the
+    // screen is onExit — so the interview ended on the one outcome the server explicitly
+    // marks as "nothing was written, send that again". It is now a step the cubit can act on,
+    // carrying the engine's own line (which is inside the reply closure, so it has audio).
     final ApiClient api = ApiClient(
       baseUrl: 'http://test',
       client: MockClient((http.Request req) async {
@@ -148,10 +151,84 @@ void main() {
     final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
     await gw.start();
 
+    final VoiceFormStep step = await gw.submit(const VoiceAnswer.boolean(true));
+    expect(step, isA<RetryCurrentQuestion>());
+    expect((step as RetryCurrentQuestion).reply, 'Thodi der baad koshish karein.');
+  });
+
+  test('an UNKNOWN step kind still fails closed — the union is the server\'s (#717)',
+      () async {
+    // The retryable variant became a step; a kind this client has never seen must NOT be
+    // guessed at as "probably retryable", because re-arming the mic against a question that
+    // may no longer be on screen is worse than stopping.
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async {
+        if (req.url.path == '/profiling/session') {
+          return http.Response(
+              jsonEncode(<String, dynamic>{'session_id': 's1', 'step': _questionStep()}),
+              201);
+        }
+        return http.Response(
+            jsonEncode(<String, dynamic>{
+              'step': <String, dynamic>{'kind': 'something_new'}
+            }),
+            201);
+      }),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+    await gw.start();
+
     await expectLater(
       gw.submit(const VoiceAnswer.boolean(true)),
       throwsA(isA<VoiceUnavailableFailure>()),
     );
+  });
+
+  test('a SPOKEN answer sends {kind: spoken, voice_note_id} (#717)', () async {
+    // The branch that used to throw UnsupportedError('spoken answers have no wire shape
+    // yet') — false on the commit it shipped in, since #702 gave it one. Every text / number
+    // / city / salary / duration question renders as `open` (no chips, mic only) and the
+    // universal pack opens with four of them, so this was the first question of every
+    // interview.
+    late Map<String, dynamic> body;
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async {
+        if (req.url.path == '/profiling/session') {
+          return http.Response(
+              jsonEncode(<String, dynamic>{'session_id': 's1', 'step': _questionStep()}),
+              201);
+        }
+        body = jsonDecode(req.body) as Map<String, dynamic>;
+        return http.Response(
+            jsonEncode(<String, dynamic>{'step': <String, dynamic>{'kind': 'done'}}), 201);
+      }),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+    await gw.start();
+
+    final VoiceFormStep step = await gw.submit(const VoiceAnswer.spoken('vn-42'));
+
+    expect(step, isA<VoiceFormDone>());
+    expect(body['answer'], <String, dynamic>{'kind': 'spoken', 'voice_note_id': 'vn-42'});
+    // The clip itself never crosses this seam — no path, no bytes, no duration.
+    expect(jsonEncode(body).contains('.m4a'), isFalse);
+  });
+
+  test('start() publishes the session id the cubit uploads against (#717)', () async {
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async => http.Response(
+            jsonEncode(<String, dynamic>{'session_id': 's-abc', 'step': _questionStep()}),
+            201,
+          )),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+
+    expect(gw.sessionId, isNull, reason: 'nothing to upload against before start()');
+    await gw.start();
+    expect(gw.sessionId, 's-abc');
   });
 
   test('finalize() is OK on committed:true and retryable on committed:false (#699)',
@@ -177,6 +254,54 @@ void main() {
 
     commit = false;
     await expectLater(gw.finalize(), throwsA(isA<VoiceUnavailableFailure>()));
+  });
+
+  test('finalize() maps the 409 "not finished yet" to a RETRYABLE failure (#717)',
+      () async {
+    // The frequent retryable case, and it had no test. `ProfilingSessionService.finalize`
+    // throws ConflictException — "the engine decides when an interview closes" — which
+    // arrives as an ApiException, not a Failure, so it fell through to `mapError`. That has
+    // no 409 arm and returns ServerFailure(409) with generic "Something went wrong" copy, so
+    // the review screen dead-ended on the one condition the worker could retry out of.
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async {
+        if (req.url.path == '/profiling/session') {
+          return http.Response(
+              jsonEncode(<String, dynamic>{'session_id': 's1', 'step': _questionStep()}),
+              201);
+        }
+        return http.Response(
+            jsonEncode(<String, dynamic>{'message': 'Session s1 is not finished'}), 409);
+      }),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+    await gw.start();
+
+    await expectLater(gw.finalize(), throwsA(isA<VoiceUnavailableFailure>()));
+  });
+
+  test('finalize() still fails closed on a 5xx — not everything is retryable (#717)',
+      () async {
+    // The 409 arm must not swallow the rest: a 500 is not "send it again in a moment".
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async {
+        if (req.url.path == '/profiling/session') {
+          return http.Response(
+              jsonEncode(<String, dynamic>{'session_id': 's1', 'step': _questionStep()}),
+              201);
+        }
+        return http.Response('{}', 500);
+      }),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+    await gw.start();
+
+    await expectLater(
+      gw.finalize(),
+      throwsA(predicate((Object? e) => e is Failure && e is! VoiceUnavailableFailure)),
+    );
   });
 
   test('no session token fails closed with UnauthorizedFailure (#699)', () {
