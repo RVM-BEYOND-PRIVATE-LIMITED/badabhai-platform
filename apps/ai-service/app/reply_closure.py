@@ -1,9 +1,10 @@
 """The reply closure manifest, and the Python half of its identity function.
 
 WHAT THE MANIFEST IS. Every string the deterministic interview engine can serve — 129 prompts,
-4 retries, 143 bare ``why_text``, 150 runtime ``why + question`` concatenations, and 7 fixed
-orchestrator constants. It is knowable ahead of time ONLY because the engine makes zero LLM calls
-between session start and completion, which is what makes pre-rendered TTS possible at all.
+4 retries, 143 bare ``why_text``, 150 runtime ``why + question`` concatenations, and 8 fixed
+constants (the orchestrator's seven, plus the chat opener, which reached the manifest in #679 after
+sitting outside every guard). It is knowable ahead of time ONLY because the engine makes zero LLM
+calls between session start and completion, which is what makes pre-rendered TTS possible at all.
 
 It is generated on the TypeScript side (``apps/api/src/profiling/reply-closure.golden.test.ts``)
 from the live engine and the real question packs, and MIRRORED into ``app/tts_data/`` — byte for

@@ -74,7 +74,7 @@ def test_apply_REFUSES_when_real_calls_are_blocked(tmp_path, monkeypatch, capsys
 
     The adapter's mock path returns EMPTY audio on purpose — a placeholder tone played to a worker
     who cannot read the screen looks like the question was asked when it was not. So an `--apply`
-    run with real calls blocked would walk 433 clips, write nothing, and have to report either 433
+    run with real calls blocked would walk 434 clips, write nothing, and have to report either 434
     failures (wrong — nothing was attempted) or success over an empty directory (worse). The test
     environment has real calls gated off, so this is the DEFAULT outcome and it must be loud.
     """

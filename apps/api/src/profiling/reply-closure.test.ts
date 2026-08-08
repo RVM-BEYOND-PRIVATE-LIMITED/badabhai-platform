@@ -9,13 +9,14 @@ import {
   joinClarify,
   servedText,
 } from "./next-question";
-import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies";
+import { CHAT_OPENING_TEXT, CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies";
 import {
   CONSTANT_REPLIES,
   ReplyClosureError,
   assertNoCollisions,
   assertNoInterpolation,
   checkedReplyClosure,
+  clipAccumulator,
   clipId,
   normalizeReplyText,
   replyClosure,
@@ -112,12 +113,24 @@ describe("the closure is derived from the engine, not re-implemented beside it",
       CLOSING_REPLY_TEXT,
       CHAT_UNAVAILABLE_REPLY,
       DISAMBIGUATION_PROMPT_TEXT,
+      CHAT_OPENING_TEXT,
     ]) {
       expect(texts).toContain(constant);
     }
     // And the enumerated list is the same list — so adding a constant to the orchestrator without
     // adding it here fails HERE rather than becoming silence in a worker's ear.
     expect(new Set(CONSTANT_REPLIES).size).toBe(CONSTANT_REPLIES.length);
+  });
+
+  it("carries the OPENER — the literal first thing a worker hears (#679)", () => {
+    // It was in neither `CONSTANT_REPLIES` nor the pack corpus, so no guard on either side could
+    // see it, while the module header claimed to hold every string the interview can say.
+    const texts = textsOf([pack("qp_a", [YEARS])]);
+    expect(texts).toContain(CHAT_OPENING_TEXT);
+    // And it is now under the interpolation guard, which is the point of enumerating it at all.
+    expect(() =>
+      assertNoInterpolation([{ id: "x", text: CHAT_OPENING_TEXT, producer: "constant" }]),
+    ).not.toThrow();
   });
 
   it("deduplicates across packs — 101 packs share most of their wording", () => {
@@ -134,7 +147,9 @@ describe("the closure is derived from the engine, not re-implemented beside it",
 
 describe("clip identity", () => {
   it("survives whitespace churn — a wrapped line must not re-spend the render budget", () => {
-    expect(clipId("Aap kaunsa kaam karte hain?")).toBe(clipId("  Aap kaunsa   kaam\tkarte hain?  "));
+    expect(clipId("Aap kaunsa kaam karte hain?")).toBe(
+      clipId("  Aap kaunsa   kaam\tkarte hain?  "),
+    );
   });
 
   it("treats case and punctuation as significant — both change what a listener hears", () => {
@@ -168,9 +183,12 @@ describe("clip identity", () => {
     ["\u001Cfile separator", "\u001Cfile separator"],
     ["\u001Funit separator", "\u001Funit separator"],
     ["\u0085next line", "\u0085next line"],
-  ])("preserves the edge codepoint that trim() and strip() disagreed about (%#)", (raw, expected) => {
-    expect(normalizeReplyText(raw)).toBe(expected);
-  });
+  ])(
+    "preserves the edge codepoint that trim() and strip() disagreed about (%#)",
+    (raw, expected) => {
+      expect(normalizeReplyText(raw)).toBe(expected);
+    },
+  );
 
   it("preserves a LEADING non-breaking space, not only an interior one", () => {
     // The inconsistency the interior-only vector above could never catch: `.trim()` treated NBSP
@@ -218,6 +236,33 @@ describe("the guards", () => {
         { id: "same", text: "Kitne saal ka tajurba hai?", producer: "prompt" },
       ]),
     ).toThrow(/claimed by two different strings/);
+  });
+
+  // THE GUARD THAT USED TO BE UNREACHABLE (#679). `assertNoCollisions` above can only be handed a
+  // non-deduplicated array by hand: the closure drains a `Map` keyed by id, so its output holds at
+  // most one entry per id and the condition could never hold on the input the module itself fed
+  // it. Meanwhile the real failure — a collision at INSERT time, where the second string was
+  // silently dropped and the first kept — was asserted by nothing. These two cover it at the
+  // point where both strings still exist.
+  it("THROWS at the insert point when two different strings collide, instead of dropping one", () => {
+    const { add } = clipAccumulator(() => "forced");
+    add("Aap kahan rehte hain?", "prompt");
+    expect(() => add("Kitne saal ka tajurba hai?", "prompt")).toThrow(ReplyClosureError);
+    expect(() => {
+      const { add: add2 } = clipAccumulator(() => "forced");
+      add2("Aap kahan rehte hain?", "prompt");
+      add2("Kitne saal ka tajurba hai?", "prompt");
+    }).toThrow(/claimed by two different strings/);
+  });
+
+  it("still lets the SAME string arrive twice — a why is also a clarify's first half", () => {
+    const { add, clips } = clipAccumulator();
+    add("Sheher se aas paas ki naukri milti hai.", "why");
+    expect(() => add("Sheher se  aas paas ki naukri milti hai.", "clarify")).not.toThrow();
+    // First producer wins, and the clip is already correct — normalization made them one string.
+    const [only, ...rest] = clips();
+    expect(rest).toHaveLength(0);
+    expect(only?.producer).toBe("why");
   });
 
   it("does not cry collision over the SAME string appearing twice", () => {

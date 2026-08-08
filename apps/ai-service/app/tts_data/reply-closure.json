@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "clip_count": 433,
+  "clip_count": 434,
   "producers": {
     "clarify": 150,
     "why": 143,
     "prompt": 129,
-    "constant": 7,
+    "constant": 8,
     "retry": 4
   },
   "clips": [
@@ -2118,6 +2118,11 @@
       "id": "f6b5de62d33ffd95",
       "text": "Kai jagah sirf veg cook chahiye. Aap veg banate hain ya non-veg bhi?",
       "producer": "clarify"
+    },
+    {
+      "id": "f76d89646be4c468",
+      "text": "Namaste. Aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?",
+      "producer": "constant"
     },
     {
       "id": "f774396ac5c284fc",

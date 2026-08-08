@@ -13,14 +13,14 @@ deliberately NO FastAPI route to the adapter (a boot test enforces it), so this 
 text becomes speech and no request body can ever reach the provider.
 
 DRY RUN BY DEFAULT, and that is not politeness. Rendering is the moment operator money is spent,
-and the corpus is 433 clips. Every seeder in this repo is dry-run by default for the same reason,
+and the corpus is 434 clips. Every seeder in this repo is dry-run by default for the same reason,
 and the one time that flag was omitted in CI two steps went green while doing nothing.
 
 CONTENT-ADDRESSED OUTPUT. Each clip is written as ``<clip_id>.<codec>`` where ``clip_id`` is
 ``sha256(normalize(text))[:16]`` computed by :mod:`app.reply_closure` — the SAME function, over the
 same normalization, that the TypeScript engine uses to name what it is serving. Re-running after a
 corpus change therefore re-renders only what changed: existing files are skipped, so a wording fix
-to one question costs one clip, not 433.
+to one question costs one clip, not 434.
 
 WHAT IT REFUSES. The adapter rejects any text carrying a ``{{placeholder}}``, because a shared
 audio cache plus post-emit interpolation is exactly how one worker's name would be spoken to every
