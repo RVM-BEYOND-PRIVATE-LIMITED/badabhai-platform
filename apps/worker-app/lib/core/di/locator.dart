@@ -284,7 +284,6 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // Lazy: constructing the plugin touches no platform channel until first use.
   locator.registerLazySingleton<SessionVoiceRecorder>(
       () => SessionVoiceRecorder());
-<<<<<<< HEAD
   // Voice-form (#626/#627): the silence endpointer is a SHARED singleton so the
   // pre-flight calibrates the SAME instance the session later thresholds on, and
   // the upload-bucket probe rides the one ApiClient + SessionRepository.
@@ -293,8 +292,6 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => VoicePreflightProbe(
         locator<ApiClient>(), locator<SessionRepository>()),
   );
-=======
->>>>>>> origin/main
   locator.registerLazySingleton<VoiceStorageUploader>(
     () => kUseMocks
         ? const MockVoiceStorageUploader()
