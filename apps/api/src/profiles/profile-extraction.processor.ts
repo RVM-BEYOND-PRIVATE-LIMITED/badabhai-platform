@@ -1,12 +1,26 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
-import type {
-  DraftProfile,
-  AICallMetadata,
-  ConversationMessage,
-  ProfileExtractionOutput,
+import {
+  AnswerRecordSchema,
+  DraftProfileSchema,
+  OccupationPinSchema,
+  ProfileExtractionOutputSchema,
+  WorkerProfileDraftSchema,
+  type AnswerRecord,
+  type DraftProfile,
+  type AICallMetadata,
+  type ConversationMessage,
+  type OccupationPin,
+  type ProfileExtractionOutput,
 } from "@badabhai/ai-contracts";
+import { PARSE_TARGET_FIELDS } from "@badabhai/profiling-lexicon";
+import { applyParseGates, countByGate, type Rejection } from "../profiling/parse-gates";
+import {
+  projectProfile,
+  type ProjectedAttribute,
+  type ProjectionResult,
+} from "../profiling/answer-map-projector";
 import type { NewWorkerProfile } from "@badabhai/db";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { EventsService } from "../events/events.service";
@@ -20,8 +34,13 @@ import { WorkerSkillsService } from "../match/worker-skills.service";
 import { SkillsRepository } from "../skills/skills.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository, type AiJobUsageMetadata } from "./ai-jobs.repository";
+import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
-import { AI_SPEND_CAP_REASONS, type AiSpendCapReason } from "@badabhai/event-schema";
+import {
+  AI_SPEND_CAP_REASONS,
+  type AiCostTaskType,
+  type AiSpendCapReason,
+} from "@badabhai/event-schema";
 import {
   PROFILE_EXTRACTION_QUEUE,
   type ProfileExtractionJobData,
@@ -73,6 +92,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // catalog before it is written. `SkillsModule` exports this repository; the query
     // has to run on the api's owner connection because `job_domain` is RLS-locked.
     private readonly skills: SkillsRepository,
+    // The destination for the 77% of the pack corpus that is `attribute`-kind. `ProfilesModule`
+    // provides it; it needs only DATABASE, which is a global module.
+    private readonly workerAttributes: WorkerAttributesRepository,
   ) {
     super();
   }
@@ -110,11 +132,12 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // fail-closed pseudonymize gate still fronts the LLM); a name lookup must
       // never fail an extraction.
       const fullName = await this.workerFullName(workerId);
-      const result = await this.ai.extractProfile({
-        worker_ref: workerId,
-        transcript: redactKnownName(transcript, fullName),
-        messages: messages.map((m) => ({ ...m, text: redactKnownName(m.text, fullName) })),
-      });
+      const redacted = messages.map((m) => ({ ...m, text: redactKnownName(m.text, fullName) }));
+      const { result, pin, attributes, pack } = await this.extractOrParse(
+        { workerId, sessionId, aiJobId, correlationId, requestId },
+        redacted,
+        redactKnownName(transcript, fullName),
+      );
       const profile: DraftProfile = result.profile;
       // Issue #419 — the RICH draft the response has always carried (persisted below).
       // HOISTED out of the `create()` call because the profile_status decision reads it
@@ -129,13 +152,27 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // one — it is what an unreachable ai-service looks like from in here. Opaque job
       // id only, never transcript/PII (§2 no-PII-in-logs).
       if (profileStatus === "draft" && !result.blocked) {
+        // NAMES THE CAUSE WHEN THE CAUSE IS KNOWABLE. This line used to end with "check
+        // ai-service reachability" — an instruction to go and find out, because nothing in
+        // the result could say. `error_code` is that missing field: an outage now logs as an
+        // outage, and a worker who genuinely said nothing logs as exactly that, so the two
+        // stop sharing one warning an operator has to disambiguate by hand.
+        const cause = result.error_code
+          ? `cause=${result.error_code}`
+          : `no error reported — the interview itself produced nothing`;
         this.logger.warn(
           `extraction job ${aiJobId} produced NO extracted content; recorded as "draft" ` +
-            `(re-extractable) instead of "extracted" — check ai-service reachability`,
+            `(re-extractable) instead of "extracted" — ${cause}`,
         );
       }
       const aiMeta = result.ai_metadata; // operational usage/cost (null on the mock/AI-down path)
-      const domain = await this.resolveJobDomain(result.job_domain_match, aiJobId);
+      // THE PIN TAKES PRECEDENCE over anything a classifier produced, and carries two
+      // things `JobDomainMatch` structurally cannot: the two OIE statuses (that contract
+      // is FROZEN at the classifier's own five, deliberately — see `OccupationMatchStatus`)
+      // and the retrieval layer the Phase 9 distribution gate is measured from.
+      const domain = pin
+        ? await this.resolvePinnedDomain(pin, aiJobId)
+        : await this.resolveJobDomain(result.job_domain_match, aiJobId);
 
       const saved = await this.profiles.create({
         workerId,
@@ -170,6 +207,49 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // failed match. See `resolveJobDomain`.
         ...domain,
       });
+
+      // ── THE 77% ───────────────────────────────────────────────────────────────
+      //
+      // `attribute`-kind answers — `workplace_type`, `tools_owned`, `safety_training`,
+      // `shift_work` — are 359 of the 466 authored pack items, and they do not belong on
+      // `worker_profiles`: they are MATCHING inputs, one row per (worker, key), filtered by the
+      // matcher with a plain index. Migration 0071 built the table and V2 taught the projector to
+      // fill the array; this is the write that was missing, and without it both were decoration.
+      //
+      // BEFORE `markCompleted`, AND ALLOWED TO THROW. That ordering is the whole safety argument:
+      // `profiles.create` is idempotent on `ai_job_id`, so a retry returns the SAME profile row
+      // rather than orphaning a duplicate, and `upsertMany` writes the same values over the same
+      // rows. So a failure here costs a retry and loses nothing — whereas swallowing it would
+      // lose 77% of what the worker actually said, permanently and silently, with the job marked
+      // completed. There is no backfill runner for this table; a quiet failure is not recoverable.
+      //
+      // Deliberately NOT the `rebuildQuietly` treatment the match projections get below. Those
+      // are derivable from other tables and have a repair script and a deploy gate. This is the
+      // worker's own answers.
+      const attributeRows = attributes.map((attribute) => ({
+        workerId,
+        attributeKey: attribute.attributeKey,
+        valueKind: attribute.valueKind,
+        valueBool: attribute.valueKind === "boolean" ? (attribute.value as boolean) : null,
+        valueNumber:
+          attribute.valueKind === "number" ? String(attribute.value as number) : null,
+        valueText: attribute.valueKind === "text" ? (attribute.value as string) : null,
+        valueTextList:
+          attribute.valueKind === "text_list" ? [...(attribute.value as readonly string[])] : null,
+        source: attribute.source,
+        // The interview this value came from, pinned. Pack contents are immutable per version, so
+        // this is what makes the value re-readable once the corpus has moved on.
+        questionKey: attribute.attributeKey,
+        packId: pack.packId,
+        packVersion: pack.packVersion,
+        sessionId,
+      }));
+      const attributesWritten = await this.workerAttributes.upsertMany(attributeRows);
+      if (attributeRows.length > 0) {
+        this.logger.log(
+          `worker_attributes upserted job=${aiJobId} rows=${attributesWritten}/${attributeRows.length}`,
+        );
+      }
 
       await this.aiJobs.markCompleted(aiJobId, { profile_id: saved.id }, toAiJobUsage(aiMeta));
 
@@ -229,7 +309,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
 
       // Record AI usage/cost on the dedicated observability event. Guarded: an
       // observability emit must never turn a SUCCESSFUL extraction into a failure.
-      await this.recordAiCost(aiMeta, aiJobId, correlationId, requestId);
+      await this.recordAiCost(aiMeta, "profile_extraction", aiJobId, correlationId, requestId);
 
       // TD27: if the gateway BLOCKED a real call because a spend cap / circuit
       // breaker tripped, surface it on its own observability event (in addition
@@ -344,6 +424,347 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * Never throws. A validation query that itself fails degrades to "no domain" — this
    * method exists to protect the extraction, so it must not become a way to break one.
    */
+  /**
+   * THE PHASE 8 SEAM: the deterministic answer map, or the legacy transcript re-parse.
+   *
+   * WHY BOTH STILL EXIST after a "hard cutover". The cutover is of the INTERVIEW, not of every
+   * historical session: an interview finalized before this deployed has no answer map in its
+   * `conversation_state`, and its extraction job may still be sitting in the queue. Re-parsing
+   * its transcript is exactly what should happen to it. There is no flag and no per-trade lever
+   * here — the branch is a property of the DATA, so it drains to zero on its own within one
+   * queue's lifetime and needs no cleanup.
+   *
+   * THE NEW PATH IS FAIL-CLOSED BY CONSTRUCTION. Every failure of the parse call — unreachable,
+   * blocked, mis-shaped, or every field rejected by the gates — produces the SAME thing: a
+   * profile projected from the answer map alone. The worker is never left without one because
+   * a model was unavailable.
+   */
+  private async extractOrParse(
+    job: {
+      workerId: string;
+      sessionId: string | null;
+      aiJobId: string;
+      correlationId?: string | null;
+      requestId?: string | null;
+    },
+    messages: readonly ConversationMessage[],
+    transcript: string,
+  ): Promise<{
+    result: ProfileExtractionOutput;
+    pin: OccupationPin | null;
+    attributes: readonly ProjectedAttribute[];
+    pack: { packId: string | null; packVersion: number | null };
+  }> {
+    // NO SESSION, NO ANSWER MAP. An extraction can be triggered without one (the app's
+    // "make the profile anyway" escape hatch); there is no interview record to read.
+    const state = job.sessionId === null ? null : await this.conversationState(job.sessionId);
+    const answerMap = state === null ? [] : narrowAnswerRecords(state.answer_map);
+    if (answerMap.length === 0) {
+      // No deterministic record: a pre-cutover session, or an interview that collected nothing.
+      // The legacy route is unchanged and still live.
+      return {
+        result: await this.ai.extractProfile({
+          worker_ref: job.workerId,
+          transcript,
+          messages: [...messages],
+        }),
+        pin: null,
+        // A pre-cutover session has no answer map, so it has no attributes and never had any.
+        // Empty here is the honest value, not a degradation.
+        attributes: [],
+        pack: { packId: null, packVersion: null },
+      };
+    }
+
+    // INDEXED BEFORE FILTERING, and the order matters. `evidence.message_index` on a parsed
+    // field points into THIS array, so it has to be the same array the gates check against —
+    // and `system` lines have no place in either, since a value can only be sourced from a
+    // worker's own words (gate 2).
+    const lines = messages
+      .map((m, i) => ({ i, role: m.role, text: m.text }))
+      .filter((m): m is { i: number; role: "worker" | "assistant"; text: string } =>
+        m.role === "worker" || m.role === "assistant",
+      );
+    const targets = PARSE_TARGET_FIELDS.map((f) => ({ ...f, enum: null }));
+
+    const occupation = OccupationPinSchema.safeParse(state?.occupation);
+    const parsed = await this.ai.parseProfile({
+      schema_version: "oie.v1",
+      // PSEUDONYMOUS. The worker's real id is the correlation key on our side of the wire and
+      // never crosses it — the same discipline `/profile/extract` already used.
+      worker_ref: job.workerId,
+      occupation: occupation.success ? occupation.data : null,
+      answer_map: answerMap,
+      transcript: lines,
+      target_fields: targets,
+    });
+
+    // THE INTERVIEW'S ENTIRE MODEL SPEND, LEDGERED — for the first time.
+    //
+    // The cutover's economic case is "~12 capable calls per interview became 1". That one call is
+    // this one, and until now it produced no cost record at all: `/profile/parse` returned no
+    // metadata, so there was nothing to record even if something had tried to. Every figure the
+    // ledger could show described the OLD architecture.
+    //
+    // Emitted here rather than beside the extraction record because this is where the call
+    // happened, and it is not the same call: two billable requests can occur under one
+    // `ai_job`, with different models, different token counts and different outcomes.
+    //
+    // `null` metadata is the degraded path (deadline, mock posture, spend cap) and records
+    // nothing — a zero-cost row would be indistinguishable from a real call that was free.
+    await this.recordAiCost(
+      parsed?.ai_metadata ?? null,
+      "profile_parse",
+      job.aiJobId,
+      job.correlationId ?? "",
+      job.requestId ?? "",
+    );
+
+    // ── THE SECOND WALL ────────────────────────────────────────────────────────────────
+    //
+    // The ai-service already ran all six gates before this response left it. Running them
+    // AGAIN here is the same double-wall discipline the domain match already uses, and it is
+    // not paranoia about our own code: the two walls fail independently. A version-skewed
+    // ai-service, a proxy that rewrote a body, a mock left enabled in an environment — each
+    // produces a response the far wall vouched for and this one does not.
+    const gated =
+      parsed === null
+        ? { accepted: {}, rejections: [], disagreements: [] }
+        : applyParseGates(
+            parsed,
+            { answer_map: answerMap, transcript: lines, target_fields: targets },
+            // PII RE-CERTIFICATION (gate 6) is the ai-service's to run — it owns the
+            // pseudonymizer. Here it is a pass-through, and saying so explicitly is better than
+            // a second, weaker regex pretending to be the same check.
+            (value) => ({ blocked: false, text: value }),
+          );
+
+    if (parsed === null) {
+      this.logger.warn(
+        `parse call produced nothing for job ${job.aiJobId}; projecting the profile from the ` +
+          `answer map alone (parse_status=deterministic_only)`,
+      );
+    }
+    const acceptedCount = Object.keys(gated.accepted).length;
+    if (gated.rejections.length > 0) {
+      // Gate ids and counts, never the rejected values — a value that failed a gate is by
+      // definition not vouched for, so it is not known to be PII-free.
+      this.logger.warn(
+        `parse gates rejected ${gated.rejections.length} field(s) for job ${job.aiJobId}: ` +
+          JSON.stringify(countByGate(gated.rejections)),
+      );
+    }
+    await this.recordGateRejections(job, gated.rejections, acceptedCount);
+    await this.recordDisagreements(job, gated.disagreements, acceptedCount);
+
+    const projection = projectProfile(answerMap, gated.accepted, { split: splitToolsEquipment });
+    this.logger.log(
+      `profile projected for job ${job.aiJobId} status=${projection.parseStatus} ` +
+        `fields=${Object.keys(projection.draft).length} overlay=${projection.overlayFields.length}`,
+    );
+    return {
+      result: toExtractionOutput(projection),
+      pin: occupation.success ? occupation.data : null,
+      // THE LINE THAT WAS MISSING. `projectProfile` has computed this array on every interview
+      // since V2 shipped; `toExtractionOutput` reads `projection.draft` and nothing else, so the
+      // attributes were computed and dropped on the floor. A live 13-turn welding interview
+      // produced 10 typed answers and ZERO rows in `worker_attributes` — the original 77% defect,
+      // moved one layer later and no less total.
+      attributes: projection.attributes,
+      pack: {
+        packId: typeof state?.pack_id === "string" ? state.pack_id : null,
+        packVersion: typeof state?.pack_version === "number" ? state.pack_version : null,
+      },
+    };
+  }
+
+  /**
+   * `chat_sessions.conversation_state`, narrowed to the two OIE fields this needs.
+   *
+   * READ FROM POSTGRES, NOT REDIS, and that is forced rather than chosen: the transcript buffer
+   * is dropped the moment the flush transaction commits, and this job runs minutes later. The
+   * flush writes the envelope's projection into `conversation_state` precisely so this read has
+   * something to find.
+   */
+  private async conversationState(
+    sessionId: string,
+  ): Promise<{
+    answer_map: unknown;
+    occupation: unknown;
+    pack_id: unknown;
+    pack_version: unknown;
+  } | null> {
+    try {
+      const session = await this.chat.findSession(sessionId);
+      const state = session?.conversationState;
+      if (typeof state !== "object" || state === null) return null;
+      // `pack_id` / `pack_version` come along because every attribute row PINS the interview it
+      // was collected under. Pack contents are immutable per version, so that pair is the only
+      // thing that makes a stored value re-readable a year later — "did `safety_gear` mean the
+      // same question in v1 as in v3" is otherwise unanswerable.
+      return state as {
+        answer_map: unknown;
+        occupation: unknown;
+        pack_id: unknown;
+        pack_version: unknown;
+      };
+    } catch (err) {
+      // A read failure must not fail the extraction — it degrades to the legacy path, which is
+      // exactly what a pre-cutover session would have taken anyway.
+      this.logger.warn(
+        `could not read conversation_state for session ${sessionId}; falling back to the ` +
+          `transcript re-parse: ${err instanceof Error ? err.name : "UnknownError"}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Emit `profile.parse_gates_rejected` — how much the six-gate wall threw away, per gate.
+   *
+   * THE GATES ALWAYS WORKED; THE RATE IS THE SIGNAL. A rejected field never reaches a profile,
+   * so nothing is broken when this fires — but `provenance` climbing means the model started
+   * inventing spans, `role` climbing means it started reading our own question text back to us,
+   * and `pii` climbing means the pseudonymizer and the parser have drifted apart on what a name
+   * is. A log line can answer "did this job reject anything"; only an event answers "is this
+   * getting worse", and grepping logs for that discovers it after it ships.
+   *
+   * NOT EMITTED WHEN NOTHING WAS REJECTED, because the healthy case is the overwhelming majority
+   * and one row per extraction to say "zero" is the write amplification risk #9 warns about.
+   * `accepted_count` on the rows that DO fire carries the denominator.
+   *
+   * GUARDED: an observability emit must never fail an extraction that produced a real profile.
+   */
+  private async recordGateRejections(
+    job: {
+      workerId: string;
+      aiJobId: string;
+      correlationId?: string | null;
+      requestId?: string | null;
+    },
+    rejections: readonly Rejection[],
+    acceptedCount: number,
+  ): Promise<void> {
+    if (rejections.length === 0) return;
+    try {
+      await this.events.emit({
+        event_name: "profile.parse_gates_rejected",
+        actor: { actor_type: "ai_service" },
+        subject: { subject_type: "ai_job", subject_id: job.aiJobId },
+        payload: {
+          worker_id: job.workerId,
+          ai_job_id: job.aiJobId,
+          rejected_count: rejections.length,
+          accepted_count: acceptedCount,
+          // COUNTS ONLY, no field ids — see the payload's own note. A value that failed
+          // `provenance` or `pii` is unverified model output, and so is the field id it came
+          // attached to.
+          by_gate: countByGate(rejections),
+        },
+        idempotencyKey: `profile.parse_gates_rejected:${job.aiJobId}`,
+        correlationId: job.correlationId ?? undefined,
+        requestId: job.requestId ?? undefined,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `parse-gate-rejection emit failed for job ${job.aiJobId} (the profile stands): ` +
+          `${err instanceof Error ? err.name : "UnknownError"}`,
+      );
+    }
+  }
+
+  /**
+   * Emit `profile.parse_disagreement` when the model contradicted the deterministic record.
+   *
+   * THE EVENT IS THE PROOF THAT GATE 4 IS LOAD-BEARING. The gate already discarded the model's
+   * value — it cannot override the worker, only reformat them — but a gate that silently
+   * discards is a gate nobody can watch degrade. A disagreement rate climbing from 0.3% to 12%
+   * is a prompt regression, a lexicon regression, or a model swap, and all three are worth
+   * knowing about before a quarter of profiles are being quietly corrected.
+   *
+   * GUARDED: an observability emit must never fail an extraction that produced a real profile.
+   */
+  private async recordDisagreements(
+    job: { workerId: string; aiJobId: string; correlationId?: string | null; requestId?: string | null },
+    disagreements: readonly string[],
+    acceptedCount: number,
+  ): Promise<void> {
+    if (disagreements.length === 0) return;
+    try {
+      await this.events.emit({
+        event_name: "profile.parse_disagreement",
+        actor: { actor_type: "ai_service" },
+        subject: { subject_type: "ai_job", subject_id: job.aiJobId },
+        payload: {
+          worker_id: job.workerId,
+          ai_job_id: job.aiJobId,
+          // FIELD IDS AND COUNTS ONLY. Both values are worker data: one is what they said, the
+          // other what the model claimed they said.
+          field_ids: [...disagreements].sort().slice(0, 64),
+          disagreement_count: disagreements.length,
+          agreement_count: acceptedCount,
+        },
+        idempotencyKey: `profile.parse_disagreement:${job.aiJobId}`,
+        correlationId: job.correlationId ?? undefined,
+        requestId: job.requestId ?? undefined,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `parse-disagreement emit failed for job ${job.aiJobId} (the profile stands): ` +
+          `${err instanceof Error ? err.name : "UnknownError"}`,
+      );
+    }
+  }
+
+  /**
+   * The interview's pinned occupation → the `worker_profiles` columns.
+   *
+   * A SIBLING OF `resolveJobDomain`, NOT A BRANCH INSIDE IT, because the two answer
+   * different questions. That one asks "did a classifier produce something writable"; this
+   * one asks "is the worker's own confirmed trade still in the catalogue". They share
+   * exactly one thing — `isSelectableDomain`, the last hallucination wall — and merging
+   * them would mean a conditional in every line of both.
+   */
+  private async resolvePinnedDomain(
+    pin: OccupationPin,
+    aiJobId: string,
+  ): Promise<Partial<NewWorkerProfile>> {
+    const base = {
+      jobDomainMatchStatus: pin.match_status,
+      jobDomainMatchedAt: new Date(),
+    } satisfies Partial<NewWorkerProfile>;
+
+    try {
+      if (!(await this.skills.isSelectableDomain(pin.job_domain_id))) {
+        // The catalogue moved between the interview and this job: the occupation was
+        // deprecated or made non-selectable. Recording UNMATCHED beats writing an id the
+        // feed would then fail to describe — and beats failing the extraction outright.
+        this.logger.warn(
+          `extraction job ${aiJobId} carried a pinned job_domain that is no longer ` +
+            `selectable; recording the profile UNMATCHED rather than failing the insert`,
+        );
+        return { ...base, jobDomainMatchStatus: "unmatched_llm_declined" };
+      }
+    } catch (err) {
+      const cls = err instanceof Error ? err.name : "UnknownError";
+      this.logger.warn(
+        `extraction job ${aiJobId} could not validate the pinned job_domain (${cls}); ` +
+          `recording the profile UNMATCHED (the label is never worth the extraction)`,
+      );
+      return { ...base, jobDomainMatchStatus: "unmatched_degraded" };
+    }
+
+    return {
+      ...base,
+      jobDomainId: pin.job_domain_id,
+      jobDomainMatchScore: pin.match_score,
+      // THE COLUMN MIGRATION 0072 ADDED, and the reason it is stored rather than logged:
+      // the plan's L0+L1 ≥ 45% / L2 ≥ 30% / L3 ≤ 25% gate is a distribution over ten
+      // thousand workers, which no log line can answer.
+      jobDomainMatchLayer: pin.match_layer,
+    };
+  }
+
   private async resolveJobDomain(
     match: ProfileExtractionOutput["job_domain_match"],
     aiJobId: string,
@@ -409,13 +830,27 @@ export class ProfileExtractionProcessor extends WorkerHost {
   }
 
   /**
-   * Emit the dedicated `ai.cost_recorded` observability event for a completed
-   * job. No-ops on the mock/AI-down path (no metadata = no real call to record),
-   * and swallows any emit/validation error so it can never fail the extraction.
-   * Carries operational fields only — never prompts, completions, or PII.
+   * Emit the dedicated `ai.cost_recorded` observability event for ONE AI call.
+   *
+   * No-ops on the mock/AI-down path (no metadata = no real call to record), and swallows any
+   * emit/validation error so it can never fail the extraction. Carries operational fields only
+   * — never prompts, completions, or PII.
+   *
+   * `taskType` IS A PARAMETER NOW, AND IT USED TO BE THE STRING `"profile_extraction"`, HARD-CODED.
+   * That was accurate while extraction was the only call this job made. The Phase 8 cutover added
+   * a second — `/profile/parse`, which is the ONLY LLM call left in the whole interview — and a
+   * hard-coded task type is not something a compiler can notice is now wrong.
+   *
+   * KEYED ON `ai_call_id`, NOT ON THE JOB. One job now makes two billable calls, and a
+   * per-job key silently deduped the second away: the extraction record landed, the parse record
+   * was dropped as a duplicate, and the interview's model spend disappeared into a dedup. The
+   * call id is what this event is actually about, so it is what exactly-once should mean here.
+   * (Across the deploy that changes this, an in-flight job redelivered mid-flight can write one
+   * duplicate extraction row. Observability only, and `ai_call_id` lets a reader collapse it.)
    */
   private async recordAiCost(
     meta: AICallMetadata | null,
+    taskType: AiCostTaskType,
     aiJobId: string,
     correlationId: string,
     requestId: string,
@@ -429,7 +864,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
         payload: {
           ai_call_id: meta.ai_call_id,
           ai_job_id: aiJobId,
-          task_type: "profile_extraction",
+          task_type: taskType,
           model: meta.model_name || "unknown",
           provider: meta.provider || "unknown",
           real_call: meta.real_call,
@@ -440,14 +875,14 @@ export class ProfileExtractionProcessor extends WorkerHost {
           cost_alert: meta.cost_alert,
           above_target: meta.above_target,
         },
-        // One cost record per job — dedups if a redelivery re-emits after the
-        // completion guard is bypassed.
-        idempotencyKey: `ai.cost_recorded:${aiJobId}`,
+        idempotencyKey: `ai.cost_recorded:${meta.ai_call_id}`,
         correlationId,
         requestId,
       });
     } catch (err) {
-      this.logger.warn(`ai.cost_recorded emit failed for job ${aiJobId} (non-fatal): ${String(err)}`);
+      this.logger.warn(
+        `ai.cost_recorded emit failed for job ${aiJobId} task=${taskType} (non-fatal): ${String(err)}`,
+      );
     }
   }
 
@@ -617,4 +1052,134 @@ function toAiJobUsage(meta: AICallMetadata | null): AiJobUsageMetadata | undefin
     totalTokens: meta.input_tokens + meta.output_tokens,
     costInr: meta.estimated_cost_inr,
   };
+}
+
+/**
+ * `conversation_state.answer_map` → validated `AnswerRecord`s.
+ *
+ * PER-RECORD, so one unparseable answer costs that answer and not the whole interview. The
+ * column is jsonb written by a possibly-older build, and a schema-wide parse would turn a single
+ * stale field into "this worker has no answers at all".
+ */
+function narrowAnswerRecords(value: unknown): AnswerRecord[] {
+  if (!Array.isArray(value)) return [];
+  const records: AnswerRecord[] = [];
+  for (const raw of value) {
+    const parsed = AnswerRecordSchema.safeParse(raw);
+    if (parsed.success) records.push(parsed.data);
+  }
+  return records;
+}
+
+/**
+ * `tools_equipment` → `machines[]` and `controllers[]`.
+ *
+ * THE CROSSWALK NAMES THIS SPLITTER AND SOMEONE HAS TO BE IT. One phrase carries a VMC and a
+ * Fanuc for a machinist, an overlock for a tailor, a tandoor for a cook — so the routing is by
+ * VOCABULARY, never by trade, and there is no per-trade code anywhere in it.
+ *
+ * A TOKEN THAT MATCHES NOTHING IS A MACHINE, not dropped. Machines are open-ended by nature (the
+ * corpus cannot enumerate every press in India); CNC controllers are a small, closed, and
+ * genuinely recognisable family. Defaulting the other way would silently discard equipment the
+ * worker named.
+ */
+const CONTROLLER_TOKENS = [
+  "fanuc",
+  "siemens",
+  "mitsubishi",
+  "haas",
+  "mazak",
+  "mazatrol",
+  "heidenhain",
+  "fagor",
+  "syntec",
+  "delta",
+];
+
+function splitToolsEquipment(value: unknown): Record<string, unknown> {
+  const tokens = (Array.isArray(value) ? value : [value])
+    .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+    .map((v) => v.trim());
+  const machines: string[] = [];
+  const controllers: string[] = [];
+  for (const token of tokens) {
+    const lower = token.toLowerCase();
+    if (CONTROLLER_TOKENS.some((c) => lower.includes(c))) controllers.push(token);
+    else machines.push(token);
+  }
+  return { machines, controllers };
+}
+
+/**
+ * A projection → the `ProfileExtractionOutput` the rest of this processor already knows how to
+ * persist.
+ *
+ * AN ADAPTER, DELIBERATELY, RATHER THAN A SECOND PERSISTENCE PATH. Everything downstream of
+ * this — `decideProfileStatus`, `profiles.create`, the match rebuild, the completion event —
+ * is unchanged and untouched by the cutover. Duplicating it for the new shape would mean two
+ * places that decide what a profile IS, and they would diverge on the first schema change.
+ *
+ * `is_mock: false` and `ai_metadata: null` are both honest: no mock was consulted, and the
+ * usage/cost of the parse call belongs to the ai-service's own ledger, not to a synthesised
+ * record here.
+ */
+function toExtractionOutput(projection: ProjectionResult): ProfileExtractionOutput {
+  const at = <T,>(field: string): T | undefined => projection.draft[field]?.value as T | undefined;
+  const arr = (field: string): string[] => {
+    const value = projection.draft[field]?.value;
+    if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
+    return typeof value === "string" && value.length > 0 ? [value] : [];
+  };
+
+  const draft = WorkerProfileDraftSchema.parse({
+    primary_role: at<string>("primary_role") ?? null,
+    machines: arr("machines"),
+    controllers: arr("controllers"),
+    skills: arr("skills"),
+    experience_years: at<number>("experience_years") ?? null,
+    current_city: at<string>("current_city") ?? null,
+    preferred_locations: arr("preferred_locations"),
+    relocation_willingness: at<boolean>("relocation_willingness") ?? null,
+    current_salary: at<number>("current_salary") ?? null,
+    expected_salary: at<number>("expected_salary") ?? null,
+    availability: at<string>("availability") ?? "unknown",
+    certifications: arr("certifications"),
+    education_level: at<string>("education_level") ?? null,
+    education_field: at<string>("education_field") ?? null,
+  });
+
+  const profile = DraftProfileSchema.parse({
+    // CANONICAL IDS ARE NOT INVENTED HERE. Skill/role canonicalization is the taxonomy's job
+    // and runs on its own path; writing a guess into these columns would put an unvalidated id
+    // in the one place the match engine trusts absolutely.
+    canonical_trade_id: null,
+    canonical_role_id: null,
+    skills: [],
+    skill_labels: draft.skills,
+    machines: draft.machines,
+    education: draft.education,
+    certifications: draft.certifications,
+    education_level: draft.education_level,
+    education_field: draft.education_field,
+    experience: draft.experience_years === null ? {} : { total_years: draft.experience_years },
+    salary_expectation:
+      draft.expected_salary === null ? {} : { amount_min: draft.expected_salary },
+    location_preference: { preferred_cities: draft.preferred_locations },
+    availability: { status: draft.availability },
+  });
+
+  return ProfileExtractionOutputSchema.parse({
+    profile,
+    blocked: false,
+    is_mock: false,
+    extraction_status: "completed",
+    worker_profile_draft: draft,
+    ai_metadata: null,
+    // NULL, AND NOT BECAUSE NOTHING MATCHED. The pinned occupation is carried back to the
+    // caller separately, because `JobDomainMatch` is the CLASSIFIER's contract — frozen at
+    // its own five statuses, with no `match_layer` — and squeezing a pin through it would
+    // mean either lying about the status or losing the layer the Phase 9 gate is measured
+    // from. See `resolvePinnedDomain`.
+    job_domain_match: null,
+  });
 }

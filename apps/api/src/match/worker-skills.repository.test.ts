@@ -2,7 +2,13 @@ import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
-import { jobPostings, workerIndustryTenure, workerProfiles, workerSkills } from "@badabhai/db";
+import {
+  CURRENT_PROFILE_ORDER,
+  jobPostings,
+  workerIndustryTenure,
+  workerProfiles,
+  workerSkills,
+} from "@badabhai/db";
 import type { Database } from "@badabhai/db";
 import { WorkerSkillsRepository } from "./worker-skills.repository";
 
@@ -142,11 +148,13 @@ describe("findLatestProfileSignals — reads the LATEST profile, by the backfill
     expect(captured.limit).toBe(1);
     // The tiebreak is not decoration: `db:backfill:worker-skills` uses the SAME total
     // order, and if the two disagree about which row is "latest" the batch runner
-    // silently overwrites the live path's rows with an older profile's skills.
-    expect(captured.orderBy!.map(text)).toEqual([
-      '"worker_profiles"."created_at" desc',
-      '"worker_profiles"."id" desc',
-    ]);
+    // silently overwrites the live path's rows with an older profile's skills. They used to
+    // agree by COPY — two hand-written arrays that happened to match — which is why this now
+    // asserts identity against the one exported definition both import (B-8b).
+    expect(captured.orderBy).toEqual([...CURRENT_PROFILE_ORDER]);
+    // …and that definition leads with the content leg, so an empty AI-down extraction cannot
+    // rebuild this worker's derived skills from nothing.
+    expect(text(captured.orderBy![0])).toContain("profile_status");
   });
 
   it("reads only faceless signal columns — never a name, phone or raw profile", async () => {

@@ -375,7 +375,11 @@ export function stringsIn(value: unknown): string[] {
  * it should only ever run on values that have already earned the right to be stored.
  */
 export function applyParseGates(
-  output: ProfileParseOutput,
+  // `Pick`, matching `input` below, because this function reads `fields` and nothing else.
+  // Taking the whole `ProfileParseOutput` made every caller — including a dozen tests that care
+  // only about gate behaviour — construct fields the gates never look at, so adding `ai_metadata`
+  // to the contract broke them all. A parameter should name what it uses.
+  output: Pick<ProfileParseOutput, "fields">,
   input: Pick<ProfileParseInput, "answer_map" | "transcript" | "target_fields">,
   certify: PiiCertifier,
 ): GateResult {

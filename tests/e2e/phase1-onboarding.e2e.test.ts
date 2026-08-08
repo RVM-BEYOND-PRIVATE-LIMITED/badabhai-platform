@@ -7,6 +7,7 @@ import {
   workerProfiles,
   chatSessions,
   chatMessages,
+  workerPackAnswers,
   aiJobs,
   generatedResumes,
   type DbClient,
@@ -295,6 +296,70 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(profileAfterExtract!.confirmedAt).toBeNull();
     expect(profileAfterExtract!.rawProfile).toBeTruthy();
 
+    // ───────── STAGE 4b — the OIE cutover's own acceptance criteria (Phase 8/9) ─────────
+    //
+    // These were the plan's Phase 8 gates and NOTHING asserted them: the cutover shipped with
+    // its headline claims verified only by unit tests over mocks. A unit test cannot show that
+    // the deterministic interview reached Postgres, because every collaborator it would need is
+    // the thing being stubbed.
+
+    // "ZERO LLM CALLS BETWEEN SESSION START AND COMPLETION."
+    //
+    // `ai_jobs` is the only durable record of AI work in this system, so "exactly one job for
+    // the whole flow, and it is the parse" IS the assertion. Under the model-driven interview
+    // this same flow spent ~12 `capable` calls before extraction ever started. Asserted on the
+    // COUNT rather than on a spy, because a count cannot be satisfied by a second seam someone
+    // adds later.
+    const allJobs = await client.db.select().from(aiJobs);
+    expect(allJobs).toHaveLength(1);
+    expect(allJobs[0]!.jobType).toBe("profile_extraction");
+
+    // `worker_pack_answer` — the answer map, as rows. The plan's Phase 8 manual check listed
+    // this and no automated test covered it, so a flush that silently inserted nothing would
+    // have passed everything.
+    const packAnswers = (await client.db.select().from(workerPackAnswers)).filter(
+      (a) => a.workerId === workerId,
+    );
+    expect(packAnswers.length).toBeGreaterThan(0);
+    for (const a of packAnswers) {
+      expect(a.packId).toBeTruthy();
+      expect(a.packVersion).toBeGreaterThan(0);
+      // The `^[a-z_]+$` closed vocabulary the pack validator enforces on every authored row.
+      expect(a.questionKey).toMatch(/^[a-z_]+$/);
+      // `wpa_answer_shape_chk` as a biconditional: `answered` IFF exactly one value column is
+      // non-null. A declined answer ("nahi pata") is a COMPLETE answer carrying no value, and
+      // the DB would have rejected the row if this were violated — asserting it here is what
+      // makes a silently-widened constraint visible.
+      const valued = [a.answerText, a.answerNumber, a.answerBool, a.answerOptionKeys].filter(
+        (v) => v !== null,
+      );
+      expect(valued).toHaveLength(a.status === "answered" ? 1 : 0);
+    }
+
+    // `profile.interview_completed` (Phase 9) — the interview's own telemetry, and the only
+    // source for the p95-turn-latency and completion-rate gates.
+    const interviewEvents = (await client.db.select().from(events)).filter(
+      (e) => e.eventName === "profile.interview_completed",
+    );
+    expect(interviewEvents).toHaveLength(1);
+    const telemetry = interviewEvents[0]!.payload as {
+      ask_count?: number;
+      turn_count?: number;
+      turn_latency_ms?: Record<string, number>;
+    };
+    expect(telemetry.ask_count).toBeGreaterThan(0);
+    expect(telemetry.turn_count).toBe(turns);
+    // The histogram counted every turn — buckets summing to zero would mean the measurement
+    // is wired but never fires, which looks identical to "the engine is fast" on a dashboard.
+    const buckets = telemetry.turn_latency_ms ?? {};
+    const measured =
+      (buckets.le_100 ?? 0) +
+      (buckets.le_200 ?? 0) +
+      (buckets.le_400 ?? 0) +
+      (buckets.le_800 ?? 0) +
+      (buckets.gt_800 ?? 0);
+    expect(measured).toBe(turns);
+
     // ──────────────────────── STAGE 5 — Profile confirmation ────────────────────────
     const confirm = await call(
       "POST",
@@ -404,6 +469,7 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(count("chat.message_received")).toBe(turns);
     expect(count("chat.message_sent")).toBe(turns);
     expect(count("profile.extraction_ready")).toBe(1); // emitted once on the flip
+    expect(count("profile.interview_completed")).toBe(1); // the engine's own record (Phase 9)
     expect(count("profile.extraction_requested")).toBe(1);
     expect(count("profile.extraction_completed")).toBe(1);
     expect(count("profile.confirmed")).toBe(1);

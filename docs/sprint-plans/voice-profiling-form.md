@@ -3,7 +3,7 @@
 Hinglish voice-driven sequential Q&A for the worker app: questions shown one at a time, read aloud,
 answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam TTS out.
 
-**Status date:** 2026-08-07 · **HEAD:** `4d0989f8`
+**Status date:** 2026-08-08 · **HEAD:** `22d27364`
 
 ---
 
@@ -28,7 +28,17 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | 16 worker-app issues, assigned RishiBamako | #624–#639 | **filed, open** |
 | **V0** — Sarvam `TtsAdapter` + `tts_smoke --matrix`, armed by nothing | PR #645 → `4d0989f8` | **on `main`** |
 | **V1** — migration 0071 data spine (`worker_attributes`, `profiling_voice_answer`, pack pin, retention index) | PR #647 → `6f33a5aa` | **on `main`, applied** |
-| **V2** — attribute projection + the yes/no lexicon + select-option capture | PR #651 | **on `main`** |
+| **V2** — attribute projection + the yes/no lexicon + select-option capture | PR #651 → `a639b7bc` | **on `main`** |
+| **V3** — the OIE Phase 8 cutover: the interview is deterministic, the LLM parses once | PR #650 → `2aa71d79` | **on `main`** |
+| Live-run fixes — `catalog_version` 500, event-validation diagnostics, compound chip labels | PR #656 → `952305ea` | **on `main`** |
+| Pack pin made durable + `profile.pack_pinned` | PR #661 → `27a28b18` | **on `main`** |
+| **V4 (the three defects)** — a worker's answer could vanish behind a green tick | PR #664 → `40e61575` | **on `main`** |
+| **V7** — the interview's one LLM call was unledgered; `aiTaskType` widened 3 → 8 | PR #665 → `46a1fa17` | **on `main`** |
+| **V5 (the enumeration half)** — the 433-clip reply closure + the `{{…}}` corpus guard | PR #667 | **on `main`** |
+| **The 77%'s writer** — a table and a projector that nothing joined | PR #670 → `5394c292` | **on `main`** |
+| A mock call reporting real rupees | PR #672 → `ca5cd4e3` | **on `main`** |
+| **B-8b** — one definition of "the current profile"; 7 readers, one unordered, one un-deduped | PR #678 → `d5365b57` | **on `main`** |
+| **B-8a** — a call that never left the process claimed `success: true` and emitted a cost row | PR #681 | **on `main`** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -54,15 +64,24 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **B-2** | Sarvam TTS accepts **romanized** Hinglish at `hi-IN` | Unknown. 0 of 466 pack items contain a Devanagari codepoint. Resolved by V0. |
 | **B-3** | Round-trip latency for a ≤30s answer | Unmeasured. Every number in the repo is a timeout, never an observation. Resolved by V0. |
 | ~~**B-4**~~ | Where `attribute` answers land | **RESOLVED** — owner ruled `worker_attributes`; the table shipped in V1 (migration 0071). The *wiring* is V2. |
-| **B-5** | `envelope.occupation` is never written | The 100 trade packs are unreachable; every worker gets the 8-item universal tail. V3. |
-| **B-6** | The two surfaces do not share a parse/build pipeline | `/profile/parse` and `projectProfile` have zero callers; the chat uses `/profile/extract`. See §1a. V3. |
+| ~~**B-5**~~ | `envelope.occupation` is never written | **RESOLVED** by V3 (#650). Measured live: "main welder hoon" → `jd_nco_7212_0301` via `l0_exact` at 0.97 → the WELDING pack served → 13-turn interview → 10 typed rows in `worker_pack_answer`. |
+| ~~**B-6**~~ | The two surfaces do not share a parse/build pipeline | **RESOLVED, and this row was STALE rather than open.** Re-derived against code 2026-08-08: `/profile/parse` has a live caller (`ProfileExtractionProcessor.extractOrParse:483`), `projectProfile` has a live caller beside it (`:552`), and `worker_profiles` has exactly ONE writer — `ProfilesRepository.create` — which both legs converge on. It closed with the V3 cutover (#650) and was completed by #670. The dual leg that remains is the upstream AI CALL only (`/profile/parse` vs `/profile/extract`) and it branches on DATA — a pre-cutover session has no answer map — so it drains to zero within one queue's lifetime. Lesson: a doc row saying "zero callers" is a measurement with an expiry date. |
+| ~~**B-7**~~ | The pack pin was never written to `chat_sessions` | **RESOLVED** by #661. Found by running the product, not by reading it: the live database showed `pack pinned: (none)` for a session that had just been served thirteen welding questions. The columns shipped in V1 with a comment justifying them and no writer; a Redis eviction therefore re-ran retrieval and could hand a resumed interview a different pack. Now written write-once at pin time, read back only when the envelope is gone, and recorded by `profile.pack_pinned`. |
+| ~~**B-8a**~~ | An unreachable ai-service fabricates an **empty draft profile** | **RESOLVED — in two halves, months apart.** The CONSEQUENCE was closed earlier: `decideProfileStatus` runs `hasExtractedContent` over the row it is about to write, so the fabrication persists as `"draft"` and both dedupe guards re-run extraction — the worker self-heals. **The signal is now closed too, by #681:** `ProfileExtractionOutputSchema` gained `error_code` (additive, defaulted, mirrored in Pydantic and in the golden key fixture), the unreachable fallback authors `extract_service_unreachable`, and it no longer synthesizes `ai_metadata` — so no `ai_jobs` usage row and no `ai.cost_recorded` event describe a provider call that did not happen. `is_mock` was never a discriminator: the ai-service returns `is_mock = not real_call`, so every healthy extraction under the committed `AI_ENABLE_REAL_CALLS=false` default carries it too. |
+| ~~**B-8b**~~ | `create` is insert-only, so a later empty extraction shadows a good one | **RESOLVED by #678, and it was worse than logged.** Seven readers each answered "which row is the profile" differently: five ordered by `created_at DESC` alone, `ReachRepository.findSignalRowByWorkerId` had **no `ORDER BY` at all**, and `ReachRepository.listSignalRows` had neither ordering nor per-worker dedup — so a re-interviewed worker occupied **two** payer-pool slots and was counted twice in PACE supply. Now one exported `CURRENT_PROFILE_ORDER`, keyed off `profile_status` — which already IS the persisted `hasExtractedContent` decision, so no SQL mirror of it was needed and no second definition exists to drift. |
 
-### 1a. ONE PIPELINE — and the two surfaces do not share one today
+### 1a. ONE PIPELINE — CLOSED (re-derived against code, 2026-08-08)
 
 Owner ruling: the voice form must parse and build the profile *exactly* the way the chat does. Two
 ways of doing the same thing is two things to keep correct.
 
-They do not share one today, and the gap is bigger than "a different function":
+**They share one now, and the table below is kept as the RECORD OF WHAT WAS TRUE, not of what is.**
+Every cell in the OIE column has since gained a caller: `AiService.parseProfile` is invoked from
+`ProfileExtractionProcessor.extractOrParse`, its result runs the six gates a second time, and
+`projectProfile` feeds the SAME `ProfilesRepository.create` the chat leg reaches. There is exactly one
+`.insert(workerProfiles)` in application code.
+
+The original gap, for the record:
 
 | | Chat (live) | OIE / voice (as designed) |
 |---|---|---|
@@ -77,7 +96,8 @@ a `WorkerProfileDraft` (deterministic `projectProfile`, plus the gated `/profile
 it is available) and hands it to **that** service. It does not open a second write path, and it does
 not touch the chat's own trigger.
 
-Two live defects this exposes, both logged for V4/V7 rather than fixed here:
+Two live defects this exposed. **Both are now resolved — see B-8a/B-8b above** — and they are kept here
+because the second turned out to be a whole class rather than one query:
 
 1. `AiService.extractProfile` **fabricates** an empty draft when the ai-service is unreachable —
    `DraftProfileSchema.parse({})` with `blocked: false`. A degraded call is indistinguishable from a
@@ -404,7 +424,31 @@ this engine got built dark the first time; it lands with the finalize leg that c
 
 ---
 
-### Phase V3 — Orchestrator surface *(Owner: Prakash · L · after V1)*
+### Phase V3 — Orchestrator surface *(Owner: Prakash · L · **DONE**, PR #650 → `2aa71d79`)*
+
+> **Landed as the OIE Phase 8 cutover rather than as a parallel voice surface.** The plan bet on
+> shipping the voice form as OIE's *first* live consumer, in parallel to an untouched chat. Running
+> the engine proved that wrong-headed: `ChatService.postMessage` already owns the route, the auth
+> guard and the ownership check, so a second surface would have duplicated all three to reach the
+> same orchestrator. The cutover points `postMessage` at `takeTurn` and **deletes** the model-driven
+> path — the rollback unit is a `git revert` of one PR, which is why every deletion landed in it.
+> `ProfilingModule` therefore still has no controller, and the boot test now asserts that on purpose
+> rather than as a symptom of being built dark.
+>
+> **Follow-on fixes the live run forced** — none of which 3,697 unit tests caught, because every one
+> of them was found by *running the product*:
+>
+> - **#656** `catalogVersion()` is a ~75-char cache signature against a payload cap of 64, so the
+>   event failed its own schema, threw inside the emitter, and **500'd `POST /chat/message` for
+>   every worker whose trade did not resolve first try**. Also: event-validation diagnostics that
+>   name the offending field (path + code only — zod echoes the rejected *value* in `issue.message`),
+>   and compound chip labels (`"Loha ya mild steel"`) that dropped a material.
+> - **#661** the pack pin (B-7) — see the Blocked table.
+> - Two CI seed steps were passing while seeding **zero rows**: the seeders are dry-run by default
+>   and `--apply` was missing. A green tick on a step that did nothing is worse than no step.
+> - `worker_pack_answer` was never registered in the RLS drift guard's `LOCKED_TABLES`.
+
+<details><summary>Original V3 scope, as planned</summary>
 
 - `openTurn()` — a start route cannot call `takeTurn("")` (classifies `empty` → blank reply → unavailable)
 - **Occupation pinning** — `OccupationService.resolve()` on the `primary_trade` answer writes
@@ -428,9 +472,48 @@ this engine got built dark the first time; it lands with the finalize leg that c
 identical text via the voice path and the chat path produces a deep-equal `TurnResult` — this makes
 "both paths write the same profile" mechanical.
 
+</details>
+
+**Acceptance — measured live, not asserted.** `"main welder hoon"` → `jd_nco_7212_0301` via `l0_exact`
+at 0.97 → `qp_welding` served → a 13-turn interview completes → **10 typed rows** in
+`worker_pack_answer` (`certification=false` from "nahi hai", `safety_gear=true` from "haan li hai",
+`workplace_type=factory`, `material_worked=["mild_steel","stainless"]`, `experience_years=8`) →
+**0 events** containing a raw utterance or a phone number. `ai_posture: mock` throughout, so not one
+word of it came from a model.
+
+**Still owed from V3's scope:** the path-equivalence test — and note it is now a test of ONE path, since
+the cutover deleted the model-driven one, so what it would pin is the pre/post-cutover branch inside
+`extractOrParse` rather than two surfaces. The §1a convergence (B-6) is CLOSED: both legs reach
+`ProfilesRepository.create`. `openTurn()`, the mode-lock and the 409-on-stale-`question_key` remain moot
+until a second surface exists.
+
 ---
 
-### Phase V4 — Transcription seam *(Owner: Prakash · M · after V1)*
+### Phase V4 — Transcription seam *(Owner: Prakash · M · **the three defects DONE**, PR #664 → `40e61575`)*
+
+> **The defect half landed; the seam half has not.** All three bugs this phase named turned out to be
+> the same mistake wearing three hats — *a failure recorded as a success* — and none of them needed
+> the voice form to exist in order to bite. They bite the chat voice-note path today.
+>
+> - **`error_code` now crosses the wire.** `stt_budget_blocked` / `stt_call_failed` were logged on the
+>   ai-service and dropped building the response, so three failures and one worker's silence arrived
+>   at apps/api as the same empty string.
+> - **A degraded result no longer completes the job.** It throws into the *existing* catch, so BullMQ
+>   retries and only the final attempt writes the terminal record — one definition of "terminal",
+>   not two.
+> - **A fourth hole, found while fixing the third:** `AiService.transcribe`'s unreachable-service
+>   fallback returned an empty transcript indistinguishable from silence, so an ai-service outage
+>   read as a wave of quiet workers. It now reports `stt_service_unreachable`.
+> - **The retry double-charge** is gated on `voice_notes.transcript_text IS NOT NULL` — compared
+>   against null explicitly, because an empty string is a real transcript and cost the same as a
+>   full one.
+>
+> **Not built, deliberately: the synchronous ≤30s path.** It has no consumer until V6 ships, its
+> latency is B-3 (still unmeasured), and a config-gated route nothing calls is the "built dark"
+> pattern this plan was written to stop repeating. `VoiceTranscriptionService` extraction remains
+> owed — the processor does service work inside a queue handler, which §4 forbids.
+
+<details><summary>Original V4 scope, as planned</summary>
 
 - Extract `VoiceTranscriptionService` from the BullMQ processor; `VoiceModule` gains `exports`
 - **Synchronous ≤30s answer path** (`PROFILING_ANSWER_MAX_SECONDS = 30`) — deletes the queue hop, the
@@ -446,9 +529,71 @@ identical text via the voice path and the chat path produces a deep-equal `TurnR
 - `translate_to_english: false` for this surface — the form wants the worker's own Hinglish back, and
   it deletes a 60s ceiling **and** an unledgered Sarvam call from the critical path.
 
+</details>
+
 ---
 
-### Phase V5 — TTS pipeline *(Owner: Divyanshu · L · after V0)*
+### Phase V7 — Cost observability *(Owner: Prakash · **DONE**, PR #665)*
+
+Run ahead of V5, because it turned out not to be about the voice form at all.
+
+The plan's §7 note said "only `profile_extraction` persists cost". Measuring it found something
+sharper: **the cutover's own LLM call was invisible in three independent ways**, so every number the
+ledger could produce described the architecture the cutover deleted.
+
+| | |
+|---|---|
+| `/profile/parse` returned no `ai_metadata` | nothing downstream *could* record it |
+| `aiTaskType` listed 3 of the 8 task types the service charges against | and `ai.cost_recorded`'s emitter swallows validation errors, so an unlistable task produced **nothing**, not a rejection |
+| the emitter hard-coded `profile_extraction` and keyed on `ai_job_id` | one job now makes two billable calls, so the second was silently deduped away |
+
+Pinned by a test that reads the enum out of `payloads.ts` and compares it to the service's own
+`STT_TASK_TYPE` / `TTS_TASK_TYPE` / `EMBEDDING_TASK_TYPE` / `PARSE_TASK_TYPE` constants, so the next
+provider surface cannot arrive unledgered.
+
+**Still open from §7:** `SpendLedger` remains a Redis rate-limiter with expiring keys rather than a
+ledger. The `events` table is now the cost history — every real call emits `ai.cost_recorded` — which
+is the cheaper answer than a new table and matches §3 ("events are the audit trail"). The remaining
+gap is the **translate leg**, which is real Sarvam spend that fires by default and is on no ledger at
+all; setting `translate_to_english: false` for the form path deletes it from that surface but not
+from chat.
+
+---
+
+### Phase V5 — TTS pipeline *(Owner: Divyanshu · L · **enumeration DONE**, PR #667 · render still after V0)*
+
+> **Split, because only half of it depends on the listening test.** *What* to render is a property
+> of the engine; *how it should sound* is the open question B-2 answers. The first half shipped.
+>
+> **Measured over the real corpus** — the closure is not the pack strings:
+>
+> | producer | distinct clips |
+> |---|---:|
+> | `prompt` | 129 |
+> | `retry` | 4 |
+> | `why` (bare — reachable when the served question is gone) | 143 |
+> | `clarify` (`why_text` + `servedText`) | 150 |
+> | `constant` | 7 |
+> | **total** | **433** |
+>
+> The plan estimated 145 clarify strings; it counted why+prompt only. A worker can ask "why?"
+> *after* the re-ask too, so why+retry is a distinct thing to say.
+>
+> **A defect the enumeration exposed.** Deciding which question text pairs with a `why_text` forced
+> the question, and the answer was wrong: `joinClarify` read `askedItem.prompt_text` raw, while the
+> silent-turn branch carries a comment about that exact mistake. A worker looking at the re-ask who
+> then asks "yeh kyun poochh rahe ho?" got the explanation followed by the phrasing from two turns
+> ago. Five of 466 items carry `retry_text` today, which is why it survived.
+>
+> **The placeholder guard landed** in `validateQuestionPackCorpus` — already a CI gate via
+> `db:verify:packs --corpus` — across all three served fields, with `assertNoInterpolation` as the
+> second wall inside the closure. Measured: 0 of 466 items carry a template token today, so it is a
+> guard and not a repair.
+>
+> **Still owed:** `tts_render.py` over the closure, the golden closure file asserted from both TS
+> and Python (the `normalize()` parity vectors), and the boot test that no FastAPI router imports
+> `tts_adapter`. All three are cheap once B-2 says whether the corpus needs a transliteration
+> sidecar.
 
 - `app/tts.py` — `TtsAdapter`, `TTS_TASK_TYPE = "tts_synthesis"` (**its own allowlist key**, so TTS can
   be flipped independently of STT), gate chain mirroring `stt.py:207-248` **in order**, fail-closed to

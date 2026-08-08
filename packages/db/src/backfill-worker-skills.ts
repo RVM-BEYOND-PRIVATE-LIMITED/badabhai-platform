@@ -40,11 +40,12 @@
  *   pnpm db:backfill:worker-skills --apply              # write
  *   pnpm db:backfill:worker-skills --apply --batch-size=1000 --start-after=<uuid>
  */
-import { and, asc, eq, gt, notInArray, sql as dsql } from "drizzle-orm";
+import { and, asc, eq, gt, notInArray } from "drizzle-orm";
 
 import { bucketMonths, deriveWorkerSkills, DEFAULT_MATCH_CONFIG } from "@badabhai/match-engine";
 
 import { createDbClient, type Database } from "./client";
+import { CURRENT_PROFILE_ORDER } from "./current-profile";
 import { matchConfig, workerIndustryTenure, workerProfiles, workerSkills, workers } from "./schema";
 import { loadMatchTaxonomy, validateMatchTaxonomy } from "./match-taxonomy";
 import {
@@ -130,7 +131,11 @@ async function main(): Promise<void> {
         workersSeen += 1;
         lastId = w.id;
 
-        // LATEST profile per worker — created_at DESC, id DESC as the total-order tiebreak.
+        // CURRENT profile per worker — the shared `CURRENT_PROFILE_ORDER`, byte-identical to
+        // what `WorkerSkillsRepository.findLatestProfileSignals` resolves on the live path.
+        // The two used to hold the same total order by copy; a batch that rebuilt a worker's
+        // skills from a different row than the live path reads is a silent divergence no test
+        // would have caught, so they now share one definition instead of agreeing by hand.
         const profileRows = await db
           .select({
             canonicalRoleId: workerProfiles.canonicalRoleId,
@@ -139,7 +144,7 @@ async function main(): Promise<void> {
           })
           .from(workerProfiles)
           .where(eq(workerProfiles.workerId, w.id))
-          .orderBy(dsql`${workerProfiles.createdAt} DESC`, dsql`${workerProfiles.id} DESC`)
+          .orderBy(...CURRENT_PROFILE_ORDER)
           .limit(1);
         const profile = profileRows[0];
         if (!profile) continue;

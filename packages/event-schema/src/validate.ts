@@ -99,12 +99,37 @@ export function validateEvent(input: unknown): EventValidationResult {
   };
 }
 
-/** Thrown by `assertValidEvent` / `createEvent` when validation fails. */
+/**
+ * Thrown by `assertValidEvent` / `createEvent` when validation fails.
+ *
+ * THE MESSAGE NAMES THE OFFENDING FIELDS. It used to say only `Invalid payload for "x"`, which
+ * is the least useful thing it could say: the caller sees a 500, the log shows a stack, and
+ * finding out WHICH field was wrong took re-deriving the payload by hand from the source. The
+ * `issues` array was right there the whole time.
+ *
+ * PATH AND CODE ONLY — never `issue.message`, and that restriction is load-bearing. Zod renders
+ * an enum mismatch as "Expected 'a' | 'b', received <the value>", so echoing messages would put
+ * a REJECTED payload value into a log line. Event payloads are PII-free by contract, but a
+ * contract violation is exactly the case that reaches this branch, and a diagnostic that leaks
+ * on precisely the malformed input is the wrong trade. `reason: invalid_enum_value` tells an
+ * engineer where to look without quoting anything.
+ */
 export class EventValidationException extends Error {
   constructor(public readonly error: EventValidationError) {
-    super(`[event-schema:${error.stage}] ${error.message}`);
+    super(`[event-schema:${error.stage}] ${error.message}${summarizeIssues(error.issues)}`);
     this.name = "EventValidationException";
   }
+}
+
+/** `" — field: code, other.field: code"`, bounded. Empty when there is nothing to add. */
+function summarizeIssues(issues: EventValidationError["issues"]): string {
+  if (!issues?.length) return "";
+  const rendered = issues
+    .slice(0, 8)
+    .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.code}`)
+    .join(", ");
+  const more = issues.length > 8 ? `, +${issues.length - 8} more` : "";
+  return ` — ${rendered}${more}`;
 }
 
 /** Validate and return a typed event, or throw `EventValidationException`. */

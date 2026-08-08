@@ -9,7 +9,7 @@
  * behind layer L3 (`SkillsRepository.nearestDomains`, which already owns the ANN-first CTE
  * and its EXPLAIN-plan test) and `SkillsInternalGuard`'s scoped credential.
  */
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 
 import { ProfilingModule } from "../profiling/profiling.module";
 import { SkillsModule } from "../skills/skills.module";
@@ -21,7 +21,11 @@ import { OccupationService } from "./occupation.service";
 @Module({
   // `ProfilingModule` for `PackRegistryService` — the pack fallback chain and version pinning,
   // reused rather than reimplemented behind the question-pack route.
-  imports: [SkillsModule, ProfilingModule],
+  //
+  // forwardRef since the Phase 8 cutover: the orchestrator now calls `OccupationService` to
+  // identify the trade, so the two modules genuinely need each other. That is the shape the plan
+  // describes — retrieval identifies, the engine asks — and not an accident of layering.
+  imports: [SkillsModule, forwardRef(() => ProfilingModule)],
   controllers: [OccupationController],
   providers: [OccupationIndexService, OccupationRepository, OccupationService],
   exports: [OccupationService, OccupationIndexService],

@@ -1,0 +1,69 @@
+{
+  "_": "The Resume Field Set — what each field id MEANS and what a human calls it. Lifted verbatim from apps/ai-service/app/profiling/rfs.py before OIE Phase 8 deleted it.",
+  "_why_json": "Data, not code, for the same reason particles.json and persona.json are: a reviewer adds or rewords a field by editing this file, and both the TypeScript and Python readers see the change without either being redeployed against a constant the other does not have.",
+  "_guide": "Deliberately phrased as the INFORMATION wanted, never as a question. Under the LLM interview this told the model what to collect; under the deterministic engine it is what a pack AUTHOR reads when writing the question, and what the parse prompt names when asking for a typed value. The wording survives the change of reader because it never described how to ask.",
+  "_label": "A short, human label for a field id — the missing-field nudge, the ops console, and a log line. Never shown as a question either.",
+  "_no_identity_fields": "There is deliberately NO field here for a name, phone, address or employer. The Resume Field Set is what a resume needs; identity is what §2 forbids collecting through this path. An id that is not in this file is not in the vocabulary, and gate 5 drops it.",
+  "fields": {
+    "trade": {
+      "label": "trade",
+      "guide": "what work they do, in their own words"
+    },
+    "skills": {
+      "label": "skills",
+      "guide": "what they can actually do - tasks, machines, tools, software, materials"
+    },
+    "experience_years": {
+      "label": "experience",
+      "guide": "how long they have done this work (a number of years)"
+    },
+    "current_city": {
+      "label": "current city",
+      "guide": "the city they are in now"
+    },
+    "preferred_locations": {
+      "label": "preferred locations",
+      "guide": "where they want to work (may differ from where they are)"
+    },
+    "salary_expected": {
+      "label": "expected salary",
+      "guide": "the pay they want, and per month or per day"
+    },
+    "availability": {
+      "label": "availability",
+      "guide": "when they can start, or their notice period"
+    },
+    "tools_equipment": {
+      "label": "tools/equipment",
+      "guide": "specific machines, tools, vehicles or software they operate"
+    },
+    "salary_current": {
+      "label": "current salary",
+      "guide": "what they earn now"
+    },
+    "education_level": {
+      "label": "education level",
+      "guide": "highest schooling (10th, 12th, ITI, Diploma, Graduate)"
+    },
+    "education_field": {
+      "label": "field of study",
+      "guide": "their stream or trade of study"
+    },
+    "certifications": {
+      "label": "certifications",
+      "guide": "certificates, licences or trade tickets they hold"
+    },
+    "work_history": {
+      "label": "work history",
+      "guide": "roles held and for how long (NEVER the employer's name)"
+    },
+    "languages": {
+      "label": "languages",
+      "guide": "languages they speak"
+    },
+    "relocation_willingness": {
+      "label": "relocation",
+      "guide": "whether they would move city for work"
+    }
+  }
+}

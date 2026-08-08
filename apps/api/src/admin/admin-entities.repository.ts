@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, count, desc, eq, isNotNull, lt, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import {
+  CURRENT_PROFILE_ORDER,
   applications,
   creditLedger,
   generatedResumes,
@@ -150,11 +151,14 @@ export class AdminEntitiesRepository {
     if (!w) return undefined;
 
     const [profileRows, resumeRows, appRows, unlockRows] = await Promise.all([
+      // `CURRENT_PROFILE_ORDER`, so the status an admin reads on a worker is the status that
+      // worker's own `GET /workers/me/profile` reports. Ordering by recency alone let the two
+      // disagree whenever an extraction had run during an ai-service outage.
       this.db
         .select({ status: workerProfiles.profileStatus, updatedAt: workerProfiles.updatedAt })
         .from(workerProfiles)
         .where(eq(workerProfiles.workerId, id))
-        .orderBy(desc(workerProfiles.createdAt))
+        .orderBy(...CURRENT_PROFILE_ORDER)
         .limit(1),
       this.db
         .select({ id: generatedResumes.id })

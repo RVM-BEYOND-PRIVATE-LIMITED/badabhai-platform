@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
-import { workers, type Database } from "@badabhai/db";
+import { CURRENT_PROFILE_ORDER, workerProfiles, workers, type Database } from "@badabhai/db";
 import { ReachRepository } from "./reach.repository";
 
 /**
@@ -23,27 +23,61 @@ const compile = (cond: unknown): string => dialect.sqlToQuery(cond as SQL).sql;
 
 type Captured = {
   selection?: Record<string, unknown>;
+  distinctOn?: unknown[];
   joinTable?: unknown;
   joinOn?: unknown;
   where?: unknown;
+  orderBy?: unknown[];
 };
 
-/** Capturing mock of the listSignalRows chain: select(cols).from().innerJoin().where(). */
+/**
+ * Capturing mock of the listSignalRows chain:
+ * `selectDistinctOn(cols, sel).from().innerJoin().where().orderBy()`.
+ *
+ * The chain gained two links with B-8b. `worker_profiles` holds one row per extraction job
+ * and nothing constrains a worker to one, so the un-deduped read put a re-interviewed worker
+ * into the payer pool TWICE — and `PaceService` counted him twice as supply.
+ */
 function makeDb(rows: unknown[]) {
   const captured: Captured = {};
   const db = {
+    // The single-worker read (View B). It kept a plain `select`, but it had NO ORDER BY at
+    // all before B-8b — so which of a worker's profiles a payer saw was whatever the planner
+    // emitted first, and could differ between two identical requests.
     select: (selection: Record<string, unknown>) => {
       captured.selection = selection;
       return {
         from: () => ({
-          innerJoin: (table: unknown, on: unknown) => {
-            captured.joinTable = table;
-            captured.joinOn = on;
+          where: (cond: unknown) => {
+            captured.where = cond;
             return {
-              // The awaited terminal link — resolves the (already-DB-filtered) rows.
+              orderBy: (...order: unknown[]) => {
+                captured.orderBy = order;
+                return { limit: () => Promise.resolve(rows) };
+              },
+            };
+          },
+        }),
+      };
+    },
+    selectDistinctOn: (on: unknown[], selection: Record<string, unknown>) => {
+      captured.distinctOn = on;
+      captured.selection = selection;
+      return {
+        from: () => ({
+          innerJoin: (table: unknown, joinOn: unknown) => {
+            captured.joinTable = table;
+            captured.joinOn = joinOn;
+            return {
               where: (cond: unknown) => {
                 captured.where = cond;
-                return Promise.resolve(rows);
+                return {
+                  // The awaited terminal link — resolves the (already-DB-filtered) rows.
+                  orderBy: (...order: unknown[]) => {
+                    captured.orderBy = order;
+                    return Promise.resolve(rows);
+                  },
+                };
               },
             };
           },
@@ -96,6 +130,26 @@ describe("ReachRepository.listSignalRows — ADR-0031 pending-deletion pool excl
     const out = await new ReachRepository(db).listSignalRows();
     expect(out).toBe(eligible); // no mapping, no client-side re-filtering
     expect(out).toHaveLength(3);
+  });
+
+  it("DISTINCT ON worker_id — one pool slot per worker, not per extraction (B-8b)", async () => {
+    const { db, captured } = makeDb([]);
+    await new ReachRepository(db).listSignalRows();
+    // The dedup key is the WORKER, so a second extraction cannot buy a second pool slot.
+    expect(captured.distinctOn).toEqual([workerProfiles.workerId]);
+    // Postgres requires the DISTINCT ON expression to LEAD the ORDER BY, and which row
+    // survives is decided by the tail. Getting this order wrong is a runtime error, not a
+    // silent mis-rank — but the tail is the part that must be the SHARED constant.
+    expect(captured.orderBy?.[0]).toBe(workerProfiles.workerId);
+    expect(captured.orderBy?.slice(1)).toEqual([...CURRENT_PROFILE_ORDER]);
+  });
+
+  it("picks the surviving row with the SHARED ordering, not a local copy of it", async () => {
+    // Identity, not string equality: a hand-rolled `created_at DESC` that happens to compile
+    // to the same SQL today is exactly how the seven readers drifted apart in the first place.
+    const { db, captured } = makeDb([]);
+    await new ReachRepository(db).findSignalRowByWorkerId("w1");
+    expect(captured.orderBy).toEqual([...CURRENT_PROFILE_ORDER]);
   });
 
   it("PROJECTION DISCIPLINE (D8): the join changes membership only — the selection stays the signal columns (never embedding/raw_profile/PII)", async () => {

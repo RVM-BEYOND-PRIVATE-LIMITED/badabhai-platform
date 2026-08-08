@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { Logger } from "@nestjs/common";
 import { describe, it, expect, vi } from "vitest";
 import { DraftProfileSchema, WorkerProfileDraftSchema } from "@badabhai/ai-contracts";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
@@ -54,6 +55,21 @@ function make(
     /** The catalog re-validation verdict, or a throw to simulate a failing check. */
     domainSelectable?: boolean;
     domainCheckThrows?: boolean;
+    /**
+     * OIE Phase 8 — `chat_sessions.conversation_state`. PRESENT-BUT-NULL is meaningful
+     * (a session with no OIE state), so the harness tests with `in`, never `??`.
+     */
+    conversationState?: unknown;
+    /** The session read fails; the processor must degrade to the legacy path. */
+    sessionThrows?: boolean;
+    /** What `/profile/parse` returned. `null` = unreachable/blocked/mis-shaped. */
+    parsed?: unknown;
+    /**
+     * `ProfileExtractionOutput.error_code` — WHY a degraded extraction is degraded.
+     * `"extract_service_unreachable"` is what `AiService.extractProfile` now authors when the
+     * request never left the process; `undefined` reproduces a healthy response.
+     */
+    errorCode?: string;
   } = {},
 ) {
   const draft = opts.profile ?? DraftProfileSchema.parse({});
@@ -66,6 +82,17 @@ function make(
   };
   const chat = {
     listMessages: vi.fn().mockResolvedValue(opts.messages ?? []),
+    // OIE Phase 8: the answer map and the pinned occupation are read from
+    // `chat_sessions.conversation_state`, because the Redis buffer is dropped the moment
+    // the flush commits and this job runs minutes later. `undefined` = a pre-cutover
+    // session with no OIE state, which must take the legacy transcript re-parse.
+    findSession: opts.sessionThrows
+      ? vi.fn().mockRejectedValue(new Error("db down"))
+      : vi.fn().mockResolvedValue(
+          "conversationState" in opts
+            ? { id: JOB.sessionId, conversationState: opts.conversationState }
+            : { id: JOB.sessionId, conversationState: null },
+        ),
   };
   // The in-flight transcript, for the early-finish path. `undefined` = no buffer (the
   // normal post-flush case, where Postgres is authoritative).
@@ -89,6 +116,9 @@ function make(
     }),
   };
   const ai = {
+    // OIE Phase 8 — the ONE LLM call left. `null` (the default) is every failure mode at
+    // once: unreachable, blocked, mis-shaped. The caller must treat all three identically.
+    parseProfile: vi.fn().mockResolvedValue("parsed" in opts ? opts.parsed : null),
     extractProfile: opts.extractThrows
       ? vi.fn().mockRejectedValue(new Error("boom"))
       : vi
@@ -108,8 +138,10 @@ function make(
             // `undefined` reproduces an ai-service with DOMAIN_MATCH_ENABLED off:
             // the key is absent, which the processor must read as "did not run".
             job_domain_match: opts.domainMatch,
+            error_code: opts.errorCode ?? null,
           }),
   };
+  ai.parseProfile = vi.fn().mockResolvedValue("parsed" in opts ? opts.parsed : null);
   const skills = {
     isSelectableDomain: opts.domainCheckThrows
       ? vi.fn().mockRejectedValue(new Error("db down"))
@@ -120,6 +152,11 @@ function make(
   // The "a rebuild failure must not fail the extraction" property is asserted by its own
   // case below with a REJECTING stub, not assumed from this one.
   const matchSkills = { rebuildQuietly: vi.fn().mockResolvedValue(undefined) };
+  // `worker_attributes` — the destination for the 77% of the pack corpus that is attribute-kind.
+  // Returns the row count so a test can assert what was written, not merely that a call happened.
+  const workerAttributes = {
+    upsertMany: vi.fn(async (rows: unknown[]) => rows.length),
+  };
   const proc = new ProfileExtractionProcessor(
     profiles as never,
     aiJobs as never,
@@ -131,8 +168,12 @@ function make(
     pii as never,
     matchSkills as never,
     skills as never,
+    workerAttributes as never,
   );
-  return { proc, profiles, aiJobs, chat, buffer, events, ai, workers, pii, matchSkills, skills };
+  return {
+    proc, profiles, aiJobs, chat, buffer, events, ai, workers, pii, matchSkills, skills,
+    workerAttributes,
+  };
 }
 
 describe("ProfileExtractionProcessor", () => {
@@ -483,6 +524,30 @@ describe("ProfileExtractionProcessor — T3 profile_status follows CONTENT, not 
     skills: ["skill_milling"],
     machines: ["haas_vf2"],
     experience: { total_years: 5 },
+  });
+
+  it("an OUTAGE and a worker with nothing to say no longer share one warning (B-8a)", async () => {
+    // Both produce `blocked: false` + an empty draft + `is_mock: true`, so until
+    // `error_code` existed the processor could only log "check ai-service reachability" —
+    // an instruction to go and find out, because nothing in the result could say. The two
+    // cases must now be distinguishable IN THE LOG, since the recorded row is identical by
+    // design (both are honestly "draft").
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const outage = make({ errorCode: "extract_service_unreachable" });
+      await outage.proc.process(makeJob());
+      const outageLine = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes("NO extracted content"));
+      expect(outageLine).toContain("cause=extract_service_unreachable");
+
+      warn.mockClear();
+      const quiet = make(); // reachable, healthy, and the worker said nothing usable
+      await quiet.proc.process(makeJob());
+      const quietLine = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes("NO extracted content"));
+      expect(quietLine).toContain("the interview itself produced nothing");
+      expect(quietLine).not.toContain("cause=");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("the AI-DOWN fabrication is recorded as 'draft', never 'extracted'", async () => {
@@ -839,5 +904,476 @@ describe("ProfileExtractionProcessor — transcript source", () => {
     const sent = ai.extractProfile.mock.calls[0]![0];
     expect(JSON.stringify(sent)).not.toContain("Suresh");
     expect((sent as { transcript: string }).transcript).toBe("Worker: [NAME], VMC operator");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OIE Phase 8 — the deterministic answer map becomes the profile
+// ---------------------------------------------------------------------------
+
+/** One `AnswerRecord` as `conversation_state.answer_map` carries it. */
+function record(over: Record<string, unknown> = {}) {
+  return {
+    question_key: "trade",
+    target_field: "trade",
+    value_raw: "silai ka kaam",
+    value_normalized: "darzi",
+    status: "answered",
+    evidence: null,
+    turn: 1,
+    history: [],
+    ...over,
+  };
+}
+
+const PIN = {
+  job_domain_id: "jd_nco_7531_0100",
+  label: "darzi",
+  isco_unit_code: "7531",
+  match_status: "matched_lexical",
+  match_score: 0.97,
+  match_layer: "l0_exact",
+  pack_id: "qp_tailoring",
+  pack_version: 2,
+  catalog_version: "cat_2026_08",
+};
+
+const withMap = (over: Record<string, unknown> = {}) => ({
+  conversationState: {
+    answer_map: [
+      record(),
+      record({ question_key: "current_city", target_field: "current_city", value_normalized: "Pune" }),
+      record({
+        question_key: "experience_years",
+        target_field: "experience_years",
+        value_normalized: 7,
+      }),
+    ],
+    occupation: PIN,
+    ...over,
+  },
+});
+
+describe("the 77% reaches worker_attributes", () => {
+  /**
+   * THE DEFECT AN E2E AUDIT FOUND, WHICH EVERY UNIT TEST MISSED.
+   *
+   * Migration 0071 built `worker_attributes`; V2 taught `projectProfile` to fill a
+   * `ProjectedAttribute[]`. Nothing joined them — `toExtractionOutput(projection)` reads
+   * `projection.draft` and nothing else, so the array was computed on every interview and
+   * dropped on the floor. A live 13-turn welding interview produced 10 typed answers and
+   * ZERO rows here: the original 77% defect, moved one layer later and no less total.
+   *
+   * `workplace_type` (100 items), `tools_owned` (99), `safety_training` (17) and
+   * `shift_work` (14) are matching inputs under §2. An unwritten row ranks nobody.
+   */
+  const attributeMap = (over: Record<string, unknown> = {}) => ({
+    conversationState: {
+      answer_map: [
+        record({
+          question_key: "workplace_type",
+          target_field: "workplace_type",
+          value_normalized: "factory",
+        }),
+        record({
+          question_key: "safety_gear",
+          target_field: "safety_gear",
+          value_normalized: true,
+        }),
+        record({
+          question_key: "material_worked",
+          target_field: "material_worked",
+          value_normalized: ["mild_steel", "stainless"],
+        }),
+        // An RFS field, for contrast: it belongs on `worker_profiles` and must NOT become
+        // an attribute. The crosswalk is what tells the two apart.
+        record({
+          question_key: "current_city",
+          target_field: "current_city",
+          value_normalized: "Pune",
+        }),
+      ],
+      occupation: PIN,
+      pack_id: "qp_welding",
+      pack_version: 1,
+      ...over,
+    },
+  });
+
+  const rowsWritten = (w: { upsertMany: { mock: { calls: unknown[][] } } }) =>
+    (w.upsertMany.mock.calls[0]?.[0] ?? []) as Record<string, unknown>[];
+
+  it("writes every attribute-kind answer, and ONLY those", async () => {
+    const { proc, workerAttributes } = make(attributeMap());
+    await proc.process(makeJob());
+
+    expect(workerAttributes.upsertMany).toHaveBeenCalledOnce();
+    const keys = rowsWritten(workerAttributes).map((r) => r.attributeKey).sort();
+    expect(keys).toEqual(["material_worked", "safety_gear", "workplace_type"]);
+    // `current_city` is RFS — it goes on the profile, never here.
+    expect(keys).not.toContain("current_city");
+  });
+
+  it("types each value into the column its value_kind names, and NULLs the rest", async () => {
+    // `wa_value_present_chk` demands exactly one populated value column, and the one
+    // `value_kind` names. A row that populated two, or the wrong one, is rejected by the
+    // database — so getting this wrong fails at runtime, not in review.
+    const { proc, workerAttributes } = make(attributeMap());
+    await proc.process(makeJob());
+    const rows = rowsWritten(workerAttributes);
+    const by = (k: string) => rows.find((r) => r.attributeKey === k)!;
+
+    expect(by("safety_gear")).toMatchObject({
+      valueKind: "boolean", valueBool: true, valueNumber: null, valueText: null, valueTextList: null,
+    });
+    expect(by("workplace_type")).toMatchObject({
+      valueKind: "text", valueText: "factory", valueBool: null, valueNumber: null, valueTextList: null,
+    });
+    expect(by("material_worked")).toMatchObject({
+      valueKind: "text_list", valueTextList: ["mild_steel", "stainless"], valueBool: null,
+    });
+  });
+
+  it("pins the interview each value came from", async () => {
+    // Pack contents are immutable per version, so `pack_id` + `pack_version` is the only thing
+    // that makes a stored value re-readable once the corpus has moved on — "did `safety_gear`
+    // mean the same question in v1 as in v3" is otherwise unanswerable.
+    const { proc, workerAttributes } = make(attributeMap());
+    await proc.process(makeJob());
+    for (const row of rowsWritten(workerAttributes)) {
+      expect(row).toMatchObject({ packId: "qp_welding", packVersion: 1, sessionId: JOB.sessionId });
+      expect(row.workerId).toBe(JOB.workerId);
+    }
+  });
+
+  it("writes BEFORE the job is marked completed", async () => {
+    // The ordering is the whole safety argument. `profiles.create` is idempotent on `ai_job_id`
+    // and `upsertMany` is idempotent by key, so a throw here costs a retry and loses nothing —
+    // whereas completing the job first would leave 77% of what the worker said permanently
+    // unwritten with the job recorded as a success. There is no backfill runner for this table.
+    const calls: string[] = [];
+    const { proc, workerAttributes, aiJobs } = make(attributeMap());
+    workerAttributes.upsertMany.mockImplementation(async () => { calls.push("attributes"); return 3; });
+    aiJobs.markCompleted.mockImplementation(async () => { calls.push("markCompleted"); });
+
+    await proc.process(makeJob());
+
+    expect(calls).toEqual(["attributes", "markCompleted"]);
+  });
+
+  it("a failed attribute write FAILS the job rather than silently losing the answers", async () => {
+    const { proc, workerAttributes, aiJobs } = make(attributeMap());
+    workerAttributes.upsertMany.mockRejectedValue(new Error("deadlock detected"));
+
+    await expect(proc.process(makeJob())).rejects.toThrow("deadlock detected");
+    expect(aiJobs.markCompleted).not.toHaveBeenCalled();
+  });
+
+  it("a legacy session with no answer map writes nothing — and that is honest, not degraded", async () => {
+    const { proc, workerAttributes } = make(); // no conversationState → transcript re-parse
+    await proc.process(makeJob());
+    expect(rowsWritten(workerAttributes)).toEqual([]);
+  });
+});
+
+describe("the interview's one LLM call is ledgered", () => {
+  /**
+   * THE ECONOMIC CASE FOR THE WHOLE CUTOVER, AND IT WAS INVISIBLE. Phase 8's claim is "~12
+   * capable calls per interview became 1". That one call is `/profile/parse` — and it shipped
+   * returning no `ai_metadata`, emitting no cost record, and naming a `task_type` the
+   * `ai.cost_recorded` enum could not even express. Every number the ledger could show
+   * described the architecture the cutover deleted.
+   */
+  const PARSE_META = {
+    ai_call_id: "77777777-7777-4777-8777-777777777777",
+    task_type: "profile_parse",
+    model_name: "gemini-flash",
+    provider: "google",
+    real_call: true,
+    input_tokens: 2100,
+    output_tokens: 240,
+    estimated_cost_inr: 0.19,
+    latency_ms: 1420,
+    success: true,
+    error_code: null,
+    cost_alert: false,
+    above_target: false,
+    created_at: "2026-08-07T00:00:00.000Z",
+  };
+
+  const costRecords = (events: { emit: { mock: { calls: unknown[][] } } }) =>
+    events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .filter((e) => e.event_name === "ai.cost_recorded");
+
+  it("emits ai.cost_recorded for the parse call, attributed to profile_parse", async () => {
+    const { proc, events } = make({
+      ...withMap(),
+      parsed: { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: PARSE_META },
+    });
+
+    await proc.process(makeJob());
+
+    const records = costRecords(events);
+    expect(records).toHaveLength(1);
+    expect(records[0]!.payload.task_type).toBe("profile_parse");
+    expect(records[0]!.payload.estimated_cost_inr).toBe(0.19);
+    expect(records[0]!.payload.tokens_in).toBe(2100);
+    expect(records[0]!.payload.model).toBe("gemini-flash");
+  });
+
+  it("records BOTH calls when one job makes two — keyed on the call, not the job", async () => {
+    // `idempotencyKey` used to be `ai.cost_recorded:${aiJobId}`. One job now makes two billable
+    // calls, so a per-job key silently deduped the second away: the extraction record landed and
+    // the parse record was dropped as a duplicate. Two distinct `ai_call_id`s must produce two
+    // distinct keys.
+    const extractionMeta = { ...PARSE_META, ai_call_id: "88888888-8888-4888-8888-888888888888" };
+    const { proc, events } = make({
+      ...withMap(),
+      aiMetadata: extractionMeta,
+      parsed: { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: PARSE_META },
+    });
+
+    await proc.process(makeJob());
+
+    const records = costRecords(events);
+    const keys = events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; idempotencyKey?: string })
+      .filter((e) => e.event_name === "ai.cost_recorded")
+      .map((e) => e.idempotencyKey);
+    expect(new Set(keys).size).toBe(records.length);
+    expect(keys).toContain(`ai.cost_recorded:${PARSE_META.ai_call_id}`);
+  });
+
+  it("records NOTHING when the parse degraded — a zero-cost row would be a lie", async () => {
+    // `ai_metadata: null` is what the route returns on a blown deadline, mock posture or a
+    // spend cap. A zero-cost record is indistinguishable from a real call that was free.
+    const { proc, events } = make({
+      ...withMap(),
+      parsed: { fields: {}, unparsed_field_ids: [], notes: ["llm_unavailable"], ai_metadata: null },
+    });
+
+    await proc.process(makeJob());
+
+    expect(costRecords(events)).toHaveLength(0);
+  });
+
+  it("carries no worker text — the cost record is ids, counts and money", async () => {
+    const { proc, events } = make({
+      ...withMap(),
+      messages: [{ direction: "inbound", bodyText: "main pune se welder hoon" }],
+      parsed: { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: PARSE_META },
+    });
+
+    await proc.process(makeJob());
+
+    const payload = JSON.stringify(costRecords(events)[0]!.payload);
+    expect(payload).not.toContain("pune");
+    expect(payload).not.toContain("welder");
+  });
+});
+
+describe("the answer map is the profile, and the LLM is an overlay on it", () => {
+  it("takes the PARSE path, not the legacy transcript re-parse", async () => {
+    const { proc, ai } = make(withMap());
+    await proc.process(makeJob());
+    expect(ai.parseProfile).toHaveBeenCalledOnce();
+    expect(ai.extractProfile).not.toHaveBeenCalled();
+  });
+
+  it("sends the answer map as the PRIMARY input, with the transcript indexed beside it", async () => {
+    const { proc, ai } = make({
+      ...withMap(),
+      messages: [
+        { direction: "inbound", bodyText: "silai ka kaam karta hoon" },
+        { direction: "outbound", bodyText: "Aap kis sheher mein rehte hain?" },
+      ],
+    });
+    await proc.process(makeJob());
+    const body = ai.parseProfile.mock.calls[0]![0] as {
+      answer_map: unknown[];
+      transcript: { i: number; role: string }[];
+      occupation: { job_domain_id: string };
+      target_fields: { field_id: string }[];
+    };
+    expect(body.answer_map).toHaveLength(3);
+    // INDEXES ARE POSITIONS IN THIS ARRAY. `evidence.message_index` points into it, and
+    // the gates check the quote against it — so the two must be the same array.
+    expect(body.transcript.map((m) => m.i)).toEqual([0, 1]);
+    expect(body.occupation.job_domain_id).toBe(PIN.job_domain_id);
+    // Gate 5 is only as closed as this list.
+    expect(body.target_fields.map((f) => f.field_id)).toContain("salary_expected");
+  });
+
+  it("a NULL parse still produces a real profile — the fail-closed guarantee", async () => {
+    // The whole point of normalizing at CAPTURE time. LLM down, blocked, or mis-shaped:
+    // one outcome, and the worker still gets a profile.
+    const { proc, profiles } = make(withMap());
+    const res = await proc.process(makeJob());
+    expect(res).toEqual({ profile_id: PROFILE });
+    const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+    const rich = row.richProfileDraft as Record<string, unknown>;
+    expect(rich.primary_role).toBe("darzi");
+    expect(rich.current_city).toBe("Pune");
+    expect(rich.experience_years).toBe(7);
+  });
+
+  it("THE PIN IS THE MATCH — no second classifier reads the same transcript", async () => {
+    const { proc, profiles, skills } = make(withMap());
+    await proc.process(makeJob());
+    const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(row.jobDomainId).toBe(PIN.job_domain_id);
+    expect(row.jobDomainMatchStatus).toBe("matched_lexical");
+    // ...and `isSelectableDomain` is STILL the last hallucination wall, pinned or not.
+    expect(skills.isSelectableDomain).toHaveBeenCalledWith(PIN.job_domain_id);
+  });
+
+  it("a pin the catalogue no longer accepts is recorded UNMATCHED, never written", async () => {
+    const { proc, profiles } = make({ ...withMap(), domainSelectable: false });
+    await proc.process(makeJob());
+    const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(row.jobDomainId).toBeUndefined();
+    expect(row.jobDomainMatchStatus).toBe("unmatched_llm_declined");
+  });
+
+  it("falls back to the legacy re-parse for a session with no answer map", async () => {
+    // A pre-cutover interview, or one where the worker never said anything capturable.
+    // There is no flag here: the branch is a property of the DATA, so it drains to zero.
+    const { proc, ai } = make({ conversationState: { answer_map: [], occupation: null } });
+    await proc.process(makeJob());
+    expect(ai.extractProfile).toHaveBeenCalledOnce();
+    expect(ai.parseProfile).not.toHaveBeenCalled();
+  });
+
+  it("a failed conversation_state read degrades to the legacy path, never fails the job", async () => {
+    const { proc, ai } = make({ sessionThrows: true });
+    const res = await proc.process(makeJob());
+    expect(res).toEqual({ profile_id: PROFILE });
+    expect(ai.extractProfile).toHaveBeenCalledOnce();
+  });
+
+  it("drops an answer record the contract cannot parse, keeping the rest", async () => {
+    // The column is jsonb written by a possibly-older build. One stale field must cost
+    // that field, never "this worker has no answers at all".
+    const { proc, ai } = make({
+      conversationState: {
+        answer_map: [record(), { question_key: 42, status: "nonsense" }],
+        occupation: PIN,
+      },
+    });
+    await proc.process(makeJob());
+    const body = ai.parseProfile.mock.calls[0]![0] as {
+      answer_map: unknown[];
+    };
+    expect(body.answer_map).toHaveLength(1);
+  });
+
+  it("applies the SECOND WALL: a hallucinated field never reaches the profile", async () => {
+    // The ai-service already gated this; running the gates again here is the double-wall
+    // discipline, and the two walls fail independently (version skew, a rewriting proxy).
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: [{ direction: "inbound", bodyText: "silai ka kaam karta hoon" }],
+      parsed: {
+        fields: {
+          salary_expected: {
+            value: 45000,
+            // A quote that appears NOWHERE in the transcript. Gate 1 has nothing to
+            // anchor it to, which is precisely why a fabricated value cannot survive.
+            evidence: { message_index: 0, quote: "pentaalis hazaar mahina" },
+            source: "transcript",
+            normalization: "numeric",
+            confidence: 0.9,
+          },
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+    });
+    await proc.process(makeJob());
+    const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+    const rich = row.richProfileDraft as Record<string, unknown>;
+    expect(rich.expected_salary).toBeNull();
+  });
+
+  it("emits profile.parse_disagreement with FIELD IDS AND COUNTS — never a value", async () => {
+    const { proc, events } = make({
+      ...withMap(),
+      messages: [{ direction: "inbound", bodyText: "silai ka kaam karta hoon, main darzi hoon" }],
+      parsed: {
+        fields: {
+          // Contradicts the deterministic map, which holds "darzi", and quotes a real span.
+          trade: {
+            value: "welder",
+            evidence: { message_index: 0, quote: "silai ka kaam karta hoon" },
+            source: "answer_map",
+            normalization: "verbatim",
+            confidence: 0.9,
+          },
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+    });
+    await proc.process(makeJob());
+    const emit = events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .find((e) => e.event_name === "profile.parse_disagreement");
+    expect(emit).toBeDefined();
+    expect(emit!.payload.field_ids).toEqual(["trade"]);
+    const serialized = JSON.stringify(emit!.payload);
+    expect(serialized).not.toContain("welder");
+    expect(serialized).not.toContain("darzi");
+  });
+
+  it("emits profile.parse_gates_rejected with PER-GATE COUNTS — never the field it threw away", async () => {
+    const { proc, events } = make({
+      ...withMap(),
+      messages: [{ direction: "inbound", bodyText: "silai ka kaam karta hoon" }],
+      parsed: {
+        fields: {
+          // A quote that appears in NO transcript line: gate 1 (provenance) rejects it. This is
+          // the strongest gate — a hallucinated value has no span to point at.
+          current_city: {
+            value: "Pune",
+            evidence: { message_index: 0, quote: "main Pune me rehta hoon" },
+            source: "transcript",
+            normalization: "verbatim",
+            confidence: 0.9,
+          },
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+    });
+    await proc.process(makeJob());
+    const emit = events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .find((e) => e.event_name === "profile.parse_gates_rejected");
+
+    expect(emit).toBeDefined();
+    expect(emit!.payload.rejected_count).toBe(1);
+    expect((emit!.payload.by_gate as Record<string, number>).provenance).toBe(1);
+    // Neither the invented value nor the field it claimed to fill appears anywhere.
+    const serialized = JSON.stringify(emit!.payload);
+    expect(serialized).not.toContain("Pune");
+    expect(serialized).not.toContain("current_city");
+  });
+
+  it("emits NO gate-rejection event when the whole wall passed", async () => {
+    // The healthy case is the overwhelming majority; one row per extraction to say "zero" is
+    // exactly the write amplification risk #9 warns about.
+    const { proc, events } = make(withMap());
+    await proc.process(makeJob());
+    expect(
+      events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name),
+    ).not.toContain("profile.parse_gates_rejected");
+  });
+
+  it("does not emit a disagreement when the model and the map agree", async () => {
+    const { proc, events } = make(withMap());
+    await proc.process(makeJob());
+    const names = events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).not.toContain("profile.parse_disagreement");
   });
 });

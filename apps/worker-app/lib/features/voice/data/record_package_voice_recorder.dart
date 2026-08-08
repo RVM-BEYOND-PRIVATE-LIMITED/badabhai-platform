@@ -44,14 +44,24 @@ class RecordPackageVoiceRecorder implements VoiceRecorder {
   AudioRecorder get _rec => _recorder ??= _injected ?? AudioRecorder();
 
   /// Recorder temp-clip file names: `bb-voice-<epochMs>.m4a` — timestamp only,
-  /// nothing identifying. Also what the stale-clip sweep matches.
-  static final RegExp _clipFileName = RegExp(r'^bb-voice-\d+\.m4a$');
+  /// nothing identifying. The captured group is the epoch-ms the sweep compares
+  /// against [_sweepBeforeMs] to tell a previous run's clip from this one's.
+  static final RegExp _clipFileName = RegExp(r'^bb-voice-(\d+)\.m4a$');
+
+  /// The sweep deletes ONLY clips whose timestamp predates this — i.e. clips
+  /// left by a PREVIOUS, crashed/killed run. A clip THIS instance produced
+  /// (Q1, Q2, …) is never swept, even while its upload is still in flight, so a
+  /// multi-question session can't delete an earlier answer out from under a live
+  /// read stream (#624). Captured at construction (~app start for the DI
+  /// singleton), so every clip started afterwards has a larger timestamp.
+  final int _sweepBeforeMs = DateTime.now().millisecondsSinceEpoch;
 
   DateTime? _startedAt;
   Timer? _autoStopTimer;
 
   /// Path of the recording currently being captured — excluded from the
-  /// stale-clip sweep so hygiene can never eat a live take.
+  /// stale-clip sweep so hygiene can never eat a live take. Cleared on
+  /// [stop]/[cancel]/[dispose] so it never dangles onto a finished take.
   String? _activePath;
 
   /// Set when the hard-cap timer fired first: the already-finalised clip the
@@ -114,8 +124,14 @@ class RecordPackageVoiceRecorder implements VoiceRecorder {
           in Directory.systemTemp.list(followLinks: false)) {
         if (entry is! File) continue;
         final String name = entry.uri.pathSegments.last;
-        if (!_clipFileName.hasMatch(name)) continue;
+        final Match? match = _clipFileName.firstMatch(name);
+        if (match == null) continue;
         if (entry.path == _activePath) continue; // never the live take
+        // Only a PREVIOUS run's clip (timestamp before this instance existed)
+        // is stale. A clip THIS session produced — even one mid-upload — has a
+        // newer timestamp and is left alone (#624).
+        final int? clipMs = int.tryParse(match.group(1) ?? '');
+        if (clipMs == null || clipMs >= _sweepBeforeMs) continue;
         try {
           await entry.delete();
         } catch (_) {
@@ -131,6 +147,7 @@ class RecordPackageVoiceRecorder implements VoiceRecorder {
   Future<RecordedClip?> stop() async {
     _autoStopTimer?.cancel();
     _autoStopTimer = null;
+    _activePath = null; // the take is finished — never protect it as "live"
     final Future<RecordedClip?>? pending = _autoStopped;
     if (pending != null) {
       _autoStopped = null;
@@ -158,6 +175,7 @@ class RecordPackageVoiceRecorder implements VoiceRecorder {
   Future<void> cancel() async {
     _autoStopTimer?.cancel();
     _autoStopTimer = null;
+    _activePath = null;
     _startedAt = null;
     final Future<RecordedClip?>? pending = _autoStopped;
     _autoStopped = null;
@@ -182,6 +200,7 @@ class RecordPackageVoiceRecorder implements VoiceRecorder {
   Future<void> dispose() async {
     _autoStopTimer?.cancel();
     _autoStopTimer = null;
+    _activePath = null;
     // Only touch the plugin if it was ever created.
     await _recorder?.dispose();
     _recorder = null;

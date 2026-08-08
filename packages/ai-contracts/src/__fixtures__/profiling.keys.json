@@ -63,7 +63,8 @@
     "extraction_status",
     "worker_profile_draft",
     "ai_metadata",
-    "job_domain_match"
+    "job_domain_match",
+    "error_code"
   ],
 
   "_JobDomainMatch": "`score` is the RETRIEVAL cosine similarity, never the model's self-reported confidence — one is measured, the other asserted, and only the measured one belongs in a column later analysis will threshold on. `status` is the same closed vocabulary as the job_domain_match_status CHECK on worker_profiles.",
