@@ -44,9 +44,11 @@ import {
   inboundHash,
   recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
+  TURN_KINDS,
   toEngineState,
   withAnswers,
   type ProfilingEnvelope,
+  type TurnKind,
 } from "./conversation-state";
 import {
   askCeiling,
@@ -134,8 +136,20 @@ export const MAX_CAS_ATTEMPTS = 2;
 export const CHECKPOINT_EVERY_ASKS = 5;
 
 /** What one turn produced. */
+/**
+ * Re-exported so {@link TurnResult} reads beside the type it uses. DEFINED in
+ * `conversation-state.ts` because `LastTurn` persists it and that module must not import this one.
+ */
+export { TURN_KINDS, type TurnKind };
+
 export interface TurnResult {
   readonly reply: string;
+  /**
+   * See {@link TurnKind}. REQUIRED rather than defaulted, so a new construction site cannot ship
+   * without stating what it is putting on screen — which is how the disambiguation offer came to
+   * be indistinguishable from an ordinary ask in the first place.
+   */
+  readonly kind: TurnKind;
   readonly questionKey: string | null;
   readonly options: readonly QuestionPackOption[];
   readonly progress: { readonly answered: number; readonly total: number };
@@ -378,6 +392,9 @@ export class ProfilingOrchestrator {
         );
         return {
           reply: text,
+          // A re-serve of a PACK question — `servedQuestionKey` is non-null to have found it, and
+          // a disambiguation turn has no key to be found by.
+          kind: "ask",
           questionKey: served.question_key,
           options: served.options,
           ...shapeOf(items, served.question_key),
@@ -441,6 +458,9 @@ export class ProfilingOrchestrator {
         });
         return {
           reply,
+          // Opening the screen never disambiguates: retrieval has not run, because the worker has
+          // not said anything for it to run on.
+          kind: decision.kind === "close" ? "close" : "ask",
           questionKey: decision.questionKey,
           options: decision.options,
           ...shapeOf(items, decision.questionKey),
@@ -518,6 +538,9 @@ export class ProfilingOrchestrator {
       if (next.abusiveTurns < MAX_ABUSIVE_TURNS && !capped) {
         return this.turn(buffer, next, input, {
           reply: DE_ESCALATION_REPLY,
+          // The question on screen is unchanged and still answered the ordinary way; only the
+          // words above it differ.
+          kind: "ask",
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           ...shapeOf(items, envelope.servedQuestionKey),
@@ -559,6 +582,8 @@ export class ProfilingOrchestrator {
         // the question is re-served with no budget spent and no counter advanced.
         return this.turn(buffer, next, input, {
           reply: reserved,
+          // A re-serve of the same question — same kind it had.
+          kind: "ask",
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           ...shapeOf(items, envelope.servedQuestionKey),
@@ -598,6 +623,8 @@ export class ProfilingOrchestrator {
           // Indexed by TURN, never at random: the engine has no randomness by construction, so
           // the same conversation must always produce the same words.
           reply: HARDSHIP_REPLIES[turn % HARDSHIP_REPLIES.length] as string,
+          // An acknowledgement above the question that is still on screen.
+          kind: "ask",
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           ...shapeOf(items, envelope.servedQuestionKey),
@@ -628,6 +655,12 @@ export class ProfilingOrchestrator {
             askedItem,
             askedItem ? askCount(state, askedItem.question_key) : 0,
           ),
+          // `ask`, NOT the wire enum's `clarify`. The explanation and the question arrive in one
+          // bubble, and the question is answered exactly as it was before the worker asked why —
+          // so a client that branched on `clarify` would be re-rendering an unchanged affordance.
+          // Emitting the value would be a visible change to a shipped client, which is #695's
+          // scope to widen, not this change's.
+          kind: "ask",
           questionKey: clarified.questionKey,
           options: clarified.options,
           ...shapeOf(items, clarified.questionKey),
@@ -685,6 +718,12 @@ export class ProfilingOrchestrator {
     if (identified.offer) {
       return this.turn(buffer, next, input, {
         reply: identified.offer.prompt,
+        // THE ONE SITE THAT KNOWS. Everything downstream had to guess before #695: the fact was
+        // available exactly here and thrown away one layer up, so a real disambiguation offer
+        // reached the worker app as an ordinary ask and rendered in the horizontal chip scroller
+        // — the failure #649 was raised to fix, with its vertical single-select correct, merged
+        // and unreachable.
+        kind: "disambiguate",
         // NO QUESTION KEY. This question belongs to no pack, and claiming a pack's key for it
         // would make the next turn's `askedItem` lookup capture a chip tap as that question's
         // answer.
@@ -789,6 +828,9 @@ export class ProfilingOrchestrator {
 
     return this.turn(buffer, next, input, {
       reply,
+      // The engine's own verdict, not a re-derivation of it: `close` is the decision that ended
+      // the interview, and every other decision put a pack question on screen.
+      kind: decision.kind === "close" ? "close" : "ask",
       questionKey: decision.questionKey,
       options: decision.options,
       ...shapeOf(items, decision.questionKey),
@@ -1062,6 +1104,7 @@ export class ProfilingOrchestrator {
         // turn on the same words — the exact failure Layer A exists to prevent.
         inboundHash: inboundHash(input.sessionId, envelope.rev + 1, input.text),
         reply: result.reply,
+        kind: result.kind,
         questionKey: result.questionKey,
         at: input.now.toISOString(),
         // EVERYTHING THE CLIENT DRAWS, stamped together with the words. Taken off `result` rather
@@ -1122,6 +1165,11 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
   if (!Number.isFinite(age) || age < 0 || age > REPLY_CACHE_WINDOW_MS) return null;
   return {
     reply: last.reply,
+    // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
+    // link is an ordinary event, and re-deriving `ask` here would turn the second delivery of a
+    // disambiguation offer into an ordinary question with a chip scroller — the byte-identical
+    // replay this cache promises, silently downgraded on exactly the connections that need it.
+    kind: last.kind,
     questionKey: last.questionKey,
     // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
     // replay a strictly WORSE response than the one it claims to repeat: same words, no chips, no
@@ -1146,6 +1194,10 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
 function unavailable(): TurnResult {
   return {
     reply: UNAVAILABLE_REPLY,
+    // Nothing is on screen to describe, and `ask` is the enum's own neutral value — the same one
+    // `ChatService` already serves on this path. A worker retrying into a live session is the
+    // whole point of the line, so it must not read as a close.
+    kind: "ask",
     questionKey: null,
     options: [],
     progress: { answered: 0, total: 0 },

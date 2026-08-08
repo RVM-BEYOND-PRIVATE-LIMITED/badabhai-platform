@@ -71,6 +71,7 @@ const FULL: ProfilingEnvelope = {
   lastTurn: {
     inboundHash: "a".repeat(64),
     reply: "Aap kis sheher mein rehte hain?",
+    kind: "ask",
     questionKey: "q_city",
     at: "2026-08-06T10:00:00.000Z",
     // NON-DEFAULT, for the same reason the histogram below is: `[]` and `{0, 0}` are exactly
@@ -187,6 +188,30 @@ describe("a present-but-damaged envelope is REPAIRED, never discarded", () => {
     for (const bad of [{}, { inboundHash: "x" }, { inboundHash: "x", reply: "y" }, "nope"]) {
       expect(narrowProfilingEnvelope({ ...FULL, lastTurn: bad })?.lastTurn).toBeNull();
     }
+  });
+
+  it("narrows a MISSING turn kind to `ask` — an in-flight session must not be discarded", () => {
+    // Every `lastTurn` written before #695 has no `kind` and is sitting in Redis right now behind
+    // the 24 h TTL. `ask` is what those entries were served as, so an interview mid-deploy replays
+    // as exactly today's behaviour — the same trade the options and progress fields made.
+    const legacy = narrowProfilingEnvelope({
+      ...FULL,
+      lastTurn: { inboundHash: "c".repeat(64), reply: CLOSING_ISH, at: "2026-08-06T10:00:00.000Z" },
+    });
+    expect(legacy?.lastTurn?.kind).toBe("ask");
+  });
+
+  it("keeps a stored `disambiguate`, and rejects a kind outside the closed set", () => {
+    const at = "2026-08-06T10:00:00.000Z";
+    const base = { inboundHash: "d".repeat(64), reply: CLOSING_ISH, at };
+    const kept = narrowProfilingEnvelope({
+      ...FULL,
+      lastTurn: { ...base, kind: "disambiguate" },
+    });
+    expect(kept?.lastTurn?.kind).toBe("disambiguate");
+    // A value the client has never seen is worse than the neutral one it has.
+    const bogus = narrowProfilingEnvelope({ ...FULL, lastTurn: { ...base, kind: "interrogate" } });
+    expect(bogus?.lastTurn?.kind).toBe("ask");
   });
 
   it("keeps a reply-cache entry that has no question key — a CLOSE has none", () => {

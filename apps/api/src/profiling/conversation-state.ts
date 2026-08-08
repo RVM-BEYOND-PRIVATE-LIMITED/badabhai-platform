@@ -60,11 +60,49 @@ import type { EngineState } from "./next-question";
  * response, not a 409 telling it something went wrong when nothing did. The hash binds the entry
  * to (session, rev, text) so a retry of turn 12 can never replay turn 11's answer.
  */
+/**
+ * What KIND of question a turn put on screen — the closed set the engine can actually produce.
+ *
+ * `disambiguate` IS THE ONE THAT EARNS THE TYPE (#695/#649). Everything else a client needs is
+ * already on the turn, but "is this a pick-your-trade offer or an ordinary question?" is not
+ * derivable from any of it: a disambiguation turn is `questionKey: null` with options, and so is
+ * nothing else *today* — which is exactly why a client must not infer it. Guessing "this looks
+ * like a disambiguation turn" from a shape that merely happens to be unique is the client-side
+ * business inference CLAUDE.md forbids, and it becomes wrong in silence the first time a pack
+ * question arrives keyless.
+ *
+ * The distinction is not cosmetic. An ordinary ask's chips are a shortcut past typing; a
+ * disambiguation chip's LABEL BECOMES THE WORKER'S ANSWER OF RECORD and pins the pack that decides
+ * every remaining question. The client renders the first as a horizontal scroller and the second
+ * as a vertical single-select — #649 shipped that single-select against a value this type is what
+ * makes reachable.
+ *
+ * DELIBERATELY NARROWER THAN THE WIRE ENUM. `PostMessageResponseSchema.question_kind` also
+ * declares `clarify`; the engine never produces it, and inventing a producer to fill the enum
+ * would change what a clarify turn looks like to a shipped client. A test asserts this set is a
+ * SUBSET of that one, so the two can only drift in the safe direction.
+ *
+ * IT LIVES HERE, in the pure state module, because {@link LastTurn} persists it and
+ * `orchestrator.service.ts` imports this file — the other direction would be a cycle.
+ */
+export const TURN_KINDS = ["ask", "disambiguate", "close"] as const;
+export type TurnKind = (typeof TURN_KINDS)[number];
+
 export interface LastTurn {
   /** `sha256(sessionId + rev + text)` — see `inboundHash`. Never the text itself. */
   readonly inboundHash: string;
   /** The reply served, verbatim, including any `{{worker_name}}` placeholder. */
   readonly reply: string;
+  /**
+   * What KIND of question that reply put on screen — see `TurnKind`.
+   *
+   * CACHED FOR THE SAME REASON THE OPTIONS BELOW ARE. A disambiguation offer and an ordinary ask
+   * are rendered by two different widgets, and re-deriving `ask` on the replay path would hand a
+   * worker on a flaky link the wrong one — a horizontal chip scroller for the question whose
+   * answer pins their pack. The cache promises the byte-identical previous response; a downgrade
+   * is not that.
+   */
+  readonly kind: TurnKind;
   /** The question that reply asked, for the client's chip rendering. Null on a close. */
   readonly questionKey: string | null;
   /** ISO timestamp, so the 10 s replay window can be judged without a clock in the core. */
@@ -415,6 +453,11 @@ function narrowLastTurn(value: unknown): LastTurn | null {
   return {
     inboundHash: v.inboundHash,
     reply: v.reply,
+    // ABSENT NARROWS TO `ask`, which is what every one of these entries was served as before the
+    // field existed — so an interview sitting in Redis right now behind the 24 h TTL replays as
+    // exactly today's behaviour instead of being discarded to protect a new field. The window is
+    // ten seconds wide, so the only reachable case is a worker who submitted during the deploy.
+    kind: isTurnKind(v.kind) ? v.kind : "ask",
     questionKey: typeof v.questionKey === "string" ? v.questionKey : null,
     at: v.at,
     options: options.success ? options.data : [],
@@ -422,6 +465,11 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     whyText: typeof v.whyText === "string" ? v.whyText : null,
     answerType: isAnswerType(v.answerType) ? v.answerType : null,
   };
+}
+
+/** A stored turn kind that is still in the closed set — see {@link TURN_KINDS}. */
+function isTurnKind(value: unknown): value is TurnKind {
+  return typeof value === "string" && (TURN_KINDS as readonly string[]).includes(value);
 }
 
 /** A stored `answer_type` that is still in the contract's closed set. */

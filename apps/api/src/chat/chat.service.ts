@@ -13,6 +13,7 @@ import { toConversationStatePatch } from "../profiling/conversation-state";
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
 import { hasExtractedContent } from "../profiles/profile-content";
 import type { NewWorkerPackAnswer } from "@badabhai/db";
+import type { QuestionPackOption } from "@badabhai/ai-contracts";
 import { CHAT_OPENING_TEXT } from "./chat-replies";
 import { ChatRepository } from "./chat.repository";
 import {
@@ -30,6 +31,29 @@ import {
 } from "./chat.dto";
 
 const DEFAULT_ROLE_FAMILY = "cnc_vmc";
+
+/**
+ * A pack option → the three fields the client is allowed to see (#695).
+ *
+ * ONE PROJECTION, USED BY EVERY SITE THAT SERVES CHIPS, so the fresh turn and the replayed turn
+ * cannot disagree about what an option is — the drift that let a replay serve the same words with
+ * no chips at all.
+ *
+ * `value` and `implies_skill_id` are dropped rather than forwarded. Neither is renderable, and
+ * `implies_skill_id` is a taxonomy internal that has no business on a worker's device (§9: never
+ * expose unnecessary data).
+ */
+function toWireOption(option: QuestionPackOption): {
+  option_key: string;
+  label_text: string;
+  is_none_of_above: boolean;
+} {
+  return {
+    option_key: option.option_key,
+    label_text: option.label_text,
+    is_none_of_above: option.is_none_of_above,
+  };
+}
 
 /**
  * A normalized answer value → the ONE typed column it belongs in, or `null` when no column can
@@ -264,7 +288,9 @@ export class ChatService {
             reply: CHAT_ALREADY_COMPLETE_REPLY,
             blocked: false,
             is_mock: true,
+            // Nothing is on screen to tap: the interview is over.
             suggested_followups: [],
+            suggested_options: [],
             asked_question_id: null,
             extraction_ready: outcome.flushed,
             unanswered_essentials: [],
@@ -289,12 +315,19 @@ export class ChatService {
             reply: outcome.turn.reply,
             blocked: false,
             is_mock: false,
-            suggested_followups: [],
+            // FROM THE REPLAYED TURN, not empty (#695). The orchestrator caches the chips
+            // precisely so a replay is the response it claims to repeat, and this site then
+            // dropped them — which on a disambiguation offer is the worst version of it: the
+            // right words, no options, and now a `disambiguate` kind telling the client to draw
+            // a single-select with nothing in it. A worker who resubmits over a bad connection
+            // gets what they got the first time.
+            suggested_followups: outcome.turn.options.map((option) => option.label_text),
+            suggested_options: outcome.turn.options.map(toWireOption),
             asked_question_id: outcome.turn.questionKey,
             extraction_ready: false,
             unanswered_essentials: [],
             session_ended: false,
-            question_kind: "ask",
+            question_kind: outcome.turn.kind,
             progress: outcome.turn.progress,
             occupation_label: null,
           },
@@ -548,6 +581,9 @@ export class ChatService {
       // REVIEWED closed set (or a disambiguation offer), not a model's improvisation. That
       // is what makes "options are ANSWERS, never questions" mechanically checkable.
       suggested_followups: turn.options.map((option) => option.label_text),
+      // The same chips with their key and their escape flag — see the DTO. Labels stay the
+      // rendering contract; this is what lets the client stop matching on copy.
+      suggested_options: turn.options.map(toWireOption),
       // Now a pack `question_key`. Still passes the `^[a-z_]+$` ≤40-char filter the flush
       // transaction applies, because the pack validator enforces exactly that shape.
       asked_question_id: turn.questionKey,
@@ -557,7 +593,12 @@ export class ChatService {
       // "the model did not say".
       unanswered_essentials: [...turn.unansweredEssentials],
       session_ended: terminal,
-      question_kind: turn.complete ? "close" : "ask",
+      // THE ENGINE'S OWN VERDICT (#695). This used to be `turn.complete ? "close" : "ask"`, which
+      // could never produce `disambiguate` — so a real offer arrived at the worker app as an
+      // ordinary ask and rendered in the horizontal chip scroller, which is precisely the failure
+      // #649 was raised to fix. The orchestrator knew at the offer branch and the fact was thrown
+      // away one layer down.
+      question_kind: turn.kind,
       // The completion bar. The single biggest lever on completion rate for low-literacy
       // users, and impossible to compute under the LLM path — the model never knew how
       // many questions were left because it invented each one as it went.
@@ -897,7 +938,9 @@ export class ChatService {
         reply: reply.replace(/\{\{[^}]*\}\}/g, ""),
         blocked: opts.blocked ?? false,
         is_mock: true,
+        // No turn happened, so there are no chips — the same reason `progress` is null below.
         suggested_followups: [],
+        suggested_options: [],
         asked_question_id: null,
         extraction_ready: false,
         // EMPTY MEANS "UNKNOWN" HERE, not "complete" — no turn happened, so there is no
@@ -932,7 +975,9 @@ export class ChatService {
         reply: CHAT_ALREADY_COMPLETE_REPLY,
         blocked: false,
         is_mock: true,
+        // A dead session serves no question, so it offers nothing to tap.
         suggested_followups: [],
+        suggested_options: [],
         asked_question_id: null,
         extraction_ready: true,
         unanswered_essentials: [],

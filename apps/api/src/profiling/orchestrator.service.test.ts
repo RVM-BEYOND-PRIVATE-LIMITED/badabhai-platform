@@ -2,7 +2,8 @@ import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 
-import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
+import type { QuestionPack, QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
+import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 
 import type { TranscriptBuffer } from "../chat/chat-transcript.buffer";
 import { emptyProfilingEnvelope, inboundHash, type ProfilingEnvelope } from "./conversation-state";
@@ -96,6 +97,8 @@ function makeWorld(
     storedPin?: { packId: string; packVersion: number } | null;
     /** Make the durable pin write fail, to prove a turn survives it. */
     pinThrows?: boolean;
+    /** Retrieval came back ambiguous: chips on screen instead of a pack question (#695). */
+    identifyOffer?: { prompt: string; options: QuestionPackOption[] } | null;
   } = {},
 ) {
   const store = new Map<string, TranscriptBuffer>();
@@ -129,7 +132,13 @@ function makeWorld(
   // The identify step is STUBBED TO A NO-OP here on purpose. These tests are about the turn
   // machinery — CAS, replay, bounded re-ask, hard cases — and letting real retrieval run would
   // make every one of them depend on the occupation catalogue. Identification has its own suite.
-  const identify = { identify: vi.fn(async () => ({ patch: {}, offer: null, pinned: null })) };
+  const identify = {
+    identify: vi.fn(async () => ({
+      patch: {},
+      offer: opts.identifyOffer ?? null,
+      pinned: null,
+    })),
+  };
 
   // `chat_sessions`, reduced to the two things the orchestrator is allowed to do to it: read the
   // pack pin and win it once. `pinned` is the row; `pinPack` enforces the same WRITE-ONCE rule
@@ -591,6 +600,7 @@ describe("LAYER A — the reply cache", () => {
       lastTurn: {
         inboundHash: inboundHash(SESSION, 1, "main pune me rehta hu"),
         reply: "stale",
+        kind: "ask" as const,
         questionKey: "q_city",
         at: new Date(T0.getTime() + 60_000).toISOString(),
         options: [],
@@ -654,6 +664,67 @@ describe("determinism", () => {
       replies.add(JSON.stringify(await orchestrator.takeTurn(say("main pune me rehta hu"))));
     }
     expect(replies.size).toBe(1);
+  });
+});
+
+describe("the disambiguation offer announces itself (#695)", () => {
+  const OFFER = {
+    prompt: "Aap in mein se kaun sa kaam karte hain?",
+    options: [
+      {
+        option_key: "occ_0",
+        label_text: "Welder",
+        value: "Welder",
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+      {
+        option_key: DISAMBIGUATION_ESCAPE_KEY,
+        label_text: DISAMBIGUATION_ESCAPE_LABEL,
+        value: DISAMBIGUATION_ESCAPE_LABEL,
+        implies_skill_id: null,
+        is_none_of_above: true,
+      },
+    ],
+  };
+
+  it("returns kind `disambiguate`, which nothing downstream has to infer", () => {
+    // The fact existed exactly here and was thrown away one layer up: `TurnResult` carried no
+    // kind, so `ChatService` could not tell this turn from an ordinary ask and served
+    // `question_kind: "ask"` — rendering a trade list, whose tapped label becomes the worker's
+    // answer of record, in the horizontal chip scroller meant for typing shortcuts.
+    const { orchestrator, store } = makeWorld({ identifyOffer: OFFER });
+    seed(store);
+    return orchestrator.takeTurn(say("welding ka kaam")).then((result) => {
+      expect(result.kind).toBe("disambiguate");
+      // The rest of the branch is unchanged: no pack key, chips from retrieval, single-select.
+      expect(result.questionKey).toBeNull();
+      expect(result.answerType).toBe("single_select");
+      expect(result.options.map((o) => o.label_text)).toEqual([
+        "Welder",
+        DISAMBIGUATION_ESCAPE_LABEL,
+      ]);
+    });
+  });
+
+  it("an ordinary pack question stays `ask`, and the close stays `close`", async () => {
+    const { orchestrator, store } = makeWorld();
+    seed(store);
+    expect((await orchestrator.takeTurn(say("main pune me rehta hu"))).kind).toBe("ask");
+  });
+
+  it("SURVIVES THE REPLAY CACHE — a resubmit must not downgrade the offer to an ask", async () => {
+    // The reply cache exists for a worker resubmitting over a flaky 2G link. Re-deriving `ask`
+    // on that path would hand them the wrong widget for the question that pins their pack, on
+    // precisely the connections the cache was built for.
+    const { orchestrator, store } = makeWorld({ identifyOffer: OFFER });
+    seed(store);
+    const first = await orchestrator.takeTurn(say("welding ka kaam"));
+    const replayed = await orchestrator.takeTurn(say("welding ka kaam"));
+    expect(replayed.replayed).toBe(true);
+    expect(replayed.kind).toBe(first.kind);
+    expect(replayed.kind).toBe("disambiguate");
+    expect(replayed.options).toEqual(first.options);
   });
 });
 
@@ -743,6 +814,7 @@ describe("the mid-interview checkpoint boundary (Phase 9, risk #10)", () => {
       lastTurn: {
         inboundHash: inboundHash(SESSION, 1, text),
         reply: "Kitne saal ka kaam ka tajurba hai?",
+        kind: "ask" as const,
         questionKey: "q_years",
         at: T0.toISOString(),
         options: [],

@@ -29,6 +29,39 @@ export const PostMessageResponseSchema = z.object({
   blocked: z.boolean(),
   is_mock: z.boolean(),
   suggested_followups: z.array(z.string()).default([]),
+  /**
+   * The SAME options as `suggested_followups`, with the two fields a label cannot carry (#695).
+   *
+   * WHAT WAS WRONG WITH LABELS ALONE. `toPackOption` builds
+   * `{option_key, label_text, value, implies_skill_id, is_none_of_above}` and the response
+   * flattened it to `options.map(o => o.label_text)` — so the client addressed everything by
+   * display copy, and matched the "none of these" escape against a hardcoded `'Kuch aur'`
+   * literal duplicating `DISAMBIGUATION_ESCAPE_LABEL` with no shared source and no binding test.
+   * It degraded safely (the escape styled as an ordinary option) but it is a magic string
+   * standing in for a flag the server already holds.
+   *
+   * ALONGSIDE, NOT INSTEAD. `suggested_followups` is unchanged and still authoritative for
+   * rendering order; a client that predates this field sees no difference at all.
+   *
+   * THE SUBMIT PATH IS UNCHANGED, AND MUST STAY THAT WAY. `identify.service.ts` resolves a
+   * disambiguation tap by NORMALIZED-LABEL comparison against the stored offer, and states that
+   * `option_key` "is never read back". Sending keys back on submit would break disambiguation
+   * outright. This carries the key so the client can *reason and style* without string-matching
+   * copy — it is not an address to answer at.
+   *
+   * `value` and `implies_skill_id` are deliberately NOT here: neither is renderable, and
+   * `implies_skill_id` is a taxonomy internal with no business on a worker's device.
+   */
+  suggested_options: z
+    .array(
+      z.object({
+        option_key: z.string(),
+        label_text: z.string(),
+        /** The escape hatch, as a FLAG rather than as copy the client has to recognise. */
+        is_none_of_above: z.boolean(),
+      }),
+    )
+    .default([]),
   asked_question_id: z.string().nullable().default(null),
   extraction_ready: z.boolean().default(false),
   // CHAT-UE-1: ESSENTIAL topics not yet answered, in ESSENTIAL_TOPICS order;
