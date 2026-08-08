@@ -94,6 +94,45 @@ Three PRs closed it. The parts worth carrying forward:
 full), #700 (the review screen's ⟲ correction: no supplier, no wire shape, and no engine path —
 an owner ruling first), #701 (Divyanshu — `tts_render --apply`, gated on B-2).
 
+#### THREE DEFECTS THE FIRST LIVE RUN FOUND, and none of them was visible to 3855 unit tests
+
+The routes were driven end to end against a locally built API — twelve answers, real chips, real
+booleans — and that is the only reason these were caught.
+
+1. **The application did not boot.** `POST /profiling/session` 404'd, and the route was not the
+   reason: `ProfilingModule → VoiceModule` closed a triangle (voice → chat → profiling → voice)
+   whose every edge is real, and module metadata is evaluated at REQUIRE time, so
+   `voice.module.ts` ran while `chat.module.ts` was mid-evaluation and its `imports` array held
+   `undefined`. `UndefinedModuleException` at boot, in every environment. **Typecheck, lint, build
+   and 3853 unit tests all passed** — including the per-module boot tests, because those assert
+   `@Module` metadata and metadata was exactly what was wrong. CI's E2E job caught it
+   independently, which is the job that actually starts the app and needs a database, a Redis and
+   minutes to say so. `app.module.graph.test.ts` now says the same thing in milliseconds by
+   walking every module reachable from `AppModule` and asserting none imports `undefined`.
+2. **The review screen was empty at exactly the moment it exists for.** It read the answer map out
+   of the Redis envelope — but the engine closing the interview triggers the flush, and the flush
+   drops the Redis key the instant its transaction commits. Measured: `rows: 0` against twelve
+   `worker_pack_answer` rows already durable in Postgres. It now reads the flushed rows, with the
+   envelope as the mid-interview fallback.
+3. **The re-pin turn served a question with no shape.** `decide` builds `items` at the top of the
+   turn and re-resolves the engine when the occupation pins mid-turn, but never rebuilt `items`.
+   So the turn that pins "main welder hoon" serves `welding_process` — a row that exists only in
+   the pack just resolved — and the client got `answer_type: null` for the first question of the
+   worker's own trade. On a select question that means no chips, and a worker who cannot type has
+   no way to answer. Measured before: `-> welding_process/null`, falling through to free text and
+   capturing "haan". After: `-> welding_process/multi_select`, chips tapped, captured `gas, arc`.
+
+Verified live on the built API after the fixes:
+
+```
+START     201  step=question  primary_trade  type=text  why=yes  clip=d00c8826fff7a1a5  1/8
+RESTART   201  same session + same question          PASS   (openTurn is idempotent)
+STALE     409  answering a question not on screen    PASS
+12 answers: chips by KEY, booleans, free text -> done
+REVIEW    200  complete=true  rows=12
+FINALIZE  200  committed=true ; called again -> 200 committed=true  (idempotent)
+```
+
 ### Verified live on merged `main` (2026-08-08)
 
 A real 13-turn interview through `POST /chat/message`, `ai_posture: mock` throughout — so not one
