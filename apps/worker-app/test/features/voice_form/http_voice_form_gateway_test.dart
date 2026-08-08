@@ -87,7 +87,7 @@ void main() {
     await gw.start(); // learns session_id + question_key
 
     final VoiceFormStep step =
-        await gw.submit(const VoiceAnswer.chips(<String>['mild_steel', 'stainless']));
+        await gw.submit(const VoiceAnswer.chips(<String>['mild_steel', 'stainless']), questionKey: 'q_material');
 
     expect(step, isA<VoiceFormDone>());
     expect(answerBody['session_id'], 's1');
@@ -118,7 +118,7 @@ void main() {
     await gw.start();
 
     final VoiceFormStep step =
-        await gw.submit(const VoiceAnswer.text('main welder hoon'));
+        await gw.submit(const VoiceAnswer.text('main welder hoon'), questionKey: 'q_material');
 
     expect(step, isA<NextQuestion>());
     expect((step as NextQuestion).question.id, 'q_now',
@@ -151,7 +151,7 @@ void main() {
     final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
     await gw.start();
 
-    final VoiceFormStep step = await gw.submit(const VoiceAnswer.boolean(true));
+    final VoiceFormStep step = await gw.submit(const VoiceAnswer.boolean(true), questionKey: 'q_material');
     expect(step, isA<RetryCurrentQuestion>());
     expect((step as RetryCurrentQuestion).reply, 'Thodi der baad koshish karein.');
   });
@@ -180,7 +180,7 @@ void main() {
     await gw.start();
 
     await expectLater(
-      gw.submit(const VoiceAnswer.boolean(true)),
+      gw.submit(const VoiceAnswer.boolean(true), questionKey: 'q_material'),
       throwsA(isA<VoiceUnavailableFailure>()),
     );
   });
@@ -208,7 +208,7 @@ void main() {
     final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
     await gw.start();
 
-    final VoiceFormStep step = await gw.submit(const VoiceAnswer.spoken('vn-42'));
+    final VoiceFormStep step = await gw.submit(const VoiceAnswer.spoken('vn-42'), questionKey: 'q_material');
 
     expect(step, isA<VoiceFormDone>());
     expect(body['answer'], <String, dynamic>{'kind': 'spoken', 'voice_note_id': 'vn-42'});

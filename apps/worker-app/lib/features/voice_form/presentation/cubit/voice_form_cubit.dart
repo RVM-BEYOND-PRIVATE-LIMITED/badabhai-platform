@@ -383,14 +383,29 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       }
 
       emit(current.copyWith(micPhase: MicPhase.uploading));
-      final VoiceFormStep step = await _gateway.submit(answer);
+      // THE QUESTION ON SCREEN, asserted by the thing that knows it. `current` was captured
+      // at the top of this advance, so it is the question the worker actually answered even
+      // if the engine has since moved on. An empty id is the disambiguation turn, which
+      // belongs to no pack and whose key the server expects to be null.
+      final VoiceFormStep step = await _gateway.submit(
+        answer,
+        questionKey: current.question.id.isEmpty ? null : current.question.id,
+      );
       // #691 — a `paused` during the (up to 30s) submit MUST NOT be walked over:
       // if the interruption generation moved, this advance is stale — the mic is
       // cancelled and the state is VoiceFormInterrupted; do not present or arm.
       if (_torndown || gen != _interruptGen) return;
-      _consecutiveSilent = 0; // a real answer landed — reset the silence gate
-      _answers.add(answer);
-      if (answer.isSpoken) _actions.recordAnswerSpoken(current.index); // #639
+      // ONLY BANK AN ANSWER THE ENGINE ACTUALLY TOOK. `RetryCurrentQuestion` means the
+      // server wrote nothing — appending here would put a second entry in `_answers` for one
+      // question the moment the worker re-answers, publish a `voice_note_id` for a turn that
+      // was discarded, and over-count `profiling_answer_spoken` on exactly the flaky-2G path
+      // the retryable step exists for. The silence gate stays reset either way: the worker
+      // DID speak, which is what that counter is about.
+      _consecutiveSilent = 0;
+      if (step is! RetryCurrentQuestion) {
+        _answers.add(answer);
+        if (answer.isSpoken) _actions.recordAnswerSpoken(current.index); // #639
+      }
       await _route(step, gen);
     } on Failure catch (failure) {
       if (!_torndown) emit(VoiceFormError(failure));
@@ -404,6 +419,13 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       // The stale-clip sweep can only ever reclaim a path that has been released, and the
       // recorder outlives this cubit.
       if (retainPath != null) _recorder.release(retainPath);
+      // THE DEFERRED RESUME. A `resumed` that arrived while this advance was parked on the
+      // upload was refused above rather than allowed to re-arm over it; now that the guard is
+      // clear, honour it. `resumeSession` no-ops unless the state is still Interrupted, so a
+      // call that races the lifecycle one is harmless.
+      if (!_torndown && _foreground && state is VoiceFormInterrupted) {
+        unawaited(resumeSession());
+      }
     }
   }
 
@@ -637,6 +659,20 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   Future<void> resumeSession() async {
     final VoiceFormState current = state;
     if (current is! VoiceFormInterrupted) return;
+    // NOT WHILE AN ADVANCE IS STILL UNWINDING (#717). Every other entry point respects
+    // `_advancing`; this one did not, and it did not matter while the only long await inside
+    // that window was `submit`. The upload now sits in front of it — a 30s PUT plus the
+    // register call — so a call that arrives mid-upload and ends quickly lands here with the
+    // old advance still parked.
+    //
+    // Re-arming then puts "Sun rahe hain" and a live meter on screen while `_advancing` is
+    // still true, so the endpointer fires, `answerBySpeaking()` returns immediately at the
+    // idempotency guard, and the endpointer has already latched `done` — the worker is left
+    // talking to a mic that will never advance, with no affordance that responds.
+    //
+    // `_advance`'s `finally` calls back here once it has unwound, so the resume is deferred
+    // rather than dropped.
+    if (_advancing) return;
     final bool granted = await _recorder.ensurePermission();
     // Re-paused during the permission check → do NOT arm (#691).
     if (_torndown || !_foreground) return;

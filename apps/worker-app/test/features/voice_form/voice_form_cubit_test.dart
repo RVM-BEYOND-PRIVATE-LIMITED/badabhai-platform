@@ -27,6 +27,8 @@ class FakeGateway implements VoiceFormGateway {
   int submits = 0;
   int finalizes = 0;
   final List<VoiceAnswer> received = <VoiceAnswer>[];
+  /// The stale-answer guard the CUBIT asserted for each submit (#717).
+  final List<String?> questionKeys = <String?>[];
 
   VoiceQuestion _q(int i) => VoiceQuestion(id: 'q$i', prompt: 'Question $i');
 
@@ -37,9 +39,10 @@ class FakeGateway implements VoiceFormGateway {
   }
 
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) async {
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) async {
     submits++;
     received.add(answer);
+    questionKeys.add(questionKey);
     if (served >= total) return const VoiceFormDone();
     served++;
     return NextQuestion(_q(served), index: served, total: total);
@@ -173,19 +176,60 @@ void main() {
 
   test('a spoken answer retains its clip before submit and releases it after',
       () async {
-    final FakeGateway gateway = FakeGateway(1);
-    final VoiceFormCubit cubit = build(gateway: gateway);
+    // NAMED FOR THE RETAIN, SO IT HAD BETTER MEASURE IT. It asserted only that a
+    // one-question session reaches review and finalizes — it passed unchanged with BOTH
+    // `_recorder.retain(...)` and the release deleted, which is exactly the pairing this
+    // change restructured. The retain is observed mid-flight (a gateway that parks inside
+    // `submit`), and the release after.
+    final Completer<VoiceFormStep> hold = Completer<VoiceFormStep>();
+    final _HoldingGateway gateway = _HoldingGateway(hold);
+    final SessionVoiceRecorder recorder = SessionVoiceRecorder(recorder: plugin);
+    final VoiceFormCubit cubit = VoiceFormCubit(
+      gateway: gateway,
+      recorder: recorder,
+      endpointer: SilenceEndpointer(),
+      tts: FakeTts(),
+      registrar: registrar,
+      session: testSession(),
+      sleep: (_) async {},
+    );
     addTearDown(cubit.close);
     await cubit.start();
-    await cubit.answerBySpeaking();
 
-    // One question, one answer ⇒ straight to review.
+    final Future<void> advancing = cubit.answerBySpeaking();
+    await pumpEventQueue();
+    // Parked inside submit: the clip is PROTECTED from the stale-clip sweep.
+    expect(recorder.retainedPaths, hasLength(1));
+
+    hold.complete(const VoiceFormDone());
+    await advancing;
+
+    // Resolved: the protection is dropped, or the sweep can never reclaim it.
+    expect(recorder.retainedPaths, isEmpty);
     expect(cubit.state, isA<VoiceFormReview>());
     expect(gateway.submits, 1);
-    // A single-question session finalises through the only submit path.
     await cubit.submitReviewed();
     expect(cubit.state, isA<VoiceFormComplete>());
     expect(gateway.finalizes, 1);
+  });
+
+  test('the question_key sent is the one ON SCREEN, not one the gateway inferred (#717)',
+      () async {
+    // The stale-answer guard is a plain equality test server-side, so a client that sends
+    // the WRONG key gets a PASS and the answer is captured against the wrong question. The
+    // gateway used to derive the key as a side effect of parsing a step — which desyncs the
+    // moment the cubit discards a step (an interruption during submit). Only the cubit knows
+    // what the worker is looking at, so the cubit states it.
+    final FakeGateway gateway = FakeGateway(3);
+    final VoiceFormCubit cubit = build(gateway: gateway);
+    addTearDown(cubit.close);
+
+    await cubit.start(); // Q1 on screen
+    await cubit.answerBySpeaking();
+    await cubit.answerBySpeaking(); // Q2 on screen
+
+    expect(gateway.questionKeys, <String?>['q1', 'q2'],
+        reason: 'each answer names the question it was an answer TO');
   });
 
   test('a denied mic → VoiceFormError, no session', () async {
@@ -548,6 +592,27 @@ void main() {
     expect(cubit.state, isA<VoiceFormAsking>());
     expect((cubit.state as VoiceFormAsking).question.id, 'q2');
   });
+
+  test('a discarded turn is NOT banked as an answer (#717)', () async {
+    // The server said it wrote nothing. Appending anyway puts two entries in `_answers` for
+    // one question the moment the worker re-answers — publishing a `voice_note_id` for a
+    // turn that was thrown away — and over-counts `profiling_answer_spoken` on exactly the
+    // flaky-2G path the retryable step exists for.
+    final _RetryOnceGateway gateway = _RetryOnceGateway();
+    final VoiceFormCubit cubit = build(gateway: gateway);
+    addTearDown(cubit.close);
+
+    await cubit.start();
+    await cubit.answerBySpeaking(); // discarded by the engine
+    await cubit.answerBySpeaking(); // the real answer to q1 → q2
+    await cubit.answerBySpeaking(); // q2 → done
+
+    expect(cubit.state, isA<VoiceFormReview>());
+    final List<VoiceAnswer> answers = (cubit.state as VoiceFormReview).answers;
+    expect(answers, hasLength(2),
+        reason: 'two questions answered, three submits — the discarded one is not an answer');
+    expect(gateway.submits, 3);
+  });
 }
 
 /// Serves Q1, answers the FIRST submit with the retryable step, then behaves normally.
@@ -565,16 +630,21 @@ class _RetryOnceGateway implements VoiceFormGateway {
       );
 
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) async {
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) async {
     submits++;
+    // 1: the engine wrote nothing → re-ask q1. 2: the real answer to q1 → q2. 3: → done, so
+    // a test can drive through to review and count what was actually banked.
     if (submits == 1) {
       return const RetryCurrentQuestion('Abhi thodi dikkat aa rahi hai. Dobara bhejiye.');
     }
-    return const NextQuestion(
-      VoiceQuestion(id: 'q2', prompt: 'Question 2'),
-      index: 2,
-      total: 8,
-    );
+    if (submits == 2) {
+      return const NextQuestion(
+        VoiceQuestion(id: 'q2', prompt: 'Question 2'),
+        index: 2,
+        total: 2,
+      );
+    }
+    return const VoiceFormDone();
   }
 
   @override
@@ -597,7 +667,7 @@ class _ThrowingSubmitGateway implements VoiceFormGateway {
       );
 
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) async {
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) async {
     submitAttempts++;
     throw Exception('network drop');
   }
@@ -622,9 +692,37 @@ class _FailFirstGateway implements VoiceFormGateway {
   }
 
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) async =>
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) async =>
       const VoiceFormDone();
 
   @override
   Future<void> finalize() async {}
+}
+
+/// Parks inside `submit` until its completer fires — lets a test observe the retain while
+/// the upload/submit leg is genuinely in flight.
+class _HoldingGateway implements VoiceFormGateway {
+  _HoldingGateway(this._hold);
+  final Completer<VoiceFormStep> _hold;
+  int submits = 0;
+  int finalizes = 0;
+
+  @override
+  String? get sessionId => 'sess-test';
+
+  @override
+  Future<VoiceFormStep> start() async => const NextQuestion(
+        VoiceQuestion(id: 'q1', prompt: 'Question 1'),
+        index: 1,
+        total: 1,
+      );
+
+  @override
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) {
+    submits++;
+    return _hold.future;
+  }
+
+  @override
+  Future<void> finalize() async => finalizes++;
 }

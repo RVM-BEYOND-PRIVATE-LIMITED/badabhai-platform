@@ -42,7 +42,7 @@ class OneQuestionGateway implements VoiceFormGateway {
       );
 
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) async {
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) async {
     received.add(answer);
     return const VoiceFormDone();
   }

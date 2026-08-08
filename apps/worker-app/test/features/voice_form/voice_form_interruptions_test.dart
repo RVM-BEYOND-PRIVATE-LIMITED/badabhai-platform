@@ -51,7 +51,7 @@ class ScriptGateway implements VoiceFormGateway {
   }
 
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) async {
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) async {
     submits++;
     received.add(answer);
     if (served >= total) return const VoiceFormDone();
@@ -359,7 +359,7 @@ class _BlockingSubmitGateway implements VoiceFormGateway {
       VoiceQuestion(id: 'q1', prompt: 'Q1'), index: 1, total: 8);
 
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) => _block.future;
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) => _block.future;
 
   @override
   Future<void> finalize() async {}

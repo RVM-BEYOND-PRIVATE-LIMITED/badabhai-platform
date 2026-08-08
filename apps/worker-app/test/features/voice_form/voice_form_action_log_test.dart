@@ -32,7 +32,7 @@ class OneQGateway implements VoiceFormGateway {
       const NextQuestion(VoiceQuestion(id: 'q1', prompt: 'Q1'),
           index: 1, total: 1);
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) async =>
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) async =>
       const VoiceFormDone();
   @override
   Future<void> finalize() async {}

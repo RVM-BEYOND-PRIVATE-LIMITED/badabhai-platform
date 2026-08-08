@@ -25,9 +25,6 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
   @override
   String? get sessionId => _sessionId;
 
-  /// The question_key the client believes is on screen — the stale-answer guard
-  /// sent with [submit]. Null on the disambiguation turn (the server allows it).
-  String? _currentQuestionKey;
 
   String get _token {
     final String? t = _session.sessionToken;
@@ -50,10 +47,22 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
   }
 
   @override
-  Future<VoiceFormStep> submit(VoiceAnswer answer) async {
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {required String? questionKey}) async {
     final Map<String, dynamic> body = <String, dynamic>{
       'session_id': _sessionId,
-      'question_key': _currentQuestionKey,
+      // FROM THE CALLER, NOT FROM A CURSOR THIS CLASS KEEPS. `question_key` is the
+      // stale-answer guard: it asserts "this is the question I am answering". Only the
+      // cubit knows what is on the worker's screen, so only the cubit can assert it.
+      //
+      // It used to be a field this class set as a SIDE EFFECT of parsing a step — which
+      // desynced the moment the cubit discarded a step it had asked for. An interruption
+      // during `submit` (a multi-second window: the server transcribes and runs the turn
+      // before replying) makes the cubit drop the response and re-arm Q(n) on resume, while
+      // this cursor had already moved to Q(n+1). The worker's second answer to Q(n) then
+      // carried `question_key: Q(n+1)`, the server's equality guard PASSED, and the answer
+      // was captured against the wrong question — the exact substitution the field exists to
+      // prevent, performed by the client.
+      'question_key': questionKey,
       'answer': _answerJson(answer),
     };
     try {
@@ -145,7 +154,6 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
       case 'question':
         final Map<String, dynamic> q =
             (step['question'] as Map).cast<String, dynamic>();
-        _currentQuestionKey = q['question_key'] as String?;
         return NextQuestion(
           _parseQuestion(q),
           index: step['index'] as int? ?? 0,
