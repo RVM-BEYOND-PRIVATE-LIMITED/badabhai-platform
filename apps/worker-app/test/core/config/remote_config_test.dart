@@ -23,6 +23,7 @@ void main() {
     test('every lever returns its compiled-in default', () {
       expect(rc.isActivated, isFalse);
       expect(rc.voiceEntryHidden, BbRemoteConfig.kDefaultVoiceEntryHidden);
+      expect(rc.voiceFormHidden, BbRemoteConfig.kDefaultVoiceFormHidden);
       expect(rc.inviteEntryHidden, BbRemoteConfig.kDefaultInviteEntryHidden);
       expect(rc.chatMaintenanceNotice, BbRemoteConfig.kDefaultChatMaintenanceNotice);
       expect(rc.boostVisible, BbRemoteConfig.kDefaultBoostVisible);
@@ -34,6 +35,9 @@ void main() {
       // default would silently change what a fetch-less device does, which is the
       // one thing this layer promises never to happen by accident.
       expect(rc.voiceEntryHidden, isFalse, reason: 'the mic is visible today');
+      // Deliberately the OPPOSITE default: the voice-form module ships DARK.
+      expect(rc.voiceFormHidden, isTrue,
+          reason: 'the voice-form module is hidden until staging validates it');
       expect(rc.inviteEntryHidden, isFalse, reason: 'the invite row is visible today');
       expect(rc.chatMaintenanceNotice, isEmpty, reason: 'no maintenance notice today');
       expect(rc.boostVisible, isFalse, reason: 'the worker app shows no boost affordance');
@@ -110,6 +114,55 @@ void main() {
       rc.debugSetSnapshot(<String, Object>{BbRemoteConfig.kKeyFreeQuotaCopy: '50 free unlocks'});
       expect(rc.freeQuotaCopy, isA<String>());
       expect(BbRemoteConfig.kDefaultFreeQuotaCopy, isA<String>());
+    });
+  });
+
+  group('kDefaults is the ONE source for the fetch path', () {
+    test('every declared remote key appears in kDefaults', () {
+      // The bug this exists to stop: `worker_voice_form_hidden` was declared,
+      // given a default and read by a getter, but appeared in NEITHER the
+      // setDefaults literal nor the snapshot literal — so the console
+      // parameter was inert on every device, forever, silently. Every
+      // activated-config test goes through debugSetSnapshot, which bypasses
+      // the fetch path entirely, so nothing else can catch this.
+      const List<String> declared = <String>[
+        BbRemoteConfig.kKeyVoiceEntryHidden,
+        BbRemoteConfig.kKeyInviteEntryHidden,
+        BbRemoteConfig.kKeyVoiceFormHidden,
+        BbRemoteConfig.kKeyChatMaintenanceNotice,
+        BbRemoteConfig.kKeyBoostVisible,
+        BbRemoteConfig.kKeyFreeQuotaCopy,
+      ];
+      for (final String key in declared) {
+        expect(BbRemoteConfig.kDefaults.containsKey(key), isTrue,
+            reason: '$key is missing from kDefaults — its Remote Config '
+                'parameter would be inert on every device');
+      }
+      expect(BbRemoteConfig.kDefaults, hasLength(declared.length),
+          reason: 'kDefaults carries a key no getter declares');
+    });
+
+    test('each kDefaults value matches the constant its getter falls back to',
+        () {
+      // The two halves disagreeing is the other way this breaks: the plugin
+      // seeded with one value, the getter falling back to another.
+      expect(BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyVoiceFormHidden],
+          BbRemoteConfig.kDefaultVoiceFormHidden);
+      expect(BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyVoiceEntryHidden],
+          BbRemoteConfig.kDefaultVoiceEntryHidden);
+      expect(BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyBoostVisible],
+          BbRemoteConfig.kDefaultBoostVisible);
+      expect(BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyFreeQuotaCopy],
+          BbRemoteConfig.kDefaultFreeQuotaCopy);
+    });
+
+    test('the voice form ships HIDDEN by default — the flip is console-only',
+        () {
+      // AC: an un-validated module must never be visible on a device that
+      // has not fetched, or whose fetch failed.
+      expect(BbRemoteConfig.kDefaultVoiceFormHidden, isTrue);
+      rc.debugReset();
+      expect(rc.voiceFormHidden, isTrue);
     });
   });
 }
