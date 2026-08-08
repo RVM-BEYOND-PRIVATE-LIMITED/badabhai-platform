@@ -18,8 +18,10 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PackRegistryService } from "../profiling/pack-registry.service";
 import { SkillsInternalGuard } from "../skills/skills-internal.guard";
 import {
+  RecordUnresolvedOccupationDtoSchema,
   ResolveOccupationDtoSchema,
   ResolveQuestionPackDtoSchema,
+  type RecordUnresolvedOccupationDto,
   type ResolveOccupationDto,
   type ResolveQuestionPackDto,
 } from "./occupation.dto";
@@ -112,6 +114,24 @@ export class OccupationController {
 
     if (pack === null) throw new NotFoundException("no active question pack for that selector");
     return { pack };
+  }
+
+  /**
+   * Record a below-floor occupation phrase (ALREADY pseudonymized) and emit the hash-only
+   * event. 204 — the caller has nothing to do with the count.
+   *
+   * A SEPARATE CALL, NOT SOMETHING `resolve` DOES FOR ITSELF. `resolve` receives the
+   * worker's raw utterance; this table's contract is pseudonymized text only. Recording
+   * automatically would put raw worker words into an ops queue, silently, on every
+   * unmatched turn.
+   */
+  @Post("unresolved")
+  @HttpCode(204)
+  async recordUnresolved(
+    @Body(new ZodValidationPipe(RecordUnresolvedOccupationDtoSchema))
+    dto: RecordUnresolvedOccupationDto,
+  ): Promise<void> {
+    await this.occupation.recordUnresolved(dto.phrase, dto.lang);
   }
 
   /** Catalogue metadata for one occupation, served from the in-process snapshot. */

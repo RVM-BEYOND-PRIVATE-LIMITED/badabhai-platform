@@ -31,4 +31,14 @@ export interface CrosswalkEntry {
   readonly unit?: "years" | "inr_per_month";
   /** For `tools_equipment`, which routes tokens to `machines[]` vs `controllers[]`. */
   readonly splitter?: "machines_controllers";
+  /**
+   * REQUIRED means "a resume is not usable without it" — the seven fields the interview will
+   * keep asking about until they are answered or declined. Everything else is
+   * CAPTURED-IF-VOLUNTEERED: recorded gladly when a worker mentions ITI or a licence, never
+   * asked for.
+   *
+   * Marked here rather than in a second list because the crosswalk is already the one table
+   * that knows every RFS field, and a parallel list is a parallel thing to forget.
+   */
+  readonly required?: boolean;
 }

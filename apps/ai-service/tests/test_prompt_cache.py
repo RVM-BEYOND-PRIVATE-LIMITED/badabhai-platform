@@ -102,28 +102,37 @@ def test_real_system_prompts_are_below_cache_min_today():
     # conscious review of what gets cached (the synthetic _BIG/_SMALL stubs above prove
     # the mechanism; this proves the honest state on real text).
     #
-    # THE CLASSIFICATION CHANGED, AND THIS TEST IS WHY IT WAS NOTICED. The old chat
-    # persona was ~200 tokens — below EVERY floor, so caching was a documented no-op
-    # (model_config.py:140-142 says exactly that). Generalized profiling replaced it
-    # with a static block carrying the full persona, the Resume Field Set and the JSON
-    # schema, which is ~1.6k estimated tokens and CLEARS the Gemini implicit-cache
-    # floor for the first time. That is the cost win that pays for re-sending history:
-    # the prefix bills at ~10% from the second turn onward.
+    # THE CLASSIFICATION HAS CHANGED TWICE, AND THIS TEST CAUGHT BOTH.
     #
-    # It still does NOT clear Anthropic's 4096 floor. That is correct and deliberate —
-    # the Claude path is the rare cross-provider fallback, and padding the prompt to 4k
-    # to chase a discount there would cost real tokens on EVERY Gemini turn.
-    from app.config import Settings
-    from app.profiling.prompts import EXTRACTION_SYSTEM_PROMPT, static_system_block
+    # 1. The original chat persona was ~200 tokens — below EVERY floor, so caching was a
+    #    documented no-op (model_config.py:140-142 says exactly that).
+    # 2. Generalized profiling replaced it with `static_system_block`, carrying the full
+    #    persona + Resume Field Set + JSON schema at ~1.6k estimated tokens, which CLEARED
+    #    the Gemini implicit-cache floor for the first time. That was the cost win paying
+    #    for re-sending history on every turn.
+    # 3. The Phase 8 cutover DELETED that block along with the LLM chat turn. There is no
+    #    longer a per-turn system prompt at all: the interview is deterministic and the one
+    #    remaining profiling call is `/profile/parse`, whose prompt is ~2.1k CHARACTERS
+    #    (~540 estimated tokens) and therefore clears NEITHER floor.
+    #
+    # NOTHING IS CACHED TODAY, AND THAT IS NOT A REGRESSION. Caching existed to amortize a
+    # large prefix across ~13 turns of one interview. The cutover removed the 13 turns, not
+    # just the cache: one parse call per interview bills its prefix once. A cheaper total
+    # with no cache beats a cached prompt re-sent a dozen times.
+    #
+    # Assert it in BOTH directions rather than only the "below" one, so a future prompt that
+    # grows across a floor flips this test instead of silently changing the bill.
+    from app.profiling.parse_prompt import PARSE_SYSTEM_PROMPT
+    from app.profiling.prompts import EXTRACTION_SYSTEM_PROMPT, RESUME_SYSTEM_PROMPT
 
-    chat_block = static_system_block(Settings(_env_file=None))
-
-    assert not model_config.should_cache_system(
-        chat_block, model_config.ANTHROPIC_CACHE_MIN_TOKENS
-    )
-    assert model_config.should_cache_system(chat_block, model_config.GEMINI_CACHE_MIN_TOKENS)
-    # Extraction base prompt — below the Anthropic floor today (the composed prompt
-    # adds the canonicalization rubric + schema hint, so it starts from at least this).
-    assert not model_config.should_cache_system(
-        EXTRACTION_SYSTEM_PROMPT, model_config.ANTHROPIC_CACHE_MIN_TOKENS
-    )
+    for name, prompt in (
+        ("parse", PARSE_SYSTEM_PROMPT),
+        ("extraction", EXTRACTION_SYSTEM_PROMPT),
+        ("resume", RESUME_SYSTEM_PROMPT),
+    ):
+        assert not model_config.should_cache_system(
+            prompt, model_config.ANTHROPIC_CACHE_MIN_TOKENS
+        ), f"{name} prompt now clears the Anthropic floor — review what gets cached"
+        assert not model_config.should_cache_system(
+            prompt, model_config.GEMINI_CACHE_MIN_TOKENS
+        ), f"{name} prompt now clears the Gemini floor — review what gets cached"

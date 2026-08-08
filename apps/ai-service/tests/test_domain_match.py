@@ -71,9 +71,25 @@ def cands(*pairs: tuple[str, float]) -> list[dm.DomainCandidate]:
     return [dm.DomainCandidate(did, did.replace("_", " ").title(), score) for did, score in pairs]
 
 
-async def match(store, router, *, embed=ok_embed, query="lathe operator", **over):
+async def match(
+    store,
+    router,
+    *,
+    embed=ok_embed,
+    query="lathe operator",
+    pinned_job_domain_id=None,
+    **over,
+):
+    # `pinned_job_domain_id` is named EXPLICITLY rather than swept into `**over`, which
+    # goes to `settings()`: a pin passed through the settings kwargs would raise a
+    # validation error rather than reach the code under test.
     return await dm.match_domain(
-        query, store=store, settings=settings(**over), router=router, embed=embed
+        query,
+        store=store,
+        settings=settings(**over),
+        router=router,
+        embed=embed,
+        pinned_job_domain_id=pinned_job_domain_id,
     )
 
 
@@ -124,26 +140,36 @@ class TestMatching:
         assert res.job_domain_id == "lathe_operator"
         assert router.messages == []
 
-    async def test_a_NEAR_TIE_goes_to_the_model_even_though_both_score_high(self):
+    async def test_a_NEAR_TIE_is_now_UNMATCHED_and_no_model_is_asked(self):
         # 0.90 vs 0.89 is exactly the case a score-only rule gets wrong most confidently:
         # "Lathe Operator" and "Lathe Maintenance Fitter" are different jobs.
-        router = FakeRouter('{"job_domain_id": "lathe_fitter", "confidence": 0.8}')
+        #
+        # THIS USED TO GO TO THE MODEL. The LLM pick is deleted (OIE Phase 8), and the
+        # ambiguity it existed to resolve is now settled DURING the interview — by showing
+        # the worker the candidates and recording which one they tap. This path only runs
+        # for a session with no answer map, so refusing to guess is the correct trade: an
+        # honest "unmatched" beats a confident coin flip between two different jobs.
+        router = FakeRouter()
         near_tie = FakeStore(cands(("lathe_operator", 0.90), ("lathe_fitter", 0.89)))
         res = await match(near_tie, router)
-        assert res.status == dm.MATCHED_LLM
-        assert res.job_domain_id == "lathe_fitter"
-        assert len(router.messages) == 1
+        assert res.status == dm.UNMATCHED_LLM_DECLINED
+        assert res.job_domain_id is None
+        assert router.messages == []
 
-    async def test_the_recorded_score_is_the_RETRIEVAL_similarity_not_the_models_confidence(self):
-        # One is measured, the other asserted. A column later analysis thresholds on must
-        # hold the measured one.
-        router = FakeRouter('{"job_domain_id": "lathe_fitter", "confidence": 0.99}')
-        near_tie = FakeStore(cands(("lathe_operator", 0.90), ("lathe_fitter", 0.89)))
-        res = await match(near_tie, router)
-        assert res.score == pytest.approx(0.89)
+    async def test_a_PINNED_occupation_short_circuits_retrieval_entirely(self):
+        # The interview already placed this worker, deterministically, from their own
+        # words. No embed, no ANN probe, no rupee -- and no second opinion.
+        store, router = FakeStore(cands(("a", 0.99))), FakeRouter()
+        res = await match(store, router, pinned_job_domain_id="jd_nco_7531_0100")
+        assert res.status == dm.MATCHED_AUTO
+        assert res.job_domain_id == "jd_nco_7531_0100"
+        assert store.calls == [] and router.messages == []
+        # NO FABRICATED SCORE. No retrieval ran, so there is no retrieval similarity --
+        # writing 1.0 here would pollute the column the floors are tuned against.
+        assert res.score is None
 
     async def test_the_shortlist_is_recorded_for_observability(self):
-        router = FakeRouter('{"job_domain_id": "a", "confidence": 0.8}')
+        router = FakeRouter()
         res = await match(FakeStore(cands(("a", 0.80), ("b", 0.79), ("c", 0.70))), router)
         assert res.considered == ["a", "b", "c"]
 
@@ -155,48 +181,30 @@ class TestMatching:
 
 @pytest.mark.anyio
 class TestRefusals:
-    async def test_a_HALLUCINATED_id_is_rejected_not_corrected(self):
-        # The model names something that was never in the shortlist. It is not
-        # fuzzy-matched to the nearest real id — it is thrown away.
-        router = FakeRouter('{"job_domain_id": "isco_9999_invented", "confidence": 0.99}')
-        res = await match(FakeStore(cands(("lathe_operator", 0.80), ("fitter", 0.79))), router)
-        assert res.status == dm.UNMATCHED_LLM_DECLINED
-        assert res.job_domain_id is None
-
-    async def test_a_REAL_but_NOT_RETRIEVED_id_is_rejected_exactly_the_same_way(self):
-        # This is the subtle one. "chef" may well exist in the catalog, but it did not
-        # come out of the retrieval, so it did not come from the evidence.
-        router = FakeRouter('{"job_domain_id": "chef", "confidence": 0.95}')
-        res = await match(FakeStore(cands(("lathe_operator", 0.80))), router)
-        assert res.status == dm.UNMATCHED_LLM_DECLINED
-
-    async def test_BELOW_THE_FLOOR_the_model_is_never_even_asked(self):
-        # If the best alias in the whole catalog is this far away, the shortlist is
-        # noise, and asking a model to choose from noise produces a confident answer to
-        # an unanswerable question — the cook filed as a machine-tool setter.
-        router = FakeRouter('{"job_domain_id": "lathe_operator", "confidence": 0.9}')
+    async def test_BELOW_THE_FLOOR_nothing_is_matched(self):
+        # If the best alias in the whole catalog is this far away, the shortlist is noise.
+        router = FakeRouter()
         res = await match(FakeStore(cands(("lathe_operator", 0.31), ("fitter", 0.30))), router)
         assert res.status == dm.UNMATCHED_BELOW_FLOOR
-        assert router.messages == []
+        assert res.job_domain_id is None
 
-    async def test_an_explicit_null_pick_is_honoured(self):
-        router = FakeRouter('{"job_domain_id": null, "confidence": 0.0}')
-        res = await match(FakeStore(cands(("lathe_operator", 0.80), ("fitter", 0.79))), router)
-        assert res.status == dm.UNMATCHED_LLM_DECLINED
-
-    async def test_UNREADABLE_output_is_a_decline_never_a_guess(self):
-        for junk in ("", "I think it's the lathe one!", "{broken", "null", "[]"):
-            router = FakeRouter(junk)
-            res = await match(FakeStore(cands(("lathe_operator", 0.80), ("fitter", 0.79))), router)
-            assert res.status == dm.UNMATCHED_LLM_DECLINED, junk
-
-    async def test_a_fenced_json_answer_is_still_read(self):
-        # json_mode is on, but a model still occasionally wraps its object in ```json,
-        # and throwing away a good answer over three backticks wastes a real call.
-        router = FakeRouter('```json\n{"job_domain_id": "fitter", "confidence": 0.7}\n```')
-        res = await match(FakeStore(cands(("lathe_operator", 0.80), ("fitter", 0.79))), router)
-        assert res.status == dm.MATCHED_LLM
-        assert res.job_domain_id == "fitter"
+    async def test_NOTHING_reaches_the_router_on_ANY_path(self):
+        # THE STRUCTURAL ASSERTION, and the one worth keeping over the five it replaced.
+        # Five tests here used to describe how a model's pick was validated -- hallucinated
+        # ids rejected, real-but-not-retrieved ids rejected the same way, an explicit null
+        # honoured, unreadable output treated as a decline, fenced JSON still read. Every
+        # one of them tested code that no longer exists. What replaces them is the property
+        # that makes all five moot: this module never calls a model again, on any input, so
+        # there is no pick left to validate.
+        for shortlist in (
+            cands(("lathe_operator", 0.95), ("fitter", 0.60)),        # clear winner
+            cands(("lathe_operator", 0.90), ("lathe_fitter", 0.89)),  # near tie
+            cands(("lathe_operator", 0.31), ("fitter", 0.30)),        # below floor
+            cands(),                                                  # nothing retrieved
+        ):
+            router = FakeRouter()
+            await match(FakeStore(shortlist), router)
+            assert router.messages == []
 
 
 # ---------------------------------------------------------------------------
@@ -269,16 +277,6 @@ def test_every_status_matches_the_worker_profiles_CHECK_constraint():
         "unmatched_llm_declined",
         "unmatched_degraded",
     }
-
-
-def test_the_prompt_gives_the_model_the_ids_it_must_choose_between():
-    msgs = dm._pick_prompt("lathe operator", cands(("a", 0.9), ("b", 0.8)))
-    user = msgs[1]["content"]
-    assert 'id="a"' in user and 'id="b"' in user
-    # And it is told, in the system half, that null is an allowed answer — the single
-    # instruction standing between "no good match" and a forced wrong one.
-    assert "null" in msgs[0]["content"]
-
 
 def test_the_store_factory_is_inert_until_the_seam_is_fully_configured():
     # A half-configured deployment must degrade to "no domain", never error.

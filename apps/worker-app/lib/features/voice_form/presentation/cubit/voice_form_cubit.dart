@@ -222,10 +222,25 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         await _recorder.cancel(); // discard the open clip — they tapped instead
         answer = VoiceAnswer.chosen(choice!);
       }
+      if (isClosed) {
+        // close() raced the stop()/cancel() await above — it already fired
+        // _recorder.cancel() for us (see close()), but that doesn't drop a
+        // retained path from OUR set; do that here or it's stuck retained
+        // for the life of the (shared, longer-lived) recorder singleton.
+        if (retainPath != null) _recorder.release(retainPath);
+        return;
+      }
 
       emit(current.copyWith(micPhase: MicPhase.uploading));
-      final VoiceFormStep step = await _gateway.submit(answer); // queue upload
-      if (retainPath != null) _recorder.release(retainPath);
+      final VoiceFormStep step;
+      try {
+        step = await _gateway.submit(answer); // queue upload
+      } finally {
+        // ALWAYS, not only on success — a submit() that throws (network
+        // drop, timeout) must not leave this clip permanently retained; the
+        // stale-clip sweep can only ever reclaim a released path.
+        if (retainPath != null) _recorder.release(retainPath);
+      }
       if (isClosed) return;
       _answers.add(answer);
       await _route(step);
@@ -269,7 +284,8 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   /// start → 250ms prime → arm → emit listening/holding. Shared by first-render,
   /// re-arm-after-empty, and replay (#631). Releases the mic if [close] lands in
   /// the start() await window.
-  Future<void> _armFreshClip(VoiceQuestion question, int index, int total) async {
+  Future<void> _armFreshClip(
+      VoiceQuestion question, int index, int total) async {
     _startingMic = true;
     try {
       await _recorder.start(); // start THIS question's clip

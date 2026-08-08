@@ -80,7 +80,8 @@ void main() {
 
   tearDown(() => amp.close());
 
-  VoiceFormCubit build({FakeGateway? gateway, FakeTts? tts}) => VoiceFormCubit(
+  VoiceFormCubit build({VoiceFormGateway? gateway, FakeTts? tts}) =>
+      VoiceFormCubit(
         gateway: gateway ?? FakeGateway(8),
         recorder: SessionVoiceRecorder(recorder: plugin),
         endpointer: SilenceEndpointer(),
@@ -204,25 +205,6 @@ void main() {
     ]);
   });
 
-  test('close() inside the start() await window still releases the mic',
-      () async {
-    final Completer<void> startEntered = Completer<void>();
-    final Completer<void> startBlock = Completer<void>();
-    when(() => plugin.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {
-      if (!startEntered.isCompleted) startEntered.complete();
-      await startBlock.future; // hang inside the start() await window
-    });
-
-    final VoiceFormCubit cubit = build(gateway: FakeGateway(8));
-    unawaited(cubit.start());
-    await startEntered.future; // now suspended on recorder.start()
-
-    await cubit.close();
-    verify(() => plugin.cancel()).called(greaterThanOrEqualTo(1));
-    verify(() => plugin.dispose()).called(1);
-  });
-
   test(
       'REGRESSION: close() racing replay()\'s cancel() does not throw an '
       'uncaught StateError out of emit() (#662 fix)', () async {
@@ -250,4 +232,91 @@ void main() {
     await Future.wait(<Future<void>>[replaying, closing]);
     // Reaching here at all is the assertion: no uncaught StateError escaped.
   });
+
+  test('close() inside the start() await window still releases the mic',
+      () async {
+    final Completer<void> startEntered = Completer<void>();
+    final Completer<void> startBlock = Completer<void>();
+    when(() => plugin.start(any(), path: any(named: 'path')))
+        .thenAnswer((_) async {
+      if (!startEntered.isCompleted) startEntered.complete();
+      await startBlock.future; // hang inside the start() await window
+    });
+
+    final VoiceFormCubit cubit = build(gateway: FakeGateway(8));
+    unawaited(cubit.start());
+    await startEntered.future; // now suspended on recorder.start()
+
+    await cubit.close();
+    verify(() => plugin.cancel()).called(greaterThanOrEqualTo(1));
+    verify(() => plugin.dispose()).called(1);
+  });
+
+  test(
+      'REGRESSION: close() racing _advance()\'s stop() does not throw an '
+      'uncaught StateError out of emit() (#660 fix)', () async {
+    final Completer<void> stopEntered = Completer<void>();
+    final Completer<void> stopBlock = Completer<void>();
+    when(() => plugin.stop()).thenAnswer((_) async {
+      if (!stopEntered.isCompleted) stopEntered.complete();
+      await stopBlock.future; // hang inside _advance()'s stop() await
+      return 'clip-0.m4a';
+    });
+
+    final VoiceFormCubit cubit = build(gateway: FakeGateway(8));
+    await cubit.start();
+    expect(cubit.state, isA<VoiceFormAsking>());
+
+    // Fire the answer but don't await it yet — it suspends on stop().
+    final Future<void> advancing = cubit.answerBySpeaking();
+    await stopEntered.future;
+
+    // Tear the screen down WHILE _advance() is mid-flight. Before the fix,
+    // letting stopBlock complete now drives _advance() straight into an
+    // `emit()` on a closed bloc — an uncaught StateError propagating out of
+    // this unawaited Future is exactly the failure Flutter's test zone would
+    // catch and fail this test with.
+    final Future<void> closing = cubit.close();
+    stopBlock.complete();
+
+    await Future.wait(<Future<void>>[advancing, closing]);
+    // Reaching here at all is the assertion: no uncaught StateError escaped.
+  });
+
+  test(
+      'REGRESSION: a submit() that throws leaves VoiceFormCubit in a clean '
+      'error state, not silently stuck (#660 fix)', () async {
+    final _ThrowingSubmitGateway gateway = _ThrowingSubmitGateway();
+    final VoiceFormCubit cubit = build(gateway: gateway);
+    addTearDown(cubit.close);
+    await cubit.start();
+    expect(cubit.state, isA<VoiceFormAsking>());
+
+    await cubit.answerBySpeaking();
+
+    expect(cubit.state, isA<VoiceFormError>());
+    expect(gateway.submitAttempts, 1);
+  });
+}
+
+/// A gateway whose [submit] always throws — for proving the retain/release
+/// pairing survives an upload failure rather than leaking the clip's retain.
+class _ThrowingSubmitGateway implements VoiceFormGateway {
+  int submitAttempts = 0;
+
+  @override
+  Future<VoiceFormStep> start() async => const NextQuestion(
+        VoiceQuestion(id: 'q1', prompt: 'Question 1'),
+        index: 1,
+        total: 1,
+      );
+
+  @override
+  Future<VoiceFormStep> submit(VoiceAnswer answer) async {
+    submitAttempts++;
+    throw Exception('network drop');
+  }
+
+  @override
+  Future<void> finalize() async {}
 }

@@ -146,6 +146,25 @@ void main() {
     verifyNever(() => probe.probe());
   });
 
+  test(
+      'REGRESSION: recorder.start() throws → the amplitude subscription is '
+      'still cancelled, not leaked (#654 fix)', () async {
+    when(() => plugin.start(any(), path: any(named: 'path')))
+        .thenThrow(Exception('mic busy'));
+    final PreflightCubit cubit = build();
+    addTearDown(cubit.close);
+
+    await cubit.run();
+
+    expect(cubit.state, isA<PreflightFailed>());
+    // Had `sub` never been cancelled on this path, the broadcast controller
+    // would still show a listener here.
+    expect(amp.hasListener, isFalse,
+        reason: 'the levels() subscription must be released even when '
+            'start() itself throws, not only on the timeout/success path');
+    verifyNever(() => plugin.cancel()); // start() never armed the recorder
+  });
+
   test('a 503 from the probe → PreflightUnavailable (a doomed session aborts)',
       () async {
     when(() => probe.probe()).thenThrow(const VoiceUnavailableFailure());

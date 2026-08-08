@@ -148,10 +148,29 @@ class TestServiceAuthEnabled:
         """
         client = TestClient(app)
         post_paths = sorted(_served_paths_with_method(app.router, "POST"))
-        # Pinned to the ACTUAL surface, not a loose floor: this count is the only
-        # structural defense against the enumeration silently shrinking again.
-        # 13 since OIE Phase 7 added POST /profile/parse.
-        assert len(post_paths) == 13, f"POST surface changed: {post_paths}"
+        # Pinned to the ACTUAL SET, not just a count. A count alone cannot tell "two routes
+        # were deliberately retired" from "two routes were accidentally unregistered and two
+        # others appeared" — and this test's whole job is noticing an unintended change to
+        # what the service serves.
+        #
+        # 13 -> 11 at the OIE Phase 8 cutover, which DELETED `app/routers/profiling.py` and
+        # with it POST /profiling/opening and POST /profiling/respond. That is the cutover:
+        # the interview is now a deterministic state machine in apps/api and the LLM is
+        # called once, at the end, through /profile/parse. Two fewer LLM-driven entry points
+        # is the point, not a regression.
+        assert post_paths == [
+            "/embeddings/skill-alias",
+            "/growth/cluster",
+            "/job-posting-chat/opening",
+            "/job-posting-chat/respond",
+            "/profile/extract",
+            "/profile/parse",
+            "/pseudonymize",
+            "/resume/generate",
+            "/skills/canonicalize",
+            "/skills/retag-plan",
+            "/voice/transcribe",
+        ], f"POST surface changed: {post_paths}"
         for path in post_paths:
             resp = client.post(path, json={})
             assert resp.status_code == 401, f"{path} not gated"

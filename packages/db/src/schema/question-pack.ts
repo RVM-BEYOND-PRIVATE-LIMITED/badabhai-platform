@@ -32,7 +32,7 @@
  * §10).
  *
  * PRIVACY: reviewed interview copy and occupation references. No worker data reaches any
- * of these tables — worker ANSWERS live in `worker_pack_answer` (Prakash, 0075).
+ * of these tables — worker ANSWERS live in `worker_pack_answer` (migration 0073).
  */
 import { sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";

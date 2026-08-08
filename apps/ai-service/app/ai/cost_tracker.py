@@ -64,7 +64,25 @@ def build_call_metadata(
     failure_reason: str | None = None,
 ) -> AICallMetadata:
     """Assemble + log the metadata for one AI call."""
-    estimated = estimate_cost_inr(model, input_tokens, output_tokens)
+    # A CALL THAT NEVER REACHED A PROVIDER COST NOTHING, and must say so.
+    #
+    # `estimate_cost_inr` prices the tokens, which is right for a call that happened and wrong for
+    # one that did not. `real_call=False` is the router's unambiguous terminal state for "nothing
+    # was attempted" — mock mode, a spend cap, the kill switch — so the rupees were never spent.
+    #
+    # THIS BECAME LOAD-BEARING when `ai.cost_recorded` became the platform's cost history: every
+    # mocked environment was writing fictional money into the events table, and TD81 says staging
+    # silently runs mocked AI. `SUM(estimated_cost_inr)` — the obvious query, and the one a cost
+    # dashboard writes — would have reported spend that never occurred. Measured on a local mock
+    # parse: ₹0.0466 of pure fiction, per interview.
+    #
+    # `real_call=True, success=False` KEEPS its estimate: a provider that was reached and failed
+    # every candidate may well have been billed for the tokens it received. That distinction is
+    # the same one `/profile/parse` draws between a posture and an incident.
+    #
+    # Token counts are left alone. They describe the payload that would have been sent, which is
+    # what makes a mock run useful for PROJECTING cost; only the money is fictional.
+    estimated = estimate_cost_inr(model, input_tokens, output_tokens) if real_call else 0.0
     meta = AICallMetadata(
         ai_call_id=str(uuid.uuid4()),
         task_type=task_type,

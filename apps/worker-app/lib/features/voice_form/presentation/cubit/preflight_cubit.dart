@@ -195,7 +195,16 @@ class PreflightCubit extends Cubit<PreflightState> {
       }
     });
 
-    await _recorder.start(); // mic warm; identical session RecordConfig (#633)
+    try {
+      await _recorder.start(); // mic warm; identical session RecordConfig (#633)
+    } catch (_) {
+      // start() itself failed (mic busy, platform exception) — the recorder
+      // never armed, so there is nothing for _recorder.cancel() to discard;
+      // only the amplitude subscription needs releasing before this
+      // propagates to run()'s catch and surfaces as PreflightFailed.
+      await sub.cancel();
+      rethrow;
+    }
     try {
       await enough.future.timeout(_listenTimeout);
     } on TimeoutException {

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:badabhai_worker_app/features/voice/data/session_voice_recorder.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointer.dart';
 
 void main() {
@@ -116,5 +117,12 @@ void main() {
     feed(ep, loud, count: 8); // speech
     // 400ms of silence is enough with the custom 300ms trailing threshold.
     expect(feed(ep, quiet, count: 5), EndpointerSignal.endpoint);
+  });
+
+  test(
+      'the default cap-out is the RECORDER\'s cap, not a second 30s literal '
+      '— retuning one can never silently leave the other behind', () {
+    expect(SilenceEndpointer().maxAnswer,
+        SessionVoiceRecorder.profilingAnswerMaxDuration);
   });
 }
