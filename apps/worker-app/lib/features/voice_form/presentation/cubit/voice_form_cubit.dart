@@ -150,6 +150,16 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
 
   StreamSubscription<MicLevel>? _levelsSub;
 
+  /// Re-broadcast of the live mic amplitude for the UI level meter (#629). Fed
+  /// from the same single [_levelsSub] the endpointer reads, so the screen never
+  /// takes a second subscription on the recorder.
+  final StreamController<MicLevel> _meter =
+      StreamController<MicLevel>.broadcast();
+
+  /// Live amplitude while the mic is listening — drives the on-screen meter, so
+  /// covering the mic visibly drops the bars.
+  Stream<MicLevel> get micLevels => _meter.stream;
+
   /// True from the first synchronous line of an advance until it settles — the
   /// idempotency guard. A double endpoint-signal or a tap-during-silence-advance
   /// must NOT fire two submits or capture two clips.
@@ -331,9 +341,24 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     final VoiceFormState current = state;
     if (current is! VoiceFormAsking) return;
     if (current.micPhase != MicPhase.listening) return;
+    if (!_meter.isClosed) _meter.add(level); // feed the UI meter
     final EndpointerSignal signal = _endpointer.add(level.dbfs);
     if (signal == EndpointerSignal.none) return;
     unawaited(answerBySpeaking());
+  }
+
+  /// Discard the current take and record the SAME question again ("Phir se
+  /// bolein", #629) — no new prompt, just a fresh clip. Guarded like an advance.
+  Future<void> reRecord() async {
+    final VoiceFormState current = state;
+    if (current is! VoiceFormAsking || _advancing) return;
+    _advancing = true;
+    try {
+      await _recorder.cancel(); // throw away the partial take
+      await _armFreshClip(current.question, current.index, current.total);
+    } finally {
+      _advancing = false;
+    }
   }
 
   /// Commit the reviewed session — the only submit path (#632).
@@ -354,6 +379,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   Future<void> close() async {
     await _levelsSub?.cancel();
     _levelsSub = null;
+    await _meter.close();
     await _tts.stop();
     // Release the mic — covers a live recording AND the start() await window
     // (_startingMic). cancel() is idempotent and best-effort.
