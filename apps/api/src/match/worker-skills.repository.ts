@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, inArray, notInArray, sql as dsql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql as dsql } from "drizzle-orm";
 import {
+  CURRENT_PROFILE_ORDER,
   type Database,
   jobPostings,
   workerIndustryTenure,
@@ -49,9 +50,13 @@ export class WorkerSkillsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
-   * The worker's LATEST profile signals, or undefined when he has no profile yet.
-   * `created_at DESC, id DESC` is the same total order the D2 backfill uses, so the
-   * live path and the batch path can never disagree about which row is "latest".
+   * The worker's CURRENT profile signals, or undefined when he has no profile yet.
+   * `CURRENT_PROFILE_ORDER` is the same total order the D2 backfill uses, so the live path and
+   * the batch path can never disagree about which row is the profile.
+   *
+   * This already had a TOTAL order (`created_at DESC, id DESC`) — it was the only reader that
+   * did — but ordering by recency alone still handed it the empty row an AI-down extraction
+   * leaves behind, which here means the worker's derived skills get rebuilt from nothing.
    */
   async findLatestProfileSignals(workerId: string): Promise<WorkerProfileSignals | undefined> {
     const rows = await this.db
@@ -62,7 +67,7 @@ export class WorkerSkillsRepository {
       })
       .from(workerProfiles)
       .where(eq(workerProfiles.workerId, workerId))
-      .orderBy(desc(workerProfiles.createdAt), desc(workerProfiles.id))
+      .orderBy(...CURRENT_PROFILE_ORDER)
       .limit(1);
     const row = rows[0];
     if (!row) return undefined;

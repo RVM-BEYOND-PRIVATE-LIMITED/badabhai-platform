@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import {
+  CURRENT_PROFILE_ORDER,
   workers,
   workerProfiles,
   workerCredentials,
@@ -382,15 +383,20 @@ describe("WorkersRepository.updatePhotoStorageKey — an OPAQUE object key, neve
   });
 });
 
-describe("WorkersRepository.latestProfile — the worker's most recent profile row", () => {
-  it("scopes by worker_id, newest first, one row", async () => {
+describe("WorkersRepository.latestProfile — the worker's CURRENT profile row", () => {
+  it("scopes by worker_id, takes one row, and orders by the SHARED definition", async () => {
     const { db, captured } = makeDb({ rows: [] });
     await new WorkersRepository(db).latestProfile(WORKER_ID);
     expect(captured.selectTable).toBe(workerProfiles);
     expect(text(captured.where)).toBe('"worker_profiles"."worker_id" = $1');
     expect(params(captured.where)).toEqual([WORKER_ID]);
-    expect(text(captured.orderBy![0])).toBe('"worker_profiles"."created_at" desc');
     expect(captured.limit).toBe(1);
+    // B-8b. It used to be `created_at desc` alone, which after an AI-down extraction hands
+    // back an EMPTY placeholder row instead of the worker's real profile. Asserted by
+    // IDENTITY against the shared constant rather than by compiled SQL text: a local copy
+    // that compiles identically today is precisely how seven readers drifted apart, and
+    // string equality would wave it through.
+    expect(captured.orderBy).toEqual([...CURRENT_PROFILE_ORDER]);
   });
 
   it("returns undefined when the worker has no profile", async () => {

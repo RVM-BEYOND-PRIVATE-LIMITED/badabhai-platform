@@ -3,7 +3,7 @@
 Hinglish voice-driven sequential Q&A for the worker app: questions shown one at a time, read aloud,
 answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam TTS out.
 
-**Status date:** 2026-08-07 · **HEAD:** `4d0989f8`
+**Status date:** 2026-08-08 · **HEAD:** `22d27364`
 
 ---
 
@@ -35,6 +35,9 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **V4 (the three defects)** — a worker's answer could vanish behind a green tick | PR #664 → `40e61575` | **on `main`** |
 | **V7** — the interview's one LLM call was unledgered; `aiTaskType` widened 3 → 8 | PR #665 → `46a1fa17` | **on `main`** |
 | **V5 (the enumeration half)** — the 433-clip reply closure + the `{{…}}` corpus guard | PR #667 | **on `main`** |
+| **The 77%'s writer** — a table and a projector that nothing joined | PR #670 → `5394c292` | **on `main`** |
+| A mock call reporting real rupees | PR #672 → `ca5cd4e3` | **on `main`** |
+| **B-8b** — one definition of "the current profile"; 7 readers, one unordered, one un-deduped | PR #673 | **on `main`** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -61,16 +64,23 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **B-3** | Round-trip latency for a ≤30s answer | Unmeasured. Every number in the repo is a timeout, never an observation. Resolved by V0. |
 | ~~**B-4**~~ | Where `attribute` answers land | **RESOLVED** — owner ruled `worker_attributes`; the table shipped in V1 (migration 0071). The *wiring* is V2. |
 | ~~**B-5**~~ | `envelope.occupation` is never written | **RESOLVED** by V3 (#650). Measured live: "main welder hoon" → `jd_nco_7212_0301` via `l0_exact` at 0.97 → the WELDING pack served → 13-turn interview → 10 typed rows in `worker_pack_answer`. |
-| **B-6** | The two surfaces do not share a parse/build pipeline | `/profile/parse` and `projectProfile` have zero callers; the chat uses `/profile/extract`. See §1a. **Still open after V3** — the cutover made the interview deterministic but did not move the voice side onto `ProfilesRepository.create`. |
+| ~~**B-6**~~ | The two surfaces do not share a parse/build pipeline | **RESOLVED, and this row was STALE rather than open.** Re-derived against code 2026-08-08: `/profile/parse` has a live caller (`ProfileExtractionProcessor.extractOrParse:483`), `projectProfile` has a live caller beside it (`:552`), and `worker_profiles` has exactly ONE writer — `ProfilesRepository.create` — which both legs converge on. It closed with the V3 cutover (#650) and was completed by #670. The dual leg that remains is the upstream AI CALL only (`/profile/parse` vs `/profile/extract`) and it branches on DATA — a pre-cutover session has no answer map — so it drains to zero within one queue's lifetime. Lesson: a doc row saying "zero callers" is a measurement with an expiry date. |
 | ~~**B-7**~~ | The pack pin was never written to `chat_sessions` | **RESOLVED** by #661. Found by running the product, not by reading it: the live database showed `pack pinned: (none)` for a session that had just been served thirteen welding questions. The columns shipped in V1 with a comment justifying them and no writer; a Redis eviction therefore re-ran retrieval and could hand a resumed interview a different pack. Now written write-once at pin time, read back only when the envelope is gone, and recorded by `profile.pack_pinned`. |
-| **B-8** | Two live defects on `ProfilesRepository.create`, logged during the §1a survey | An unreachable ai-service fabricates an **empty draft profile**; `create` is insert-only, so a later empty extraction can shadow a good one. Neither is voice-specific — both bite the chat today. Not yet scheduled. |
+| ~~**B-8a**~~ | An unreachable ai-service fabricates an **empty draft profile** | **Consequence closed; the SIGNAL is not.** `decideProfileStatus` runs `hasExtractedContent` over the row it is about to write, so the fabrication persists as `"draft"` and both dedupe guards re-run extraction — the worker self-heals. What remains is observability: `ProfileExtractionOutputSchema` carries no `error_code`, and the fallback synthesizes `ai_metadata` claiming `success: true, error_code: null` for a call that never left the process — which then reaches `ai_jobs` AND emits `ai.cost_recorded`. Same class as #672. |
+| ~~**B-8b**~~ | `create` is insert-only, so a later empty extraction shadows a good one | **RESOLVED by #673, and it was worse than logged.** Seven readers each answered "which row is the profile" differently: five ordered by `created_at DESC` alone, `ReachRepository.findSignalRowByWorkerId` had **no `ORDER BY` at all**, and `ReachRepository.listSignalRows` had neither ordering nor per-worker dedup — so a re-interviewed worker occupied **two** payer-pool slots and was counted twice in PACE supply. Now one exported `CURRENT_PROFILE_ORDER`, keyed off `profile_status` — which already IS the persisted `hasExtractedContent` decision, so no SQL mirror of it was needed and no second definition exists to drift. |
 
-### 1a. ONE PIPELINE — and the two surfaces do not share one today
+### 1a. ONE PIPELINE — CLOSED (re-derived against code, 2026-08-08)
 
 Owner ruling: the voice form must parse and build the profile *exactly* the way the chat does. Two
 ways of doing the same thing is two things to keep correct.
 
-They do not share one today, and the gap is bigger than "a different function":
+**They share one now, and the table below is kept as the RECORD OF WHAT WAS TRUE, not of what is.**
+Every cell in the OIE column has since gained a caller: `AiService.parseProfile` is invoked from
+`ProfileExtractionProcessor.extractOrParse`, its result runs the six gates a second time, and
+`projectProfile` feeds the SAME `ProfilesRepository.create` the chat leg reaches. There is exactly one
+`.insert(workerProfiles)` in application code.
+
+The original gap, for the record:
 
 | | Chat (live) | OIE / voice (as designed) |
 |---|---|---|
@@ -85,7 +95,8 @@ a `WorkerProfileDraft` (deterministic `projectProfile`, plus the gated `/profile
 it is available) and hands it to **that** service. It does not open a second write path, and it does
 not touch the chat's own trigger.
 
-Two live defects this exposes, both logged for V4/V7 rather than fixed here:
+Two live defects this exposed. **Both are now resolved — see B-8a/B-8b above** — and they are kept here
+because the second turned out to be a whole class rather than one query:
 
 1. `AiService.extractProfile` **fabricates** an empty draft when the ai-service is unreachable —
    `DraftProfileSchema.parse({})` with `blocked: false`. A degraded call is indistinguishable from a
@@ -469,9 +480,11 @@ at 0.97 → `qp_welding` served → a 13-turn interview completes → **10 typed
 **0 events** containing a raw utterance or a phone number. `ai_posture: mock` throughout, so not one
 word of it came from a model.
 
-**Still owed from V3's scope:** the path-equivalence test, and the §1a convergence (B-6) — the voice
-side moving onto `ProfilesRepository.create` via `ProfilesService`. `openTurn()`, the mode-lock and
-the 409-on-stale-`question_key` are moot until a second surface exists.
+**Still owed from V3's scope:** the path-equivalence test — and note it is now a test of ONE path, since
+the cutover deleted the model-driven one, so what it would pin is the pre/post-cutover branch inside
+`extractOrParse` rather than two surfaces. The §1a convergence (B-6) is CLOSED: both legs reach
+`ProfilesRepository.create`. `openTurn()`, the mode-lock and the 409-on-stale-`question_key` remain moot
+until a second surface exists.
 
 ---
 

@@ -8,6 +8,11 @@ export * from "./schema";
 export * from "./client";
 export * from "./credit-packs";
 export * from "./crypto";
+// The one ordering that decides which `worker_profiles` row IS a worker's profile. Exported
+// because the readers are spread across apps/api repositories AND the D2 backfill in this
+// package — seven call sites that previously each had their own answer, one of them with no
+// ORDER BY at all.
+export * from "./current-profile";
 // The family fallback chain. Its own header says it exists so "Phase 7's production
 // QuestionPackService" can make this decision without a database — which requires that the
 // service can actually IMPORT it. Unexported, the guarantee it offers (one decision, SQL-parity
