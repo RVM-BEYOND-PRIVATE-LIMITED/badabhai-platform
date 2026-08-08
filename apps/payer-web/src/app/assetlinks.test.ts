@@ -28,13 +28,22 @@ describe("assetlinks.json (#609)", () => {
     };
   }>;
 
+  /// The sole statement, or a failure that NAMES the real problem — an empty
+  /// file would otherwise surface as "Object is possibly undefined" at every
+  /// use site instead of "assetlinks.json declares no statement".
+  const only = () => {
+    const first = statements[0];
+    if (!first) throw new Error("assetlinks.json declares no statement");
+    return first;
+  };
+
   it("is a single delegate_permission statement for an android_app", () => {
     expect(Array.isArray(statements)).toBe(true);
     expect(statements).toHaveLength(1);
-    expect(statements[0].relation).toContain(
+    expect(only().relation).toContain(
       "delegate_permission/common.handle_all_urls",
     );
-    expect(statements[0].target.namespace).toBe("android_app");
+    expect(only().target.namespace).toBe("android_app");
   });
 
   it("package_name stays in sync with NEXT_PUBLIC_WORKER_APP_ID", () => {
@@ -42,11 +51,11 @@ describe("assetlinks.json (#609)", () => {
     // fingerprint (the issue calls this out explicitly).
     const expected =
       process.env.NEXT_PUBLIC_WORKER_APP_ID ?? "com.badabhai.workerapp";
-    expect(statements[0].target.package_name).toBe(expected);
+    expect(only().target.package_name).toBe(expected);
   });
 
   it("declares a non-empty sha256_cert_fingerprints array", () => {
-    const fps = statements[0].target.sha256_cert_fingerprints;
+    const fps = only().target.sha256_cert_fingerprints;
     expect(Array.isArray(fps)).toBe(true);
     expect((fps as unknown[]).length).toBeGreaterThan(0);
   });
