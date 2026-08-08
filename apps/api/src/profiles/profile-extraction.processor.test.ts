@@ -913,6 +913,103 @@ const withMap = (over: Record<string, unknown> = {}) => ({
   },
 });
 
+describe("the interview's one LLM call is ledgered", () => {
+  /**
+   * THE ECONOMIC CASE FOR THE WHOLE CUTOVER, AND IT WAS INVISIBLE. Phase 8's claim is "~12
+   * capable calls per interview became 1". That one call is `/profile/parse` — and it shipped
+   * returning no `ai_metadata`, emitting no cost record, and naming a `task_type` the
+   * `ai.cost_recorded` enum could not even express. Every number the ledger could show
+   * described the architecture the cutover deleted.
+   */
+  const PARSE_META = {
+    ai_call_id: "77777777-7777-4777-8777-777777777777",
+    task_type: "profile_parse",
+    model_name: "gemini-flash",
+    provider: "google",
+    real_call: true,
+    input_tokens: 2100,
+    output_tokens: 240,
+    estimated_cost_inr: 0.19,
+    latency_ms: 1420,
+    success: true,
+    error_code: null,
+    cost_alert: false,
+    above_target: false,
+    created_at: "2026-08-07T00:00:00.000Z",
+  };
+
+  const costRecords = (events: { emit: { mock: { calls: unknown[][] } } }) =>
+    events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .filter((e) => e.event_name === "ai.cost_recorded");
+
+  it("emits ai.cost_recorded for the parse call, attributed to profile_parse", async () => {
+    const { proc, events } = make({
+      ...withMap(),
+      parsed: { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: PARSE_META },
+    });
+
+    await proc.process(makeJob());
+
+    const records = costRecords(events);
+    expect(records).toHaveLength(1);
+    expect(records[0]!.payload.task_type).toBe("profile_parse");
+    expect(records[0]!.payload.estimated_cost_inr).toBe(0.19);
+    expect(records[0]!.payload.tokens_in).toBe(2100);
+    expect(records[0]!.payload.model).toBe("gemini-flash");
+  });
+
+  it("records BOTH calls when one job makes two — keyed on the call, not the job", async () => {
+    // `idempotencyKey` used to be `ai.cost_recorded:${aiJobId}`. One job now makes two billable
+    // calls, so a per-job key silently deduped the second away: the extraction record landed and
+    // the parse record was dropped as a duplicate. Two distinct `ai_call_id`s must produce two
+    // distinct keys.
+    const extractionMeta = { ...PARSE_META, ai_call_id: "88888888-8888-4888-8888-888888888888" };
+    const { proc, events } = make({
+      ...withMap(),
+      aiMetadata: extractionMeta,
+      parsed: { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: PARSE_META },
+    });
+
+    await proc.process(makeJob());
+
+    const records = costRecords(events);
+    const keys = events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; idempotencyKey?: string })
+      .filter((e) => e.event_name === "ai.cost_recorded")
+      .map((e) => e.idempotencyKey);
+    expect(new Set(keys).size).toBe(records.length);
+    expect(keys).toContain(`ai.cost_recorded:${PARSE_META.ai_call_id}`);
+  });
+
+  it("records NOTHING when the parse degraded — a zero-cost row would be a lie", async () => {
+    // `ai_metadata: null` is what the route returns on a blown deadline, mock posture or a
+    // spend cap. A zero-cost record is indistinguishable from a real call that was free.
+    const { proc, events } = make({
+      ...withMap(),
+      parsed: { fields: {}, unparsed_field_ids: [], notes: ["llm_unavailable"], ai_metadata: null },
+    });
+
+    await proc.process(makeJob());
+
+    expect(costRecords(events)).toHaveLength(0);
+  });
+
+  it("carries no worker text — the cost record is ids, counts and money", async () => {
+    const { proc, events } = make({
+      ...withMap(),
+      messages: [{ direction: "inbound", bodyText: "main pune se welder hoon" }],
+      parsed: { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: PARSE_META },
+    });
+
+    await proc.process(makeJob());
+
+    const payload = JSON.stringify(costRecords(events)[0]!.payload);
+    expect(payload).not.toContain("pune");
+    expect(payload).not.toContain("welder");
+  });
+});
+
 describe("the answer map is the profile, and the LLM is an overlay on it", () => {
   it("takes the PARSE path, not the legacy transcript re-parse", async () => {
     const { proc, ai } = make(withMap());

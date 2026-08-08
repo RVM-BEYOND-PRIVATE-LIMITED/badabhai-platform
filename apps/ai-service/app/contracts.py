@@ -379,6 +379,18 @@ class ProfileParseOutput(BaseModel):
     fields: dict[str, ParsedField | None] = Field(default_factory=dict)
     unparsed_field_ids: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+    # Cost + latency for the call this response came from.
+    #
+    # THE PHASE 8 CUTOVER MADE THIS THE ONLY LLM CALL IN THE WHOLE INTERVIEW — every
+    # per-turn model call was deleted and replaced by one parse at the end. It shipped
+    # returning no metadata, so the single remaining piece of model spend in the core
+    # flow was invisible to the ledger. ``/profile/extract`` and the profiling chat have
+    # carried ``ai_metadata`` since Phase 1; this closes the gap the cutover opened.
+    #
+    # ``None`` on every degraded path (deadline, mock posture, spend cap): a fabricated
+    # zero-cost record is worse than an absent one, being indistinguishable from a real
+    # call that happened to be free. PII-free — ids, model names, counts, an INR estimate.
+    ai_metadata: AICallMetadata | None = None
 
 
 # --- Interview conversation state ------------------------------------------
