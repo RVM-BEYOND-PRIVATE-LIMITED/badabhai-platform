@@ -43,7 +43,8 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **V5 (the render half)** — the 433-clip manifest measured, `tts_render.py`, TS↔Python identity parity | PR #683 → `aea376d1` | **on `main`** |
 | **B6 (the engine half)** — `openTurn`, `whyText`/`answerType`, and a replay that stopped stripping the question | PR #697 → `ee5180e8` | **on `main`** |
 | **B6 (the surface)** — `/profiling/*`, `ProfilingSessionService`, and `runTurn` extracted so both surfaces share one pipeline | PR #698 → `969cf75e` | **on `main`** |
-| **B6 (the spoken leg)** — synchronous ≤30 s transcription, R9 closed for this surface, `profiling_voice_answer` writer | PR #702 | **open** |
+| **B6 (the spoken leg)** — synchronous ≤30 s transcription, R9 closed for this surface, `profiling_voice_answer` writer | PR #702 → `2adea343` | **on `main`** |
+| **The typed chip value** — `String()` on `value_bool` cost two completed interviews their whole profile | PR #710 → `bc4958eb` | **on `main`** |
 
 ### B6 — THE GAP THAT MADE THE FEATURE NOT WORK, and it was not on any list
 
@@ -132,6 +133,42 @@ STALE     409  answering a question not on screen    PASS
 REVIEW    200  complete=true  rows=12
 FINALIZE  200  committed=true ; called again -> 200 committed=true  (idempotent)
 ```
+
+#### A FOURTH DEFECT, AND IT WAS COSTING WORKERS THEIR WHOLE PROFILE (#710)
+
+Two review rows rendered `true` instead of `Haan`. Logged as cosmetic; it was not.
+
+`question_pack_options` carries three typed value columns so an authored chip can say *"this one
+means the boolean `true`"* rather than *"this one means the five characters t-r-u-e"*. The row →
+contract mapper collapsed all three with `String(...)`, and **every layer below that line routes on
+the value's shape**. Four options in the shipped corpus carry `value_bool`, across two items — and
+between them they cover both destinations, so nothing here was hypothetical:
+
+| item | pack | `target_kind` | lands in |
+|---|---|---|---|
+| `relocation` | `qp_universal` — the tail EVERY worker gets | `rfs` | `relocation_willingness` on the draft |
+| `welding_position` | `qp_welding` | `attribute` | `worker_attributes` |
+
+1. `worker_attributes` took `value_kind = text, value_text = 'true'`. The matcher's inventory query
+   is `attribute_key = ? AND value_bool` — the row was present and unfindable.
+2. The review read the worker their own answer as `true`.
+3. **The profile build threw.** `relocation_willingness` is `z.boolean()` and the extraction
+   processor calls `WorkerProfileDraftSchema.parse`, not `safeParse` — so a worker who tapped
+   "Haan, jaa sakta hoon" threw in a BullMQ job, minutes after being told the interview was done.
+
+The natural experiment — three sessions in one local database, one driver, only the fix between
+them — is what turned "cosmetic" into the severity it actually had:
+
+```
+session 419d79f9   relocation text="true"   worker_profiles = 0
+session e7f8839f   relocation text="true"   worker_profiles = 0
+session 0647b07a   relocation bool=true     worker_profiles = 1  status=extracted
+                                                                 relocation_willingness=true
+```
+
+**Two workers completed a full twelve-question interview and ended with nothing.** An existing
+assertion in `pack-registry.service.test.ts` was pinning the defect (`["day", "12", "true", null]`);
+it now reads `["day", 12, true, null]` and says what it used to claim.
 
 ### Verified live on merged `main` (2026-08-08)
 
@@ -810,8 +847,16 @@ from chat.
 
 ### Phase V6 — Flutter client *(Owner: Rishi · XL · #624–#639)*
 
-Full issue list in GitHub. **13 of 16 closed** as of 2026-08-08; #631 (TTS playback), #636
-(interruptions) and #637 (offline queue) remain open.
+Full issue list in GitHub. **All 16 closed** as of 2026-08-08, plus the follow-ups #680, #691, #692
+and #699.
+
+> **CLOSED IS NOT THE SAME AS ON `main`, AND THIS PHASE IS WHERE THAT KEEPS BITING.** #699 — the
+> `HttpVoiceFormGateway` that is the entire reason the client can reach the server — was closed at
+> 11:04Z on 2026-08-08 while its PR **#709 is still open and awaiting review**. Verified against
+> `origin/main`: every `VoiceFormGateway` reference there is the interface, the cubit's field, or
+> one of six test fakes. This is the SAME seam that spent weeks looking shipped, so the check is
+> `git grep <symbol> origin/main`, never the issue state. #711 (action log → event spine) is open
+> on the same footing.
 
 > **THE SYNC POINT WAS PASSED, AND THIS IS WHERE IT SHOWED.** The line below said backend
 > contracts must be frozen before #628–#632 start "or the mock is fiction". They started anyway,
@@ -858,13 +903,30 @@ one change — an incident you cannot bisect is not a flip.
 
 Gates: signed Sarvam DPA · bucket provisioned private · **`VOICE_NOTES_BUCKET` split-brain killed**
 (API defaults `""`, ai-service defaults `"worker-voice-notes"`; a mismatch is silent total failure with
-a green `/health`) · `AI_INTERNAL_TOKEN` armed **both** sides · **compose + CI pass-through wired** —
-neither compose file declares `SARVAM_API_KEY`, `SUPABASE_*`, `VOICE_NOTES_BUCKET` or
-`AI_REAL_CALL_TASKS`, so **the flip is a 4-artifact code change, not an env action** · translate leg
-ledgered or disabled · DSAR prefix sweep · **ASR PII measurement** (if saarika emits digits as words —
-"nau aath saat" — *no gate in the system fires* and a phone number reaches the LLM) · B-1 done · root
-`.env.example` corrected (it says "EMPTY = all tasks"; the enforcing code says empty = **nothing**
-allowed — **inverted in the fail-open direction**).
+a green `/health`) · `AI_INTERNAL_TOKEN` armed **both** sides · translate leg ledgered or disabled ·
+DSAR prefix sweep · **ASR PII measurement** (if saarika emits digits as words — "nau aath saat" —
+*no gate in the system fires* and a phone number reaches the LLM) · B-1 done ·
+**TD58 purge job (#712) — this one gates setting `VOICE_NOTES_BUCKET` at all**.
+
+**TWO OF THIS ROW'S OWN CLAIMS WERE STALE — re-measured 2026-08-08, both in the good direction.**
+It read *"neither compose file declares `SARVAM_API_KEY`, `SUPABASE_*`, `VOICE_NOTES_BUCKET` or
+`AI_REAL_CALL_TASKS`, so the flip is a 4-artifact code change"*, and *"root `.env.example` says
+'EMPTY = all tasks'"*. Measured:
+
+| var | `docker-compose.yml` | `docker-compose.staging.yml` | `ci.yml` | `staging-cd.yml` |
+|---|:--:|:--:|:--:|:--:|
+| `SARVAM_API_KEY` | — | declared | — | — |
+| `VOICE_NOTES_BUCKET` | — | declared | — | — |
+| `AI_REAL_CALL_TASKS` | — | declared | — | — |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | declared | declared | — | — |
+| **`SARVAM_TTS_MODEL`** | **—** | **—** | — | — |
+
+`.env.example` was corrected under the 2026-08-01 owner ruling and now reads *"EMPTY = **NO** TASKS
+MAY GO REAL (fail-closed … there is no wildcard)"* with a pointer to the enforcing code. So the flip
+is **smaller than this row claimed**. What genuinely remains: `SARVAM_TTS_MODEL` is declared nowhere
+— and it is the one variable whose silent default changes what the worker HEARS — and neither
+workflow passes any of them through, which is the TD81 shape (staging runs mocked AI and reports
+green). Recorded on #701.
 
 Abort: any `is_mock=True` on a real rung · `stt_call_failed` >5% · p90 > client budget · `captured_but_wrong` >2%.
 
@@ -877,10 +939,18 @@ today, so the purpose alone is decorative) · DPDP notice copy naming recording,
 processor, the retention period and the training-use boundary · consent version bump + re-consent ·
 **TD58 purge job** · TD59 · R30 reassessed against measured ASR output.
 
-**TD58 is re-scoped from compliance debt to a launch gate.** ~16 objects and 4–5 MB of raw voice PII
-per worker per session; ~450 GB at 100k workers, hot tier, retained indefinitely, no purge job. That
-was tolerable when voice was an optional chat extra. It is not, once a form makes voice the primary
-capture path. **Do not set `VOICE_NOTES_BUCKET` on this path until a purge job exists.**
+**TD58 is re-scoped from compliance debt to a launch gate — now filed as #712 (Divyanshu).** ~16
+objects and 4–5 MB of raw voice PII per worker per session; ~450 GB at 100k workers, hot tier,
+retained indefinitely, no purge job. That was tolerable when voice was an optional chat extra. It is
+not, once a form makes voice the primary capture path. **Do not set `VOICE_NOTES_BUCKET` on this
+path until a purge job exists.**
+
+Measured 2026-08-08, and it is two holes rather than one: there is no sweep anywhere
+(`account-deletion-sweep.processor.ts` is DSAR erasure, which fires when the *worker* is deleted,
+never when the audio has served its purpose) **and** the clips are written to keep forever —
+`voice.service.ts:96` uses the schema defaults `retain_indefinitely / hot`, where §6 of this plan
+says these must be `delete_after_processing` because *"keeping the audio for a training corpus needs
+a consent purpose that does not exist."*
 
 ---
 
