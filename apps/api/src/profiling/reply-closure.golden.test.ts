@@ -51,6 +51,28 @@ const GOLDEN_PATH = join(
 );
 const MIRROR_PATH = join(__dirname, "../../../ai-service/app/tts_data/reply-closure.json");
 
+/**
+ * Every `(pack_id, version)` that has ever been published, one per line (#708).
+ *
+ * A LEDGER RATHER THAN A DERIVED SET, because the thing worth catching is a DISAPPEARANCE, and
+ * nothing derived from the current corpus can see what used to be in it. It sits beside
+ * `_families.jsonl` in the same directory and follows the same underscore-prefixed JSONL
+ * convention for corpus sidecars.
+ */
+const VERSIONS_PATH = join(
+  __dirname,
+  "../../../../packages/db/data/question-packs/_published-versions.jsonl",
+);
+
+/** The ledger as `pack_id@version` strings; blank lines and `#` comments ignored. */
+function readPublishedVersions(): string[] {
+  if (!existsSync(VERSIONS_PATH)) return [];
+  return readFileSync(VERSIONS_PATH, "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+}
+
 /** The corpus row shape → the contract shape `replyClosure` consumes. */
 function toQuestionPacks(): QuestionPack[] {
   const corpus = loadQuestionPackCorpus();
@@ -113,26 +135,63 @@ describe("the reply closure, over the REAL question-pack corpus", () => {
     expect(toQuestionPacks().length).toBeGreaterThanOrEqual(100);
   });
 
-  it("holds ONE version per pack_id — the assumption the manifest's completeness rests on", () => {
-    // #679's open question, converted into a failing build instead of a silent gap.
+  it("NO PUBLISHED PACK VERSION HAS DISAPPEARED — every ledger entry still renders", () => {
+    // #708, and this replaces a guard that had the condition BACKWARDS.
     //
-    // A session PINS its pack version. The corpus is one file per `pack_id`, so a v2 would REPLACE
-    // v1 rather than sit beside it, and this manifest would then describe only v2 — while workers
-    // still mid-interview on v1 get served strings that were never checked and never rendered.
-    // Silence, at a question they cannot read.
+    // It asserted "no pack_id carries two versions", on the belief that the corpus is one file per
+    // pack_id so a v2 would REPLACE v1. That belief is wrong, and I executed the loader rather than
+    // reading it: `loadQuestionPackCorpus` reads EVERY `packs/*.json` and pushes each one, and
+    // `validateQuestionPackCorpus` rejects only a duplicate `(pack_id, version)` PAIR. So:
     //
-    // Fixing that properly means a multi-version corpus layout, which is a design decision and not
-    // this test's to make. What it CAN do is refuse to let the assumption lapse quietly: the day a
-    // second version of any pack appears, this fails and the render pipeline gets looked at before
-    // a worker is stranded on an unrendered one.
-    const byId = new Map<string, Set<number>>();
-    for (const p of toQuestionPacks()) {
-      const versions = byId.get(p.pack_id) ?? new Set<number>();
-      versions.add(p.version);
-      byId.set(p.pack_id, versions);
+    //   v2 added as a second file  -> both load, v1's strings stay in the manifest  -> SAFE
+    //                                 ...and the old guard FAILED THE BUILD on it.
+    //   v1 edited in place, version bumped -> v1's strings exist nowhere            -> DANGEROUS
+    //                                 ...and the old guard PASSED.
+    //
+    // It blocked the only safe way to publish a second version and waved through the one that
+    // strands a pinned worker in silence.
+    //
+    // THE INVARIANT THAT ACTUALLY MATTERS is append-only: a session pins `(pack_id, version)` for
+    // the length of an interview, so a version that has ever been published must keep resolving to
+    // clips. Whether a version may EVER be retired is an ops question with a live-session query
+    // behind it (owner ruling 2026-08-08: versioned layout — keep every live version on disk and
+    // render them all). This test enforces the part that is checkable at build time, and the
+    // ledger is the record of what has shipped.
+    //
+    // To publish a new version: add the file, then `UPDATE_PACK_VERSIONS=1 …` to append it here.
+    // To RETIRE one: delete the ledger line by hand, which is a reviewable diff that says out loud
+    // "no live session pins this any more" — exactly the claim that should never be made silently.
+    const onDisk = new Set(toQuestionPacks().map((p) => `${p.pack_id}@${p.version}`));
+    const ledger = readPublishedVersions();
+
+    if (process.env.UPDATE_PACK_VERSIONS === "1") {
+      writeFileSync(
+        VERSIONS_PATH,
+        `${[...new Set([...ledger, ...onDisk])].sort().join("\n")}\n`,
+        "utf8",
+      );
+      return;
     }
-    const multi = [...byId.entries()].filter(([, v]) => v.size > 1).map(([id]) => id);
-    expect(multi, "a pinned session on the older version would hear silence").toEqual([]);
+
+    expect(ledger.length, "the ledger is empty — regenerate it").toBeGreaterThan(0);
+    const vanished = ledger.filter((entry) => !onDisk.has(entry));
+    expect(
+      vanished,
+      "a published pack version no longer exists in the corpus; every session pinned to it is " +
+        "being served strings that were never checked and never rendered — silence, at a question " +
+        "the worker cannot read",
+    ).toEqual([]);
+  });
+
+  it("the ledger bites — a vanished version is caught, a NEW one is not a failure", () => {
+    // A guard that cannot fail is not a guard, and this one has two directions to get wrong.
+    const onDisk = new Set(["qp_a@1", "qp_b@1"]);
+    const vanished = (led: string[]) => led.filter((e) => !onDisk.has(e));
+    // v1 retired without a ledger edit -> caught.
+    expect(vanished(["qp_a@1", "qp_b@1", "qp_c@1"])).toEqual(["qp_c@1"]);
+    // A second version added beside the first -> NOT a failure. This is the case the old guard
+    // failed the build on, and it is the safe one.
+    expect(vanished(["qp_a@1"])).toEqual([]);
   });
 
   it("carries all five producers, so no reply KIND is missing wholesale", () => {

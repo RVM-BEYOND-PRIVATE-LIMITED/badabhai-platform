@@ -1,0 +1,122 @@
+# EVERY (pack_id, version) THAT HAS EVER BEEN PUBLISHED — one `pack_id@version` per line (#708).
+#
+# WHAT THIS IS FOR. A session PINS `(pack_id, version)` for the length of an interview, and
+# `reply-closure.json` — the TTS manifest both apps/api and apps/ai-service read — is built from
+# whatever the corpus holds at build time. So a version that stops existing does not merely go
+# unused: every worker mid-interview on it is served strings that were never checked and never
+# rendered. On the voice form that is silence, at a question they cannot read.
+#
+# Nothing derived from the current corpus can notice a disappearance, which is why this is a
+# ledger rather than a computed set. `reply-closure.golden.test.ts` fails the build when a line
+# here no longer resolves to a pack on disk.
+#
+# ADDING a version: create the pack file, then regenerate —
+#   UPDATE_PACK_VERSIONS=1 pnpm --filter @badabhai/api run test reply-closure.golden
+# RETIRING one: delete its line by hand. That diff is a reviewable claim that no live session
+# pins it any more — which is exactly the sort of thing that should never be asserted silently.
+#
+# NAMING, for anything that is not v1: `packs/<pack_id>@<version>.json`. The loader reads every
+# `packs/*.json` and does not care about the filename, so the bare `<pack_id>.json` form the 101
+# v1 packs use keeps working; the suffix is what stops a second version from being published by
+# overwriting the first, which is the mistake this whole file exists to make loud.
+qp_ac_refrigeration@1
+qp_animal_rearing@1
+qp_assemblers_other@1
+qp_assembly@1
+qp_auto_mechanic@1
+qp_baking@1
+qp_bar_service@1
+qp_beauty@1
+qp_blacksmithing@1
+qp_building_finishing@1
+qp_building_frame@1
+qp_building_supervision@1
+qp_bus_driving@1
+qp_carpentry@1
+qp_cart@1
+qp_cashier@1
+qp_chemical_plant@1
+qp_child_care@1
+qp_cleaning@1
+qp_cleaning_helpers@1
+qp_cobbler@1
+qp_concrete@1
+qp_construction_helper@1
+qp_construction_labour@1
+qp_construction_other@1
+qp_cooking@1
+qp_crop_growing@1
+qp_dairy@1
+qp_delivery_driving@1
+qp_domestic@1
+qp_driving_heavy@1
+qp_driving_light@1
+qp_earthmoving@1
+qp_electrical@1
+qp_electrical_equipment@1
+qp_electronics@1
+qp_electronics_install@1
+qp_farm_labour@1
+qp_farming@1
+qp_fishery@1
+qp_fitting@1
+qp_food_prep_assist@1
+qp_food_processing@1
+qp_forestry@1
+qp_fuel_station@1
+qp_furniture@1
+qp_garment_trades@1
+qp_hair_styling@1
+qp_hand_cleaning@1
+qp_handicraft@1
+qp_health_care_assist@1
+qp_lineman@1
+qp_loading@1
+qp_machinery_repair@1
+qp_machining@1
+qp_manufacturing_labour@1
+qp_masonry@1
+qp_metal_plant@1
+qp_metal_processing@1
+qp_mining_plant@1
+qp_mixed_farming@1
+qp_mobile_plant@1
+qp_other_craft@1
+qp_other_elementary@1
+qp_other_personal_service@1
+qp_other_plant@1
+qp_other_sales@1
+qp_packing@1
+qp_painting@1
+qp_plumbing@1
+qp_printing@1
+qp_protective_service@1
+qp_rail_operation@1
+qp_refuse_work@1
+qp_retail@1
+qp_rubber_plastic@1
+qp_security@1
+qp_sewing_machine@1
+qp_sheet_metal@1
+qp_ship_crew@1
+qp_shop_supervision@1
+qp_street_sales@1
+qp_street_service@1
+qp_street_vending@1
+qp_structure_cleaning@1
+qp_subsistence_crop@1
+qp_subsistence_fishing@1
+qp_subsistence_livestock@1
+qp_subsistence_mixed@1
+qp_tailoring@1
+qp_textile_machines@1
+qp_toolmaking@1
+qp_transport_labour@1
+qp_travel_service@1
+qp_universal@1
+qp_waiter@1
+qp_waste@1
+qp_weaving@1
+qp_welding@1
+qp_wood_plant@1
+qp_wood_treating@1

@@ -10,13 +10,29 @@
  * hardest kind of bug to notice and the cheapest kind to prevent.
  *
  * FILE LAYOUT, and why it is not one JSONL like the job domains.
- *   data/question-packs/_families.jsonl   family + binding records, one per line
- *   data/question-packs/packs/<id>.json   ONE PACK PER FILE, pretty-printed
+ *   data/question-packs/_families.jsonl            family + binding records, one per line
+ *   data/question-packs/_published-versions.jsonl  every (pack_id, version) ever published
+ *   data/question-packs/packs/<id>.json            ONE PACK VERSION PER FILE, pretty-printed
  * Families and bindings are small flat records, so JSONL gives the line-diffable review
  * that made the domain corpus reviewable. A pack is not: twelve questions with options
  * and conditions on a single line is unreadable in a diff, and the whole reason packs are
  * data is so a human can review a wording change. One pretty-printed file per pack means
  * a diff shows exactly which question moved.
+ *
+ * VERSIONS SIT BESIDE EACH OTHER, THEY DO NOT REPLACE EACH OTHER (#708, owner ruling
+ * 2026-08-08 — versioned layout). A session PINS `(pack_id, version)` for the length of an
+ * interview and `PackRegistryService.loadPinned` loads that exact version, so a version that
+ * stops existing strands every worker mid-interview on it: the TTS manifest is built from
+ * whatever this corpus holds, so their remaining questions have no rendered audio at all.
+ * On the voice form that is silence, at a question they cannot read.
+ *
+ * This loader reads EVERY `packs/*.json` and keys nothing by filename, and the validator
+ * below rejects only a duplicate `(pack_id, version)` PAIR — so two versions of one pack are
+ * already legal here and always were. Name anything that is not v1
+ * `packs/<pack_id>@<version>.json`, so a second version cannot be published by overwriting
+ * the first. `_published-versions.jsonl` is the ledger that makes a disappearance a failing
+ * build (see `reply-closure.golden.test.ts`); retiring a version means deleting its line by
+ * hand, which is a reviewable claim that no live session still pins it.
  *
  * RETURNS EVERY PROBLEM, NEVER THROWS ON THE FIRST — the property inherited deliberately
  * from `validateJobDomainCorpus`. Authoring errors arrive in families (one bad rename
