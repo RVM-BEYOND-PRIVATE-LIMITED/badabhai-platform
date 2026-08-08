@@ -40,6 +40,7 @@ import { catalogVersionForEvent } from "../occupation/occupation.repository";
 import { DISAMBIGUATION_PROMPT, IdentifyService, toPackOption } from "./identify.service";
 import { captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
 import {
+  answerSetHash,
   isSettled,
   recordAnswer,
   recordDeclined,
@@ -302,7 +303,13 @@ export interface CorrectAnswerInput {
 }
 
 export type CorrectAnswerOutcome =
-  | { readonly kind: "corrected"; readonly value: unknown; readonly correctionCount: number }
+  | {
+      readonly kind: "corrected";
+      readonly value: unknown;
+      readonly correctionCount: number;
+      /** Fingerprint of the answer map as written — the rebuild trigger's dedupe key. */
+      readonly answerSetHash: string;
+    }
   /** The words parsed to nothing for this question. Nothing was written. */
   | { readonly kind: "unreadable" }
   /** This session has changed as many answers as it may. */
@@ -1205,7 +1212,15 @@ export class ProfilingOrchestrator {
       });
     });
 
-    return { kind: "corrected", value: record.value_normalized, correctionCount };
+    return {
+      kind: "corrected",
+      value: record.value_normalized,
+      correctionCount,
+      // The fingerprint of the map that was JUST WRITTEN, handed back rather than recomputed by
+      // the caller: the rebuild trigger keys on it, and a hash of anything other than exactly
+      // what landed would dedupe against the wrong answer set.
+      answerSetHash: answerSetHash(answers),
+    };
   }
 
   private async restorePin(

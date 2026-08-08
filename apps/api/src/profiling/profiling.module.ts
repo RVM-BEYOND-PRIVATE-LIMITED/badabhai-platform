@@ -5,6 +5,7 @@ import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
 import { EventsModule } from "../events/events.module";
 import { OccupationModule } from "../occupation/occupation.module";
+import { ProfilesModule } from "../profiles/profiles.module";
 import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
@@ -61,6 +62,12 @@ import { ProfilingVoiceRepository } from "./profiling-voice.repository";
     // without that one does not fail a test — it fails BOOT, because module metadata is
     // evaluated at require time and every unit test here asserts metadata rather than a graph.
     forwardRef(() => VoiceModule),
+    // The fourth trigger (#700): a correction that lands after the profile was built queues a
+    // rebuild through `ProfilesService`. `forwardRef` because ProfilesModule reaches back here
+    // through ChatModule, and because THIS is the edge that made the app fail to boot last time —
+    // module metadata is evaluated at require time, and only `app.module.graph.test.ts` says so
+    // in under a minute.
+    forwardRef(() => ProfilesModule),
   ],
   controllers: [ProfilingController],
   providers: [
