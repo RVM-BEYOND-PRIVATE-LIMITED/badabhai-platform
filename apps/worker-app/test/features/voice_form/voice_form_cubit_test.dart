@@ -50,10 +50,13 @@ class FakeTts implements QuestionAudioPlayer {
   Future<void> stop() async => stops++;
 }
 
+class MockTts extends Mock implements QuestionAudioPlayer {}
+
 void main() {
   setUpAll(() {
     registerFallbackValue(const RecordConfig());
     registerFallbackValue(Duration.zero);
+    registerFallbackValue(const VoiceQuestion(id: 'x', prompt: 'x'));
   });
 
   late MockAudioRecorder plugin;
@@ -172,6 +175,62 @@ void main() {
     expect(cubit.state, isA<VoiceFormError>());
     expect(gateway.submits, 0);
     verifyNever(() => plugin.start(any(), path: any(named: 'path')));
+  });
+
+  test('replay() stops the mic for the WHOLE of playback, then re-arms (#631)',
+      () async {
+    final MockTts tts = MockTts();
+    when(() => tts.play(any())).thenAnswer((_) async {});
+    when(() => tts.stop()).thenAnswer((_) async {});
+
+    final VoiceFormCubit cubit = VoiceFormCubit(
+      gateway: FakeGateway(8),
+      recorder: SessionVoiceRecorder(recorder: plugin),
+      endpointer: SilenceEndpointer(),
+      tts: tts,
+      sleep: (_) async {},
+    );
+    addTearDown(cubit.close);
+    await cubit.start(); // Q1 presented, mic armed
+    clearInteractions(plugin);
+
+    await cubit.replay();
+
+    // PROMPTING and LISTENING are mutually exclusive: the mic is cancelled
+    // BEFORE playback and only re-started AFTER it completes.
+    verifyInOrder(<void Function()>[
+      () => plugin.cancel(),
+      () => tts.play(any()),
+      () => plugin.start(any(), path: any(named: 'path')),
+    ]);
+  });
+
+  test(
+      'REGRESSION: close() racing replay()\'s cancel() does not throw an '
+      'uncaught StateError out of emit() (#662 fix)', () async {
+    final Completer<void> cancelEntered = Completer<void>();
+    final Completer<void> cancelBlock = Completer<void>();
+
+    final VoiceFormCubit cubit = build(gateway: FakeGateway(8));
+    await cubit.start(); // Q1 presented, mic armed
+
+    // Only now make cancel() hang, so start()'s own internals are unaffected.
+    when(() => plugin.cancel()).thenAnswer((_) async {
+      if (!cancelEntered.isCompleted) cancelEntered.complete();
+      await cancelBlock.future; // hang inside replay()'s cancel() await
+    });
+
+    final Future<void> replaying = cubit.replay();
+    await cancelEntered.future;
+
+    // Tear down mid-replay. Before the fix the continuation ran straight into
+    // emit() on a closed bloc — an uncaught StateError escaping this
+    // unawaited Future, which the test zone turns into a failure.
+    final Future<void> closing = cubit.close();
+    cancelBlock.complete();
+
+    await Future.wait(<Future<void>>[replaying, closing]);
+    // Reaching here at all is the assertion: no uncaught StateError escaped.
   });
 
   test('close() inside the start() await window still releases the mic',
