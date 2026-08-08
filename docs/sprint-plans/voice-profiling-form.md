@@ -38,7 +38,8 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **The 77%'s writer** — a table and a projector that nothing joined | PR #670 → `5394c292` | **on `main`** |
 | A mock call reporting real rupees | PR #672 → `ca5cd4e3` | **on `main`** |
 | **B-8b** — one definition of "the current profile"; 7 readers, one unordered, one un-deduped | PR #678 → `d5365b57` | **on `main`** |
-| **B-8a** — a call that never left the process claimed `success: true` and emitted a cost row | PR #681 | **on `main`** |
+| **B-8a** — a call that never left the process claimed `success: true` and emitted a cost row | PR #681 → `ff676fe8` | **on `main`** |
+| **V4b** — `VoiceTranscriptionService` extracted; `VoiceModule` exports; the DSAR **orphan** sweep | PR #682 | **on `main`** |
 
 ### Already built and reusable (this is most of the system)
 
@@ -489,7 +490,7 @@ until a second surface exists.
 
 ---
 
-### Phase V4 — Transcription seam *(Owner: Prakash · M · **the three defects DONE**, PR #664 → `40e61575`)*
+### Phase V4 — Transcription seam *(Owner: Prakash · M · **DONE** — defects PR #664 · seam PR #682)*
 
 > **The defect half landed; the seam half has not.** All three bugs this phase named turned out to be
 > the same mistake wearing three hats — *a failure recorded as a success* — and none of them needed
@@ -508,10 +509,34 @@ until a second surface exists.
 >   against null explicitly, because an empty string is a real transcript and cost the same as a
 >   full one.
 >
-> **Not built, deliberately: the synchronous ≤30s path.** It has no consumer until V6 ships, its
-> latency is B-3 (still unmeasured), and a config-gated route nothing calls is the "built dark"
-> pattern this plan was written to stop repeating. `VoiceTranscriptionService` extraction remains
-> owed — the processor does service work inside a queue handler, which §4 forbids.
+> **The seam half landed in #682.** `VoiceTranscriptionService` now holds everything that is not
+> queue plumbing — idempotency, the provider call, the degraded-result decision, persistence and
+> the terminal record — and `VoiceModule` gained the `exports` block it never had, so a second
+> caller can reuse the sequence instead of forking it. The processor is 30 lines: the payload, the
+> attempt arithmetic, the rethrow. `terminal` is passed IN as a policy input rather than derived,
+> because "will this be retried?" is a fact only the caller knows — a synchronous caller passes
+> `true`. Every pre-existing behavioural test still drives through `proc.process(...)`, which is
+> what makes the suite a regression proof rather than a rewrite.
+>
+> The **DSAR orphan sweep** landed with it. `listVoiceStorageKeys` can only enumerate audio that
+> has a ROW, and upload is two calls — a signed PUT, then a separate insert. A client that
+> completes the PUT and never makes the second call left raw worker audio no row pointed at,
+> invisible to the query, surviving erasure forever. Added BESIDE the per-row loop, never
+> replacing it: legacy `storage_path` values predate the minted-key shape guard and sit outside
+> `voice-notes/{workerId}/`.
+>
+> **Still not built, deliberately: the synchronous ≤30s path.** It has no consumer until V6 ships,
+> its latency is B-3 (still unmeasured), and a config-gated route nothing calls is the "built
+> dark" pattern this plan was written to stop repeating. The extraction above is what makes it a
+> small change when V6 arrives.
+>
+> **`translate_to_english` is NOT flipped, and that is a deliberate hold.** Measured: apps/api
+> sets it nowhere, so the ai-service default `True` governs and the translate leg fires on every
+> transcription — real Sarvam spend on NO ledger (`translate.py` imports no cost tracker and takes
+> no `worker_ref`), which is R9 recurring. Flipping it globally is not mine to do: `GET /voice/:id`
+> returns `transcript_english` to an existing client, so `false` changes a shipped response. It
+> belongs to the form surface when the form surface exists, or to an owner ruling. Dormant
+> meanwhile — `VOICE_NOTES_BUCKET` is unset, so the leg fires zero times today.
 
 <details><summary>Original V4 scope, as planned</summary>
 

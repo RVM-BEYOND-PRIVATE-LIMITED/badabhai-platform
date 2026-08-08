@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { VoiceTranscriptionProcessor } from "./voice-transcription.processor";
+import { VoiceTranscriptionService } from "./voice-transcription.service";
 import type { VoiceTranscriptionJobData } from "../queue/queue.constants";
 
 const JOB = {
@@ -70,13 +71,18 @@ function make(
               },
         ),
   };
-  const proc = new VoiceTranscriptionProcessor(
+  // The logic moved into `VoiceTranscriptionService`; the processor is now a BullMQ adapter over
+  // it. Every behavioural case below still drives through `proc.process(...)` ON PURPOSE — that
+  // is what makes this suite a regression proof that the extraction changed no behaviour, rather
+  // than a rewritten suite testing the new shape and quietly forgiving a drift.
+  const service = new VoiceTranscriptionService(
     voice as never,
     aiJobs as never,
     events as never,
     ai as never,
   );
-  return { proc, voice, aiJobs, events, ai };
+  const proc = new VoiceTranscriptionProcessor(service);
+  return { proc, service, voice, aiJobs, events, ai };
 }
 
 describe("VoiceTranscriptionProcessor", () => {
@@ -187,8 +193,11 @@ describe("VoiceTranscriptionProcessor", () => {
   it("an empty transcript with NO error code is a real answer — the worker said nothing", async () => {
     // The case that makes the three above meaningful. Silence is a legitimate outcome and must
     // still complete, or every worker who pauses too long gets a failed job.
-    const { proc, voice, aiJobs, events } = make();
-    proc["ai"].transcribe = vi.fn().mockResolvedValue({
+    // Overrides the harness's shared `ai` double rather than reaching into a private field —
+    // the collaborator is the same object the service holds, so this stays honest without
+    // depending on which class currently owns it.
+    const { proc, voice, aiJobs, events, ai } = make();
+    ai.transcribe = vi.fn().mockResolvedValue({
       transcript_text: "",
       confidence: 0,
       english_text: "",
@@ -232,5 +241,54 @@ describe("VoiceTranscriptionProcessor", () => {
 
     expect(ai.transcribe).not.toHaveBeenCalled();
     expect(aiJobs.markCompleted).toHaveBeenCalledOnce();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * V4b — the queue/service seam.
+ *
+ * The processor keeps exactly one decision: whether this attempt is the LAST one. It is a
+ * BullMQ fact the service cannot derive, and the terminal record (`markFailed` + one
+ * `transcription_failed`) hangs off it — so getting it wrong means either no audit trail for a
+ * failure, or one written on every retry.
+ * ══════════════════════════════════════════════════════════════════════════ */
+describe("VoiceTranscriptionProcessor — the BullMQ adapter, and only that", () => {
+  /** A service double that records the options it was handed. */
+  function spyService() {
+    const transcribe = vi.fn().mockResolvedValue({ voice_note_id: JOB.voiceNoteId });
+    const proc = new VoiceTranscriptionProcessor({ transcribe } as never);
+    return { proc, transcribe };
+  }
+
+  it("passes the job payload through untouched", async () => {
+    const { proc, transcribe } = spyService();
+    await proc.process(makeJob());
+    expect(transcribe.mock.calls[0]![0]).toBe(JOB);
+  });
+
+  it.each([
+    [0, 3, false],
+    [1, 3, false],
+    [2, 3, true], // attemptsMade is ZERO-BASED: attempt 3 of 3 is the last one
+  ])("attempt %i of %i → terminal=%s", async (attemptsMade, attempts, terminal) => {
+    const { proc, transcribe } = spyService();
+    await proc.process(makeJob({ attemptsMade, attempts }));
+    expect(transcribe.mock.calls[0]![1]).toEqual({ terminal });
+  });
+
+  it("a queue configured with NO attempts treats the first failure as final", async () => {
+    // `opts.attempts ?? 1` — without the default, `attemptsMade + 1 >= undefined` is false and
+    // a queue that never retries would never write a terminal record at all.
+    const { proc, transcribe } = spyService();
+    await proc.process({ data: JOB, attemptsMade: 0, opts: {} } as never);
+    expect(transcribe.mock.calls[0]![1]).toEqual({ terminal: true });
+  });
+
+  it("propagates the service's failure rather than swallowing it", async () => {
+    // The rethrow is how BullMQ learns to retry. A processor that resolved on failure would
+    // mark the job succeeded and drop the worker's audio silently.
+    const transcribe = vi.fn().mockRejectedValue(new Error("transcription degraded: x"));
+    const proc = new VoiceTranscriptionProcessor({ transcribe } as never);
+    await expect(proc.process(makeJob())).rejects.toThrow("transcription degraded");
   });
 });
