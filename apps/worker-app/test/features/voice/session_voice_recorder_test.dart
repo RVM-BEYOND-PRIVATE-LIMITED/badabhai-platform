@@ -178,6 +178,37 @@ void main() {
   });
 
   test(
+      'a profiling answer that runs long is clamped to 30s on submit — the '
+      '120s contract cap is never the bound (#634)', () async {
+    DateTime now = DateTime(2026, 8, 7, 10, 0, 0);
+    when(() => plugin.stop()).thenAnswer(
+        (_) async => '${Directory.systemTemp.path}/bb-voice-session-777.m4a');
+
+    final SessionVoiceRecorder recorder =
+        SessionVoiceRecorder(recorder: plugin, clock: () => now);
+    await recorder.start();
+    now = now.add(const Duration(seconds: 40)); // worker rambled past the cap
+    final RecordedClip? clip = await recorder.stop();
+
+    expect(clip, isNotNull);
+    expect(clip!.durationSeconds, 30,
+        reason: 'submit must be ≤30s — never the 40s recorded, never 120s');
+  });
+
+  test('the 30s profiling cap sits under the untouched 120s contract cap (#634)',
+      () {
+    expect(SessionVoiceRecorder.profilingAnswerMaxDuration,
+        const Duration(seconds: 30));
+    // The API-contract mirror is preserved; #634 does not modify the 120s
+    // constant in packages/types|validators.
+    expect(SessionVoiceRecorder.defaultMaxDuration,
+        const Duration(seconds: 120));
+    expect(SessionVoiceRecorder.profilingAnswerMaxDuration.inSeconds,
+        lessThan(SessionVoiceRecorder.defaultMaxDuration.inSeconds),
+        reason: 'the 30s cap must always fire before the 120s guard');
+  });
+
+  test(
       'a prior run\'s leftover session clip IS swept — age plays no part, '
       'only active/retained does (#654 fix)', () async {
     final String temp = Directory.systemTemp.path;
