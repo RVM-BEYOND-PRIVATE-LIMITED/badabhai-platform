@@ -69,9 +69,12 @@ void main() {
       if (await tts.exists()) await tts.delete();
     });
 
-    // A stale voice clip in the temp ROOT that the sweep SHOULD reclaim.
-    final File stale = File(
-        '${Directory.systemTemp.path}${Platform.pathSeparator}bb-voice-3.m4a');
+    // A stale SESSION clip in the temp ROOT that the sweep SHOULD reclaim.
+    // `bb-voice-session-` (not plain `bb-voice-`): the session recorder owns a
+    // disjoint namespace so its sweep can never eat the single-shot recorder's
+    // in-flight clip, and vice versa.
+    final File stale = File('${Directory.systemTemp.path}'
+        '${Platform.pathSeparator}bb-voice-session-3.m4a');
     await stale.writeAsBytes(<int>[1]);
     addTearDown(() async {
       if (await stale.exists()) await stale.delete();
@@ -90,6 +93,7 @@ void main() {
     expect(await tts.exists(), isTrue,
         reason: 'the sweep is non-recursive and skips directories');
     expect(await stale.exists(), isFalse,
-        reason: 'a stale bb-voice-*.m4a in the temp root is still reclaimed');
+        reason: 'a stale bb-voice-session-*.m4a in the temp root is still '
+            'reclaimed');
   });
 }
