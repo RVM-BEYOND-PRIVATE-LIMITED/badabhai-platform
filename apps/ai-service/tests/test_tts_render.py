@@ -25,7 +25,9 @@ def _manifest(tmp_path: Path, n: int = 3) -> Path:
     clips = [{"id": clip_id(t), "text": t, "producer": "prompt"} for t in texts]
     target = tmp_path / "reply-closure.json"
     target.write_text(
-        json.dumps({"schema_version": 1, "clip_count": len(clips), "producers": {}, "clips": clips}),
+        json.dumps(
+            {"schema_version": 1, "clip_count": len(clips), "producers": {}, "clips": clips}
+        ),
         encoding="utf-8",
     )
     return target
@@ -103,10 +105,14 @@ def test_apply_is_content_addressed_and_skips_what_is_already_on_disk(tmp_path, 
 
     mtimes = {p.name: p.stat().st_mtime_ns for p in out.iterdir()}
     assert tts_render.main(["--out", str(out), "--apply"]) == 0
-    assert {p.name: p.stat().st_mtime_ns for p in out.iterdir()} == mtimes, "re-rendered a clip it already had"
+    assert {p.name: p.stat().st_mtime_ns for p in out.iterdir()} == mtimes, (
+        "re-rendered a clip it already had"
+    )
 
 
-def test_a_placeholder_clip_fails_the_run_rather_than_shipping_a_hole(tmp_path, monkeypatch, capsys):
+def test_a_placeholder_clip_fails_the_run_rather_than_shipping_a_hole(
+    tmp_path, monkeypatch, capsys
+):
     """A PARTIAL CATALOGUE IS A FAILURE, and a `{{placeholder}}` is the worst reason for one.
 
     A shared audio cache plus post-emit interpolation is how one worker's name would be spoken to

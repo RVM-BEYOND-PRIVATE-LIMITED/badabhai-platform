@@ -106,7 +106,11 @@ async def _run(args: argparse.Namespace) -> int:
     if not args.apply:
         # Report the skip breakdown a real run would produce, so the operator can see what the
         # spend buys before committing to it.
-        existing = sum(1 for c in selected if (out_dir / f"{c.id}.{codec}").is_file()) if out_dir.is_dir() else 0
+        existing = (
+            sum(1 for c in selected if (out_dir / f"{c.id}.{codec}").is_file())
+            if out_dir.is_dir()
+            else 0
+        )
         print(f"would render  {len(selected) - existing}  (skipping {existing} already on disk)")
         print("re-run with --apply to synthesize.")
         return 0
