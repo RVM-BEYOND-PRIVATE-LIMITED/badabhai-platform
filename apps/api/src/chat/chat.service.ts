@@ -38,6 +38,34 @@ const DEFAULT_ROLE_FAMILY = "cnc_vmc";
  * constraint would happily accept and which is worse than storing nothing, because it is
  * indistinguishable from a real answer at every later read.
  */
+/**
+ * Split the answer map by status, for `profile.interview_completed`.
+ *
+ * THE THREE ARE KEPT APART DELIBERATELY. `declined` is a COMPLETE answer — "nahi pata" is the
+ * plan's own hardest-won rule — and folding it into `unanswered` would erase the difference
+ * between a worker who told us they do not know and a question that was never settled. A rising
+ * decline rate on one question is a question-quality problem; a rising unanswered rate is an
+ * engine problem. One number cannot say which.
+ *
+ * `superseded` records (a correction's old value) are counted under neither: they are history,
+ * not outcomes, and including them would make the counts exceed the questions asked.
+ */
+function countAnswerStatuses(answers: readonly { status?: string }[]): {
+  answered: number;
+  declined: number;
+  unanswered: number;
+} {
+  let answered = 0;
+  let declined = 0;
+  let unanswered = 0;
+  for (const a of answers) {
+    if (a.status === "answered") answered++;
+    else if (a.status === "declined") declined++;
+    else if (a.status === "unanswered") unanswered++;
+  }
+  return { answered, declined, unanswered };
+}
+
 function typedAnswerColumns(
   value: unknown,
 ): Pick<
@@ -365,6 +393,38 @@ export class ChatService {
       : false;
     const terminal = turn.complete && flushed;
 
+    // 6b. The mid-interview checkpoint (OIE Phase 9, risk #10).
+    //
+    //     ONLY WHEN THE INTERVIEW IS STILL RUNNING. A completed one just wrote the same state
+    //     through `endSession` inside the flush transaction; checkpointing here as well would be
+    //     a second UPDATE of the same column with the same value, outside that transaction.
+    //
+    //     BEST EFFORT, AND THAT IS THE WHOLE DESIGN. This write exists to make a Redis TTL lapse
+    //     survivable — it is a backup, not the record. The record is the buffer, which is already
+    //     durable in Redis's eyes by the time we get here. So a checkpoint failure must never
+    //     reach the worker: they answered a question, and the honest response to that is the next
+    //     question, not an error because a redundant copy did not land.
+    //
+    //     STATE ONLY, NEVER MESSAGE TEXT. `toConversationStatePatch` is the same projection
+    //     `finalizeInterview` writes — phase, occupation, answer map, counters. The transcript
+    //     stays in Redis until the flush, which is what keeps this ~2 UPDATEs per interview
+    //     instead of the ~150 rows the buffer design deleted.
+    if (turn.checkpointDue && !terminal && buffered.profiling) {
+      try {
+        await this.chat.saveConversationState(
+          dto.session_id,
+          toConversationStatePatch(buffered.profiling),
+          now,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `mid-interview checkpoint failed session=${dto.session_id} ` +
+            `asks=${buffered.profiling.engineAsks}; the interview continues on the Redis buffer ` +
+            `and the next checkpoint will retry (${err instanceof Error ? err.message : "unknown"})`,
+        );
+      }
+    }
+
     this.logger.log(
       `turn taken session=${dto.session_id} turn=${buffered.turnCount} ` +
         `question=${turn.questionKey ?? "-"} progress=${turn.progress.answered}/${turn.progress.total} ` +
@@ -545,6 +605,53 @@ export class ChatService {
           requestId: ctx.requestId,
           tx,
         });
+
+        // THE INTERVIEW'S OWN RECORD (OIE Phase 9). Distinct from `extraction_ready` above,
+        // which is a downstream trigger — one says "there is work to do", this says "here is
+        // how the engine performed". Three of the plan's acceptance criteria (p95 turn latency,
+        // completion rate, ask-count distribution) have no other source: `worker_profiles`
+        // records where a worker ended up and overwrites the evidence of how they got there.
+        //
+        // ONE EVENT PER INTERVIEW, NOT PER TURN — the latency arrives as a histogram
+        // accumulated in the envelope. Per-turn events would be the plan's own risk #9: ~12M
+        // rows whose only reader is a dashboard.
+        //
+        // INSIDE THE TRANSACTION, so an interview that did not durably happen does not report
+        // that it did. A rolled-back flush leaves no telemetry claiming a completion.
+        if (buffer.profiling) {
+          const env = buffer.profiling;
+          const byStatus = countAnswerStatuses(env.answerMap);
+          await this.events.emit({
+            event_name: "profile.interview_completed",
+            actor: { actor_type: "worker", actor_id: workerId },
+            subject: { subject_type: "chat_session", subject_id: sessionId },
+            payload: {
+              worker_id: workerId,
+              session_id: sessionId,
+              turn_count: buffer.turnCount,
+              ask_count: env.engineAsks,
+              // Filtered to the payload's own slug rule rather than trusted. The emit is inside
+              // this transaction, so a reason that failed validation would roll back a completed
+              // interview to protect an observability field — the same asymmetry `slugFieldIds`
+              // exists for two methods above.
+              completion_reason: /^[a-z_]{1,40}$/.test(buffer.completionReason ?? "")
+                ? (buffer.completionReason as string)
+                : null,
+              occupation_pinned: env.occupation !== null,
+              match_layer: env.occupation?.match_layer ?? null,
+              pack_id: env.packId,
+              pack_version: env.packVersion,
+              answered_count: byStatus.answered,
+              declined_count: byStatus.declined,
+              unanswered_count: byStatus.unanswered,
+              turn_latency_ms: { ...env.turnLatency },
+            },
+            idempotencyKey: `profile.interview_completed:${sessionId}`,
+            correlationId: ctx.correlationId,
+            requestId: ctx.requestId,
+            tx,
+          });
+        }
         return true;
       });
     } catch (err) {

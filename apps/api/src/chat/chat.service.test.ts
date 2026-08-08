@@ -24,7 +24,7 @@ import { describe, it, expect, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import { ChatService } from "./chat.service";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
-import type { ProfilingEnvelope } from "../profiling/conversation-state";
+import { emptyTurnLatency, type ProfilingEnvelope } from "../profiling/conversation-state";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -66,6 +66,9 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     packVersion: 2,
     catalogVersion: "cat_2026_08",
     lastTurn: null,
+    turnLatency: emptyTurnLatency(),
+    occupationFamilyId: "fam_tailoring",
+    occupationRepins: 0,
     ...over,
   };
 }
@@ -199,6 +202,7 @@ function make(
       replayed: false,
       excludeFromParse: false,
       unavailable: false,
+      checkpointDue: false,
       ...opts.turn,
     })),
   };
@@ -290,14 +294,107 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
     expect(ChatService.length).toBe(8);
   });
 
-  it("writes NOTHING to Postgres mid-interview", async () => {
+  it("writes NO transcript, NO answers and NO events to Postgres mid-interview", async () => {
+    // NARROWED FROM "writes NOTHING" IN PHASE 9, deliberately. The buffer design's promise was
+    // never "no writes" — it was "no PER-TURN write amplification", which is what the ~150 rows
+    // per interview actually were. Phase 9 adds ONE small state UPDATE every five asks (risk #10)
+    // so a Redis TTL lapse costs at most four answers instead of the whole interview. That write
+    // is asserted on its own below; what must stay absent is everything that scales with turns.
     const { chat, events } = await run();
     expect(chat.insertMessage).not.toHaveBeenCalled();
     expect(chat.insertMessages).not.toHaveBeenCalled();
     expect(chat.insertPackAnswers).not.toHaveBeenCalled();
-    expect(chat.saveConversationState).not.toHaveBeenCalled();
     expect(chat.withTransaction).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
+    // Not due on this turn, so not written: the checkpoint is paced, not per-turn.
+    expect(chat.saveConversationState).not.toHaveBeenCalled();
+  });
+
+  describe("the mid-interview checkpoint (Phase 9, risk #10)", () => {
+    it("persists the state — and ONLY the state — when the orchestrator says a boundary was crossed", async () => {
+      const { chat } = await run({
+        turn: { checkpointDue: true },
+        written: { profiling: envelope({ phase: "occupation_specific", engineAsks: 5 }) },
+      });
+
+      expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
+      const [sessionId, state] = chat.saveConversationState.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(sessionId).toBe(SESSION);
+      // The same projection the flush writes — phase, occupation, answer map, counters.
+      expect(state).toMatchObject({ phase: "occupation_specific", engine_asks: 5 });
+      // THE TRANSCRIPT MUST NOT BE IN IT. This is the line that keeps the checkpoint ~2 UPDATEs
+      // per interview rather than a second copy of every message, and it is also the privacy
+      // boundary: `chat_messages` is the only home of raw worker text before the flush.
+      expect(state).not.toHaveProperty("messages");
+      expect(JSON.stringify(state)).not.toContain(DTO.text);
+      // Still no transcript rows and no transaction — the checkpoint is a bare UPDATE.
+      expect(chat.insertMessages).not.toHaveBeenCalled();
+      expect(chat.withTransaction).not.toHaveBeenCalled();
+    });
+
+    it("does NOT double-write when the same turn also completes the interview", async () => {
+      // `finalizeInterview` writes the identical state through `endSession` INSIDE the flush
+      // transaction. Checkpointing as well would be a second UPDATE of one column with one value,
+      // outside that transaction — pure cost, and a write that could outlive a rolled-back flush.
+      const { chat } = await run({
+        turn: { checkpointDue: true, complete: true },
+        written: { profiling: envelope(), completedAt: T0 },
+      });
+
+      expect(chat.endSession).toHaveBeenCalledTimes(1);
+      expect(chat.saveConversationState).not.toHaveBeenCalled();
+    });
+
+    it("still checkpoints when the interview WANTED to end but the flush ROLLED BACK", async () => {
+      // `complete` says the engine closed; `flushed` says it landed. When they differ, nothing
+      // was written and the interview still exists only in Redis — which is exactly when losing
+      // the buffer hurts most, because the worker has answered every question. Keying the skip on
+      // `terminal` rather than on `turn.complete` is what keeps the checkpoint reachable here.
+      //
+      // `flushThrows`, NOT `flushLost`: the latter models another request having already
+      // finalized the session, where the transcript IS durable and `finalizeInterview` correctly
+      // reports success. Checkpointing an already-ended session would be the bug, not the fix.
+      const { chat } = await run({
+        turn: { checkpointDue: true, complete: true },
+        written: { profiling: envelope({ engineAsks: 10 }) },
+        flushThrows: true,
+      });
+
+      expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT checkpoint when another request already finalized the session", async () => {
+      // The mirror of the case above, and the reason `terminal` is not simply `!flushThrows`:
+      // a lost conditional update means the session row is already `ended`, so this state write
+      // would land on a finished interview.
+      const { chat } = await run({
+        turn: { checkpointDue: true, complete: true },
+        written: { profiling: envelope({ engineAsks: 10 }) },
+        flushLost: true,
+      });
+
+      expect(chat.saveConversationState).not.toHaveBeenCalled();
+    });
+
+    it("a failing checkpoint does not fail the worker's turn", async () => {
+      // The record is the Redis buffer, already durable by this point; the checkpoint is a
+      // backup. A worker who just answered a question gets the next question, not a 500 because
+      // a redundant copy did not land.
+      const { chat, svc } = make({
+        turn: { checkpointDue: true },
+        written: { profiling: envelope({ engineAsks: 5 }) },
+      });
+      chat.saveConversationState.mockRejectedValue(new Error("deadlock detected"));
+
+      const res = await svc.postMessage(WORKER, DTO as never, CTX);
+
+      expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
+      expect(res.reply).toBe("Aap kis sheher mein rehte hain?");
+      expect(res.blocked).toBe(false);
+    });
   });
 
   it("delegates the whole turn — the orchestrator owns the buffer write, not this service", async () => {
@@ -432,17 +529,106 @@ describe("ChatService — flush at end", () => {
     expect(flushedRows(chat).map((r) => r.direction)).toEqual(["inbound", "outbound"]);
   });
 
-  it("emits one event per message plus the readiness signal, all inside the tx", async () => {
+  it("emits one event per message plus the readiness signal and the interview record, all inside the tx", async () => {
     const { chat, events } = await run({ buffer: {}, written: COMPLETED, turn: complete });
     expect(emittedNames(events)).toEqual([
       "chat.message_received",
       "chat.message_sent",
       "profile.extraction_ready",
+      "profile.interview_completed",
     ]);
     for (const call of events.emit.mock.calls) {
       expect((call[0] as { tx: unknown }).tx).toEqual({ __tx: true });
     }
     expect(chat.withTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  describe("profile.interview_completed — the engine's own telemetry (Phase 9)", () => {
+    const payloadOf = (events: { emit: ReturnType<typeof vi.fn> }) =>
+      (
+        events.emit.mock.calls.find(
+          (c) => (c[0] as { event_name: string }).event_name === "profile.interview_completed",
+        )?.[0] as { payload: Record<string, unknown> } | undefined
+      )?.payload;
+
+    it("carries the latency histogram, the ask count and the pin — the three the plan gates on", async () => {
+      const { events } = await run({
+        buffer: {},
+        turn: complete,
+        written: {
+          ...COMPLETED,
+          turnCount: 14,
+          profiling: envelope({
+            engineAsks: 12,
+            turnLatency: { le_100: 8, le_200: 3, le_400: 2, le_800: 1, gt_800: 0, max_ms: 612 },
+          }),
+        },
+      });
+
+      expect(payloadOf(events)).toMatchObject({
+        turn_count: 14,
+        ask_count: 12,
+        occupation_pinned: true,
+        match_layer: "l0_exact",
+        pack_id: "qp_tailoring",
+        pack_version: 2,
+        turn_latency_ms: { le_100: 8, le_200: 3, le_400: 2, le_800: 1, gt_800: 0, max_ms: 612 },
+      });
+    });
+
+    it("counts declined SEPARATELY from unanswered", async () => {
+      // "nahi pata" is a COMPLETE answer. Folding it into `unanswered` would erase the
+      // difference between a worker who told us they do not know and a question that never
+      // settled — a question-quality problem versus an engine problem.
+      const { events } = await run({
+        buffer: {},
+        turn: complete,
+        written: {
+          ...COMPLETED,
+          profiling: envelope({
+            answerMap: [
+              answer({ question_key: "q_a" }),
+              answer({ question_key: "q_b", status: "declined", value_raw: "nahi pata" }),
+              answer({ question_key: "q_c", status: "unanswered", value_raw: "" }),
+              answer({ question_key: "q_d", status: "superseded", value_raw: "5 saal" }),
+            ] as never,
+          }),
+        },
+      });
+
+      expect(payloadOf(events)).toMatchObject({
+        answered_count: 1,
+        declined_count: 1,
+        unanswered_count: 1, // and `superseded` counted under none of them — it is history
+      });
+    });
+
+    it("drops a completion_reason that is not a slug rather than rolling back the interview", async () => {
+      // The emit is INSIDE the flush transaction, so an unvalidated reason would trade a
+      // worker's entire completed interview for an observability field. Same asymmetry as
+      // `slugFieldIds`.
+      const { events } = await run({
+        buffer: {},
+        turn: complete,
+        written: {
+          ...COMPLETED,
+          completionReason: "worker Ramesh gave up" as never,
+          profiling: envelope(),
+        },
+      });
+
+      expect(payloadOf(events)).toMatchObject({ completion_reason: null });
+    });
+
+    it("is NOT emitted when the flush rolls back — no telemetry claims a completion that did not happen", async () => {
+      const { events } = await run({
+        buffer: {},
+        turn: complete,
+        written: COMPLETED,
+        flushThrows: true,
+      });
+      expect(emittedNames(events)).not.toContain("profile.interview_completed");
+    });
   });
 
   it("every event carries a stable idempotency key", async () => {

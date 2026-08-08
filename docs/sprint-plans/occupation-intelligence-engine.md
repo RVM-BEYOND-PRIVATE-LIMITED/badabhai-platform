@@ -882,6 +882,98 @@ gate rejection counts, disagreement rate.
 **Acceptance criteria.** L0+L1 ≥ 45%, L2 ≥ 30%, L3 ≤ 25% on live traffic. Family precision ≥ 0.97.
 Per-profile AI cost ≤ ₹15. p95 deterministic turn ≤ 400 ms. Interview completion rate ≥ the LLM baseline.
 
+#### AS BUILT — every scope bullet met; the acceptance criteria split in two
+
+**The constraint that shapes this phase, stated plainly.** Four of the five acceptance criteria are
+measurements *on live traffic*, and there is none — this is a pre-launch repository. They cannot be met
+here, and reporting them as met would be false. What Phase 9 delivered instead is everything that makes
+them measurable on day one, plus every scope bullet, plus the criteria the committed gold set *can*
+answer. The remaining four are re-labelled **launch-gated** below, with the exact command that answers
+each one.
+
+| Scope bullet | Status |
+|---|---|
+| Re-calibrate thresholds; reuse the `eval_canonicalization` harness shape | ✅ floor re-derived, gate armed in CI |
+| Wire the unresolved-phrase growth loop (`count ≥ N` → ops → `rvm` alias → L0) | ✅ `db:growth:occupation` |
+| Mid-interview Postgres checkpoint every 5 asks, state only | ✅ `CHECKPOINT_EVERY_ASKS = 5` |
+| Observability: layer hit rates | ✅ pre-existing on `profile.occupation_identified` (Phase 8) |
+| Observability: disagreement rate | ✅ pre-existing on `profile.parse_disagreement` (Phase 8) |
+| Observability: per-turn latency | ✅ histogram → `profile.interview_completed` |
+| Observability: parse gate rejection counts | ✅ `profile.parse_gates_rejected` |
+
+**Five deltas.**
+
+1. **The retrieval gate ran in no workflow.** `db:eval:occupation` exits 1 on failure and was executed by
+   nothing — the same way `db:verify:packs` was dead before Phase 8. Armed in the `node` job. The
+   calibration act for this metric was **re-deriving its floor**: the script's 60% default against a
+   measured **97.0%** cannot catch a regression, since deleting a third of the vernacular alias corpus
+   would still pass it. Now `--min-hit-rate 95`. Proven live rather than assumed: exit 1 at 98, exit 0
+   at 95. Family precision stays at the script's 97% default — that is the *product* bar; tightening it
+   to the measured 98.2% would fail the build for a corpus change that still meets what was asked for.
+2. **Latency is a histogram, not per-turn events.** A percentile needs a population, and an event per
+   turn is this plan's own risk #9 (~12M rows). Five buckets and a max give the same percentile from one
+   event per interview at a cost independent of interview length; 400 ms is a bucket *edge* because it is
+   the gate.
+3. **The checkpoint is decided by the orchestrator and written by `ChatService`.** Only the orchestrator
+   knows both the pre-turn and post-turn ask count, so only it can fire on the *crossing*; a caller
+   testing `engineAsks % 5 === 0` re-fires on every subsequent clarify, hardship or silent turn, which on
+   a stuck conversation is an UPDATE per turn forever. Carried on `TurnResult` rather than as an envelope
+   field, which keeps risk #6 (`narrow()` silently dropping unknown keys) out of the change entirely.
+4. **A defect found in the skill growth runner.** `growth-cluster.ts` had no `scope` filter, so after 0072
+   it spent real embedding budget on occupation phrases and then skipped every one as a "NULL domain_id"
+   warning. Waste and noise rather than contamination (a NULL-domain row cannot reach a proposal), now
+   scoped in all four queries.
+5. **The occupation growth runner does no clustering and no embedding**, deliberately unlike its skill
+   sibling. An unresolved *skill* is usually a near-miss on one we have, so the vector finds the
+   neighbour. An unresolved *occupation* has already failed L0, L1, L2 **and** L3 across the whole
+   catalogue — embedding it again to hunt a neighbour repeats, at cost, the search that just failed. The
+   rank by distinct workers is the signal, and the target renders blank always (SG-5).
+
+**Phase 8 verification gaps closed here.** The cutover's two headline claims had no end-to-end assertion —
+unit tests over mocks cannot show that a deterministic interview reached Postgres, because every
+collaborator they would need is the thing being stubbed. `phase1-onboarding.e2e.test.ts` now asserts
+**exactly one `ai_jobs` row for the whole flow** (the parse — this is "zero LLM calls between session start
+and completion", asserted on a count rather than a spy, because a count cannot be satisfied by a second
+seam added later), that `worker_pack_answer` rows were written with the biconditional answer shape holding,
+and that the latency histogram counted every turn.
+
+**Launch-gated, with the command that answers each.**
+
+| Criterion | Why it cannot be met pre-launch | How to answer it |
+|---|---|---|
+| L0+L1 ≥ 45%, L2 ≥ 30%, L3 ≤ 25% **on live traffic** | Needs production utterances. The committed gold set measures **97.0% L0+L1**, but it was authored alongside the aliases, so it is an upper bound, not a forecast | Group `profile.occupation_identified` by `match_layer` |
+| Interview completion rate ≥ the LLM baseline | Needs both a live cohort and the pre-cutover baseline, which no longer runs | `profile.interview_completed` count ÷ `chat.session_started` count |
+| p95 deterministic turn ≤ 400 ms | Needs real load; a local run measures a warm cache and no contention | Sum `turn_latency_ms` buckets across `profile.interview_completed` |
+| Per-profile AI cost ≤ ₹15 | Needs real provider spend | `ai_jobs.cost_inr` for `profile_extraction` |
+| Family precision ≥ 0.97 | **Met on the gold set: 98.2%**, and armed in CI | `pnpm db:eval:occupation` |
+
+**Both carried deferrals CLOSED in this phase.**
+
+- **`MAX_OCCUPATION_REPINS = 1`, exactly as risk #12 specifies.** Phase 8 shipped zero re-pins and
+  deferred this to "Phase 9, with real utterances to judge against". The re-read that closed it: what
+  needed utterances was picking a *confidence threshold* — and the guard does not need a new one. Two
+  conditions, both reusing thresholds the ladder already calibrates: the match must be `auto` (clearing
+  AUTO_FLOOR **and** AUTO_MARGIN at family level) **and** on a **different family**. Together they are
+  the distinction Phase 8 said was missing between "I changed trades" and "I mentioned a second
+  machine": naming a second machine inside your own trade does not produce a confident, well-separated
+  match on a different family, and comparing job *domains* instead would fire on the "Welder, Gas" vs
+  "Welder, Electric" coin flip and swap the pack for the one the interview already had.
+  A re-pin **never discards an answer** — only `unanswered` records, so the new pack's questions arrive
+  fresh — and never refunds `engineAsks`, which is what guarantees termination.
+- **`docs/architecture/overview.md` written.** It did not exist; nor does `AI-PROFILING-ARCHITECTURE-STATUS.md`,
+  and no directory named in the Phase 8 bullet existed either. Rather than treat "the file is missing"
+  as "the deliverable is out of scope", the overview is now written for the profiling path
+  specifically — deliberately not a whole-platform document, because one that claims to describe
+  everything goes stale faster than anyone repairs it. `AI-PROFILING-ARCHITECTURE-STATUS.md` is
+  **not** recreated: it was a status snapshot of a design this plan superseded, and ADR-0038 plus this
+  overview carry everything it would have said. *Logged as consciously dropped, not missed.*
+
+**One latent defect found while closing the second.** `docs/registers/` does not exist in the
+repository, and both growth runners wrote their packet with a bare `writeFileSync` — an ENOENT on any
+fresh checkout, reading as a broken script rather than "run me first". Both now `mkdirSync` recursively,
+and `growth-occupation.ts` was re-anchored to `__dirname` to match `growth-cluster.ts`: a cwd-relative
+path silently writes a different packet depending on whether you run from the repo root or `packages/db`.
+
 ---
 
 ### Dependency graph

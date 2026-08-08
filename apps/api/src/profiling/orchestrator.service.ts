@@ -40,6 +40,7 @@ import {
   answersOf,
   emptyProfilingEnvelope,
   inboundHash,
+  recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
   toEngineState,
   withAnswers,
@@ -110,6 +111,26 @@ export const UNAVAILABLE_REPLY = CHAT_UNAVAILABLE_REPLY;
  */
 export const MAX_CAS_ATTEMPTS = 2;
 
+/**
+ * Asks between mid-interview Postgres checkpoints (OIE Phase 9, risk #10).
+ *
+ * REDIS IS THE ONLY HOME OF IN-FLIGHT STATE, and its TTL is 24 h. A lapse — an eviction under
+ * memory pressure, a failover, a worker who answers three questions and comes back tomorrow —
+ * costs the ENTIRE interview, and the worker is asked everything again from scratch. That is the
+ * single worst experience this engine can produce, because it is indistinguishable to the worker
+ * from the product being broken.
+ *
+ * FIVE IS THE COST/LOSS TRADE, not a round number. A ~12-ask interview checkpoints twice, so the
+ * write amplification the buffer design exists to avoid (~150 rows per interview, four Postgres
+ * writes per turn) does not come back: this is ~2 small UPDATEs of one JSONB column. In exchange
+ * the worst-case loss drops from "everything" to "at most the last 4 answers".
+ *
+ * ASKS, NOT TURNS, and deliberately: a clarify, a hardship acknowledgement and a silent turn all
+ * spend a turn without producing an answer, so pacing on turns would checkpoint hardest exactly
+ * when there is nothing new to save.
+ */
+export const CHECKPOINT_EVERY_ASKS = 5;
+
 /** What one turn produced. */
 export interface TurnResult {
   readonly reply: string;
@@ -133,6 +154,20 @@ export interface TurnResult {
   readonly excludeFromParse: boolean;
   /** The CAS was lost twice, or no pack resolved. Nothing was written; the worker may retry. */
   readonly unavailable: boolean;
+  /**
+   * This turn crossed a {@link CHECKPOINT_EVERY_ASKS} boundary — the caller should persist the
+   * conversation state to Postgres (OIE Phase 9, risk #10).
+   *
+   * WHY THE ORCHESTRATOR DECIDES BUT DOES NOT WRITE. It holds the only honest answer — it knows
+   * both the pre-turn and post-turn ask count, so it can fire on the CROSSING rather than on the
+   * value. A caller testing `engineAsks % 5 === 0` itself would re-fire on every subsequent turn
+   * that spends no ask (a clarify, a hardship acknowledgement, a silent turn), which on a stuck
+   * conversation is an UPDATE per turn forever. But the write itself belongs to `ChatService`,
+   * which owns the repository; giving the orchestrator a Postgres dependency to save one boolean
+   * would put durable writes behind the Redis CAS retry loop, where a retried turn would repeat
+   * them.
+   */
+  readonly checkpointDue: boolean;
 }
 
 export interface TurnInput {
@@ -167,6 +202,15 @@ export class ProfilingOrchestrator {
    * function the same question about newer facts.
    */
   async takeTurn(input: TurnInput): Promise<TurnResult> {
+    // OUTSIDE THE RETRY LOOP, deliberately: what this measures is what the turn COST, and a lost
+    // CAS that forced a second decision genuinely cost the worker both. Timing each attempt
+    // separately would report the cheap winning attempt and hide contention entirely — which is
+    // the one condition a turn-latency metric exists to surface.
+    //
+    // `Date.now()` rather than `input.now`, because `input.now` is the injected logical clock the
+    // decision is derived from; measuring elapsed time against a fixed value is measuring zero.
+    const startedAt = Date.now();
+
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
       const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
@@ -184,12 +228,23 @@ export class ProfilingOrchestrator {
       const decided = await this.decide(buffer, envelope, input);
       if (!decided) return unavailable();
 
+      // Stamp the histogram onto the buffer that is about to be written. Done HERE rather than
+      // inside `decide` so there is exactly one measurement point covering the whole decision —
+      // answer capture, retrieval, pack resolution and question selection together, which is the
+      // unit the plan's "p95 deterministic turn ≤ 400 ms" is about.
+      const measured = withTurnLatency(decided.buffer, Date.now() - startedAt);
+
       // LAYER B — the CAS. A loss is not an error: reload and re-run.
-      const won = await this.buffer.saveWithCas(input.sessionId, decided.buffer, envelope.rev);
+      const won = await this.buffer.saveWithCas(input.sessionId, measured, envelope.rev);
       if (won) {
         // AFTER the CAS, never before. A turn that loses the write did not happen, and pinning a
         // pack for it would durably commit the interview a discarded decision chose.
-        await this.persistPin(envelope, decided.buffer.profiling, input);
+        //
+        // Handed `measured.profiling` rather than `decided.buffer.profiling` — the envelope that
+        // actually landed. The two differ only by the latency histogram today, so nothing turns
+        // on it now; passing the value that was written is what keeps that true if a later stamp
+        // touches something the pin reads.
+        await this.persistPin(envelope, measured.profiling, input);
         return decided.result;
       }
 
@@ -263,6 +318,7 @@ export class ProfilingOrchestrator {
           replayed: false,
           excludeFromParse: true,
           unavailable: false,
+          checkpointDue: false,
         });
       }
       // The cap fired. Fall through to the engine, which closes with `abuse_cap` — the reason
@@ -302,6 +358,7 @@ export class ProfilingOrchestrator {
           replayed: false,
           excludeFromParse: false,
           unavailable: false,
+          checkpointDue: false,
         });
       }
       // Three silences: ADVANCE, and advancing has to be made real. Resetting the counter alone
@@ -339,6 +396,7 @@ export class ProfilingOrchestrator {
           replayed: false,
           excludeFromParse: false,
           unavailable: false,
+          checkpointDue: false,
         });
       }
       // Past the bound: fall through and let the engine move the interview on. Acknowledging
@@ -360,6 +418,7 @@ export class ProfilingOrchestrator {
           ),
           questionKey: clarified.questionKey,
           options: clarified.options,
+          checkpointDue: false,
           progress: clarified.progress,
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -411,6 +470,8 @@ export class ProfilingOrchestrator {
         // answer.
         questionKey: null,
         options: identified.offer.options,
+        // A disambiguation turn spends no ask, so it can never cross a checkpoint boundary.
+        checkpointDue: false,
         progress: progressOf(items, answers),
         unansweredEssentials: essentialsOf(items, answers),
         complete: false,
@@ -486,6 +547,12 @@ export class ProfilingOrchestrator {
       return null;
     }
 
+    // The CROSSING, computed from the pre-turn and post-turn ask counts. `next.engineAsks` was
+    // incremented above only on the `ask` branch, so this is true exactly once per boundary —
+    // never twice at the same count, however many non-ask turns follow.
+    const checkpointDue =
+      next.engineAsks > envelope.engineAsks && next.engineAsks % CHECKPOINT_EVERY_ASKS === 0;
+
     return this.turn(buffer, next, input, {
       reply,
       questionKey: decision.questionKey,
@@ -497,6 +564,7 @@ export class ProfilingOrchestrator {
       replayed: false,
       excludeFromParse: capture.excludeFromParse,
       unavailable: false,
+      checkpointDue,
     });
   }
 
@@ -715,6 +783,22 @@ export class ProfilingOrchestrator {
   }
 }
 
+/**
+ * Fold this turn's elapsed time into the buffer's histogram.
+ *
+ * A buffer with no envelope is returned untouched: `saveWithCas` rejects one anyway, and
+ * inventing an envelope here to hold a metric would hand a CAS token to a value that never had
+ * one.
+ */
+function withTurnLatency(buffer: TranscriptBuffer, elapsedMs: number): TranscriptBuffer {
+  const envelope = buffer.profiling;
+  if (!envelope) return buffer;
+  return {
+    ...buffer,
+    profiling: { ...envelope, turnLatency: recordTurnLatency(envelope.turnLatency, elapsedMs) },
+  };
+}
+
 /** Layer A: the same message, at the same rev, inside the window. */
 function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | null {
   const last = envelope.lastTurn;
@@ -735,6 +819,9 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
     replayed: true,
     excludeFromParse: false,
     unavailable: false,
+    // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
+    // client retrying on a flaky connection drive one Postgres UPDATE per retry.
+    checkpointDue: false,
   };
 }
 
@@ -750,6 +837,8 @@ function unavailable(): TurnResult {
     replayed: false,
     excludeFromParse: false,
     unavailable: true,
+    // Nothing was written to Redis either, so there is no state a checkpoint could make durable.
+    checkpointDue: false,
   };
 }
 

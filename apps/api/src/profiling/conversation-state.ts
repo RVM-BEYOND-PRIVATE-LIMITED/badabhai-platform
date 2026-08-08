@@ -168,6 +168,77 @@ export interface ProfilingEnvelope {
   /** Catalogue release retrieval ran against; pins alias resolution mid-flight. */
   readonly catalogVersion: string | null;
   readonly lastTurn: LastTurn | null;
+  /** Per-turn orchestrator latency, as a histogram. See {@link TurnLatency}. */
+  readonly turnLatency: TurnLatency;
+  /**
+   * The FAMILY the current pin resolved to — the re-pin comparison key (risk #12).
+   *
+   * NOT derivable from `occupation`, which carries a `job_domain_id` and no family, and NOT
+   * interchangeable with it: the whole reason the ladder resolves families first is that
+   * "Welder, Gas" and "Welder, Electric" are a coin flip at occupation level and identical at
+   * family level. A re-pin guard comparing job domains would fire on that coin flip and swap a
+   * worker's pack for the one it already had.
+   */
+  readonly occupationFamilyId: string | null;
+  /**
+   * How many times the occupation has been RE-pinned. The first pin does not count.
+   *
+   * Bounded by `MAX_OCCUPATION_REPINS`, because an unbounded one lets a worker who keeps naming
+   * machines walk the interview through a different pack every turn, answering nothing.
+   */
+  readonly occupationRepins: number;
+}
+
+/**
+ * Per-turn orchestrator latency, accumulated as a HISTOGRAM rather than a list (Phase 9).
+ *
+ * WHY A HISTOGRAM AND NOT PER-TURN EVENTS. The plan's gate is "p95 deterministic turn ≤ 400 ms",
+ * which is a percentile over a population — and the obvious way to get one, an event per turn, is
+ * the plan's own risk #9: ~12 turns × 1M conversations is 12M rows whose only consumer is a
+ * dashboard. Buckets give the same percentile from ONE event per interview, because a percentile
+ * over bucketed counts is exactly what an SLO is computed from in the first place.
+ *
+ * WHY A FIXED SIX FIELDS. The cost of carrying this in the envelope has to be independent of how
+ * long the interview runs, or a worker who takes 30 turns pays for the measurement. Five counters
+ * and a max are constant no matter the turn count.
+ *
+ * THE BOUNDARIES BRACKET THE TARGET. 400 ms is the gate, so it is a bucket edge: `le_400` and
+ * everything below it is the passing population, and the split at 100/200 is what distinguishes
+ * "comfortably inside" from "about to regress". `gt_800` and `max` are the tail the mean would
+ * hide — a p50 of 40 ms with one 9-second turn is a broken interview for that worker, and the
+ * histogram is what makes them visible.
+ */
+export interface TurnLatency {
+  readonly le_100: number;
+  readonly le_200: number;
+  readonly le_400: number;
+  readonly le_800: number;
+  readonly gt_800: number;
+  /** The slowest single turn, in ms. The tail the buckets round away. */
+  readonly max_ms: number;
+}
+
+/** A zeroed histogram. */
+export function emptyTurnLatency(): TurnLatency {
+  return { le_100: 0, le_200: 0, le_400: 0, le_800: 0, gt_800: 0, max_ms: 0 };
+}
+
+/**
+ * Fold one turn's duration into the histogram. Pure.
+ *
+ * A NEGATIVE OR NON-FINITE DURATION IS DROPPED, not clamped into `le_100`. Clock skew between
+ * instances is the realistic source, and a bogus 0 ms would make the p95 look better than reality
+ * — the one direction a latency metric must never fail in.
+ */
+export function recordTurnLatency(current: TurnLatency, ms: number): TurnLatency {
+  if (!Number.isFinite(ms) || ms < 0) return current;
+  const rounded = Math.round(ms);
+  const max_ms = Math.max(current.max_ms, rounded);
+  if (rounded <= 100) return { ...current, le_100: current.le_100 + 1, max_ms };
+  if (rounded <= 200) return { ...current, le_200: current.le_200 + 1, max_ms };
+  if (rounded <= 400) return { ...current, le_400: current.le_400 + 1, max_ms };
+  if (rounded <= 800) return { ...current, le_800: current.le_800 + 1, max_ms };
+  return { ...current, gt_800: current.gt_800 + 1, max_ms };
 }
 
 /**
@@ -197,6 +268,9 @@ export const PROFILING_ENVELOPE_KEYS = {
   packVersion: true,
   catalogVersion: true,
   lastTurn: true,
+  turnLatency: true,
+  occupationFamilyId: true,
+  occupationRepins: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -220,6 +294,9 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     packVersion: null,
     catalogVersion: null,
     lastTurn: null,
+    turnLatency: emptyTurnLatency(),
+    occupationFamilyId: null,
+    occupationRepins: 0,
   };
 }
 
@@ -338,6 +415,31 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
         : null,
     catalogVersion: typeof v.catalogVersion === "string" ? v.catalogVersion : null,
     lastTurn: narrowLastTurn(v.lastTurn),
+    turnLatency: narrowTurnLatency(v.turnLatency),
+    occupationFamilyId:
+      typeof v.occupationFamilyId === "string" ? v.occupationFamilyId : null,
+    occupationRepins: nonNegativeInt(v.occupationRepins),
+  };
+}
+
+/**
+ * A stored histogram, or a zeroed one.
+ *
+ * ABSENT IS NOT AN ERROR: every envelope written before this field existed has no `turnLatency`,
+ * and those interviews are still in flight behind a 24 h TTL. They resume with a zeroed histogram
+ * and under-report their own early turns, which is the correct trade — the alternative is
+ * discarding a live interview to protect a metric.
+ */
+function narrowTurnLatency(value: unknown): TurnLatency {
+  if (typeof value !== "object" || value === null) return emptyTurnLatency();
+  const v = value as Record<string, unknown>;
+  return {
+    le_100: nonNegativeInt(v.le_100),
+    le_200: nonNegativeInt(v.le_200),
+    le_400: nonNegativeInt(v.le_400),
+    le_800: nonNegativeInt(v.le_800),
+    gt_800: nonNegativeInt(v.gt_800),
+    max_ms: nonNegativeInt(v.max_ms),
   };
 }
 

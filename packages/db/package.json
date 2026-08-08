@@ -43,6 +43,7 @@
     "db:gen:aliases": "tsx src/generate-domain-aliases.ts",
     "db:mine:aliases": "tsx src/mine-chat-aliases.ts",
     "db:growth:cluster": "tsx src/growth-cluster.ts",
+    "db:growth:occupation": "tsx src/growth-occupation.ts",
     "db:retag:skills": "tsx src/retag-skills.ts",
     "db:reencrypt:pii": "tsx src/reencrypt-pii-backfill.ts",
     "db:verify:demand": "tsx src/verify-demand.ts",

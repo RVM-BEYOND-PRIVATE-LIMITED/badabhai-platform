@@ -47,6 +47,16 @@ import type { OfferedChip, ProfilingEnvelope } from "./conversation-state";
 export const MAX_IDENTIFY_ATTEMPTS = 2;
 
 /**
+ * How many times an interview may CHANGE the occupation it already pinned (plan risk #12).
+ *
+ * ONE, exactly as the plan specifies. Phase 8 shipped zero and deferred this; the two guards in
+ * {@link IdentifyService.maybeRepin} — a family-level `auto` match, on a DIFFERENT family — are
+ * what closed that gap without needing production utterances to pick a confidence threshold,
+ * because they reuse thresholds the ladder already calibrates.
+ */
+export const MAX_OCCUPATION_REPINS = 1;
+
+/**
  * The disambiguation question, verbatim.
  *
  * ON-PERSONA BY THE SAME RULES THE PACK VALIDATOR ENFORCES on every authored prompt: the "aap"
@@ -97,12 +107,9 @@ export class IdentifyService {
     text: string,
     ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
   ): Promise<IdentifyResult> {
-    // Already pinned. NEVER RE-PINNED, which is stricter than the plan's
-    // MAX_OCCUPATION_REPINS = 1 and deliberately so: a re-pin discards the unanswered questions
-    // of the old pack, and nothing in the engine yet distinguishes "I changed trades" from "I
-    // mentioned a second machine". The conservative bound loses a rare correction; the loose one
-    // loses interviews. Widening it is Phase 9's, with real utterances to judge against.
-    if (envelope.occupation !== null) return NO_OP;
+    // Already pinned. One re-pin is allowed (risk #12) — see {@link maybeRepin} for the two
+    // conditions that make it safe.
+    if (envelope.occupation !== null) return this.maybeRepin(envelope, text, ctx);
 
     // An outstanding offer OWNS this turn's message: it is a chip tap or a rejection of the
     // chips, never a fresh phrase to run the ladder on.
@@ -221,6 +228,80 @@ export class IdentifyService {
   }
 
   /** The ladder cleared the auto floor by the family margin. Pin it and move on. */
+  /**
+   * The worker contradicted the trade we pinned — *"ab tempo chalata hun"* (risk #12).
+   *
+   * TWO CONDITIONS, BOTH REQUIRED, and together they are what makes this safe enough to enable
+   * at all. Phase 8 shipped ZERO re-pins because "nothing distinguishes 'I changed trades' from
+   * 'I mentioned a second machine'". These are that distinction:
+   *
+   *   1. `auto` — the ladder cleared AUTO_FLOOR *and* AUTO_MARGIN at FAMILY level. A worker
+   *      naming a second machine inside their own trade does not produce a confident,
+   *      well-separated match on a different family; it produces a weak one or nothing.
+   *   2. A DIFFERENT family. Comparing job domains instead would fire on "Welder, Gas" versus
+   *      "Welder, Electric" — a coin flip by construction — and swap the pack for the one the
+   *      interview already had, discarding progress to arrive back where it started.
+   *
+   * ONE, then never again. The bound is not about the second re-pin being less trustworthy than
+   * the first; it is that an interview which keeps changing packs never drains one, and a worker
+   * who answers twelve questions across three trades has completed none of them.
+   *
+   * NEVER DISCARDS AN ANSWER. Only `unanswered` records are dropped, and only so the new pack's
+   * questions arrive fresh rather than pre-marked as skipped. Every `answered`, `declined` and
+   * `superseded` record survives verbatim — the plan's rule, and the reason a re-pin costs the
+   * worker nothing they already said. `engineAsks` is deliberately NOT reset: it is the global
+   * budget that guarantees termination, and refunding it would make a re-pin a way to run
+   * forever.
+   */
+  private async maybeRepin(
+    envelope: ProfilingEnvelope,
+    text: string,
+    ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
+  ): Promise<IdentifyResult> {
+    if (envelope.occupationRepins >= MAX_OCCUPATION_REPINS) return NO_OP;
+
+    const result = await this.occupation.resolve(text);
+    if (result.status !== "auto") return NO_OP;
+
+    const top = result.pinned;
+    const family = top?.familyId ?? null;
+    // A re-pin with no family to compare against cannot satisfy condition 2, so it is refused
+    // rather than guessed at — an unfamilied candidate is exactly the shape whose pack cannot
+    // be resolved either.
+    if (top === null || family === null || family === envelope.occupationFamilyId) return NO_OP;
+
+    const repinned = await this.pin(result, "matched_lexical", ctx);
+    if (repinned.pinned === null) return NO_OP;
+
+    const kept = envelope.answerMap.filter((a) => a.status !== "unanswered");
+    const dropped = envelope.answerMap.length - kept.length;
+    // Clear the ask budget for the questions just dropped, so a key the NEW pack also owns is
+    // askable again. Without this the new pack inherits the old pack's exhausted counters and
+    // silently skips its own questions.
+    const droppedKeys = new Set(
+      envelope.answerMap.filter((a) => a.status === "unanswered").map((a) => a.question_key),
+    );
+    const askCounts = Object.fromEntries(
+      Object.entries(envelope.askCounts).filter(([key]) => !droppedKeys.has(key)),
+    );
+
+    this.logger.log(
+      `occupation re-pinned session=${ctx.sessionId} family=${envelope.occupationFamilyId ?? "-"}` +
+        `→${family} repins=${envelope.occupationRepins + 1}/${MAX_OCCUPATION_REPINS}; ` +
+        `kept ${kept.length} answer(s), dropped ${dropped} unanswered question(s)`,
+    );
+
+    return {
+      ...repinned,
+      patch: {
+        ...repinned.patch,
+        occupationRepins: envelope.occupationRepins + 1,
+        answerMap: kept,
+        askCounts,
+      },
+    };
+  }
+
   private async pin(
     result: ResolveResult,
     status: "matched_lexical",
@@ -247,6 +328,10 @@ export class IdentifyService {
     return {
       patch: {
         occupation: pin,
+        // The re-pin comparison key (risk #12). Recorded HERE, at the one place a pin is
+        // minted, so the chip path and the auto path cannot disagree about which family a
+        // worker was placed in.
+        occupationFamilyId: top.familyId ?? null,
         needsDisambiguation: false,
         disambiguationOffer: [],
         catalogVersion: result.catalogVersion,

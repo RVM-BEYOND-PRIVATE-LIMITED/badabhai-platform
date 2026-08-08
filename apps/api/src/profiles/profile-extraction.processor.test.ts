@@ -1294,6 +1294,50 @@ describe("the answer map is the profile, and the LLM is an overlay on it", () =>
     expect(serialized).not.toContain("darzi");
   });
 
+  it("emits profile.parse_gates_rejected with PER-GATE COUNTS — never the field it threw away", async () => {
+    const { proc, events } = make({
+      ...withMap(),
+      messages: [{ direction: "inbound", bodyText: "silai ka kaam karta hoon" }],
+      parsed: {
+        fields: {
+          // A quote that appears in NO transcript line: gate 1 (provenance) rejects it. This is
+          // the strongest gate — a hallucinated value has no span to point at.
+          current_city: {
+            value: "Pune",
+            evidence: { message_index: 0, quote: "main Pune me rehta hoon" },
+            source: "transcript",
+            normalization: "verbatim",
+            confidence: 0.9,
+          },
+        },
+        unparsed_field_ids: [],
+        notes: [],
+      },
+    });
+    await proc.process(makeJob());
+    const emit = events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .find((e) => e.event_name === "profile.parse_gates_rejected");
+
+    expect(emit).toBeDefined();
+    expect(emit!.payload.rejected_count).toBe(1);
+    expect((emit!.payload.by_gate as Record<string, number>).provenance).toBe(1);
+    // Neither the invented value nor the field it claimed to fill appears anywhere.
+    const serialized = JSON.stringify(emit!.payload);
+    expect(serialized).not.toContain("Pune");
+    expect(serialized).not.toContain("current_city");
+  });
+
+  it("emits NO gate-rejection event when the whole wall passed", async () => {
+    // The healthy case is the overwhelming majority; one row per extraction to say "zero" is
+    // exactly the write amplification risk #9 warns about.
+    const { proc, events } = make(withMap());
+    await proc.process(makeJob());
+    expect(
+      events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name),
+    ).not.toContain("profile.parse_gates_rejected");
+  });
+
   it("does not emit a disagreement when the model and the map agree", async () => {
     const { proc, events } = make(withMap());
     await proc.process(makeJob());

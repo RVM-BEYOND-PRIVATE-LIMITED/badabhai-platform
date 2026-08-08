@@ -2751,3 +2751,110 @@ export const ProfileParseDisagreementPayload = z
   })
   .strict();
 export type ProfileParseDisagreementPayload = z.infer<typeof ProfileParseDisagreementPayload>;
+
+// ---------------------------------------------------------------------------
+// profile.* (continued) — the interview's own telemetry (OIE Phase 9).
+
+/**
+ * Per-turn orchestrator latency as a HISTOGRAM, not a list and not per-turn events.
+ *
+ * The plan's gate is "p95 deterministic turn ≤ 400 ms". The obvious way to compute a percentile —
+ * one event per turn — is the plan's OWN risk #9: ~12 turns × 1M conversations is 12M rows whose
+ * only reader is a dashboard. Buckets give the same percentile from one event per interview, at a
+ * cost that does not grow with interview length. 400 is a bucket EDGE because it is the gate.
+ */
+const turnLatencyHistogram = z
+  .object({
+    le_100: z.number().int().nonnegative().default(0),
+    le_200: z.number().int().nonnegative().default(0),
+    le_400: z.number().int().nonnegative().default(0),
+    le_800: z.number().int().nonnegative().default(0),
+    gt_800: z.number().int().nonnegative().default(0),
+    /** The slowest single turn. The tail the buckets round away and a mean would hide. */
+    max_ms: z.number().int().nonnegative().default(0),
+  })
+  .strict();
+
+/**
+ * One interview finished — how long it took, how many questions it cost, and how it ended.
+ *
+ * WHY THIS IS NOT `profile.extraction_ready`. That event is a downstream TRIGGER: it says a
+ * profile can now be built, and its payload is shaped for that job. This one is the interview's
+ * own record, and the two answer different questions — "is there work to do" versus "is the
+ * engine healthy". Extending the older payload was not an option in any case: event schemas are
+ * versioned and never mutated, and a consumer reading `extraction_ready` today must keep working.
+ *
+ * THIS IS THE ONLY SOURCE FOR THREE OF PHASE 9'S ACCEPTANCE CRITERIA. p95 turn latency, interview
+ * completion rate, and the ask-count distribution are all unanswerable from `worker_profiles`,
+ * which records where a worker ENDED UP and overwrites the evidence of how they got there.
+ *
+ * PII-FREE: counts, enums, ids and integers. No question text, no answer text, no utterance. The
+ * `.strict()` is what stops a well-meaning future change from adding `first_message` here.
+ */
+export const ProfileInterviewCompletedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema.nullable().default(null),
+    /** Turns include clarifies, re-serves and hardship acknowledgements; asks do not. */
+    turn_count: z.number().int().nonnegative().default(0),
+    ask_count: z.number().int().nonnegative().default(0),
+    /** Why the engine stopped. The `CompletionReason` vocabulary, as a free slug for forward
+     * compatibility with reasons a later phase adds — this is observability, not a gate. */
+    completion_reason: z.string().min(1).max(40).regex(/^[a-z_]+$/).nullable().default(null),
+    /** False means the interview ran the universal pack — the fallback, not a failure. */
+    occupation_pinned: z.boolean().default(false),
+    match_layer: occupationMatchLayer.nullable().default(null),
+    pack_id: z.string().min(1).max(64).nullable().default(null),
+    pack_version: z.number().int().positive().nullable().default(null),
+    /** The answer map's shape. `declined` is a COMPLETE answer ("nahi pata"), never a gap —
+     * separating the three is what makes a rising decline rate visible as a question-quality
+     * problem rather than disappearing into "unanswered". */
+    answered_count: z.number().int().nonnegative().default(0),
+    declined_count: z.number().int().nonnegative().default(0),
+    unanswered_count: z.number().int().nonnegative().default(0),
+    turn_latency_ms: turnLatencyHistogram,
+  })
+  .strict();
+export type ProfileInterviewCompletedPayload = z.infer<
+  typeof ProfileInterviewCompletedPayload
+>;
+
+/**
+ * How many parsed fields each of the six "never invent" gates threw away.
+ *
+ * WHY THE COUNTS NEED TO BE AN EVENT AND NOT A LOG LINE. Every gate already does its job — a
+ * rejected field never reaches a profile. But the RATE is the signal: `provenance` climbing means
+ * the model started inventing spans, `role` climbing means it started reading our own question
+ * text back to us, `pii` climbing means the pseudonymizer and the parser disagree about what a
+ * name is. A log line answers "did this job reject anything"; only a queryable event answers "is
+ * this getting worse", and by the time a human greps logs for it the regression has shipped.
+ *
+ * SEPARATE FROM `profile.parse_disagreement`, which is gate 4 alone and carries the field ids
+ * because a disagreement is about a specific field the deterministic map already owns. This is
+ * the whole wall, and deliberately carries NO field ids: a value that failed `provenance` or
+ * `pii` is by definition not vouched for, so even naming the field it claimed to fill says more
+ * about unverified model output than it should.
+ */
+export const ProfileParseGatesRejectedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    ai_job_id: uuidSchema.nullable().default(null),
+    /** Total fields rejected across all gates. */
+    rejected_count: z.number().int().nonnegative().default(0),
+    /** Fields that survived every gate — the denominator, without a second query. */
+    accepted_count: z.number().int().nonnegative().default(0),
+    /** Per-gate counts. Keys mirror `GATE_IDS`; a gate that rejected nothing reports 0, so a
+     * missing key means a version skew rather than a quiet zero. */
+    by_gate: z
+      .object({
+        provenance: z.number().int().nonnegative().default(0),
+        role: z.number().int().nonnegative().default(0),
+        type_range: z.number().int().nonnegative().default(0),
+        agreement: z.number().int().nonnegative().default(0),
+        vocabulary: z.number().int().nonnegative().default(0),
+        pii: z.number().int().nonnegative().default(0),
+      })
+      .strict(),
+  })
+  .strict();
+export type ProfileParseGatesRejectedPayload = z.infer<typeof ProfileParseGatesRejectedPayload>;

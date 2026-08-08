@@ -15,7 +15,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Logger } from "@nestjs/common";
 
 import { emptyProfilingEnvelope, type ProfilingEnvelope } from "./conversation-state";
-import { IdentifyService, MAX_IDENTIFY_ATTEMPTS, DISAMBIGUATION_PROMPT } from "./identify.service";
+import {
+  IdentifyService,
+  MAX_IDENTIFY_ATTEMPTS,
+  MAX_OCCUPATION_REPINS,
+  DISAMBIGUATION_PROMPT,
+} from "./identify.service";
 
 const SESSION = "22222222-2222-4222-8222-222222222222";
 const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -99,19 +104,134 @@ beforeEach(() => {
 });
 
 describe("identification never runs when it should not", () => {
-  it("a pinned occupation is NEVER re-pinned", async () => {
-    // Stricter than the plan's MAX_OCCUPATION_REPINS = 1, deliberately: nothing in the engine
-    // yet distinguishes "I changed trades" from "I mentioned a second machine", and a re-pin
-    // discards the unanswered questions of the old pack.
-    const { svc, occupation } = make({ resolve: resolveResult({ status: "auto", pinned: CANDIDATE }) });
+  it("a pinned occupation is not re-pinned on a match in the SAME family", async () => {
+    // CONDITION 2 of the re-pin guard. "Welder, Gas" vs "Welder, Electric" is a coin flip at
+    // occupation level and identical at family level — which is the entire reason the ladder
+    // resolves families first. Re-pinning here would swap the pack for the one the interview
+    // already had, discarding progress to arrive back where it started.
+    const { svc } = make({ resolve: resolveResult({ status: "auto", pinned: CANDIDATE }) });
     const result = await svc.identify(
-      env({ occupation: { ...CANDIDATE, job_domain_id: "x" } as never }),
-      "ab tempo chalata hoon",
+      env({
+        occupation: { ...CANDIDATE, job_domain_id: "jd_other_in_same_family" } as never,
+        occupationFamilyId: CANDIDATE.familyId,
+      }),
+      "silai machine bhi chalata hoon",
       CTX,
     );
+    expect(result.patch).toEqual({});
+    expect(result.pinned).toBeNull();
+  });
+
+  it("a pinned occupation is not re-pinned on anything less than an `auto` match", async () => {
+    // CONDITION 1. A worker naming a second machine inside their own trade produces a weak
+    // match or none — never a confident, well-separated one on a different family. Anything
+    // below `auto` is exactly that weak signal, and acting on it is how a welder becomes a
+    // machine operator halfway through their own interview.
+    const { svc } = make({
+      resolve: resolveResult({
+        status: "disambiguate",
+        pinned: { ...CANDIDATE, familyId: "fam_driving" },
+      }),
+    });
+    const result = await svc.identify(
+      env({ occupation: CANDIDATE as never, occupationFamilyId: "fam_tailoring" }),
+      "tempo bhi hai ghar pe",
+      CTX,
+    );
+    expect(result.patch).toEqual({});
+    expect(result.pinned).toBeNull();
+  });
+
+  it("stops re-pinning once MAX_OCCUPATION_REPINS is spent", async () => {
+    // Not because a second re-pin is less trustworthy than the first: an interview that keeps
+    // changing packs never DRAINS one, and a worker who answers twelve questions across three
+    // trades has completed none of them.
+    const { svc, occupation } = make({
+      resolve: resolveResult({ status: "auto", pinned: { ...CANDIDATE, familyId: "fam_driving" } }),
+    });
+    const result = await svc.identify(
+      env({
+        occupation: CANDIDATE as never,
+        occupationFamilyId: "fam_tailoring",
+        occupationRepins: MAX_OCCUPATION_REPINS,
+      }),
+      "ab kuch aur karta hoon",
+      CTX,
+    );
+    // The ladder is not even consulted — the budget check short-circuits before retrieval.
     expect(occupation.resolve).not.toHaveBeenCalled();
     expect(result.patch).toEqual({});
     expect(result.pinned).toBeNull();
+  });
+
+  it("⚠ a re-pin NEVER discards an answer — only unanswered questions", async () => {
+    // THE PLAN'S RULE, and the reason a re-pin costs the worker nothing they already said.
+    // "ab tempo chalata hun": the trade changed, so the old pack's UNASKED questions are now
+    // the wrong questions — but every word the worker actually gave us is still true.
+    const answered = {
+      question_key: "q_years",
+      target_field: "experience_years",
+      value_raw: "7 saal",
+      value_normalized: 7,
+      status: "answered",
+      evidence: null,
+      turn: 3,
+      history: [],
+    };
+    const declined = { ...answered, question_key: "q_salary", status: "declined", value_raw: "nahi pata" };
+    const superseded = { ...answered, question_key: "q_city", status: "superseded" };
+    const unanswered = { ...answered, question_key: "q_stitch_type", status: "unanswered" };
+
+    const { svc } = make({
+      resolve: resolveResult({
+        status: "auto",
+        pinned: { ...CANDIDATE, familyId: "fam_driving", jobDomainId: "jd_nco_8322_0100" },
+      }),
+    });
+
+    const result = await svc.identify(
+      env({
+        occupation: CANDIDATE as never,
+        occupationFamilyId: "fam_tailoring",
+        occupationRepins: 0,
+        answerMap: [answered, declined, superseded, unanswered] as never,
+        askCounts: { q_years: 1, q_stitch_type: 2 },
+      }),
+      "ab tempo chalata hoon",
+      CTX,
+    );
+
+    expect(result.pinned).not.toBeNull();
+    expect(result.patch.occupationRepins).toBe(1);
+    expect(result.patch.occupationFamilyId).toBe("fam_driving");
+
+    // Every answered/declined/superseded record survives; only the unanswered one is dropped.
+    const keys = (result.patch.answerMap ?? []).map((a) => a.question_key).sort();
+    expect(keys).toEqual(["q_city", "q_salary", "q_years"]);
+
+    // The dropped question's ask budget is cleared so the NEW pack can ask a same-named
+    // question; the surviving answer's counter is untouched. Without this the new pack
+    // inherits exhausted counters and silently skips its own questions.
+    expect(result.patch.askCounts).toEqual({ q_years: 1 });
+  });
+
+  it("does not refund the global ask budget on a re-pin", async () => {
+    // `engineAsks` is what guarantees the interview terminates. Refunding it would make a
+    // re-pin a way to run forever.
+    const { svc } = make({
+      resolve: resolveResult({ status: "auto", pinned: { ...CANDIDATE, familyId: "fam_driving" } }),
+    });
+    const result = await svc.identify(
+      env({
+        occupation: CANDIDATE as never,
+        occupationFamilyId: "fam_tailoring",
+        engineAsks: 9,
+      }),
+      "ab tempo chalata hoon",
+      CTX,
+    );
+    expect(result.pinned).not.toBeNull();
+    expect(result.patch.engineAsks).toBeUndefined(); // untouched, so the merge preserves 9
   });
 
   it("stops running the ladder once the attempt budget is spent", async () => {

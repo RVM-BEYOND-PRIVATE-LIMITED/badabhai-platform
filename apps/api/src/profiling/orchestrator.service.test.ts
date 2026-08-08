@@ -14,6 +14,7 @@ import {
   MAX_SILENT_TURNS,
 } from "./next-question";
 import {
+  CHECKPOINT_EVERY_ASKS,
   CLOSING_REPLY,
   DE_ESCALATION_REPLY,
   HARDSHIP_REPLIES,
@@ -682,6 +683,69 @@ describe("a DISAMBIGUATE decision must never become a blank message", () => {
     expect(result.unavailable).toBe(true);
     expect(store.size).toBe(0);
     vi.restoreAllMocks();
+  });
+});
+
+describe("the mid-interview checkpoint boundary (Phase 9, risk #10)", () => {
+  // The orchestrator decides; `ChatService` writes. What is asserted here is only the decision,
+  // and specifically that it fires on the CROSSING rather than on the value — the difference
+  // between two UPDATEs per interview and one per turn forever on a stuck conversation.
+
+  it("fires on the ask that crosses the boundary", async () => {
+    const { orchestrator, store } = makeWorld();
+    // One ask short of the boundary, with `q_city` on screen and unanswered.
+    seed(store, { engineAsks: CHECKPOINT_EVERY_ASKS - 1, askCounts: { q_city: 1 } });
+
+    const result = await orchestrator.takeTurn(say("main pune me rehta hu"));
+
+    expect(result.questionKey).toBe("q_years"); // it advanced, so it spent an ask
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(CHECKPOINT_EVERY_ASKS);
+    expect(result.checkpointDue).toBe(true);
+  });
+
+  it("does NOT fire on an ask that lands between boundaries", async () => {
+    const { orchestrator, store } = makeWorld();
+    seed(store, { engineAsks: CHECKPOINT_EVERY_ASKS, askCounts: { q_city: 1 } });
+
+    const result = await orchestrator.takeTurn(say("main pune me rehta hu"));
+
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(CHECKPOINT_EVERY_ASKS + 1);
+    expect(result.checkpointDue).toBe(false);
+  });
+
+  it("does NOT re-fire on a later turn that spends no ask", async () => {
+    // THE BUG THIS DESIGN EXISTS TO AVOID. A caller testing `engineAsks % 5 === 0` for itself
+    // would fire again here, and again on every following clarify, hardship or silent turn — the
+    // ask count is not moving, so the condition stays true forever. Sitting exactly ON the
+    // boundary is the worst case, so that is what is seeded.
+    const { orchestrator, store } = makeWorld();
+    seed(store, { engineAsks: CHECKPOINT_EVERY_ASKS, askCounts: { q_city: 1 } });
+
+    // A hardship turn: acknowledged, no question asked, no budget spent.
+    const result = await orchestrator.takeTurn(say("ghar me paise ki bahut dikkat hai"));
+
+    expect(HARDSHIP_REPLIES).toContain(result.reply);
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(CHECKPOINT_EVERY_ASKS);
+    expect(result.checkpointDue).toBe(false);
+  });
+
+  it("is false on a replay — a retry made nothing newly durable", async () => {
+    const { orchestrator, store } = makeWorld();
+    const text = "main pune me rehta hu";
+    seed(store, {
+      engineAsks: CHECKPOINT_EVERY_ASKS - 1,
+      lastTurn: {
+        inboundHash: inboundHash(SESSION, 1, text),
+        reply: "Kitne saal ka kaam ka tajurba hai?",
+        questionKey: "q_years",
+        at: T0.toISOString(),
+      },
+    });
+
+    const result = await orchestrator.takeTurn(say(text));
+
+    expect(result.replayed).toBe(true);
+    expect(result.checkpointDue).toBe(false);
   });
 });
 
