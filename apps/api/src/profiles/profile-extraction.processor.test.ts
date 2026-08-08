@@ -144,6 +144,11 @@ function make(
   // The "a rebuild failure must not fail the extraction" property is asserted by its own
   // case below with a REJECTING stub, not assumed from this one.
   const matchSkills = { rebuildQuietly: vi.fn().mockResolvedValue(undefined) };
+  // `worker_attributes` — the destination for the 77% of the pack corpus that is attribute-kind.
+  // Returns the row count so a test can assert what was written, not merely that a call happened.
+  const workerAttributes = {
+    upsertMany: vi.fn(async (rows: unknown[]) => rows.length),
+  };
   const proc = new ProfileExtractionProcessor(
     profiles as never,
     aiJobs as never,
@@ -155,8 +160,12 @@ function make(
     pii as never,
     matchSkills as never,
     skills as never,
+    workerAttributes as never,
   );
-  return { proc, profiles, aiJobs, chat, buffer, events, ai, workers, pii, matchSkills, skills };
+  return {
+    proc, profiles, aiJobs, chat, buffer, events, ai, workers, pii, matchSkills, skills,
+    workerAttributes,
+  };
 }
 
 describe("ProfileExtractionProcessor", () => {
@@ -911,6 +920,128 @@ const withMap = (over: Record<string, unknown> = {}) => ({
     occupation: PIN,
     ...over,
   },
+});
+
+describe("the 77% reaches worker_attributes", () => {
+  /**
+   * THE DEFECT AN E2E AUDIT FOUND, WHICH EVERY UNIT TEST MISSED.
+   *
+   * Migration 0071 built `worker_attributes`; V2 taught `projectProfile` to fill a
+   * `ProjectedAttribute[]`. Nothing joined them — `toExtractionOutput(projection)` reads
+   * `projection.draft` and nothing else, so the array was computed on every interview and
+   * dropped on the floor. A live 13-turn welding interview produced 10 typed answers and
+   * ZERO rows here: the original 77% defect, moved one layer later and no less total.
+   *
+   * `workplace_type` (100 items), `tools_owned` (99), `safety_training` (17) and
+   * `shift_work` (14) are matching inputs under §2. An unwritten row ranks nobody.
+   */
+  const attributeMap = (over: Record<string, unknown> = {}) => ({
+    conversationState: {
+      answer_map: [
+        record({
+          question_key: "workplace_type",
+          target_field: "workplace_type",
+          value_normalized: "factory",
+        }),
+        record({
+          question_key: "safety_gear",
+          target_field: "safety_gear",
+          value_normalized: true,
+        }),
+        record({
+          question_key: "material_worked",
+          target_field: "material_worked",
+          value_normalized: ["mild_steel", "stainless"],
+        }),
+        // An RFS field, for contrast: it belongs on `worker_profiles` and must NOT become
+        // an attribute. The crosswalk is what tells the two apart.
+        record({
+          question_key: "current_city",
+          target_field: "current_city",
+          value_normalized: "Pune",
+        }),
+      ],
+      occupation: PIN,
+      pack_id: "qp_welding",
+      pack_version: 1,
+      ...over,
+    },
+  });
+
+  const rowsWritten = (w: { upsertMany: { mock: { calls: unknown[][] } } }) =>
+    (w.upsertMany.mock.calls[0]?.[0] ?? []) as Record<string, unknown>[];
+
+  it("writes every attribute-kind answer, and ONLY those", async () => {
+    const { proc, workerAttributes } = make(attributeMap());
+    await proc.process(makeJob());
+
+    expect(workerAttributes.upsertMany).toHaveBeenCalledOnce();
+    const keys = rowsWritten(workerAttributes).map((r) => r.attributeKey).sort();
+    expect(keys).toEqual(["material_worked", "safety_gear", "workplace_type"]);
+    // `current_city` is RFS — it goes on the profile, never here.
+    expect(keys).not.toContain("current_city");
+  });
+
+  it("types each value into the column its value_kind names, and NULLs the rest", async () => {
+    // `wa_value_present_chk` demands exactly one populated value column, and the one
+    // `value_kind` names. A row that populated two, or the wrong one, is rejected by the
+    // database — so getting this wrong fails at runtime, not in review.
+    const { proc, workerAttributes } = make(attributeMap());
+    await proc.process(makeJob());
+    const rows = rowsWritten(workerAttributes);
+    const by = (k: string) => rows.find((r) => r.attributeKey === k)!;
+
+    expect(by("safety_gear")).toMatchObject({
+      valueKind: "boolean", valueBool: true, valueNumber: null, valueText: null, valueTextList: null,
+    });
+    expect(by("workplace_type")).toMatchObject({
+      valueKind: "text", valueText: "factory", valueBool: null, valueNumber: null, valueTextList: null,
+    });
+    expect(by("material_worked")).toMatchObject({
+      valueKind: "text_list", valueTextList: ["mild_steel", "stainless"], valueBool: null,
+    });
+  });
+
+  it("pins the interview each value came from", async () => {
+    // Pack contents are immutable per version, so `pack_id` + `pack_version` is the only thing
+    // that makes a stored value re-readable once the corpus has moved on — "did `safety_gear`
+    // mean the same question in v1 as in v3" is otherwise unanswerable.
+    const { proc, workerAttributes } = make(attributeMap());
+    await proc.process(makeJob());
+    for (const row of rowsWritten(workerAttributes)) {
+      expect(row).toMatchObject({ packId: "qp_welding", packVersion: 1, sessionId: JOB.sessionId });
+      expect(row.workerId).toBe(JOB.workerId);
+    }
+  });
+
+  it("writes BEFORE the job is marked completed", async () => {
+    // The ordering is the whole safety argument. `profiles.create` is idempotent on `ai_job_id`
+    // and `upsertMany` is idempotent by key, so a throw here costs a retry and loses nothing —
+    // whereas completing the job first would leave 77% of what the worker said permanently
+    // unwritten with the job recorded as a success. There is no backfill runner for this table.
+    const calls: string[] = [];
+    const { proc, workerAttributes, aiJobs } = make(attributeMap());
+    workerAttributes.upsertMany.mockImplementation(async () => { calls.push("attributes"); return 3; });
+    aiJobs.markCompleted.mockImplementation(async () => { calls.push("markCompleted"); });
+
+    await proc.process(makeJob());
+
+    expect(calls).toEqual(["attributes", "markCompleted"]);
+  });
+
+  it("a failed attribute write FAILS the job rather than silently losing the answers", async () => {
+    const { proc, workerAttributes, aiJobs } = make(attributeMap());
+    workerAttributes.upsertMany.mockRejectedValue(new Error("deadlock detected"));
+
+    await expect(proc.process(makeJob())).rejects.toThrow("deadlock detected");
+    expect(aiJobs.markCompleted).not.toHaveBeenCalled();
+  });
+
+  it("a legacy session with no answer map writes nothing — and that is honest, not degraded", async () => {
+    const { proc, workerAttributes } = make(); // no conversationState → transcript re-parse
+    await proc.process(makeJob());
+    expect(rowsWritten(workerAttributes)).toEqual([]);
+  });
 });
 
 describe("the interview's one LLM call is ledgered", () => {
