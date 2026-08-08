@@ -29,7 +29,7 @@ import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat.service";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { catalogVersionForEvent } from "../occupation/occupation.repository";
-import { IdentifyService } from "./identify.service";
+import { DISAMBIGUATION_PROMPT, IdentifyService, toPackOption } from "./identify.service";
 import { captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
 import {
   isSettled,
@@ -213,6 +213,28 @@ export interface TurnInput {
  * an utterance to a method that ignores it, and "the worker's words were silently dropped" is
  * precisely the failure the voice form cannot afford.
  */
+/** The question a worker is looking at right now, and how they can answer it. */
+export interface ServedQuestion {
+  /** Null on the disambiguation turn, whose chips come from retrieval and belong to no pack. */
+  readonly questionKey: string | null;
+  /** The wording last SERVED — `retry_text` when the question has been re-asked. */
+  readonly promptText: string;
+  readonly answerType: AnswerType | null;
+  readonly options: readonly QuestionPackOption[];
+  readonly whyText: string | null;
+  readonly progress: { readonly answered: number; readonly total: number };
+}
+
+/** A live interview, read without taking a turn. See {@link ProfilingOrchestrator.viewSession}. */
+export interface SessionView {
+  readonly buffer: TranscriptBuffer;
+  readonly envelope: ProfilingEnvelope;
+  /** The pinned pack's rows, occupation first — the review's source of `prompt_text`. */
+  readonly items: readonly QuestionPackItem[];
+  /** Null when nothing is on screen: a closed interview, or one whose pack no longer resolves. */
+  readonly served: ServedQuestion | null;
+}
+
 export interface OpenTurnInput {
   readonly sessionId: string;
   readonly workerId: string;
@@ -823,6 +845,76 @@ export class ProfilingOrchestrator {
    * exactly what it did before this existed. Loud, because a resumed session quietly changing its
    * questions is the failure this whole path is here to prevent.
    */
+  /**
+   * READ-ONLY: everything a surface needs to know about a live interview without taking a turn.
+   *
+   * WHY THIS EXISTS AT ALL. Two routes need facts the engine holds and nothing else does. The
+   * answer route has to turn the `option_key` a worker tapped into the LABEL that is their answer
+   * of record — server-side, always, because letting the client send the label makes the stored
+   * answer a thing the client chose. And the review screen has to pair each captured value with
+   * the question that produced it, which means the pinned pack's rows.
+   *
+   * ONE METHOD RATHER THAN TWO, because both need the same two loads (the envelope, then the
+   * packs it pins) and doing them separately would mean a review rendered against a pack the
+   * answer route had already re-resolved.
+   *
+   * IT TAKES NO WORKER ID AND CHECKS NO OWNERSHIP. That is deliberate and is the caller's job:
+   * ownership is decided against the `chat_sessions` ROW, never against a cache key, so a route
+   * that authorized on this would be authorizing on Redis.
+   *
+   * Returns null when there is no buffer — an interview that has not started, or whose TTL lapsed.
+   */
+  async viewSession(sessionId: string, now: Date): Promise<SessionView | null> {
+    const buffer = await this.buffer.load(sessionId);
+    if (buffer === null) return null;
+    const envelope = buffer.profiling ?? emptyProfilingEnvelope();
+
+    const packs = await this.resolvePacks(envelope, now.getTime());
+    const items = packs
+      ? [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items]
+      : [];
+    const answers = answersOf(envelope);
+
+    // THE DISAMBIGUATION OFFER OUTRANKS THE PACK QUESTION, in the same order `decide` applies it:
+    // when chips are on screen there IS no pack question, and a stale `servedQuestionKey` from
+    // before the offer would otherwise be reported as what the worker is looking at.
+    if (envelope.needsDisambiguation && envelope.disambiguationOffer.length > 0) {
+      return {
+        buffer,
+        envelope,
+        items,
+        served: {
+          questionKey: null,
+          promptText: DISAMBIGUATION_PROMPT,
+          answerType: "single_select",
+          options: envelope.disambiguationOffer.map((chip, index) => toPackOption(chip, index)),
+          whyText: null,
+          progress: progressOf(items, answers),
+        },
+      };
+    }
+
+    const item = items.find((candidate) => candidate.question_key === envelope.servedQuestionKey);
+    return {
+      buffer,
+      envelope,
+      items,
+      served: item
+        ? {
+            questionKey: item.question_key,
+            promptText: servedText(
+              item,
+              askCount(toEngineState(envelope, buffer.turnCount), item.question_key),
+            ),
+            answerType: item.answer_type,
+            options: item.options,
+            whyText: item.why_text ?? null,
+            progress: progressOf(items, answers),
+          }
+        : null,
+    };
+  }
+
   private async restorePin(
     sessionId: string,
     envelope: ProfilingEnvelope,

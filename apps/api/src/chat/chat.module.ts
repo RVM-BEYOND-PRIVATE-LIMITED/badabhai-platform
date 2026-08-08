@@ -35,6 +35,11 @@ import { ChatTranscriptBuffer } from "./chat-transcript.buffer";
   // transcript has not been flushed, so `ProfileExtractionProcessor` must be able to
   // read the buffer or the app's "make the profile anyway" escape hatch extracts from
   // nothing. Not a general-purpose export — ChatService remains the only writer.
-  exports: [ChatRepository, ChatTranscriptBuffer],
+  // ChatService is exported for ONE caller: `ProfilingSessionService`, which runs the voice
+  // form's turns through `runTurn` rather than reimplementing them. That is the owner's
+  // one-pipeline ruling — the alternative is a second surface with its own flush, its own
+  // checkpoint and its own idea of when an interview is over. Still not a general-purpose
+  // export: `postMessage` remains the chat route's, and nothing else may write the transcript.
+  exports: [ChatRepository, ChatTranscriptBuffer, ChatService],
 })
 export class ChatModule {}

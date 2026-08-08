@@ -6,7 +6,7 @@ import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { ProfilesService } from "../profiles/profiles.service";
-import { ProfilingOrchestrator } from "../profiling/orchestrator.service";
+import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrator.service";
 import { toConversationStatePatch } from "../profiling/conversation-state";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -94,8 +94,7 @@ const WORKER_NAME_PLACEHOLDER = "{{worker_name}}";
 export { CHAT_UNAVAILABLE_REPLY } from "./chat-replies";
 
 /** Served on a message posted to an interview that has already been finalized. */
-const CHAT_ALREADY_COMPLETE_REPLY =
-  "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
+const CHAT_ALREADY_COMPLETE_REPLY = "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
 
 /**
  * The one-shot composite opener, as REVIEWED COPY rather than a generated line.
@@ -114,6 +113,39 @@ const CHAT_ALREADY_COMPLETE_REPLY =
  */
 export const CHAT_OPENING_TEXT =
   "Namaste. Aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?";
+
+/**
+ * What one interview turn DID, before anybody decides how to render it.
+ *
+ * A CLOSED SET RATHER THAN A NULLABLE RESULT, because five of these six are not "the turn, but
+ * degraded" — they are distinct facts with distinct client contracts, and a shape that collapsed
+ * them (`{ turn: TurnResult | null }`) would leave every caller re-deriving which one happened
+ * from a combination of flags. That re-derivation is precisely where two surfaces drift: one of
+ * them eventually treats a `replay` as a `turn`, double-counts it, and the worker's retry over a
+ * bad connection costs them a question.
+ *
+ * `session_over` and `reflushed` carry no `TurnResult` because no turn was taken — the engine was
+ * never consulted. `unavailable` and `degraded` carry only the line to serve: in both, nothing
+ * the worker said was written, and the honest response is one they can retry into.
+ */
+export type ChatTurnOutcome =
+  /** The session was already finalized. No writes, no engine call — a late duplicate POST. */
+  | { readonly kind: "session_over" }
+  /** A completed-but-unflushed buffer was re-driven. `flushed` says whether it landed this time. */
+  | { readonly kind: "reflushed"; readonly flushed: boolean }
+  /** The orchestrator wrote NOTHING: a lost CAS after two attempts, or no resolvable pack. */
+  | { readonly kind: "unavailable"; readonly reply: string }
+  /** The buffer vanished between the CAS write and the read-back. The reply is still served. */
+  | { readonly kind: "degraded"; readonly reply: string }
+  /** Layer A fired — the previous reply, byte-identically, with no state changed. */
+  | { readonly kind: "replay"; readonly turn: TurnResult }
+  /** A real turn. `terminal` is true only when the interview closed AND the flush LANDED. */
+  | {
+      readonly kind: "turn";
+      readonly turn: TurnResult;
+      readonly buffered: TranscriptBuffer;
+      readonly terminal: boolean;
+    };
 
 @Injectable()
 export class ChatService {
@@ -223,6 +255,85 @@ export class ChatService {
     dto: PostMessageDto,
     ctx: RequestContext,
   ): Promise<PostMessageResponse> {
+    const outcome = await this.runTurn(workerId, dto.session_id, dto.text, ctx);
+    switch (outcome.kind) {
+      case "session_over":
+        return this.terminalResponse(dto.session_id);
+      case "reflushed":
+        return this.checkedResponse(
+          {
+            session_id: dto.session_id,
+            reply: CHAT_ALREADY_COMPLETE_REPLY,
+            blocked: false,
+            is_mock: true,
+            suggested_followups: [],
+            asked_question_id: null,
+            extraction_ready: outcome.flushed,
+            unanswered_essentials: [],
+            session_ended: outcome.flushed,
+            question_kind: "close",
+            progress: null,
+            occupation_label: null,
+          },
+          dto.session_id,
+        );
+      case "unavailable":
+      case "degraded":
+        return this.degradedResponse(dto.session_id, outcome.reply);
+      case "replay":
+        // 4. Layer A of the double-submit defence fired: this exact message at this exact rev
+        //    inside the replay window. The previous reply is returned byte-identically and NO
+        //    state changed — which is what a mobile client on a flaky 2G connection needs, as
+        //    opposed to a 409 telling it something went wrong when nothing did.
+        return this.checkedResponse(
+          {
+            session_id: dto.session_id,
+            reply: outcome.turn.reply,
+            blocked: false,
+            is_mock: false,
+            suggested_followups: [],
+            asked_question_id: outcome.turn.questionKey,
+            extraction_ready: false,
+            unanswered_essentials: [],
+            session_ended: false,
+            question_kind: "ask",
+            progress: outcome.turn.progress,
+            occupation_label: null,
+          },
+          dto.session_id,
+        );
+      case "turn":
+        return this.projectTurn(dto.session_id, workerId, outcome);
+    }
+  }
+
+  /**
+   * ONE INTERVIEW TURN, up to but not including how it is rendered.
+   *
+   * EXTRACTED SO THERE IS EXACTLY ONE OF IT. The owner ruling on this feature is that both
+   * surfaces must build the profile the same way, and everything between the ownership check and
+   * the projection is where "the same way" actually lives: the completed-but-unflushed re-drive,
+   * the CAS-losing `unavailable` branch, the replay short-circuit, the re-read of what actually
+   * landed, the flush, and the mid-interview checkpoint. A second surface that reimplemented any
+   * one of those would be a second interview engine wearing the first one's name — and the ways
+   * they would drift are all silent (a checkpoint that stops firing, a flush judged by
+   * `turn.complete` instead of by whether it landed).
+   *
+   * WHAT STAYS WITH THE CALLER is only the projection, because that genuinely differs: chat
+   * returns chip LABELS in `suggested_followups`, and the voice form needs option KEYS, an
+   * `answer_type` and a `why_text` in order to draw a question it cannot make the worker read.
+   *
+   * The security spine does NOT move: the worker id is the caller's authenticated id, the
+   * ownership test reads the `chat_sessions` ROW rather than the buffer, and a session that is
+   * missing OR not yours is 404 rather than 403.
+   */
+  async runTurn(
+    workerId: string,
+    sessionId: string,
+    text: string,
+    ctx: RequestContext,
+  ): Promise<ChatTurnOutcome> {
+    const dto = { session_id: sessionId, text };
     const session = await this.chat.findSession(dto.session_id);
     // Ownership: a worker may only post to their OWN session. 404 (not 403) so a
     // session id is never an existence oracle for another worker's session.
@@ -235,7 +346,7 @@ export class ChatService {
     // surface to the worker as an error for something that actually succeeded. No LLM
     // call, no writes — a late duplicate POST costs nothing.
     if (session.status !== "active") {
-      return this.terminalResponse(dto.session_id);
+      return { kind: "session_over" };
     }
 
     // 1. The buffered interview. Fails CLOSED (503) rather than silently restarting at
@@ -287,23 +398,7 @@ export class ChatService {
         `session ${dto.session_id} had a completed-but-unflushed buffer; ` +
           `re-flush ${reflushed ? "succeeded" : "FAILED again"}`,
       );
-      return this.checkedResponse(
-        {
-          session_id: dto.session_id,
-          reply: CHAT_ALREADY_COMPLETE_REPLY,
-          blocked: false,
-          is_mock: true,
-          suggested_followups: [],
-          asked_question_id: null,
-          extraction_ready: reflushed,
-          unanswered_essentials: [],
-          session_ended: reflushed,
-          question_kind: "close",
-          progress: null,
-          occupation_label: null,
-        },
-        dto.session_id,
-      );
+      return { kind: "reflushed", flushed: reflushed };
     }
 
     // 2. THE TURN. Deterministic, in-process, ZERO LLM CALLS.
@@ -336,7 +431,7 @@ export class ChatService {
         `chat turn dropped session=${dto.session_id}: orchestrator wrote nothing; ` +
           `the worker can retry into the same session`,
       );
-      return this.degradedResponse(dto.session_id, turn.reply);
+      return { kind: "unavailable", reply: turn.reply };
     }
 
     // 4. Layer A of the double-submit defence fired: this exact message at this exact rev
@@ -344,23 +439,7 @@ export class ChatService {
     //    state changed — which is what a mobile client on a flaky 2G connection needs, as
     //    opposed to a 409 telling it something went wrong when nothing did.
     if (turn.replayed) {
-      return this.checkedResponse(
-        {
-          session_id: dto.session_id,
-          reply: turn.reply,
-          blocked: false,
-          is_mock: false,
-          suggested_followups: [],
-          asked_question_id: turn.questionKey,
-          extraction_ready: false,
-          unanswered_essentials: [],
-          session_ended: false,
-          question_kind: "ask",
-          progress: turn.progress,
-          occupation_label: null,
-        },
-        dto.session_id,
-      );
+      return { kind: "replay", turn };
     }
 
     // 5. Re-read the buffer the orchestrator just wrote.
@@ -379,7 +458,7 @@ export class ChatService {
         `buffer for session ${dto.session_id} disappeared immediately after a successful ` +
           `CAS write; serving the reply and letting the next turn restart the interview`,
       );
-      return this.degradedResponse(dto.session_id, turn.reply);
+      return { kind: "degraded", reply: turn.reply };
     }
     const buffered = written;
 
@@ -431,6 +510,24 @@ export class ChatService {
         `complete=${turn.complete} flushed=${flushed}`,
     );
 
+    return { kind: "turn", turn, buffered, terminal };
+  }
+
+  /**
+   * A completed turn, as `POST /chat/message` renders it.
+   *
+   * SPLIT FROM {@link runTurn} RATHER THAN INLINED, because this is the ONE part a second
+   * surface must be free to do differently: `suggested_followups` carries chip LABELS, which is
+   * right for "pick a chip or type instead" and useless to a client that has to submit the
+   * `option_key` the worker tapped.
+   */
+  private async projectTurn(
+    sessionId: string,
+    workerId: string,
+    outcome: Extract<ChatTurnOutcome, { kind: "turn" }>,
+  ): Promise<PostMessageResponse> {
+    const { turn, buffered, terminal } = outcome;
+    const dto = { session_id: sessionId };
     // 7. Personalize ONLY the client-returned reply — post-buffer, post-flush, post-emit —
     //    by interpolating the worker's real first name over the `{{worker_name}}` token.
     //    Everything durable still holds the placeholder.
@@ -857,10 +954,7 @@ export class ChatService {
    * name post-render; §2 no-PII-in-logs) — and return the constructed object. Outbound
    * validation must NEVER 500 a chat turn.
    */
-  private checkedResponse(
-    response: PostMessageResponse,
-    sessionId: string,
-  ): PostMessageResponse {
+  private checkedResponse(response: PostMessageResponse, sessionId: string): PostMessageResponse {
     const checked = PostMessageResponseSchema.safeParse(response);
     if (!checked.success) {
       this.logger.warn(
