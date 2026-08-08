@@ -163,6 +163,60 @@ void main() {
     expect(turn.unansweredEssentials, <String>['machines', 'experience']);
   });
 
+  test('sendMessage carries progress, question_kind and occupation through (#649)',
+      () async {
+    final SessionRepository session = SessionRepository()
+      ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+      ..setSession('s1');
+    final ChatRepositoryImpl repo = ChatRepositoryImpl(
+      ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{
+                'reply': 'Aap darzi hain?',
+                'progress': <String, dynamic>{'answered': 2, 'total': 9},
+                'question_kind': 'disambiguate',
+                'occupation_label': 'darzi',
+              }),
+              201,
+            )),
+      ),
+      session,
+    );
+
+    final ChatTurn turn = await repo.sendMessage('hi');
+    expect(turn.progress?.answered, 2);
+    expect(turn.progress?.total, 9);
+    expect(turn.questionKind, ChatQuestionKind.disambiguate);
+    expect(turn.occupationLabel, 'darzi');
+  });
+
+  test('a session_ended reply drops the cached chat session id (#649 re-verify)',
+      () async {
+    final SessionRepository session = SessionRepository()
+      ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+      ..setSession('s1');
+    final ChatRepositoryImpl repo = ChatRepositoryImpl(
+      ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{
+                'reply': 'Interview poori hui.',
+                'session_ended': true,
+              }),
+              201,
+            )),
+      ),
+      session,
+    );
+
+    expect(session.sessionId, 's1');
+    await repo.sendMessage('hi');
+    expect(session.sessionId, isNull,
+        reason: 'session_ended must clear the cached id so "start a fresh chat" '
+            'on the Resume/Profile tabs still works');
+  });
+
   // #502 transcript hydration — the persisted transcript is redrawn as bubbles.
   group('loadHistory (#502)', () {
     test('no open session -> [] (best-effort, never hits the network)', () async {

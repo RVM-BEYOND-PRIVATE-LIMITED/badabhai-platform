@@ -84,4 +84,61 @@ void main() {
       expect(reply.unansweredEssentials, <String>['role', 'experience']);
     });
   });
+
+  group('OIE Phase 8 fields (#649)', () {
+    test('parses progress, question_kind and occupation_label', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Aap darzi hain?',
+        'progress': <String, dynamic>{'answered': 3, 'total': 12},
+        'question_kind': 'disambiguate',
+        'occupation_label': 'darzi',
+      });
+      expect(reply.progress!.answered, 3);
+      expect(reply.progress!.total, 12);
+      expect(reply.progress!.fraction, closeTo(0.25, 1e-9));
+      expect(reply.questionKind, ChatQuestionKind.disambiguate);
+      expect(reply.occupationLabel, 'darzi');
+    });
+
+    test('an absent set = the safe defaults (no bar, ask, no pill)', () {
+      final ChatReply reply =
+          ChatReply.fromJson(<String, dynamic>{'reply': 'Theek hai'});
+      expect(reply.progress, isNull);
+      expect(reply.questionKind, ChatQuestionKind.ask);
+      expect(reply.occupationLabel, isNull);
+    });
+
+    test('a malformed progress hides the bar, never throws the reply away', () {
+      for (final Object? bad in <Object?>[
+        <String, dynamic>{'answered': 3}, // missing total
+        <String, dynamic>{'answered': 'x', 'total': 12}, // non-int
+        <String, dynamic>{'answered': 3, 'total': 0}, // zero total
+        'nonsense',
+        42,
+      ]) {
+        final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+          'reply': 'Bada bhai ka jawaab',
+          'progress': bad,
+        });
+        expect(reply.reply, 'Bada bhai ka jawaab', reason: 'reply survives');
+        expect(reply.progress, isNull, reason: 'bad progress: $bad');
+      }
+    });
+
+    test('an unknown question_kind falls back to ask', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'ok',
+        'question_kind': 'something_new_from_the_future',
+      });
+      expect(reply.questionKind, ChatQuestionKind.ask);
+    });
+
+    test('a non-string occupation_label is null, not a crash', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'ok',
+        'occupation_label': 42,
+      });
+      expect(reply.occupationLabel, isNull);
+    });
+  });
 }

@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../core/api/api_models.dart' show ChatProgress, ChatQuestionKind;
+
 /// One assistant turn from the profiling chat: bada bhai's [reply] plus any
 /// [followups].
 ///
@@ -14,10 +16,25 @@ class ChatTurn extends Equatable {
     this.unansweredEssentials = const <String>[],
     this.blocked = false,
     this.isMock = false,
+    this.progress,
+    this.questionKind = ChatQuestionKind.ask,
+    this.occupationLabel,
   });
 
   final String reply;
   final List<String> followups;
+
+  /// How far through the pinned pack the worker is (OIE Phase 8 / #649), or null
+  /// when no pack has resolved yet. Drives the progress bar.
+  final ChatProgress? progress;
+
+  /// The kind of turn — only [ChatQuestionKind.disambiguate] changes the UI, to
+  /// a vertical single-select (#649).
+  final ChatQuestionKind questionKind;
+
+  /// The worker's trade in their own vernacular once retrieval pins it (#649),
+  /// or null before it pins. The interview's trust moment.
+  final String? occupationLabel;
 
   /// The interview engine's own completeness decision, carried from the
   /// backend's `extraction_ready` (#421). False until the engine says it has
@@ -50,5 +67,8 @@ class ChatTurn extends Equatable {
         unansweredEssentials,
         blocked,
         isMock,
+        progress,
+        questionKind,
+        occupationLabel,
       ];
 }

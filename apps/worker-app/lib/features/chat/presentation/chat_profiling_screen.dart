@@ -3,6 +3,7 @@ import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/api/api_models.dart' show ChatProgress, ChatQuestionKind;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -13,6 +14,7 @@ import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
+import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../router.dart';
 import '../../voice/domain/voice_models.dart';
 import '../domain/chat_message.dart';
@@ -22,6 +24,13 @@ import 'bloc/chat_bloc.dart';
 /// message to auto-scroll. Beyond this, we surface the "new message" pill
 /// instead of yanking the transcript down under their thumb.
 const double _kNearBottomThreshold = 120;
+
+/// The disambiguation "none of these" escape label (#649). The backend serves it
+/// as an ordinary `suggested_followups` entry (`is_none_of_above`, currently
+/// 'Kuch aur'); the client recognises it by this label to style it distinctly.
+/// If the phrase ever changes server-side it degrades to a normal option, never
+/// breaks.
+const String _kDisambiguateEscape = 'Kuch aur';
 
 /// Hinglish label on the jump-to-bottom pill.
 const String _kNewMessageLabel = 'Naye message';
@@ -443,6 +452,10 @@ class _ChatViewState extends State<_ChatView> {
               child: Column(
                 children: <Widget>[
                   if (state.sessionFailed) _sessionBanner(),
+                  // OIE Phase 8 (#649): the pack progress bar + the pinned
+                  // occupation pill. Hidden until a pack resolves / a trade pins.
+                  if (state.progress != null || state.occupationLabel != null)
+                    _oieHeader(state.progress, state.occupationLabel),
                   Expanded(
                     child: Stack(
                       children: <Widget>[
@@ -481,7 +494,13 @@ class _ChatViewState extends State<_ChatView> {
                   if (state.sending)
                     _typingIndicator()
                   else if (state.followups.isNotEmpty)
-                    _followups(state.followups),
+                    // A disambiguation turn is mutually-exclusive occupations
+                    // where the tapped label BECOMES the answer of record and
+                    // selects the pack — a vertical single-select, not the
+                    // horizontal scroller a worker can skim past (#649).
+                    state.questionKind == ChatQuestionKind.disambiguate
+                        ? _disambiguate(state.followups)
+                        : _followups(state.followups),
                   // A blocked turn (pseudonymize fail-closed) never processed the
                   // worker's last answer — say so rather than let the canned
                   // fallback reply read as understood. Shown in every build.
@@ -689,6 +708,123 @@ class _ChatViewState extends State<_ChatView> {
               const SizedBox(width: AppSpacing.s2),
             ],
           ],
+        ),
+      ),
+    );
+  }
+
+  /// OIE Phase 8 header (#649): the pack progress bar (the finish line, the
+  /// single strongest completion lever for low-literacy users) and the pinned
+  /// occupation pill.
+  Widget _oieHeader(ChatProgress? progress, String? occupation) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, AppSpacing.s2, AppSpacing.s4, AppSpacing.s2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          if (progress != null) BbProgressBar(value: progress.fraction),
+          if (progress != null && occupation != null)
+            const SizedBox(height: AppSpacing.s2),
+          if (occupation != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _occupationPill(occupation),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The trust moment: the worker's trade in their OWN vernacular, once pinned.
+  /// [label] is worker/engine data (e.g. "darzi"), never a persona string.
+  Widget _occupationPill(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s3, vertical: AppSpacing.s1),
+      decoration: BoxDecoration(
+        color: AppColors.haldiTint,
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        border: Border.all(color: AppColors.haldi),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.check_circle, size: 16, color: AppColors.blue),
+          const SizedBox(width: AppSpacing.s1),
+          Flexible(
+            child: Text(
+              label,
+              style: AppTypography.body(
+                  size: 14, weight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A disambiguation turn (#649): mutually-exclusive occupations as a VERTICAL
+  /// single-select. Unlike [_followups]' horizontal scroller, nothing can be
+  /// skimmed past — the tapped label becomes the answer of record and selects
+  /// the pack. The "none of these" escape is rendered visually distinct.
+  Widget _disambiguate(List<String> options) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (final String o in options) _disambiguateOption(o),
+        ],
+      ),
+    );
+  }
+
+  Widget _disambiguateOption(String label) {
+    final bool escape =
+        label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+      child: Material(
+        color: escape ? Colors.transparent : AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          onTap: () => _sendText(label),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.s4, vertical: AppSpacing.s3),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              border: Border.all(
+                color: escape ? AppColors.borderSubtle : AppColors.blue,
+              ),
+            ),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    label,
+                    style: AppTypography.body(
+                      size: 15,
+                      weight: escape ? FontWeight.w400 : FontWeight.w600,
+                      color:
+                          escape ? AppColors.textMuted : AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                Icon(
+                  escape ? Icons.more_horiz : Icons.chevron_right,
+                  color: escape ? AppColors.textMuted : AppColors.blue,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
