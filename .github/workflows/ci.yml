@@ -388,6 +388,15 @@ jobs:
       - name: Seed job domains (occupation catalogue)
         run: pnpm --filter @badabhai/db db:seed:domains --apply
 
+      # NORMALIZE BETWEEN THE SEED AND ANY RETRIEVAL — and this ran in NO workflow at all.
+      #
+      # `verify-job-domains.ts` states it plainly: an un-normalized alias is "invisible to L0/L2
+      # retrieval". So CI seeded the catalogue and then exercised an occupation ladder missing its
+      # exact- and trigram-match keys, degrading to whatever still happened to hit — which passes,
+      # just less accurately, which is the worst kind of gap because nothing goes red.
+      - name: Normalize occupation aliases
+        run: pnpm --filter @badabhai/db db:normalize:aliases --apply
+
       - name: Seed question packs
         run: pnpm --filter @badabhai/db db:seed:packs --apply
 
@@ -397,6 +406,13 @@ jobs:
       # pack exists", neither of which a corpus read can prove.
       - name: Verify question packs (db:verify:packs)
         run: pnpm --filter @badabhai/db db:verify:packs
+
+      # The catalogue's own gate, and it ran in no workflow either. It is what turns the
+      # normalize step above from a hopeful extra into a checked one: it fails on aliases that
+      # would be invisible to L0/L2 retrieval, which is the exact degradation nothing else
+      # notices.
+      - name: Verify occupation catalogue (db:verify:domains)
+        run: pnpm --filter @badabhai/db db:verify:domains
 
       # D1 — the Matching V1 match vocabulary. Needed here for TWO reasons, and the second
       # is the load-bearing one:

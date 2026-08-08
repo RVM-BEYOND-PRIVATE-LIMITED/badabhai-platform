@@ -34,6 +34,22 @@ async def download_object(settings: Settings, object_key: str, *, bucket: str) -
     if not settings.storage_configured:
         raise RuntimeError("supabase storage not configured (SUPABASE_URL / SERVICE_ROLE_KEY)")
 
+    # THE BUCKET NAME, CHECKED WHERE IT IS USED.
+    #
+    # ``voice_notes_bucket`` now defaults to EMPTY on this side, matching apps/api's
+    # ``VOICE_NOTES_BUCKET`` — the two used to disagree about what "unset" means, which made
+    # arming one side alone a silent total failure. An empty bucket would otherwise be
+    # interpolated into the URL below and come back as a 400/404: indistinguishable from a
+    # missing object, a permissions problem, or a transport blip, and PII-free by design, so the
+    # log says nothing useful either.
+    #
+    # HERE rather than in ``stt.py`` deliberately. This function is the only thing that needs a
+    # bucket, and ``stt_smoke --file`` legitimately SWAPS IT OUT for a local loader to exercise
+    # the provider leg without storage at all — a guard further up broke that path over a value
+    # it never reads. Check the input where it is consumed, not where it is passed.
+    if not bucket:
+        raise RuntimeError("voice audio fetch failed: no bucket configured (VOICE_NOTES_BUCKET)")
+
     quoted = urllib.parse.quote(object_key, safe="/")
     url = f"{settings.supabase_url}/storage/v1/object/{bucket}/{quoted}"
     headers = {"Authorization": f"Bearer {settings.supabase_service_role_key}"}

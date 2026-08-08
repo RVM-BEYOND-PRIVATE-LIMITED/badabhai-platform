@@ -5,6 +5,8 @@ and the real path fails closed to an EMPTY transcript (never fabricated).
 """
 
 import asyncio
+import re
+from pathlib import Path
 
 import pytest
 
@@ -76,6 +78,72 @@ def test_real_call_can_be_disabled_per_request():
     result = _run(adapter.transcribe(storage_path="x", real_call_allowed=False))
     assert result.is_mock is True
     assert result.transcript_text == MOCK_TRANSCRIPT
+
+
+def test_the_bucket_DEFAULT_matches_the_api_side_character_for_character():
+    """THE SPLIT BRAIN ITSELF — asserted across the language boundary, not restated.
+
+    Both services read the SAME environment variable, `VOICE_NOTES_BUCKET`, and until this fix
+    they disagreed about what UNSET means: apps/api defaults to "" and this service defaulted to
+    the literal "worker-voice-notes". No compose file declares it, so in any container each ran
+    on its own default. Arming one side alone was silent total failure.
+
+    Reading the TypeScript default rather than repeating it here is the point: a test that
+    hard-coded "" on both sides would keep passing while somebody changed one of them.
+    """
+    repo_root = Path(__file__).resolve().parents[3]
+    server_config = (repo_root / "packages" / "config" / "src" / "server.ts").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r'VOICE_NOTES_BUCKET:\s*z\.string\(\)\.default\("([^"]*)"\)', server_config)
+    assert match, "could not find the api-side VOICE_NOTES_BUCKET default in server.ts"
+
+    ts_default = match.group(1)
+    py_default = Settings(_env_file=None).voice_notes_bucket
+    assert py_default == ts_default, (
+        f"apps/api defaults VOICE_NOTES_BUCKET to {ts_default!r} and this service to "
+        f"{py_default!r}. Two services, one variable, two meanings for 'unset' — arming either "
+        "side alone is silent total failure with a green /health on both."
+    )
+    # …and BOTH must be the fail-closed value. Agreeing on a guessed bucket name would be just
+    # as wrong: it would point a container at storage nobody provisioned.
+    assert py_default == ""
+
+
+def test_an_unset_voice_bucket_is_refused_BY_NAME_before_any_network_spend(caplog):
+    """THE SPLIT BRAIN, CLOSED AT THE SOURCE.
+
+    `voice_notes_bucket` used to default to the literal "worker-voice-notes" here while
+    apps/api's `VOICE_NOTES_BUCKET` defaults to "" — two services reading the SAME variable
+    name and disagreeing about what unset means. No compose file declares it, so in any
+    container each ran on its own default, and arming ONE side (the api, pointed at a
+    differently-named bucket) was silent total failure: uploads land in bucket X, this service
+    fetches from another, every transcription fails closed to an empty transcript, and /health
+    is green on both because neither reports a bucket.
+
+    Both defaults are now "" — unset means unset on both sides — and this is the guard that
+    turns "STT mysteriously returns nothing" into a named reason.
+    """
+    # Storage IS configured here, so the only thing missing is the bucket — otherwise the
+    # storage_configured guard would fire first and prove nothing about this one.
+    adapter = SttAdapter(
+        _armed(
+            voice_notes_bucket="",
+            supabase_url="https://example.invalid",
+            supabase_service_role_key="srk",
+        )
+    )
+    with pytest.raises(RuntimeError, match="VOICE_NOTES_BUCKET"):
+        _run(adapter._transcribe_real(storage_path="x", duration_seconds=None, language_code=None))
+
+
+def test_the_bucket_guard_does_not_fire_once_it_is_configured():
+    """The other half: the guard must not become the reason a configured service fails."""
+    adapter = SttAdapter(_armed(voice_notes_bucket="worker-voice-notes"))
+    result = _run(adapter.transcribe(storage_path="x"))
+    # Storage is still unconfigured in the test env, so it fails closed as before — on the
+    # storage_configured check, never on the bucket name.
+    assert result.error_code == "stt_call_failed"
 
 
 def test_real_path_fails_closed_to_empty_transcript():

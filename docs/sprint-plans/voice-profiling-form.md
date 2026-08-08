@@ -61,7 +61,7 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 
 | # | Item | State |
 |---|---|---|
-| **B-1** | Packs **seeded** in each environment | `db:seed:packs` appears in **no workflow, no runbook, no e2e**. CI runs only `--corpus` (DB-free). Unverified per environment. |
+| ~~**B-1**~~ | Packs **seeded** in each environment | **RESOLVED by #684, and the row's own evidence was half wrong.** Re-measured: `db:seed:packs --apply` DOES run in ci.yml's e2e job (with `--apply`, and with the live-DB `db:verify:packs` after it) — but against a throwaway container that is deleted at the end of the run. The headline held: it was on **no deploy path and in no runbook**. `staging-cd.yml` now seeds domains → normalizes aliases → seeds packs → verifies both against the live database, immediately after `db:migrate`. A SEPARATE hole surfaced while checking: `db:normalize:aliases` and `db:verify:domains` ran in **zero** workflows, and `verify-job-domains.ts` states that an un-normalized alias is *"invisible to L0/L2 retrieval"* — so CI was exercising a silently degraded occupation ladder. Both now run in CI and on the deploy path. |
 | **B-2** | Sarvam TTS accepts **romanized** Hinglish at `hi-IN` | Unknown. 0 of 466 pack items contain a Devanagari codepoint. Resolved by V0. |
 | **B-3** | Round-trip latency for a ≤30s answer | Unmeasured. Every number in the repo is a timeout, never an observation. Resolved by V0. |
 | ~~**B-4**~~ | Where `attribute` answers land | **RESOLVED** — owner ruled `worker_attributes`; the table shipped in V1 (migration 0071). The *wiring* is V2. |
@@ -751,7 +751,7 @@ embeds the object key) · the pre-rendered TTS route takes `question_key`, never
 | # | Risk | Consequence | Mitigation |
 |---|---|---|---|
 | R1 | **77% of items have no destination** | The form asks ~8–9 questions per session and discards the answers, each a paid STT call | **V2 — owner decision** |
-| R2 | Packs in git, in no database | Every worker gets `UNAVAILABLE_REPLY`, silently | B-1 + boot-time `loadUniversal()` ERROR log; seed step in `staging-cd.yml` |
+| ~~R2~~ | Packs in git, in no database | Every worker gets `UNAVAILABLE_REPLY`, silently | **CLOSED (#684) with both walls.** `PackRegistryService` implements `OnModuleInit` and logs at **ERROR** naming the locale and the exact seed command when even the universal pack is missing — fire-and-forget so a slow database cannot delay `listen`, and never a throw, because a crash-loop hides the very message the check exists to print. The seed step landed in `staging-cd.yml` beside it: one tells you at deploy time, the other at start-up. |
 | R3 | Sarvam TTS on romanized Hinglish | Confident nonsense in an English voice is worse than silence for a non-reader | **V0 rung 0** before anything is built |
 | R4 | Round-trip latency unmeasured; only bound in code is 10× the client budget | The "seamless" promise cannot be made | V0; chips remove 85% of round-trips, which is the real mitigation |
 | R5 | `envelope.occupation` never written | 100 trade packs unreachable | V3 |

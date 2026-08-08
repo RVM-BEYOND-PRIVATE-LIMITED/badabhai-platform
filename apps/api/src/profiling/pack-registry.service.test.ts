@@ -340,3 +340,99 @@ describe("caching", () => {
     expect((await registry.loadPinned("qp_welding", 2, NOW))?.items[0]?.question_key).toBe("q_new");
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * R2 — an unseeded database must SAY SO at boot.
+ *
+ * The packs live in git and reach a database only via `db:seed:packs --apply`. An environment
+ * that migrated but never seeded looks completely healthy — `/health` green, process serving —
+ * while every worker's first turn resolves no pack and gets the unavailable line, forever. The
+ * symptom points at the orchestrator, which is the wrong place to go and look.
+ * ══════════════════════════════════════════════════════════════════════════ */
+describe("boot-time seeding check", () => {
+  /** Capture what reaches the logger without printing it through the suite. */
+  function spyLogger() {
+    return {
+      error: vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined),
+      log: vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined),
+    };
+  }
+
+  it("logs at ERROR when even the UNIVERSAL pack is missing", async () => {
+    const spy = spyLogger();
+    try {
+      // No bindings at all — exactly what an unseeded `profiling_family_binding` looks like.
+      const { registry } = makeRegistry({});
+      registry.onModuleInit();
+      await vi.waitFor(() => expect(spy.error).toHaveBeenCalled());
+
+      const message = String(spy.error.mock.calls[0]![0]);
+      expect(message).toContain("NO UNIVERSAL QUESTION PACK");
+      // The message has to carry the FIX, not just the fact. An operator reading this at 2am
+      // should not have to find the seed command themselves.
+      expect(message).toContain("db:seed:packs --apply");
+      // …and the locale, because a mismatch presents identically and is the likelier cause on a
+      // database somebody did seed.
+      expect(message).toContain("hi-IN");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("logs at LOG, never ERROR, when the packs ARE seeded", async () => {
+    const spy = spyLogger();
+    try {
+      const { registry } = makeRegistry({
+        bindings: [binding("fam_universal", 0)],
+        packs: { UNIVERSAL },
+      });
+      registry.onModuleInit();
+      await vi.waitFor(() => expect(spy.log).toHaveBeenCalled());
+
+      expect(spy.error).not.toHaveBeenCalled();
+      expect(String(spy.log.mock.calls[0]![0])).toContain("qp_universal");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("NEVER throws out of onModuleInit, even when the database is unreachable", async () => {
+    // The whole point of ERROR-not-throw. An unseeded or unreachable database must not take down
+    // auth, the payer portal and resume rendering with it, and a crash-loop hides the very
+    // message this check exists to print.
+    const spy = spyLogger();
+    try {
+      const { registry, repo } = makeRegistry({});
+      repo.findBindings = vi.fn(async () => {
+        throw new Error("db down");
+      });
+
+      expect(() => registry.onModuleInit()).not.toThrow();
+      await vi.waitFor(() => expect(spy.error).toHaveBeenCalled());
+      expect(String(spy.error.mock.calls[0]![0])).toContain("could not run");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("does not block boot on a slow database", async () => {
+    // Fire-and-forget: `onModuleInit` returns void and must return IMMEDIATELY, or a slow
+    // database delays `listen` for every route in the process.
+    const spy = spyLogger();
+    try {
+      const { registry, repo } = makeRegistry({});
+      let release!: () => void;
+      repo.findBindings = vi.fn(
+        () => new Promise((resolve) => (release = () => resolve([]))),
+      ) as never;
+
+      registry.onModuleInit(); // returns while the query is still pending
+      expect(spy.error).not.toHaveBeenCalled();
+
+      release();
+      await vi.waitFor(() => expect(spy.error).toHaveBeenCalled());
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+});
