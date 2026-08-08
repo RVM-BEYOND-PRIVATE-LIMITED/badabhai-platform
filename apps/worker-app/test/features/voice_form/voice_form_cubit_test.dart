@@ -473,8 +473,6 @@ class _ThrowingSubmitGateway implements VoiceFormGateway {
   Future<void> finalize() async {}
 }
 
-}
-
 /// Throws on the FIRST start() (a transient failure), then serves one question.
 class _FailFirstGateway implements VoiceFormGateway {
   int _starts = 0;
