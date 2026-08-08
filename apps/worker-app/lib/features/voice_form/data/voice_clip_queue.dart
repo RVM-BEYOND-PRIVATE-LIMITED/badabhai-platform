@@ -260,13 +260,22 @@ class VoiceClipQueue {
     // A's remaining clips. B logs in on the same handset and the drain loop
     // uploads them under B's session. Removing the keys first makes the worst
     // case an orphaned FILE rather than an attributed UPLOAD.
+    // Snapshot the manifest BEFORE invalidating it — the entries are needed to
+    // delete each clip through the same seam every other removal path uses.
+    final List<VoiceClipQueueItem> items = await all();
+
     final SharedPreferences p = await _prefs();
     await p.remove(kQueueKey);
     await p.remove(kCursorKey);
 
-    // Directory-driven, not manifest-driven: a clip that was relocated but whose
-    // manifest write never landed has no entry to enumerate, and nothing else
-    // reaps this directory.
+    for (final VoiceClipQueueItem i in items) {
+      await _deleteClip(i.clipPath);
+    }
+
+    // …AND a directory reap, because the manifest is not exhaustive: a clip that
+    // was relocated but whose manifest write never landed has no entry to
+    // enumerate, and nothing else scans this directory (it sits outside the
+    // recorder's swept namespace by design — H3).
     try {
       final Directory dir = Directory(_queueDirPath);
       if (await dir.exists()) await dir.delete(recursive: true);

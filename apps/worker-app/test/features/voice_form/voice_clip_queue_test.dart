@@ -187,6 +187,37 @@ void main() {
       expect(p.getString(VoiceClipQueue.kCursorKey), isNull);
     });
 
+    test(
+        'clearAll() invalidates the MANIFEST before it starts deleting files',
+        () async {
+      // The ordering IS the guarantee. clearAll() runs unawaited during the
+      // logout transition; if it deletes N files first and drops the key last,
+      // a death in that window (app swiped away, process killed, prefs throw)
+      // leaves the manifest still listing worker A's clips — and B, logging in
+      // on the same handset, drains them under B's session. Keys first makes
+      // the worst case an orphaned FILE, never an attributed UPLOAD.
+      await queue.enqueue(item('a.m4a'));
+      await queue.enqueue(item('b.m4a'));
+
+      final List<String> order = <String>[];
+      final VoiceClipQueue ordered = VoiceClipQueue(
+        clock: () => now,
+        deleteClip: (String p) async {
+          // Read the manifest AS the first file is deleted — it must already
+          // be gone.
+          final SharedPreferences sp = await SharedPreferences.getInstance();
+          order.add(sp.getString(VoiceClipQueue.kQueueKey) == null
+              ? 'manifest-already-cleared'
+              : 'manifest-STILL-PRESENT');
+        },
+      );
+
+      await ordered.clearAll();
+
+      expect(order, isNotEmpty, reason: 'the per-file seam must still be used');
+      expect(order, everyElement('manifest-already-cleared'));
+    });
+
     test('markUploaded deletes the clip file, not just the manifest entry (H2)',
         () async {
       await queue.enqueue(item('a.m4a'));
