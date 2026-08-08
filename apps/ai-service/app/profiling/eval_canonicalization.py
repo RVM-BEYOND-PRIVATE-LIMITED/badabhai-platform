@@ -372,23 +372,47 @@ def _make_real_pseudonymize_fn(base_url: str, timeout: float = 30.0) -> attrib.P
     return pseudonymize_fn
 
 
-def _smoke_profiling_respond(base_url: str, timeout: float = 30.0) -> bool:
-    """Exercise POST /profiling/respond once so the per-field rig touches BOTH
-    real endpoints (the brief requires both). Returns True if the turn was not
-    blocked. Uses a fabricated, PII-free utterance."""
+def _smoke_profile_parse(base_url: str, timeout: float = 30.0) -> bool:
+    """Exercise the second real endpoint once, so the per-field rig touches BOTH.
+
+    WAS ``/profiling/respond``, WHICH NO LONGER EXISTS (OIE Phase 8). The interview is
+    deterministic and makes no model call, so there is no per-turn endpoint left to smoke.
+    The equivalent is ``/profile/parse``: the one LLM call the pipeline still makes, and the
+    one whose availability this rig actually needs to know about.
+
+    The FUNCTION was renamed with the route. A helper still named after a deleted endpoint is
+    a trap — the next reader greps for ``/profiling/respond``, finds this, and concludes the
+    route survived the cutover.
+
+    Returns True when the call answered at all. Uses a fabricated, PII-free answer map.
+    """
     import httpx
 
-    url = base_url.rstrip("/") + "/profiling/respond"
+    url = base_url.rstrip("/") + "/profile/parse"
     with httpx.Client(timeout=timeout, headers=_service_auth_headers()) as client:
         resp = client.post(
             url,
             json={
-                "session_id": "eval-smoke",
-                "message_text": "vmc operator hu, fanuc pe kaam karta hu",
+                "schema_version": "oie.v1",
+                "worker_ref": "eval-smoke",
+                "answer_map": [
+                    {
+                        "question_key": "trade",
+                        "target_field": "trade",
+                        "value_raw": "vmc operator hu, fanuc pe kaam karta hu",
+                        "value_normalized": "vmc operator",
+                        "status": "answered",
+                        "turn": 1,
+                    }
+                ],
+                "transcript": [
+                    {"i": 0, "role": "worker", "text": "vmc operator hu, fanuc pe kaam karta hu"}
+                ],
+                "target_fields": [{"field_id": "trade", "type": "string", "required": True}],
             },
         )
         resp.raise_for_status()
-        return not (resp.json() or {}).get("blocked", False)
+        return isinstance(resp.json(), dict)
 
 
 def _print_report(result: gold.EvalResult, *, gated_only: bool) -> None:
@@ -526,15 +550,15 @@ def _run_per_field(args) -> int:
         pacing = f" (pacing {args.min_interval:g}s between cases)" if args.min_interval > 0 else ""
         print(
             f"Mode: --per-field --real -> POST {base}/profile/extract "
-            f"+ {base}/profiling/respond + {base}/pseudonymize{pacing}\n"
+            f"+ {base}/profile/parse + {base}/pseudonymize{pacing}\n"
             "(both endpoints pseudonymize first; fabricated data only)\n"
         )
-        # Touch BOTH real endpoints per the brief; respond is a smoke pass.
+        # Touch BOTH real endpoints per the brief; the parse call is a smoke pass.
         try:
-            ok = _smoke_profiling_respond(args.base_url)
-            print(f"/profiling/respond smoke: {'ok' if ok else 'blocked'}\n")
+            ok = _smoke_profile_parse(args.base_url)
+            print(f"/profile/parse smoke: {'ok' if ok else 'blocked'}\n")
         except Exception as exc:  # noqa: BLE001 - report, don't crash the eval
-            print(f"/profiling/respond smoke: error ({exc})\n")
+            print(f"/profile/parse smoke: error ({exc})\n")
         result = gold.evaluate_per_field(extract_fn)
         summary = attrib.attribute_misses(result, pseudonymize_fn=pseudo_fn)
     else:

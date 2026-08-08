@@ -61,6 +61,8 @@ const FULL: ProfilingEnvelope = {
   silentTurns: 1,
   hardshipTurns: 1,
   needsDisambiguation: true,
+  disambiguationOffer: [{ label: "Welder", jobDomainId: "jd_nco_7212_0100", familyId: "fam_welding" }],
+  identifyAttempts: 1,
   packId: "qp_welding",
   packVersion: 3,
   catalogVersion: "cat_2026_08",
@@ -70,6 +72,11 @@ const FULL: ProfilingEnvelope = {
     questionKey: "q_city",
     at: "2026-08-06T10:00:00.000Z",
   },
+  // Every bucket distinct and non-zero, for the same reason as every other field here: a
+  // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.
+  turnLatency: { le_100: 4, le_200: 3, le_400: 2, le_800: 1, gt_800: 5, max_ms: 1234 },
+  occupationFamilyId: "fam_welding",
+  occupationRepins: 1,
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {

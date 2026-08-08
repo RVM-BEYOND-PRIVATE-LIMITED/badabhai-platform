@@ -48,6 +48,18 @@ class _VoiceChoiceChipsState extends State<VoiceChoiceChips> {
   /// Selected keys for a multi-select question, in tap order.
   final List<String> _selected = <String>[];
 
+  /// CLEAR ON QUESTION CHANGE. Flutter reuses this State when the parent
+  /// rebuilds the widget at the same position with a new `question` — only
+  /// `didUpdateWidget` fires, never `initState`. Without this, Q(n)'s selected
+  /// keys survive into Q(n+1) and a worker who taps one new option submits it
+  /// mixed with the previous question's answer, silently, against the wrong
+  /// question. Not left to the caller to remember to pass a ValueKey.
+  @override
+  void didUpdateWidget(covariant VoiceChoiceChips oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.question.id != widget.question.id) _selected.clear();
+  }
+
   void _toggle(String key) {
     setState(() {
       if (_selected.contains(key)) {

@@ -2,6 +2,7 @@ import { Module, forwardRef } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module";
 import { ProfilesModule } from "../profiles/profiles.module";
+import { ProfilingModule } from "../profiling/profiling.module";
 import { PROFILE_EXTRACTION_QUEUE } from "../queue/queue.constants";
 import { ChatController } from "./chat.controller";
 import { ChatService } from "./chat.service";
@@ -16,6 +17,10 @@ import { ChatTranscriptBuffer } from "./chat-transcript.buffer";
   imports: [
     forwardRef(() => ProfilesModule),
     AuthModule,
+    // The deterministic interview (OIE Phase 8). forwardRef because ProfilingModule needs
+    // `ChatTranscriptBuffer` from here — the envelope and the transcript are ONE Redis key, so
+    // the two modules genuinely own two halves of one object.
+    forwardRef(() => ProfilingModule),
     // NOT for producing jobs — ChatService enqueues extraction through
     // ProfilesService. This registration exists so ChatTranscriptBuffer can borrow the
     // queue's ioredis connection for the transcript buffer, which is the established

@@ -145,7 +145,13 @@ def test_the_route_exists_and_answers_in_mock_mode():
 def test_no_target_fields_means_no_llm_call_at_all(monkeypatch):
     stub = use(monkeypatch, StubRouter("{}"))
     body = parse(target_fields=[])
-    assert body == {"fields": {}, "unparsed_field_ids": [], "notes": []}
+    assert body["fields"] == {}
+    assert body["unparsed_field_ids"] == []
+    assert body["notes"] == []
+    # NO METADATA IS THE PROOF OF THIS TEST'S OWN NAME. `ai_metadata` is populated from the
+    # router's result, so a `None` here is a call that never happened — a stronger statement
+    # than the stub's call count, which only says the stub was not reached.
+    assert body["ai_metadata"] is None
     assert stub.calls == 0, "nothing was requested, so there was nothing to spend a call on"
 
 
@@ -529,3 +535,42 @@ def test_the_parse_route_does_not_fall_through_to_the_resume_defaults():
     assert route.temperature == 0.0
     assert route.json_mode is True
     assert route.max_output_tokens == settings.ai_extraction_max_output_tokens
+
+
+# ---------------------------------------------------------------------------
+# Cost accounting — the interview's ONE LLM call
+# ---------------------------------------------------------------------------
+
+
+def test_the_response_carries_the_call_metadata(monkeypatch):
+    """The Phase 8 cutover made this the only LLM call in the whole interview, and it shipped
+    reporting no cost at all — no metadata on the wire, so nothing downstream could record it.
+    Every figure the ledger showed described the architecture the cutover deleted."""
+    use(monkeypatch, StubRouter("{}"))
+    body = parse()
+    assert body["ai_metadata"] is not None
+    assert body["ai_metadata"]["task_type"] == PARSE_TASK_TYPE
+    assert body["ai_metadata"]["real_call"] is True
+
+
+def test_metadata_rides_out_even_when_the_model_body_was_unreadable(monkeypatch):
+    """The call HAPPENED and was billed; an off-contract body does not refund it. This is exactly
+    the case a spend investigation needs to see — cost incurred, overlay contributed nothing."""
+    use(monkeypatch, StubRouter("not json at all"))
+    body = parse()
+    assert "parse_output_invalid" in body["notes"]
+    assert body["ai_metadata"] is not None
+
+
+def test_a_blown_deadline_reports_NO_cost_rather_than_a_zero_one(monkeypatch):
+    """A fabricated zero-cost record is worse than an absent one: it is indistinguishable from a
+    real call that happened to be free."""
+    use(monkeypatch, StubRouter("{}", delay=0.5))
+    monkeypatch.setattr(
+        profile_router,
+        "get_settings",
+        lambda: Settings(profile_parse_deadline_seconds=0.05),
+    )
+    body = parse()
+    assert "parse_deadline_exceeded" in body["notes"]
+    assert body["ai_metadata"] is None

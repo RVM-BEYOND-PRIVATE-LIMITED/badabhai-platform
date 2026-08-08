@@ -55,190 +55,117 @@ describe("AiService", () => {
   // ---------------------------------------------------------------
   //  post helper (private, tested through public methods)
   // ---------------------------------------------------------------
-  describe("post (via profilingOpening)", () => {
+  /**
+   * THE `post()` HELPER, exercised through `pseudonymize`.
+   *
+   * WAS `profilingOpening`, WHICH NO LONGER EXISTS (OIE Phase 8). These cases were never
+   * about the opener — they are the shared transport: non-ok, network error, bad JSON, the
+   * 401 posture, and the `AI_INTERNAL_TOKEN` header. `pseudonymize` is now the smallest
+   * caller of the same helper, so the coverage moves rather than disappearing.
+   *
+   * The "profilingOpening caching" and "profilingRespond" blocks are DELETED outright: the
+   * memo and the per-turn route both went with the LLM interview, and there is nothing left
+   * for them to describe.
+   */
+  describe("post (via pseudonymize)", () => {
     beforeEach(() => {
       config = mockConfig();
       ai = new AiService(config);
     });
 
-    it("resolves on a 200 response", async () => {
-      const fetchMock = vi.fn().mockResolvedValue(
-        fakeResponse({ ok: true, status: 200, json: async () => ({ opening_text: "Hi there!" }) }),
-      );
+    const masked = (over: Record<string, unknown> = {}) =>
+      fakeResponse({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          pseudonymized_text: "[PERSON_1] runs a VMC",
+          blocked: false,
+          replaced_entities: 1,
+          placeholder_tokens: ["[PERSON_1]"],
+          ...over,
+        }),
+      });
+
+    it("resolves on a 200 response, and posts to the GATEWAY, never a model route", async () => {
+      // THE PRIVACY-RELEVANT ASSERTION. This method exists so the deterministic interview
+      // can mask one phrase before it reaches the growth queue; pointing it at anything
+      // that could reach a provider would put raw worker text on an LLM path.
+      const fetchMock = vi.fn().mockResolvedValue(masked());
       vi.stubGlobal("fetch", fetchMock);
 
-      const result = await ai.profilingOpening("cnc_vmc");
-      expect(result).toBe("Hi there!");
+      const result = await ai.pseudonymize("Ramesh runs a VMC");
+      expect(result?.pseudonymized_text).toBe("[PERSON_1] runs a VMC");
       expect(fetchMock).toHaveBeenCalledTimes(1);
-      const url = fetchMock.mock.calls[0]![0] as string;
-      expect(url).toContain("/profiling/opening");
+      expect(fetchMock.mock.calls[0]![0] as string).toContain("/pseudonymize");
     });
 
     it("returns null on non-ok response", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({ ok: false, status: 503 })),
-      );
-      await expect(ai.profilingOpening("cnc_vmc")).resolves.toBeNull();
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({ ok: false, status: 503 })));
+      expect(await ai.pseudonymize("x")).toBeNull();
     });
 
     it("returns null on network error", async () => {
-      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
-      await expect(ai.profilingOpening("cnc_vmc")).resolves.toBeNull();
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
+      expect(await ai.pseudonymize("x")).toBeNull();
     });
 
     it("returns null on JSON parse error", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => { throw new SyntaxError("Unexpected token"); },
-        })),
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            ok: true,
+            status: 200,
+            json: async () => {
+              throw new Error("bad json");
+            },
+          }),
+        ),
       );
-      await expect(ai.profilingOpening("cnc_vmc")).resolves.toBeNull();
+      expect(await ai.pseudonymize("x")).toBeNull();
     });
 
     it("logs error on 401 and returns null", async () => {
-      const loggerWarn = vi.spyOn(Logger.prototype, "error").mockImplementation(() => {});
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({ ok: false, status: 401 })),
-      );
-      await expect(ai.profilingOpening("cnc_vmc")).resolves.toBeNull();
-      expect(loggerWarn).toHaveBeenCalled();
+      // TD67: a 401 is DETERMINISTIC misconfiguration, not a transient outage, so it is
+      // logged at ERROR while degrading exactly like any other non-ok.
+      const spy = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({ ok: false, status: 401 })));
+      expect(await ai.pseudonymize("x")).toBeNull();
+      expect(spy).toHaveBeenCalled();
     });
 
     it("attaches AI_INTERNAL_TOKEN when configured", async () => {
-      config = mockConfig({ AI_INTERNAL_TOKEN: "s3cret-token" });
-      ai = new AiService(config);
-      const fetchMock = vi.fn().mockResolvedValue(
-        fakeResponse({ json: async () => ({ opening_text: "hi" }) }),
-      );
+      const tokened = new AiService(mockConfig({ AI_INTERNAL_TOKEN: "t0k" } as never));
+      const fetchMock = vi.fn().mockResolvedValue(masked());
       vi.stubGlobal("fetch", fetchMock);
-
-      await ai.profilingOpening("cnc_vmc");
-      const headers = (fetchMock.mock.calls[0]![1] as { headers: Record<string, string> }).headers;
-      expect(headers["x-ai-internal-token"]).toBe("s3cret-token");
+      await tokened.pseudonymize("x");
+      const init = fetchMock.mock.calls[0]![1] as { headers: Record<string, string> };
+      expect(init.headers["x-ai-internal-token"]).toBe("t0k");
     });
 
     it("does not attach AI_INTERNAL_TOKEN when undefined", async () => {
-      config = mockConfig({ AI_INTERNAL_TOKEN: undefined });
-      ai = new AiService(config);
-      const fetchMock = vi.fn().mockResolvedValue(
-        fakeResponse({ json: async () => ({ opening_text: "hi" }) }),
-      );
+      const fetchMock = vi.fn().mockResolvedValue(masked());
       vi.stubGlobal("fetch", fetchMock);
+      await ai.pseudonymize("x");
+      const init = fetchMock.mock.calls[0]![1] as { headers: Record<string, string> };
+      expect(init.headers["x-ai-internal-token"]).toBeUndefined();
+    });
 
-      await ai.profilingOpening("cnc_vmc");
-      const headers = (fetchMock.mock.calls[0]![1] as { headers: Record<string, string> }).headers;
-      expect(headers["x-ai-internal-token"]).toBeUndefined();
+    it("a BLOCKED result is NOT null — it is a definitive 'do not store this'", async () => {
+      // Collapsing `blocked` into `null` would make "the gateway refused to mask this" look
+      // identical to "the gateway was down", and the caller treats those differently: one is
+      // a permanent no, the other a retryable outage.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(masked({ pseudonymized_text: "", blocked: true })),
+      );
+      const out = await ai.pseudonymize("mera number 9876543210 hai");
+      expect(out).not.toBeNull();
+      expect(out?.blocked).toBe(true);
     });
   });
 
-  // ---------------------------------------------------------------
-  //  profilingOpening — caching
-  // ---------------------------------------------------------------
-  describe("profilingOpening caching", () => {
-    it("caches successes and returns cached value on second call", async () => {
-      config = mockConfig();
-      ai = new AiService(config);
-      const fetchMock = vi.fn().mockResolvedValue(
-        fakeResponse({ json: async () => ({ opening_text: "Hello worker" }) }),
-      );
-      vi.stubGlobal("fetch", fetchMock);
 
-      const first = await ai.profilingOpening("cnc_vmc");
-      expect(first).toBe("Hello worker");
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-
-      const second = await ai.profilingOpening("cnc_vmc");
-      expect(second).toBe("Hello worker");
-      expect(fetchMock).toHaveBeenCalledTimes(1); // not called again
-    });
-
-    it("does NOT cache null (empty text)", async () => {
-      config = mockConfig();
-      ai = new AiService(config);
-      const fetchMock = vi.fn().mockResolvedValue(
-        fakeResponse({ json: async () => ({ opening_text: "  " }) }),
-      );
-      vi.stubGlobal("fetch", fetchMock);
-
-      const first = await ai.profilingOpening("cnc_vmc");
-      expect(first).toBeNull();
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-
-      const second = await ai.profilingOpening("cnc_vmc");
-      expect(second).toBeNull();
-      expect(fetchMock).toHaveBeenCalledTimes(2); // retried
-    });
-
-    it("does NOT cache failures (returned null)", async () => {
-      config = mockConfig();
-      ai = new AiService(config);
-      const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
-      vi.stubGlobal("fetch", fetchMock);
-
-      await ai.profilingOpening("cnc_vmc");
-      await ai.profilingOpening("cnc_vmc");
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  // ---------------------------------------------------------------
-  //  profilingRespond
-  // ---------------------------------------------------------------
-  describe("profilingRespond", () => {
-    beforeEach(() => {
-      config = mockConfig();
-      ai = new AiService(config);
-    });
-
-    it("returns remote response when reachable", async () => {
-      const remoteReply = {
-        reply_text: "Tell me about your experience",
-        blocked: false,
-        suggested_followups: [],
-        asked_question_id: "q_experience",
-        extraction_ready: false,
-        is_mock: false,
-        updated_state: { role_family: "cnc_vmc", turn_count: 1, answered_topics: [], asked_question_ids: [], collected: {} },
-      };
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => remoteReply,
-          ok: true, status: 200,
-        })),
-      );
-
-      const result = await ai.profilingRespond({
-        session_id: "session-1",
-        message_text: "I have 5 years experience",
-        history: [],
-        role_family: "cnc_vmc",
-      });
-      expect(result?.reply_text).toBe("Tell me about your experience");
-      expect(result?.is_mock).toBe(false);
-    });
-
-    it("returns NULL rather than a fabricated turn when the AI service is unreachable", async () => {
-      // This used to fall back to `mockProfilingTurn`, a second interview engine in TS.
-      // That engine is deleted: the interview is now conducted by a model that adapts to
-      // the worker's actual trade, and a local stand-in would ask CNC questions to a cook
-      // and write the answers into the same captured state the model owns. An honest
-      // "no turn happened" is the only safe degradation — ChatService serves the worker
-      // a degraded line and leaves the transcript buffer's assistant side untouched.
-      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
-
-      const result = await ai.profilingRespond({
-        session_id: "session-1",
-        message_text: "I have 5 years experience",
-        history: [],
-        role_family: "cnc_vmc",
-      });
-      expect(result).toBeNull();
-    });
-  });
-
-  // ---------------------------------------------------------------
-  //  extractProfile
-  // ---------------------------------------------------------------
   describe("extractProfile", () => {
     beforeEach(() => {
       config = mockConfig();

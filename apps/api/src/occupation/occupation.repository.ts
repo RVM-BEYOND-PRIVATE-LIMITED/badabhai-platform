@@ -15,6 +15,8 @@
  * PRIVACY: reads public reference data. The one method that receives worker text is
  * `trigramCandidates`, which passes it as a bound parameter and never logs it.
  */
+import { createHash } from "node:crypto";
+
 import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
@@ -193,6 +195,31 @@ export class OccupationRepository {
   }
 
   /**
+   * The NEGATIVE CACHE probe: has this phrase already been recorded as reaching nothing?
+   *
+   * The plan's caching table names `unresolved_phrase` as the negative cache, with "ops sets
+   * `status='resolved'`" as its only invalidation. So an OPEN row in the `occupation` scope
+   * means "known miss, nobody has authored an alias for it yet" — and rediscovering that
+   * with a trigram scan plus possibly an ANN probe is pure waste on a phrase workers repeat.
+   *
+   * MATCHED ON THE NORMALIZED FORM, which is why `OccupationService.recordUnresolved` writes
+   * the normalized form. Matching raw text would miss "Silai ka kaam!" against a stored
+   * "silai", and the cache would never hit for the same phrase said twice — a cache that
+   * silently never hits looks exactly like a cache that is working.
+   *
+   * `status` is checked, not just the row's existence: once ops resolves a phrase the queue
+   * keeps the row for its count history, and a resolved row must stop suppressing anything.
+   */
+  async isKnownUnresolved(phraseNorm: string): Promise<boolean> {
+    const rows = await this.db.execute(sql`
+      SELECT 1 FROM unresolved_phrase
+      WHERE scope = 'occupation' AND status = 'open' AND phrase = ${phraseNorm}
+      LIMIT 1
+    `);
+    return (rows as unknown as unknown[]).length > 0;
+  }
+
+  /**
    * Layer L2 — trigram similarity over the normalized alias text.
    *
    * `word_similarity(query, target)` is ASYMMETRIC and that is why it is used: it asks how
@@ -287,4 +314,33 @@ export class OccupationRepository {
       rows as unknown as Array<{ job_domain_id: string; score: string | number }>
     ).map((r) => ({ jobDomainId: r.job_domain_id, rawScore: Number(r.score) }));
   }
+}
+
+/**
+ * The catalogue version as an EVENT PAYLOAD may carry it: ≤64 characters, stable, opaque.
+ *
+ * WHY A PROJECTION AND NOT THE VALUE ITSELF. `catalogVersion()` above is a CACHE-INVALIDATION
+ * SIGNATURE, and its six-field shape is load-bearing for that job — two of those fields are ISO
+ * timestamps, so the composite is structurally ~75 characters and can only grow. The event
+ * contract caps `catalog_version` at 64. Those two requirements are not in tension by accident:
+ * one wants to change whenever anything changes, the other wants to fit in a column and group a
+ * histogram. They are different values and this is the seam between them.
+ *
+ * IT SHIPPED BROKEN AND ONLY A LIVE RUN FOUND IT. Passing the composite straight through made
+ * `profile.occupation_unresolved` fail its own payload schema, which threw inside the event
+ * emitter, which 500'd `POST /chat/message` — for EVERY worker whose trade did not resolve on
+ * the first try. Every unit test passed: none of them built a real catalogue, so none of them
+ * ever produced a version string longer than the fixture's.
+ *
+ * Opaque on purpose. A truncation of the composite would look readable while silently colliding
+ * whenever two catalogues shared a prefix — which they always do, since the first three fields
+ * are counts. A digest changes if any input byte changes, which is exactly the grouping key the
+ * Phase 9 sweep wants.
+ *
+ * `unknown` for a missing version is the SAME sentinel the emitters already used, kept so a
+ * degraded seam stays distinguishable from a real release rather than acquiring a fake one.
+ */
+export function catalogVersionForEvent(catalogVersion: string | null | undefined): string {
+  if (!catalogVersion) return "unknown";
+  return `cat_${createHash("sha256").update(catalogVersion).digest("hex").slice(0, 32)}`;
 }

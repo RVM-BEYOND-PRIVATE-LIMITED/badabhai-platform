@@ -683,6 +683,78 @@ export const EVENT_REGISTRY = {
     domain: "feed",
     payload: p.FeedShownV2Payload,
   },
+
+  // ── Occupation Intelligence Engine (Phase 8) ──────────────────────────────
+  // APPENDED AT THE END, never inserted among the entries above: the registry is
+  // append-only by protocol, because an edited entry is a mutated event schema and
+  // consumers version off these definitions.
+  //
+  // A worker's trade phrase reached none of the four retrieval layers and was recorded
+  // to the growth queue. PII-FREE: sha256 of the (already pseudonymized) phrase, the
+  // language tag, and the post-upsert count — never the text. v1.
+  "occupation.phrase_unresolved": {
+    version: 1,
+    domain: "occupation",
+    payload: p.OccupationPhraseUnresolvedPayload,
+  },
+
+  // The interview pinned an occupation: which one, via which rung of the ladder, at what
+  // calibrated confidence. The source of the plan's layer-distribution gate, which cannot
+  // be computed from `worker_profiles` because a re-pin overwrites the first pin. v1.
+  "profile.occupation_identified": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileOccupationIdentifiedPayload,
+  },
+
+  // Which QUESTIONS the worker got, as opposed to which trade they are in. Pack contents are
+  // immutable per version, so this pair is what makes a finished profile explicable a year
+  // later. Emitted only when the durable `chat_sessions` pin won the write. v1.
+  "profile.pack_pinned": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfilePackPinnedPayload,
+  },
+
+  // The interview could NOT pin one and fell back to the universal pack. A normal outcome
+  // that is otherwise invisible from both sides of the conversation — which is how a
+  // catalogue silently stops covering a growing trade. v1.
+  "profile.occupation_unresolved": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileOccupationUnresolvedPayload,
+  },
+
+  // The parse LLM contradicted the deterministic answer map and lost. Field ids and counts
+  // only, never values — on either side. This is how gate 4 stays observable. v1.
+  "profile.parse_disagreement": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileParseDisagreementPayload,
+  },
+
+  // One interview finished: duration histogram, ask count, how it ended, which pack ran. The
+  // only source for p95 turn latency and the completion rate — neither is recoverable from
+  // `worker_profiles`, which records the destination and overwrites the journey.
+  //
+  // `profile.*` and not a new `profiling` domain, matching the three Phase 8 OIE events above:
+  // one prefix for everything the interview records about a worker's profile, rather than a
+  // domain minted for a single event. v1.
+  "profile.interview_completed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileInterviewCompletedPayload,
+  },
+
+  // How much the six never-invent gates threw away, per gate. The gates always worked; the
+  // RATE is what says the model started inventing spans or reading our questions back to us.
+  // Counts only — no field ids, because a value that failed `provenance` or `pii` is not
+  // vouched for and even the field it claimed to fill is unverified model output. v1.
+  "profile.parse_gates_rejected": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileParseGatesRejectedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

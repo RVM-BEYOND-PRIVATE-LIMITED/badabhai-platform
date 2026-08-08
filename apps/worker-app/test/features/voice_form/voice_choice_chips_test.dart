@@ -103,4 +103,48 @@ void main() {
     await t.pump();
     expect(keys, isNull, reason: 'a zero-key multi submit is never valid');
   });
+
+  testWidgets(
+      'REGRESSION: multi-select selection does NOT leak into the next question',
+      (t) async {
+    List<String>? keys;
+    const VoiceQuestion q1 = VoiceQuestion(
+      id: 'q1',
+      prompt: 'Kaunse kaam?',
+      kind: VoiceQuestionKind.multiSelect,
+      options: <VoiceChoice>[
+        VoiceChoice(key: 'welding', label: 'Welding'),
+        VoiceChoice(key: 'fitting', label: 'Fitting'),
+      ],
+    );
+    const VoiceQuestion q2 = VoiceQuestion(
+      id: 'q2', // a DIFFERENT question, same widget position, no ValueKey
+      prompt: 'Aur kya?',
+      kind: VoiceQuestionKind.multiSelect,
+      options: <VoiceChoice>[
+        VoiceChoice(key: 'painting', label: 'Painting'),
+      ],
+    );
+
+    await pump(t,
+        question: q1,
+        onChips: (List<String> k) => keys = k,
+        onBoolean: (_) {});
+    await t.tap(find.text('Welding'));
+    await t.pump();
+
+    // The parent rebuilds in place with Q2 — State is reused, initState does
+    // not re-run. Only didUpdateWidget can clear the carried selection.
+    await pump(t,
+        question: q2,
+        onChips: (List<String> k) => keys = k,
+        onBoolean: (_) {});
+    await t.tap(find.text('Painting'));
+    await t.pump();
+    await t.tap(find.text(kVoiceMultiSubmit));
+    await t.pump();
+
+    expect(keys, <String>['painting'],
+        reason: 'Q1\'s "welding" must not ride along with Q2\'s answer');
+  });
 }
