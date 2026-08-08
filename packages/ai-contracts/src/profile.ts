@@ -179,6 +179,25 @@ export const ProfileExtractionOutputSchema = z.object({
    * the catalog cannot describe.
    */
   job_domain_match: JobDomainMatchSchema.nullable().default(null),
+  /**
+   * Why this extraction is degraded, when it is — the field that lets a caller tell an
+   * ai-service OUTAGE from a worker who genuinely said nothing.
+   *
+   * Both arrive as `blocked: false` with an empty `profile`, and `is_mock` cannot separate
+   * them: the ai-service returns `is_mock = not real_call`, so every healthy extraction under
+   * the committed `AI_ENABLE_REAL_CALLS=false` default carries `is_mock: true` too. Without
+   * this field there was no value in the object capable of telling the two apart, and an
+   * outage read as a wave of workers with nothing to say.
+   *
+   * `extract_service_unreachable` is authored by `AiService` itself (the request never left
+   * the process, so no server could report it). Codes originating on the ai-service side
+   * travel here unchanged. `null` on every healthy response.
+   *
+   * ADDITIVE and DEFAULTED, so invariant #8 holds: an older ai-service that has never heard
+   * of this field still parses, landing on `null` — the same value it would have sent.
+   * Mirrors `TranscriptionOutputSchema.error_code`, which exists for the identical reason.
+   */
+  error_code: z.string().nullable().default(null),
 });
 export type ProfileExtractionOutput = z.infer<typeof ProfileExtractionOutputSchema>;
 

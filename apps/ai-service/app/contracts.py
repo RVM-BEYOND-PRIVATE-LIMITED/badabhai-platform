@@ -941,6 +941,12 @@ class ProfileExtractionOutput(BaseModel):
     # came back unmatched — the caller writes nothing in the first case and records the
     # reason in the second.
     job_domain_match: JobDomainMatch | None = None
+    # Why this extraction is degraded, when it is — the field that lets apps/api tell an
+    # ai-service OUTAGE from a worker who genuinely said nothing. Both arrive as
+    # `blocked: false` with an empty profile, and `is_mock` cannot separate them (it is
+    # `not real_call`, so a healthy mock extraction sets it too). Additive and defaulted,
+    # so an older caller is unaffected. Mirrors `TranscriptionOutput.error_code`.
+    error_code: str | None = None
 
 
 # --- Resume generation -----------------------------------------------------
