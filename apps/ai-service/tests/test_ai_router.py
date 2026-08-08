@@ -143,10 +143,14 @@ def test_chat_tier_is_env_tunable_and_falls_back_safely():
 def test_cost_alert_thresholds():
     settings = Settings(ai_cost_alert_profile_inr=6.0, ai_target_profile_cost_inr=4.0)
     # Force a large token count to exceed thresholds (uses estimate table).
+    #
+    # `real_call=True` because a cost ALERT is only meaningful for money actually spent. This
+    # used to pass `False` as a convenience — it was testing the threshold arithmetic and did not
+    # care about the flag — which quietly depended on mock calls being priced like real ones.
     meta = cost_tracker.build_call_metadata(
         task_type="profile_extraction",
         model="claude-haiku",
-        real_call=False,
+        real_call=True,
         input_tokens=200_000,
         output_tokens=200_000,
         latency_ms=1,
@@ -156,6 +160,57 @@ def test_cost_alert_thresholds():
     assert meta.estimated_cost_inr > 6.0
     assert meta.cost_alert is True
     assert meta.above_target is True
+
+
+def test_a_call_that_never_reached_a_provider_costs_nothing():
+    """A mock call spent no money and must not report any.
+
+    THIS BECAME LOAD-BEARING when ``ai.cost_recorded`` became the platform's cost history.
+    ``estimate_cost_inr`` prices the tokens, which is right for a call that happened and wrong for
+    one that did not — so every mocked environment was writing fictional rupees into the events
+    table, and TD81 says staging silently runs mocked AI. ``SUM(estimated_cost_inr)`` — the
+    obvious query, and the one a cost dashboard writes — would have reported spend that never
+    occurred. Measured on a local mock parse before the fix: ₹0.0466 per interview, of nothing.
+    """
+    settings = Settings()
+    meta = cost_tracker.build_call_metadata(
+        task_type="profile_parse",
+        model="claude-haiku",
+        real_call=False,
+        input_tokens=200_000,
+        output_tokens=200_000,
+        latency_ms=1,
+        success=True,
+        settings=settings,
+    )
+    assert meta.estimated_cost_inr == 0.0
+    assert meta.cost_alert is False
+    assert meta.above_target is False
+    # The TOKEN counts survive: they describe the payload that would have been sent, which is what
+    # makes a mock run useful for PROJECTING cost. Only the money is fictional.
+    assert meta.input_tokens == 200_000
+    assert meta.output_tokens == 200_000
+
+
+def test_a_real_call_that_FAILED_still_reports_its_cost():
+    """Reached-and-failed is not the same as never-attempted, and only one of them is free.
+
+    A provider that received the tokens and then errored may well have billed for them. The
+    router's two terminal states are unambiguous — ``real_call=False`` is a posture, and
+    ``real_call=True, success=False`` is an incident — so the fix keys on the flag, not on
+    success.
+    """
+    meta = cost_tracker.build_call_metadata(
+        task_type="profile_parse",
+        model="claude-haiku",
+        real_call=True,
+        input_tokens=10_000,
+        output_tokens=1_000,
+        latency_ms=1,
+        success=False,
+        settings=Settings(),
+    )
+    assert meta.estimated_cost_inr > 0.0
 
 
 def test_provider_inference():
