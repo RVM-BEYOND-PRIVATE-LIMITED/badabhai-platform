@@ -1,24 +1,21 @@
 name: Worker app
 
 # BLOCKING gate for the Flutter worker app (apps/worker-app). Replaces the old
-# non-blocking `worker-app` job in ci.yml (TD002). Runs ONLY on changes under
-# apps/worker-app (or this workflow), so unrelated PRs don't pay the Flutter cost
-# and don't wait on it. A red check here means: do not merge.
+# non-blocking `worker-app` job in ci.yml (TD002). A red check here means: do not merge.
+#
+# CALLED BY `ci.yml`, NOT TRIGGERED DIRECTLY (#718). It used to carry its own
+# `push`/`pull_request` triggers, which made it a separate workflow run — and
+# `ci-required`, the only required context on `main`, cannot `needs:` a job in another
+# workflow file. Measured on PR #711: this gate FAILED on a real analyzer error while
+# `ci-required` went green. As a `workflow_call` reusable it sits under that aggregator,
+# so it can actually block a merge.
+#
+# The path filter that used to live here moved WITH the trigger, into `ci.yml`'s
+# `changes` job (`worker-app`), which still gates this on `apps/worker-app/**` or this
+# file — unrelated PRs neither pay the Flutter cost nor wait on it. Concurrency is the
+# caller's `ci-${{ github.ref }}` group; a second one here would only fight it.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/worker-app/**"
-      - ".github/workflows/worker-app.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "apps/worker-app/**"
-      - ".github/workflows/worker-app.yml"
-
-concurrency:
-  group: worker-app-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
 
 jobs:
   analyze-test:
