@@ -47,12 +47,15 @@ import '../../features/voice/domain/voice_note_repository.dart';
 import '../../features/voice/domain/voice_pipeline.dart';
 import '../../features/voice/domain/voice_recorder.dart';
 import '../../features/voice/presentation/cubit/voice_note_cubit.dart';
+import '../../features/voice_form/data/http_voice_form_gateway.dart';
 import '../../features/voice_form/data/silent_question_audio_player.dart';
 import '../../features/voice_form/data/tts_asset_resolver.dart';
 import '../../features/voice_form/data/voice_clip_queue.dart';
 import '../../features/voice_form/data/voice_preflight_probe.dart';
 import '../../features/voice_form/domain/question_audio_player.dart';
 import '../../features/voice_form/domain/silence_endpointer.dart';
+import '../../features/voice_form/domain/voice_form_gateway.dart';
+import '../../features/voice_form/presentation/cubit/voice_form_cubit.dart';
 import '../../features/name/data/name_repository_impl.dart';
 import '../../features/name/domain/name_repository.dart';
 import '../../features/name/presentation/cubit/name_cubit.dart';
@@ -308,10 +311,39 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerLazySingleton<QuestionAudioPlayer>(
       () => const SilentQuestionAudioPlayer());
   locator.registerLazySingleton<TtsAssetResolver>(() => TtsAssetResolver());
+  // #699 — the voice-form's real backend seam is now frozen (#697/#698). Bind the
+  // HTTP gateway + a fresh VoiceFormCubit per screen (the interaction the cubit
+  // was written against is exactly this contract). Dormant in production until
+  // the #638 kill switch flips.
+  locator.registerLazySingleton<VoiceFormGateway>(
+    () => HttpVoiceFormGateway(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerFactory<VoiceFormCubit>(
+    () => VoiceFormCubit(
+      gateway: locator<VoiceFormGateway>(),
+      recorder: locator<SessionVoiceRecorder>(),
+      endpointer: locator<SilenceEndpointer>(),
+      tts: locator<QuestionAudioPlayer>(),
+      // #717 — the cubit owns the upload: a spoken answer becomes a registered
+      // `voice_note_id` here, and the gateway stays a pure wire adapter.
+      registrar: locator<VoiceNoteRegistrar>(),
+      session: locator<SessionRepository>(),
+    ),
+  );
   locator.registerLazySingleton<VoiceStorageUploader>(
     () => kUseMocks
         ? const MockVoiceStorageUploader()
         : RealVoiceStorageUploader(api: locator<ApiClient>()),
+  );
+  // Clip → registered `voice_note_id` (#717). Built ON the uploader above rather than
+  // beside it, so the voice form and the chat voice-note flow share one upload leg and
+  // mock mode keeps working through `MockVoiceStorageUploader` for free.
+  locator.registerLazySingleton<VoiceNoteRegistrar>(
+    () => RealVoiceNoteRegistrar(
+      uploader: locator<VoiceStorageUploader>(),
+      api: locator<ApiClient>(),
+    ),
   );
   locator.registerLazySingleton<VoiceTranscriptResolver>(
     () => kUseMocks

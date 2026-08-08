@@ -40,6 +40,7 @@ import { catalogVersionForEvent } from "../occupation/occupation.repository";
 import { DISAMBIGUATION_PROMPT, IdentifyService, toPackOption } from "./identify.service";
 import { captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
 import {
+  answerSetHash,
   isSettled,
   recordAnswer,
   recordDeclined,
@@ -302,7 +303,13 @@ export interface CorrectAnswerInput {
 }
 
 export type CorrectAnswerOutcome =
-  | { readonly kind: "corrected"; readonly value: unknown; readonly correctionCount: number }
+  | {
+      readonly kind: "corrected";
+      readonly value: unknown;
+      readonly correctionCount: number;
+      /** Fingerprint of the answer map as written — the rebuild trigger's dedupe key. */
+      readonly answerSetHash: string;
+    }
   /** The words parsed to nothing for this question. Nothing was written. */
   | { readonly kind: "unreadable" }
   /** This session has changed as many answers as it may. */
@@ -964,7 +971,13 @@ export class ProfilingOrchestrator {
       // The SAME capture path as the asked question, deliberately: the normalizers, the chip
       // handling and the negation veto must not have a second implementation that is free to
       // disagree with the first about what a worker said.
-      const capture = captureAnswer(text, item);
+      //
+      // `crossQuestion` IS THE ONE DIFFERENCE, and it is the same rule the `hasFieldNormalizer`
+      // gate above encodes: only a TYPED parser may claim a value nobody asked for. The yes/no
+      // fallback (#713) is not one — a bare "haan" means whatever the question on screen asked,
+      // so letting it run here would record a worker answering the EXPERIENCE question as willing
+      // to relocate.
+      const capture = captureAnswer(text, item, { crossQuestion: true });
       for (const value of capture.values) {
         filled = recordAnswer(filled, value, turn);
       }
@@ -1205,7 +1218,15 @@ export class ProfilingOrchestrator {
       });
     });
 
-    return { kind: "corrected", value: record.value_normalized, correctionCount };
+    return {
+      kind: "corrected",
+      value: record.value_normalized,
+      correctionCount,
+      // The fingerprint of the map that was JUST WRITTEN, handed back rather than recomputed by
+      // the caller: the rebuild trigger keys on it, and a hash of anything other than exactly
+      // what landed would dedupe against the wrong answer set.
+      answerSetHash: answerSetHash(answers),
+    };
   }
 
   private async restorePin(

@@ -16,6 +16,7 @@ import {
   applyNegation,
   canonicalCity,
   classifyUtterance,
+  crosswalkFor,
   detectSalaries,
   parseAffirmation,
   parseAvailability,
@@ -127,7 +128,25 @@ function isVetoed(text: string, span: { start: number; end: number } | undefined
  * former means "we could not read an answer here", the latter means "we read one and it is empty".
  * Only the former leaves the question askable again.
  */
-function normalizeFor(item: QuestionPackItem, text: string): unknown | undefined {
+/**
+ * What {@link captureAnswer} is being asked to do — because it is asked two different things.
+ *
+ * `crossQuestion` MARKS THE ONE CALLER THAT IS NOT READING THE QUESTION IN FRONT OF THE WORKER.
+ * `fillCrossQuestion` runs this same path over every OTHER item in the pack, looking for a value
+ * the worker mentioned in passing, and the rules cannot be identical: a typed field parser finding
+ * a city in "main Pune se hoon, 8 saal ka tajurba" is information, whereas a bare "haan" means
+ * only whatever the question on screen asked. Default is the asked question, which is what the
+ * function is named for; the exception says so at its call site.
+ */
+export interface CaptureOptions {
+  readonly crossQuestion?: boolean;
+}
+
+function normalizeFor(
+  item: QuestionPackItem,
+  text: string,
+  opts: CaptureOptions = {},
+): unknown | undefined {
   // A chip answer is the worker's answer of record VERBATIM. The label is reviewed static data, so
   // there is nothing to normalize and nothing to second-guess.
   //
@@ -140,14 +159,34 @@ function normalizeFor(item: QuestionPackItem, text: string): unknown | undefined
   );
   if (chip) {
     const value = chip.value ?? chip.label_text;
-    return item.answer_type === "multi_select" ? [value] : value;
+    return keepIfWellTyped(item, item.answer_type === "multi_select" ? [value] : value);
   }
 
   const field = item.target_field;
   const normalizer = field ? NORMALIZER_BY_FIELD[field] : undefined;
   if (normalizer) {
     const value = normalizer(text);
-    return value === null ? undefined : value;
+    if (value !== null) return value;
+    // THE TYPED PARSER FOUND NOTHING — that is not the same as the worker not answering, and
+    // returning `undefined` straight from here was throwing away the item's own reviewed chips.
+    //
+    // Measured, not theorised: `availability` and `relocation` are the only two items in the whole
+    // corpus that carry BOTH a typed target field and options, and both live in `qp_universal`, so
+    // every interview asks them. `parseRelocationWillingness` returns null for every one of that
+    // item's three chip labels; `parseAvailability` reads "Abhi turant" and none of the other
+    // three. Short-circuiting meant the reviewed options were never consulted for either.
+    //
+    // Falls through to the ANSWER TYPE only, never onward to verbatim. That distinction is the
+    // whole safety of this branch: a typed field whose parser abstained must not end up holding a
+    // whole sentence, because `salary_expected` and `current_city` are matched on by equality and
+    // by range. No option matched still means unread.
+    //
+    // `opts` IS THREADED THROUGH (#713). The yes/no fallback inside the select branch below has to
+    // stay confined to the question ON SCREEN, and dropping the options here would re-open it to
+    // `fillCrossQuestion` — where a bare "haan" answering the EXPERIENCE question would be
+    // recorded as willingness to relocate.
+    const byType = normalizeByAnswerType(item, text, opts);
+    return byType === FALL_THROUGH ? undefined : keepIfWellTyped(item, byType);
   }
 
   // NO FIELD NORMALIZER — try the ANSWER TYPE before falling through to verbatim.
@@ -160,7 +199,7 @@ function normalizeFor(item: QuestionPackItem, text: string): unknown | undefined
   // It sits BELOW the field table on purpose. Two number fields can need completely different
   // parsers — years and rupees-per-month share a type and share nothing else — so a type-keyed
   // rule must never get to override a field-keyed one.
-  const byType = normalizeByAnswerType(item, text);
+  const byType = normalizeByAnswerType(item, text, opts);
   if (byType !== FALL_THROUGH) return byType;
 
   // Free text: the worker's words are the answer. Trimmed, never rewritten.
@@ -169,6 +208,45 @@ function normalizeFor(item: QuestionPackItem, text: string): unknown | undefined
   // that trims to under two characters, and this line is only reached past that gate — so an
   // `|| undefined` here would be unreachable code pretending to be a safety net.
   return text.trim();
+}
+
+/**
+ * Refuse an option-derived value that CONTRADICTS the type its target field declares.
+ *
+ * Applied only to values that came from a chip — never to a normalizer's output (already typed by
+ * construction) and never to verbatim text (a free-text field has no declared shape to violate).
+ *
+ * WHY IT HAS TO EXIST. Option values are authored by a human in a JSONL corpus and land in one of
+ * three typed columns, while the field's real type lives in `FIELD_CROSSWALK`. Nothing structurally
+ * forces the two to agree, and measured against the shipped corpus they do not: `relocation` is a
+ * `boolean` field offering three chips, two carrying `value_bool` and the third carrying the TEXT
+ * "conditional". Tapping that third chip put a string into `z.boolean()` and failed the entire
+ * extraction job — not the one field, the whole profile.
+ *
+ * Refusing is the right half of that trade under CLAUDE.md §3. The worker loses one answer and
+ * keeps a profile; writing it through loses the profile. It also fails LOUDLY in the corpus rather
+ * than silently at Zod: a pack whose chips disagree with their field now shows up as a question
+ * that never captures, which is exactly the shape `db:verify:packs` should learn to reject.
+ */
+function keepIfWellTyped(item: QuestionPackItem, value: unknown): unknown | undefined {
+  const entry = item.target_field ? crosswalkFor(item.target_field) : undefined;
+  // No declared type — a pack-local attribute, or a field outside the RFS vocabulary. Nothing to
+  // contradict, so nothing to refuse.
+  if (entry === undefined) return value;
+  switch (entry.type) {
+    case "boolean":
+      return typeof value === "boolean" ? value : undefined;
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+    case "string":
+    case "enum":
+      return typeof value === "string" ? value : undefined;
+    case "string_array":
+      // A `multi_select` already wraps; a `single_select` on a list field contributes one item.
+      return Array.isArray(value) || typeof value === "string" ? value : undefined;
+    default:
+      return value;
+  }
 }
 
 /**
@@ -191,6 +269,7 @@ const FALL_THROUGH = Symbol("fall-through");
 function normalizeByAnswerType(
   item: QuestionPackItem,
   text: string,
+  opts: CaptureOptions = {},
 ): unknown | undefined | typeof FALL_THROUGH {
   switch (item.answer_type) {
     case "boolean": {
@@ -210,11 +289,92 @@ function normalizeByAnswerType(
       // Exactly one, or nothing. Two option labels in one utterance is a worker who has not
       // answered a single-choice question, and picking the first would be picking at random.
       if (matched.length === 1) return matched[0];
+      // NO LABEL LANDED — read the yes/no lexicon, for a select whose options ARE a yes and a no
+      // (#713). `welding_position` is the case here: its labels are "Haan, kar leta hoon" and
+      // "Nahi, sirf flat", so a worker who simply says "haan" matches no whole label, and being an
+      // `attribute` it does not even fall through to verbatim — the answer was silently lost.
+      //
+      // GATED ON A CLEAN MISS. Two labels matched is a worker who has not answered a
+      // single-choice question, and a polarity cue somewhere in that same sentence is not a
+      // tie-break — it is the same ambiguity wearing a different hat.
+      if (matched.length === 0) {
+        const polar = polarSelectValue(item, text, opts);
+        if (polar !== undefined) return polar;
+      }
       return closedVocabulary(item) ? undefined : FALL_THROUGH;
     }
     default:
       return FALL_THROUGH;
   }
+}
+
+/**
+ * A yes/no utterance → the option that MEANS it, for a select whose options ARE a yes and a no.
+ *
+ * WHY THIS EXISTS (#713). Two items in the shipped corpus carry `value_bool` options —
+ * `relocation` (`qp_universal`, so EVERY worker is asked it) and `welding_position` — and both
+ * were answerable by tapping and barely answerable by typing. Measured against the real corpus
+ * before the fix: `"haan"`, `"haan ji"`, `"haan jaa sakta hoon"`, `"nahi"` and
+ * `"nahi yahi rehna hai"` all captured NOTHING on `relocation`, while the `no` chip recorded a
+ * clean `false`. The same question, in the same pack, was "yes or unknown" typed and
+ * "yes / no / conditional" tapped.
+ *
+ * IT DOES NOT INVENT FROM SILENCE, which is the rule `parseRelocationWillingness` was rewritten to
+ * protect: *"a message with no cue returns null, because 'did not say' is not 'said no'"*. That
+ * rule is untouched and still owns the free-text path. This is narrower — it fires only on an
+ * EXPLICIT polarity cue, and `"nahi yahi rehna hai"` is a refusal, not a silence. `"shayad"` still
+ * captures nothing, because the yes/no lexicon has no opinion on it and the `conditional` option
+ * is reachable only by its label.
+ *
+ * ONE LEXICON, NOT A SECOND ONE. `parseAffirmation` is the same parser the 236 `boolean` items
+ * already answer through, so a yes/no cue means the same thing on every question that asks one.
+ *
+ * ONE CALL SITE, and only because #722 landed the fall-through that made a second unnecessary.
+ * `relocation` has a field normalizer, so it used to return straight out of that branch; now an
+ * abstaining parser falls through to the select layer, and both items reach this from the same
+ * place. `keepIfWellTyped` then re-checks the result against the field's declared type, so the
+ * boolean this returns is admitted for `relocation_willingness` and would be refused anywhere it
+ * did not belong.
+ *
+ * IT CANNOT WIDEN BEYOND THOSE TWO ITEMS BY ACCIDENT: the boolean-valued filter runs first, so the
+ * 638 text-valued options never reach the parser at all.
+ *
+ * THE NEGATION VETO IS NOT A HAZARD HERE, and that is worth stating because it looks like one.
+ * `parseAffirmation` resolves negation ITSELF — `false` for a denied yes is the answer, not a
+ * failure — and `spanFor` deliberately refuses to grow a `boolean` case for exactly that reason.
+ * Neither of these two items reports a span on this path (`relocation`'s normalizer returned null
+ * to get here, so `spanFor`'s `relocation_willingness` case returns undefined too;
+ * `welding_position` has no case at all), so `isVetoed` sees `undefined` and the value stands.
+ * A span here would delete every answer a worker gave by saying "nahi".
+ *
+ * @returns the polarity the worker expressed, or `undefined` when there is nothing to read.
+ */
+function polarSelectValue(
+  item: QuestionPackItem,
+  text: string,
+  opts: CaptureOptions = {},
+): boolean | undefined {
+  // THE QUESTION ON SCREEN, AND ONLY THAT ONE. `fillCrossQuestion` runs this same capture over
+  // every other item in the pack, and `relocation` has a field normalizer so it participates —
+  // which means without this line a worker answering "haan, 8 saal" to the EXPERIENCE question
+  // would be recorded as willing to relocate. A bare yes/no carries no subject of its own; it
+  // means whatever was just asked, and nothing at all about a question nobody asked.
+  if (opts.crossQuestion) return undefined;
+  if (item.answer_type !== "single_select") return undefined;
+  const polar = item.options.filter((option) => typeof option.value === "boolean");
+  if (polar.length === 0) return undefined;
+
+  const parsed = parseAffirmation(text);
+  if (parsed === null) return undefined;
+
+  // EXACTLY ONE option may claim the polarity. An item authoring two `true` options has not
+  // described a yes/no question, and picking either would be picking at random.
+  const claimants = polar.filter((option) => option.value === parsed.value);
+  if (claimants.length !== 1) return undefined;
+
+  // The option's own value, which the filter above proves is identical to `parsed.value` — so the
+  // stored answer is the one the chip would have stored, byte for byte.
+  return parsed.value;
 }
 
 /**
@@ -310,7 +470,11 @@ function matchOptions(item: QuestionPackItem, text: string): unknown[] {
  * correction beats a question-back, and that an abusive turn beats everything. Re-deciding it here
  * would be a second precedence table free to disagree with the one the extraction path uses.
  */
-export function captureAnswer(text: string, askedItem: QuestionPackItem | null): Capture {
+export function captureAnswer(
+  text: string,
+  askedItem: QuestionPackItem | null,
+  opts: CaptureOptions = {},
+): Capture {
   const signal = classifyUtterance(text);
   const turnClass = signal.cls;
 
@@ -331,7 +495,7 @@ export function captureAnswer(text: string, askedItem: QuestionPackItem | null):
     return { turnClass, values: [], excludeFromParse: false, declined: false, correcting };
   }
 
-  const normalized = normalizeFor(askedItem, text);
+  const normalized = normalizeFor(askedItem, text, opts);
   if (normalized === undefined) {
     return { turnClass, values: [], excludeFromParse: false, declined: false, correcting };
   }

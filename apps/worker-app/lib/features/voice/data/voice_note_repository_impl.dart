@@ -10,6 +10,7 @@ import '../domain/voice_models.dart';
 import '../domain/voice_note_repository.dart';
 import '../domain/voice_pipeline.dart';
 import '../domain/voice_recorder.dart';
+import 'voice_pipeline_impl.dart';
 
 /// Orchestrates the voice-note pipeline over the [ApiClient] + [ChatRepository].
 ///
@@ -109,18 +110,18 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
       // here the UPLOADER owns the temp file — it deletes it in a `finally`
       // (success OR failure), so raw audio never outlives the attempt.
       uploadStarted = true;
-      final String storagePath = await _uploader.upload(clip, authToken: token);
-
-      final VoiceUploadResult uploaded = await _api.uploadVoiceNote(
-        authToken: token,
-        sessionId: sessionId,
-        storagePath: storagePath,
-        durationSeconds: clip.durationSeconds,
-      );
+      // THROUGH THE SHARED REGISTRAR (#717), composed from the uploader this class already
+      // holds — so the voice form's spoken-answer path and this one are the same two steps
+      // in the same order, not two copies that can drift. Behaviour is unchanged: the same
+      // `upload` then the same `uploadVoiceNote`.
+      final String voiceNoteId = await RealVoiceNoteRegistrar(
+        uploader: _uploader,
+        api: _api,
+      ).register(clip, authToken: token, sessionId: sessionId);
 
       final TranscribeResult enqueued = await _api.transcribeVoiceNote(
         authToken: token,
-        voiceNoteId: uploaded.voiceNoteId,
+        voiceNoteId: voiceNoteId,
       );
 
       // TD59 (#635): transcription needs a budget that EXCEEDS the server's ~140s

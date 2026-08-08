@@ -45,6 +45,8 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **B6 (the surface)** — `/profiling/*`, `ProfilingSessionService`, and `runTurn` extracted so both surfaces share one pipeline | PR #698 → `969cf75e` | **on `main`** |
 | **B6 (the spoken leg)** — synchronous ≤30 s transcription, R9 closed for this surface, `profiling_voice_answer` writer | PR #702 → `2adea343` | **on `main`** |
 | **The typed chip value** — `String()` on `value_bool` cost two completed interviews their whole profile | PR #710 → `bc4958eb` | **on `main`** |
+| **#700 the ⟲ correction** — targeted write, superseding, outside the turn loop · **#708** the pack-version audio guard · **V0 rung 0** | PR #722 → `1c2820c2` | **on `main`** |
+| **#700 the rebuild** — a fourth trigger, keyed on `answer_set_hash` rather than the session | PR #726 | **open** |
 
 ### B6 — THE GAP THAT MADE THE FEATURE NOT WORK, and it was not on any list
 
@@ -94,6 +96,38 @@ Three PRs closed it. The parts worth carrying forward:
 **Filed rather than built:** #699 (Rishi — `HttpVoiceFormGateway`, the client half, contract in
 full), #700 (the review screen's ⟲ correction: no supplier, no wire shape, and no engine path —
 an owner ruling first), #701 (Divyanshu — `tts_render --apply`, gated on B-2).
+
+#### THE ⟲ CORRECTION — RULED AND BUILT (#700, owner 2026-08-08)
+
+**Targeted write, not re-serve.** `POST /profiling/correct` marks the prior `AnswerRecord`
+superseded, keeps it in `history`, and commits the new value through `mayCommit`'s `correcting`
+escape — outside `nextQuestion`. It is the only write in an interview the turn loop does not
+authorize, so every guarantee that loop gives for free is re-established by hand and each one has a
+mutation behind it: ownership, pack membership, chip-key validity, the shared capture path, 422 on
+an unreadable value, 409 on a question still on screen, the deliberately-bypassed first-write-wins,
+`MAX_CORRECTIONS_PER_SESSION = 20`, and one transaction in place of the CAS. Both durable stores are
+written together, because `worker_pack_answer` is what the review shows and
+`conversation_state.answer_map` is what the extraction reads.
+
+**And it rebuilds the profile, through a FOURTH trigger keyed on the DATA.** The other three fire on
+"this session finished" and guard each other with session-scoped dedupe — the guarding that closed
+#420, where two triggers fired on UNCHANGED data. A correction is the opposite case, so keying it on
+`session_id` would put both in one key space and leave "they can never collide" resting on the code
+paths staying apart. `answer_set_hash` fingerprints the answer map itself: an answer set already
+built is the same key and dedupes; a changed one is a different key and is **not expressible** as a
+re-fire on unchanged data. The hash ignores `turn`, `evidence` and `history` on purpose — a worker
+who re-confirms a value must not pay for a fresh extraction.
+
+The new row supersedes the old through `CURRENT_PROFILE_ORDER` and nothing else — the #678/B-8b
+definition, not a second one.
+
+**The boundary, which is where this and #420 could otherwise blur together, and it is tested both
+ways.** Not yet extracted → do nothing; the queued extraction reads `conversation_state` when it
+RUNS, after the correction committed, so it picks the correction up itself. Already extracted →
+rebuild; nothing will ever read those answers again.
+
+Measured live: three corrections produced **two** jobs (the middle one re-sent the same value and
+deduped on the hash), and `worker_profiles` chained 8 → 15 → 20 with the newest current.
 
 #### THREE DEFECTS THE FIRST LIVE RUN FOUND, and none of them was visible to 3855 unit tests
 
