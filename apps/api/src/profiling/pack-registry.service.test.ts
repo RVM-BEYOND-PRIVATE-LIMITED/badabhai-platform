@@ -78,9 +78,8 @@ function makeRegistry(world: {
     // implementation is not asking.
     findItems: vi.fn(
       async (packId: string, version: number) =>
-        Object.values(packs).find(
-          (p) => p.head.packId === packId && p.head.version === version,
-        )?.items ?? [],
+        Object.values(packs).find((p) => p.head.packId === packId && p.head.version === version)
+          ?.items ?? [],
     ),
     findOptions: vi.fn(async (itemIds: readonly string[]) =>
       (world.options ?? []).filter((o) => itemIds.includes(o.itemId)),
@@ -144,10 +143,7 @@ describe("the fallback chain — most specific wins", () => {
 
   it("lands on the universal pack when nothing more specific has one", async () => {
     const { registry } = makeRegistry({
-      bindings: [
-        binding("fam_welding", 50),
-        binding("fam_universal", 0),
-      ],
+      bindings: [binding("fam_welding", 50), binding("fam_universal", 0)],
       packs: { UNIVERSAL },
     });
     expect((await registry.resolveForOccupation(PIN, NOW))?.pack_id).toBe("qp_universal");
@@ -215,10 +211,7 @@ describe("validation on the way OUT of the database", () => {
     };
     vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
     const { registry } = makeRegistry({
-      bindings: [
-        binding("fam_welding", 50),
-        binding("fam_universal", 0),
-      ],
+      bindings: [binding("fam_welding", 50), binding("fam_universal", 0)],
       packs: { broken, UNIVERSAL },
     });
     expect((await registry.resolveForOccupation(PIN, NOW))?.pack_id).toBe("qp_universal");
@@ -306,7 +299,11 @@ describe("chips — three typed value columns, one contract field", () => {
       ],
     });
     const options = (await registry.loadPinned("qp_welding", 1, NOW))?.items[0]?.options;
-    expect(options?.map((o) => o.value)).toEqual(["day", "12", "true", null]);
+    // TYPED, NOT STRINGIFIED. This line used to read `["day", "12", "true", null]` and it was
+    // pinning the defect: `String()` on the number and the boolean columns meant every layer
+    // downstream — which routes on the value's SHAPE — saw text. See `typed-option-value.test.ts`
+    // for the three consequences, one of which throws in the extraction job.
+    expect(options?.map((o) => o.value)).toEqual(["day", 12, true, null]);
     expect(options?.map((o) => o.is_none_of_above)).toEqual([false, false, false, true]);
   });
 });
