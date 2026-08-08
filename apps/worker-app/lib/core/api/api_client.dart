@@ -35,6 +35,29 @@ const int kAiJobPollMaxAttempts = 40;
 /// [buildAiJobPollSchedule].
 const Duration kAiJobPollInterval = Duration(milliseconds: 350);
 
+/// Poll BUDGET for a VOICE TRANSCRIPTION job (#635 / TD59) — deliberately far
+/// larger than the extraction default of [kAiJobPollMaxAttempts] x
+/// [kAiJobPollInterval] (14s).
+///
+/// TD59: the server's STRUCTURAL ceiling for even a SHORT answer is ~140s
+/// (storage 20s fetch + Sarvam 60s + translate 60s). A 14s client budget
+/// therefore guarantees the exact failure — the client gives up and tells the
+/// worker to retry WHILE the server completes, bills and stores the transcript.
+/// The transcription budget must EXCEED the server ceiling; 150s covers it with
+/// margin, and [buildAiJobPollSchedule]'s exponential backoff keeps the request
+/// COUNT modest across the longer wait.
+///
+/// This is a ceiling to STOP the bug, not a tuned value: the final number should
+/// come from measured staging p50/p95. TD59's own preferred prescription is the
+/// server-side merge (backend B5), which removes the latency dependency entirely
+/// rather than merely lengthening the budget — consume it here once it lands.
+const Duration kVoiceTranscriptWaitBudget = Duration(seconds: 150);
+
+/// [kVoiceTranscriptWaitBudget] expressed as poll attempts for
+/// [ApiClient.awaitAiJob] (total budget is `attempts x` [kAiJobPollInterval]).
+const int kVoiceTranscriptPollMaxAttempts =
+    150 * 1000 ~/ 350; // kVoiceTranscriptWaitBudget / kAiJobPollInterval ~= 428
+
 /// Builds the delay schedule for [ApiClient.awaitProfileId] /
 /// [ApiClient.awaitAiJob] — one delay per poll, in order (#378).
 ///
