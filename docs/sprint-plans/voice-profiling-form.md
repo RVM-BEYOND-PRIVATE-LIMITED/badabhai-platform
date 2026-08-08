@@ -3,7 +3,7 @@
 Hinglish voice-driven sequential Q&A for the worker app: questions shown one at a time, read aloud,
 answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam TTS out.
 
-**Status date:** 2026-08-08 · **HEAD:** `e79fecec`
+**Status date:** 2026-08-08 · **HEAD:** `969cf75e`
 
 ---
 
@@ -41,6 +41,58 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **B-8a** — a call that never left the process claimed `success: true` and emitted a cost row | PR #681 → `ff676fe8` | **on `main`** |
 | **V4b** — `VoiceTranscriptionService` extracted; `VoiceModule` exports; the DSAR **orphan** sweep | PR #682 → `f9f89759` | **on `main`** |
 | **V5 (the render half)** — the 433-clip manifest measured, `tts_render.py`, TS↔Python identity parity | PR #683 → `aea376d1` | **on `main`** |
+| **B6 (the engine half)** — `openTurn`, `whyText`/`answerType`, and a replay that stopped stripping the question | PR #697 → `ee5180e8` | **on `main`** |
+| **B6 (the surface)** — `/profiling/*`, `ProfilingSessionService`, and `runTurn` extracted so both surfaces share one pipeline | PR #698 → `969cf75e` | **on `main`** |
+| **B6 (the spoken leg)** — synchronous ≤30 s transcription, R9 closed for this surface, `profiling_voice_answer` writer | PR #702 | **open** |
+
+### B6 — THE GAP THAT MADE THE FEATURE NOT WORK, and it was not on any list
+
+Found 2026-08-08 while re-deriving what the plan still owed. **`VoiceFormGateway` had no
+implementation.** The entire Flutter voice form — #624–#639, thirteen of sixteen issues closed, a
+session state machine, a pure-Dart endpointer, pre-flight calibration, chips, a review screen —
+talks to an abstract interface whose own doc comment says *"that shape is still being frozen
+(backend B6), so the real implementation lands as a follow-up"*.
+
+B6 was never built. **V3 landed as the OIE Phase 8 cutover instead**, which was the right call for
+the reasons recorded below, and the plan's §5 sync point ("contracts frozen after V3/V4, before
+Rishi's #628–#632") was then passed by building #628–#632 against a stub. So the client was
+complete, the engine was live, and a worker tapping "Sawaal-jawaab" reached nothing. The kill
+switch defaults hidden (#638), so this was dormant rather than broken in production.
+
+Three PRs closed it. The parts worth carrying forward:
+
+- **`openTurn` is not `takeTurn("")`, and the near-miss is the trap.** Since #641 an empty
+  utterance on a fresh session does fall through to the engine and return question one — but it
+  also appends a `{role: "worker", text: ""}` line the end-of-interview parse call reads as the
+  worker having said nothing, runs occupation retrieval against the empty string, and spends a turn
+  from `MAX_ENGINE_TURNS`. It is idempotent on `servedQuestionKey` rather than on the reply cache,
+  because `start()` is called again on every cold app start and the cache is keyed on inbound text
+  with a ten-second window.
+- **A replay was a STRIPPED response, not the byte-identical one it promised.** `LastTurn`'s own
+  comment said `questionKey` was there "for the client's chip rendering" while `replayOf` returned
+  `options: []`. Chat absorbs it; the voice form cannot — a retried submit over 2G is ordinary, and
+  replaying a `single_select` with no chips strands a worker who cannot type.
+- **`answer_type` is the one thing a client cannot infer.** All 236 boolean items carry zero
+  options, so a client keying chips off `options.length` renders a mic for "Kya aapke paas
+  certificate hai?".
+- **One pipeline, mechanically.** `postMessage`'s middle is now `ChatService.runTurn` and both
+  surfaces call it — the completed-but-unflushed re-drive, the CAS-loss branch, the replay
+  short-circuit, the flush, the checkpoint. `postMessage`'s 54 existing tests are untouched, which
+  is the regression proof.
+- **The mode-lock is NOT built, and that is now measured.** It existed to close a lost-update
+  hazard between a blind `save()` and `saveWithCas()`; the Phase 8 cutover deleted the blind save.
+  Both surfaces reach one envelope through one CAS, so a worker who starts in chat and continues in
+  the voice form — which the entry chooser's own copy invites — simply continues the same interview.
+- **R9 is closed for this surface.** `translate_to_english: false` per call, not as a default:
+  `GET /voice/:id` returns `transcript_english` to a shipped client, so the global flip stays an
+  owner ruling. The mutation for this was **GREEN on the first run** — the fix was reasoned and
+  asserted by nothing — which is why two tests now pin it.
+- **`profiling_voice_answer` has a writer at last**, including on FAILURE: a clip recorded,
+  uploaded, paid for and never transcribed is invisible everywhere else in the system.
+
+**Filed rather than built:** #699 (Rishi — `HttpVoiceFormGateway`, the client half, contract in
+full), #700 (the review screen's ⟲ correction: no supplier, no wire shape, and no engine path —
+an owner ruling first), #701 (Divyanshu — `tts_render --apply`, gated on B-2).
 
 ### Verified live on merged `main` (2026-08-08)
 
@@ -519,11 +571,18 @@ at 0.97 → `qp_welding` served → a 13-turn interview completes → **10 typed
 **0 events** containing a raw utterance or a phone number. `ai_posture: mock` throughout, so not one
 word of it came from a model.
 
-**Still owed from V3's scope:** the path-equivalence test — and note it is now a test of ONE path, since
-the cutover deleted the model-driven one, so what it would pin is the pre/post-cutover branch inside
-`extractOrParse` rather than two surfaces. The §1a convergence (B-6) is CLOSED: both legs reach
-`ProfilesRepository.create`. `openTurn()`, the mode-lock and the 409-on-stale-`question_key` remain moot
-until a second surface exists.
+**Still owed from V3's scope — RE-DERIVED 2026-08-08, and most of it is now closed.** The
+§1a convergence (B-6) was already closed: both legs reach `ProfilesRepository.create`. `openTurn()`
+shipped in #697 and the 409-on-stale-`question_key` in #698 — both stopped being "moot until a
+second surface exists" the moment B6 built that surface. The **mode-lock** is closed as
+NOT-NEEDED rather than as built: it existed to close a lost-update hazard between a blind `save()`
+and `saveWithCas()`, and the cutover deleted the blind save.
+
+What genuinely remains is **the path-equivalence test**, and it is now a test of ONE path: the
+cutover deleted the model-driven leg, so what it would pin is the pre/post-cutover branch inside
+`extractOrParse` rather than two surfaces. The stronger version of the same property already
+exists mechanically — `ChatService.runTurn` is called by both surfaces, so "the two paths agree"
+is true by construction rather than by assertion.
 
 ---
 
@@ -562,10 +621,13 @@ until a second surface exists.
 > replacing it: legacy `storage_path` values predate the minted-key shape guard and sit outside
 > `voice-notes/{workerId}/`.
 >
-> **Still not built, deliberately: the synchronous ≤30s path.** It has no consumer until V6 ships,
-> its latency is B-3 (still unmeasured), and a config-gated route nothing calls is the "built
-> dark" pattern this plan was written to stop repeating. The extraction above is what makes it a
-> small change when V6 arrives.
+> **The synchronous ≤30s path SHIPPED in #702**, and the condition this row set for it is what
+> changed: it now has a consumer. `POST /profiling/answer` accepts `{kind: "spoken",
+> voice_note_id}` and calls `VoiceTranscriptionService.transcribeNow`, which is `transcribe` with
+> `terminal: true` — exactly the reuse the extraction was for. The cap is checked BEFORE any
+> provider call is paid for, because it is what keeps Sarvam on a single synchronous call rather
+> than in the chunked path. B-3 is still unmeasured; the difference is that the route now exists
+> to measure it on.
 >
 > **`translate_to_english` is NOT flipped, and that is a deliberate hold.** Measured: apps/api
 > sets it nowhere, so the ai-service default `True` governs and the translate leg fires on every
@@ -702,8 +764,20 @@ from chat.
 
 ### Phase V6 — Flutter client *(Owner: Rishi · XL · #624–#639)*
 
-Full issue list in GitHub. **Backend contracts must be frozen before #628–#632 start**, or the mock is
-fiction. #624, #625, #626 have no backend dependency and can start immediately.
+Full issue list in GitHub. **13 of 16 closed** as of 2026-08-08; #631 (TTS playback), #636
+(interruptions) and #637 (offline queue) remain open.
+
+> **THE SYNC POINT WAS PASSED, AND THIS IS WHERE IT SHOWED.** The line below said backend
+> contracts must be frozen before #628–#632 start "or the mock is fiction". They started anyway,
+> against `VoiceFormGateway` — an abstract interface with **no implementation**, whose doc comment
+> says the real one lands as a follow-up. So every screen was built, the issues were closed, and
+> nothing could reach the server. The contract is frozen now (#697/#698/#702) and the client half
+> is **#699**. The lesson is not "Rishi moved too early" — the interface he wrote against turned
+> out to be an accurate prediction of the contract — it is that a closed issue on a stubbed seam
+> looks exactly like a shipped feature on the board.
+
+**Backend contracts must be frozen before #628–#632 start**, or the mock is fiction. #624, #625,
+#626 have no backend dependency and can start immediately.
 
 Scope: `lib/features/voice_form/` · a **separate** `SessionVoiceRecorder` binding (the existing
 recorder is a process-wide `LazySingleton` shared with the single-shot flow) · a pure-Dart endpointer ·
@@ -823,7 +897,7 @@ embeds the object key) · the pre-rendered TTS route takes `question_key`, never
 | R6 | Reply closure ≠ pack strings (145 concatenations) | Pre-render misses ~52%; every clarify turn falls through to a live TTS call | Enumerate reply *producers*, content-address |
 | R7 | Recorder is a process-wide `LazySingleton` | "Single-shot flow unchanged" is false by construction | Separate `SessionVoiceRecorder` binding (#625) |
 | R8 | Silence detection unmeasured, no repo precedent | Too eager cuts the worker off; too lax makes the manual button the only advance | Amplitude envelope captured in V0; pure-Dart endpointer, synthetic-stream testable |
-| R9 | Translate leg is real Sarvam spend **not on the ledger**, fires by default | ~13 unbudgeted calls/session — the TD68 defect class recurring | V4: `translate_to_english: false` |
+| ~~R9~~ | Translate leg is real Sarvam spend **not on the ledger**, fires by default | ~13 unbudgeted calls/session — the TD68 defect class recurring | **CLOSED FOR THIS SURFACE (#702)** — `translate_to_english: false` is passed per call on the voice-form path, and a test pins that the QUEUE path still sends nothing so `GET /voice/:id` is byte-identical for chat. The global default is untouched and remains an owner ruling, because flipping it changes a shipped response. NOTE: the fix was originally reasoned, not measured — the mutation that removed it was **GREEN**, i.e. nothing asserted it. Two tests now do. |
 | R10 | Degenerate-turn cost ceiling | `MAX_ENGINE_TURNS = 171` × ₹0.25 = ₹42.75, 171% of the per-worker daily cap, which is *shared* with chat + resume | Cap **billed clips per session**; the engine's ask budget does not bound clips |
 | R11 | No worker has ever consented to being recorded | GA blocker | V9 |
 | R12 | `mintLink` builds `/r/` URLs | Dormant — **no production caller**; verified, not assumed | Leave as measurement-only |
