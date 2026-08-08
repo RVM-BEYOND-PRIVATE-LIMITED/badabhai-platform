@@ -36,6 +36,7 @@ const served = (partial: Partial<ServedQuestion> = {}): ServedQuestion => ({
 
 const turn = (partial: Partial<TurnResult> = {}): TurnResult => ({
   reply: "Kitne saal ka tajurba hai?",
+  kind: "ask",
   questionKey: "q_years",
   options: [],
   progress: { answered: 4, total: 11 },

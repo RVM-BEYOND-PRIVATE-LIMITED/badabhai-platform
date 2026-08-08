@@ -23,8 +23,14 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import { ChatService } from "./chat.service";
+import { PostMessageResponseSchema } from "./chat.dto";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
-import { emptyTurnLatency, type ProfilingEnvelope } from "../profiling/conversation-state";
+import {
+  emptyTurnLatency,
+  TURN_KINDS,
+  type ProfilingEnvelope,
+} from "../profiling/conversation-state";
+import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -193,8 +199,9 @@ function make(
   const orchestrator = {
     takeTurn: vi.fn(async () => ({
       reply: "Aap kis sheher mein rehte hain?",
+      kind: "ask",
       questionKey: "current_city",
-      options: [{ option_key: "pune", label_text: "Pune", value: "Pune" }],
+      options: [{ option_key: "pune", label_text: "Pune", value: "Pune", is_none_of_above: false }],
       progress: { answered: 3, total: 12 },
       unansweredEssentials: ["salary_expected"],
       complete: false,
@@ -408,7 +415,10 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
 
   it("threads the request context through, so a placement is traceable to its request", async () => {
     const { orchestrator } = await run();
-    const input = (orchestrator.takeTurn.mock.calls as unknown[][])[0]?.[0] as { ctx: unknown; text: string };
+    const input = (orchestrator.takeTurn.mock.calls as unknown[][])[0]?.[0] as {
+      ctx: unknown;
+      text: string;
+    };
     expect(input.ctx).toBe(CTX);
     expect(input.text).toBe(DTO.text);
   });
@@ -446,10 +456,119 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
     const { res } = await run({
       buffer: {},
       written: COMPLETED,
-      turn: { complete: true, questionKey: null, completionReason: "fields_complete" },
+      turn: {
+        complete: true,
+        kind: "close",
+        questionKey: null,
+        completionReason: "fields_complete",
+      },
     });
     expect(res.question_kind).toBe("close");
     expect(res.session_ended).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The disambiguation offer, and the option shape (#695 / #649)
+// ---------------------------------------------------------------------------
+
+/** What the orchestrator's offer branch actually produces: no pack key, chips, and the escape. */
+const OFFER = {
+  kind: "disambiguate" as const,
+  reply: "Aap in mein se kaun sa kaam karte hain?",
+  questionKey: null,
+  options: [
+    { option_key: "occ_0", label_text: "Welder", value: "Welder", is_none_of_above: false },
+    { option_key: "occ_1", label_text: "Fitter", value: "Fitter", is_none_of_above: false },
+    {
+      option_key: DISAMBIGUATION_ESCAPE_KEY,
+      label_text: DISAMBIGUATION_ESCAPE_LABEL,
+      value: DISAMBIGUATION_ESCAPE_LABEL,
+      is_none_of_above: true,
+    },
+  ],
+};
+
+describe("a disambiguation offer is not an ordinary ask", () => {
+  it("serialises with question_kind `disambiguate`", async () => {
+    // THE WHOLE POINT OF #695. `turn.complete ? "close" : "ask"` could never produce this, so a
+    // real offer reached the worker app as an ordinary ask and rendered in the horizontal chip
+    // scroller — the failure #649 was raised to fix, with its vertical single-select correct,
+    // merged, and unreachable.
+    const { res } = await run({ turn: OFFER });
+    expect(res.question_kind).toBe("disambiguate");
+  });
+
+  it("still serialises an ordinary ask as `ask` — the existing value is unchanged", async () => {
+    const { res } = await run();
+    expect(res.question_kind).toBe("ask");
+  });
+
+  it("carries the option KEY and the escape FLAG, not just the label", async () => {
+    const { res } = await run({ turn: OFFER });
+    expect(res.suggested_options).toEqual([
+      { option_key: "occ_0", label_text: "Welder", is_none_of_above: false },
+      { option_key: "occ_1", label_text: "Fitter", is_none_of_above: false },
+      {
+        option_key: DISAMBIGUATION_ESCAPE_KEY,
+        label_text: DISAMBIGUATION_ESCAPE_LABEL,
+        is_none_of_above: true,
+      },
+    ]);
+  });
+
+  it("BINDS the escape to the config constant, so the client can stop matching on copy", async () => {
+    // The client matched "none of these" against a hardcoded `'Kuch aur'` literal — a duplicate of
+    // `DISAMBIGUATION_ESCAPE_LABEL` with no shared source and no test tying the two together. This
+    // is that test: exactly one option is flagged, and it is the one the server built from the
+    // constant. A copy change now moves the label without stranding the client's branch.
+    const { res } = await run({ turn: OFFER });
+    const escapes = res.suggested_options.filter((o) => o.is_none_of_above);
+    expect(escapes).toHaveLength(1);
+    expect(escapes[0]?.label_text).toBe(DISAMBIGUATION_ESCAPE_LABEL);
+    expect(escapes[0]?.option_key).toBe(DISAMBIGUATION_ESCAPE_KEY);
+  });
+
+  it("leaves `value` and `implies_skill_id` off the wire — neither is renderable", async () => {
+    const { res } = await run({ turn: OFFER });
+    for (const option of res.suggested_options) {
+      expect(Object.keys(option).sort()).toEqual(["is_none_of_above", "label_text", "option_key"]);
+    }
+
+    // ASSERTED AT THE SCHEMA, because the schema is what actually holds it. `res` has already been
+    // through `PostMessageResponseSchema.parse`, whose default strip mode removes any key the
+    // shape does not declare — so the loop above passes whether or not `toWireOption` forwards
+    // `value`, and on its own it pins nothing. What can really regress is someone DECLARING one of
+    // these on the DTO, and this is the assertion that fails when they do.
+    const parsed = PostMessageResponseSchema.shape.suggested_options.parse([
+      {
+        option_key: "occ_a",
+        label_text: "Welder",
+        is_none_of_above: false,
+        value: "Welder",
+        implies_skill_id: "sk_welding",
+      },
+    ]);
+    expect(Object.keys(parsed[0] ?? {}).sort()).toEqual([
+      "is_none_of_above",
+      "label_text",
+      "option_key",
+    ]);
+  });
+
+  it("keeps `suggested_followups` unchanged, so a client predating the field sees no difference", async () => {
+    const { res } = await run({ turn: OFFER });
+    expect(res.suggested_followups).toEqual(["Welder", "Fitter", DISAMBIGUATION_ESCAPE_LABEL]);
+  });
+
+  it("every kind the engine can produce is a value the wire enum declares", () => {
+    // The engine's set is deliberately NARROWER than the schema's — `clarify` is declared and
+    // never produced. This asserts the containment rather than the equality, so the two can only
+    // drift in the direction that cannot serve a client a value it has never seen.
+    const declared = PostMessageResponseSchema.shape.question_kind;
+    for (const kind of TURN_KINDS) {
+      expect(declared.safeParse(kind).success, `${kind} is not on the wire`).toBe(true);
+    }
   });
 });
 
@@ -477,6 +596,24 @@ describe("ChatService.postMessage — degradation is a true no-op", () => {
     expect(buffer.load).toHaveBeenCalledTimes(1);
   });
 
+  it("a REPLAYED disambiguation stays a disambiguation, with its chips (#695)", async () => {
+    // The orchestrator caches the options precisely so a replay is the response it claims to
+    // repeat; this site then dropped them and hardcoded `question_kind: "ask"`. Together those
+    // made the second delivery of an offer strictly worse than the first — and with the kind now
+    // real, dropping the chips would tell the client to draw a single-select with nothing in it.
+    // A worker resubmitting over a bad 2G link gets what they got the first time.
+    const { res } = await run({ turn: { ...OFFER, replayed: true } });
+    expect(res.question_kind).toBe("disambiguate");
+    expect(res.suggested_followups).toEqual(["Welder", "Fitter", DISAMBIGUATION_ESCAPE_LABEL]);
+    expect(res.suggested_options.filter((o) => o.is_none_of_above)).toHaveLength(1);
+  });
+
+  it("a degraded turn is `ask` with nothing to tap — the worker retries into a live session", async () => {
+    const { res } = await run({ turn: { unavailable: true, reply: "Abhi thodi dikkat" } });
+    expect(res.question_kind).toBe("ask");
+    expect(res.suggested_options).toEqual([]);
+  });
+
   it("a message posted to an ALREADY FINALIZED session is terminal, free, and idempotent", async () => {
     const { res, orchestrator, chat } = await run({ sessionStatus: "ended" });
     expect(res.session_ended).toBe(true);
@@ -487,7 +624,11 @@ describe("ChatService.postMessage — degradation is a true no-op", () => {
 
   it("a session that is not yours is 404, never 403 — no existence oracle", async () => {
     const h = make();
-    h.chat.findSession.mockResolvedValue({ id: SESSION, workerId: "someone-else", status: "active" });
+    h.chat.findSession.mockResolvedValue({
+      id: SESSION,
+      workerId: "someone-else",
+      status: "active",
+    });
     await expect(h.svc.postMessage(WORKER, DTO as never, CTX)).rejects.toThrow(/not found/i);
     expect(h.orchestrator.takeTurn).not.toHaveBeenCalled();
   });

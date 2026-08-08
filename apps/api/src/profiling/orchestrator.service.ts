@@ -44,9 +44,11 @@ import {
   inboundHash,
   recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
+  TURN_KINDS,
   toEngineState,
   withAnswers,
   type ProfilingEnvelope,
+  type TurnKind,
 } from "./conversation-state";
 import {
   askCeiling,
@@ -134,8 +136,20 @@ export const MAX_CAS_ATTEMPTS = 2;
 export const CHECKPOINT_EVERY_ASKS = 5;
 
 /** What one turn produced. */
+/**
+ * Re-exported so {@link TurnResult} reads beside the type it uses. DEFINED in
+ * `conversation-state.ts` because `LastTurn` persists it and that module must not import this one.
+ */
+export { TURN_KINDS, type TurnKind };
+
 export interface TurnResult {
   readonly reply: string;
+  /**
+   * See {@link TurnKind}. REQUIRED rather than defaulted, so a new construction site cannot ship
+   * without stating what it is putting on screen — which is how the disambiguation offer came to
+   * be indistinguishable from an ordinary ask in the first place.
+   */
+  readonly kind: TurnKind;
   readonly questionKey: string | null;
   readonly options: readonly QuestionPackOption[];
   readonly progress: { readonly answered: number; readonly total: number };
@@ -366,6 +380,36 @@ export class ProfilingOrchestrator {
       const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
       const answers = answersOf(envelope);
 
+      // CHIPS ON SCREEN OUTRANK THE PACK QUESTION, before the re-serve below can find a stale key.
+      //
+      // `identify()`'s offer branch patches `needsDisambiguation`, `disambiguationOffer`, `phase`
+      // and `catalogVersion` — it does NOT clear `servedQuestionKey`, so a session mid-offer still
+      // carries the pack key from the turn before. Without this, reopening re-served that question
+      // as an ordinary ask and silently replaced the pending offer, while `viewSession` (which has
+      // applied this precedence all along) reported `questionKey: null` for the same session. The
+      // two readers disagreed about what the worker was looking at, and answering the re-served
+      // question 409'd on the stale-answer guard. `openTurn` runs on every cold start and
+      // resume-after-kill, which is exactly when a worker returns to an offer they never answered.
+      const offer = outstandingOffer(envelope);
+      if (offer) {
+        return {
+          reply: offer.prompt,
+          kind: "disambiguate",
+          questionKey: null,
+          options: offer.options,
+          whyText: null,
+          answerType: "single_select",
+          progress: progressOf(items, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: true,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        };
+      }
+
       // ALREADY OPEN. Re-serve, write nothing. `servedText` rather than `prompt_text`, so a
       // session reopened after a re-ask hears the wording it last heard and not the opening
       // phrasing from two turns ago — the regression `servedText` exists to prevent, and one a
@@ -378,6 +422,9 @@ export class ProfilingOrchestrator {
         );
         return {
           reply: text,
+          // A re-serve of a PACK question, and now genuinely only that: an outstanding offer was
+          // returned above, so reaching here means `servedQuestionKey` is the live question.
+          kind: "ask",
           questionKey: served.question_key,
           options: served.options,
           ...shapeOf(items, served.question_key),
@@ -441,6 +488,9 @@ export class ProfilingOrchestrator {
         });
         return {
           reply,
+          // Opening the screen never disambiguates: retrieval has not run, because the worker has
+          // not said anything for it to run on.
+          kind: decision.kind === "close" ? "close" : "ask",
           questionKey: decision.questionKey,
           options: decision.options,
           ...shapeOf(items, decision.questionKey),
@@ -518,6 +568,9 @@ export class ProfilingOrchestrator {
       if (next.abusiveTurns < MAX_ABUSIVE_TURNS && !capped) {
         return this.turn(buffer, next, input, {
           reply: DE_ESCALATION_REPLY,
+          // The question on screen is unchanged and still answered the ordinary way; only the
+          // words above it differ.
+          kind: "ask",
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           ...shapeOf(items, envelope.servedQuestionKey),
@@ -559,6 +612,8 @@ export class ProfilingOrchestrator {
         // the question is re-served with no budget spent and no counter advanced.
         return this.turn(buffer, next, input, {
           reply: reserved,
+          // A re-serve of the same question — same kind it had.
+          kind: "ask",
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           ...shapeOf(items, envelope.servedQuestionKey),
@@ -598,6 +653,8 @@ export class ProfilingOrchestrator {
           // Indexed by TURN, never at random: the engine has no randomness by construction, so
           // the same conversation must always produce the same words.
           reply: HARDSHIP_REPLIES[turn % HARDSHIP_REPLIES.length] as string,
+          // An acknowledgement above the question that is still on screen.
+          kind: "ask",
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           ...shapeOf(items, envelope.servedQuestionKey),
@@ -628,6 +685,12 @@ export class ProfilingOrchestrator {
             askedItem,
             askedItem ? askCount(state, askedItem.question_key) : 0,
           ),
+          // `ask`, NOT the wire enum's `clarify`. The explanation and the question arrive in one
+          // bubble, and the question is answered exactly as it was before the worker asked why —
+          // so a client that branched on `clarify` would be re-rendering an unchanged affordance.
+          // Emitting the value would be a visible change to a shipped client, which is #695's
+          // scope to widen, not this change's.
+          kind: "ask",
           questionKey: clarified.questionKey,
           options: clarified.options,
           ...shapeOf(items, clarified.questionKey),
@@ -685,6 +748,12 @@ export class ProfilingOrchestrator {
     if (identified.offer) {
       return this.turn(buffer, next, input, {
         reply: identified.offer.prompt,
+        // THE ONE SITE THAT KNOWS. Everything downstream had to guess before #695: the fact was
+        // available exactly here and thrown away one layer up, so a real disambiguation offer
+        // reached the worker app as an ordinary ask and rendered in the horizontal chip scroller
+        // — the failure #649 was raised to fix, with its vertical single-select correct, merged
+        // and unreachable.
+        kind: "disambiguate",
         // NO QUESTION KEY. This question belongs to no pack, and claiming a pack's key for it
         // would make the next turn's `askedItem` lookup capture a chip tap as that question's
         // answer.
@@ -789,6 +858,9 @@ export class ProfilingOrchestrator {
 
     return this.turn(buffer, next, input, {
       reply,
+      // The engine's own verdict, not a re-derivation of it: `close` is the decision that ended
+      // the interview, and every other decision put a pack question on screen.
+      kind: decision.kind === "close" ? "close" : "ask",
       questionKey: decision.questionKey,
       options: decision.options,
       ...shapeOf(items, decision.questionKey),
@@ -885,19 +957,19 @@ export class ProfilingOrchestrator {
       : [];
     const answers = answersOf(envelope);
 
-    // THE DISAMBIGUATION OFFER OUTRANKS THE PACK QUESTION, in the same order `decide` applies it:
-    // when chips are on screen there IS no pack question, and a stale `servedQuestionKey` from
-    // before the offer would otherwise be reported as what the worker is looking at.
-    if (envelope.needsDisambiguation && envelope.disambiguationOffer.length > 0) {
+    // THE DISAMBIGUATION OFFER OUTRANKS THE PACK QUESTION — see {@link outstandingOffer}, which
+    // both readers of a reopened session share so they cannot answer this differently again.
+    const offer = outstandingOffer(envelope);
+    if (offer) {
       return {
         buffer,
         envelope,
         items,
         served: {
           questionKey: null,
-          promptText: DISAMBIGUATION_PROMPT,
+          promptText: offer.prompt,
           answerType: "single_select",
-          options: envelope.disambiguationOffer.map((chip, index) => toPackOption(chip, index)),
+          options: offer.options,
           whyText: null,
           progress: progressOf(items, answers),
         },
@@ -1062,6 +1134,7 @@ export class ProfilingOrchestrator {
         // turn on the same words — the exact failure Layer A exists to prevent.
         inboundHash: inboundHash(input.sessionId, envelope.rev + 1, input.text),
         reply: result.reply,
+        kind: result.kind,
         questionKey: result.questionKey,
         at: input.now.toISOString(),
         // EVERYTHING THE CLIENT DRAWS, stamped together with the words. Taken off `result` rather
@@ -1120,8 +1193,22 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
   // A NEGATIVE age is not a hit. Clock skew between instances would otherwise make a stale entry
   // look arbitrarily fresh, and replaying an old reply is worse than spending a turn.
   if (!Number.isFinite(age) || age < 0 || age > REPLY_CACHE_WINDOW_MS) return null;
+  // AN OFFER THAT LOST ITS CHIPS IS NOT A REPLAY, IT IS A DEAD END — fail closed (§3).
+  //
+  // `narrowLastTurn` parses cached options all-or-nothing, so any chip the contract rejects empties
+  // the list, while `kind` narrows independently and survives. Serving that pair tells the client to
+  // draw a single-select with nothing in it: on chat a scroller with no chips, on the voice form a
+  // question a worker who cannot type has no way at all to answer. Returning null re-runs the turn,
+  // which costs one turn; serving it costs the session. All-or-nothing is kept deliberately over
+  // per-chip narrowing — a PARTIAL offer would hide the same failure behind a plausible screen.
+  if (last.kind === "disambiguate" && last.options.length === 0) return null;
   return {
     reply: last.reply,
+    // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
+    // link is an ordinary event, and re-deriving `ask` here would turn the second delivery of a
+    // disambiguation offer into an ordinary question with a chip scroller — the byte-identical
+    // replay this cache promises, silently downgraded on exactly the connections that need it.
+    kind: last.kind,
     questionKey: last.questionKey,
     // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
     // replay a strictly WORSE response than the one it claims to repeat: same words, no chips, no
@@ -1143,9 +1230,33 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
   };
 }
 
+/**
+ * The chips a reopened session is still waiting on, or null.
+ *
+ * ONE PRECEDENCE DECISION, SHARED BY BOTH READERS OF A REOPENED SESSION. `viewSession` and
+ * `openTurn` each have to answer "what is this worker looking at", and they answered it
+ * differently: `viewSession` returned the offer, `openTurn` re-served the stale
+ * `servedQuestionKey` — which `identify()`'s offer branch never clears — as an ordinary ask. A
+ * worker who reopened mid-offer got the previous pack question, and answering it 409'd against
+ * the other reader's view. Two call sites of one rule is how that happened; this is the rule.
+ */
+function outstandingOffer(
+  envelope: ProfilingEnvelope,
+): { prompt: string; options: QuestionPackOption[] } | null {
+  if (!envelope.needsDisambiguation || envelope.disambiguationOffer.length === 0) return null;
+  return {
+    prompt: DISAMBIGUATION_PROMPT,
+    options: envelope.disambiguationOffer.map((chip, index) => toPackOption(chip, index)),
+  };
+}
+
 function unavailable(): TurnResult {
   return {
     reply: UNAVAILABLE_REPLY,
+    // Nothing is on screen to describe, and `ask` is the enum's own neutral value — the same one
+    // `ChatService` already serves on this path. A worker retrying into a live session is the
+    // whole point of the line, so it must not read as a close.
+    kind: "ask",
     questionKey: null,
     options: [],
     progress: { answered: 0, total: 0 },

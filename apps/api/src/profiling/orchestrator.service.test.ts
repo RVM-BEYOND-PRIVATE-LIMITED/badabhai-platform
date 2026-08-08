@@ -2,10 +2,22 @@ import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 
-import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
+import {
+  QuestionPackOptionSchema,
+  type QuestionPack,
+  type QuestionPackItem,
+  type QuestionPackOption,
+} from "@badabhai/ai-contracts";
+import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 
 import type { TranscriptBuffer } from "../chat/chat-transcript.buffer";
-import { emptyProfilingEnvelope, inboundHash, type ProfilingEnvelope } from "./conversation-state";
+import {
+  emptyProfilingEnvelope,
+  inboundHash,
+  narrowProfilingEnvelope,
+  type ProfilingEnvelope,
+} from "./conversation-state";
+import { DISAMBIGUATION_PROMPT, toPackOption } from "./identify.service";
 import {
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_CLARIFIES,
@@ -96,6 +108,8 @@ function makeWorld(
     storedPin?: { packId: string; packVersion: number } | null;
     /** Make the durable pin write fail, to prove a turn survives it. */
     pinThrows?: boolean;
+    /** Retrieval came back ambiguous: chips on screen instead of a pack question (#695). */
+    identifyOffer?: { prompt: string; options: QuestionPackOption[] } | null;
   } = {},
 ) {
   const store = new Map<string, TranscriptBuffer>();
@@ -103,9 +117,17 @@ function makeWorld(
   let interjected = false;
 
   const buffer = {
+    // THROUGH THE REAL NARROWER, because that is what `ChatTranscriptBuffer.load` does and it is
+    // not a formality: `narrowProfilingEnvelope` re-validates every cached field against the
+    // contract, and a JSON round-trip alone reports whatever was written. A fake that skipped it
+    // let a cached offer whose chips the contract REJECTS look intact in tests and arrive empty in
+    // production — the exact gap that hid the `occ_0` key.
     load: vi.fn(async (id: string) => {
       const held = store.get(id);
-      return held ? (JSON.parse(JSON.stringify(held)) as TranscriptBuffer) : null;
+      if (!held) return null;
+      const raw = JSON.parse(JSON.stringify(held)) as TranscriptBuffer;
+      const profiling = narrowProfilingEnvelope(raw.profiling);
+      return { ...raw, ...(profiling ? { profiling } : { profiling: undefined }) };
     }),
     saveWithCas: vi.fn(async (id: string, next: TranscriptBuffer, expectedRev: number) => {
       if (opts.interject && !interjected) {
@@ -129,7 +151,13 @@ function makeWorld(
   // The identify step is STUBBED TO A NO-OP here on purpose. These tests are about the turn
   // machinery — CAS, replay, bounded re-ask, hard cases — and letting real retrieval run would
   // make every one of them depend on the occupation catalogue. Identification has its own suite.
-  const identify = { identify: vi.fn(async () => ({ patch: {}, offer: null, pinned: null })) };
+  const identify = {
+    identify: vi.fn(async () => ({
+      patch: {},
+      offer: opts.identifyOffer ?? null,
+      pinned: null,
+    })),
+  };
 
   // `chat_sessions`, reduced to the two things the orchestrator is allowed to do to it: read the
   // pack pin and win it once. `pinned` is the row; `pinPack` enforces the same WRITE-ONCE rule
@@ -591,6 +619,7 @@ describe("LAYER A — the reply cache", () => {
       lastTurn: {
         inboundHash: inboundHash(SESSION, 1, "main pune me rehta hu"),
         reply: "stale",
+        kind: "ask" as const,
         questionKey: "q_city",
         at: new Date(T0.getTime() + 60_000).toISOString(),
         options: [],
@@ -654,6 +683,114 @@ describe("determinism", () => {
       replies.add(JSON.stringify(await orchestrator.takeTurn(say("main pune me rehta hu"))));
     }
     expect(replies.size).toBe(1);
+  });
+});
+
+describe("the disambiguation offer announces itself (#695)", () => {
+  // BUILT BY THE REAL PRODUCER, not hand-written. A literal fixture here asserted a key shape
+  // (`occ_0`) that `toPackOption` happened to emit and the CONTRACT rejects, so the offer that
+  // reached these tests was one the narrower would have emptied on the way out of Redis.
+  const OFFER = {
+    prompt: "Aap in mein se kaun sa kaam karte hain?",
+    options: [
+      toPackOption({ label: "Welder", jobDomainId: "jd_welder", familyId: "fam_welding" }, 0),
+      toPackOption({ label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null }, 1),
+    ],
+  };
+
+  it("returns kind `disambiguate`, which nothing downstream has to infer", () => {
+    // The fact existed exactly here and was thrown away one layer up: `TurnResult` carried no
+    // kind, so `ChatService` could not tell this turn from an ordinary ask and served
+    // `question_kind: "ask"` — rendering a trade list, whose tapped label becomes the worker's
+    // answer of record, in the horizontal chip scroller meant for typing shortcuts.
+    const { orchestrator, store } = makeWorld({ identifyOffer: OFFER });
+    seed(store);
+    return orchestrator.takeTurn(say("welding ka kaam")).then((result) => {
+      expect(result.kind).toBe("disambiguate");
+      // The rest of the branch is unchanged: no pack key, chips from retrieval, single-select.
+      expect(result.questionKey).toBeNull();
+      expect(result.answerType).toBe("single_select");
+      expect(result.options.map((o) => o.label_text)).toEqual([
+        "Welder",
+        DISAMBIGUATION_ESCAPE_LABEL,
+      ]);
+    });
+  });
+
+  it("an ordinary pack question stays `ask`, and the close stays `close`", async () => {
+    const { orchestrator, store } = makeWorld();
+    seed(store);
+    expect((await orchestrator.takeTurn(say("main pune me rehta hu"))).kind).toBe("ask");
+  });
+
+  it("SURVIVES THE REPLAY CACHE — a resubmit must not downgrade the offer to an ask", async () => {
+    // The reply cache exists for a worker resubmitting over a flaky 2G link. Re-deriving `ask`
+    // on that path would hand them the wrong widget for the question that pins their pack, on
+    // precisely the connections the cache was built for.
+    const { orchestrator, store } = makeWorld({ identifyOffer: OFFER });
+    seed(store);
+    const first = await orchestrator.takeTurn(say("welding ka kaam"));
+    const replayed = await orchestrator.takeTurn(say("welding ka kaam"));
+    expect(replayed.replayed).toBe(true);
+    expect(replayed.kind).toBe(first.kind);
+    expect(replayed.kind).toBe("disambiguate");
+    expect(replayed.options).toEqual(first.options);
+  });
+
+  it("every synthesised chip key is a key the CONTRACT accepts, at any offer size", () => {
+    // THE DEFECT THAT MADE THE TEST ABOVE INERT. `toPackOption` is typed as a
+    // `QuestionPackOption`, never parsed into one, so `occ_${index}` type-checked for as long as
+    // it existed while `option_key`'s `slugKey` (/^[a-z_]+$/) forbids digits. `narrowLastTurn`
+    // parses cached chips all-or-nothing, so one `occ_0` emptied the ENTIRE offer coming back out
+    // of Redis while `kind: "disambiguate"` survived — the replay this suite exists to protect,
+    // arriving as a single-select with nothing in it.
+    //
+    // Asserted against the SCHEMA rather than against a literal, so the day the key shape changes
+    // again it is the contract that decides whether the new one is legal.
+    const chip = { label: "Welder", jobDomainId: "jd_welder", familyId: "fam_welding" };
+    for (const index of [0, 1, 25, 26, 27, 51, 52, 700]) {
+      const parsed = QuestionPackOptionSchema.safeParse(toPackOption(chip, index));
+      expect(parsed.success, `index ${index} produced an illegal option_key`).toBe(true);
+    }
+    // The escape hatch is a real constant, not a synthesised one — it must pass too, and it must
+    // still BE the constant: the client's "none of these" branch keys off this, not off copy.
+    const escape = toPackOption(
+      { label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null },
+      0,
+    );
+    expect(QuestionPackOptionSchema.safeParse(escape).success).toBe(true);
+    expect(escape.option_key).toBe(DISAMBIGUATION_ESCAPE_KEY);
+    expect(escape.is_none_of_above).toBe(true);
+    // Distinct indices must not collide, or two chips would answer to one key.
+    const keys = [0, 1, 25, 26, 27, 51, 52].map((i) => toPackOption(chip, i).option_key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("FAILS CLOSED when a cached offer comes back without its chips", async () => {
+    // Belt to the braces above. If a chip ever fails the contract again — a new field, a stricter
+    // rule, an entry written by an older deploy — `narrowLastTurn` empties the list and `kind`
+    // survives on its own. Serving that pair is worse than spending a turn: the client is told to
+    // draw a single-select and given nothing to put in it, and on the voice form the worker has no
+    // other way to answer. The replay must decline, not degrade.
+    const { orchestrator, store } = makeWorld({ identifyOffer: OFFER });
+    seed(store);
+    const first = await orchestrator.takeTurn(say("welding ka kaam"));
+    expect(first.kind).toBe("disambiguate");
+
+    // Corrupt the CACHED chips only — exactly what an unparseable option_key does downstream.
+    const held = store.get(SESSION) as TranscriptBuffer;
+    const envelope = held.profiling as ProfilingEnvelope;
+    store.set(SESSION, {
+      ...held,
+      profiling: {
+        ...envelope,
+        lastTurn: { ...envelope.lastTurn!, options: [] },
+      } as ProfilingEnvelope,
+    });
+
+    const replayed = await orchestrator.takeTurn(say("welding ka kaam"));
+    expect(replayed.replayed).toBeFalsy();
+    expect(replayed.options.length).toBeGreaterThan(0);
   });
 });
 
@@ -743,6 +880,7 @@ describe("the mid-interview checkpoint boundary (Phase 9, risk #10)", () => {
       lastTurn: {
         inboundHash: inboundHash(SESSION, 1, text),
         reply: "Kitne saal ka kaam ka tajurba hai?",
+        kind: "ask" as const,
         questionKey: "q_years",
         at: T0.toISOString(),
         options: [],
@@ -975,6 +1113,55 @@ describe("openTurn — putting the first question on screen", () => {
     const result = await orchestrator.openTurn(open());
 
     expect(result.reply).toBe(CITY.retry_text);
+  });
+
+  it("re-serves the OUTSTANDING OFFER, not the stale pack question underneath it", async () => {
+    // `identify()`'s offer branch never clears `servedQuestionKey`, so a session mid-offer still
+    // carries the pack key from the turn before — and `openTurn` runs on every cold start and
+    // resume-after-kill, which is exactly when a worker comes back to an offer they never
+    // answered. Re-serving `q_city` there silently replaces the offer, and answering it 409s
+    // against `viewSession`, which has always reported `questionKey: null` for the same session.
+    const { orchestrator, store } = makeWorld();
+    seed(store, {
+      needsDisambiguation: true,
+      disambiguationOffer: [
+        { label: "Welder", jobDomainId: "jd_welder", familyId: "fam_welding" },
+        { label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null },
+      ],
+      servedQuestionKey: "q_city",
+    });
+
+    const result = await orchestrator.openTurn(open());
+
+    expect(result.kind).toBe("disambiguate");
+    expect(result.questionKey).toBeNull();
+    expect(result.reply).toBe(DISAMBIGUATION_PROMPT);
+    expect(result.options.map((o) => o.label_text)).toEqual([
+      "Welder",
+      DISAMBIGUATION_ESCAPE_LABEL,
+    ]);
+    expect(result.answerType).toBe("single_select");
+  });
+
+  it("agrees with viewSession about what is on screen — one rule, two readers", async () => {
+    // The defect was a DIVERGENCE, not either branch alone, so the assertion is the agreement.
+    const { orchestrator, store } = makeWorld();
+    seed(store, {
+      needsDisambiguation: true,
+      disambiguationOffer: [
+        { label: "Welder", jobDomainId: "jd_welder", familyId: "fam_welding" },
+        { label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null },
+      ],
+      servedQuestionKey: "q_city",
+    });
+
+    const opened = await orchestrator.openTurn(open());
+    const viewed = await orchestrator.viewSession(SESSION, T0);
+
+    if (viewed === null || viewed.served === null) throw new Error("viewSession served nothing");
+    expect(opened.questionKey).toBe(viewed.served.questionKey);
+    expect(opened.reply).toBe(viewed.served.promptText);
+    expect(opened.options).toEqual(viewed.served.options);
   });
 
   it("fails closed when no pack resolves, writing nothing", async () => {
