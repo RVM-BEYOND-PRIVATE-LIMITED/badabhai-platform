@@ -301,6 +301,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     _advancing = true;
     try {
       await _recorder.cancel(); // mic OFF — discard any partial take
+      if (isClosed) return; // close() raced the cancel() await; emit would throw
       emit(current.copyWith(micPhase: MicPhase.priming));
       await _tts.play(current.question); // read aloud while the mic is off
       if (isClosed) return;

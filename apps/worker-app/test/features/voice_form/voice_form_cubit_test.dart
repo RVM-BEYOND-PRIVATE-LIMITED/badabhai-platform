@@ -222,4 +222,32 @@ void main() {
     verify(() => plugin.cancel()).called(greaterThanOrEqualTo(1));
     verify(() => plugin.dispose()).called(1);
   });
+
+  test(
+      'REGRESSION: close() racing replay()\'s cancel() does not throw an '
+      'uncaught StateError out of emit() (#662 fix)', () async {
+    final Completer<void> cancelEntered = Completer<void>();
+    final Completer<void> cancelBlock = Completer<void>();
+
+    final VoiceFormCubit cubit = build(gateway: FakeGateway(8));
+    await cubit.start(); // Q1 presented, mic armed
+
+    // Only now make cancel() hang, so start()'s own internals are unaffected.
+    when(() => plugin.cancel()).thenAnswer((_) async {
+      if (!cancelEntered.isCompleted) cancelEntered.complete();
+      await cancelBlock.future; // hang inside replay()'s cancel() await
+    });
+
+    final Future<void> replaying = cubit.replay();
+    await cancelEntered.future;
+
+    // Tear down mid-replay. Before the fix the continuation ran straight into
+    // emit() on a closed bloc — an uncaught StateError escaping this
+    // unawaited Future, which the test zone turns into a failure.
+    final Future<void> closing = cubit.close();
+    cancelBlock.complete();
+
+    await Future.wait(<Future<void>>[replaying, closing]);
+    // Reaching here at all is the assertion: no uncaught StateError escaped.
+  });
 }
