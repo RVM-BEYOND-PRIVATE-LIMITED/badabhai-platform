@@ -575,13 +575,22 @@ export class ProfilingSessionService {
       kind: "question",
       question: {
         question_key: turn.questionKey,
+        // THE ENGINE'S OWN VERDICT (#706), not `questionKey === null` inferred by whoever draws
+        // this. The fact reaches here on `TurnResult` and was dropped at this one site, leaving a
+        // disambiguation offer indistinguishable from an ordinary ask on the surface where the
+        // worker is being read to rather than reading.
+        question_kind: turn.kind,
         prompt_text: turn.reply,
         answer_type: turn.answerType,
-        // KEYS AND LABELS BOTH, and nothing else off the option: `value` and `implies_skill_id`
-        // are engine business, and a client that could see them could be tempted to act on them.
+        // KEYS, LABELS, AND THE ESCAPE FLAG — still nothing else off the option: `value` and
+        // `implies_skill_id` are engine business, and a client that could see them could be
+        // tempted to act on them. `is_none_of_above` is different in kind: it is a property of
+        // how the option should be PRESENTED, and withholding it only forced the client to
+        // rediscover it by matching display copy.
         options: turn.options.map((option) => ({
           option_key: option.option_key,
           label_text: option.label_text,
+          is_none_of_above: option.is_none_of_above,
         })),
         why_text: turn.whyText,
         tts_clip_id: clipId(turn.reply),
