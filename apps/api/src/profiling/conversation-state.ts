@@ -32,13 +32,23 @@
 
 import { createHash } from "node:crypto";
 
+import { z } from "zod";
+
 import type {
   AnswerRecord,
+  AnswerType,
   ConversationState,
   OccupationPin,
   ProfilingPhase,
+  QuestionPackOption,
 } from "@badabhai/ai-contracts";
-import { AnswerRecordSchema, OccupationPinSchema, PROFILING_PHASES } from "@badabhai/ai-contracts";
+import {
+  AnswerRecordSchema,
+  ANSWER_TYPES,
+  OccupationPinSchema,
+  PROFILING_PHASES,
+  QuestionPackOptionSchema,
+} from "@badabhai/ai-contracts";
 
 import { toAnswerArray, toAnswerMap, toCapturedProjection, type AnswerMap } from "./answer-map";
 import type { EngineState } from "./next-question";
@@ -59,6 +69,27 @@ export interface LastTurn {
   readonly questionKey: string | null;
   /** ISO timestamp, so the 10 s replay window can be judged without a clock in the core. */
   readonly at: string;
+  /**
+   * THE REST OF WHAT THE CLIENT DRAWS — and it is cached here because a replay that serves the
+   * text without it is not "the byte-identical previous response" this cache promises.
+   *
+   * The comment on `questionKey` above already said the client needs it "for chip rendering",
+   * while the replay path handed back `options: []` and `progress: {0, 0}` — a contradiction the
+   * chat surface could absorb (it re-renders a scroller from `suggested_followups`, and a lost
+   * progress bar is cosmetic) and the voice form cannot. There, a retried submit over a flaky 2G
+   * link is an ORDINARY event, and replaying a `single_select` question with no chips leaves a
+   * worker who cannot type looking at a question they have no way to answer.
+   *
+   * Cached rather than re-derived, deliberately: `replayOf` runs before packs are resolved, and
+   * resolving them there would put a Redis read and a possible database round trip on the one
+   * path whose entire purpose is to be cheaper than taking the turn again.
+   */
+  readonly options: readonly QuestionPackOption[];
+  readonly progress: { readonly answered: number; readonly total: number };
+  /** `why_text` of the question on screen — the ⓘ affordance. Null when it has none. */
+  readonly whyText: string | null;
+  /** How the question on screen is answered, so the client knows chips from mic. */
+  readonly answerType: AnswerType | null;
 }
 
 /**
@@ -364,12 +395,38 @@ function narrowLastTurn(value: unknown): LastTurn | null {
   if (typeof v.inboundHash !== "string" || !v.inboundHash) return null;
   if (typeof v.reply !== "string") return null;
   if (typeof v.at !== "string") return null;
+  // THE RENDERABLE HALF IS OPTIONAL ON THE WAY IN AND REQUIRED ON THE WAY OUT.
+  //
+  // Every entry written before these fields existed is sitting in Redis behind a 24 h TTL right
+  // now, and those interviews are live. They narrow to the same empty values the replay path
+  // returned unconditionally before this change — so an in-flight session degrades to exactly
+  // today's behaviour rather than being discarded to protect a new field.
+  //
+  // `QuestionPackOptionSchema` rather than a hand-rolled shape check: a chip's `label_text` IS
+  // the worker's answer of record when tapped, so the one definition of a valid chip has to be
+  // the one the corpus validator and the capture layer already use.
+  const options = z.array(QuestionPackOptionSchema).safeParse(v.options);
+  const progress = z
+    .object({
+      answered: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+    })
+    .safeParse(v.progress);
   return {
     inboundHash: v.inboundHash,
     reply: v.reply,
     questionKey: typeof v.questionKey === "string" ? v.questionKey : null,
     at: v.at,
+    options: options.success ? options.data : [],
+    progress: progress.success ? progress.data : { answered: 0, total: 0 },
+    whyText: typeof v.whyText === "string" ? v.whyText : null,
+    answerType: isAnswerType(v.answerType) ? v.answerType : null,
   };
+}
+
+/** A stored `answer_type` that is still in the contract's closed set. */
+function isAnswerType(value: unknown): value is AnswerType {
+  return typeof value === "string" && (ANSWER_TYPES as readonly string[]).includes(value);
 }
 
 /**
@@ -416,8 +473,7 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     catalogVersion: typeof v.catalogVersion === "string" ? v.catalogVersion : null,
     lastTurn: narrowLastTurn(v.lastTurn),
     turnLatency: narrowTurnLatency(v.turnLatency),
-    occupationFamilyId:
-      typeof v.occupationFamilyId === "string" ? v.occupationFamilyId : null,
+    occupationFamilyId: typeof v.occupationFamilyId === "string" ? v.occupationFamilyId : null,
     occupationRepins: nonNegativeInt(v.occupationRepins),
   };
 }

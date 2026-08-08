@@ -61,7 +61,9 @@ const FULL: ProfilingEnvelope = {
   silentTurns: 1,
   hardshipTurns: 1,
   needsDisambiguation: true,
-  disambiguationOffer: [{ label: "Welder", jobDomainId: "jd_nco_7212_0100", familyId: "fam_welding" }],
+  disambiguationOffer: [
+    { label: "Welder", jobDomainId: "jd_nco_7212_0100", familyId: "fam_welding" },
+  ],
   identifyAttempts: 1,
   packId: "qp_welding",
   packVersion: 3,
@@ -71,6 +73,21 @@ const FULL: ProfilingEnvelope = {
     reply: "Aap kis sheher mein rehte hain?",
     questionKey: "q_city",
     at: "2026-08-06T10:00:00.000Z",
+    // NON-DEFAULT, for the same reason the histogram below is: `[]` and `{0, 0}` are exactly
+    // what a `narrowLastTurn` that dropped these fields entirely would produce, so seeding the
+    // defaults here would make the round-trip assertion pass vacuously.
+    options: [
+      {
+        option_key: "pune",
+        label_text: "Pune",
+        value: null,
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+    ],
+    progress: { answered: 4, total: 11 },
+    whyText: "Isse hum aapke sheher ke kaam dikha payenge.",
+    answerType: "single_select",
   },
   // Every bucket distinct and non-zero, for the same reason as every other field here: a
   // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.
