@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { VoiceTranscriptionProcessor } from "./voice-transcription.processor";
 import { VoiceTranscriptionService } from "./voice-transcription.service";
 import type { VoiceTranscriptionJobData } from "../queue/queue.constants";
@@ -43,6 +44,8 @@ function make(
     note?: Record<string, unknown> | undefined;
     /** A degraded adapter result: an empty transcript that SAYS why it is empty. */
     errorCode?: string;
+    /** The per-call cost record the ai-service returns (#738). `null`/absent = the mock path. */
+    aiMetadata?: Record<string, unknown> | null;
   } = {},
 ) {
   const voice = {
@@ -82,6 +85,7 @@ function make(
                 english_text: "",
                 is_mock: true,
                 error_code: opts.errorCode,
+                ai_metadata: opts.aiMetadata ?? null,
               }
             : {
                 transcript_text: MOCK_TRANSCRIPT,
@@ -89,6 +93,7 @@ function make(
                 english_text: MOCK_ENGLISH,
                 is_mock: true,
                 error_code: null,
+                ai_metadata: opts.aiMetadata ?? null,
               },
         ),
   };
@@ -101,6 +106,9 @@ function make(
     aiJobs as never,
     events as never,
     ai as never,
+    // The REAL recorder over the same fake events service, so the cost assertions below are
+    // about an event that was actually built rather than about a stub being called (#738).
+    new AiCostRecorder(events as never),
   );
   const proc = new VoiceTranscriptionProcessor(service);
   return { proc, service, voice, aiJobs, events, ai };
@@ -507,5 +515,95 @@ describe("transcribeNow — the voice form's synchronous leg", () => {
       text: MOCK_TRANSCRIPT,
       durationSeconds: 6,
     });
+  });
+});
+
+/**
+ * STT SPEND HAS TO REACH THE COST HISTORY (#738).
+ *
+ * Before this, `recordAiCost` was a private method on `ProfileExtractionProcessor` and nothing on
+ * the transcription path could reach it, while `aiTaskType` already listed `stt_transcription`.
+ * The result was the worst available shape: querying the events table for STT cost returned empty
+ * and read as "no spend" rather than "not instrumented", with the money bounded only by a Redis
+ * limiter whose keys expire ~25h after the day they describe.
+ */
+describe("STT cost recording", () => {
+  /** What the ai-service returns for a real, billed Sarvam call. Cost is per CALL, not tokens. */
+  const REAL_META = {
+    ai_call_id: "55555555-5555-4555-8555-555555555555",
+    task_type: "stt_transcription",
+    model_name: "saarika:v2.5",
+    provider: "sarvam",
+    real_call: true,
+    input_tokens: 0,
+    output_tokens: 0,
+    estimated_cost_inr: 0.25,
+    latency_ms: 1200,
+    success: true,
+    error_code: null,
+    cost_alert: false,
+    above_target: false,
+    attempt_count: 1,
+    candidates_tried: [],
+    failure_reason: null,
+    created_at: "2026-08-10T00:00:00.000Z",
+  };
+
+  /** The shape this suite actually reads off `events.emit`. */
+  type Emitted = {
+    event_name: string;
+    payload: Record<string, unknown>;
+    idempotencyKey: string;
+  };
+
+  const costEvents = (events: { emit: { mock: { calls: unknown[][] } } }): Emitted[] =>
+    events.emit.mock.calls
+      .map((c) => c[0] as Emitted)
+      .filter((e) => e.event_name === "ai.cost_recorded");
+
+  it("a real call emits ai.cost_recorded as stt_transcription, keyed on the CALL not the job", async () => {
+    const { proc, events } = make({ aiMetadata: REAL_META });
+    await proc.process(makeJob());
+
+    const [cost] = costEvents(events as never);
+    expect(cost).toBeDefined();
+    expect(cost!.payload.task_type).toBe("stt_transcription");
+    expect(cost!.payload.estimated_cost_inr).toBe(0.25);
+    expect(cost!.payload.real_call).toBe(true);
+    expect(cost!.payload.provider).toBe("sarvam");
+    // One job can make several billable calls; a per-job key deduped the later ones away.
+    expect(cost!.idempotencyKey).toBe(`ai.cost_recorded:${REAL_META.ai_call_id}`);
+  });
+
+  it("the mock path emits NO cost event — a mocked environment must not write fictional money", async () => {
+    // `ai_metadata` is null on the mock path, which is also what an ai-service predating the
+    // field returns. Both mean "no real call to record".
+    const { proc, events } = make();
+    await proc.process(makeJob());
+    expect(costEvents(events as never)).toHaveLength(0);
+  });
+
+  it("a call that FAILED PART-WAY still records what it spent", async () => {
+    // The adapter bills for chunks that returned before the failure and reports `real_call` from
+    // the money rather than from `is_mock`. The degraded-result throw happens after this emit ON
+    // PURPOSE — putting the record after it would drop exactly this spend.
+    const { proc, events } = make({
+      errorCode: "stt_call_failed",
+      aiMetadata: { ...REAL_META, success: false, error_code: "stt_call_failed", estimated_cost_inr: 0.5 },
+    });
+    await expect(proc.process(makeJob({ attemptsMade: 2, attempts: 3 }))).rejects.toThrow();
+
+    const [cost] = costEvents(events as never);
+    expect(cost).toBeDefined();
+    expect(cost!.payload.estimated_cost_inr).toBe(0.5);
+    expect(cost!.payload.task_type).toBe("stt_transcription");
+  });
+
+  it("privacy: the cost event carries no transcript", async () => {
+    const { proc, events } = make({ aiMetadata: REAL_META });
+    await proc.process(makeJob());
+    const dump = JSON.stringify(costEvents(events as never));
+    expect(dump).not.toContain(MOCK_TRANSCRIPT);
+    expect(dump).not.toContain(MOCK_ENGLISH);
   });
 });

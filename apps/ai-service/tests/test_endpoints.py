@@ -212,3 +212,49 @@ def test_voice_transcribe_error_code_is_null_on_the_happy_path(monkeypatch):
     assert res.status_code == 200
     assert res.json()["error_code"] is None
 
+
+
+# --- STT cost metadata (#738) ----------------------------------------------
+# Until `ai_metadata` existed on this response the backend could not price a
+# transcription even in principle: it carried no cost field, so no emitter could
+# have recorded one. STT spend was capped by a Redis limiter whose keys expire
+# ~25h after the day they describe, and recorded nowhere durable.
+
+
+def test_voice_transcribe_returns_cost_metadata_for_the_stt_call():
+    res = client.post(
+        "/voice/transcribe",
+        json={"voice_note_id": "vn1", "storage_path": "worker/sess/v1.ogg"},
+    )
+    assert res.status_code == 200
+    meta = res.json()["ai_metadata"]
+    assert meta is not None, "the backend has nothing to emit without this"
+    assert meta["task_type"] == "stt_transcription"
+    assert meta["ai_call_id"]
+
+
+def test_voice_transcribe_mock_reports_zero_cost_not_a_projection():
+    # A mocked environment must not write fictional money into the cost history.
+    # `real_call=False` is the unambiguous "nothing was attempted", and the rupees
+    # must follow it — TD81 says staging silently runs mocked AI, so a projected
+    # figure here would be reported as spend by the obvious SUM() query.
+    res = client.post(
+        "/voice/transcribe",
+        json={"voice_note_id": "vn1", "storage_path": "worker/sess/v1.ogg"},
+    )
+    meta = res.json()["ai_metadata"]
+    assert meta["real_call"] is False
+    assert meta["estimated_cost_inr"] == 0.0
+
+
+def test_voice_transcribe_cost_metadata_carries_no_worker_text():
+    # The response's transcript is raw worker free-text; the cost record is the part
+    # that goes to events, so it must never carry any of it.
+    res = client.post(
+        "/voice/transcribe",
+        json={"voice_note_id": "vn1", "storage_path": "worker/sess/v1.ogg"},
+    )
+    body = res.json()
+    dumped = str(body["ai_metadata"])
+    assert body["transcript_text"] not in dumped
+    assert body["english_text"] not in dumped

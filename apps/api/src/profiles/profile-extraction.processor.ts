@@ -23,6 +23,7 @@ import {
 import type { NewWorkerProfile } from "@badabhai/db";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { EventsService } from "../events/events.service";
+import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiService } from "../ai/ai.service";
 import { ChatRepository } from "../chat/chat.repository";
 import { ChatTranscriptBuffer } from "../chat/chat-transcript.buffer";
@@ -91,6 +92,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // The destination for the 77% of the pack corpus that is `attribute`-kind. `ProfilesModule`
     // provides it; it needs only DATABASE, which is a global module.
     private readonly workerAttributes: WorkerAttributesRepository,
+    // #738 — the emitter this class used to OWN as a private method. Moving it out is the
+    // point: while it was private here, the transcription path could not reach it, so STT
+    // spend was emitted by nobody even though `aiTaskType` already listed it. `AiModule` is
+    // @Global, so ProfilesModule needs no new import edge.
+    private readonly aiCost: AiCostRecorder,
   ) {
     super();
   }
@@ -856,35 +862,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
     correlationId: string,
     requestId: string,
   ): Promise<void> {
-    if (!meta) return;
-    try {
-      await this.events.emit({
-        event_name: "ai.cost_recorded",
-        actor: { actor_type: "ai_service" },
-        subject: { subject_type: "ai_job", subject_id: aiJobId },
-        payload: {
-          ai_call_id: meta.ai_call_id,
-          ai_job_id: aiJobId,
-          task_type: taskType,
-          model: meta.model_name || "unknown",
-          provider: meta.provider || "unknown",
-          real_call: meta.real_call,
-          tokens_in: meta.input_tokens,
-          tokens_out: meta.output_tokens,
-          estimated_cost_inr: meta.estimated_cost_inr,
-          latency_ms: meta.latency_ms,
-          cost_alert: meta.cost_alert,
-          above_target: meta.above_target,
-        },
-        idempotencyKey: `ai.cost_recorded:${meta.ai_call_id}`,
-        correlationId,
-        requestId,
-      });
-    } catch (err) {
-      this.logger.warn(
-        `ai.cost_recorded emit failed for job ${aiJobId} task=${taskType} (non-fatal): ${String(err)}`,
-      );
-    }
+    // The body moved to `AiCostRecorder` unchanged (#738). Kept as a one-line delegate rather
+    // than inlined at both call sites so this class's two callers, and the tests that drive
+    // them, stay exactly as they were — the change is WHO ELSE can emit, not what this emits.
+    await this.aiCost.record(meta, taskType, aiJobId, correlationId, requestId);
   }
 
   /**

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter
 
+from ..ai import cost_tracker
 from ..ai.langfuse_tracing import TRANSCRIBE, TRANSLATE, LangfuseTracer, Observation, get_tracer
 from ..contracts import TranscriptionInput, TranscriptionOutput
 from ..pseudonymize import pseudonymize
+from ..stt import STT_TASK_TYPE
 from ._shared import logger, settings, stt_adapter, translate_adapter
 
 api_router = APIRouter()
@@ -54,6 +58,7 @@ async def _transcribe(
     # (+ key) and fails closed. The adapter never sends audio on the mock path.
     # 30-120s notes ride the chunked-sync path inside the adapter (D-2);
     # worker_ref attributes the per-chunk spend to the TD27 per-user daily cap.
+    stt_started_ms = time.monotonic()
     with tracer.observation(
         name=TRANSCRIBE,
         as_type="generation",
@@ -88,6 +93,28 @@ async def _transcribe(
             level="WARNING" if result.error_code else "DEFAULT",
             status_message=result.error_code,
         )
+    # THE COST RECORD FOR THIS CALL (#738). Built here rather than in the adapter because this
+    # is the response boundary — the adapter deliberately keeps spend fields off its own result
+    # shape, and the router is what the backend actually receives.
+    #
+    # NOT TOKEN-PRICED. Sarvam bills STT per provider call, so `cost_inr` is passed through from
+    # the adapter, which already computed it to reserve against the ledger. Tokens stay 0: there
+    # are none, and inventing a token count to make the rate card apply would be a fiction that
+    # `SUM(estimated_cost_inr)` would then report as money.
+    stt_metadata = cost_tracker.build_call_metadata(
+        task_type=STT_TASK_TYPE,
+        model=settings.sarvam_stt_model,
+        # Follows the MONEY, not `is_mock`: a real call that failed part-way returns
+        # `is_mock=True` while having paid for the chunks that returned.
+        real_call=result.real_call,
+        input_tokens=0,
+        output_tokens=0,
+        latency_ms=int((time.monotonic() - stt_started_ms) * 1000),
+        success=result.error_code is None,
+        settings=settings,
+        error_code=result.error_code,
+        cost_inr=result.cost_inr,
+    )
     # Translate the transcript to English (gated, mock-by-default, fail-closed).
     # The adapter skips English sources and returns empty english on any failure.
     #
@@ -185,4 +212,5 @@ async def _transcribe(
         # is what lets the backend tell an empty transcript that MEANS silence from one
         # that means the provider was never called.
         error_code=result.error_code,
+        ai_metadata=stt_metadata,
     )

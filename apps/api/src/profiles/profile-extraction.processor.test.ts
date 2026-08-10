@@ -3,6 +3,7 @@ import { Logger } from "@nestjs/common";
 import { describe, it, expect, vi } from "vitest";
 import { DraftProfileSchema, WorkerProfileDraftSchema } from "@badabhai/ai-contracts";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
+import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
 import type { ProfileExtractionJobData } from "../queue/queue.constants";
 
@@ -169,6 +170,10 @@ function make(
     matchSkills as never,
     skills as never,
     workerAttributes as never,
+    // The REAL recorder over the fake events service, not a stub — the emit assertions below
+    // are about what actually reaches `events.emit`, and a stubbed recorder would make every
+    // one of them pass without an event ever being built (#738).
+    new AiCostRecorder(events as never),
   );
   return {
     proc, profiles, aiJobs, chat, buffer, events, ai, workers, pii, matchSkills, skills,

@@ -1014,6 +1014,20 @@ class TranscriptionOutput(BaseModel):
     # provider text and never worker text. Additive + defaulted, so an older backend
     # ignoring it is unaffected (§3).
     error_code: str | None = None
+    # WHAT THIS CALL COST, so that something durable can record it (#738).
+    #
+    # Until this field existed the backend could not price a transcription even in
+    # principle: `recordAiCost` lives on the profile-extraction path, nothing on the
+    # transcription path could reach it, and this contract carried no number for it to
+    # emit. The only thing bounding STT spend was `SpendLedger` — a Redis counter whose
+    # keys expire ~25h after the day they describe — so the spend was capped and then
+    # forgotten. `aiTaskType` already listed `stt_transcription`, which made a query for
+    # STT cost return empty and read as "no spend" rather than "not instrumented".
+    #
+    # PII-FREE: ids, a model name, an int count, rupees, a closed-set reason code — the
+    # same object `/profile/parse` already returns, and it is never given worker text.
+    # `None` on the mock path costs nothing to ignore; additive + defaulted (§3).
+    ai_metadata: AICallMetadata | None = None
 
 
 # --- Job-posting chat (ADR-0035) -------------------------------------------

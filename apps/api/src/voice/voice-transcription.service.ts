@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { EventsService } from "../events/events.service";
+import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiService } from "../ai/ai.service";
 import { AiJobsRepository } from "../profiles/ai-jobs.repository";
 import { VoiceRepository } from "./voice.repository";
@@ -36,6 +37,9 @@ export class VoiceTranscriptionService {
     private readonly aiJobs: AiJobsRepository,
     private readonly events: EventsService,
     private readonly ai: AiService,
+    // #738 — the emitter that was private to `ProfileExtractionProcessor`, which is why this
+    // path recorded no spend at all. `AiModule` is @Global, so `VoiceModule` gains no import edge.
+    private readonly aiCost: AiCostRecorder,
   ) {}
 
   /**
@@ -233,6 +237,21 @@ export class VoiceTranscriptionService {
         // governs exactly as it did before this parameter existed.
         ...(translateToEnglish === undefined ? {} : { translate_to_english: translateToEnglish }),
       });
+
+      // THE COST RECORD, EMITTED BEFORE THE DEGRADED-RESULT THROW BELOW — deliberately (#738).
+      //
+      // A real call that fails PART-WAY still paid for the chunks that returned, and the adapter
+      // reports exactly that (`real_call` follows the money, not `is_mock`). Putting this after
+      // the throw would drop precisely that spend: money spent on a call that then broke, which
+      // is the spend most worth having a record of. It never throws, so it cannot convert a
+      // transcription into a failure.
+      await this.aiCost.record(
+        result.ai_metadata ?? null,
+        "stt_transcription",
+        aiJobId,
+        correlationId,
+        requestId,
+      );
 
       // A DEGRADED RESULT IS A FAILURE, AND IT USED TO BE RECORDED AS A SUCCESS.
       //
