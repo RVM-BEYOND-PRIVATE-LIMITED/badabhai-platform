@@ -273,9 +273,12 @@ describe("every typed field falls back to NO capture rather than a guess", () =>
   });
 
   it("refuses an option whose value contradicts the field's declared type", () => {
-    // `relocation` is a `boolean` field that ships a THIRD chip carrying the text "conditional".
-    // Tapping it used to put a string into `z.boolean()` and fail the whole extraction job -- the
-    // profile, not the field. One unread answer is the cheaper half of that trade.
+    // SYNTHETIC ON PURPOSE, and it stays that way. `qp_universal|relocation|maybe` used to be a
+    // real instance of this shape -- a `boolean` field carrying the text "conditional" -- which put
+    // a string into `z.boolean()` and failed the whole extraction job, the profile and not the
+    // field. #731 fixed that chip in the corpus and `db:verify:packs` now rejects any new one, so
+    // there is deliberately no live example left to point at. The rule still needs coverage:
+    // it is what stands between the next mistyped chip and a lost profile.
     const reloc = item({
       question_key: "q_reloc3",
       target_field: "relocation_willingness",
@@ -536,11 +539,7 @@ const RELOCATION = item({
   options: [
     { option_key: "yes", label_text: "Haan, jaa sakta hoon", value: true } as never,
     { option_key: "no", label_text: "Nahi, yahi rehna hai", value: false } as never,
-    {
-      option_key: "maybe",
-      label_text: "Sahi kaam mile to soch sakta hoon",
-      value: "conditional",
-    } as never,
+    { option_key: "maybe", label_text: "Sahi kaam mile to soch sakta hoon", value: true } as never,
   ],
 });
 
@@ -589,20 +588,20 @@ describe("relocation was answerable by tapping and not by typing (#713)", () => 
     expect(only(captureAnswer("Nahi, yahi rehna hai", RELOCATION)).valueNormalized).toBe(false);
   });
 
-  it("the `conditional` chip captures NOTHING — a pre-existing gap, recorded not papered over", () => {
-    // NOT this change. `keepIfWellTyped` (#722) re-checks a captured value against the target
-    // field's declared type, and `relocation_willingness` is `z.boolean()` on the draft — so the
-    // `maybe` option's `value_text: "conditional"` is refused, by the chip-exact branch this fix
-    // does not touch. Refusing is CORRECT (a string there throws in extraction, which is the very
-    // defect #710 fixed), but it means a worker who taps "Sahi kaam mile to soch sakta hoon" has
-    // their answer dropped.
+  it("the `maybe` chip now captures TRUE — #731, ruled in the corpus not the type check", () => {
+    // WAS A MEASURED GAP UNTIL #731. The chip shipped `value_text: "conditional"` against a
+    // `boolean` field, so `keepIfWellTyped` (#722) refused it and — with `max_asks: 1`, no second
+    // ask — the worker answered and the profile recorded silence.
     //
-    // Pinned here so the gap is visible and this suite fails loudly if someone "fixes" it by
-    // widening the type check rather than by deciding what a conditional willingness should
-    // actually store. That decision is the corpus owner's, and it is filed as #731 — which also
-    // added the build-time half, so `db:verify:packs` now rejects any NEW chip of this shape and
-    // holds this one open by a named exception rather than by nobody having noticed.
-    expect(captureAnswer("sahi kaam mile to soch sakta hoon", RELOCATION).values).toHaveLength(0);
+    // The refusal was never the bug and is untouched here: a string in `z.boolean()` throws in the
+    // extraction job and costs the whole profile, which is the defect #710 fixed. The bug was a
+    // chip in the corpus that no code path could store. The fix is therefore in the CORPUS, not in
+    // the type check — `value_bool: true`, ruled by the owner on 2026-08-10, because what a
+    // conditional willingness should store decides which jobs that worker is shown (§2) and is not
+    // a typing call. `yes` and `maybe` now both store `true`; the labels stay distinct, so the
+    // answer of record still says which one the worker tapped.
+    const capture = captureAnswer("sahi kaam mile to soch sakta hoon", RELOCATION);
+    expect(only(capture).valueNormalized).toBe(true);
   });
 
   it("stores a BOOLEAN, the same value the chip stores — not the string 'true'", () => {
@@ -651,18 +650,46 @@ describe("the yes/no fallback cannot reach past the question on screen", () => {
     );
   });
 
-  it("refuses when two options claim the SAME polarity", () => {
-    // An item authoring two `true` options has not described a yes/no question, and picking
-    // either would be picking at random — the same rule the two-labels-matched case already has.
-    const AMBIGUOUS = item({
-      question_key: "q_bad",
+  it("ACCEPTS two options claiming the same polarity — they agree on the value it stores", () => {
+    // THIS TEST USED TO ASSERT THE OPPOSITE, and #731 is why it flipped. The rule was "exactly one
+    // option may claim the polarity", on the reasoning that two `true` options mean the item is not
+    // a yes/no question and picking either would be picking at random. Ruling #731 gave
+    // `qp_universal`'s `relocation` a second `true` chip deliberately, so that reasoning stopped
+    // holding on the one pack every worker walks — and "exactly one" quietly turned the typed path
+    // back off for all of them, reintroducing the #713 defect.
+    //
+    // There is no random pick to protect against here: the path stores the POLARITY, not the
+    // option. Both chips agree on `true` by construction, and `true` is what either would have
+    // stored. Ambiguity between LABELS is a different thing and is still refused — `matchOptions`
+    // requires exactly one whole label to land, and this lexicon only runs on a clean miss of it.
+    const TWO_TRUE = item({
+      question_key: "q_two_true",
       target_kind: "attribute",
       answer_type: "single_select",
       options: [
         { option_key: "a", label_text: "Haan bilkul", value: true } as never,
         { option_key: "b", label_text: "Haan thoda", value: true } as never,
+        { option_key: "c", label_text: "Nahi", value: false } as never,
       ],
     });
-    expect(captureAnswer("haan", AMBIGUOUS).values).toHaveLength(0);
+    expect(only(captureAnswer("haan", TWO_TRUE)).valueNormalized).toBe(true);
+    // The opposite polarity still resolves to its own single chip, unaffected.
+    expect(only(captureAnswer("nahi", TWO_TRUE)).valueNormalized).toBe(false);
+  });
+
+  it("refuses a polarity NO option claims — the guard that survived #731", () => {
+    // The half of the old rule that is still load-bearing, and the reason the check became
+    // `=== 0` rather than being deleted. An item offering only a `false` chip has no `true` to
+    // mean, so reading "haan" as `true` would invent an answer the item cannot express.
+    const ONLY_FALSE = item({
+      question_key: "q_only_false",
+      target_kind: "attribute",
+      answer_type: "single_select",
+      options: [
+        { option_key: "no", label_text: "Nahi bilkul", value: false } as never,
+        { option_key: "never", label_text: "Kabhi nahi", value: false } as never,
+      ],
+    });
+    expect(captureAnswer("haan", ONLY_FALSE).values).toHaveLength(0);
   });
 });

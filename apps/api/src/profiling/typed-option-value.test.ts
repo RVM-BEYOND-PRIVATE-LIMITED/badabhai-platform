@@ -46,14 +46,21 @@ function optionRow(over: Partial<PackOptionRow> & { optionKey: string }): PackOp
   };
 }
 
-/** The shipped `qp_universal` `relocation` item, reproduced as the rows the database holds. */
+/**
+ * The shipped `qp_universal` `relocation` item, reproduced as the rows the database holds.
+ *
+ * All three chips are `value_bool` since #731: `maybe` carried `value_text: "conditional"` against
+ * a `boolean` field, which capture refused, so the worker tapped it and the profile recorded
+ * nothing. Keeping this fixture faithful is the whole point of it — the string case it used to
+ * supply for free is now covered deliberately, below.
+ */
 const RELOCATION_OPTIONS: PackOptionRow[] = [
   optionRow({ optionKey: "yes", labelText: "Haan, jaa sakta hoon", valueBool: true }),
   optionRow({ optionKey: "no", labelText: "Nahi, yahi rehna hai", valueBool: false }),
   optionRow({
     optionKey: "maybe",
     labelText: "Sahi kaam mile to soch sakta hoon",
-    valueText: "conditional",
+    valueBool: true,
   }),
 ];
 
@@ -115,8 +122,38 @@ describe("a chip's typed value survives the row → contract hop", () => {
     // `false` is the one that a `?? label` fallback would silently swallow, so it is asserted
     // separately rather than trusted to travel with its opposite.
     expect(byKey.get("no")).toBe(false);
-    // A text value was never broken and must not become one of the others.
-    expect(byKey.get("maybe")).toBe("conditional");
+    // Since #731 the third chip is a boolean too, and it must not arrive as the string "true".
+    expect(byKey.get("maybe")).toBe(true);
+  });
+
+  it("keeps a TEXT value text — the mapper must not coerce the other way", async () => {
+    // Synthetic, and it has to be: #731 left the shipped corpus with no `value_text` chip on a
+    // relocation-shaped item to borrow. The mapper is shared by every pack, so losing the string
+    // case with the corpus edit that removed it would quietly halve what this file checks — a
+    // `String(...)` collapse and a `Boolean(...)` collapse are different mutations.
+    const registry = registryServing(
+      [
+        optionRow({ itemId: "item_shift", optionKey: "day", labelText: "Din", valueText: "day" }),
+        optionRow({
+          itemId: "item_shift",
+          optionKey: "night",
+          labelText: "Raat",
+          valueText: "night",
+        }),
+      ],
+      {
+        itemId: "item_shift",
+        questionKey: "shift_preference",
+        targetKind: "attribute",
+        targetField: "shift_preference",
+      },
+    );
+    const item = (await registry.loadUniversal(NOW))?.items[0];
+    if (!item) throw new Error("the fixture pack served no item");
+
+    const byKey = new Map(item.options.map((option) => [option.option_key, option.value]));
+    expect(byKey.get("day")).toBe("day");
+    expect(byKey.get("night")).toBe("night");
   });
 
   it("captures the tapped chip as a boolean, which is what the review renders from", async () => {

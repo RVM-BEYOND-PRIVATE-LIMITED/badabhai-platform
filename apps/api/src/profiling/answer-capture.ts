@@ -218,15 +218,18 @@ function normalizeFor(
  *
  * WHY IT HAS TO EXIST. Option values are authored by a human in a JSONL corpus and land in one of
  * three typed columns, while the field's real type lives in `FIELD_CROSSWALK`. Nothing structurally
- * forces the two to agree, and measured against the shipped corpus they do not: `relocation` is a
+ * forces the two to agree, and the shipped corpus did in fact disagree: `relocation` was a
  * `boolean` field offering three chips, two carrying `value_bool` and the third carrying the TEXT
  * "conditional". Tapping that third chip put a string into `z.boolean()` and failed the entire
  * extraction job — not the one field, the whole profile.
  *
  * Refusing is the right half of that trade under CLAUDE.md §3. The worker loses one answer and
- * keeps a profile; writing it through loses the profile. It also fails LOUDLY in the corpus rather
- * than silently at Zod: a pack whose chips disagree with their field now shows up as a question
- * that never captures, which is exactly the shape `db:verify:packs` should learn to reject.
+ * keeps a profile; writing it through loses the profile. But refusing is a floor, not a fix — the
+ * cost is a chip a worker can tap with nothing recorded and, on `max_asks: 1`, no second ask to
+ * recover it. So it fails LOUDLY in the corpus rather than silently at Zod: `db:verify:packs`
+ * rejects a pack whose chips disagree with their field (#731's build-time half), and the offender
+ * above was then fixed where it belonged — in the corpus, by owner ruling, `value_bool: true`.
+ * This function is what holds the line for the NEXT one, which is why it has no live example left.
  */
 function keepIfWellTyped(item: QuestionPackItem, value: unknown): unknown | undefined {
   const entry = item.target_field ? crosswalkFor(item.target_field) : undefined;
@@ -323,8 +326,9 @@ function normalizeByAnswerType(
  * protect: *"a message with no cue returns null, because 'did not say' is not 'said no'"*. That
  * rule is untouched and still owns the free-text path. This is narrower — it fires only on an
  * EXPLICIT polarity cue, and `"nahi yahi rehna hai"` is a refusal, not a silence. `"shayad"` still
- * captures nothing, because the yes/no lexicon has no opinion on it and the `conditional` option
- * is reachable only by its label.
+ * captures nothing, because the yes/no lexicon has no opinion on it and the `maybe` option is
+ * reachable only by its label (#731 gave that chip `value_bool: true`, which changes what tapping
+ * it stores and changes nothing about what typing "shayad" does).
  *
  * ONE LEXICON, NOT A SECOND ONE. `parseAffirmation` is the same parser the 236 `boolean` items
  * already answer through, so a yes/no cue means the same thing on every question that asks one.
@@ -367,10 +371,24 @@ function polarSelectValue(
   const parsed = parseAffirmation(text);
   if (parsed === null) return undefined;
 
-  // EXACTLY ONE option may claim the polarity. An item authoring two `true` options has not
-  // described a yes/no question, and picking either would be picking at random.
+  // AT LEAST ONE option must claim the polarity — a yes with no yes-chip to mean is not an answer
+  // to THIS question, and returning `true` there would invent one.
+  //
+  // IT USED TO REQUIRE EXACTLY ONE, reasoning that "an item authoring two `true` options has not
+  // described a yes/no question, and picking either would be picking at random". #731 made that
+  // reasoning false by ruling `relocation`'s third chip to `value_bool: true` — the pack every
+  // worker walks now authors two `true` options ON PURPOSE, and `exactly one` silently turned
+  // the typed path back off for all of them, which is the #713 defect this function exists to
+  // fix. Measured: `"haan"`, `"haan ji"` and `"haan jaa sakta hoon"` captured nothing again.
+  //
+  // There is no random pick to protect against, because THIS PATH STORES THE POLARITY, NOT THE
+  // OPTION. Every claimant is filtered on `option.value === parsed.value`, so they agree by
+  // construction, and the return below is `parsed.value` itself — no option key or label is
+  // recorded here. Two chips meaning the same boolean is redundancy, not ambiguity. Label-level
+  // ambiguity is real and is handled where it belongs: `matchOptions` above requires exactly one
+  // whole label to land, and this function only runs on a CLEAN MISS of that.
   const claimants = polar.filter((option) => option.value === parsed.value);
-  if (claimants.length !== 1) return undefined;
+  if (claimants.length === 0) return undefined;
 
   // The option's own value, which the filter above proves is identical to `parsed.value` — so the
   // stored answer is the one the chip would have stored, byte for byte.

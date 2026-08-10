@@ -127,13 +127,17 @@ describe("THE COMMITTED CORPUS obeys the vocabulary — the check the deploy gat
     expect(RFS_FIELD_TYPES.get("skills")).toBe("string_array");
   });
 
-  it("holds EXACTLY ONE documented exception — the corpus may not grow a second", () => {
-    // `KNOWN_UNCAPTURABLE_OPTIONS` keeps `qp_universal|relocation|maybe` open while #731 is ruled.
-    // Re-deriving the offenders here WITHOUT the allowlist proves the exception is still needed and
-    // still singular: a new mistyped chip lands as a second entry and fails this test, and the day
-    // #731 ships this drops to zero and the allowlist can go.
+  it("holds ZERO exceptions — the rule covers the corpus with nothing held open", () => {
+    // #731 is RULED (owner, 2026-08-10): `qp_universal|relocation|maybe` carries `value_bool: true`
+    // and captures, so `KNOWN_UNCAPTURABLE_OPTIONS` is gone and the rule runs unexcepted.
+    //
+    // This re-derives the offenders INDEPENDENTLY of the validator rather than calling it, which is
+    // the point of keeping the test after the allowlist died: it is the only assertion that would
+    // still fail if someone reintroduced an exception set to quiet a new offender. A mistyped chip
+    // lands here as an entry and fails, whether or not the validator has been taught to forgive it.
     const corpus = loadQuestionPackCorpus();
     const uncapturable: string[] = [];
+    let checked = 0;
     for (const pack of corpus.packs) {
       for (const item of pack.items ?? []) {
         if (item.target_kind !== "rfs" || !item.target_field) continue;
@@ -142,6 +146,7 @@ describe("THE COMMITTED CORPUS obeys the vocabulary — the check the deploy gat
         for (const o of item.options ?? []) {
           const value = o.value_bool ?? o.value_number ?? o.value_text ?? undefined;
           if (value === undefined) continue;
+          checked += 1;
           const ok =
             declared === "boolean"
               ? typeof value === "boolean"
@@ -152,6 +157,12 @@ describe("THE COMMITTED CORPUS obeys the vocabulary — the check the deploy gat
         }
       }
     }
-    expect(uncapturable).toEqual(["qp_universal|relocation|maybe"]);
+    // WITHOUT THIS THE ASSERTION BELOW IS GREEN FOREVER. While one offender was expected the
+    // array itself proved the scan ran; `toEqual([])` does not, and a loader change or a
+    // `target_kind` rename would empty it silently. 186 rfs-options carry a value on the corpus
+    // this shipped against, so a floor of 100 is slack enough not to be brittle and tight enough
+    // that a scan reaching nothing fails.
+    expect(checked).toBeGreaterThan(100);
+    expect(uncapturable).toEqual([]);
   });
 });
