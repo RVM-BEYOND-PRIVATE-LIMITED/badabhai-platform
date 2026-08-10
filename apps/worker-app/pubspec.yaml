@@ -180,6 +180,8 @@ dev_dependencies:
   # (no build_runner) for repository unit tests.
   bloc_test: ^9.1.7
   mocktail: ^1.0.4
+  # Virtual clock for asserting per-request timeout Durations without real waits.
+  fake_async: ^1.3.3
 
 flutter:
   uses-material-design: true
