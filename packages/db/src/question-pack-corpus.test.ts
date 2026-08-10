@@ -19,6 +19,8 @@ import {
   checkPromptPersona,
   summariseQuestionPackCorpus,
   validateQuestionPackCorpus,
+  type FieldView,
+  type PackOptionRecord,
   type QuestionPackCorpus,
 } from "./question-pack-corpus";
 
@@ -401,5 +403,123 @@ describe("no template placeholder may reach a worker", () => {
 
   it("leaves ordinary text alone", () => {
     expect(fatal(withText("why_text", "Sheher se paas ki naukri milti hai."))).toEqual([]);
+  });
+});
+
+describe("a chip whose value its field cannot hold (#731)", () => {
+  /**
+   * A single_select on `relocation_willingness` — a `boolean` field — carrying one chip per
+   * `value_*` column. Built fresh per test for the reason at the top of this file.
+   */
+  function withOptionValue(value: Partial<PackOptionRecord>): QuestionPackCorpus {
+    const c = valid();
+    c.packs[1]!.items.push({
+      question_key: "relocation",
+      prompt_text: "Kya aap doosre sheher jaa sakte hain?",
+      target_kind: "rfs",
+      target_field: "relocation_willingness",
+      answer_type: "single_select",
+      options: [
+        { option_key: "yes", label_text: "Haan, jaa sakta hoon", value_bool: true },
+        { option_key: "no", label_text: "Nahi, yahi rehna hai", value_bool: false },
+        { option_key: "third", label_text: "Teesra jawab", ...value },
+      ],
+    });
+    return c;
+  }
+
+  const BOOLEAN_FIELD: { fields: FieldView } = {
+    fields: {
+      fieldIds: new Set(["relocation_willingness", "skills", "experience"]),
+      types: new Map([
+        ["relocation_willingness", "boolean"],
+        ["skills", "string_array"],
+      ]),
+    },
+  };
+
+  function typeProblems(c: QuestionPackCorpus, opts = BOOLEAN_FIELD): string[] {
+    return validateQuestionPackCorpus(c, opts).filter((p) => p.includes("capture REFUSES"));
+  }
+
+  it("FAILS a string chip on a boolean field — the shape that loses a worker's answer", () => {
+    // The whole point: capture returns undefined for this, `max_asks` is spent, and nothing
+    // anywhere reports that the tap was thrown away.
+    const problems = typeProblems(withOptionValue({ value_text: "conditional" }));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("option third");
+    expect(problems[0]).toContain("value is string but target_field relocation_willingness");
+  });
+
+  it("FAILS a number chip on a boolean field too — the rule is the type, not the column", () => {
+    expect(typeProblems(withOptionValue({ value_number: 1 }))).toHaveLength(1);
+  });
+
+  it("passes a boolean chip on a boolean field", () => {
+    expect(typeProblems(withOptionValue({ value_bool: true }))).toEqual([]);
+  });
+
+  it("passes a chip carrying NO value — the label is the answer of record", () => {
+    // Most chips in the corpus are this shape. Flagging them would make the rule useless.
+    expect(typeProblems(withOptionValue({}))).toEqual([]);
+  });
+
+  it("passes `value_bool: false` on the boolean field it fits", () => {
+    expect(typeProblems(withOptionValue({ value_bool: false }))).toEqual([]);
+  });
+
+  it.each([{ value_bool: false }, { value_number: 0 }])(
+    "FLAGS the falsy value %j on a STRING field — a falsy value is still a value",
+    (value) => {
+      // THE MUTATION THIS EXISTS FOR. `optionValue` chains with `??`; a truthiness chain would read
+      // both of these as "no value" and skip the check silently. On the boolean field above that
+      // mistake is invisible — both readings pass — so the probe has to be a field the value does
+      // NOT fit, where skipping and checking give opposite answers.
+      const c = valid();
+      c.packs[1]!.items.push({
+        question_key: "education_level",
+        prompt_text: "Aapne kahan tak padhai ki hai?",
+        target_kind: "rfs",
+        target_field: "education_level",
+        answer_type: "single_select",
+        options: [
+          { option_key: "iti", label_text: "ITI", value_text: "iti" },
+          { option_key: "odd", label_text: "Kuch aur", ...value },
+        ],
+      });
+      const problems = validateQuestionPackCorpus(c, {
+        fields: {
+          fieldIds: new Set(["education_level"]),
+          types: new Map([["education_level", "string"]]),
+        },
+      }).filter((p) => p.includes("capture REFUSES"));
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toContain("option odd");
+    },
+  );
+
+  it("passes a string chip on a string_array field — a single_select contributes one item", () => {
+    const c = valid();
+    (c.packs[0]!.items[0]!.options ?? []).push({
+      option_key: "tig",
+      label_text: "TIG welding",
+      value_text: "tig_welding",
+    });
+    expect(typeProblems(c)).toEqual([]);
+  });
+
+  it("does NOT run when the caller supplies no type table", () => {
+    // Same convention as `fieldIds`. Asserted so nobody assumes the rule is on by default —
+    // the last check that quietly wasn't took a bad universal pack to production.
+    const c = withOptionValue({ value_text: "conditional" });
+    expect(typeProblems(c, { fields: { fieldIds: new Set(["relocation_willingness"]) } })).toEqual(
+      [],
+    );
+  });
+
+  it("does NOT run on an attribute item — a pack-local field declares no type", () => {
+    const c = withOptionValue({ value_text: "conditional" });
+    c.packs[1]!.items[1]!.target_kind = "attribute";
+    expect(typeProblems(c)).toEqual([]);
   });
 });
