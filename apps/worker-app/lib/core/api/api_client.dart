@@ -734,11 +734,20 @@ class ApiClient {
   /// POST /profiling/answer — submit ONE answer. [body] is
   /// `{session_id, question_key, answer}`; option KEYS only, never labels.
   /// Returns `{step}`.
+  ///
+  /// A SPOKEN answer is transcribed by the server IN-REQUEST (storage fetch +
+  /// Sarvam STT + translate) before the next question is chosen, so this one
+  /// route can legitimately take up to the ~140s STT ceiling. The default 15s
+  /// [kRequestTimeout] would abort it while the answer is being saved — a lost-
+  /// answer / double-submit. Reuse [kVoiceTranscriptWaitBudget] (150s, the
+  /// SAME server-ceiling constant TD59 sized for transcription) so the client
+  /// waits out the transcription instead of racing it.
   Future<Map<String, dynamic>> profilingAnswer({
     required String authToken,
     required Map<String, dynamic> body,
   }) =>
-      _post('/profiling/answer', body, authToken: authToken);
+      _post('/profiling/answer', body,
+          authToken: authToken, timeout: kVoiceTranscriptWaitBudget);
 
   /// POST /profiling/finalize — commit the reviewed session. Idempotent. Returns
   /// `{session_id, committed}`.
@@ -978,10 +987,16 @@ class ApiClient {
   /// When [authToken] is supplied it is sent as `Authorization: Bearer <token>`
   /// (required by worker-scoped routes). A null in [body] is encoded as JSON null,
   /// which the API accepts for nullable fields (e.g. `rank`).
+  ///
+  /// [timeout] overrides the per-request ceiling for the rare route whose server
+  /// work legitimately outruns [kRequestTimeout] (e.g. `/profiling/answer`, which
+  /// transcribes a spoken answer IN-REQUEST). Defaults to [kRequestTimeout] so
+  /// every other endpoint is unchanged.
   Future<Map<String, dynamic>> _post(
     String path,
     Map<String, dynamic> body, {
     String? authToken,
+    Duration timeout = kRequestTimeout,
   }) {
     final Uri uri = Uri.parse('$baseUrl$path');
     final String encoded = jsonEncode(body);
@@ -992,6 +1007,7 @@ class ApiClient {
         body: encoded,
       ),
       authToken,
+      timeout: timeout,
     );
   }
 
@@ -1002,11 +1018,15 @@ class ApiClient {
   /// so a genuinely dead session surfaces its 401 instead of looping. Only fires
   /// when the caller actually sent a bearer: an unauthenticated 401 is a real
   /// answer, not a stale token.
+  ///
+  /// [timeout] bounds each attempt (original and the post-renew retry alike).
+  /// Defaults to [kRequestTimeout]; a long-running route passes its own budget.
   Future<Map<String, dynamic>> _send(
     Future<http.Response> Function(String? authToken) request,
-    String? authToken,
-  ) async {
-    http.Response res = await request(authToken).timeout(kRequestTimeout);
+    String? authToken, {
+    Duration timeout = kRequestTimeout,
+  }) async {
+    http.Response res = await request(authToken).timeout(timeout);
 
     final Future<bool> Function()? renew = onUnauthorized;
     // Conditions inlined so `authToken` promotes to non-null for the retry.
@@ -1018,7 +1038,7 @@ class ApiClient {
       if (renewed) {
         // Re-read the bearer: the caller's copy is the one that just 401'd.
         final String fresh = currentAuthToken?.call() ?? authToken;
-        res = await request(fresh).timeout(kRequestTimeout);
+        res = await request(fresh).timeout(timeout);
       }
     }
     return _decode(res);
