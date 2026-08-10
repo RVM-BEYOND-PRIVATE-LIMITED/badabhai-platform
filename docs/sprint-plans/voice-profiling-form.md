@@ -841,9 +841,10 @@ from chat.
 > The `constant` row was **7 until #679**, which found the chat opener — the literal first thing a
 > worker hears — enumerated by nothing: absent from `CONSTANT_REPLIES`, so `assertNoInterpolation`
 > never read it, and absent from the pack corpus, so `validateQuestionPackCorpus` never read it
-> either. It is in the manifest now, which is why the total moved. **The ₹324.75 quoted below was
-> measured at 433 clips and must be re-measured before `--apply`** — #701 requires that comparison
-> anyway.
+> either. It is in the manifest now, which is why the total moved. **Re-measured at 434 clips:
+> ₹325.50** — one clip more than the ₹324.75 recorded against 433, which is the per-clip rate and
+> not a pricing change. Run on 2026-08-10 with `python -m app.cli.tts_render --out ./tts-clips`
+> (dry run, spends nothing).
 >
 > The plan estimated 145 clarify strings; it counted why+prompt only. A worker can ask "why?"
 > *after* the re-ask too, so why+retry is a distinct thing to say.
@@ -884,13 +885,22 @@ from chat.
 > declared NBSP meaningful — the existing vector only covered an interior one.
 >
 > **`tts_render.py` ships dry-run by default** and REFUSES `--apply` when real calls are blocked,
-> rather than walking 433 clips writing nothing and reporting either 433 failures (wrong — nothing
-> was attempted) or success over an empty directory. Mock is a posture, not a render. Measured
-> cost of the full catalogue: **₹324.75**.
+> rather than walking the catalogue writing nothing and reporting either 434 failures (wrong —
+> nothing was attempted) or success over an empty directory. Mock is a posture, not a render.
+> Measured cost of the full catalogue: **₹325.50 at 434 clips** (2026-08-10; it was ₹324.75 when
+> the catalogue was 433).
+>
+> Both halves of that refusal were re-exercised on 2026-08-10 against the current manifest:
+> the dry run prices 434 clips and writes nothing, and `--apply` with no `SARVAM_API_KEY` prints
+> `REFUSING to render: real TTS is blocked` and renders nothing. `test_reply_closure_parity.py`
+> and `test_tts_render.py` pass locally (24 tests), so the TS↔Python identity holds over the
+> 434-clip manifest and not merely over the 433-clip one it was written against.
 >
 > **Still gated on B-2:** actually running `--apply`. Whether the corpus needs a transliteration
 > sidecar is what the listening test answers, and rendering before that answer spends operator
-> budget on possibly-mispronounced audio.
+> budget on possibly-mispronounced audio. **The gate is a human one** — it needs a native ear on
+> the `tts_smoke --matrix` output, an armed `SARVAM_API_KEY`, and someone accepting the ₹325.50.
+> The runbook is on #701.
 
 - `app/tts.py` — `TtsAdapter`, `TTS_TASK_TYPE = "tts_synthesis"` (**its own allowlist key**, so TTS can
   be flipped independently of STT), gate chain mirroring `stt.py:207-248` **in order**, fail-closed to
