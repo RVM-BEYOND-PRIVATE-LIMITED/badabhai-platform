@@ -3,7 +3,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { validateQuestionPackCorpus, loadQuestionPackCorpus } from "./question-pack-corpus";
-import { RFS_FIELD_IDS, RFS_OPTIONAL_FIELDS, RFS_REQUIRED_FIELDS, isRfsField } from "./rfs-vocabulary";
+import {
+  RFS_FIELD_IDS,
+  RFS_FIELD_TYPES,
+  RFS_OPTIONAL_FIELDS,
+  RFS_REQUIRED_FIELDS,
+  isRfsField,
+} from "./rfs-vocabulary";
 
 const REPO_ROOT = join(__dirname, "..", "..", "..");
 const CONFIG_PY = join(REPO_ROOT, "apps", "ai-service", "app", "config.py");
@@ -74,5 +80,78 @@ describe("THE COMMITTED CORPUS obeys the vocabulary — the check the deploy gat
       fields: { fieldIds: RFS_FIELD_IDS },
     }).filter((problem) => problem.includes("Resume Field Set"));
     expect(problems).toEqual([]);
+  });
+
+  it("every chip's value is one its target field can actually hold (#731)", () => {
+    // THE SAME FAILURE MODE, ONE LAYER DOWN. `target_field` being a real RFS id says nothing about
+    // whether the CHIP's value fits it: `answer-capture.ts` refuses an option value that
+    // contradicts the field's declared type, so a mistyped chip is tappable and silently records
+    // nothing. Run against the COMMITTED packs with the type table supplied, exactly as
+    // `verify-question-packs.ts` runs it.
+    const corpus = loadQuestionPackCorpus();
+    const problems = validateQuestionPackCorpus(corpus, {
+      fields: { fieldIds: RFS_FIELD_IDS, types: RFS_FIELD_TYPES },
+    }).filter((problem) => problem.includes("capture REFUSES"));
+    expect(problems).toEqual([]);
+  });
+
+  it("that pass is not vacuous — mistype one real chip and the gate reports it", () => {
+    // The assertion above is `toEqual([])`, which a rule that never fires would also satisfy — the
+    // precise shape of the regression this whole describe block was written about. Break a chip in
+    // the LOADED corpus and prove the same call reports it, so a green run means the rule ran.
+    const corpus = loadQuestionPackCorpus();
+    const victim = corpus.packs
+      .flatMap((p) => (p.items ?? []).map((item) => ({ pack: p, item })))
+      .find(
+        ({ item }) =>
+          item.target_kind === "rfs" &&
+          RFS_FIELD_TYPES.get(item.target_field ?? "") === "string_array" &&
+          (item.options?.length ?? 0) > 0,
+      );
+    expect(victim, "no string_array rfs question with options — pick another probe").toBeDefined();
+    victim!.item.options![0]! = { ...victim!.item.options![0]!, value_text: null, value_bool: true };
+
+    const problems = validateQuestionPackCorpus(corpus, {
+      fields: { fieldIds: RFS_FIELD_IDS, types: RFS_FIELD_TYPES },
+    }).filter((problem) => problem.includes("capture REFUSES"));
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(victim!.pack.pack_id);
+  });
+
+  it("the type table is populated and reaches the fields the rule needs", () => {
+    // Guards the vacuous pass: an empty map would make the assertion above green forever. Derived
+    // from FIELD_CROSSWALK, so this also fails if the crosswalk stops declaring these.
+    expect(RFS_FIELD_TYPES.size).toBeGreaterThan(10);
+    expect(RFS_FIELD_TYPES.get("relocation_willingness")).toBe("boolean");
+    expect(RFS_FIELD_TYPES.get("experience_years")).toBe("number");
+    expect(RFS_FIELD_TYPES.get("skills")).toBe("string_array");
+  });
+
+  it("holds EXACTLY ONE documented exception — the corpus may not grow a second", () => {
+    // `KNOWN_UNCAPTURABLE_OPTIONS` keeps `qp_universal|relocation|maybe` open while #731 is ruled.
+    // Re-deriving the offenders here WITHOUT the allowlist proves the exception is still needed and
+    // still singular: a new mistyped chip lands as a second entry and fails this test, and the day
+    // #731 ships this drops to zero and the allowlist can go.
+    const corpus = loadQuestionPackCorpus();
+    const uncapturable: string[] = [];
+    for (const pack of corpus.packs) {
+      for (const item of pack.items ?? []) {
+        if (item.target_kind !== "rfs" || !item.target_field) continue;
+        const declared = RFS_FIELD_TYPES.get(item.target_field);
+        if (declared === undefined) continue;
+        for (const o of item.options ?? []) {
+          const value = o.value_bool ?? o.value_number ?? o.value_text ?? undefined;
+          if (value === undefined) continue;
+          const ok =
+            declared === "boolean"
+              ? typeof value === "boolean"
+              : declared === "number"
+                ? typeof value === "number"
+                : typeof value === "string";
+          if (!ok) uncapturable.push(`${pack.pack_id}|${item.question_key}|${o.option_key}`);
+        }
+      }
+    }
+    expect(uncapturable).toEqual(["qp_universal|relocation|maybe"]);
   });
 });
