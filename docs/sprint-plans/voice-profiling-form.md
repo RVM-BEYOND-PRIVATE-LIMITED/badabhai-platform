@@ -565,6 +565,15 @@ Complexity: S ≤2d, M 3–5d, L 6–10d, XL >10d.
 > is the actual B-2 question and no measurement here answers it. Two native speakers from the
 > target demographic still have to listen — that is the acceptance below, and it is unchanged.
 > The clips are ready for them; the spend is already sunk at ₹15.
+>
+> **Status 2026-08-10 — delivered, awaiting the ear.** 20 WAVs plus `SCORING-SHEET.md` (source text
+> per clip, its Devanagari control pairing, a 0–3 scale, and the decision each outcome forces) were
+> handed to the owner on 2026-08-08; he is scoring them himself. The voice is settled ahead of that:
+> **`bulbul:v2` / `anushka` is owner-approved**, and the numbers above stand as measured against it —
+> no re-run. `mixed_technical` is the row that decides the most, because English technical nouns
+> inside Hindi grammar is where an English G2P pass and a Hindi one diverge hardest, and it is what a
+> manufacturing worker is actually asked. **This score is the last blocker on `tts_render --apply`
+> (#701) and therefore on V5 finishing.**
 
 **Objective.** Answer the two questions that can invalidate the design, for ~₹470 and one afternoon,
 **before any UI is built**.
@@ -922,13 +931,25 @@ from chat.
 Full issue list in GitHub. **All 16 closed** as of 2026-08-08, plus the follow-ups #680, #691, #692
 and #699.
 
-> **CLOSED IS NOT THE SAME AS ON `main`, AND THIS PHASE IS WHERE THAT KEEPS BITING.** #699 — the
-> `HttpVoiceFormGateway` that is the entire reason the client can reach the server — was closed at
-> 11:04Z on 2026-08-08 while its PR **#709 is still open and awaiting review**. Verified against
-> `origin/main`: every `VoiceFormGateway` reference there is the interface, the cubit's field, or
-> one of six test fakes. This is the SAME seam that spent weeks looking shipped, so the check is
-> `git grep <symbol> origin/main`, never the issue state. #711 (action log → event spine) is open
-> on the same footing.
+> **CLOSED IS NOT THE SAME AS ON `main`, AND THIS PHASE IS WHERE THAT KEPT BITING — NOW RESOLVED.**
+> #699 — the `HttpVoiceFormGateway` that is the entire reason the client can reach the server — was
+> closed at 11:04Z on 2026-08-08 while its PR #709 was still open, and at that moment every
+> `VoiceFormGateway` reference on `origin/main` was the interface, the cubit's field, or one of six
+> test fakes. **Both have since landed**: #709 as `bd05d4d5` and #711 (action log → event spine) as
+> its own merge. Re-verified the way this note demands — `git grep HttpVoiceFormGateway origin/main`
+> now hits `http_voice_form_gateway.dart`, `locator.dart`, `api_client.dart` and the gateway's own
+> test, not a fake.
+>
+> The check stays `git grep <symbol> origin/main`, never the issue state, and it is worth keeping
+> this row after the fact: the gap was real for two days, and a status report written off the issue
+> board during that window would have said the client was wired when nothing could reach the server.
+>
+> **The last loose end from that stack is #723**, whose base was `feat/699-http-voice-gateway` — a
+> branch #709 squash-merged, so its commits are not ancestors of `main` and retargeting the PR would
+> have shown a 17-file diff of already-merged content. Its one real file is extracted onto fresh
+> `main` as **#734** (`MockApiClient` was missing overrides for `recordWorkerActions` and four
+> notification/chat methods, so mock mode fired real requests at `mock://local` — once per
+> `VoiceFormActionLog` flush).
 
 > **THE SYNC POINT WAS PASSED, AND THIS IS WHERE IT SHOWED.** The line below said backend
 > contracts must be frozen before #628–#632 start "or the mock is fiction". They started anyway,
@@ -973,11 +994,19 @@ Deferred: the other read routes, anomaly detection, the provider circuit breaker
 **TTS first.** Outbound-only, zero worker data, no consent conversation. Never arm both providers in
 one change — an incident you cannot bisect is not a flip.
 
-Gates: signed Sarvam DPA · bucket provisioned private · **`VOICE_NOTES_BUCKET` split-brain killed**
-(API defaults `""`, ai-service defaults `"worker-voice-notes"`; a mismatch is silent total failure with
-a green `/health`) · `AI_INTERNAL_TOKEN` armed **both** sides · translate leg ledgered or disabled ·
-DSAR prefix sweep (#712) · **ASR PII measurement** (if saarika emits digits as words — "nau aath
-saat" — *no gate in the system fires* and a phone number reaches the LLM) · B-1 done.
+Gates, with what is DONE marked — the rest are owner/legal actions, not code:
+
+| Gate | State (2026-08-10) |
+|---|---|
+| `VOICE_NOTES_BUCKET` split-brain killed | **DONE** — `app/config.py` now defaults to `""`, matching apps/api. Unset means "unset" on both sides. |
+| DSAR prefix sweep | **DONE** — #712 / PR #728, `account-deletion.service.ts` sweeps `voice-notes/{workerId}/` beside the per-row loop. |
+| Provider env reaches the containers | **DONE** — PR #735 declares the seven names on both staging services (below). |
+| Signed Sarvam DPA | **owner/legal** |
+| Bucket provisioned private | **owner/infra** |
+| `AI_INTERNAL_TOKEN` armed **both** sides | **owner** — env action on the box; deliberately not in `ci.yml` (see below) |
+| Translate leg ledgered or disabled | open |
+| **ASR PII measurement** | open — if saarika emits digits as words ("nau aath saat") *no gate in the system fires* and a phone number reaches the LLM |
+| B-1 done | open |
 
 **TD58 does NOT gate this flip**, and a 2026-08-08 revision of this row briefly claimed it did.
 Under the 2026-08-07 ruling retention is `retain_indefinitely` by decision, so there is no purge job
@@ -989,20 +1018,47 @@ It read *"neither compose file declares `SARVAM_API_KEY`, `SUPABASE_*`, `VOICE_N
 `AI_REAL_CALL_TASKS`, so the flip is a 4-artifact code change"*, and *"root `.env.example` says
 'EMPTY = all tasks'"*. Measured:
 
+**AND THE RE-MEASUREMENT WAS ITSELF WRONG — RE-DONE 2026-08-10 BY PARSING THE YAML.** The table
+below used to mark four rows "declared" in `docker-compose.staging.yml`. They were not declared;
+they were *named in a comment explaining why they were deliberately absent*. Grepping a file for a
+variable name cannot tell those two apart, and the row read as "the staging half is done" when the
+staging compose declared **none** of them. Parsed with a YAML loader instead of grep:
+
 | var | `docker-compose.yml` | `docker-compose.staging.yml` | `ci.yml` | `staging-cd.yml` |
 |---|:--:|:--:|:--:|:--:|
-| `SARVAM_API_KEY` | — | declared | — | — |
-| `VOICE_NOTES_BUCKET` | — | declared | — | — |
-| `AI_REAL_CALL_TASKS` | — | declared | — | — |
-| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | declared | declared | — | — |
-| **`SARVAM_TTS_MODEL`** | **—** | **—** | — | — |
+| `SARVAM_API_KEY` | — | **ai-service** (#735) | — | — |
+| `SARVAM_TTS_MODEL` / `SARVAM_TTS_SPEAKER` | — | **ai-service, default pinned** (#735) | — | — |
+| `VOICE_NOTES_BUCKET` | — | **both services** (#735) | — | — |
+| `AI_REAL_CALL_TASKS` | — | **ai-service** (#735) | — | — |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | api only | **both services** (#735) | — | — |
+
+All are the `${VAR:-}` form, so the required-secret set is unchanged and an unset variable still
+means a dormant voice leg. The TTS pair is the exception that proves the rule: it carries its
+default *into* the substitution (`${SARVAM_TTS_MODEL:-bulbul:v2}`), because those two settings are
+non-optional `str` in pydantic and a bare `:-` would hand them an empty string — overwriting
+`bulbul:v2`/`anushka` and posting an empty model name at the first synthesis.
+
+**The workflow columns stay empty ON PURPOSE, and that is a finding rather than an omission.** The
+deploy's `env:`/`envs:` bridge resolves each name through `${{ secrets.X }}`; an unset GitHub secret
+expands to an **empty string**, which drone-ssh then exports into the remote session. Compose gives
+the shell environment precedence over anything on the box, so adding these names to the bridge
+before the secrets exist would let an empty export **shadow a value the owner had correctly
+configured** — arming the flip would silently un-arm it, with a green deploy and a green `/health`.
+That is TD81's failure class rebuilt. The bridge is extended in the same change that creates the
+secrets, which is the rule `AI_INTERNAL_TOKEN` already follows.
 
 `.env.example` was corrected under the 2026-08-01 owner ruling and now reads *"EMPTY = **NO** TASKS
-MAY GO REAL (fail-closed … there is no wildcard)"* with a pointer to the enforcing code. So the flip
-is **smaller than this row claimed**. What genuinely remains: `SARVAM_TTS_MODEL` is declared nowhere
-— and it is the one variable whose silent default changes what the worker HEARS — and neither
-workflow passes any of them through, which is the TD81 shape (staging runs mocked AI and reports
-green). Recorded on #701.
+MAY GO REAL (fail-closed … there is no wildcard)"* with a pointer to the enforcing code.
+
+**So after #735 the flip is a pure env action, not a code change** — export the values where compose
+can see them on the box and re-run the deploy. What remains is owner and legal work only: the DPA,
+the private bucket, `AI_INTERNAL_TOKEN`, and the values themselves. Recorded on #701.
+
+The symmetry is now guarded rather than commented: `voice-storage-compose.guard.test.ts` fails if a
+storage variable is declared for one service and not the other, if any of them becomes a `${VAR:?}`
+required secret, or if the TTS pair loses its pinned default. It deliberately does **not** assert
+that any value is set — empty is the correct committed posture, so a test demanding a real bucket
+would fail on `main` forever and be deleted the first time it blocked legitimate work.
 
 Abort: any `is_mock=True` on a real rung · `stt_call_failed` >5% · p90 > client budget · `captured_but_wrong` >2%.
 
@@ -1010,12 +1066,17 @@ Abort: any `is_mock=True` on a real rung · `stt_call_failed` >5% · p90 > clien
 
 ### Phase V9 — GA gates *(Owners: joint · L · after V8)*
 
-`voice_processing` consent purpose **plus a purpose-aware guard** (`ConsentGuard` is purpose-blind
-today, so the purpose alone is decorative) · DPDP notice copy naming recording, the third-party
-processor, the retention period and the training-use boundary · consent version bump + re-consent ·
-TD59 · R30 reassessed against measured ASR output. The DPDP notice here is now load-bearing in a way
-it was not when this row was written: under the 2026-08-07 ruling it must name **indefinite**
-retention explicitly, because that is the policy rather than an oversight.
+| Gate | State (2026-08-10) |
+|---|---|
+| `voice_processing` consent purpose **plus a purpose-aware guard** | **DONE** — #732 / `229d435f`. `ConsentGuard` was purpose-blind, which made the purpose decorative; `@RequireConsentPurpose("voice_processing")` now gates the three processing routes. A worker consents to being PROFILED, not to being RECORDED, and those are now two different grants. |
+| DPDP notice copy naming recording, the third-party processor, the retention period and the training-use boundary | open — **legal/owner**, and the blocker for the row below |
+| Consent version bump + re-consent | open — gated on that copy; bumping the version before the copy exists would re-consent workers to the old text |
+| TD59 | open |
+| R30 reassessed against measured ASR output | open — cannot start until a real STT rung has run, so it is downstream of V8 rather than parallel to it |
+
+The DPDP notice here is load-bearing in a way it was not when this row was written: under the
+2026-08-07 ruling it must name **indefinite** retention explicitly, because that is the policy
+rather than an oversight.
 
 **TD58 IS NOT A PURGE JOB, AND THIS ROW USED TO SAY IT WAS.** The 2026-08-07 ruling (top of this
 document) settled voice-clip retention as **never deleted** — `retention_policy` stays

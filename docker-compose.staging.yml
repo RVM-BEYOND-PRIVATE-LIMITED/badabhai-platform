@@ -132,6 +132,28 @@ services:
       # injects them. Flip it in the SAME change that adds the creds, not before.
       RESUME_RENDER_ENABLED: "false"
 
+      # ---- V8 VOICE STORAGE: PASS-THROUGH, NEVER REQUIRED.
+      #
+      # WHY THIS DOES NOT CONTRADICT THE PARAGRAPH ABOVE. That one defers SUPABASE_* as
+      # `${VAR:?}` fail-loud entries, to keep the required-secret set equal to the owner's
+      # STAGING-SECRETS-1 list. These are the `:-` form: unset expands to empty, compose
+      # still starts, and the required-secret set is UNCHANGED. The deferral was about not
+      # adding new ways to fail a deploy; an optional pass-through adds none.
+      #
+      # WHY THE API NEEDS THEM AT ALL, INDEPENDENTLY OF THE RESUME RENDER. The api mints the
+      # signed upload URL for a voice note and lists/erases those objects on a DSAR. That is
+      # a different consumer of the same storage creds from the PDF render, and it is gated
+      # by VOICE_NOTES_BUCKET rather than by RESUME_RENDER_ENABLED — which stays "false".
+      #
+      # EMPTY IS THE SAFE STATE AND STAYS THE DEFAULT. An empty VOICE_NOTES_BUCKET means the
+      # whole spoken leg is DORMANT: no signed upload is minted, and the DSAR voice legs
+      # record `skipped` rather than claiming they swept a bucket that was never configured.
+      # Arming voice is therefore an env action on the box — export these, re-run the
+      # deploy — and NOT a code change. That is the entire point of this block.
+      VOICE_NOTES_BUCKET: ${VOICE_NOTES_BUCKET:-}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
       # ---- KNOWN-SURVIVING DEV VALUE (deliberate for now — R27 owner queue). The base
       # file's `PAYER_LOGIN_METHOD: whatsapp` survives this merge, and the WhatsApp
       # channel is the MOCK provider (ADR-0020) — so payer/agency login is functionally
@@ -192,25 +214,53 @@ services:
       GEMINI_FLASH_API_KEY: ${GEMINI_FLASH_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
-      # ---- Voice storage: DELIBERATELY STILL NOT DECLARED, and the reason has changed.
+      # ---- V8 VOICE STORAGE — the change the previous revision of this block deferred.
       #
       # `VOICE_NOTES_BUCKET` is read by BOTH the api (which mints the signed upload URL) and
-      # this service (which fetches the object to transcribe), and no compose file declares it,
-      # so each container runs on its library default. Those defaults USED TO DISAGREE — the
-      # api's is "" and this service's was the literal "worker-voice-notes" — which made arming
-      # one side alone a silent TOTAL failure: the api mints uploads into bucket X, this service
-      # reads from another, every transcription fails closed to an empty transcript, and
-      # `/health` stays green on both because neither reports a bucket.
+      # this service (which fetches the object to transcribe). Those defaults USED TO DISAGREE
+      # — the api's was "" and this service's was the literal "worker-voice-notes" — which made
+      # arming one side alone a silent TOTAL failure: the api mints uploads into bucket X, this
+      # service reads from another, every transcription fails closed to an empty transcript,
+      # and `/health` stays green on both because neither reports a bucket. That divergence was
+      # closed at the SOURCE (app/config.py now defaults to "" here too), and this block is the
+      # other half: the same three names, declared on BOTH services in the SAME change, so the
+      # symmetry is a property of the file rather than of whoever edits it next.
       #
-      # That divergence is now closed at the SOURCE rather than papered over here: this
-      # service's default is `""` too (app/config.py), and `stt.py` refuses the real path with a
-      # named reason when it is empty. Unset therefore means "unset" on both sides.
+      # ALL `:-`, SO THE REQUIRED-SECRET SET IS UNCHANGED. Unset expands to empty; empty means
+      # "not configured" on both sides; `stt.py` refuses the real path with a named reason.
       #
-      # The pass-through entry itself stays out on purpose. It belongs with SUPABASE_* and
-      # SARVAM_API_KEY as one V8 change — the api block above records why storage creds are not
-      # added piecemeal ("keeping the required-secret set equal to the owner's STAGING-SECRETS-1
-      # list"), and declaring the bucket for one service while the other cannot see it would be
-      # a new asymmetry in place of the one just removed.
+      # ARM THESE ON THE BOX, NOT IN ci.yml — AND THAT IS NOT LAZINESS. The deploy's
+      # `env:`/`envs:` bridge resolves each name through `${{ secrets.X }}`, and an unset
+      # GitHub secret expands to an EMPTY STRING which drone-ssh then exports into the remote
+      # session. Compose gives the shell environment precedence, so adding these names to the
+      # bridge BEFORE the secrets exist would let an empty export SHADOW a value the owner had
+      # correctly configured on the box — arming the flip would silently un-arm it, with a
+      # green deploy and a green /health. That is TD81's failure class rebuilt. Extend the
+      # bridge in the SAME change that creates the secrets, which is the rule the
+      # AI_INTERNAL_TOKEN note below already states for the same reason.
+      VOICE_NOTES_BUCKET: ${VOICE_NOTES_BUCKET:-}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
+      # ---- V8 SARVAM. The key is the arming credential and is empty until the owner sets it;
+      # `AI_ENABLE_REAL_CALLS` above ("false") and the per-task allowlist below BOTH still gate
+      # it, so supplying the key alone changes nothing.
+      SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+      # AI_REAL_CALL_TASKS IS FAIL-CLOSED WHEN EMPTY — empty means NO task may go real, not
+      # "all" (the root .env.example used to say the opposite; corrected under the 2026-08-01
+      # ruling). So the `:-` form is the safe default, and the staged rollout in
+      # docs/ai/enable-real-llm-extraction.md is an env action from here.
+      AI_REAL_CALL_TASKS: ${AI_REAL_CALL_TASKS:-}
+
+      # ---- The two TTS values are RESTATED, not passed through empty, and that difference
+      # matters. `sarvam_tts_model` / `sarvam_tts_speaker` are non-optional `str` with real
+      # defaults ("bulbul:v2" / "anushka"); a bare `${VAR:-}` would hand pydantic an EMPTY
+      # STRING and overwrite those defaults, so the first real synthesis would post an empty
+      # model name. Pinning the owner-approved pair (2026-08-08 ruling, measured by the rung-0
+      # listening test) puts the value a worker actually HEARS in the file rather than in a
+      # library default — the same reason AI_ENABLE_REAL_CALLS is restated above.
+      SARVAM_TTS_MODEL: "${SARVAM_TTS_MODEL:-bulbul:v2}"
+      SARVAM_TTS_SPEAKER: "${SARVAM_TTS_SPEAKER:-anushka}"
 
       # ---- TD27 shared spend ledger. Unset = the in-process backend, which is
       # exact (not approximate) here because the image runs ONE uvicorn worker.
