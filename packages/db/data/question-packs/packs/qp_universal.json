@@ -69,7 +69,7 @@
       "options": [
         { "option_key": "yes", "label_text": "Haan, jaa sakta hoon", "value_bool": true },
         { "option_key": "no", "label_text": "Nahi, yahi rehna hai", "value_bool": false },
-        { "option_key": "maybe", "label_text": "Sahi kaam mile to soch sakta hoon", "value_text": "conditional" }
+        { "option_key": "maybe", "label_text": "Sahi kaam mile to soch sakta hoon", "value_bool": true }
       ]
     },
     {

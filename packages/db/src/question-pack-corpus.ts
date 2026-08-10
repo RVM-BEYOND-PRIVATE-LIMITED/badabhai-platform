@@ -324,23 +324,6 @@ function chipValueSurvivesCapture(declared: RfsValueType, value: boolean | numbe
 }
 
 /**
- * The one chip in the shipped corpus that this rule would fail, held open by an explicit exception
- * rather than by softening the rule to a WARN.
- *
- * `qp_universal`'s `relocation` question offers "Sahi kaam mile to soch sakta hoon" with
- * `value_text: "conditional"` against `relocation_willingness`, which is `boolean`. Capture refuses
- * it, `max_asks: 1` means it is never re-asked, and the worker's answer is simply gone. Fixing it
- * is a CORPUS decision — drop the chip, map it onto a boolean, widen the field, or store the
- * nuance beside it — and mapping "conditional" to `true` changes which jobs that worker is shown,
- * which is §2 matching quality and not a typing call. Filed as #731.
- *
- * A WARN would have let the next one through silently, which is the failure mode this whole file
- * exists to prevent. Delete this entry the moment #731 is ruled; the test asserting the corpus has
- * exactly one exception will then hold the line at zero.
- */
-const KNOWN_UNCAPTURABLE_OPTIONS: ReadonlySet<string> = new Set(["qp_universal|relocation|maybe"]);
-
-/**
  * Persona check on one prompt. Returns problems, empty means clean.
  * See the DEFERRED note above for what is deliberately NOT checked.
  */
@@ -605,8 +588,7 @@ export function validateQuestionPackCorpus(
         if (
           declaredType !== undefined &&
           value !== undefined &&
-          !chipValueSurvivesCapture(declaredType, value) &&
-          !KNOWN_UNCAPTURABLE_OPTIONS.has(`${p.pack_id}|${it.question_key}|${o.option_key}`)
+          !chipValueSurvivesCapture(declaredType, value)
         ) {
           problems.push(
             `${ow}: value is ${typeof value} but target_field ${it.target_field} declares ` +
