@@ -43,6 +43,27 @@ export const DEV_PIN_PEPPER = "dev-insecure-pin-pepper-change-me";
  */
 export const DEV_ADMIN_JWT_SECRET = "dev-insecure-admin-jwt-secret-change-me";
 
+/**
+ * An optional secret where the EMPTY STRING means "not configured", exactly like an absent one.
+ *
+ * WHY THIS IS NOT PEDANTRY. `docker-compose*.yml` declares provider credentials as
+ * `NAME: ${NAME:-}` pass-throughs so the owner can arm them from the box with no code change.
+ * That form does not omit the variable when it is unset — it sets it to the EMPTY STRING. A bare
+ * `z.string().url().optional()` accepts `undefined` and REJECTS `""`, so the moment a credential
+ * is declared-but-unconfigured the whole config parse throws and the container will not boot.
+ * The failure looks like a deploy break rather than what it is: an unset optional secret.
+ *
+ * Downstream this changes nothing. Every consumer already tests these with a falsy check
+ * (`if (!config.SUPABASE_URL)`), so `""` and `undefined` were always the same answer to
+ * "is this configured" — the schema was the only layer that disagreed, and it disagreed fatally.
+ *
+ * IT DOES NOT WEAKEN VALIDATION. Only the empty string is reclassified; a non-empty malformed
+ * value is still rejected exactly as before, which is the half worth keeping.
+ */
+function optionalSecret<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+}
+
 export const serverEnvSchema = z.object({
   NODE_ENV: nodeEnvSchema,
 
@@ -50,9 +71,11 @@ export const serverEnvSchema = z.object({
   DATABASE_URL: z.string().url().default("postgresql://badabhai:badabhai@localhost:5432/badabhai"),
   REDIS_URL: z.string().url().default("redis://localhost:6379"),
 
-  // Supabase (backend only)
-  SUPABASE_URL: z.string().url().optional(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  // Supabase (backend only). `optionalSecret`, NOT a bare `.optional()` — see its definition:
+  // a container that declares these as pass-throughs sets them to "" when unconfigured, and ""
+  // would otherwise fail `.url()` / `.min(1)` and take the whole process down at boot.
+  SUPABASE_URL: optionalSecret(z.string().url()),
+  SUPABASE_SERVICE_ROLE_KEY: optionalSecret(z.string().min(1)),
   // Private Storage bucket holding the full worker-conversation JSON artifact
   // (transcript + final state snapshot). Backend/service-role access ONLY — never
   // reachable by web/Flutter. Object keys carry opaque UUIDs only (no PII). See
