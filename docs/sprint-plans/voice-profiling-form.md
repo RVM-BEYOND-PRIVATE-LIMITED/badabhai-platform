@@ -1082,7 +1082,7 @@ Abort: any `is_mock=True` on a real rung · `stt_call_failed` >5% · p90 > clien
 | `voice_processing` consent purpose **plus a purpose-aware guard** | **DONE** — #732 / `229d435f`. `ConsentGuard` was purpose-blind, which made the purpose decorative; `@RequireConsentPurpose("voice_processing")` now gates the three processing routes. A worker consents to being PROFILED, not to being RECORDED, and those are now two different grants. |
 | DPDP notice copy naming recording, the third-party processor, the retention period and the training-use boundary | open — **legal/owner**, and the blocker for the row below |
 | Consent version bump + re-consent | open — gated on that copy; bumping the version before the copy exists would re-consent workers to the old text |
-| TD59 | open |
+| TD59 | **mostly done — do not read this as untouched.** TD59's own preferred prescription was the synchronous short-answer path, and that **shipped in #702**: `POST /profiling/answer` with `{kind:"spoken", voice_note_id}` calls `transcribeNow`, capped at 30s (checked *before* any provider call is paid for, which is what keeps Sarvam on a single sync call rather than the chunked path). The client half shipped too — #635 raised the poll budget past the server's ~140s structural ceiling. What is left is the **async chat voice-note path** (30–120s), deliberately retained, plus re-deriving the budget from measured staging p50/p95 instead of the ceiling — and that measurement is downstream of V8. |
 | R30 reassessed against measured ASR output | open — cannot start until a real STT rung has run, so it is downstream of V8 rather than parallel to it |
 
 The DPDP notice here is load-bearing in a way it was not when this row was written: under the
