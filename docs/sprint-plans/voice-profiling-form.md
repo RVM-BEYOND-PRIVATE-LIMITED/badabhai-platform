@@ -3,7 +3,7 @@
 Hinglish voice-driven sequential Q&A for the worker app: questions shown one at a time, read aloud,
 answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam TTS out.
 
-**Status date:** 2026-08-08 · **HEAD:** `969cf75e`
+**Status date:** 2026-08-10 · **HEAD:** `e518eb42`
 
 ---
 
@@ -17,7 +17,7 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | `retry_text` on the other 461 items *(ruled 2026-08-10)* | **Deferred past MVP — and the framing was wrong, not just the priority.** Re-serving the identical `prompt_text` on a second ask is **normal voice UX, not a defect**; the earlier plan-mode draft called it "indistinguishable from the app being broken", which overstated it. Measured cost of doing it: `reply-closure` gives each authored `retry_text` its own clip, so filling all 461 takes the render corpus from ~434 to ~895 — roughly double, for something with **no usage data behind it**. Revisit once real interview volume shows how often a worker is actually re-asked the same question twice. The engine already prefers `retry_text` where it exists (`next-question.ts:198`), so this is a data decision that can be taken at any time without code. |
 | STT cost observability vs. the V8 flip *(ruled 2026-08-10)* | **Land #738 before arming V8.** STT spend is recorded nowhere durable — `recordAiCost` is private to `ProfileExtractionProcessor`, unreachable from the transcription path, and `TranscriptionOutputSchema` carries no cost field — so arming Sarvam first would produce live spend bounded only by a Redis limiter that forgets after ~25h. **Done — #744.** |
 | `relocation`'s third chip *(ruled 2026-08-10)* | **`value_bool: true`** — option B of #731. Shipped in #742; `KNOWN_UNCAPTURABLE_OPTIONS` is gone and the corpus rule now runs unexcepted. The nuance is not lost, only un-matchable: `label_text` is the answer of record and survives as `value_raw` beside `value_normalized`, so "Sahi kaam mile to soch sakta hoon" stays recoverable per worker if the field is ever widened. |
-| Spoken-digit PII redaction *(ruled 2026-08-10)* | **No ruling needed — build it fail-closed**, like every other privacy boundary in this pipeline. Leg (a) of #747; may start immediately. |
+| Spoken-digit PII redaction *(ruled 2026-08-10)* | **No ruling needed — build it fail-closed**, like every other privacy boundary in this pipeline. Leg (a) of #747; may start immediately. **Done — #750 / `e518eb42`.** |
 | Abusive-language ENFORCEMENT *(ruled 2026-08-10 — **SUPERSEDES** the recommendation recorded earlier the same day)* | **Ship flag-only. No strip, no block.** Measure the false-positive rate against **real ASR output** before building any enforcement mechanism — the same shape as R30: tune the lexicon against measured output rather than a guess. The earlier entry here recorded the owner's own recommendation of *flag + strip from payer surfaces*; that is superseded, and the superseding ruling is on #747. **What makes it the right order:** a lexicon over ASR output misfires in a way one over typed text does not — saarika mishearing a word in a noisy yard is a recogniser artifact, not something the worker said — so enforcement built before the error rate is known would be tuned against a guess, and every false positive lands on the worker. **When strip enforcement IS built later, it must cover every payer-reachable egress point individually** — resume generation, any LLM prompt built from the transcript, events — and *not* storage. Storage is one choke point and looks like the cheap place to do it; that is exactly why it is the wrong one, because it is easy to implement once and miss twice. |
 | TD59 poll budget percentile *(ruled 2026-08-10)* | **p50, not p95.** |
 | R30 reassessment *(pre-approved 2026-08-10)* | Proceed on whatever it concludes once it runs against real ASR output. No second ruling. |
@@ -53,7 +53,15 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | **B6 (the spoken leg)** — synchronous ≤30 s transcription, R9 closed for this surface, `profiling_voice_answer` writer | PR #702 → `2adea343` | **on `main`** |
 | **The typed chip value** — `String()` on `value_bool` cost two completed interviews their whole profile | PR #710 → `bc4958eb` | **on `main`** |
 | **#700 the ⟲ correction** — targeted write, superseding, outside the turn loop · **#708** the pack-version audio guard · **V0 rung 0** | PR #722 → `1c2820c2` | **on `main`** |
-| **#700 the rebuild** — a fourth trigger, keyed on `answer_set_hash` rather than the session | PR #726 | **open** |
+| **#700 the rebuild** — a fourth trigger, keyed on `answer_set_hash` rather than the session | PR #726 → `102c2300` | **on `main`** |
+| **V9** — a worker consents to being PROFILED, not to being RECORDED; `ConsentGuard` made purpose-aware | PR #732 → `229d435f` | **on `main`** |
+| Mock mode fired real requests at `mock://local` (the one real file of the dead #723 branch) | PR #734 → `0f07f973` | **on `main`** |
+| **V8 env** — the staging box can be handed Sarvam without a code change; `optionalSecret()` so an unset secret stays unset | PR #735 → `bebeee2a` | **on `main`** |
+| `/profiling/answer` waits out in-request STT — 150 s, not 15 s (Rishi, client half of TD59) | PR #741 → `432f9f2f` | **on `main`** |
+| `relocation`'s third chip stores `value_bool: true`; `KNOWN_UNCAPTURABLE_OPTIONS` deleted (closes #731) | PR #742 → `24c62e15` | **on `main`** |
+| **STT spend reaches the cost history** — it reached nothing before (closes #738) | PR #744 → `e8b67338` | **on `main`** |
+| A spending provider surface must have an emitter, or be named as not having one | PR #746 → `a009ddb1` | **on `main`** |
+| **#747 leg (a)** — a spoken phone number no longer survives the STT response | PR #750 → `e518eb42` | **on `main`** |
 
 ### B6 — THE GAP THAT MADE THE FEATURE NOT WORK, and it was not on any list
 
@@ -1049,8 +1057,15 @@ Gates, with what is DONE marked — the rest are owner/legal actions, not code:
 | Bucket provisioned private | **owner/infra** |
 | `AI_INTERNAL_TOKEN` armed **both** sides | **owner** — env action on the box; deliberately not in `ci.yml` (see below) |
 | Translate leg ledgered or disabled | open |
-| **ASR PII + abusive language** | **#747 (P0, Divyanshu) — gates the flip the same way #712 and #738 did: land before arming, not after.** Two legs, both in apps/ai-service on the STT response *before it leaves the service*. **(a) Spoken-digit PII** — if saarika emits digits as words ("nau aath saat") *no gate in the system fires* and a phone number reaches the LLM. Lexicon-based detection (the `negation.json`/`cities.json` technique), fail-closed redaction before the transcript is persisted anywhere, and the redaction recorded as a count/flag — never the raw digits. **No ruling needed; build it fail-closed like every other privacy boundary here, and it can start immediately.** **(b) Abusive language** — detection lexicon, clause-aware like `parseAffirmation`, shipping **flag-only**: no strip and no block until the false-positive rate has been measured against real ASR output (ruled 2026-08-10 — see the rulings table). **Neither leg is waiting on a decision now; both can start.** |
+| **ASR PII — spoken digits (#747 leg (a))** | **DONE** — #750 / `e518eb42`. If saarika emits digits as words ("nau aath saat") *no gate in the system fired* and a phone number reached the LLM: `pseudonymize.py` masks by digit SHAPE, and spoken digits carry no digit characters. `app/spoken_digits.py` now redacts phone-shaped runs (9–13 digit tokens, at least one of them a spoken word) as the first statement after the provider returns — before the translate egress, before the response, therefore before the transcript is persisted anywhere. The redaction rides back as `spoken_digit_redactions: int`, **a count and never the digits**, which is also the number V8's ASR PII measurement wants. |
+| **Abusive language (#747 leg (b))** | **#747 (P0, Divyanshu) — still open, and gates the flip the same way #712 and #738 did: land before arming, not after.** Detection lexicon, clause-aware like `parseAffirmation`, shipping **flag-only**: no strip and no block until the false-positive rate has been measured against real ASR output (ruled 2026-08-10 — see the rulings table). **Not waiting on a decision; it can start now.** One thing to reuse rather than rediscover: **tokenize with `spoken_digits.py`'s `_TOKEN_RE`, not `\w+`**. Devanagari vowel signs are non-spacing marks (`'ौ'.isalnum()` is `False`), so `\w+` shatters the word — `"नौ"` → `"न"`, `"सात"` → `"स"` + `"त"` — and leg (a) shipped that bug: the Roman fixtures matched while the identical Devanagari utterance, which is what saarika returns at `hi-IN`, produced fragments matching nothing. A lexicon gate that fires on the fixture and no-ops on production output is worse than no gate, and it is invisible to any test written in Roman script. The danda `।` and double danda `॥` belong in the separator set for the same reason. |
 | B-1 done | open |
+
+**A two-leg issue cannot be referenced by a closing keyword, and #747 proved it.** #750's body read
+`Closes #747 leg (a)`; GitHub parses the keyword and discards the qualifier, so merging leg (a)
+closed the whole issue — a P0 launch gate with an unbuilt half lost its tracker at the moment its
+other half shipped, and the board would have read "no ASR gates outstanding". Reopened. Reference
+the partner leg with a bare `#747` and close it by hand when the last leg lands.
 
 **TD58 does NOT gate this flip**, and a 2026-08-08 revision of this row briefly claimed it did.
 Under the 2026-08-07 ruling retention is `retain_indefinitely` by decision, so there is no purge job
