@@ -95,6 +95,30 @@ void main() {
   });
 
   test(
+      'the five methods #719 found unoverridden complete without touching the '
+      'network — recordWorkerActions is the one VoiceFormActionLog.flush fires '
+      'on EVERY flush, so mock mode hit mock://local once per batch', () async {
+    // Per the invariant at the top of this file: these run against
+    // `mock://local`, so before the overrides existed each call fell through to
+    // the real ApiClient and attempted a request. Completing IS the assertion —
+    // that is what makes these rows capable of failing.
+    await api.recordWorkerActions(
+      authToken: 'mock',
+      actions: <Map<String, dynamic>>[
+        <String, dynamic>{'action': 'voice_form_question_answered'},
+      ],
+    );
+    await api.markNotificationsRead(authToken: 'mock');
+    await api.updateNotificationPrefs(enabled: false, authToken: 'mock');
+
+    // The two that also have to return a usable value rather than merely not
+    // throw: a null session id is what "this worker has no chat yet" looks
+    // like, and prefs default ON to match the server's own default.
+    expect(await api.latestChatSessionId(authToken: 'mock'), isNull);
+    expect(await api.getNotificationPrefs(authToken: 'mock'), isTrue);
+  });
+
+  test(
       'jobDetail (ADR-0024 addendum) returns canned PII-free detail with '
       'NOTHING employer-shaped', () async {
     final JobDetail d =
