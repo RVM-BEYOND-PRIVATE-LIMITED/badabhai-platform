@@ -5,8 +5,10 @@ Endpoints: /health, /pseudonymize, /profile/parse, /profile/extract,
 
 INVARIANT: pseudonymization runs BEFORE any external LLM path on every endpoint
 that could reach an LLM. If pseudonymization is blocked, the LLM is never called
-and a safe fallback is returned (fail closed). Model routing, cost tracking, and
-Langfuse tracing all live behind ``app.ai.router.AIRouter``.
+and a safe fallback is returned (fail closed). Model routing and cost tracking live
+behind ``app.ai.router.AIRouter``; Langfuse tracing lives behind
+``app.ai.langfuse_tracing.get_tracer()``, which the router uses and which the two
+non-router AI boundaries (skill embeds, voice STT/translate) use directly.
 
 The 14 handlers now live in ``app/routers/*.py`` (one module per endpoint group,
 each exposing ``api_router``); the process-wide singletons they share live in
@@ -24,6 +26,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from .ai import cost_tracker
+from .ai.langfuse_tracing import get_tracer
 from .config import get_settings
 from .job_posting_chat import interview_engine as job_posting_engine
 from .logging_config import configure_logging, get_logger
@@ -97,7 +100,17 @@ async def _lifespan(_app: FastAPI):
       unverifiable cap must never permit real spend.
     """
     cost_tracker.get_ledger()
+    # Same argument, one boot earlier: build the tracer HERE so "langfuse enabled"
+    # (or the reason it is not) is logged at STARTUP rather than on the first AI
+    # call. Constructing it does no network I/O, and it never raises.
+    tracer = get_tracer()
     yield
+    # Langfuse buffers spans in a background exporter, so the traces most worth
+    # keeping — the ones from the minutes before a deploy or a crash-loop restart —
+    # are exactly the ones an unflushed buffer drops. The SDK registers an `atexit`
+    # hook, but a container SIGTERM'd by `docker stop` does not reliably reach it.
+    # `shutdown()` flushes and joins the exporter, and swallows its own failures.
+    tracer.shutdown()
 
 
 app = FastAPI(title="BadaBhai AI Service", version="0.1.0", lifespan=_lifespan)

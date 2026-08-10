@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from ..ai import cost_tracker
 from ..ai.canonicalize import canonicalize_skill
 from ..ai.embeddings import EMBEDDING_TASK_TYPE
+from ..ai.langfuse_tracing import get_tracer
 from ..ai.model_config import rate_inr_per_1k
 from ..ai.retag import plan_retag
 from ..ai.skill_store import get_skill_store
@@ -41,43 +42,61 @@ async def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonica
     cost is reserved BEFORE the embed and reconciled after. A ledger block returns
     UNRESOLVED — canonicalization NEVER blocks the caller (the same posture as every
     other failure). Mock embed path (``real_call_enabled_for`` false): zero ledger
-    traffic. Never logs the phrase."""
-    settings = get_settings()
-    if not settings.skill_canonicalize_enabled:
-        return SkillCanonicalization(status="unresolved")
+    traffic. Never logs the phrase.
 
-    embed_is_mock = not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE)
-    reserved_inr = 0.0
-    if not embed_is_mock:
-        in_rate, _out = rate_inr_per_1k(settings.embedding_model)
-        reserved_inr = (cost_tracker.estimate_tokens(body.phrase) / 1000.0) * in_rate
-        reason = await cost_tracker.get_ledger().would_exceed_spend(reserved_inr, settings)
-        if reason is not None:
-            # Counts/reason only — never the phrase.
-            logger.warning(
-                "skills canonicalize blocked by spend ledger",
-                extra={"extra": {"reason": reason, "projected_inr": round(reserved_inr, 6)}},
-            )
+    TRACED as one task with the embed nested inside it. Both non-embedding outcomes —
+    the flag being off and a ledger block — are traced too, and deliberately: all three
+    return the SAME ``unresolved`` body, so without the trace saying which one happened
+    a disabled flag is indistinguishable from a phrase nothing matched. The phrase
+    itself is never traced (the ``embed-text`` child records the MASKED text, which is
+    what the provider actually saw)."""
+    settings = get_settings()
+    tracer = get_tracer()
+    with tracer.task(
+        task_type="skill_canonicalization",
+        input={"domain_id": body.domain_id, "lang": body.lang},
+        real_call=settings.real_call_enabled_for(EMBEDDING_TASK_TYPE),
+    ) as task:
+        if not settings.skill_canonicalize_enabled:
+            task.update(level="WARNING", status_message="skill_canonicalize_disabled")
             return SkillCanonicalization(status="unresolved")
 
-    actual_inr = 0.0
-    try:
-        out = await asyncio.to_thread(
-            canonicalize_skill,
-            body.phrase,
-            body.domain_id,
-            get_skill_store(settings),
-            settings,
-            lang=body.lang,
-        )
-        # Leave the full reservation recorded as the actual spend (conservative:
-        # one real embed ran; a pseudonymize-blocked phrase slightly over-records).
-        actual_inr = reserved_inr
-        return out
-    finally:
+        embed_is_mock = not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE)
+        reserved_inr = 0.0
         if not embed_is_mock:
-            # On a raise, actual_inr stayed 0.0 => full refund (no reservation leak).
-            await cost_tracker.get_ledger().record_spend(reserved_inr, actual_inr)
+            in_rate, _out = rate_inr_per_1k(settings.embedding_model)
+            reserved_inr = (cost_tracker.estimate_tokens(body.phrase) / 1000.0) * in_rate
+            reason = await cost_tracker.get_ledger().would_exceed_spend(reserved_inr, settings)
+            if reason is not None:
+                # Counts/reason only — never the phrase.
+                logger.warning(
+                    "skills canonicalize blocked by spend ledger",
+                    extra={"extra": {"reason": reason, "projected_inr": round(reserved_inr, 6)}},
+                )
+                task.update(level="WARNING", status_message=reason)
+                return SkillCanonicalization(status="unresolved")
+
+        actual_inr = 0.0
+        try:
+            out = await asyncio.to_thread(
+                canonicalize_skill,
+                body.phrase,
+                body.domain_id,
+                get_skill_store(settings),
+                settings,
+                lang=body.lang,
+            )
+            # Leave the full reservation recorded as the actual spend (conservative:
+            # one real embed ran; a pseudonymize-blocked phrase slightly over-records).
+            actual_inr = reserved_inr
+            # SG-3 holds on the wire, so this is safe to record verbatim: `skill_id` can
+            # only be an id from the closed skill_alias set, never model-invented text.
+            task.update(output=out.model_dump())
+            return out
+        finally:
+            if not embed_is_mock:
+                # On a raise, actual_inr stayed 0.0 => full refund (no reservation leak).
+                await cost_tracker.get_ledger().record_spend(reserved_inr, actual_inr)
 
 
 @api_router.post("/skills/retag-plan", response_model=RetagPlanOutput)

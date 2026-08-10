@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from ..ai import cost_tracker
 from ..ai.embeddings import EMBEDDING_TASK_TYPE, MOCK_MODEL, embed_text
+from ..ai.langfuse_tracing import get_tracer
 from ..ai.model_config import rate_inr_per_1k
 from ..config import Settings, get_settings
 from ..contracts import (
@@ -32,7 +33,42 @@ def _embed_batch_sync(
     so the event loop keeps serving while a real batch runs (same posture as the
     #222 fix). Returns ``(results, cost_inr, errors, budget_stopped)``. The
     per-request INR ceiling stays enforced INSIDE the loop — belt + suspenders
-    under the TD68 SpendLedger reserve done by the caller. Never logs alias text."""
+    under the TD68 SpendLedger reserve done by the caller. Never logs alias text.
+
+    TRACED as ONE task, not one per item. A trace is a unit of work, and the unit
+    here is the batch: without this span a 200-alias run would post 200 rootless
+    ``embed-text`` traces, which is both unreadable and the wrong shape for the
+    question anyone actually asks ("what did this batch cost?"). Each item's embed
+    nests underneath. No ``user_ref``: the corpus embed is offline taxonomy work with
+    no worker behind it."""
+    tracer = get_tracer()
+    with tracer.task(
+        task_type=EMBEDDING_TASK_TYPE,
+        input={"items": len(items)},
+        real_call=not is_mock,
+    ) as task:
+        results, cost_inr, errors, budget_stopped = _embed_loop(items, settings, is_mock, in_rate)
+        task.update(
+            output={
+                "embedded": len(results),
+                "blocked": sum(1 for r in results if r.blocked),
+                "errors": errors,
+                "budget_stopped": budget_stopped,
+            },
+            metadata={"estimated_cost_inr": round(cost_inr, 6)},
+            # Items were DROPPED — the runner has to come back for them. Silent
+            # truncation is the failure mode this level exists to surface.
+            level="WARNING" if budget_stopped or errors else "DEFAULT",
+        )
+    return results, cost_inr, errors, budget_stopped
+
+
+def _embed_loop(
+    items: list[SkillAliasEmbedItem],
+    settings: Settings,
+    is_mock: bool,
+    in_rate: float,
+) -> tuple[list[SkillAliasEmbedResult], float, int, bool]:
     results: list[SkillAliasEmbedResult] = []
     cost_inr = 0.0
     errors = 0

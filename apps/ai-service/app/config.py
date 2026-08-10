@@ -516,6 +516,12 @@ class Settings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_base_url: str = "https://cloud.langfuse.com"
+    # Which Langfuse environment these traces belong to. Named after the SDK's own
+    # LANGFUSE_TRACING_ENVIRONMENT variable so there is ONE name for one concept.
+    # Defaults to "development" on purpose: an unset deployment must not be able to
+    # pollute the production dashboards and evaluators by accident — a staging box
+    # mislabelled as prod silently corrupts every cost and quality metric read off it.
+    langfuse_tracing_environment: str = "development"
 
     ai_service_port: int = 8000
 

@@ -5,5 +5,11 @@
 # official ``anthropic`` SDK. Langfuse is for tracing. Mock mode runs with
 # requirements.txt only. Install with:  pip install -r requirements-ai.txt
 -r requirements.txt
-langfuse>=2.0,<3.0
+# Langfuse v4 — the OpenTelemetry-based SDK line. NOT interchangeable with the v2
+# pin this replaced: v2's `client.trace(...)` no longer exists, so a v2 install
+# silently traced NOTHING (every call raised inside the tracer's own try/except and
+# was logged as a warning). The v4 API is `start_as_current_observation` — see
+# app/ai/langfuse_tracing.py. Upper bound pinned to the major: v5 will be a
+# breaking change too, and this file is the only place that gets to decide when.
+langfuse>=4.14,<5.0
 anthropic>=0.40,<1.0
