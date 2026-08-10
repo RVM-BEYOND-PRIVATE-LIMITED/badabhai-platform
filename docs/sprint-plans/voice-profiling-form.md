@@ -14,6 +14,8 @@ answered by speaking or by tapping a chip, in one sitting. Sarvam STT in, Sarvam
 | Where `attribute` answers land (was the V2 blocker) | **A `worker_attributes` table.** Normalized, RLS-locked, one live row per (worker, key) — the matcher can filter on it with a plain index. Shipped in V1. |
 | Voice-clip retention | **Never deleted.** `retention_policy` stays `retain_indefinitely`. Erase-on-request (DSAR) is unchanged — that is a legal obligation, not a retention policy — but the DPDP notice copy in V9 must now state indefinite retention explicitly, and TD58's purge job is re-scoped from "delete on a schedule" to "delete on request, provably". |
 | One pipeline for both surfaces | **Both surfaces must build the profile the same way.** See §1a. |
+| `retry_text` on the other 461 items *(ruled 2026-08-10)* | **Deferred past MVP — and the framing was wrong, not just the priority.** Re-serving the identical `prompt_text` on a second ask is **normal voice UX, not a defect**; the earlier plan-mode draft called it "indistinguishable from the app being broken", which overstated it. Measured cost of doing it: `reply-closure` gives each authored `retry_text` its own clip, so filling all 461 takes the render corpus from ~434 to ~895 — roughly double, for something with **no usage data behind it**. Revisit once real interview volume shows how often a worker is actually re-asked the same question twice. The engine already prefers `retry_text` where it exists (`next-question.ts:198`), so this is a data decision that can be taken at any time without code. |
+| STT cost observability vs. the V8 flip *(ruled 2026-08-10)* | **Land #738 before arming V8.** STT spend is recorded nowhere durable — `recordAiCost` is private to `ProfileExtractionProcessor`, unreachable from the transcription path, and `TranscriptionOutputSchema` carries no cost field — so arming Sarvam first would produce live spend bounded only by a Redis limiter that forgets after ~25h. |
 
 ---
 
@@ -848,8 +850,17 @@ which is real Sarvam spend that fires by default and is on no ledger at all; set
 > spend on the day V8 arms — which is the one phase whose remaining work is the owner's. Closing it
 > is additive and backward-compatible (`.default()` keeps an older ai-service parsing): return usage
 > on `/voice/transcribe`, widen the contract, emit from the transcription path against the existing
-> `ai.cost_recorded:${ai_call_id}` idempotency key. **Filed as its own issue rather than folded in
-> here, because it is backend/AI work and this document is not where it gets tracked.**
+> `ai.cost_recorded:${ai_call_id}` idempotency key.
+>
+> **CLOSED by #738**, sequenced ahead of the V8 arming on the owner's 2026-08-10 ruling. The
+> ai-service now returns `ai_metadata` on `/voice/transcribe` priced per provider CALL (Sarvam does
+> not bill STT in tokens, so the token counts stay 0 rather than being invented to make an LLM rate
+> card apply); the contract carries it additively; and `recordAiCost` moved out of
+> `ProfileExtractionProcessor` into `AiCostRecorder`, which is what both paths now call. Two details
+> worth keeping: the record is emitted **before** the degraded-result throw, so a real call that
+> failed part-way still reports what it spent; and `real_call` follows the **money** rather than
+> `is_mock`, because a partial failure returns `is_mock=True` while having genuinely paid for the
+> chunks that returned.
 
 ---
 

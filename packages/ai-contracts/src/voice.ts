@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { languageCode } from "./common";
+import { AICallMetadataSchema, languageCode } from "./common";
 
 // Voice transcription (STT) request/response.
 
@@ -50,5 +50,23 @@ export const TranscriptionOutputSchema = z.object({
    * Defaulted to null so an ai-service that predates the field still parses (§3).
    */
   error_code: z.string().nullable().default(null),
+  /**
+   * WHAT THIS CALL COST — the field that makes STT spend recordable at all (#738).
+   *
+   * `recordAiCost` lives on the profile-extraction path and nothing on the transcription path
+   * could reach it, but the deeper problem was here: this schema carried no cost, so no emitter
+   * could have recorded one even if it existed. STT spend was capped by `SpendLedger` — a Redis
+   * counter whose keys expire ~25h after the day they describe — and then forgotten. Meanwhile
+   * `aiTaskType` already listed `stt_transcription`, so querying the events table for STT cost
+   * returned empty and read as "no spend" rather than "not instrumented".
+   *
+   * Sarvam bills STT per provider CALL, not per token, so `estimated_cost_inr` here comes from
+   * the adapter's own figure — the one it computed to reserve against the ledger — and the token
+   * counts are 0 rather than invented.
+   *
+   * `null` on the mock path and on an ai-service that predates the field, which is what keeps
+   * this additive (§3). Mirrors `TranscriptionOutput.ai_metadata` in contracts.py.
+   */
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type TranscriptionOutput = z.infer<typeof TranscriptionOutputSchema>;

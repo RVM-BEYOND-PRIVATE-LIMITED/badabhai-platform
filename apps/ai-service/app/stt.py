@@ -186,6 +186,16 @@ class SttResult:
     # How many provider calls produced this result (1 for sync, N for chunked).
     # INTERNAL spend accounting only — never surfaced on TranscriptionOutput.
     chunk_count: int = 1
+    # RUPEES ACTUALLY BILLED for this note, and whether a provider was really reached.
+    #
+    # BOTH ARE NEEDED BECAUSE `is_mock` ANSWERS NEITHER. A real call that fails PART-WAY
+    # returns `is_mock=True` — it fails closed to an empty transcript — while having genuinely
+    # paid for the chunks that already returned. Deriving "was this real" from `is_mock` would
+    # zero exactly that spend: money spent on a call that then broke, which is the spend most
+    # worth having a record of. `chunk_count` alone cannot price it either, since the rate lives
+    # in settings and this is the last place that knows both.
+    cost_inr: float = 0.0
+    real_call: bool = False
 
 
 class _ChunkedSttFailure(RuntimeError):
@@ -357,6 +367,11 @@ class SttAdapter:
                 reserved_chunks=projected_chunks,
             )
             actual_inr = round(result.chunk_count * rate_inr, 4)
+            # Surfaced, not just reserved: the ledger below is a Redis counter whose keys expire,
+            # so without carrying the figure out of here the note's real spend has no durable
+            # record anywhere (#738).
+            result.cost_inr = actual_inr
+            result.real_call = True
             return result
         except Exception as exc:  # noqa: BLE001 - any provider/dep failure is non-fatal
             # Chunk calls that RETURNED before the failure were provider spend —
@@ -374,6 +389,10 @@ class SttAdapter:
                 is_mock=True,
                 error_code="stt_call_failed",
                 chunk_count=chunks_spent,
+                # Billed for what returned before the failure. `real_call` follows the money
+                # rather than `is_mock`: zero chunks spent means the provider was never reached.
+                cost_inr=actual_inr,
+                real_call=chunks_spent > 0,
             )
         finally:
             # Reconcile the reservation to what was actually called. Success

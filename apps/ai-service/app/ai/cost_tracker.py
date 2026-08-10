@@ -62,6 +62,7 @@ def build_call_metadata(
     attempt_count: int = 0,
     candidates_tried: list[str] | None = None,
     failure_reason: str | None = None,
+    cost_inr: float | None = None,
 ) -> AICallMetadata:
     """Assemble + log the metadata for one AI call."""
     # A CALL THAT NEVER REACHED A PROVIDER COST NOTHING, and must say so.
@@ -82,7 +83,20 @@ def build_call_metadata(
     #
     # Token counts are left alone. They describe the payload that would have been sent, which is
     # what makes a mock run useful for PROJECTING cost; only the money is fictional.
-    estimated = estimate_cost_inr(model, input_tokens, output_tokens) if real_call else 0.0
+    # `cost_inr` IS FOR PROVIDERS THAT ARE NOT PRICED IN TOKENS. Sarvam STT bills per provider
+    # CALL (`sarvam_stt_cost_inr_per_chunk`) and TTS per character, so `estimate_cost_inr` — which
+    # multiplies token counts by an LLM rate card — would return a number with no relationship to
+    # the invoice. The adapter has already computed the real figure to reserve it against the
+    # ledger, so it passes that through rather than having it re-derived from the wrong units.
+    #
+    # The `real_call` zeroing above it still wins, which is the point: an override cannot smuggle
+    # fictional money into a mocked environment.
+    if not real_call:
+        estimated = 0.0
+    elif cost_inr is not None:
+        estimated = round(cost_inr, 4)
+    else:
+        estimated = estimate_cost_inr(model, input_tokens, output_tokens)
     meta = AICallMetadata(
         ai_call_id=str(uuid.uuid4()),
         task_type=task_type,
