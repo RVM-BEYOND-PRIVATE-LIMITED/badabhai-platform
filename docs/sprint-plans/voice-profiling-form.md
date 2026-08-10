@@ -823,11 +823,33 @@ Pinned by a test that reads the enum out of `payloads.ts` and compares it to the
 provider surface cannot arrive unledgered.
 
 **Still open from §7:** `SpendLedger` remains a Redis rate-limiter with expiring keys rather than a
-ledger. The `events` table is now the cost history — every real call emits `ai.cost_recorded` — which
-is the cheaper answer than a new table and matches §3 ("events are the audit trail"). The remaining
-gap is the **translate leg**, which is real Sarvam spend that fires by default and is on no ledger at
-all; setting `translate_to_english: false` for the form path deletes it from that surface but not
-from chat.
+ledger. The `events` table is the intended cost history, which is the cheaper answer than a new
+table and matches §3 ("events are the audit trail"). The remaining gap is the **translate leg**,
+which is real Sarvam spend that fires by default and is on no ledger at all; setting
+`translate_to_english: false` for the form path deletes it from that surface but not from chat.
+
+> **"EVERY REAL CALL EMITS `ai.cost_recorded`" WAS TRUE OF ONE CALL — RE-MEASURED 2026-08-10.** This
+> row used to claim it of all of them. Traced instead of assumed:
+>
+> | link in the chain | state on `origin/main` |
+> |---|---|
+> | `recordAiCost` | **private to `ProfileExtractionProcessor`**, called from exactly two sites, both inside it |
+> | `VoiceTranscriptionService` | calls `AiService.transcribe`, which is a thin `post()` — no emit, and no path to that private method |
+> | `TranscriptionOutputSchema` | carries `transcript_text`, `confidence`, `language_code`, `is_mock`, `english_text`, `error_code` — **no cost, no usage** |
+> | `aiTaskType` | already lists `stt_transcription` |
+>
+> So STT spend is recorded **nowhere durable**: the contract cannot carry the number, no emitter is
+> reachable, and the only thing bounding it is a Redis limiter whose keys expire ~25h after the day
+> they describe. The widened enum makes this worse rather than better in exactly the way this
+> section already warned about — a task type the schema can express but nothing emits produces
+> *nothing, not a rejection*.
+>
+> **This is dormant only because `VOICE_NOTES_BUCKET` is unset.** It becomes live, unmeasurable
+> spend on the day V8 arms — which is the one phase whose remaining work is the owner's. Closing it
+> is additive and backward-compatible (`.default()` keeps an older ai-service parsing): return usage
+> on `/voice/transcribe`, widen the contract, emit from the transcription path against the existing
+> `ai.cost_recorded:${ai_call_id}` idempotency key. **Filed as its own issue rather than folded in
+> here, because it is backend/AI work and this document is not where it gets tracked.**
 
 ---
 
@@ -970,22 +992,28 @@ the TD59 client half.
 
 ---
 
-### Phase V7 — Cost observability *(Owner: Prakash · M · parallel with V4/V5)*
+### Phase V7 — *(moved: see the V7 section above, between V4 and V5)*
 
-**There is no cost history today.** `SpendLedger` is a Redis rate-limiter whose keys expire ~25h after
-the day they describe; only `profile_extraction` writes a durable cost row. Voice would record none of
-its spend, and `aiTaskType` cannot even express `stt_transcription`.
+**THIS WAS A SECOND, CONTRADICTORY V7 SECTION AND IT IS NOW A POINTER.** The document carried two
+`### Phase V7` headings 166 lines apart: the one above, marked **DONE, PR #665**, and this one,
+still opening *"There is no cost history today"* and listing the pre-#665 scope. A reader arriving
+here got the superseded answer with no sign that a newer one existed.
 
-Minimum that must ship **with** the feature, because the feature creates the spend:
-- `ai_provider_calls` table, grain **one row per provider call**, `numeric(12,4)` for money (not
-  `doublePrecision` — `ai_jobs.cost_inr` drifts under `SUM()`), idempotent on `ai_call_id`
-- Split `cost_inr` (real, **0 for mock**) from `projected_cost_inr` — mock calls currently report
-  non-zero cost, so `SELECT sum(cost_inr) FROM ai_jobs` is phantom money
-- STT/TTS return `ai_usage[]` across the contract boundary
-- Widen `aiTaskType` (additive enum widening — **Architect ruling**, CLAUDE.md §3)
-- Two read routes only: session cost and rollup, under `AdminAuthGuard` + `read_entities`
+The scope that stood here was **deliberately substituted, not dropped** — `ai_provider_calls`,
+`projected_cost_inr` and the two read routes were replaced by the `events` table plus
+`ai.cost_recorded`, which is cheaper and matches §3. Kept for the record, with what was measured
+against `origin/main` on 2026-08-10:
 
-Deferred: the other read routes, anomaly detection, the provider circuit breaker, rate recalibration.
+| original bullet | outcome |
+|---|---|
+| `ai_provider_calls` table (`numeric(12,4)`, idempotent on `ai_call_id`) | **superseded** — the `events` table is the ledger |
+| split `cost_inr` from `projected_cost_inr` | **superseded** by the same decision |
+| two read routes under `AdminAuthGuard` | **superseded** — read the events |
+| widen `aiTaskType` | **DONE** — `stt_transcription` is in `payloads.ts` |
+| **STT/TTS return `ai_usage[]` across the contract boundary** | **NOT DONE, and it is the one that still bites.** `TranscriptionOutputSchema` carries no cost field, so no substitute ledger can record STT spend either. See the box in the V7 section above. |
+
+Deferred as before: the other read routes, anomaly detection, the provider circuit breaker, rate
+recalibration.
 
 ---
 
