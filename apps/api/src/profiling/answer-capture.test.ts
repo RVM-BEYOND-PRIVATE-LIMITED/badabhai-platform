@@ -669,11 +669,13 @@ describe("the yes/no fallback cannot reach past the question on screen", () => {
       options: [
         { option_key: "a", label_text: "Haan bilkul", value: true } as never,
         { option_key: "b", label_text: "Haan thoda", value: true } as never,
-        { option_key: "c", label_text: "Nahi", value: false } as never,
+        { option_key: "c", label_text: "Nahi, bilkul nahi", value: false } as never,
       ],
     });
     expect(only(captureAnswer("haan", TWO_TRUE)).valueNormalized).toBe(true);
-    // The opposite polarity still resolves to its own single chip, unaffected.
+    // The opposite polarity still resolves to its own single chip, unaffected. NO LABEL HERE IS THE
+    // WHOLE WORD "nahi" — otherwise the chip-exact branch would answer this before the yes/no
+    // lexicon ever ran, and the assertion would pass without touching the code it names.
     expect(only(captureAnswer("nahi", TWO_TRUE)).valueNormalized).toBe(false);
   });
 
