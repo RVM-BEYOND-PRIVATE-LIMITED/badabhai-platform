@@ -549,24 +549,30 @@ describe("STT cost recording", () => {
     created_at: "2026-08-10T00:00:00.000Z",
   };
 
-  const costEvents = (events: { emit: { mock: { calls: [{ event_name: string }][] } } }) =>
-    events.emit.mock.calls.map((c) => c[0]).filter((e) => e.event_name === "ai.cost_recorded");
+  /** The shape this suite actually reads off `events.emit`. */
+  type Emitted = {
+    event_name: string;
+    payload: Record<string, unknown>;
+    idempotencyKey: string;
+  };
+
+  const costEvents = (events: { emit: { mock: { calls: unknown[][] } } }): Emitted[] =>
+    events.emit.mock.calls
+      .map((c) => c[0] as Emitted)
+      .filter((e) => e.event_name === "ai.cost_recorded");
 
   it("a real call emits ai.cost_recorded as stt_transcription, keyed on the CALL not the job", async () => {
     const { proc, events } = make({ aiMetadata: REAL_META });
     await proc.process(makeJob());
 
-    const [cost] = costEvents(events as never) as [Record<string, never>];
+    const [cost] = costEvents(events as never);
     expect(cost).toBeDefined();
-    const payload = (cost as unknown as { payload: Record<string, unknown> }).payload;
-    expect(payload.task_type).toBe("stt_transcription");
-    expect(payload.estimated_cost_inr).toBe(0.25);
-    expect(payload.real_call).toBe(true);
-    expect(payload.provider).toBe("sarvam");
+    expect(cost!.payload.task_type).toBe("stt_transcription");
+    expect(cost!.payload.estimated_cost_inr).toBe(0.25);
+    expect(cost!.payload.real_call).toBe(true);
+    expect(cost!.payload.provider).toBe("sarvam");
     // One job can make several billable calls; a per-job key deduped the later ones away.
-    expect((cost as unknown as { idempotencyKey: string }).idempotencyKey).toBe(
-      `ai.cost_recorded:${REAL_META.ai_call_id}`,
-    );
+    expect(cost!.idempotencyKey).toBe(`ai.cost_recorded:${REAL_META.ai_call_id}`);
   });
 
   it("the mock path emits NO cost event — a mocked environment must not write fictional money", async () => {
@@ -587,11 +593,10 @@ describe("STT cost recording", () => {
     });
     await expect(proc.process(makeJob({ attemptsMade: 2, attempts: 3 }))).rejects.toThrow();
 
-    const [cost] = costEvents(events as never) as [Record<string, never>];
+    const [cost] = costEvents(events as never);
     expect(cost).toBeDefined();
-    const payload = (cost as unknown as { payload: Record<string, unknown> }).payload;
-    expect(payload.estimated_cost_inr).toBe(0.5);
-    expect(payload.task_type).toBe("stt_transcription");
+    expect(cost!.payload.estimated_cost_inr).toBe(0.5);
+    expect(cost!.payload.task_type).toBe("stt_transcription");
   });
 
   it("privacy: the cost event carries no transcript", async () => {
