@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
 import { GUARDS_METADATA } from "@nestjs/common/constants";
 import { ConsentGuard } from "../auth/consent.guard";
+import { Reflector } from "@nestjs/core";
 import { WorkerAuthGuard } from "../auth/worker-auth.guard";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { ResumeController } from "./resume.controller";
@@ -41,9 +42,15 @@ function repoReturning(latest: Latest): ConsentRepository {
   return { findLatestByWorker: async () => latest } as unknown as ConsentRepository;
 }
 
+/**
+ * Points at the REAL `generate` handler and controller, so the guard's V9 purpose lookup
+ * reflects what that route actually declares (nothing) rather than a stub's opinion.
+ */
 function ctx(worker: { id: string } | undefined): ExecutionContext {
   return {
     switchToHttp: () => ({ getRequest: () => ({ worker }) }),
+    getHandler: () => ResumeController.prototype.generate,
+    getClass: () => ResumeController,
   } as unknown as ExecutionContext;
 }
 
@@ -76,27 +83,27 @@ describe("B-3 — POST /resume/generate is consent-gated (wiring)", () => {
 
 describe("B-3 — the real ConsentGuard's contract on that route", () => {
   it("REVOKED consent -> 403 (the hole this closes: no LLM call post-withdrawal)", async () => {
-    const guard = new ConsentGuard(repoReturning(revokedRow));
+    const guard = new ConsentGuard(repoReturning(revokedRow), new Reflector());
     await expect(guard.canActivate(ctx(WORKER))).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("never consented -> 403", async () => {
-    const guard = new ConsentGuard(repoReturning(null as unknown as Latest));
+    const guard = new ConsentGuard(repoReturning(null as unknown as Latest), new Reflector());
     await expect(guard.canActivate(ctx(WORKER))).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("active consent -> allowed", async () => {
-    const guard = new ConsentGuard(repoReturning(activeRow));
+    const guard = new ConsentGuard(repoReturning(activeRow), new Reflector());
     await expect(guard.canActivate(ctx(WORKER))).resolves.toBe(true);
   });
 
   it("no authenticated worker -> 401 (fails closed on guard misorder)", async () => {
-    const guard = new ConsentGuard(repoReturning(activeRow));
+    const guard = new ConsentGuard(repoReturning(activeRow), new Reflector());
     await expect(guard.canActivate(ctx(undefined))).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("the 403 carries no PII (only the opaque worker id the caller already owns)", async () => {
-    const guard = new ConsentGuard(repoReturning(revokedRow));
+    const guard = new ConsentGuard(repoReturning(revokedRow), new Reflector());
     await expect(guard.canActivate(ctx(WORKER))).rejects.toThrow(/consent/i);
   });
 });
