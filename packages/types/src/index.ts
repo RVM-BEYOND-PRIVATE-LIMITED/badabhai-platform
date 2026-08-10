@@ -53,6 +53,25 @@ export const CONSENT_PURPOSES = [
   // this string, which is why a version bump accompanies it: workers who consented
   // under 2026-06-01 never saw this sentence and are therefore never included.
   "agent_activity_visibility",
+  // V9 — the voice profiling form records the worker's ANSWERS AS AUDIO and sends them to a
+  // third-party ASR processor (Sarvam). A SEPARATE, explicit DPDP basis, and the reason it is
+  // not folded into `profiling` is the same reason `whatsapp_messaging` is not folded into
+  // `communication`: consenting to be profiled is consenting to ANSWER QUESTIONS, not to be
+  // RECORDED. A worker's voice is biometric-adjacent, the recording leaves the platform to a
+  // processor the worker has no relationship with, and under the 2026-08-07 owner ruling the
+  // clip is retained INDEFINITELY (`retain_indefinitely`) rather than deleted after processing.
+  // Each of those three is a thing a person would expect to be asked about on its own.
+  //
+  // FAIL-CLOSED AT THE AUDIO CHOKEPOINT, not at the interview. The voice form's `POST /answer`
+  // carries BOTH spoken and typed answers, so gating the interview would deny the typed form to
+  // a worker who simply declined recording — the opposite of what declining should mean. The
+  // gate therefore sits on `VoiceController`'s three PROCESSING routes (mint upload URL, register
+  // upload, enqueue transcription), which is the only way a clip can come into existence.
+  //
+  // No client requests this purpose yet, so the routes are closed to every worker until the DPDP
+  // notice copy ships and workers actually opt in — the same dormant posture `employer_sharing`,
+  // `whatsapp_messaging` and `agent_activity_visibility` already hold.
+  "voice_processing",
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
