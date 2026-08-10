@@ -1038,6 +1038,17 @@ default *into* the substitution (`${SARVAM_TTS_MODEL:-bulbul:v2}`), because thos
 non-optional `str` in pydantic and a bare `:-` would hand them an empty string — overwriting
 `bulbul:v2`/`anushka` and posting an empty model name at the first synthesis.
 
+**Declaring them was not free, and the trap is worth recording.** The compose map form does not
+omit an unset variable — it sets it to the **empty string**. `SUPABASE_URL` was
+`z.string().url().optional()` and `SUPABASE_SERVICE_ROLE_KEY` was `z.string().min(1).optional()`:
+both accept `undefined` and **reject `""`**. So declaring the pass-through would, on its own, have
+made the API fail its config parse and refuse to boot the next time staging deployed — a deploy
+break whose cause reads as a broken deploy rather than as an unset optional secret. Every consumer
+already tested these with a falsy check, so `""` and `undefined` were always the same answer to
+"is this configured"; the schema was the only layer that disagreed, and it disagreed fatally.
+`optionalSecret()` reclassifies **only** the empty string, so a non-empty malformed value still
+fails — asserted in both directions in `optional-secret.test.ts`.
+
 **The workflow columns stay empty ON PURPOSE, and that is a finding rather than an omission.** The
 deploy's `env:`/`envs:` bridge resolves each name through `${{ secrets.X }}`; an unset GitHub secret
 expands to an **empty string**, which drone-ssh then exports into the remote session. Compose gives
