@@ -599,7 +599,9 @@ describe("relocation was answerable by tapping and not by typing (#713)", () => 
     //
     // Pinned here so the gap is visible and this suite fails loudly if someone "fixes" it by
     // widening the type check rather than by deciding what a conditional willingness should
-    // actually store. That decision is the corpus owner's, and it is filed separately.
+    // actually store. That decision is the corpus owner's, and it is filed as #731 — which also
+    // added the build-time half, so `db:verify:packs` now rejects any NEW chip of this shape and
+    // holds this one open by a named exception rather than by nobody having noticed.
     expect(captureAnswer("sahi kaam mile to soch sakta hoon", RELOCATION).values).toHaveLength(0);
   });
 
