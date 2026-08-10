@@ -19,6 +19,7 @@
  * reads that file and fails if the two disagree — the same mirror discipline the profiling lexicon
  * uses, and the reason this is a copy that cannot drift rather than a copy that will.
  */
+import { FIELD_CROSSWALK, type CrosswalkEntry } from "@badabhai/profiling-lexicon";
 
 /**
  * REQUIRED — these gate interview completion. Persona Law 4's six askable fields with location
@@ -63,3 +64,19 @@ export const RFS_FIELD_IDS: ReadonlySet<string> = new Set<string>([
 export function isRfsField(fieldId: string | null | undefined): fieldId is RfsField {
   return typeof fieldId === "string" && RFS_FIELD_IDS.has(fieldId);
 }
+
+/**
+ * RFS field id → its declared value type, for `opts.fields.types`.
+ *
+ * DERIVED FROM `FIELD_CROSSWALK`, NEVER RE-LISTED. The crosswalk is the only table in the repo
+ * that declares a type per RFS field, and it is the same table `answer-capture.ts` reads when it
+ * decides whether to keep a chip's value. A hand-written second copy here would let the deploy
+ * gate bless a chip that capture then refuses — precisely the class of silent drift the crosswalk
+ * comment calls "a parallel thing to forget".
+ *
+ * A field the crosswalk does not know contributes no entry, so the rule simply does not fire on
+ * it. That mirrors capture, which treats an unknown field as having nothing to contradict.
+ */
+export const RFS_FIELD_TYPES: ReadonlyMap<string, CrosswalkEntry["type"]> = new Map(
+  Object.entries(FIELD_CROSSWALK).map(([fieldId, entry]) => [fieldId, entry.type]),
+);

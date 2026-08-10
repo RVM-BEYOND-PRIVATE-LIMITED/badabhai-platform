@@ -271,10 +271,74 @@ export interface SkillView {
   skillIds: ReadonlySet<string>;
 }
 
+/** The value types an RFS field can declare — `CrosswalkEntry.type`, spelled identically. */
+export type RfsValueType = "string" | "number" | "string_array" | "boolean" | "enum";
+
 /** RFS field ids a `rfs` question may target. Empty set disables the check. */
 export interface FieldView {
   fieldIds: ReadonlySet<string>;
+  /**
+   * RFS field id → the value type it declares, for the chip-type rule. Absent disables that rule
+   * alone, on the same "an unsupplied view checks nothing" convention as `fieldIds`.
+   */
+  types?: ReadonlyMap<string, RfsValueType>;
 }
+
+/**
+ * The value a chip contributes, or `undefined` when it carries none.
+ *
+ * A valueless option is NORMAL and must not be flagged: for most chips the label IS the answer of
+ * record. `??` rather than a truthiness chain, mirroring `pack-registry.service.ts` — `false` and
+ * `0` are values, and a chain that dropped them would invent the exact defect this rule hunts.
+ */
+function optionValue(o: PackOptionRecord): boolean | number | string | undefined {
+  return o.value_bool ?? o.value_number ?? o.value_text ?? undefined;
+}
+
+/**
+ * Does a chip's value survive the type check `answer-capture.ts` applies at capture time?
+ *
+ * A MIRROR OF `keepIfWellTyped`, and it has to stay one. That function refuses an option-derived
+ * value that contradicts its target field's declared type — correctly, because writing a string
+ * into a `z.boolean()` draft field throws in the extraction job and loses the whole profile rather
+ * than the one answer. The consequence is that a mistyped chip is a chip a worker can tap and have
+ * NOTHING recorded from, with no error anywhere. This function is the build-time half: same rules,
+ * run against the committed corpus, so the pack fails review instead of the worker losing an
+ * answer in production.
+ */
+function chipValueSurvivesCapture(declared: RfsValueType, value: boolean | number | string): boolean {
+  switch (declared) {
+    case "boolean":
+      return typeof value === "boolean";
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "string":
+    case "enum":
+      return typeof value === "string";
+    case "string_array":
+      // A `single_select` on a list field contributes one item, so a bare string is well typed.
+      return typeof value === "string";
+    default:
+      return true;
+  }
+}
+
+/**
+ * The one chip in the shipped corpus that this rule would fail, held open by an explicit exception
+ * rather than by softening the rule to a WARN.
+ *
+ * `qp_universal`'s `relocation` question offers "Sahi kaam mile to soch sakta hoon" with
+ * `value_text: "conditional"` against `relocation_willingness`, which is `boolean`. Capture refuses
+ * it, `max_asks: 1` means it is never re-asked, and the worker's answer is simply gone. Fixing it
+ * is a CORPUS decision — drop the chip, map it onto a boolean, widen the field, or store the
+ * nuance beside it — and mapping "conditional" to `true` changes which jobs that worker is shown,
+ * which is §2 matching quality and not a typing call. Filed as #731.
+ *
+ * A WARN would have let the next one through silently, which is the failure mode this whole file
+ * exists to prevent. Delete this entry the moment #731 is ruled; the test asserting the corpus has
+ * exactly one exception will then hold the line at zero.
+ */
+const KNOWN_UNCAPTURABLE_OPTIONS: ReadonlySet<string> = new Set(["qp_universal|relocation|maybe"]);
 
 /**
  * Persona check on one prompt. Returns problems, empty means clean.
@@ -510,6 +574,13 @@ export function validateQuestionPackCorpus(
       if (!SELECT_TYPES.has(it.answer_type) && options.length > 0) {
         problems.push(`${iw}: answer_type ${it.answer_type} must not carry options`);
       }
+      // The type this item's answers land on, when the caller supplied the table. `undefined`
+      // for a pack-local attribute or a field outside the RFS vocabulary — nothing to contradict,
+      // exactly as `keepIfWellTyped` treats the same case at capture time.
+      const declaredType =
+        it.target_kind === "rfs" && it.target_field
+          ? opts.fields?.types?.get(it.target_field)
+          : undefined;
       const optKeys = new Set<string>();
       const optLabels = new Set<string>();
       for (const o of options) {
@@ -525,6 +596,23 @@ export function validateQuestionPackCorpus(
         // OPTIONS ARE ANSWERS, NEVER QUESTIONS. Unenforceable while an LLM wrote them;
         // mechanical now that they are reviewed rows.
         if (o.label_text?.includes("?")) problems.push(`${ow}: label_text contains '?' — options are ANSWERS, never questions`);
+
+        // A CHIP NOBODY CAN ANSWER WITH. See `chipValueSurvivesCapture`: capture refuses an option
+        // value that contradicts its field's declared type, so a mistyped chip is tappable, silent
+        // and lossy — the worker answers and the profile records nothing. Cheap to catch here,
+        // invisible everywhere else.
+        const value = optionValue(o);
+        if (
+          declaredType !== undefined &&
+          value !== undefined &&
+          !chipValueSurvivesCapture(declaredType, value) &&
+          !KNOWN_UNCAPTURABLE_OPTIONS.has(`${p.pack_id}|${it.question_key}|${o.option_key}`)
+        ) {
+          problems.push(
+            `${ow}: value is ${typeof value} but target_field ${it.target_field} declares ` +
+              `${declaredType} — capture REFUSES this chip, so tapping it records nothing`,
+          );
+        }
       }
       if (options.filter((o) => o.is_none_of_above).length > 1) {
         problems.push(`${iw}: more than one option flagged is_none_of_above`);
