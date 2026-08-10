@@ -1,0 +1,61 @@
+{
+  "$comment": [
+    "SPOKEN DIGITS — the PII class no gate in this system could see (#747 leg (a)).",
+    "",
+    "WHY IT EXISTS. `pseudonymize.py` masks a phone number by its SHAPE: `_PHONE_RE` wants 9-13",
+    "digits, `_RESIDUAL_DIGITS_RE` wants 7+ consecutive ones. Both are Unicode-aware, so Devanagari",
+    "numerals (०-९) are already covered — measured, not assumed. What neither can see is a",
+    "worker SPEAKING their number: saarika returns 'nau aath saat...' as WORDS, which carry no digit",
+    "characters at all, so every net in the gateway passes them through and the number reaches the",
+    "LLM boundary intact.",
+    "",
+    "THE THRESHOLD IS BORROWED, NOT INVENTED. A run of 9-13 digit tokens is 'phone-shaped' here",
+    "because that is exactly what `_PHONE_RE` already decided for numerals (Indian mobiles are 10;",
+    "a country/STD prefix reaches 12-13). Reusing the reviewed number means there is ONE definition",
+    "of phone-shaped in this service rather than two that can drift apart.",
+    "",
+    "WHAT THE THRESHOLD PROTECTS, which matters more than what it catches. Digit words are ordinary",
+    "Hinglish speech: 'do saal' is two years, 'saade teen saal' is three and a half, 'char logon ki",
+    "team'. Those are runs of ONE. A redactor that fired on any digit word would silently destroy",
+    "the answers this whole form exists to capture — experience, team size, shift numbers — and it",
+    "would look like a privacy win while doing it. The permitted cases are tested as hard as the",
+    "forbidden ones.",
+    "",
+    "NOT IN lexicon_data/. That directory is mirrored BYTE-FOR-BYTE into packages/profiling-lexicon",
+    "and parity-tested, because TypeScript reads it too. This lexicon is privacy-boundary data that",
+    "only this service uses, so it sits beside its module like app/tts_data/ does — adding it to the",
+    "mirror would create a parity obligation for a file the TypeScript side never opens.",
+    "",
+    "'no' IS DELIBERATELY ABSENT from the 9 list. It is English negation and a Hinglish filler; the",
+    "run-length threshold would usually save it, but a word that common has no business being a",
+    "digit token at all. 'nau' is the Hindi nine and is unambiguous."
+  ],
+
+  "phoneShapedMinTokens": 9,
+  "phoneShapedMaxTokens": 13,
+  "$comment_threshold": [
+    "Inclusive bounds on the number of digit tokens in a run, mirroring `_PHONE_RE`'s {8,12}",
+    "repetition of a leading digit (i.e. 9-13 digits total)."
+  ],
+
+  "digits": {
+    "0": ["shunya", "shoonya", "sunya", "sifar", "sifr", "zero", "शून्य", "सिफर", "सिफ़र"],
+    "1": ["ek", "ik", "one", "एक"],
+    "2": ["do", "dou", "two", "दो"],
+    "3": ["teen", "tin", "three", "तीन"],
+    "4": ["char", "chaar", "four", "चार"],
+    "5": ["paanch", "panch", "pach", "paach", "five", "पांच", "पाँच"],
+    "6": ["chhe", "che", "chah", "chhah", "chey", "six", "छह", "छे"],
+    "7": ["saat", "sat", "seven", "सात"],
+    "8": ["aath", "ath", "aat", "eight", "आठ"],
+    "9": ["nau", "nine", "नौ"]
+  },
+
+  "placeholder": "[PHONE]",
+  "$comment_placeholder": [
+    "A FIXED token, not a numbered one. `pseudonymize.py` numbers its masks ([PHONE_1]) because it",
+    "correlates entities across a document; this runs earlier, on one transcript, and carries no",
+    "counter. It is also digit-free by construction, so it passes through the gateway downstream",
+    "without being re-masked or tripping the residual-digit net."
+  ]
+}

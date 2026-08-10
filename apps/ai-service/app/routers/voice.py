@@ -10,6 +10,7 @@ from ..ai import cost_tracker
 from ..ai.langfuse_tracing import TRANSCRIBE, TRANSLATE, LangfuseTracer, Observation, get_tracer
 from ..contracts import TranscriptionInput, TranscriptionOutput
 from ..pseudonymize import pseudonymize
+from ..spoken_digits import redact_spoken_digits
 from ..stt import STT_TASK_TYPE
 from ._shared import logger, settings, stt_adapter, translate_adapter
 
@@ -93,6 +94,28 @@ async def _transcribe(
             level="WARNING" if result.error_code else "DEFAULT",
             status_message=result.error_code,
         )
+    # SPOKEN-DIGIT PII, REDACTED BEFORE ANYTHING ELSE TOUCHES THE TRANSCRIPT (#747 leg (a)).
+    #
+    # This is the first statement after the provider returns, and the position is the point.
+    # Everything below it — the translate leg (a real Sarvam egress), the response the backend
+    # persists into `voice_notes`, the char counts in the log and trace — reads the REDACTED
+    # text. Doing it any later would mean the raw number had already left or already landed,
+    # which is the thing being prevented rather than a detail of how.
+    #
+    # `pseudonymize.py` cannot see this class at all: it masks a phone by SHAPE (9-13 digits),
+    # and a spoken number carries no digit characters. Devanagari NUMERALS are already covered
+    # there — Python's `\d` is Unicode-aware, measured rather than assumed — so this closes the
+    # one remaining spelling of a phone number in an ASR transcript.
+    redaction = redact_spoken_digits(result.transcript_text)
+    result.transcript_text = redaction.text
+    if redaction.count:
+        # The COUNT, never the digits. This log line already refuses to print transcript text
+        # and this must not become the exception that does.
+        logger.warning(
+            "spoken-digit PII redacted from transcript",
+            extra={"extra": {"voice_note_id": body.voice_note_id, "redactions": redaction.count}},
+        )
+
     # THE COST RECORD FOR THIS CALL (#738). Built here rather than in the adapter because this
     # is the response boundary — the adapter deliberately keeps spend fields off its own result
     # shape, and the router is what the backend actually receives.
@@ -213,4 +236,5 @@ async def _transcribe(
         # that means the provider was never called.
         error_code=result.error_code,
         ai_metadata=stt_metadata,
+        spoken_digit_redactions=redaction.count,
     )

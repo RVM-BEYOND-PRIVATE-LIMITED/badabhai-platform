@@ -68,5 +68,21 @@ export const TranscriptionOutputSchema = z.object({
    * this additive (§3). Mirrors `TranscriptionOutput.ai_metadata` in contracts.py.
    */
   ai_metadata: AICallMetadataSchema.nullable().default(null),
+  /**
+   * How many SPOKEN phone numbers were removed from `transcript_text` (#747 leg (a)).
+   *
+   * `pseudonymize` masks a phone by SHAPE — 9-13 digits — and a spoken number ("nau aath saat")
+   * carries no digit characters at all, so every net in the gateway passed it through and the
+   * number reached the LLM boundary intact. Devanagari NUMERALS were already covered there;
+   * digit WORDS were the one remaining spelling.
+   *
+   * A COUNT, AND NEVER THE DIGITS. The point of the redaction is to keep that number out of
+   * storage, logs and events; a field carrying what was removed would hand it back to all three.
+   * `> 0` answers the only questions worth asking — is the gate firing, how often — and it is
+   * the number V8's ASR PII measurement wants.
+   *
+   * Defaulted, so an ai-service predating the field still parses (§3).
+   */
+  spoken_digit_redactions: z.number().int().nonnegative().default(0),
 });
 export type TranscriptionOutput = z.infer<typeof TranscriptionOutputSchema>;
