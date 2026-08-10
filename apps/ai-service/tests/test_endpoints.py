@@ -258,3 +258,57 @@ def test_voice_transcribe_cost_metadata_carries_no_worker_text():
     dumped = str(body["ai_metadata"])
     assert body["transcript_text"] not in dumped
     assert body["english_text"] not in dumped
+
+
+# --- Spoken-digit PII redaction at the ENDPOINT (#747 leg (a)) ---------------
+# The unit tests cover the redactor. These cover the WIRING: that the response
+# the backend receives — and therefore persists into voice_notes — is the
+# redacted one, and that the count comes with it.
+
+
+def test_voice_transcribe_reports_a_redaction_count_field():
+    res = client.post(
+        "/voice/transcribe",
+        json={"voice_note_id": "vn1", "storage_path": "worker/sess/v1.ogg"},
+    )
+    assert res.status_code == 200
+    # The mock transcript carries no phone number, so the honest answer is 0 — present
+    # and zero, not absent. A missing field would make "not instrumented" look like
+    # "nothing found", which is the exact confusion #738 was about.
+    assert res.json()["spoken_digit_redactions"] == 0
+
+
+def test_voice_transcribe_redacts_a_spoken_number_before_it_leaves_the_service(monkeypatch):
+    # Drive a spoken phone number through the real handler by making the adapter return
+    # one, which is the only thing the mock path cannot produce on its own.
+    from app import stt as stt_module
+    from app.routers import _shared
+
+    spoken = "mera number nau aath saat chhe paanch char teen do ek shunya hai"
+
+    async def fake_transcribe(**_kwargs):
+        return stt_module.SttResult(
+            transcript_text=spoken,
+            confidence=0.9,
+            language_code="hi-IN",
+            is_mock=True,
+        )
+
+    monkeypatch.setattr(_shared.stt_adapter, "transcribe", fake_transcribe)
+    res = client.post(
+        "/voice/transcribe",
+        json={
+            "voice_note_id": "vn1",
+            "storage_path": "worker/sess/v1.ogg",
+            "translate_to_english": False,
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["spoken_digit_redactions"] == 1
+    # The number is gone from what the backend will store.
+    for word in ("nau", "aath", "saat", "chhe", "paanch", "shunya"):
+        assert word not in body["transcript_text"]
+    # ...and the rest of the answer is intact.
+    assert body["transcript_text"].startswith("mera number ")
+    assert body["transcript_text"].endswith(" hai")

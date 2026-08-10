@@ -1028,6 +1028,18 @@ class TranscriptionOutput(BaseModel):
     # same object `/profile/parse` already returns, and it is never given worker text.
     # `None` on the mock path costs nothing to ignore; additive + defaulted (§3).
     ai_metadata: AICallMetadata | None = None
+    # HOW MANY SPOKEN PHONE NUMBERS WERE REMOVED FROM `transcript_text` (#747 leg (a)).
+    #
+    # A COUNT, DELIBERATELY, AND NEVER THE DIGITS. The whole purpose of the redaction is to
+    # keep that number out of storage, logs, events and the LLM boundary; a field carrying
+    # "what was removed" would hand it straight back to every one of them. `> 0` answers the
+    # only questions worth asking — is the gate firing, and how often — and it is exactly the
+    # number V8's ASR PII measurement is looking for.
+    #
+    # `pseudonymize.py` cannot see this class: it masks a phone by SHAPE (9-13 digits) and a
+    # spoken number carries no digit characters at all. Devanagari NUMERALS are already
+    # covered there, measured rather than assumed.
+    spoken_digit_redactions: int = 0
 
 
 # --- Job-posting chat (ADR-0035) -------------------------------------------
