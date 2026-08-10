@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from ..ai import cost_tracker
 from ..ai.canonicalize import canonicalize_labels
 from ..ai.embeddings import EMBEDDING_TASK_TYPE, embed_text
+from ..ai.langfuse_tracing import get_tracer
 from ..ai.model_config import rate_inr_per_1k
 from ..ai.skill_store import get_skill_store
 from ..config import get_settings
@@ -222,27 +223,47 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
                 )
         if not ledger_blocked:
             actual_inr = 0.0
-            try:
-                # OFF the event loop (#222 HIGH): the store + a real embed are SYNC httpx
-                # calls (per label). Inline they would freeze the whole service (health
-                # checks, every concurrent turn) for up to timeout x labels when the
-                # api/provider is slow — to_thread keeps the loop serving while the pass
-                # runs.
-                assigned, _unresolved = await asyncio.to_thread(
-                    canonicalize_labels,
-                    labels,
-                    settings.skill_canonicalize_default_domain,
-                    get_skill_store(settings),
-                    settings,
-                )
-                # Leave the full reservation recorded as the actual spend (conservative).
-                actual_inr = reserved_inr
-            finally:
-                if reserved_inr > 0.0:
-                    # On a raise, actual_inr stayed 0.0 => full refund (no leak).
-                    await cost_tracker.get_ledger().record_spend(
-                        reserved_inr, actual_inr, user_ref=body.worker_ref
+            # TRACED as its own task. Without this span each label's embed posts a
+            # ROOTLESS `embed-text` trace: the router's span closed when `router.run`
+            # returned, so there is nothing left for them to nest under, and a
+            # ten-label pass turns into ten context-free traces. This is a second AI
+            # pass over the same request, so it gets its own root and the embeds nest
+            # inside it. `user_ref` matches the extraction's, which is what ties the
+            # two traces back to one worker.
+            with get_tracer().task(
+                task_type="skill_canonicalization_batch",
+                input={
+                    "labels": len(labels),
+                    "domain_id": settings.skill_canonicalize_default_domain,
+                },
+                user_ref=body.worker_ref,
+                real_call=not embed_is_mock,
+            ) as canonicalize_task:
+                try:
+                    # OFF the event loop (#222 HIGH): the store + a real embed are SYNC httpx
+                    # calls (per label). Inline they would freeze the whole service (health
+                    # checks, every concurrent turn) for up to timeout x labels when the
+                    # api/provider is slow — to_thread keeps the loop serving while the pass
+                    # runs.
+                    assigned, _unresolved = await asyncio.to_thread(
+                        canonicalize_labels,
+                        labels,
+                        settings.skill_canonicalize_default_domain,
+                        get_skill_store(settings),
+                        settings,
                     )
+                    # Leave the full reservation recorded as the actual spend (conservative).
+                    actual_inr = reserved_inr
+                    # Closed-set skill ids only (SG-3), never label text.
+                    canonicalize_task.update(
+                        output={"assigned": list(assigned), "unresolved": len(_unresolved)}
+                    )
+                finally:
+                    if reserved_inr > 0.0:
+                        # On a raise, actual_inr stayed 0.0 => full refund (no leak).
+                        await cost_tracker.get_ledger().record_spend(
+                            reserved_inr, actual_inr, user_ref=body.worker_ref
+                        )
             for sid in assigned:
                 if sid not in legacy.skills:
                     legacy.skills.append(sid)

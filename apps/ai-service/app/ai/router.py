@@ -15,13 +15,14 @@ INVARIANTS:
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from ..config import Settings
 from ..contracts import AICallMetadata
 from ..logging_config import get_logger
 from . import cost_tracker, providers
 from .errors import REASON_MAX_TOKENS_NO_PARTS, LlmTransportError
-from .langfuse_tracing import LangfuseTracer
+from .langfuse_tracing import LLM_CALL, LangfuseTracer, Observation, get_tracer
 from .model_config import get_route, provider_for_model, resolve_model
 
 logger = get_logger("ai.router")
@@ -91,7 +92,7 @@ def _attempt_failure_message(
 class AIRouter:
     def __init__(self, settings: Settings, tracer: LangfuseTracer | None = None) -> None:
         self._settings = settings
-        self._tracer = tracer or LangfuseTracer(settings)
+        self._tracer = tracer or get_tracer()
 
     @property
     def langfuse_enabled(self) -> bool:
@@ -108,12 +109,50 @@ class AIRouter:
         real_call_allowed: bool = True,
         user_ref: str | None = None,
     ) -> tuple[str, AICallMetadata]:
-        route = get_route(task_type, self._settings)
-        primary_model = resolve_model(task_type, self._settings)
+        """One unit of AI work, and therefore ONE Langfuse trace.
+
+        The trace root is opened here rather than inside :meth:`_dispatch` so that a
+        call which never reaches a provider — mock posture, a spend cap, the kill
+        switch — is still a trace that says so. Those are the calls an operator most
+        needs to see, and they are precisely the ones a provider-level integration
+        would never record.
+
+        ``messages`` (already pseudonymized) is the trace input verbatim: it is a
+        role-labelled OpenAI-shaped list, which is what makes Langfuse render it as a
+        conversation instead of a JSON blob.
+        """
         # Per-task gating: real only if the master flag + key are set AND this
         # task is allowlisted (empty allowlist = NO tasks; fail-closed). Lets
-        # ONE role go real.
+        # ONE role go real. Computed BEFORE the span so the posture can be a tag.
         real = self._settings.real_call_enabled_for(task_type) and real_call_allowed
+        with self._tracer.task(
+            task_type=task_type,
+            input=messages,
+            user_ref=user_ref,
+            real_call=real,
+            metadata={"real_call_allowed": real_call_allowed},
+        ) as task:
+            return await self._dispatch(
+                task_type,
+                task=task,
+                messages=messages,
+                mock_response=mock_response,
+                real=real,
+                user_ref=user_ref,
+            )
+
+    async def _dispatch(
+        self,
+        task_type: str,
+        *,
+        task: Observation,
+        messages: list[Message],
+        mock_response: str,
+        real: bool,
+        user_ref: str | None,
+    ) -> tuple[str, AICallMetadata]:
+        route = get_route(task_type, self._settings)
+        primary_model = resolve_model(task_type, self._settings)
         input_text = "\n".join(m.get("content", "") for m in messages)
         start = time.perf_counter()
 
@@ -219,76 +258,122 @@ class AIRouter:
                         )
                         break
                     attempt_count += 1  # counts every dispatch (across candidates)
-                    try:
-                        result = await providers.complete(
-                            settings=self._settings,
-                            model=model,
-                            messages=messages,
-                            max_output_tokens=route.max_output_tokens,
-                            temperature=route.temperature,
-                            json_mode=route.json_mode,
-                        )
-                        latency = int((time.perf_counter() - start) * 1000)
-                        in_tok = result.input_tokens or cost_tracker.estimate_tokens(input_text)
-                        out_tok = result.output_tokens or cost_tracker.estimate_tokens(
-                            result.content
-                        )
-                        meta = cost_tracker.build_call_metadata(
-                            task_type=task_type,
-                            model=model,
-                            real_call=True,
-                            input_tokens=in_tok,
-                            output_tokens=out_tok,
-                            latency_ms=latency,
-                            success=True,
-                            settings=self._settings,
-                            attempt_count=attempt_count,
-                            candidates_tried=candidates_tried,
-                        )
-                        # Reconcile the reservation: refund worst_case - actual so
-                        # the net recorded spend is the ACTUAL estimated cost.
-                        await ledger.record_spend(
-                            worst_case_inr, meta.estimated_cost_inr, user_ref=user_ref
-                        )
-                        reconciled = True
-                        self._trace(task_type, model, True, input_text, result.content, meta)
-                        return result.content, meta
-                    except Exception as exc:
-                        # NEVER log the exception body (may echo pseudonymized
-                        # content). A LlmTransportError carries a PII-free
-                        # closed-set reason_code; any other exception is reduced to
-                        # its type NAME. Track the last failing model + reason so
-                        # the terminal metadata attributes the failure truthfully.
-                        last_attempted_model = model
-                        transport = exc if isinstance(exc, LlmTransportError) else None
-                        reason = (
-                            transport.reason_code if transport is not None else type(exc).__name__
-                        )
-                        last_failure_reason = reason
-                        status = transport.status_code if transport is not None else None
-                        logger.warning(
-                            _attempt_failure_message(
+                    # ONE generation per dispatch, not one per call. A cross-provider
+                    # fallback that succeeded on its third try is the single most
+                    # useful thing this router can show an operator, and collapsing
+                    # the chain into one observation would hide both the retries and
+                    # the fact that a DIFFERENT model served the answer. The name is
+                    # constant and the varying parts (model, attempt) are attributes,
+                    # so filters and dashboards keep matching.
+                    with self._tracer.observation(
+                        name=LLM_CALL,
+                        as_type="generation",
+                        input=messages,
+                        model=model,
+                        metadata={
+                            "provider": provider_for_model(model),
+                            "attempt": attempt + 1,
+                            "max_attempts": route.max_retries + 1,
+                            "max_output_tokens": route.max_output_tokens,
+                            "temperature": route.temperature,
+                            "json_mode": route.json_mode,
+                        },
+                    ) as generation:
+                        try:
+                            result = await providers.complete(
+                                settings=self._settings,
+                                model=model,
+                                messages=messages,
+                                max_output_tokens=route.max_output_tokens,
+                                temperature=route.temperature,
+                                json_mode=route.json_mode,
+                            )
+                            latency = int((time.perf_counter() - start) * 1000)
+                            in_tok = result.input_tokens or cost_tracker.estimate_tokens(input_text)
+                            out_tok = result.output_tokens or cost_tracker.estimate_tokens(
+                                result.content
+                            )
+                            meta = cost_tracker.build_call_metadata(
                                 task_type=task_type,
                                 model=model,
-                                attempt=attempt,
-                                max_attempts=route.max_retries + 1,
-                                reason=reason,
-                                status=status,
-                                typed=transport is not None,
-                            ),
-                            extra={
-                                "extra": {
-                                    "attempt": attempt,
-                                    "task": task_type,
-                                    "model": model,
-                                    "provider": provider_for_model(model),
-                                    "reason": reason,
-                                    "status": status,
-                                }
-                            },
-                        )
-                        if reason == REASON_MAX_TOKENS_NO_PARTS:
-                            break
+                                real_call=True,
+                                input_tokens=in_tok,
+                                output_tokens=out_tok,
+                                latency_ms=latency,
+                                success=True,
+                                settings=self._settings,
+                                attempt_count=attempt_count,
+                                candidates_tried=candidates_tried,
+                            )
+                            # Reconcile the reservation: refund worst_case - actual so
+                            # the net recorded spend is the ACTUAL estimated cost.
+                            await ledger.record_spend(
+                                worst_case_inr, meta.estimated_cost_inr, user_ref=user_ref
+                            )
+                            reconciled = True
+                            generation.update(
+                                output=result.content,
+                                # Model id + token buckets are all Langfuse needs to
+                                # price the call from its own table. `estimated_cost_inr`
+                                # stays in metadata — `cost_details` is USD.
+                                usage_details={"input": in_tok, "output": out_tok},
+                                metadata={
+                                    "tokens_reported_by_provider": bool(
+                                        result.input_tokens and result.output_tokens
+                                    ),
+                                    "estimated_cost_inr": meta.estimated_cost_inr,
+                                },
+                            )
+                            self._finish_task(task, result.content, meta)
+                            return result.content, meta
+                        except Exception as exc:
+                            # NEVER log the exception body (may echo pseudonymized
+                            # content). A LlmTransportError carries a PII-free
+                            # closed-set reason_code; any other exception is reduced to
+                            # its type NAME. Track the last failing model + reason so
+                            # the terminal metadata attributes the failure truthfully.
+                            last_attempted_model = model
+                            transport = exc if isinstance(exc, LlmTransportError) else None
+                            reason = (
+                                transport.reason_code
+                                if transport is not None
+                                else type(exc).__name__
+                            )
+                            last_failure_reason = reason
+                            status = transport.status_code if transport is not None else None
+                            logger.warning(
+                                _attempt_failure_message(
+                                    task_type=task_type,
+                                    model=model,
+                                    attempt=attempt,
+                                    max_attempts=route.max_retries + 1,
+                                    reason=reason,
+                                    status=status,
+                                    typed=transport is not None,
+                                ),
+                                extra={
+                                    "extra": {
+                                        "attempt": attempt,
+                                        "task": task_type,
+                                        "model": model,
+                                        "provider": provider_for_model(model),
+                                        "reason": reason,
+                                        "status": status,
+                                    }
+                                },
+                            )
+                            # The SAME closed-set code the log carries — never the
+                            # exception body, which can echo pseudonymized content.
+                            generation.update(
+                                level="ERROR",
+                                status_message=reason,
+                                metadata={
+                                    "status_code": status,
+                                    "typed_transport_error": (transport is not None),
+                                },
+                            )
+                            if reason == REASON_MAX_TOKENS_NO_PARTS:
+                                break
             finally:
                 # Leak fix: if this candidate's reservation was not reconciled by a
                 # real success, fully refund it (actual=0.0) before moving on. This
@@ -343,7 +428,20 @@ class AIRouter:
             candidates_tried=candidates_tried,
             failure_reason=last_failure_reason,
         )
-        self._trace(task_type, report_model, real_flag, input_text, mock_response, meta)
+        self._finish_task(
+            task,
+            mock_response,
+            meta,
+            # WHY no candidate ran, in the router's own words. The terminal
+            # `error_code` already names the outcome; these name the gates that
+            # produced it, so a trace distinguishes "the ledger stopped us" from
+            # "every model was too expensive" without reading the service logs.
+            extra={
+                "spend_block_reason": spend_block_reason,
+                "cost_ceiling_skipped_candidate": ceiling_skipped_any,
+                "retry_budget_exhausted": retry_budget_hit,
+            },
+        )
         return mock_response, meta
 
     def _candidate_models(self, primary_model: str) -> list[str]:
@@ -370,20 +468,37 @@ class AIRouter:
             candidates.append(fallback)
         return candidates
 
-    def _trace(
-        self,
-        task_type: str,
-        model: str,
-        real: bool,
-        input_text: str,
-        output_text: str,
+    @staticmethod
+    def _finish_task(
+        task: Observation,
+        output: str,
         meta: AICallMetadata,
+        extra: dict[str, Any] | None = None,
     ) -> None:
-        self._tracer.trace_generation(
-            task_type=task_type,
-            model=model,
-            real_call=real,
-            input_text=input_text,
-            output_text=output_text,
-            metadata={"estimated_cost_inr": meta.estimated_cost_inr, "success": meta.success},
+        """Close the trace root with what the caller actually got back.
+
+        The whole of ``AICallMetadata`` goes on, because it is already the PII-free
+        record this service returns to the backend — ids, model names, counts and an
+        INR estimate — and duplicating a subset here would guarantee the two drift.
+
+        The LEVEL is the point of this method. A router that never raises is easy to
+        operate and impossible to monitor: every terminal state returns a 200 with a
+        mock body, so "the provider is down" and "we are deliberately in mock mode"
+        look identical from outside. Splitting them into ERROR and WARNING is what
+        makes the failure visible in Langfuse without breaking the never-raise
+        contract.
+        """
+        if meta.real_call and not meta.success:
+            level, status = "ERROR", meta.failure_reason or meta.error_code or "llm_call_failed"
+        elif meta.error_code is not None:
+            # Nothing was attempted: a spend cap, the per-call ceiling or the kill
+            # switch chose the mock. Degraded on purpose, so WARNING, not ERROR.
+            level, status = "WARNING", meta.error_code
+        else:
+            level, status = "DEFAULT", None
+        task.update(
+            output=output,
+            level=level,
+            status_message=status,
+            metadata={**meta.model_dump(), **(extra or {})},
         )

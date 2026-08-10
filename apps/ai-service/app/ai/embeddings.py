@@ -35,6 +35,7 @@ from ..config import Settings
 from ..logging_config import get_logger
 from ..pseudonymize import pseudonymize
 from . import cost_tracker
+from .langfuse_tracing import EMBED_TEXT, get_tracer
 from .model_config import rate_inr_per_1k
 
 logger = get_logger("ai.embeddings")
@@ -121,24 +122,47 @@ def _real_embedding(text: str, settings: Settings) -> list[float]:
 
 
 def embed_text(text: str, settings: Settings) -> EmbeddingResult:
-    """Pseudonymize (fail-closed) THEN embed. Mock by default; real only under SG-4."""
+    """Pseudonymize (fail-closed) THEN embed. Mock by default; real only under SG-4.
+
+    TRACED as an ``embedding`` observation, not a plain span: only the generation-family
+    types carry model, tokens and cost, and this is the one AI call in the service that
+    is made in a LOOP (one per skill label), so a canonicalization pass that quietly
+    became the expensive half of an extraction is otherwise invisible.
+
+    It nests under whatever task is active — the extraction's own trace when the
+    canonicalization pass runs inline, the batch's trace when the runner drives it.
+    ``asyncio.to_thread`` (how the extract path calls this) copies the context, so the
+    nesting survives the hop off the event loop.
+    """
+    tracer = get_tracer()
     # SG-2: pseudonymize FIRST — a blocked phrase is never sent to the provider.
     result = pseudonymize(text)
     if result.blocked:
+        # The raw phrase is by definition the thing we may not record, so the
+        # observation carries the REFUSAL and nothing else. A silent skip here used to
+        # be invisible outside the batch counters.
+        with tracer.observation(name=EMBED_TEXT, as_type="embedding", model=MOCK_MODEL) as obs:
+            obs.update(level="WARNING", status_message="pseudonymization_blocked")
         return EmbeddingResult(vector=None, blocked=True, is_mock=True, model=MOCK_MODEL, text=None)
 
     # ``result.text`` is the masked text — the ONLY thing the embedder ever sees, and the
-    # safe text the caller reuses (never the raw ``text``).
+    # safe text the caller reuses (never the raw ``text``). It is therefore also the only
+    # thing that may be traced.
     safe = result.text
-    if settings.real_call_enabled_for(EMBEDDING_TASK_TYPE):
-        vector = _real_embedding(safe, settings)
-        return EmbeddingResult(
-            vector=vector, blocked=False, is_mock=False, model=settings.embedding_model, text=safe
+    is_mock = not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE)
+    model = MOCK_MODEL if is_mock else settings.embedding_model
+    with tracer.observation(name=EMBED_TEXT, as_type="embedding", input=safe, model=model) as obs:
+        vector = _mock_embedding(safe) if is_mock else _real_embedding(safe, settings)
+        obs.update(
+            # NOT the vector: 768 floats are unreadable in a trace and would dwarf every
+            # other payload in the batch. Its shape is the part worth keeping.
+            output={"dimensions": len(vector), "is_mock": is_mock},
+            # ESTIMATED, and labelled as such — the embeddings API reports no token
+            # counts, so this is the same estimate the spend ledger budgets against.
+            usage_details={"input": cost_tracker.estimate_tokens(safe)},
+            metadata={"tokens_estimated": True, "replaced_entities": result.replaced_entities},
         )
-
-    return EmbeddingResult(
-        vector=_mock_embedding(safe), blocked=False, is_mock=True, model=MOCK_MODEL, text=safe
-    )
+    return EmbeddingResult(vector=vector, blocked=False, is_mock=is_mock, model=model, text=safe)
 
 
 class AliasStore(Protocol):
