@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/api/api_models.dart'
+    show ChatInputMode;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chat_bubble.dart';
@@ -428,5 +430,103 @@ void main() {
       await tester.pumpAndSettle();
       expect(mounts(), 2, reason: 'the guard must not latch permanently');
     });
+  });
+
+  group('options_only turns suppress the composer (#770)', () {
+    testWidgets(
+      'an options_only turn hides the composer, the chips are the only answer '
+      'path, and the composer returns once answered',
+      (WidgetTester tester) async {
+        when(() => repo.sendMessage(any())).thenAnswer(
+          (_) async => const ChatTurn(
+            reply: 'Aur koi experience jodna hai?',
+            followups: <String>['Haan', 'Nahi'],
+            inputMode: ChatInputMode.optionsOnly,
+          ),
+        );
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'CNC operator');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        // The free-text composer is gone; a locked hint stands in its place.
+        expect(
+          find.byType(TextField),
+          findsNothing,
+          reason: 'no typing on an options_only turn',
+        );
+        expect(find.text(kChatOptionsOnlyHint), findsOneWidget);
+
+        // The chips are present and actually submit.
+        expect(find.text('Haan'), findsOneWidget);
+        when(() => repo.sendMessage('Haan'))
+            .thenAnswer((_) async => const ChatTurn(reply: 'Theek hai'));
+        await tester.tap(find.text('Haan'));
+        await tester.pumpAndSettle();
+        verify(() => repo.sendMessage('Haan')).called(1);
+
+        // The next turn is a normal text turn — the composer must come back so
+        // the worker is not locked out for the rest of the interview.
+        expect(
+          find.byType(TextField),
+          findsOneWidget,
+          reason: 'options_only is turn-scoped, not latched',
+        );
+        expect(find.text(kChatOptionsOnlyHint), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a default text turn keeps the composer unchanged (byte-identical path)',
+      (WidgetTester tester) async {
+        when(() => repo.sendMessage(any())).thenAnswer(
+          // inputMode omitted -> defaults to text.
+          (_) async => const ChatTurn(
+            reply: 'Aur batayein',
+            followups: <String>['Lathe', 'CNC'],
+          ),
+        );
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'hi');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(TextField),
+          findsOneWidget,
+          reason: 'a text turn shows the composer exactly as today',
+        );
+        expect(find.text(kChatOptionsOnlyHint), findsNothing);
+        expect(find.text('Lathe'), findsOneWidget); // chips still offered too
+      },
+    );
+
+    testWidgets(
+      'options_only with NO chips still shows the composer — never trap the '
+      'worker with no way to answer',
+      (WidgetTester tester) async {
+        when(() => repo.sendMessage(any())).thenAnswer(
+          (_) async => const ChatTurn(
+            reply: 'Hmm',
+            followups: <String>[],
+            inputMode: ChatInputMode.optionsOnly,
+          ),
+        );
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'hi');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(TextField),
+          findsOneWidget,
+          reason: 'a hidden composer with no chips would strand the worker',
+        );
+        expect(find.text(kChatOptionsOnlyHint), findsNothing);
+      },
+    );
   });
 }

@@ -111,6 +111,7 @@ class ChatRepositoryImpl implements ChatRepository {
         isMock: reply.isMock,
         progress: reply.progress,
         questionKind: reply.questionKind,
+        inputMode: reply.inputMode,
         occupationLabel: reply.occupationLabel,
       );
     } catch (error) {

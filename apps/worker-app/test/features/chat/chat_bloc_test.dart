@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
-    show ChatProgress, ChatQuestionKind;
+    show ChatInputMode, ChatProgress, ChatQuestionKind;
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
@@ -471,6 +471,34 @@ void main() {
           reason: 'occupation latches once pinned');
       expect(bloc.state.questionKind, ChatQuestionKind.ask,
           reason: 'the 2nd turn is a plain ask — the disambiguate layout drops');
+    });
+
+    test('input_mode is TURN-SCOPED: an options_only turn then a text turn '
+        'brings the composer back (#770)', () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      final List<ChatTurn> turns = <ChatTurn>[
+        const ChatTurn(
+          reply: 'Aur koi experience jodna hai?',
+          followups: <String>['Haan', 'Nahi'],
+          inputMode: ChatInputMode.optionsOnly,
+        ),
+        // A normal reply — inputMode omitted defaults to text.
+        const ChatTurn(reply: 'Theek hai'),
+      ];
+      int i = 0;
+      when(() => repo.sendMessage(any())).thenAnswer((_) async => turns[i++]);
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('CNC'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(bloc.state.inputMode, ChatInputMode.optionsOnly,
+          reason: 'the options_only turn locks the composer');
+
+      bloc.add(const ChatMessageSent('Haan'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(bloc.state.inputMode, ChatInputMode.text,
+          reason: 'a normal turn returns the composer — never latched');
     });
   });
 }
