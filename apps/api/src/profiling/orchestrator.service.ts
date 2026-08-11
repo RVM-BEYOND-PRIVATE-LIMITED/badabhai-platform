@@ -64,6 +64,7 @@ import {
   type ProfilingEnvelope,
   type TurnKind,
 } from "./conversation-state";
+import { computeLookahead, type Lookahead } from "./lookahead";
 import {
   askCeiling,
   askCount,
@@ -220,6 +221,24 @@ export interface TurnResult {
    * them.
    */
   readonly checkpointDue: boolean;
+  /**
+   * What the engine WOULD serve next, per answer the worker could give — so a client on 2G can
+   * render the next question on the tap rather than on the round trip. See {@link computeLookahead}.
+   *
+   * ADVISORY. The next real turn is authoritative and replaces whatever was rendered early; the
+   * prediction is deliberately narrow (single-select and decline only) so that "advisory" almost
+   * never has to mean "wrong".
+   *
+   * `null` or absent whenever prediction is not exact — a close, a disambiguation, a clarify, a
+   * free-text question, an unavailable turn.
+   *
+   * OPTIONAL, unlike `kind` directly above, and the asymmetry is deliberate. `kind` is required so
+   * a new construction site cannot ship without saying what it put on screen — forgetting it
+   * produces a WRONG turn. Forgetting this produces a turn with no prediction, which is exactly
+   * what every non-ask path wants anyway: the failure mode of omission is one round trip, not one
+   * incorrect question.
+   */
+  readonly lookahead?: Lookahead | null;
 }
 
 export interface TurnInput {
@@ -941,6 +960,16 @@ export class ProfilingOrchestrator {
       excludeFromParse: capture.excludeFromParse,
       unavailable: false,
       checkpointDue,
+      // COMPUTED FROM `next`, THE POST-TURN STATE, and from the same `engine` and `items` this
+      // decision was made against — including after the mid-turn re-pin above, so the prediction
+      // is made over the worker's own trade rather than the universal pack it replaced.
+      lookahead: computeLookahead({
+        decision,
+        state: toEngineState(next, turn),
+        packs: engine,
+        items,
+        nextTurn: turn + 1,
+      }),
     });
   }
 

@@ -280,6 +280,8 @@ export class ChatService {
             question_kind: "close",
             progress: null,
             occupation_label: null,
+            // No prediction on a turn that served no pack question.
+            lookahead: null,
           },
           dto.session_id,
         );
@@ -312,6 +314,8 @@ export class ChatService {
             question_kind: outcome.turn.kind,
             progress: outcome.turn.progress,
             occupation_label: null,
+            // No prediction on a turn that served no pack question.
+            lookahead: null,
           },
           dto.session_id,
         );
@@ -553,7 +557,7 @@ export class ChatService {
     const occupation = buffered.profiling?.occupation ?? null;
     const response: PostMessageResponse = {
       session_id: dto.session_id,
-      reply: this.renderWorkerName(turn.reply, workerFullName).replace(/\{\{[^}]*\}\}/g, ""),
+      reply: this.renderPackText(turn.reply, workerFullName),
       blocked: false,
       // PERMANENTLY FALSE, and deliberately not repurposed. The field meant "this reply
       // came from a mock LLM instead of a real one"; there is no LLM in this path at all,
@@ -588,6 +592,32 @@ export class ChatService {
       // The "you have been understood" moment: the worker's trade, in their language,
       // echoed back once retrieval pins it.
       occupation_label: occupation?.label ?? null,
+      // THE PREDICTION, INTERPOLATED THE SAME WAY THE REPLY IS.
+      //
+      // `{{worker_name}}` is a reviewed affordance of the pack corpus, and the interpolation above
+      // covers `turn.reply` and nothing else — so a predicted question containing the token would
+      // reach a worker's screen as the literal characters `{{worker_name}}`, on a path where it
+      // is rendered without a round trip and therefore without anything else to catch it. Sharing
+      // one helper is what keeps the predicted question and the real one spelled identically.
+      lookahead: turn.lookahead
+        ? Object.fromEntries(
+            Object.entries(turn.lookahead).map(([answerKey, entry]) => [
+              answerKey,
+              {
+                question_key: entry.questionKey,
+                question_kind: entry.kind,
+                prompt_text: this.renderPackText(entry.promptText, workerFullName),
+                why_text:
+                  entry.whyText === null
+                    ? null
+                    : this.renderPackText(entry.whyText, workerFullName),
+                answer_type: entry.answerType,
+                options: entry.options.map(toWireOption),
+                progress: entry.progress,
+              },
+            ]),
+          )
+        : null,
     };
     return this.checkedResponse(response, dto.session_id);
   }
@@ -923,6 +953,8 @@ export class ChatService {
         // answered eleven questions.
         progress: null,
         occupation_label: null,
+        // No prediction on a turn that served no pack question.
+        lookahead: null,
       },
       sessionId,
     );
@@ -953,6 +985,8 @@ export class ChatService {
         question_kind: "close",
         progress: null,
         occupation_label: null,
+        // No prediction on a turn that served no pack question.
+        lookahead: null,
       },
       sessionId,
     );
@@ -1092,6 +1126,20 @@ export class ChatService {
       );
       return null;
     }
+  }
+
+  /**
+   * Pack copy → exactly what a worker may see: the vocative interpolated, and any OTHER
+   * `{{token}}` stripped rather than shown.
+   *
+   * ONE DEFINITION, USED BY EVERY STRING THAT REACHES THE SCREEN. The interpolation and the
+   * catch-all strip used to be spelled inline at the single point that needed them; the lookahead
+   * added a second and a third (a predicted prompt, a predicted why-text), and those are rendered
+   * on the client WITHOUT a round trip, so a spelling that drifted here would surface as literal
+   * `{{worker_name}}` characters on a screen with nothing downstream to catch them.
+   */
+  private renderPackText(text: string, fullName: string | null): string {
+    return this.renderWorkerName(text, fullName).replace(/\{\{[^}]*\}\}/g, "");
   }
 
   /**

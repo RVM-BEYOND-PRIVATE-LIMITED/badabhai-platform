@@ -117,6 +117,51 @@ export const PostMessageResponseSchema = z.object({
    * thing anyone has ever called themselves.
    */
   occupation_label: z.string().nullable().default(null),
+  /**
+   * What the engine WOULD serve next, keyed by the answer that would produce it — so a client on
+   * 2G can render the next question on the tap instead of on the round trip.
+   *
+   * Keys are `option_key`s of the question currently on screen, plus `__declined` for "nahi pata".
+   * A key that is absent simply has no prediction; the whole field is `null` whenever prediction
+   * would not be exact (a close, a disambiguation, a free-text question).
+   *
+   * ADVISORY, AND THE CLIENT CONTRACT SAYS SO. The next real `POST /chat/message` response is
+   * authoritative: if it disagrees with what was rendered early, the client replaces it. Nothing
+   * here may be treated as an answer of record, and the submit path is unchanged — a worker's tap
+   * still goes to the server exactly as before. Rendering early is a display optimisation, not a
+   * second engine.
+   *
+   * WHY THE SERVER COMPUTES IT. Selection depends on the predicate AST, the ask ceilings, the
+   * turn window and the settled-ness of every prior answer — and on a pack that is not known
+   * until retrieval pins the worker's trade through a vector search. A client-side engine would
+   * be a third implementation free to disagree silently.
+   *
+   * Additive and defaulted, so a client that predates it sees a byte-identical body.
+   */
+  lookahead: z
+    .record(
+      z.object({
+        question_key: z.string().nullable(),
+        /** `close` means the prediction is that the interview ends on this answer. */
+        question_kind: z.enum(["ask", "close"]),
+        prompt_text: z.string(),
+        why_text: z.string().nullable(),
+        answer_type: z.string().nullable(),
+        options: z.array(
+          z.object({
+            option_key: z.string(),
+            label_text: z.string(),
+            is_none_of_above: z.boolean(),
+          }),
+        ),
+        progress: z.object({
+          answered: z.number().int().nonnegative(),
+          total: z.number().int().nonnegative(),
+        }),
+      }),
+    )
+    .nullable()
+    .default(null),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;
 
