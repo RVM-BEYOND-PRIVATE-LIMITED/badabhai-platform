@@ -132,13 +132,60 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         },
         {"role": "user", "content": result.text},
     ]
-    content, meta = await router.run(
-        "profile_extraction",
-        messages=messages,
-        mock_response=rich.model_dump_json(),
-        real_call_allowed=True,
-        user_ref=body.worker_ref,
-    )
+    # UNDER A HARD DEADLINE, for the reason `/profile/parse` already is — and this route
+    # needed it more, not less. `router.run` never raises, but it can take
+    # `gemini_timeout_seconds` times the retry chain, and NOTHING bounded that here.
+    #
+    # THE CALLER IS ALREADY GONE BY THEN. `apps/api` aborts this request at 8s
+    # (`AiService.post`), and Starlette does NOT cancel a running handler when the client
+    # disconnects — so an unbounded call kept its worker slot and kept putting requests on
+    # a provider that was already rate-limiting us, minutes after the profile it was
+    # computing had been written from the fallback. That is the shape of the reported
+    # incident: the API gave up, the ai-service did not, and the next trigger started
+    # another one on top.
+    #
+    # Degrading is cheap here: the heuristic pass at step 2 already produced `rich`/`legacy`
+    # from the worker's own text with no network at all, so a timeout costs the enrichment
+    # overlay and nothing else. Cancelling is safe — the router refunds its spend
+    # reservation in a `finally`, so a cancelled call leaks no ledger.
+    settings_now = get_settings()
+    try:
+        content, meta = await asyncio.wait_for(
+            router.run(
+                "profile_extraction",
+                messages=messages,
+                mock_response=rich.model_dump_json(),
+                real_call_allowed=True,
+                user_ref=body.worker_ref,
+            ),
+            timeout=settings_now.profile_extract_deadline_seconds,
+        )
+    except TimeoutError:
+        # `TimeoutError` ONLY — deliberately not `CancelledError`, matching `/profile/parse`.
+        # On Python >= 3.11 `wait_for` raises the builtin, while a `CancelledError` here means
+        # the CLIENT went away, and swallowing that would turn a disconnect into a fabricated
+        # 200 and break cancellation for everything above this frame.
+        logger.warning(
+            "profile extract deadline exceeded",
+            extra={"extra": {"deadline_s": settings_now.profile_extract_deadline_seconds}},
+        )
+        return ProfileExtractionOutput(
+            profile=legacy,
+            blocked=False,
+            is_mock=True,
+            extraction_status="completed",
+            worker_profile_draft=rich,
+            # No `ai_metadata`: a fabricated zero-cost record is worse than an absent one,
+            # being indistinguishable from a real call that happened to be free. Same rule
+            # `/profile/parse` states for its own degraded paths.
+            ai_metadata=None,
+            job_domain_match=None,
+            # NAMED, so apps/api can tell this from a worker who genuinely said nothing.
+            # That distinction is the whole reason `error_code` exists on this contract, and
+            # it is what stops an outage from reading as "not profiled yet" and re-triggering
+            # extraction forever.
+            error_code="extract_deadline_exceeded",
+        )
 
     # In real mode, prefer a valid LLM profile but keep locally-read fields
     # (city/salary) since the model only saw masked text.

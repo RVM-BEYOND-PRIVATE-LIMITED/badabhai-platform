@@ -207,18 +207,34 @@ class Settings(BaseSettings):
     # projection, which is a real profile; the overlay is the only thing lost.
     profile_parse_deadline_seconds: float = Field(default=6.0, gt=0.0, le=60.0)
 
+    # The same hard bound for the LEGACY `/profile/extract` route, which shipped without one.
+    # `apps/api` aborts that request at 8 s and Starlette does not cancel a running handler on
+    # client disconnect, so an unbounded call outlived its caller and kept hitting a provider
+    # that was already rate-limiting us — long after the profile had been written from the
+    # fallback. 7 s sits just inside the caller's abort, so the deadline fires here (named,
+    # logged, `error_code` set) rather than presenting as an unexplained socket close.
+    profile_extract_deadline_seconds: float = Field(default=7.0, gt=0.0, le=60.0)
+
     ai_resume_max_output_tokens: int = Field(default=512, ge=16, le=8192)
     ai_resume_temperature: float = Field(default=0.4, ge=0.0, le=2.0)
     ai_resume_max_retries: int = Field(default=1, ge=0, le=5)
 
     # --- Gemini transport ----------------------------------------------------
-    # Previously module constants in ai/gemini_client.py. Worst case today is
+    # Previously module constants in ai/gemini_client.py, kept env-tunable so a tier
+    # change never needs a deploy.
+    #
+    # `gemini_max_total_backoff_seconds` is the bound that matters and the one that was
+    # missing: the per-sleep cap alone allowed
     # max_rate_limit_retries * max_backoff_seconds = 4 * 20s = 80s stalled INSIDE a
-    # single request, which is not a number that should need a deploy to change.
+    # single request — against `profile_parse_deadline_seconds` of 6s and an `apps/api`
+    # abort at 8s. Time spent past those is spent on a response nobody is left to
+    # receive. The retry chain must fit inside the deadline it is running under, so the
+    # ceiling is CUMULATIVE and the defaults are small (one retry, ~5s of total sleep).
     gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta/models"
     gemini_timeout_seconds: float = Field(default=30.0, gt=0.0, le=600.0)
-    gemini_max_rate_limit_retries: int = Field(default=4, ge=0, le=10)
+    gemini_max_rate_limit_retries: int = Field(default=1, ge=0, le=10)
     gemini_max_backoff_seconds: float = Field(default=20.0, gt=0.0, le=300.0)
+    gemini_max_total_backoff_seconds: float = Field(default=5.0, gt=0.0, le=300.0)
     gemini_backoff_base: float = Field(default=2.0, gt=1.0, le=10.0)
     # Gemini "thinking" tokens. 0 = off, the cost decision for a chat turn. A future
     # capable-tier extraction may want >0 without a code change.
@@ -373,6 +389,19 @@ class Settings(BaseSettings):
     # window — cuts retry multiplication against a failing provider.
     ai_retry_budget_per_window: int = 20
     ai_retry_budget_window_seconds: int = 60
+
+    # How long a provider stays skipped after it returns a rate limit (429).
+    #
+    # THE STATE THAT OUTLIVES THE REQUEST. Every other guard here — the retry budget
+    # above, the client's in-call 429 loop, the router's attempt loop — is scoped to one
+    # request and resets for the next, so a minute-long rate limit was met by every
+    # request in that minute walking the whole chain again and adding more rejected calls
+    # to the same exhausted window. The cooldown is what makes the FIRST 429 inform the
+    # requests behind it.
+    #
+    # 60s matches the shape of a per-minute (RPM) cap, the common free-tier limit. Set to
+    # 0 to disable entirely (the kill switch, and it costs no round trip).
+    ai_provider_cooldown_seconds: float = Field(default=60.0, ge=0.0, le=3600.0)
 
     # Shared spend-ledger store (env AI_SPEND_REDIS_URL).
     #

@@ -61,6 +61,68 @@ function asSpendCapReason(code: string | null | undefined): AiSpendCapReason | n
 }
 
 /**
+ * `error_code` values that mean THE MODEL WAS UNREACHABLE — a transient incident that
+ * will clear on its own, as opposed to a deliberate posture or a quiet worker.
+ *
+ * THE DISTINCTION THIS DRAWS IS THE ROOT OF THE REPORTED BUG. Three completely different
+ * situations used to arrive here as the same thing — an empty profile, `blocked: false`,
+ * job `completed`:
+ *
+ *   1. the worker genuinely said nothing,
+ *   2. a spend cap or the kill switch deliberately refused the call,
+ *   3. the provider rate-limited us.
+ *
+ * Only (3) should be retried, and none of them was. Instead every dedupe guard read the
+ * empty profile as "this worker is not profiled yet" and the next of four triggers
+ * started a fresh extraction — so a 429 became: empty profile -> not profiled -> extract
+ * -> 429, with each pass putting a full retry chain back on the wire.
+ *
+ * DELIBERATELY EXCLUDES the spend-cap codes in `AI_SPEND_CAP_REASONS`. A cap is a
+ * decision, not an outage: retrying it in five minutes would spend money the ledger has
+ * already refused, and it does not heal on a timer. Those keep their existing treatment
+ * (recorded on `ai.spend_cap`, profile written from the answer map, job completed).
+ */
+const LLM_OUTAGE_CODES: ReadonlySet<string> = new Set([
+  // Every candidate was reached and every candidate failed.
+  "llm_call_failed",
+  // The rolling retry budget stopped us mid-chain (TD27).
+  "retry_budget_exhausted",
+  // A provider returned 429 recently, so the router skipped it without calling.
+  "provider_cooldown",
+  // `/profile/extract` blew its deadline; the overlay never happened.
+  "extract_deadline_exceeded",
+]);
+
+/**
+ * The parse route's equivalent signal. `/profile/parse` reports its degradations as
+ * `notes` rather than an `error_code`, and states the same split in its own comment:
+ * `mock_no_parse` is a posture, `llm_unavailable` is an incident.
+ */
+const PARSE_OUTAGE_NOTES: ReadonlySet<string> = new Set([
+  "llm_unavailable",
+  "parse_deadline_exceeded",
+]);
+
+/**
+ * Thrown to make BullMQ retry an extraction whose MODEL leg failed transiently.
+ *
+ * A named class rather than a bare `Error` so the catch block can tell "the LLM was
+ * down" from "the database write threw" — the two want different logs and, on the final
+ * attempt, different outcomes.
+ */
+class LlmUnavailableError extends Error {
+  constructor(readonly cause_code: string) {
+    super(`llm unavailable (${cause_code})`);
+    this.name = "LlmUnavailableError";
+  }
+}
+
+/** Narrow an arbitrary `error_code` to a transient LLM outage, or null. */
+function outageCodeOf(code: string | null | undefined): string | null {
+  return code != null && LLM_OUTAGE_CODES.has(code) ? code : null;
+}
+
+/**
  * Runs profile extraction off the request path. The AI service pseudonymizes
  * before any LLM call (and falls back to a safe mock if it is down), so this
  * never sends raw PII anywhere. Emits profile.extraction_completed on success
@@ -140,11 +202,48 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // never fail an extraction.
       const fullName = await this.workerFullName(workerId);
       const redacted = messages.map((m) => ({ ...m, text: redactKnownName(m.text, fullName) }));
-      const { result, pin, attributes, pack, parseMeta } = await this.extractOrParse(
+      const { result, pin, attributes, pack, parseMeta, outageCode } = await this.extractOrParse(
         { workerId, sessionId, aiJobId, correlationId, requestId },
         redacted,
         redactKnownName(transcript, fullName),
       );
+
+      // ── THE RETRY, AND WHY IT THROWS HERE RATHER THAN COMPLETING ──────────────────
+      //
+      // A transiently unreachable model used to be indistinguishable from a quiet worker:
+      // both wrote an empty profile and marked the job `completed`. Because nothing threw,
+      // BullMQ's `attempts` never engaged — the retry machinery was present and dormant
+      // for the one failure mode it was needed for — and every downstream guard read the
+      // empty profile as "not profiled yet", so the next of four triggers started a fresh
+      // extraction. That is the loop: 429 -> empty profile -> not profiled -> extract.
+      //
+      // THROWN BEFORE ANY WRITE, deliberately. `profiles.create` is idempotent on
+      // `ai_jobs_id` and `upsertMany` is idempotent on its key, so writing first would be
+      // survivable — but a retry that has written nothing has nothing to reconcile, and a
+      // profile row that exists only because the model was down is exactly the artifact
+      // that taught the dedupe guards to re-fire.
+      //
+      // ONLY WHILE ATTEMPTS REMAIN. On the final attempt this falls through and the
+      // profile is written from the answer map, because a worker left with no profile at
+      // all is strictly worse than one whose profile lacks the model overlay — the
+      // posture `ProfilesService.extract` already states in its own docstring. The
+      // deterministic projection is the bulk of the value; the parse is an overlay on top.
+      //
+      // The backoff that makes this bounded and slow lives on the JOB (see
+      // `EXTRACTION_JOB_OPTS` in `ProfilesService`): 5 min, then 10. A 1 s exponential —
+      // the queue-wide default — would simply be the same storm at a different cadence.
+      if (outageCode !== null) {
+        const maxAttempts = job.opts.attempts ?? 1;
+        const attemptsRemain = job.attemptsMade + 1 < maxAttempts;
+        this.logger.warn(
+          `extraction job ${aiJobId} hit an LLM outage (${outageCode}) on attempt ` +
+            `${job.attemptsMade + 1}/${maxAttempts}; ` +
+            (attemptsRemain
+              ? `retrying on the queue's backoff`
+              : `final attempt — writing the profile from the answer map without the model overlay`),
+        );
+        if (attemptsRemain) throw new LlmUnavailableError(outageCode);
+      }
       const profile: DraftProfile = result.profile;
       // Issue #419 — the RICH draft the response has always carried (persisted below).
       // HOISTED out of the `create()` call because the profile_status decision reads it
@@ -479,6 +578,16 @@ export class ProfileExtractionProcessor extends WorkerHost {
      * interview's spend under the wrong task type.
      */
     parseMeta: AICallMetadata | null;
+    /**
+     * Why the MODEL leg is degraded, when it is transiently degraded — or null when the
+     * call was healthy, was never attempted as a matter of posture, or failed for a
+     * reason that will not heal on a timer.
+     *
+     * SEPARATE FROM "the profile is empty", which is the conflation this whole change
+     * exists to undo: a quiet worker and a rate-limited provider both produce an empty
+     * overlay, and only one of them is worth retrying.
+     */
+    outageCode: string | null;
   }> {
     // NO SESSION, NO ANSWER MAP. An extraction can be triggered without one (the app's
     // "make the profile anyway" escape hatch); there is no interview record to read.
@@ -487,12 +596,13 @@ export class ProfileExtractionProcessor extends WorkerHost {
     if (answerMap.length === 0) {
       // No deterministic record: a pre-cutover session, or an interview that collected nothing.
       // The legacy route is unchanged and still live.
+      const legacy = await this.ai.extractProfile({
+        worker_ref: job.workerId,
+        transcript,
+        messages: [...messages],
+      });
       return {
-        result: await this.ai.extractProfile({
-          worker_ref: job.workerId,
-          transcript,
-          messages: [...messages],
-        }),
+        result: legacy,
         pin: null,
         // A pre-cutover session has no answer map, so it has no attributes and never had any.
         // Empty here is the honest value, not a degradation.
@@ -501,6 +611,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // The legacy route's spend rides on `result.ai_metadata` (the extraction call), which
         // `markCompleted` already persists. No parse happened, so there is nothing extra to carry.
         parseMeta: null,
+        // THE PATH WITH NO SAFETY NET. This branch has no answer map to project from, so an
+        // unreachable model is the difference between a profile and nothing at all — which
+        // makes the retry matter more here than on the OIE path, not less.
+        outageCode: outageCodeOf(legacy.error_code),
       };
     }
 
@@ -626,6 +740,16 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // conflating them would emit the parse's usage a second time under the wrong task type —
       // double-counting the interview's spend in the very ledger this is fixing.
       parseMeta: parsed?.ai_metadata ?? null,
+      // THREE WAYS THE MODEL LEG CAN BE TRANSIENTLY DOWN on this path, and the first is
+      // the one with no `error_code` to read: `parsed === null` means `AiService.post`
+      // gave up (non-OK or its own 8 s abort), so there is no body at all. The other two
+      // come back inside a perfectly healthy 200 — the route degrades rather than
+      // erroring, by design — and have to be read out of `notes` / `ai_metadata`.
+      outageCode:
+        parsed === null
+          ? "parse_service_unreachable"
+          : (parsed.notes.find((note) => PARSE_OUTAGE_NOTES.has(note)) ??
+            outageCodeOf(parsed.ai_metadata?.error_code)),
     };
   }
 

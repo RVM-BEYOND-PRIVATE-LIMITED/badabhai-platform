@@ -73,6 +73,64 @@ def test_resume_generate_builds_text():
     assert body["is_mock"] is True
 
 
+def test_profile_extract_degrades_on_a_blown_deadline():
+    """`/profile/extract` shipped with NO deadline while `/profile/parse` had one, and
+    that asymmetry is the shape of the reported incident.
+
+    apps/api aborts this request at 8 s, and Starlette does NOT cancel a running handler
+    when the client disconnects — so an unbounded call kept its worker slot and kept
+    putting requests on a provider that was already rate-limiting us, minutes after the
+    profile it was computing had been written from the fallback. The next trigger then
+    started another one on top of it.
+
+    Degrading costs only the enrichment overlay: the heuristic pass runs locally over the
+    worker's own text before the model is ever reached, so the profile survives intact.
+    `error_code` NAMES the degradation, which is what lets apps/api tell an outage from a
+    worker who genuinely said nothing."""
+    import asyncio
+
+    from app.config import Settings
+    from app.routers import profile as profile_router
+
+    class _SlowRouter:
+        async def run(self, *_args, **_kwargs):
+            await asyncio.sleep(5.0)
+            raise AssertionError("the deadline should have fired first")
+
+    original_router = profile_router.router
+    original_settings = profile_router.get_settings
+    profile_router.router = _SlowRouter()
+    profile_router.get_settings = lambda: Settings(profile_extract_deadline_seconds=0.05)
+    try:
+        res = client.post(
+            "/profile/extract",
+            json={"transcript": "I run a VMC, 5 years experience, Fanuc controller"},
+        )
+    finally:
+        profile_router.router = original_router
+        profile_router.get_settings = original_settings
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["error_code"] == "extract_deadline_exceeded"
+    assert body["blocked"] is False
+    # The local heuristic pass survives the timeout — only the model overlay is lost.
+    assert "mach_vmc" in body["profile"]["machines"]
+    assert body["profile"]["experience"]["total_years"] == 5
+    # NO fabricated cost record: a zero-cost row is indistinguishable from a real call
+    # that happened to be free, which is the same rule /profile/parse states.
+    assert body["ai_metadata"] is None
+
+
+def test_profile_extract_deadline_defaults_inside_the_callers_abort():
+    """7 s sits just inside apps/api's 8 s AbortController, so the deadline fires HERE —
+    named, logged, `error_code` set — rather than presenting to the caller as an
+    unexplained socket close it cannot diagnose."""
+    from app.config import Settings
+
+    assert Settings().profile_extract_deadline_seconds < 8.0
+
+
 def test_profile_extract_fails_closed_on_unsafe_input():
     # Privacy gate for the extraction path we are about to make real: if
     # pseudonymization blocks, the endpoint returns BEFORE the router/LLM is

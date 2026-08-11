@@ -40,13 +40,25 @@ _TIMEOUT_SECONDS = 30.0
 # self-heals. A per-DAY cap won't recover within the request — we detect it
 # (``_is_daily_quota_429``) and fail FAST so the router escalates to the next
 # provider (Claude Haiku) immediately instead of burning the backoff budget.
-# Bounded so even an undetected hard cap can't hang the request for long.
 #
-# Worst case is retries * backoff = 4 * 20s = 80s stalled INSIDE one request, which
-# is why these are env-tunable: a free tier wants 0-1 retries, a paid one wants 4,
-# and neither should need a deploy.
-_MAX_RATE_LIMIT_RETRIES = 4
+# THE RETRY MUST FIT INSIDE THE CALLER'S DEADLINE, which is what
+# ``_MAX_TOTAL_BACKOFF_SECONDS`` enforces and what the per-attempt cap alone never
+# could. The old bound was per-sleep only, so the honest worst case was
+# retries * backoff = 4 * 20s = 80s stalled inside ONE request — against a
+# ``/profile/parse`` deadline of 6s and an ``apps/api`` abort at 8s. Every second
+# past those is spent on a response nobody is left to receive: the API has already
+# given up and written a profile, and Starlette does not cancel this handler on
+# client disconnect, so the sleeping request keeps its slot and its next POST still
+# lands on a provider that is already rate-limiting us.
+#
+# A cumulative ceiling makes the bound the thing that actually matters (total time
+# borrowed from the deadline) rather than an incidental one (the length of any
+# single nap). Defaults are deliberately small: one retry, and at most ~5s of total
+# sleep, which fits inside both deadlines with room for the request itself. All
+# env-tunable — a paid tier with generous RPM can raise them without a deploy.
+_MAX_RATE_LIMIT_RETRIES = 1
 _MAX_BACKOFF_SECONDS = 20.0
+_MAX_TOTAL_BACKOFF_SECONDS = 5.0
 _BACKOFF_BASE = 2.0
 
 
@@ -233,6 +245,8 @@ async def acomplete(
     # the documented Google AI Studio auth and keeps the secret out of any URL.
     headers = {"x-goog-api-key": api_key}
     max_retries = settings.gemini_max_rate_limit_retries
+    max_total_backoff = settings.gemini_max_total_backoff_seconds
+    slept_total = 0.0
     async with httpx.AsyncClient(timeout=settings.gemini_timeout_seconds) as client:
         for attempt in range(max_retries + 1):
             resp = await client.post(url, headers=headers, json=body)
@@ -242,14 +256,25 @@ async def acomplete(
             # break so the call raises and the router escalates to the fallback.
             if _is_daily_quota_429(resp):
                 break
-            await asyncio.sleep(
-                _retry_after_seconds(
-                    resp,
-                    attempt,
-                    max_backoff=settings.gemini_max_backoff_seconds,
-                    backoff_base=settings.gemini_backoff_base,
-                )
+            wait = _retry_after_seconds(
+                resp,
+                attempt,
+                max_backoff=settings.gemini_max_backoff_seconds,
+                backoff_base=settings.gemini_backoff_base,
             )
+            # THE CUMULATIVE BUDGET, checked BEFORE sleeping rather than after.
+            #
+            # Google's RetryInfo is authoritative about when the window reopens, and on
+            # a free tier it routinely says 20s+ — far past any deadline this request is
+            # running under. Sleeping first and discovering that afterwards would spend
+            # the time and THEN give up, which is the worst of both. Breaking here means
+            # the call raises `http_429` immediately, the router (see `_NO_RETRY_REASONS`)
+            # escalates straight to Claude, and the worker gets a real answer inside the
+            # deadline instead of a mock after it.
+            if slept_total + wait > max_total_backoff:
+                break
+            slept_total += wait
+            await asyncio.sleep(wait)
 
     if resp.status_code < 200 or resp.status_code >= 300:
         # Do NOT include the body (may echo pseudonymized content) — a PII-free

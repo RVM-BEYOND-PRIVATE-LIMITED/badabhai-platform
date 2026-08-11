@@ -117,9 +117,24 @@ function make(
     }),
   };
   const ai = {
-    // OIE Phase 8 — the ONE LLM call left. `null` (the default) is every failure mode at
-    // once: unreachable, blocked, mis-shaped. The caller must treat all three identically.
-    parseProfile: vi.fn().mockResolvedValue("parsed" in opts ? opts.parsed : null),
+    // OIE Phase 8 — the ONE LLM call left.
+    //
+    // THE DEFAULT IS A HEALTHY PARSE THAT FOUND NOTHING, not `null`, and the difference is
+    // now load-bearing. `AiService.parseProfile` returns `null` on exactly one class of
+    // event — the call did not come back (non-OK, timeout, off-contract body) — so `null`
+    // means OUTAGE, and the processor retries it rather than writing a profile that only
+    // looks empty because the model was unreachable. That is the whole point of the fix:
+    // "the worker said nothing" and "we could not ask" stopped being the same value.
+    //
+    // Most cases here are about the answer-map path and want a parse that ran and simply
+    // added no overlay. Pass `parsed: null` explicitly to exercise the outage path.
+    parseProfile: vi
+      .fn()
+      .mockResolvedValue(
+        "parsed" in opts
+          ? opts.parsed
+          : { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: null },
+      ),
     extractProfile: opts.extractThrows
       ? vi.fn().mockRejectedValue(new Error("boom"))
       : vi
@@ -142,7 +157,13 @@ function make(
             error_code: opts.errorCode ?? null,
           }),
   };
-  ai.parseProfile = vi.fn().mockResolvedValue("parsed" in opts ? opts.parsed : null);
+  ai.parseProfile = vi
+    .fn()
+    .mockResolvedValue(
+      "parsed" in opts
+        ? opts.parsed
+        : { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: null },
+    );
   const skills = {
     isSelectableDomain: opts.domainCheckThrows
       ? vi.fn().mockRejectedValue(new Error("db down"))
@@ -1153,12 +1174,32 @@ describe("the interview's one LLM call is ledgered", () => {
   it("records NOTHING when the parse degraded — a zero-cost row would be a lie", async () => {
     // `ai_metadata: null` is what the route returns on a blown deadline, mock posture or a
     // spend cap. A zero-cost record is indistinguishable from a real call that was free.
+    //
+    // `mock_no_parse`, NOT `llm_unavailable`, and the route draws that line itself: the
+    // first is a POSTURE (nothing was attempted — mock mode, a cap, the kill switch), the
+    // second is an INCIDENT (every candidate was reached and every one failed). Only the
+    // incident is retried, so using it here would be testing the retry path by accident
+    // instead of the cost-record rule this case is about.
+    const { proc, events } = make({
+      ...withMap(),
+      parsed: { fields: {}, unparsed_field_ids: [], notes: ["mock_no_parse"], ai_metadata: null },
+    });
+
+    await proc.process(makeJob());
+
+    expect(costRecords(events)).toHaveLength(0);
+  });
+
+  it("records NOTHING on the final attempt of an OUTAGE either", async () => {
+    // The incident twin of the case above. The final attempt writes the profile from the
+    // answer map rather than leaving the worker with nothing, but no model call succeeded,
+    // so there is still no spend to record.
     const { proc, events } = make({
       ...withMap(),
       parsed: { fields: {}, unparsed_field_ids: [], notes: ["llm_unavailable"], ai_metadata: null },
     });
 
-    await proc.process(makeJob());
+    await proc.process(makeJob({ attemptsMade: 2, attempts: 3 }));
 
     expect(costRecords(events)).toHaveLength(0);
   });
@@ -1380,5 +1421,113 @@ describe("the answer map is the profile, and the LLM is an overlay on it", () =>
     await proc.process(makeJob());
     const names = events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
     expect(names).not.toContain("profile.parse_disagreement");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An unreachable model is an INCIDENT, not an empty interview
+// ---------------------------------------------------------------------------
+//
+// THE LOOP THIS CLOSES. A 429 used to arrive here indistinguishable from a worker who
+// said nothing: empty overlay, `blocked: false`, job marked `completed`. Because nothing
+// threw, BullMQ's `attempts` never engaged — the retry machinery sat dormant for the one
+// failure mode it was needed for — and every dedupe guard read the empty profile as "not
+// profiled yet", so the next of four triggers started a fresh extraction. 429 -> empty
+// profile -> not profiled -> extract -> 429, each pass putting a full retry chain back on
+// the wire.
+
+describe("an LLM outage retries instead of completing", () => {
+  const OUTAGE_PARSE = {
+    fields: {},
+    unparsed_field_ids: [],
+    notes: ["llm_unavailable"],
+    ai_metadata: null,
+  };
+  /** A healthy parse call's usage — the shape a SUCCESSFUL model leg reports. */
+  const HEALTHY_META = {
+    ai_call_id: "77777777-7777-4777-8777-777777777777",
+    task_type: "profile_parse",
+    model_name: "gemini-flash",
+    provider: "google",
+    real_call: true,
+    input_tokens: 2100,
+    output_tokens: 240,
+    estimated_cost_inr: 0.19,
+    latency_ms: 1420,
+    success: true,
+    error_code: null,
+    created_at: "2026-08-08T00:00:00.000Z",
+  };
+
+  it("throws so BullMQ retries, and writes NOTHING while attempts remain", async () => {
+    const { proc, profiles, aiJobs, workerAttributes } = make({
+      ...withMap(),
+      parsed: OUTAGE_PARSE,
+    });
+
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow(
+      "llm unavailable",
+    );
+
+    // BEFORE any write. A retry that has written nothing has nothing to reconcile — and a
+    // profile row that exists only because the model was down is the exact artifact that
+    // taught the dedupe guards to re-fire.
+    expect(profiles.create).not.toHaveBeenCalled();
+    expect(workerAttributes.upsertMany).not.toHaveBeenCalled();
+    expect(aiJobs.markCompleted).not.toHaveBeenCalled();
+  });
+
+  it("a null parse — the ai-service unreachable — is an outage too", async () => {
+    // `AiService.parseProfile` returns null on exactly one class of event: the call did not
+    // come back. There is no healthy path that produces it.
+    const { proc, profiles } = make({ ...withMap(), parsed: null });
+
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow(
+      "parse_service_unreachable",
+    );
+    expect(profiles.create).not.toHaveBeenCalled();
+  });
+
+  it("on the FINAL attempt it writes the profile from the answer map rather than nothing", async () => {
+    // The posture `ProfilesService.extract` already documents: "being wrong in that
+    // direction leaves a worker with no profile at all — strictly worse". The deterministic
+    // projection is the bulk of the value; the parse is an overlay on top of it.
+    const { proc, profiles, aiJobs } = make({ ...withMap(), parsed: OUTAGE_PARSE });
+
+    const res = await proc.process(makeJob({ attemptsMade: 2, attempts: 3 }));
+
+    expect(res).toEqual({ profile_id: PROFILE });
+    expect(profiles.create).toHaveBeenCalledOnce();
+    expect(aiJobs.markCompleted).toHaveBeenCalled();
+  });
+
+  it("a SPEND CAP is a decision, not an outage — it completes, it does not retry", async () => {
+    // The distinction that keeps this from retrying money away. A cap does not heal on a
+    // timer, so re-running in five minutes would spend against a ledger that has already
+    // refused — and `AI_SPEND_CAP_REASONS` keeps its existing `ai.spend_cap` treatment.
+    const { proc, profiles } = make({
+      ...withMap(),
+      parsed: {
+        fields: {},
+        unparsed_field_ids: [],
+        notes: [],
+        ai_metadata: { ...HEALTHY_META, error_code: "daily_cap_exceeded" },
+      },
+    });
+
+    await proc.process(makeJob({ attemptsMade: 0, attempts: 3 }));
+    expect(profiles.create).toHaveBeenCalledOnce();
+  });
+
+  it("a healthy parse that simply found nothing is NOT an outage", async () => {
+    // The other half of the split, and the regression this must never undo: a worker who
+    // genuinely said little still gets their profile written on the first attempt.
+    const { proc, profiles } = make({
+      ...withMap(),
+      parsed: { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: HEALTHY_META },
+    });
+
+    await proc.process(makeJob({ attemptsMade: 0, attempts: 3 }));
+    expect(profiles.create).toHaveBeenCalledOnce();
   });
 });

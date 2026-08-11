@@ -129,9 +129,14 @@ class _StubMessages:
 
 class _StubAsyncAnthropic:
     last_api_key: str | None = None
+    # The FULL constructor kwargs, not just the key. `max_retries` is passed here and
+    # nowhere else, and its absence is invisible by design — the SDK simply defaults to
+    # 2 — so the only way to pin it is to look at what the constructor received.
+    last_init_kwargs: dict | None = None
 
-    def __init__(self, *, api_key=None, **_kwargs):
+    def __init__(self, *, api_key=None, **kwargs):
         _StubAsyncAnthropic.last_api_key = api_key
+        _StubAsyncAnthropic.last_init_kwargs = {"api_key": api_key, **kwargs}
         self.messages = _StubMessages(_StubAsyncAnthropic._resp)
 
 
@@ -141,9 +146,36 @@ def _install_stub_sdk(monkeypatch, resp):
     _StubAsyncAnthropic._resp = resp
     _StubMessages.last_kwargs = None
     _StubAsyncAnthropic.last_api_key = None
+    _StubAsyncAnthropic.last_init_kwargs = None
     fake = types.ModuleType("anthropic")
     fake.AsyncAnthropic = _StubAsyncAnthropic
     monkeypatch.setitem(sys.modules, "anthropic", fake)
+
+
+def test_acomplete_disables_the_sdks_own_retries(monkeypatch):
+    """THE HIDDEN THIRD MULTIPLIER. `AsyncAnthropic(api_key=...)` defaults to 2 retries,
+    so every router attempt was really 3 HTTP requests — 9 per candidate on the
+    extraction route, where the router believed it had made 3. The retry budget, the
+    spend ceiling and `AICallMetadata.attempt_count` all understated reality, and nothing
+    in this repo mentioned the layer.
+
+    The router owns retry policy: it is the only layer that can see the cross-provider
+    fallback, the TD27 rolling budget and `_NO_RETRY_REASONS` at once. A second, hidden
+    policy underneath it can only disagree."""
+    _install_stub_sdk(monkeypatch, _Resp(content=[_Block("text", "OK")], usage=_Usage(1, 1)))
+
+    _run(
+        acomplete(
+            settings=Settings(anthropic_api_key="k"),
+            model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": "x"}],
+            max_output_tokens=64,
+            temperature=0.0,
+            json_mode=False,
+        )
+    )
+
+    assert _StubAsyncAnthropic.last_init_kwargs["max_retries"] == 0
 
 
 def test_acomplete_maps_system_top_level_and_parses(monkeypatch):

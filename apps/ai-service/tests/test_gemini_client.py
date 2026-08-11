@@ -233,3 +233,105 @@ def test_acomplete_raises_on_non_2xx(monkeypatch):
                 json_mode=False,
             )
         )
+
+
+# --- The cumulative backoff budget -----------------------------------------
+# The per-sleep cap was never the bound that mattered. `max_rate_limit_retries` x
+# `max_backoff_seconds` allowed 80 s of sleep inside ONE request, against a parse
+# deadline of 6 s and an apps/api abort at 8 s — so the retry outlived the caller and
+# its next POST landed on a provider that was already rate-limiting us.
+
+
+def _rate_limited_client(posts: list[int], *, retry_delay: str | None = None):
+    """A stub that always 429s, recording each POST. Optionally advertises Google's
+    RetryInfo, which is what makes the request want to sleep for 20+ s."""
+    details = [{"retryInfo": True, "retryDelay": retry_delay}] if retry_delay else []
+
+    class _Client(_StubAsyncClient):
+        async def post(self, url, *, headers, json):
+            posts.append(1)
+            return _StubResponse(429, {"error": {"details": details}})
+
+    return _Client
+
+
+def test_total_backoff_budget_stops_retrying_before_the_deadline(monkeypatch):
+    """Google's RetryInfo routinely says 20 s+ on a free tier — far past any deadline
+    this request runs under. Sleeping first and giving up afterwards is the worst of
+    both, so the budget is checked BEFORE the sleep and the call fails fast."""
+    posts: list[int] = []
+    monkeypatch.setattr(
+        gemini_client.httpx, "AsyncClient", _rate_limited_client(posts, retry_delay="21s")
+    )
+    slept: list[float] = []
+
+    async def _no_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(gemini_client.asyncio, "sleep", _no_sleep)
+
+    with pytest.raises(RuntimeError):
+        _run(
+            acomplete(
+                settings=Settings(
+                    gemini_flash_api_key="k",
+                    gemini_max_rate_limit_retries=4,
+                    gemini_max_total_backoff_seconds=5.0,
+                ),
+                model="gemini-2.5-flash",
+                messages=[{"role": "user", "content": "x"}],
+                max_output_tokens=64,
+                temperature=0.0,
+                json_mode=False,
+            )
+        )
+
+    # One POST, and NOT ONE SECOND SLEPT: the first advertised delay (20 s, capped from
+    # "21s") already blows the 5 s budget, so the loop breaks instead of waiting.
+    assert len(posts) == 1
+    assert slept == []
+
+
+def test_total_backoff_budget_allows_retries_that_fit(monkeypatch):
+    """The budget bounds the retries; it does not abolish them. Short advertised delays
+    still get retried, which is the case a per-minute cap actually self-heals in."""
+    posts: list[int] = []
+    monkeypatch.setattr(
+        gemini_client.httpx, "AsyncClient", _rate_limited_client(posts, retry_delay="1s")
+    )
+    slept: list[float] = []
+
+    async def _no_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(gemini_client.asyncio, "sleep", _no_sleep)
+
+    with pytest.raises(RuntimeError):
+        _run(
+            acomplete(
+                settings=Settings(
+                    gemini_flash_api_key="k",
+                    gemini_max_rate_limit_retries=4,
+                    gemini_max_total_backoff_seconds=5.0,
+                ),
+                model="gemini-2.5-flash",
+                messages=[{"role": "user", "content": "x"}],
+                max_output_tokens=64,
+                temperature=0.0,
+                json_mode=False,
+            )
+        )
+
+    # 1s per retry against a 5s budget: all 4 retries fit (5 POSTs, 4s slept) and the
+    # retry cap, not the budget, is what ends it.
+    assert len(posts) == 5
+    assert sum(slept) == pytest.approx(4.0)
+    assert sum(slept) <= 5.0
+
+
+def test_default_retry_posture_is_one_retry(monkeypatch):
+    """The shipped default. A free tier wants ~0-1 retries; 4 was chosen for a paid one
+    and became the thing that stalled every free-tier request for over a minute."""
+    settings = Settings(gemini_flash_api_key="k")
+    assert settings.gemini_max_rate_limit_retries == 1
+    assert settings.gemini_max_total_backoff_seconds == 5.0

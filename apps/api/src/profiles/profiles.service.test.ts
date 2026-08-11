@@ -2,7 +2,12 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import type { Queue } from "bullmq";
-import { ProfilesService, EXTRACTION_IN_FLIGHT_WINDOW_MS } from "./profiles.service";
+import {
+  ProfilesService,
+  EXTRACTION_ATTEMPT_CAP,
+  EXTRACTION_IN_FLIGHT_WINDOW_MS,
+  EXTRACTION_JOB_OPTS,
+} from "./profiles.service";
 import type { ProfilesRepository } from "./profiles.repository";
 import type { AiJobsRepository } from "./ai-jobs.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
@@ -116,7 +121,25 @@ function setup() {
   const events = {
     emit: vi.fn(async (p: { event_name: string; payload: Record<string, unknown> }) => p),
   };
-  const extractionQueue = { add: vi.fn(async () => undefined) };
+  // The extraction attempt cap counts through BullMQ's OWN Redis connection (the house
+  // rule: never open a second client), so the queue double has to carry one. An in-memory
+  // counter keyed exactly like the real service keys it — a Map, not a stub returning a
+  // fixed number, so a test can drive the cap by calling `extract` repeatedly rather than
+  // by asserting on how many times INCRBY was invoked.
+  const counters = new Map<string, number>();
+  const redis = {
+    incrby: vi.fn(async (key: string, by: number) => {
+      const next = (counters.get(key) ?? 0) + by;
+      counters.set(key, next);
+      return next;
+    }),
+    expire: vi.fn(async () => 1),
+  };
+  const extractionQueue = {
+    add: vi.fn(async () => undefined),
+    // A PROMISE, matching BullMQ: every consumer in this codebase does `await queue.client`.
+    client: Promise.resolve(redis),
+  };
   const resumeGenerateQueue = { add: vi.fn(async () => undefined) };
   // §X.6 — leg 1 of the activation-bonus rule is enqueued on confirm.
   const referralBonusQueue = { add: vi.fn(async () => undefined) };
@@ -140,6 +163,8 @@ function setup() {
     extractionQueue,
     resumeGenerateQueue,
     referralBonusQueue,
+    redis,
+    counters,
   };
 }
 
@@ -741,5 +766,130 @@ describe("rebuildAfterCorrection — the correction-specific trigger", () => {
     expect(requested).toHaveLength(1);
     // The hash is a dedupe key, not an event field: it describes our internals, not the worker.
     expect(JSON.stringify(requested[0]?.payload)).not.toContain("a".repeat(64));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The extraction attempt cap — the guard that sees all four triggers
+// ---------------------------------------------------------------------------
+//
+// Per-job `attempts` bounds ONE job. It cannot bound how many jobs get CREATED, and
+// creation is where the storm lived: the transcript-flush auto-trigger, the app's
+// unconditional POST /profile/extract on the preview screen, `rebuildAfterCorrection`,
+// and the worker tapping "Try again" each mint their own. Every dedupe guard in front of
+// them keys on "did this produce content", and during an LLM outage the answer is always
+// no — so all four re-fired indefinitely.
+
+describe("ProfilesService.extract — the hourly attempt cap", () => {
+  it("refuses to mint an eighth job for one session in an hour", async () => {
+    const { svc, workers, aiJobs, extractionQueue } = setup();
+    workers.findById.mockResolvedValue({ id: WORKER });
+
+    // Six succeed — the cap is deliberately generous, since a healthy interview needs ONE
+    // and the documented posture is that an unprofiled worker beats a double spend.
+    for (let i = 0; i < EXTRACTION_ATTEMPT_CAP; i++) {
+      await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+    }
+    expect(extractionQueue.add).toHaveBeenCalledTimes(EXTRACTION_ATTEMPT_CAP);
+
+    await expect(
+      svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    // Nothing partial: the refusal happens BEFORE the ai_job row and before the event, so
+    // a capped request leaves no orphaned `queued` row for the zombie rule to find later.
+    expect(extractionQueue.add).toHaveBeenCalledTimes(EXTRACTION_ATTEMPT_CAP);
+    expect(aiJobs.create).toHaveBeenCalledTimes(EXTRACTION_ATTEMPT_CAP);
+  });
+
+  it("is scoped per SESSION — one worker's exhausted interview cannot block their next", async () => {
+    const { svc, workers, extractionQueue } = setup();
+    workers.findById.mockResolvedValue({ id: WORKER });
+
+    for (let i = 0; i < EXTRACTION_ATTEMPT_CAP; i++) {
+      await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+    }
+    await expect(
+      svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    // A genuinely new interview is a different key and starts fresh.
+    await expect(
+      svc.extract({ worker_id: WORKER, session_id: SESSION_B }, CTX),
+    ).resolves.toMatchObject({ status: "queued" });
+    expect(extractionQueue.add).toHaveBeenCalledTimes(EXTRACTION_ATTEMPT_CAP + 1);
+  });
+
+  it("does not charge a request that DEDUPED — only real work costs cap", async () => {
+    // Ordering matters: the cap is checked after the dedupe guards, so the common healthy
+    // double-trigger (server auto-trigger + the app's unconditional POST) spends nothing.
+    const { svc, workers, aiJobs, redis } = setup();
+    workers.findById.mockResolvedValue({ id: WORKER });
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue({
+      id: "prior",
+      status: "completed",
+      profile: FILLED_PROFILE,
+    });
+
+    await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(redis.incrby).not.toHaveBeenCalled();
+  });
+
+  it("FAILS OPEN when Redis is down — an unprofiled worker is worse than a double spend", async () => {
+    // The deliberate opposite of `SubjectRateLimit`, which fails closed because it guards
+    // writes into the audit spine. This guards a worker getting a profile at all: refusing
+    // on an unreadable counter would deny extraction platform-wide over a cache outage.
+    const { svc, workers, extractionQueue, redis } = setup();
+    workers.findById.mockResolvedValue({ id: WORKER });
+    redis.incrby.mockRejectedValue(new Error("redis down"));
+
+    await expect(
+      svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX),
+    ).resolves.toMatchObject({ status: "queued" });
+    expect(extractionQueue.add).toHaveBeenCalledOnce();
+  });
+
+  it("re-asserts the key's TTL on EVERY hit, not only the first", async () => {
+    // A `if (count === 1)` guard leaks a TTL-less key whenever the process dies between
+    // INCRBY and EXPIRE — one per session per affected hour, in the Redis that also runs
+    // BullMQ. EXPIRE is idempotent and cheap, so re-asserting is the whole fix. The same
+    // pitfall `SubjectRateLimit` documents.
+    const { svc, workers, redis } = setup();
+    workers.findById.mockResolvedValue({ id: WORKER });
+
+    await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+    await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(redis.expire).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ProfilesService — the extraction job's retry policy", () => {
+  it("overrides the queue-wide 1s backoff with one sized to a rate limit", async () => {
+    // `queue.module.ts` sets attempts:3 with a 1s exponential backoff — 1s and 2s — tuned
+    // for a transient DB blip. Retrying a provider rate limit after 1s is indistinguishable
+    // from not backing off: the window has not moved, so it is another rejected request
+    // charged against the same exhausted bucket.
+    const { svc, workers, extractionQueue } = setup();
+    workers.findById.mockResolvedValue({ id: WORKER });
+
+    await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(extractionQueue.add).toHaveBeenCalledWith(
+      "extract",
+      expect.anything(),
+      EXTRACTION_JOB_OPTS,
+    );
+    expect(EXTRACTION_JOB_OPTS.backoff.delay).toBe(5 * 60 * 1000);
+  });
+
+  it("the in-flight zombie window outlasts the full retry ladder", async () => {
+    // THE COUPLING THAT WOULD HAVE BITTEN SILENTLY. A job correctly waiting out a rate
+    // limit is ~15 minutes old before its final attempt. If the zombie window stayed at
+    // its old 10 minutes, the dedupe guard would treat every healthy retrying job as
+    // stranded and mint a duplicate — reintroducing the exact double-enqueue #420 closed.
+    const ladder = EXTRACTION_JOB_OPTS.backoff.delay * (EXTRACTION_JOB_OPTS.attempts - 1);
+    expect(EXTRACTION_IN_FLIGHT_WINDOW_MS).toBeGreaterThan(ladder);
   });
 });
