@@ -10,6 +10,7 @@ import 'package:badabhai_worker_app/features/voice/domain/voice_models.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/question_audio_player.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointer.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_correction_outcome.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/cubit/voice_form_cubit.dart';
 import 'voice_form_doubles.dart';
@@ -50,6 +51,13 @@ class FakeGateway implements VoiceFormGateway {
 
   @override
   Future<void> finalize() async => finalizes++;
+
+
+  @override
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) => throw UnimplementedError();
 }
 
 class FakeTts implements QuestionAudioPlayer {
@@ -649,6 +657,13 @@ class _RetryOnceGateway implements VoiceFormGateway {
 
   @override
   Future<void> finalize() async {}
+
+
+  @override
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) => throw UnimplementedError();
 }
 
 /// A gateway whose [submit] always throws — for proving the retain/release
@@ -674,6 +689,13 @@ class _ThrowingSubmitGateway implements VoiceFormGateway {
 
   @override
   Future<void> finalize() async {}
+
+
+  @override
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) => throw UnimplementedError();
 }
 
 /// Throws on the FIRST start() (a transient failure), then serves one question.
@@ -697,6 +719,13 @@ class _FailFirstGateway implements VoiceFormGateway {
 
   @override
   Future<void> finalize() async {}
+
+
+  @override
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) => throw UnimplementedError();
 }
 
 /// Parks inside `submit` until its completer fires — lets a test observe the retain while
@@ -725,4 +754,11 @@ class _HoldingGateway implements VoiceFormGateway {
 
   @override
   Future<void> finalize() async => finalizes++;
+
+
+  @override
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) => throw UnimplementedError();
 }
