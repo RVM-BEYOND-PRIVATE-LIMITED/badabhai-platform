@@ -29,7 +29,10 @@ import { recordAnswer, recordDeclined, type AnswerMap } from "./answer-map";
 import { computeLookahead } from "./lookahead";
 import { nextQuestion, type Decision, type EnginePacks, type EngineState } from "./next-question";
 
-const PACK_DIR = join(process.cwd(), "../../packages/db/data/question-packs/packs");
+// Anchored to THIS FILE rather than `process.cwd()`: with cwd it resolves only when vitest is
+// invoked from `apps/api`, so running the suite from the repo root failed on an ENOENT that reads
+// like a missing corpus rather than a wrong working directory.
+const PACK_DIR = join(__dirname, "../../../../packages/db/data/question-packs/packs");
 
 /** A corpus row → the contract's item. The JSON omits every field it leaves null. */
 function toItem(raw: Record<string, unknown>): QuestionPackItem {

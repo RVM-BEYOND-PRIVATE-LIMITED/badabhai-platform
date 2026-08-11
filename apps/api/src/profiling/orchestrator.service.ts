@@ -591,6 +591,24 @@ export class ProfilingOrchestrator {
           unavailable: false,
           // An opening ask cannot cross a checkpoint boundary: it is ask one.
           checkpointDue: false,
+          // #766 item 2 — THE OPENING TURN GETS A PREDICTION TOO.
+          //
+          // `computeLookahead` was wired only into `decide()`, so the FIRST question of every
+          // session — the one a worker waits on with nothing on screen yet, on a cold start over
+          // 2G — was the one turn that could not render its successor instantly. That is the
+          // round trip the feature exists to remove, skipped on the turn where it is most felt.
+          //
+          // `turnCount` is deliberately NOT bumped by an opening turn (there is no worker message
+          // to record), so THIS turn is `buffer.turnCount` and the worker's first answer will be
+          // `buffer.turnCount + 1` — the same current/next relationship `decide()` builds from
+          // its own `turn`. `next` is the post-turn envelope, which is what the contract requires.
+          lookahead: computeLookahead({
+            decision,
+            state: toEngineState(next, buffer.turnCount),
+            packs: packs.engine,
+            items,
+            nextTurn: buffer.turnCount + 1,
+          }),
         };
       }
 
