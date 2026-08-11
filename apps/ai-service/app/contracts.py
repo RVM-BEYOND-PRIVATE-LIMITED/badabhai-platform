@@ -449,9 +449,10 @@ class LlmTurnInput(BaseModel):
     history: list[TranscriptLine] = Field(default_factory=list)
     draft: LlmInterviewDraft = Field(default_factory=LlmInterviewDraft)
     experience_count: int = Field(default=0, ge=0)
-    # The API hit a cap and this is the model's LAST turn: close, do not ask. The cap is
+    # The model's LAST allowed question: ask the most valuable one left, then stop. The cap is
     # API-authoritative because the API owns the session state — this service holds none and
-    # could not count turns even if it were trusted to.
+    # could not count turns even if it were trusted to. A cap that has already fired never
+    # reaches here: the API ends Phase A without calling, so a runaway costs nothing.
     force_close: bool = False
 
 

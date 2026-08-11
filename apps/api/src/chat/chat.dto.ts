@@ -100,6 +100,24 @@ export const PostMessageResponseSchema = z.object({
    */
   question_kind: z.enum(["ask", "disambiguate", "clarify", "close"]).default("ask"),
   /**
+   * Whether the worker may TYPE this answer, or must choose one of `suggested_options`.
+   *
+   * A NEW FIELD RATHER THAN A `question_kind` VALUE, deliberately. `question_kind` is the only
+   * rendering switch shipped clients read, and adding a value to it would change behaviour for
+   * builds that have never heard of it — `ChatReply.fromJson` would hand an unrecognised kind to
+   * a `switch` written when there were four. This defaults to `text`, so a client that predates
+   * it sees a byte-identical body and keeps its keyboard.
+   *
+   * THE SERVER STILL ACCEPTS TYPED TEXT ON AN `options_only` TURN, and must keep doing so. Every
+   * shipped build renders the TextField regardless, so treating this as a validation rather than
+   * an instruction would dead-end the experience loop for every worker who has not updated —
+   * which is why `LlmTurnService` runs a typed "haan ji" through `parseAffirmation` instead.
+   *
+   * Two turns set it: the experience loop's Yes/No gate, and a model turn that offers a closed
+   * set. Everything the deterministic engine serves is `text`.
+   */
+  input_mode: z.enum(["text", "options_only"]).default("text"),
+  /**
    * Answered / total for the pinned pack, or null when no pack is resolved yet.
    *
    * IMPOSSIBLE UNDER THE LLM PATH, which is why it is new rather than overdue: the model

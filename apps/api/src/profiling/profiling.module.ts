@@ -10,6 +10,7 @@ import { OccupationModule } from "../occupation/occupation.module";
 import { ProfilesModule } from "../profiles/profiles.module";
 import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
+import { LlmTurnService } from "./llm-turn.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
 import { PackCacheService } from "./pack-cache.service";
 import { PackRegistryService } from "./pack-registry.service";
@@ -40,9 +41,15 @@ import { ProfilingVoiceRepository } from "./profiling-voice.repository";
  * transcript two keys with two TTLs, free to disagree about whether an interview exists.
  *
  * `OccupationModule` is what makes the interview about the worker's actual trade — the retrieval
- * ladder is called IN-PROCESS by {@link IdentifyService}, never over HTTP. `AiModule` is here for
- * exactly one thing, the pseudonymization gateway on the unresolved-phrase path; no LLM call
- * happens anywhere in this module.
+ * ladder is called IN-PROCESS by {@link IdentifyService}, never over HTTP.
+ *
+ * `AiModule` USED TO BE HERE FOR EXACTLY ONE THING — the pseudonymization gateway on the
+ * unresolved-phrase path — and the Phase 8 cutover's claim that "no LLM call happens anywhere in
+ * this module" was true right up until {@link LlmTurnService}. It is now false BY DESIGN and
+ * bounded by one flag: `CHAT_LLM_INTERVIEW_ENABLED` off means the deterministic engine runs
+ * exactly as it did, with `AiService.llmTurn` never reached. The cutover's economics survive the
+ * flag being off; they do not survive it being on, which is the trade the LLM-led phase makes
+ * deliberately.
  *
  * `PackRepository` and `PackRegistryService` are exported because the occupation service resolves
  * packs too, and a second implementation of the fallback chain is exactly how the engine and the
@@ -83,6 +90,7 @@ import { ProfilingVoiceRepository } from "./profiling-voice.repository";
     PackCacheService,
     PackRegistryService,
     IdentifyService,
+    LlmTurnService,
     ProfilingOrchestrator,
     ProfilingSessionService,
     ProfilingVoiceRepository,

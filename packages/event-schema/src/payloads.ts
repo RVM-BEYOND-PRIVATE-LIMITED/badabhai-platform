@@ -2946,3 +2946,42 @@ export const ProfileAnswerCorrectedPayload = z
   })
   .strict();
 export type ProfileAnswerCorrectedPayload = z.infer<typeof ProfileAnswerCorrectedPayload>;
+
+/**
+ * The LLM-led opening (Phase A) HANDED THE INTERVIEW BACK to the deterministic engine.
+ *
+ * WHY THIS NEEDS AN EVENT AT ALL. The fallback is designed to be invisible to the worker — the
+ * next question simply comes from a pack instead of a model, and the conversation continues to a
+ * finished profile. That is the right behaviour and it is also the problem: an ai-service that is
+ * down, rate-limited or slow degrades every interview to the authored questions while every
+ * user-visible signal stays green. Nothing else in the system reports it. `pack_id` would not
+ * move, `ai.cost_recorded` simply stops appearing, and the profiles that come out are thinner in
+ * a way no single row shows. This is the one place the switch is observable.
+ *
+ * ONCE PER SESSION. The flag is sticky, so a fallback is a one-way door and a second event for
+ * the same interview would be a lie about how often the model failed.
+ *
+ * PII-FREE: two ids, a closed-set reason, the stage it died at, and a count. `.strict()` stops a
+ * later field arriving with the worker's words — the transcript is precisely what was in flight
+ * when this fired, and it must not follow the failure into the audit log.
+ */
+export const ProfileLlmInterviewFallbackPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /**
+     * WHY the model stopped leading. `unavailable` is every transport failure collapsed — down,
+     * 429, deadline, schema reject, an empty reply, or the mock posture — because the API cannot
+     * tell them apart from the null it receives, and a reason code that guesses is worse than one
+     * that admits the boundary. Kept as a closed set so a later cause is a deliberate addition.
+     */
+    reason: z.enum(["unavailable"]),
+    /** How far Phase A had got: `domain` means it never produced a single question. */
+    stage: z.enum(["domain", "role", "skills", "experience", "done"]),
+    /** Questions the model had asked before it went away. Zero is the loudest value here. */
+    asks: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileLlmInterviewFallbackPayload = z.infer<
+  typeof ProfileLlmInterviewFallbackPayload
+>;

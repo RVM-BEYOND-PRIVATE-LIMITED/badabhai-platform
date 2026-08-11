@@ -115,6 +115,8 @@ function makeWorld(
     {} as never,
     chat as never,
     events as never,
+    // The correction path never takes a turn, so the LLM seam is unreachable from here.
+    { leads: () => false } as never,
   );
   return { orchestrator, chat, events, saved, inserted };
 }

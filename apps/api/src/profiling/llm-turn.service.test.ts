@@ -15,7 +15,6 @@ import {
   LlmTurnService,
   MAX_LLM_ASKS,
   MAX_EXPERIENCE_ENTRIES,
-  EXPERIENCE_GATE_KEY,
   EXPERIENCE_GATE_PROMPT,
 } from "./llm-turn.service";
 import { emptyProfilingEnvelope, type ProfilingEnvelope } from "./conversation-state";
@@ -47,8 +46,10 @@ const ENTRY = {
 };
 
 function make(over: { turn?: unknown; enabled?: boolean } = {}) {
+  // Typed to TAKE its argument, so a test can assert on what was sent — `vi.fn(async () => …)`
+  // infers a zero-arg signature and `mock.calls[0][0]` is then a compile error.
   const ai = {
-    llmTurn: vi.fn(async () => ("turn" in over ? over.turn : TURN())),
+    llmTurn: vi.fn(async (_input: unknown) => ("turn" in over ? over.turn : TURN())),
   };
   const config = { CHAT_LLM_INTERVIEW_ENABLED: over.enabled ?? true };
   const svc = new LlmTurnService(ai as never, config as never);
@@ -61,8 +62,18 @@ const env = (over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope => ({
   ...over,
 });
 
+const withEntries = (n: number): Partial<ProfilingEnvelope> => ({
+  llmDraft: {
+    domain_label: null,
+    role_label: null,
+    skills: [],
+    experiences: Array.from({ length: n }, () => ENTRY),
+  },
+});
+
 beforeEach(() => {
   vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+  vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
 });
 
 describe("the flag and the fallback", () => {
@@ -80,42 +91,71 @@ describe("the flag and the fallback", () => {
     expect(ai.llmTurn).not.toHaveBeenCalled();
   });
 
+  it("does not call the model once Phase A is over", async () => {
+    // `llmStage`, NOT `phase`: `nextQuestion` rewrites `phase` on every decision it makes, so a
+    // single fallback turn would otherwise re-open a finished LLM stretch.
+    const { svc, ai } = make();
+    expect(await svc.take(env({ llmStage: "done" }), "haan", [], CTX)).toBeNull();
+    expect(ai.llmTurn).not.toHaveBeenCalled();
+  });
+
   it("returns null when the model is unavailable, so the engine takes the turn", async () => {
-    // `null` is every failure collapsed: down, 429, deadline, mock posture, blocked, malformed.
+    // `null` is every failure collapsed: down, 429, deadline, mock posture, blocked, malformed,
+    // and an empty reply — `AiService.llmTurn` nulls that last one before it reaches here.
     const { svc } = make({ turn: null });
     expect(await svc.take(env(), "cook hu", [], CTX)).toBeNull();
   });
 });
 
 describe("the caps — the API owns termination, never the model", () => {
-  it("forces the model to close once the ask cap is reached", async () => {
+  it("ends Phase A at the ask cap WITHOUT spending a call", async () => {
+    // A runaway must cost nothing. The cap is checked before the call, not enforced through it.
     const { svc, ai } = make();
-    await svc.take(env({ llmAsks: MAX_LLM_ASKS }), "haan", [], CTX);
+    const out = await svc.take(env({ llmAsks: MAX_LLM_ASKS }), "haan", [], CTX);
+    expect(out?.kind).toBe("done");
+    expect(ai.llmTurn).not.toHaveBeenCalled();
+  });
+
+  it("tells the model which question is its LAST, so it closes on something worth asking", async () => {
+    const { svc, ai } = make();
+    await svc.take(env({ llmAsks: MAX_LLM_ASKS - 1 }), "haan", [], CTX);
     expect(ai.llmTurn.mock.calls[0]?.[0]).toMatchObject({ force_close: true });
   });
 
-  it("ends Phase A at the cap even when the model says it is not done", async () => {
-    // The model reporting `phase_a_done: false` must NOT be able to keep the interview open.
-    const { svc } = make({ turn: TURN({ phase_a_done: false }) });
-    const out = await svc.take(env({ llmAsks: MAX_LLM_ASKS }), "haan", [], CTX);
-    expect(out?.done).toBe(true);
+  it("does not cry wolf: an ordinary turn is not sent force_close", async () => {
+    const { svc, ai } = make();
+    await svc.take(env({ llmAsks: 3 }), "haan", [], CTX);
+    expect(ai.llmTurn.mock.calls[0]?.[0]).toMatchObject({ force_close: false });
   });
 
-  it("ends Phase A once the experience cap is reached", async () => {
-    const full = Array.from({ length: MAX_EXPERIENCE_ENTRIES }, () => ENTRY);
-    const { svc } = make();
-    const out = await svc.take(
-      env({ llmDraft: { domain_label: null, role_label: null, skills: [], experiences: full } }),
-      "aur bhi hai",
-      [],
-      CTX,
-    );
-    expect(out?.done).toBe(true);
+  it("ends Phase A once the experience cap is reached, without a call", async () => {
+    const { svc, ai } = make();
+    const out = await svc.take(env(withEntries(MAX_EXPERIENCE_ENTRIES)), "aur bhi hai", [], CTX);
+    expect(out?.kind).toBe("done");
+    expect(ai.llmTurn).not.toHaveBeenCalled();
+  });
+
+  it("ends Phase A when the model's OWN turn fills the last experience slot", async () => {
+    // The gate is not offered when there is nothing left to offer — the entry that arrived on
+    // this turn is the fifth, so the loop has nowhere to go.
+    const { svc } = make({ turn: TURN({ experience_entry: ENTRY }) });
+    const out = await svc.take(env(withEntries(MAX_EXPERIENCE_ENTRIES - 1)), "ek aur", [], CTX);
+    expect(out?.kind).toBe("done");
+    expect(out?.patch.llmDraft?.experiences).toHaveLength(MAX_EXPERIENCE_ENTRIES);
   });
 
   it("honours the model's phase_a_done as advice when no cap has fired", async () => {
     const { svc } = make({ turn: TURN({ phase_a_done: true }) });
-    expect((await svc.take(env(), "bas", [], CTX))?.done).toBe(true);
+    expect((await svc.take(env(), "bas", [], CTX))?.kind).toBe("done");
+  });
+
+  it("keeps the model's findings on the turn that ends Phase A", async () => {
+    // The last turn is still a turn: dropping its draft would lose whatever the worker said in
+    // the sentence that finished the phase.
+    const { svc } = make({ turn: TURN({ phase_a_done: true, skills: ["tandoor"] }) });
+    const out = await svc.take(env(), "bas itna hi", [], CTX);
+    expect(out?.patch.llmDraft?.skills).toEqual(["tandoor"]);
+    expect(out?.patch.llmStage).toBe("done");
   });
 });
 
@@ -123,40 +163,71 @@ describe("the experience loop gate is engine-served", () => {
   it("serves the Yes/No gate with typing disabled after an experience is captured", async () => {
     const { svc } = make({ turn: TURN({ experience_entry: ENTRY }) });
     const out = await svc.take(env(), "3 saal tandoor pe", [], CTX);
-    expect(out?.reply).toBe(EXPERIENCE_GATE_PROMPT);
-    expect(out?.questionKey).toBe(EXPERIENCE_GATE_KEY);
-    expect(out?.inputMode).toBe("options_only");
-    expect(out?.chips).toHaveLength(2);
+    expect(out).toMatchObject({
+      kind: "ask",
+      reply: EXPERIENCE_GATE_PROMPT,
+      inputMode: "options_only",
+    });
+    expect(out?.kind === "ask" && out.chips).toHaveLength(2);
+    expect(out?.patch.llmGateOpen).toBe(true);
     expect(out?.patch.llmDraft?.experiences).toHaveLength(1);
+  });
+
+  it("spends no ask on the gate — the model's discarded question was never asked", async () => {
+    const { svc } = make({ turn: TURN({ experience_entry: ENTRY }) });
+    const out = await svc.take(env({ llmAsks: 4 }), "3 saal", [], CTX);
+    expect(out?.patch.llmAsks).toBeUndefined();
   });
 
   it("settles the gate WITHOUT calling the model — 'did they say yes' is not a judgement", async () => {
     const { svc, ai } = make();
-    const out = await svc.take(env({ servedQuestionKey: EXPERIENCE_GATE_KEY }), "Haan", [], CTX);
-    expect(ai.llmTurn).not.toHaveBeenCalled();
-    expect(out?.done).toBe(false);
-    expect(out?.patch.llmStage).toBe("experience");
+    const out = await svc.take(env({ llmGateOpen: true }), "Haan", [], CTX);
+    // One call, and it is the NEXT experience question — not a call to read the tap.
+    expect(ai.llmTurn).toHaveBeenCalledTimes(1);
+    expect(out?.kind).toBe("ask");
+    expect(out?.patch.llmGateOpen).toBe(false);
+  });
+
+  it("asks the next experience question in the SAME turn as the Yes", async () => {
+    // A worker who taps Yes must not be handed an empty bubble and a second round trip.
+    const { svc } = make({ turn: TURN({ reply_text: "Uske pehle kahan kaam kiya?" }) });
+    const out = await svc.take(env({ llmGateOpen: true }), "Haan", [], CTX);
+    expect(out).toMatchObject({ kind: "ask", reply: "Uske pehle kahan kaam kiya?" });
   });
 
   it("ends Phase A when the worker declines another experience", async () => {
-    const { svc } = make();
-    const out = await svc.take(env({ servedQuestionKey: EXPERIENCE_GATE_KEY }), "Nahi", [], CTX);
-    expect(out?.done).toBe(true);
-    expect(out?.patch.llmStage).toBe("done");
+    const { svc, ai } = make();
+    const out = await svc.take(env({ llmGateOpen: true }), "Nahi", [], CTX);
+    expect(out).toMatchObject({ kind: "done" });
+    expect(out?.patch).toMatchObject({ llmStage: "done", llmGateOpen: false });
+    expect(ai.llmTurn).not.toHaveBeenCalled();
   });
 
   it("treats an unreadable gate answer as 'no' rather than looping forever", async () => {
     const { svc } = make();
-    const out = await svc.take(env({ servedQuestionKey: EXPERIENCE_GATE_KEY }), "^V", [], CTX);
-    expect(out?.done).toBe(true);
+    expect((await svc.take(env({ llmGateOpen: true }), "^V", [], CTX))?.kind).toBe("done");
   });
 
   it("accepts a TYPED yes, because shipped clients still render the keyboard", async () => {
     // Until the Flutter client honours `input_mode`, an options_only turn still shows a
     // TextField. A typed "haan ji" has to work or the interview dead-ends on a rendering gap.
     const { svc } = make();
-    const out = await svc.take(env({ servedQuestionKey: EXPERIENCE_GATE_KEY }), "haan ji", [], CTX);
-    expect(out?.done).toBe(false);
+    expect((await svc.take(env({ llmGateOpen: true }), "haan ji", [], CTX))?.kind).toBe("ask");
+  });
+
+  it("reads a worker who just starts describing the next job as a Yes", async () => {
+    const { svc } = make();
+    const out = await svc.take(env({ llmGateOpen: true }), "uske pehle main helper tha", [], CTX);
+    expect(out?.kind).toBe("ask");
+  });
+
+  it("closes the gate even when the cap ends Phase A on the same turn", async () => {
+    // Leaving `llmGateOpen` set would make the worker's next sentence be read as a yes/no answer
+    // to a question that is no longer on screen.
+    const { svc } = make();
+    const out = await svc.take(env({ llmGateOpen: true, llmAsks: MAX_LLM_ASKS }), "Haan", [], CTX);
+    expect(out?.kind).toBe("done");
+    expect(out?.patch).toMatchObject({ llmGateOpen: false, llmStage: "done" });
   });
 });
 

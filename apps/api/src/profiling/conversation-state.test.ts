@@ -90,6 +90,9 @@ const FULL: ProfilingEnvelope = {
     whyText: "Isse hum aapke sheher ke kaam dikha payenge.",
     answerType: "single_select",
     lookahead: null,
+    // NON-DEFAULT for the same reason as everything else here: `text` is what a `narrow` that
+    // dropped the field would rebuild.
+    inputMode: "options_only",
   },
   // Every bucket distinct and non-zero, for the same reason as every other field here: a
   // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.
@@ -107,6 +110,7 @@ const FULL: ProfilingEnvelope = {
   },
   llmAsks: 5,
   llmFallback: true,
+  llmGateOpen: true,
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {

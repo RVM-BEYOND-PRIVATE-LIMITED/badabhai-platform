@@ -278,6 +278,8 @@ export class ChatService {
             unanswered_essentials: [],
             session_ended: outcome.flushed,
             question_kind: "close",
+            // A finished interview constrains nothing; typing is available as it always was.
+            input_mode: "text",
             progress: null,
             occupation_label: null,
             // No prediction on a turn that served no pack question.
@@ -312,6 +314,10 @@ export class ChatService {
             unanswered_essentials: [],
             session_ended: false,
             question_kind: outcome.turn.kind,
+            // FROM THE REPLAYED TURN, for the same reason the chips above are. The gate is served
+            // `options_only`, and re-deriving `text` here would give a worker who resubmitted over
+            // a bad link a keyboard where the response it claims to repeat had two buttons.
+            input_mode: outcome.turn.inputMode ?? "text",
             progress: outcome.turn.progress,
             occupation_label: null,
             // No prediction on a turn that served no pack question.
@@ -585,6 +591,10 @@ export class ChatService {
       // #649 was raised to fix. The orchestrator knew at the offer branch and the fact was thrown
       // away one layer down.
       question_kind: turn.kind,
+      // TYPING ON OR OFF. Absent on every turn but two, and absent means `text` — the same
+      // asymmetry `lookahead` uses, and for the same reason: forgetting it produces today's
+      // behaviour rather than a wrong screen.
+      input_mode: turn.inputMode ?? "text",
       // The completion bar. The single biggest lever on completion rate for low-literacy
       // users, and impossible to compute under the LLM path — the model never knew how
       // many questions were left because it invented each one as it went.
@@ -951,6 +961,8 @@ export class ChatService {
         // The session is still very much alive; the worker should retry into it.
         session_ended: false,
         question_kind: "ask",
+        // No turn happened, so nothing constrains the answer: the worker retries by typing.
+        input_mode: "text",
         // NULL, not {0,0}. No turn happened, so there is no progress to report — and a
         // zeroed bar would render as "you have answered nothing" to a worker who has
         // answered eleven questions.
@@ -986,6 +998,8 @@ export class ChatService {
         unanswered_essentials: [],
         session_ended: true,
         question_kind: "close",
+        // A dead session serves no question, so it constrains no answer either.
+        input_mode: "text",
         progress: null,
         occupation_label: null,
         // No prediction on a turn that served no pack question.

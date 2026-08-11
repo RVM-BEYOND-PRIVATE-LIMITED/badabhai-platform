@@ -553,9 +553,11 @@ export const LlmTurnInputSchema = z.object({
   draft: LlmInterviewDraftSchema.default({}),
   experience_count: z.number().int().nonnegative().default(0),
   /**
-   * The API has hit a cap and this is the model's LAST turn. It must close, not ask.
-   * Sent because the caps live on the API side — the model is told the interview is over
-   * rather than being trusted to decide it is.
+   * This is the model's LAST allowed question — ask the most valuable one left, then stop.
+   *
+   * Sent because the caps live on the API side: the far end is stateless and cannot count its
+   * own turns. A cap that has ALREADY fired is not signalled here at all — the API simply ends
+   * Phase A without calling, so a runaway costs nothing. This is the one turn before that.
    */
   force_close: z.boolean().default(false),
 });

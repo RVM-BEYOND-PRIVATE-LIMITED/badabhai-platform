@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 
 import { IdentifyService } from "./identify.service";
+import { LlmTurnService } from "./llm-turn.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
 import { PackCacheService } from "./pack-cache.service";
 import { PackRegistryService } from "./pack-registry.service";
@@ -76,6 +77,9 @@ describe("ProfilingModule wiring", () => {
       PackCacheService,
       PackRegistryService,
       IdentifyService,
+      // The LLM-led opening. A CONSTRUCTOR dependency of the orchestrator, so omitting it here
+      // does not fail a metadata test — it fails BOOT, exactly as `PackCacheService` above.
+      LlmTurnService,
       ProfilingOrchestrator,
       ProfilingSessionService,
       ProfilingVoiceRepository,

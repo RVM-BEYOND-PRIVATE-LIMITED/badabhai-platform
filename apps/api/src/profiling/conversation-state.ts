@@ -38,6 +38,7 @@ import type {
   AnswerRecord,
   AnswerType,
   ConversationState,
+  InputMode,
   LlmInterviewDraft,
   LlmInterviewStage,
   OccupationPin,
@@ -149,6 +150,16 @@ export interface LastTurn {
    * one path whose entire purpose is to be cheaper than taking the turn again.
    */
   readonly lookahead: Lookahead | null;
+  /**
+   * Whether typing was offered on that turn — see `TurnResult.inputMode`.
+   *
+   * CACHED FOR THE SAME REASON `kind` AND `options` ARE. The experience loop's gate is served
+   * `options_only`, and re-deriving `text` on the replay path would hand a worker who resubmitted
+   * over a flaky link a keyboard where the previous response had two buttons. It degrades
+   * safely — typed text is accepted on that turn either way — but "degrades safely" is what was
+   * said about the dropped chips too, and this cache promises the response it claims to repeat.
+   */
+  readonly inputMode: InputMode;
 }
 
 /**
@@ -301,6 +312,19 @@ export interface ProfilingEnvelope {
    * fallback exists to finish the conversation, not to keep auditioning the model.
    */
   readonly llmFallback: boolean;
+  /**
+   * The worker is looking at "Aur koi experience jodna hai?" — the experience loop's Yes/No gate.
+   *
+   * ITS OWN FIELD RATHER THAN A RESERVED `servedQuestionKey`, and the reason is a leak this
+   * closes by construction. Every branch below `decide()` reads `servedQuestionKey` as "the pack
+   * question the worker is answering": `recordDeclined` and `recordUnanswered` write it straight
+   * into `answerMap`, `packAnswerRowFor` carries that into `worker_pack_answer`, and its
+   * `^[a-z_]+$` guard would have ACCEPTED a synthetic key — underscores are in the character
+   * class. A gate answer would then have been filed as an answer to a question no pack owns and
+   * re-read by the worker's next interview. A separate boolean cannot be mistaken for a question
+   * key by anything, so `servedQuestionKey` stays null for the whole LLM-led stretch.
+   */
+  readonly llmGateOpen: boolean;
 }
 
 /**
@@ -389,6 +413,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmDraft: true,
   llmAsks: true,
   llmFallback: true,
+  llmGateOpen: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -422,6 +447,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
     llmAsks: 0,
     llmFallback: false,
+    llmGateOpen: false,
   };
 }
 
@@ -533,6 +559,9 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     // one whose shape drifted — degrades to today's behaviour rather than being discarded or
     // replayed with a half-parsed prediction.
     lookahead: lookaheadOf(v.lookahead),
+    // ABSENT NARROWS TO `text`, the same "degrade to today's behaviour" rule `kind` follows: an
+    // entry written before this field existed described a turn on which typing was allowed.
+    inputMode: v.inputMode === "options_only" ? "options_only" : "text",
   };
 }
 
@@ -623,7 +652,7 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     turnLatency: narrowTurnLatency(v.turnLatency),
     occupationFamilyId: typeof v.occupationFamilyId === "string" ? v.occupationFamilyId : null,
     occupationRepins: nonNegativeInt(v.occupationRepins),
-    // ABSENT IS NOT AN ERROR. Every envelope written before Phase A existed lacks all four, and
+    // ABSENT IS NOT AN ERROR. Every envelope written before Phase A existed lacks all five, and
     // those interviews are still in flight behind the 24 h TTL. They resume at the start of the
     // LLM stage with an empty draft — and because the orchestrator gates on the FLAG rather than
     // the stage, an interview that began deterministically stays deterministic unless the flag
@@ -632,6 +661,10 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     llmDraft: narrowLlmDraft(v.llmDraft),
     llmAsks: nonNegativeInt(v.llmAsks),
     llmFallback: v.llmFallback === true,
+    // FALSE ON ANYTHING BUT A LITERAL `true`, which is what makes a lost or corrupted envelope
+    // resume with the gate CLOSED. The alternative failure — resuming with it open — leaves the
+    // worker's next sentence read as a yes/no answer to a question that is no longer on screen.
+    llmGateOpen: v.llmGateOpen === true,
   };
 }
 

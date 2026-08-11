@@ -175,6 +175,10 @@ function makeWorld(
   // Typed to TAKE its argument, so a test can assert on the emitted payload — `vi.fn(async () =>
   // …)` infers a zero-arg signature and `mock.calls[0][0]` is then a compile error.
   const events = { emit: vi.fn(async (_params: unknown) => undefined) };
+  // THE LLM PATH IS OFF IN EVERY TEST IN THIS FILE, which is the point: what is asserted below is
+  // the deterministic engine, and it must behave identically whether the flag exists or not.
+  // `leads()` returning false is the whole of "off" as far as the orchestrator can tell.
+  const llm = { leads: () => false, take: vi.fn(async () => null) };
 
   const orchestrator = new ProfilingOrchestrator(
     buffer as never,
@@ -182,6 +186,7 @@ function makeWorld(
     identify as never,
     chat as never,
     events as never,
+    llm as never,
   );
   return {
     orchestrator,
@@ -627,6 +632,7 @@ describe("LAYER A — the reply cache", () => {
         whyText: null,
         answerType: null,
         lookahead: null,
+        inputMode: "text" as const,
       },
     });
     const result = await orchestrator.takeTurn(say("main pune me rehta hu"));
@@ -914,6 +920,7 @@ describe("the mid-interview checkpoint boundary (Phase 9, risk #10)", () => {
         whyText: null,
         answerType: null,
         lookahead: null,
+        inputMode: "text" as const,
       },
     });
 
