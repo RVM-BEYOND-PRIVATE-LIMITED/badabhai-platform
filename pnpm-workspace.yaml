@@ -1,6 +1,60 @@
 # pnpm workspace definition for the BadaBhai monorepo.
 # Python (apps/ai-service) and Flutter (apps/worker-app) manage their own
 # toolchains and are intentionally NOT part of the pnpm workspace.
+
+# ---------------------------------------------------------------------------
+# Supply-chain policy (#737). Three settings semgrep's OSS supply-chain rules
+# flag as absent. All three are supported by the pinned `pnpm@11.5.2` in
+# package.json, and none of them changes what resolves TODAY — verified against
+# the committed lockfile before turning them on.
+# ---------------------------------------------------------------------------
+
+# Refuse TRANSITIVE dependencies that resolve from anywhere but the registry —
+# git URLs, tarball URLs, arbitrary hosts. This is the setting that closes the
+# "a sub-dependency quietly starts pulling from a GitHub branch" path, which no
+# lockfile review reliably catches because the diff looks like any other bump.
+# SAFE TO ENABLE TODAY: `grep -cE "tarball:|repo:|git\+|https://github" pnpm-lock.yaml`
+# is 0 — every dependency in the tree already comes from the registry, so this
+# records the status quo rather than changing it. (pnpm >= 10.26.0)
+blockExoticSubdeps: true
+
+# Do not install a version published less than 7 days ago (10080 minutes).
+# THIS IS THE ONE THAT ACTUALLY BUYS TIME. Registry-account takeovers and
+# post-install-script attacks are found and yanked in hours-to-days; a cooling-off
+# window means the compromised version is gone before this repo would have taken
+# it. It does NOT affect `--frozen-lockfile` (CI resolves nothing), so the cost is
+# confined to a deliberate dependency bump landing up to a week later.
+# (pnpm >= 10.16.0)
+minimumReleaseAge: 10080
+
+# Refuse a version whose publish-trust evidence is WEAKER than that of any
+# earlier-published version of the same package — the signature of an account
+# takeover, where the attacker can publish but cannot reproduce the maintainer's
+# provenance attestation. The check is ordered by PUBLISH DATE, not semver.
+# (pnpm >= 10.21.0)
+trustPolicy: no-downgrade
+
+# Two entries in the committed lockfile fail that check TODAY, so the policy above
+# cannot be turned on without them. Both were measured against the registry
+# metadata rather than assumed:
+#
+#   chokidar@4.0.3      3.6.0, 4.0.0 and 4.0.1 carry provenance attestations; 4.0.3
+#                       carries none. Pulled transitively (vite / tsup watchers).
+#   undici-types@6.21.0 79 versions of this package carry provenance; 6.21.0 does
+#                       not. Ships as a dependency of @types/node.
+#
+# ASSESSED AS MAINTAINER PUBLISHING DRIFT, NOT COMPROMISE: in both cases the
+# package is a long-lived, heavily-depended-on library whose maintainer published a
+# release without the provenance step, and no advisory exists against either
+# version. The honest description is "unverifiable by this mechanism", not "known
+# good" — which is why the exclusions are PINNED TO THE EXACT VERSION rather than
+# to the package name. Any OTHER version of these two packages still fails, and a
+# downgrade in any other package still fails. Re-check on the next bump: if a later
+# chokidar/undici-types restores provenance, delete the line instead of editing it.
+trustPolicyExclude:
+  - chokidar@4.0.3
+  - undici-types@6.21.0
+
 packages:
   - "apps/api"
   - "apps/web"
