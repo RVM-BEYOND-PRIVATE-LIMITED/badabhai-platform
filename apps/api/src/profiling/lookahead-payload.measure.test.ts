@@ -1,12 +1,23 @@
 /**
- * #766 item 1 — MEASURE the lookahead's payload cost against the shipped corpus.
+ * #766 item 1 — MEASURE the lookahead's payload cost against the shipped corpus, AND HOLD IT.
  *
- * Not a test: a measurement script, run on demand, whose output is the number the decision in
- * #766 needs. The review estimated "~4-8x" growth and a reviewer argued most entries are
- * redundant; both were unmeasured, and #766 says the answer may change the contract, so it has
- * to be measured before #761 makes a client depend on the shape.
+ * The review estimated "~4-8x" growth and a reviewer argued most entries are redundant; both were
+ * unmeasured, and #766 says the answer may change the contract, so it had to be measured before
+ * #761 makes a client depend on the shape.
  *
- * Run:  pnpm --filter @badabhai/api exec tsx src/profiling/lookahead-payload.measure.ts
+ * IT ASSERTS, IT DOES NOT ONLY PRINT — and the distinction is the whole reason it lives in the
+ * suite. A `.test.ts` whose body is `console.log` runs on every CI run, cannot fail, and reads as
+ * coverage while providing none; the numbers below would then be true on the day they were pasted
+ * into the PR and unowned forever after. The decision in #766 rests on two properties of the
+ * CORPUS, not of the code — gzipped growth stays small, and the added bytes stay cheaper than the
+ * round trip they remove — and a corpus is exactly the kind of thing that changes without anyone
+ * thinking about payload size. Author a pack with twenty verbose branches and this goes red.
+ *
+ * The bounds are deliberately loose (see `MAX_GZIP_GROWTH`): they are there to catch a change of
+ * KIND, not to pin today's digits, which would fail on the next legitimate question added.
+ *
+ * The full report still prints. Run just this file to read it:
+ *   pnpm --filter @badabhai/api exec vitest run src/profiling/lookahead-payload.measure.test.ts
  *
  * WHAT IT MEASURES, and why each choice:
  *   - The REAL corpus (`packages/db/data/question-packs/packs`), not a fixture — the redundancy
@@ -127,7 +138,17 @@ interface Row {
   fullGz: number;
 }
 
-function main(): void {
+interface Measurement {
+  rows: Row[];
+  /** Single-select asks that produced a prediction — the vacuity guard's subject. */
+  predicted: number;
+  /** Mean gzipped bytes the lookahead ADDS to a turn. */
+  addedGzAvg: number;
+  /** Whole-corpus gzipped size WITH the lookahead ÷ without it. */
+  totalGzRatio: number;
+}
+
+function main(): Measurement {
   const universalRaw = JSON.parse(readFileSync(join(PACK_DIR, "qp_universal.json"), "utf8")) as {
     items: Record<string, unknown>[];
   };
@@ -242,9 +263,38 @@ function main(): void {
     );
   }
   console.log();
+
+  return { rows, predicted, addedGzAvg, totalGzRatio: sum((r) => r.fullGz) / sum((r) => r.baseGz) };
 }
 
-import { it } from "vitest";
+/**
+ * A CHANGE OF KIND, NOT TODAY'S DIGITS. Measured 1.92x gzipped; the bound sits well above that
+ * so an added question never fails this, while the "6x raw, so it must be ~6x on the wire"
+ * scenario the review feared does. Move it only WITH a re-measurement in the commit message.
+ */
+const MAX_GZIP_GROWTH = 3.0;
+
+/**
+ * The slowest link we design for, and its round trip (the numbers printed above). If the added
+ * payload ever costs more to send than the round trip it removes, the feature is upside-down for
+ * the workers it exists for and #761 must not ship against it.
+ */
+const GPRS_KBPS = 40;
+const GPRS_RTT_MS = 650;
+
+import { expect, it } from "vitest";
 it("measures the lookahead payload cost against the shipped corpus (#766)", () => {
-  main();
+  const { predicted, addedGzAvg, totalGzRatio } = main();
+
+  // VACUITY GUARD FIRST. Every bound below passes trivially against an empty corpus — a moved
+  // pack directory, a renamed `answer_type`, or a `computeLookahead` that starts declining
+  // everything would all read as "cost is fine" rather than "nothing was measured".
+  expect(predicted).toBeGreaterThan(20);
+
+  expect(totalGzRatio).toBeLessThan(MAX_GZIP_GROWTH);
+
+  // The decision itself, held as an assertion: sending the prediction must stay cheaper than the
+  // round trip it removes on the slowest link.
+  const txMs = ((addedGzAvg * 8) / (GPRS_KBPS * 1000)) * 1000;
+  expect(txMs).toBeLessThan(GPRS_RTT_MS);
 });
