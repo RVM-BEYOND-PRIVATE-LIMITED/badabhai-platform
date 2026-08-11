@@ -12,6 +12,12 @@ import {
   JobPostingChatTurnOutputSchema,
   PseudonymizationOutputSchema,
   ProfileParseOutputSchema,
+  LlmTurnOutputSchema,
+  InterviewExtractOutputSchema,
+  type LlmTurnInput,
+  type LlmTurnOutput,
+  type InterviewExtractInput,
+  type InterviewExtractOutput,
   type PseudonymizationOutput,
   type ProfileParseInput,
   type ProfileParseOutput,
@@ -289,6 +295,41 @@ export class AiService {
    */
   async parseProfile(input: ProfileParseInput): Promise<ProfileParseOutput | null> {
     return this.post("/profile/parse", input, ProfileParseOutputSchema);
+  }
+
+  /**
+   * ONE turn of the LLM-led interview (Phase A) — the model picks the next question about
+   * domain, role, skills or experience.
+   *
+   * `null` MEANS "YOU TAKE THIS TURN", and every failure collapses to it: the service down, a
+   * 429, a deadline, mock posture, a spend cap, a blocked message, malformed JSON. The caller
+   * holds an authored pack question ready and its response to all of those is identical, so
+   * distinguishing them here would only invite a caller to handle them differently — and the
+   * one thing that must never happen is a worker seeing a broken turn because a model was
+   * slow. The far side already collapses its own failures to an empty `reply_text`; this
+   * normalises that to `null` so there is exactly one fallback trigger.
+   */
+  async llmTurn(input: LlmTurnInput): Promise<LlmTurnOutput | null> {
+    const out = await this.post("/profiling/turn", input, LlmTurnOutputSchema);
+    if (out === null || !out.reply_text.trim()) return null;
+    return out;
+  }
+
+  /**
+   * Phase C — the whole conversation in, the resume-shaped values out.
+   *
+   * SEPARATE FROM `parseProfile`, and the separation is the point. That call types and cites a
+   * deterministic answer map against a closed field list ("the answer for salary_expected was
+   * `pandrah hazaar` — return the typed value and quote the span"). This one reads a
+   * conversation the model itself conducted and must SYNTHESISE across turns: `experiences[]`
+   * has no answer-map equivalent, because a pack asks its fixed question once and a worker
+   * with three jobs has three different answers to "what did you do".
+   *
+   * `null` on failure, and the caller keeps the deterministic projection — which is already a
+   * usable profile. This is an overlay, never the profile itself.
+   */
+  async extractInterview(input: InterviewExtractInput): Promise<InterviewExtractOutput | null> {
+    return this.post("/profiling/extract", input, InterviewExtractOutputSchema);
   }
 
   /**

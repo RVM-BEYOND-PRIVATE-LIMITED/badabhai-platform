@@ -75,6 +75,10 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     turnLatency: emptyTurnLatency(),
     occupationFamilyId: "fam_tailoring",
     occupationRepins: 0,
+    llmStage: "domain",
+    llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+    llmAsks: 0,
+    llmFallback: false,
     ...over,
   };
 }

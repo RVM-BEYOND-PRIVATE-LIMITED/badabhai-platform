@@ -38,6 +38,8 @@ import type {
   AnswerRecord,
   AnswerType,
   ConversationState,
+  LlmInterviewDraft,
+  LlmInterviewStage,
   OccupationPin,
   ProfilingPhase,
   QuestionPackOption,
@@ -275,6 +277,30 @@ export interface ProfilingEnvelope {
    * machines walk the interview through a different pack every turn, answering nothing.
    */
   readonly occupationRepins: number;
+  /**
+   * How far the LLM-led stretch (Phase A) has got: domain → role → skills → experience → done.
+   *
+   * THE MODEL REPORTS THIS, THE API STORES IT, AND ONLY THE API ACTS ON IT. The far side is
+   * stateless by design — it holds no session and cannot count turns — so the stage lives here
+   * or nowhere. A model that could carry its own progress could also decide it was not finished.
+   */
+  readonly llmStage: LlmInterviewStage;
+  /** What the model has gathered so far, echoed back each turn to keep the call stateless. */
+  readonly llmDraft: LlmInterviewDraft;
+  /**
+   * How many Phase A questions the model has actually asked. The cap's counter.
+   *
+   * Separate from `engineAsks` on purpose: they bound different things and mixing them would
+   * let a long LLM phase eat the pack's budget, or a long pack phase silently end the LLM's.
+   */
+  readonly llmAsks: number;
+  /**
+   * The model went away and the deterministic engine took over. STICKY for the rest of the
+   * interview rather than per-turn: an interview that flips between an LLM voice and an
+   * authored one every few turns reads as two different people talking to the worker, and the
+   * fallback exists to finish the conversation, not to keep auditioning the model.
+   */
+  readonly llmFallback: boolean;
 }
 
 /**
@@ -359,6 +385,10 @@ export const PROFILING_ENVELOPE_KEYS = {
   turnLatency: true,
   occupationFamilyId: true,
   occupationRepins: true,
+  llmStage: true,
+  llmDraft: true,
+  llmAsks: true,
+  llmFallback: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -385,6 +415,13 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     turnLatency: emptyTurnLatency(),
     occupationFamilyId: null,
     occupationRepins: 0,
+    // Phase A starts at the beginning even when the flag is off: the orchestrator gates on the
+    // flag, never on the stage, so an envelope written while it was off resumes correctly if it
+    // is flipped on mid-interview.
+    llmStage: "domain",
+    llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+    llmAsks: 0,
+    llmFallback: false,
   };
 }
 
@@ -586,6 +623,66 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     turnLatency: narrowTurnLatency(v.turnLatency),
     occupationFamilyId: typeof v.occupationFamilyId === "string" ? v.occupationFamilyId : null,
     occupationRepins: nonNegativeInt(v.occupationRepins),
+    // ABSENT IS NOT AN ERROR. Every envelope written before Phase A existed lacks all four, and
+    // those interviews are still in flight behind the 24 h TTL. They resume at the start of the
+    // LLM stage with an empty draft — and because the orchestrator gates on the FLAG rather than
+    // the stage, an interview that began deterministically stays deterministic unless the flag
+    // says otherwise.
+    llmStage: narrowLlmStage(v.llmStage),
+    llmDraft: narrowLlmDraft(v.llmDraft),
+    llmAsks: nonNegativeInt(v.llmAsks),
+    llmFallback: v.llmFallback === true,
+  };
+}
+
+const LLM_STAGES: readonly LlmInterviewStage[] = ["domain", "role", "skills", "experience", "done"];
+
+function narrowLlmStage(value: unknown): LlmInterviewStage {
+  return LLM_STAGES.find((candidate) => candidate === value) ?? "domain";
+}
+
+/**
+ * A stored draft, or an empty one — narrowed FIELD BY FIELD like everything else here.
+ *
+ * `experiences` is rebuilt entry by entry rather than trusted wholesale: it round-trips through
+ * Redis as plain JSON, and the whole reason `ExperienceEntry` forbids extra keys at the service
+ * boundary is that an employer name must not survive into storage. Re-narrowing here means it
+ * cannot get back in through the buffer either.
+ */
+function narrowLlmDraft(value: unknown): LlmInterviewDraft {
+  const empty: LlmInterviewDraft = {
+    domain_label: null,
+    role_label: null,
+    skills: [],
+    experiences: [],
+  };
+  if (typeof value !== "object" || value === null) return empty;
+  const v = value as Record<string, unknown>;
+  const strings = (raw: unknown): string[] =>
+    Array.isArray(raw) ? raw.filter((s): s is string => typeof s === "string") : [];
+  const experiences = Array.isArray(v.experiences)
+    ? v.experiences.flatMap((entry) => {
+        if (typeof entry !== "object" || entry === null) return [];
+        const e = entry as Record<string, unknown>;
+        if (typeof e.role_label !== "string" || e.role_label.length === 0) return [];
+        return [
+          {
+            role_label: e.role_label,
+            duration_text: typeof e.duration_text === "string" ? e.duration_text : "",
+            duration_months:
+              typeof e.duration_months === "number" && Number.isInteger(e.duration_months)
+                ? e.duration_months
+                : null,
+            work_done: typeof e.work_done === "string" ? e.work_done : "",
+          },
+        ];
+      })
+    : [];
+  return {
+    domain_label: typeof v.domain_label === "string" ? v.domain_label : null,
+    role_label: typeof v.role_label === "string" ? v.role_label : null,
+    skills: strings(v.skills),
+    experiences,
   };
 }
 

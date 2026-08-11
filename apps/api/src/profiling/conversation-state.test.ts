@@ -96,6 +96,17 @@ const FULL: ProfilingEnvelope = {
   turnLatency: { le_100: 4, le_200: 3, le_400: 2, le_800: 1, gt_800: 5, max_ms: 1234 },
   occupationFamilyId: "fam_welding",
   occupationRepins: 1,
+  llmStage: "experience",
+  llmDraft: {
+    domain_label: "cooking",
+    role_label: "tandoor cook",
+    skills: ["naan", "roti"],
+    experiences: [
+      { role_label: "tandoor cook", duration_text: "3 saal", duration_months: 36, work_done: "naan" },
+    ],
+  },
+  llmAsks: 5,
+  llmFallback: true,
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {
