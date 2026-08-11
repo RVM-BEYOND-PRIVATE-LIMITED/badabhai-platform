@@ -7,7 +7,12 @@ import asyncio
 from fastapi import APIRouter
 
 from ..ai import cost_tracker
-from ..ai.embeddings import EMBEDDING_TASK_TYPE, MOCK_MODEL, embed_text
+from ..ai.embeddings import (
+    EMBED_REQUEST_BATCH,
+    EMBEDDING_TASK_TYPE,
+    MOCK_MODEL,
+    embed_texts,
+)
 from ..ai.langfuse_tracing import get_tracer
 from ..ai.model_config import rate_inr_per_1k
 from ..config import Settings, get_settings
@@ -29,7 +34,7 @@ def _embed_batch_sync(
     in_rate: float,
 ) -> tuple[list[SkillAliasEmbedResult], float, int, bool]:
     """Per-item embed loop for POST /embeddings/skill-alias. SYNC on purpose
-    (``embed_text`` is a sync httpx call) and dispatched via ``asyncio.to_thread``
+    (``embed_texts`` is a sync httpx call) and dispatched via ``asyncio.to_thread``
     so the event loop keeps serving while a real batch runs (same posture as the
     #222 fix). Returns ``(results, cost_inr, errors, budget_stopped)``. The
     per-request INR ceiling stays enforced INSIDE the loop — belt + suspenders
@@ -73,23 +78,70 @@ def _embed_loop(
     cost_inr = 0.0
     errors = 0
     budget_stopped = False
-    for item in items:
+    # Chunked so ONE provider request carries up to EMBED_REQUEST_BATCH aliases. The
+    # binding constraint on the corpus embed is the provider's per-day REQUEST quota,
+    # not spend: at one request per alias the 9121-row corpus needs 9121 requests
+    # against a 1000/day free-tier cap, which is what stalled a real run at 998 rows.
+    #
+    # The per-request INR ceiling is consequently checked per CHUNK rather than per
+    # item — the finest granularity a batched provider call allows. It stays a real
+    # guard: alias texts are ~3-token strings, so a full runner batch is a small
+    # fraction of a paisa and the cap can only be approached over many chunks.
+    for start in range(0, len(items), EMBED_REQUEST_BATCH):
         if not is_mock and cost_inr >= settings.ai_max_call_cost_inr:
             budget_stopped = True
             break
+        chunk = items[start : start + EMBED_REQUEST_BATCH]
+        if not is_mock:
+            # Take only the prefix of this chunk that fits under the ceiling. Batching
+            # means cost can no longer be observed between items, so the affordability
+            # decision moves BEFORE the call — otherwise a 100-item chunk would commit
+            # the whole batch's spend before the guard could look at it, and the
+            # ceiling would degrade from an item-level stop to a chunk-level one.
+            #
+            # Projected on the RAW text, unlike the ACTUAL accumulation below, which
+            # stays on the pseudonymized text the provider saw. Pseudonymization
+            # substitutes placeholders of similar length, so the two agree closely;
+            # the estimate only decides where to cut, never what is recorded.
+            affordable: list[SkillAliasEmbedItem] = []
+            projected = cost_inr
+            for item in chunk:
+                if projected >= settings.ai_max_call_cost_inr:
+                    budget_stopped = True
+                    break
+                affordable.append(item)
+                projected += (cost_tracker.estimate_tokens(item.text) / 1000.0) * in_rate
+            chunk = affordable
+        if not chunk:
+            break
         try:
-            res = embed_text(item.text, settings)
+            embedded = embed_texts([item.text for item in chunk], settings)
         except Exception:
-            # Real-provider failure (HTTP error / timeout / dim mismatch). Skip the item —
-            # it stays NULL for a later run; keep the embeds this request already paid for.
-            # Never logs the text.
-            errors += 1
+            # embed_texts already isolates provider failures to their own chunk; this
+            # is the belt-and-suspenders path for anything it does not catch. The rows
+            # stay NULL for a later run. Never logs the text.
+            errors += len(chunk)
             continue
-        results.append(
-            SkillAliasEmbedResult(alias_id=item.alias_id, vector=res.vector, blocked=res.blocked)
-        )
-        if not is_mock and not res.blocked:
-            cost_inr += (cost_tracker.estimate_tokens(res.text or "") / 1000.0) * in_rate
+        # strict=True: embed_texts returns exactly one slot per input, in order.
+        # Anything else would attach a vector to the wrong alias_id.
+        for item, res in zip(chunk, embedded, strict=True):
+            if res is None:
+                # Provider failure for THIS row: omit it entirely so the runner leaves
+                # the row NULL and resumes later. Deliberately NOT reported as blocked —
+                # blocked means fail-closed and sends a clean alias to a human.
+                errors += 1
+                continue
+            results.append(
+                SkillAliasEmbedResult(
+                    alias_id=item.alias_id, vector=res.vector, blocked=res.blocked
+                )
+            )
+            if not is_mock and not res.blocked:
+                cost_inr += (cost_tracker.estimate_tokens(res.text or "") / 1000.0) * in_rate
+        if budget_stopped:
+            # The ceiling cut this chunk short; the remaining items are OMITTED so
+            # the runner leaves those rows NULL and resumes on a later run.
+            break
     return results, cost_inr, errors, budget_stopped
 
 
@@ -99,7 +151,7 @@ async def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutp
     owner connection) POSTs alias-text batches; this service embeds and returns vectors —
     the DB read/write stays on the runner so the ai-service remains DB-free.
 
-    SG-2: every text is pseudonymized before the embed (inside ``embed_text``, fail-closed
+    SG-2: every text is pseudonymized before the embed (inside ``embed_texts``, fail-closed
     → ``vector=None, blocked=True`` and the runner leaves that row NULL). SG-4: mock by
     default (zero spend); the real provider additionally needs the master flag + key +
     the ``skill_embedding`` task allowlist. Never logs alias text.

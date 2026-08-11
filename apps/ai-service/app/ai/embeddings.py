@@ -50,6 +50,41 @@ MOCK_MODEL = "mock-embedding"
 _GEMINI_EMBED_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 _TIMEOUT_SECONDS = 30.0
 
+# Texts per ``batchEmbedContents`` call (provider cap).
+#
+# THIS IS A QUOTA FIX, not a latency tweak. The provider meters embedding REQUESTS,
+# not texts (`EmbedContentRequestsPerDayPerProjectPerModel`, 1000/day on the free
+# tier), so one request per alias put the 9121-row job 10 days wide and stalled a
+# real run at 998 rows mid-corpus. At 100 texts per request the same corpus is ~92
+# requests. The per-text price is identical either way — this buys request headroom
+# and wall-clock, and changes nothing about what is sent.
+EMBED_REQUEST_BATCH = 100
+# A 100-text batch does ~100x the work of a single embed, so it gets its own
+# ceiling; _TIMEOUT_SECONDS is sized for one text and would trip on a full batch.
+_BATCH_TIMEOUT_SECONDS = 300.0
+
+
+class ProviderEmbedError(RuntimeError):
+    """A provider embed call failed, carrying the HTTP status when there was one.
+
+    Exists for exactly one decision: whether splitting a failed batch can rescue the
+    rest of it. ``isolatable`` marks failures plausibly caused by ONE text in the
+    batch (a 4xx other than 429 — malformed content, too-long input); those are worth
+    bisecting, because the alternative is letting one bad alias discard the 99 good
+    embeds beside it. A 429, a 5xx, or a transport failure hits every text in the
+    request equally, so splitting there would multiply requests against a provider
+    that is already refusing them — precisely the wrong move when the binding
+    constraint is a per-day REQUEST quota.
+    """
+
+    def __init__(self, message: str, *, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
+    @property
+    def isolatable(self) -> bool:
+        return self.status is not None and 400 <= self.status < 500 and self.status != 429
+
 
 @dataclass
 class EmbeddingResult:
@@ -119,6 +154,176 @@ def _real_embedding(text: str, settings: Settings) -> list[float]:
     if norm <= 0.0:
         raise RuntimeError("skill_embedding: zero-norm vector from provider")
     return [v / norm for v in vector]
+
+
+def _real_embedding_batch(texts: list[str], settings: Settings) -> list[list[float]]:
+    """Embed many ALREADY-PSEUDONYMIZED texts in ONE provider request.
+
+    The batch twin of :func:`_real_embedding` — same model, same pinned
+    ``outputDimensionality``, same client-side L2 normalization, same
+    never-log-the-text rule. The ONLY difference is that N texts ride one HTTP
+    request instead of N, which is what keeps the corpus embed inside the
+    provider's per-day REQUEST quota (see ``EMBED_REQUEST_BATCH``).
+
+    Takes safe text and does NOT pseudonymize: SG-2 already ran in
+    :func:`embed_texts`, which is the only caller. Keeping the gateway in one
+    place means there is no second code path that could embed a raw phrase.
+
+    Order is load-bearing — the provider returns embeddings positionally, so the
+    count is checked before anything is mapped back to an alias id. A short or
+    reordered response raises rather than silently pairing a vector with the
+    wrong row, which at rest is indistinguishable from a correct embedding.
+    """
+    api_key = settings.gemini_flash_api_key
+    if not api_key:
+        raise RuntimeError("skill_embedding: real call enabled but GEMINI_FLASH_API_KEY unset")
+    model = settings.embedding_model
+    url = f"{_GEMINI_EMBED_BASE}/{model}:batchEmbedContents"
+    body = {
+        "requests": [
+            {
+                "model": f"models/{model}",
+                "content": {"parts": [{"text": text}]},
+                "outputDimensionality": EMBEDDING_DIMENSION,
+            }
+            for text in texts
+        ]
+    }
+    headers = {"x-goog-api-key": api_key}  # header, never a ?key= (avoids URL-log leak)
+    with httpx.Client(timeout=_BATCH_TIMEOUT_SECONDS) as client:
+        resp = client.post(url, headers=headers, json=body)
+    if resp.status_code < 200 or resp.status_code >= 300:
+        raise ProviderEmbedError(
+            f"skill_embedding provider HTTP {resp.status_code}", status=resp.status_code
+        )
+    embeddings = resp.json().get("embeddings") or []
+    if len(embeddings) != len(texts):
+        raise RuntimeError(
+            f"skill_embedding batch size mismatch: got {len(embeddings)}, sent {len(texts)}"
+        )
+    vectors: list[list[float]] = []
+    for entry in embeddings:
+        values = (entry or {}).get("values") or []
+        if len(values) != EMBEDDING_DIMENSION:
+            raise RuntimeError(
+                f"skill_embedding dim mismatch: got {len(values)}, expected {EMBEDDING_DIMENSION}"
+            )
+        vector = [float(v) for v in values]
+        norm = math.sqrt(sum(v * v for v in vector))
+        if norm <= 0.0:
+            raise RuntimeError("skill_embedding: zero-norm vector from provider")
+        vectors.append([v / norm for v in vector])
+    return vectors
+
+
+def embed_texts(texts: list[str], settings: Settings) -> list[EmbeddingResult | None]:
+    """Pseudonymize-then-embed a whole batch, preserving input order.
+
+    The OFFLINE-CORPUS counterpart to :func:`embed_text`, which stays the single-text
+    request path (canonicalization, domain match) and is deliberately untouched.
+
+    Same SG-2/SG-4 contract: every text is pseudonymized FIRST, a blocked text is
+    never sent to the provider, and the real provider still requires the master flag
+    + key + the ``skill_embedding`` allowlist. Mock mode delegates to ``embed_text``
+    per text so the deterministic hash vectors stay byte-identical to the
+    single-text path — a batch run and a per-row run must not produce different
+    vectors for the same alias.
+
+    THREE OUTCOMES PER SLOT, and the caller must keep them apart:
+      - ``EmbeddingResult`` with a vector — embedded.
+      - ``EmbeddingResult`` with ``blocked=True`` — fail-closed; the row stays NULL
+        and is reported for a human. Never retried blindly.
+      - ``None`` — the PROVIDER call failed for that slot. The row stays NULL and is
+        picked up by the next resumable run. Distinct from blocked on purpose:
+        reporting a transient provider error as ``blocked`` would send a clean alias
+        to a human for inspection and drop it from this run's fetch window.
+
+    A failed batch fails only its own chunk — the chunks around it still land, and
+    the locally-computed blocked verdicts survive, because pseudonymization happens
+    before any network call.
+    """
+    if not texts:
+        return []
+
+    # Mock: no network, no batching to do — reuse the single-text path verbatim.
+    if not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE):
+        return [embed_text(text, settings) for text in texts]
+
+    tracer = get_tracer()
+    model = settings.embedding_model
+    results: list[EmbeddingResult | None] = [None] * len(texts)
+    # (index, safe_text) for everything that cleared the gateway. Index carried
+    # explicitly so blocked slots can't shift the mapping of the rest.
+    pending: list[tuple[int, str]] = []
+
+    for i, text in enumerate(texts):
+        # SG-2: pseudonymize FIRST — a blocked phrase is never sent to the provider.
+        result = pseudonymize(text)
+        if result.blocked:
+            # As in embed_text: the raw phrase is the thing we may not record, so the
+            # observation carries the REFUSAL and nothing else.
+            with tracer.observation(name=EMBED_TEXT, as_type="embedding", model=MOCK_MODEL) as obs:
+                obs.update(level="WARNING", status_message="pseudonymization_blocked")
+            results[i] = EmbeddingResult(
+                vector=None, blocked=True, is_mock=True, model=MOCK_MODEL, text=None
+            )
+            continue
+        pending.append((i, result.text))
+
+    # LIFO work stack rather than a flat loop, so a chunk that fails on ONE bad text
+    # can be split and its halves retried immediately (see ProviderEmbedError.
+    # isolatable). Worst case for a single poison text is ~2*log2(batch) extra
+    # requests instead of losing the whole chunk; a transient failure never splits,
+    # so the request-quota cost of the common path is unchanged.
+    stack: list[list[tuple[int, str]]] = [
+        pending[start : start + EMBED_REQUEST_BATCH]
+        for start in range(0, len(pending), EMBED_REQUEST_BATCH)
+    ]
+    stack.reverse()  # keep corpus order on the happy path (pop() takes from the end)
+
+    while stack:
+        chunk = stack.pop()
+        safe_texts = [safe for _, safe in chunk]
+        with tracer.observation(
+            name=EMBED_TEXT, as_type="embedding", input={"texts": len(safe_texts)}, model=model
+        ) as obs:
+            try:
+                vectors = _real_embedding_batch(safe_texts, settings)
+            except Exception as exc:
+                obs.update(level="WARNING", status_message=f"provider_failed: {type(exc).__name__}")
+                if isinstance(exc, ProviderEmbedError) and exc.isolatable and len(chunk) > 1:
+                    # Probably one bad text. Split and retry both halves so the good
+                    # ones still land; the bad one converges to a single-item call
+                    # that fails alone.
+                    mid = len(chunk) // 2
+                    stack.append(chunk[mid:])
+                    stack.append(chunk[:mid])
+                    continue
+                # Whole-chunk failure (429 / 5xx / transport, or a single text that
+                # genuinely cannot be embedded). Leave these slots as None so the
+                # rows stay NULL for the next resumable run, and keep going — one
+                # bad chunk must not discard the batches that already succeeded.
+                # Never logs the text; the message is provider/status only.
+                logger.warning(
+                    "embed_texts: provider batch failed; rows left unembedded for a later run",
+                    extra={"extra": {"texts": len(safe_texts), "error": type(exc).__name__}},
+                )
+                continue
+            obs.update(
+                # NOT the vectors: 768 floats x100 would dwarf every other payload.
+                output={"texts": len(vectors), "dimensions": EMBEDDING_DIMENSION, "is_mock": False},
+                usage_details={"input": sum(cost_tracker.estimate_tokens(t) for t in safe_texts)},
+                metadata={"tokens_estimated": True, "batched": True},
+            )
+        # strict=True: a length mismatch here would pair a vector with the WRONG
+        # alias, which is undetectable at rest. _real_embedding_batch already
+        # checks the count; this makes truncation impossible rather than unlikely.
+        for (i, safe), vector in zip(chunk, vectors, strict=True):
+            results[i] = EmbeddingResult(
+                vector=vector, blocked=False, is_mock=False, model=model, text=safe
+            )
+
+    return results
 
 
 def embed_text(text: str, settings: Settings) -> EmbeddingResult:

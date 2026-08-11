@@ -36,8 +36,13 @@
  *   pnpm db:embed:domains --reset-embeddings      # NULL ALL vectors (full recovery)
  *   (DATABASE_URL from env/.env; AI_SERVICE_URL defaults to http://localhost:8000 —
  *    start the ai-service first: cd apps/ai-service && uvicorn app.main:app.
- *    EMBED_BATCH_SIZE overrides the 100-row batch — use a SMALLER batch, e.g. 20, for
- *    REAL runs so one HTTP request stays well under the 10-minute timeout.)
+ *    EMBED_BATCH_SIZE overrides the 100-row batch. Prefer a LARGER batch (the 200-row
+ *    contract cap) for REAL runs: the ai-service now embeds up to 100 texts per
+ *    PROVIDER request, and the provider meters embedding REQUESTS per day, not texts.
+ *    The old advice here — "use a smaller batch, e.g. 20" — predates that and is now
+ *    backwards: it would spend 5x the request quota for the same corpus. Wall-clock is
+ *    no longer the binding constraint either, so the 10-minute request timeout has
+ *    ample headroom at 200.)
  */
 import { config } from "dotenv";
 import { and, eq, inArray, isNull, isNotNull, notInArray, sql as dsql } from "drizzle-orm";

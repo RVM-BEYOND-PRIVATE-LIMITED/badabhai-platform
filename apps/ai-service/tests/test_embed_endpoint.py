@@ -107,6 +107,11 @@ def test_batch_cap_enforced():
 def test_real_provider_never_called_by_default(monkeypatch):
     called: list[str] = []
     monkeypatch.setattr(embeddings, "_real_embedding", lambda t, s: called.append(t) or [0.0] * 768)
+    monkeypatch.setattr(
+        embeddings,
+        "_real_embedding_batch",
+        lambda ts, s: called.extend(ts) or [[0.0] * 768 for _ in ts],
+    )
     resp = client.post(
         "/embeddings/skill-alias",
         json={"items": [{"alias_id": "a1", "text": "vmc operator"}]},
@@ -144,7 +149,9 @@ def test_real_budget_ceiling_stops_batch_with_partial_results(monkeypatch):
     # rest (rows stay NULL -> a later run resumes), and reports budget_stopped.
     real = _force_real(monkeypatch)
     real.ai_max_call_cost_inr = 0.0000001  # below one 3-token embed's cost
-    monkeypatch.setattr(embeddings, "_real_embedding", lambda t, s: [0.1] * 768)
+    monkeypatch.setattr(
+        embeddings, "_real_embedding_batch", lambda ts, s: [[0.1] * 768 for _ in ts]
+    )
 
     items = [{"alias_id": f"a{i}", "text": f"skill number {i}"} for i in range(5)]
     resp = client.post("/embeddings/skill-alias", json={"items": items})
@@ -165,7 +172,9 @@ def test_real_path_ledger_block_stops_batch_before_any_embed(monkeypatch):
     fake = _install_ledger(monkeypatch, block_reason="daily_cap_exceeded")
     embed_calls: list[str] = []
     monkeypatch.setattr(
-        embeddings, "_real_embedding", lambda t, s: embed_calls.append(t) or [0.1] * 768
+        embeddings,
+        "_real_embedding_batch",
+        lambda ts, s: embed_calls.extend(ts) or [[0.1] * 768 for _ in ts],
     )
     resp = client.post(
         "/embeddings/skill-alias",
@@ -195,7 +204,9 @@ def test_real_path_success_records_actual_spend_on_ledger(monkeypatch):
     # the SAME reservation to the ACTUAL accumulated estimate via record_spend.
     _force_real(monkeypatch)
     fake = _install_ledger(monkeypatch)
-    monkeypatch.setattr(embeddings, "_real_embedding", lambda t, s: [0.1] * 768)
+    monkeypatch.setattr(
+        embeddings, "_real_embedding_batch", lambda ts, s: [[0.1] * 768 for _ in ts]
+    )
     resp = client.post(
         "/embeddings/skill-alias",
         json={"items": [{"alias_id": "a1", "text": "cnc milling machine operation"}]},
@@ -233,7 +244,9 @@ def test_real_path_ledger_block_halves_to_the_affordable_prefix(monkeypatch):
     # the cap admits exactly the 2-item half (2.5e-05).
     fake = _CapLedger(cap_inr=3e-05)
     monkeypatch.setattr(cost_tracker, "get_ledger", lambda: fake)
-    monkeypatch.setattr(embeddings, "_real_embedding", lambda t, s: [0.1] * 768)
+    monkeypatch.setattr(
+        embeddings, "_real_embedding_batch", lambda ts, s: [[0.1] * 768 for _ in ts]
+    )
     items = [{"alias_id": f"a{i}", "text": "milling"} for i in range(4)]
     resp = client.post("/embeddings/skill-alias", json={"items": items})
     assert resp.status_code == 200
@@ -264,14 +277,21 @@ def test_mock_path_never_touches_the_ledger(monkeypatch):
 def test_real_per_item_failure_skips_item_keeps_paid_embeds(monkeypatch):
     # One provider failure must NOT 500 the request / discard already-paid embeds: the
     # failing item is omitted (counted in errors) and the batch continues.
+    #
+    # Now that texts ride ONE request per batch, that isolation is not free — a naive
+    # batch would lose all three rows to one bad text. A 4xx (other than 429) is
+    # attributable to a single text, so the batch is bisected until the bad one fails
+    # alone. This test is what stops that isolation from being silently dropped.
     _force_real(monkeypatch)
+    calls: list[int] = []
 
-    def flaky(text, settings):
-        if "boom" in text:
-            raise RuntimeError("skill_embedding provider HTTP 503")
-        return [0.2] * 768
+    def flaky(texts, settings):
+        calls.append(len(texts))
+        if any("boom" in t for t in texts):
+            raise embeddings.ProviderEmbedError("skill_embedding provider HTTP 400", status=400)
+        return [[0.2] * 768 for _ in texts]
 
-    monkeypatch.setattr(embeddings, "_real_embedding", flaky)
+    monkeypatch.setattr(embeddings, "_real_embedding_batch", flaky)
     resp = client.post(
         "/embeddings/skill-alias",
         json={
@@ -287,3 +307,37 @@ def test_real_per_item_failure_skips_item_keeps_paid_embeds(monkeypatch):
     assert body["errors"] == 1
     ids = [r["alias_id"] for r in body["results"]]
     assert ids == ["ok1", "ok2"]  # failing item omitted; both paid embeds kept
+    # Bisection, not a per-item retry storm: the 3-item batch is split, never
+    # re-issued once per text. Bounded by ~2*log2(batch), not by batch size.
+    assert len(calls) <= 5, calls
+
+
+def test_real_transient_failure_fails_the_chunk_without_retry_amplification(monkeypatch):
+    # The deliberate other half of the isolation rule. A 5xx/429 hits every text in
+    # the request equally, so splitting would just multiply requests against a
+    # provider that is already refusing them — and the binding constraint on the
+    # corpus embed is a per-DAY REQUEST quota. The chunk fails as one, the rows stay
+    # NULL for the next resumable run, and exactly ONE request is spent.
+    _force_real(monkeypatch)
+    calls: list[int] = []
+
+    def unavailable(texts, settings):
+        calls.append(len(texts))
+        raise embeddings.ProviderEmbedError("skill_embedding provider HTTP 503", status=503)
+
+    monkeypatch.setattr(embeddings, "_real_embedding_batch", unavailable)
+    resp = client.post(
+        "/embeddings/skill-alias",
+        json={
+            "items": [
+                {"alias_id": "a1", "text": "milling"},
+                {"alias_id": "a2", "text": "grinding"},
+                {"alias_id": "a3", "text": "welding"},
+            ]
+        },
+    )
+    assert resp.status_code == 200  # NOT 500
+    body = resp.json()
+    assert body["results"] == []  # nothing embedded
+    assert body["errors"] == 3  # all three reported for a later run, not "blocked"
+    assert calls == [3]  # ONE provider request; no bisection on a transient failure
