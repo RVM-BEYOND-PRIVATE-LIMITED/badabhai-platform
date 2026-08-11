@@ -188,6 +188,26 @@ class RetryCurrentQuestion extends VoiceFormStep {
   List<Object?> get props => <Object?>[reply];
 }
 
+/// The engine had ALREADY MOVED ON when the answer arrived — a 409 on submit,
+/// the routine 2G retry-after-timeout case (#727): the first POST landed
+/// server-side, the client never saw the response and re-sent, and the server
+/// rejected the re-send as stale (`served.questionKey != dto.question_key`).
+///
+/// The gateway recovers by re-reading the CURRENT step (via `start`) and returns
+/// it wrapped in THIS variant instead of a bare [NextQuestion], because the two
+/// are not the same: the answer just given was REJECTED, so the cubit must NOT
+/// bank it or emit `profiling_answer_spoken`. The wrapped [step] is what to
+/// present — a [NextQuestion] (a different question) or, rarely, [VoiceFormDone].
+class ReattachedTo extends VoiceFormStep {
+  const ReattachedTo(this.step);
+
+  /// The re-read current step to present. Never itself a [ReattachedTo].
+  final VoiceFormStep step;
+
+  @override
+  List<Object?> get props => <Object?>[step];
+}
+
 /// Where the mic is in the answer cycle for the current question. Nested inside
 /// the `Asking` state so the UI can show priming vs listening vs manual-hold vs
 /// the between-questions upload without a separate top-level state per phase.

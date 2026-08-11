@@ -73,11 +73,16 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
       // 409 — the engine already moved on (the routine 2G retry-after-timeout
       // case). Do NOT re-POST the same body; re-attach to read the CURRENT step
       // and redraw. Any other status fails closed.
+      //
+      // WRAPPED IN ReattachedTo, not returned bare (#727). The server REJECTED this
+      // answer as stale; a bare NextQuestion would be indistinguishable from success
+      // and the cubit would bank the stale answer (and emit `profiling_answer_spoken`)
+      // against a question it was not an answer to. The variant carries that fact.
       if (e.statusCode == 409) {
         final Map<String, dynamic> json =
             await _api.profilingStart(authToken: _token);
         _sessionId = json['session_id'] as String? ?? _sessionId;
-        return _parseStep(json['step']);
+        return ReattachedTo(_parseStep(json['step']));
       }
       throw mapError(e);
     } on Failure {

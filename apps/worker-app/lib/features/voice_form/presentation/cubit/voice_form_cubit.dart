@@ -402,7 +402,12 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       // the retryable step exists for. The silence gate stays reset either way: the worker
       // DID speak, which is what that counter is about.
       _consecutiveSilent = 0;
-      if (step is! RetryCurrentQuestion) {
+      // NOT on a re-attach either (#727). A `ReattachedTo` means the server REJECTED
+      // this answer as stale (a 409) and the gateway re-read the current step —
+      // banking here would append an answer the engine never took (and, for a spoken
+      // answer, a `voice_note_id`) against the wrong question, plus over-count
+      // `profiling_answer_spoken` on the flaky-2G path. Present it without banking.
+      if (step is! RetryCurrentQuestion && step is! ReattachedTo) {
         _answers.add(answer);
         if (answer.isSpoken) _actions.recordAnswerSpoken(current.index); // #639
       }
@@ -451,6 +456,10 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         emit(VoiceFormReview(List<VoiceAnswer>.of(_answers)));
       case RetryCurrentQuestion():
         await _retry(step, gen);
+      case ReattachedTo():
+        // The answer was already NOT banked by the caller (#727); just present
+        // whatever the engine is on now (a NextQuestion, or rarely done).
+        await _route(step.step, gen);
     }
   }
 
