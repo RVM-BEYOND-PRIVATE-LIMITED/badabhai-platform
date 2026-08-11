@@ -7,9 +7,10 @@ import { DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 
 import type { ChatTurnOutcome } from "../chat/chat.service";
 import { TURN_KINDS } from "./conversation-state";
+import type { Lookahead, LookaheadEntry } from "./lookahead";
 import type { ServedQuestion, SessionView, TurnResult } from "./orchestrator.service";
 import { ProfilingSessionService } from "./profiling-session.service";
-import { ProfilingStepSchema } from "./profiling.dto";
+import { ProfilingStepSchema, type ProfilingStep } from "./profiling.dto";
 import { clipId } from "./reply-closure";
 
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -403,6 +404,133 @@ describe("the step a client draws", () => {
     const { step } = await service.answer(WORKER, chips("stainless"), CTX);
     if (step.kind !== "question") throw new Error("unreachable");
     expect(step.question.question_kind).toBe("ask");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The lookahead on the VOICE surface (#765)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE SAME PREDICTION, PROJECTED DIFFERENTLY — and the differences are the reason this needs its
+ * own coverage rather than trusting the chat tests.
+ *
+ * This surface adds a `tts_clip_id` per prediction (the whole point here: a client that knows the
+ * next clip id can have the audio ready before the tap, so a worker who cannot read hears the next
+ * question instead of silence), reports `index`/`total` where chat reports `progress`, and DROPS a
+ * predicted close because this union models "the interview is over" as its own `done` step.
+ *
+ * The stakes are also different. On chat a stale prediction is repainted; here it is SPOKEN.
+ */
+describe("the lookahead on the voice form (#765)", () => {
+  const predicted = (over: Partial<LookaheadEntry> = {}): LookaheadEntry => ({
+    questionKey: "q_years",
+    kind: "ask",
+    promptText: "Kitne saal ka tajurba hai?",
+    whyText: null,
+    answerType: "number",
+    options: [],
+    progress: { answered: 4, total: 11 },
+    ...over,
+  });
+
+  const withLookahead = (lookahead: Lookahead | null): ChatTurnOutcome =>
+    ({
+      kind: "turn",
+      turn: turn({ lookahead }),
+      buffered: {} as never,
+      terminal: false,
+    }) as never;
+
+  /**
+   * The prediction filed under `key`, or a failing test.
+   *
+   * `noUncheckedIndexedAccess` types every record lookup as possibly-undefined, which is right —
+   * an absent key is the documented "no prediction here" case. Asserting through this keeps a
+   * MISSING entry a loud failure rather than a chain of `?.` that silently compares undefined to
+   * undefined and passes.
+   */
+  const predictionFor = (step: ProfilingStep, key: string) => {
+    if (step.kind !== "question") throw new Error(`expected a question step, got ${step.kind}`);
+    const entry = step.lookahead?.[key];
+    if (!entry) throw new Error(`no prediction filed under ${key}`);
+    return entry;
+  };
+
+  it("carries a content-addressed clip id per prediction, so the audio can be warmed", async () => {
+    const { service } = makeWorld({
+      outcome: withLookahead({ __declined: predicted(), stainless: predicted() }),
+    });
+
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+
+    // The SAME addressing the served question uses — so a prediction and the real question that
+    // follows it resolve to the same asset, and the client cannot warm the wrong clip.
+    expect(predictionFor(step, "stainless").tts_clip_id).toBe(clipId("Kitne saal ka tajurba hai?"));
+    expect(predictionFor(step, "stainless").tts_clip_id).toBe(
+      predictionFor(step, "__declined").tts_clip_id,
+    );
+  });
+
+  it("reports 1-based index/total, exactly like the question above it", async () => {
+    const { service } = makeWorld({
+      outcome: withLookahead({ stainless: predicted({ progress: { answered: 4, total: 11 } }) }),
+    });
+
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+
+    // `answered` is how many are BEHIND the worker, so the predicted one in front of them is +1.
+    expect(predictionFor(step, "stainless").index).toBe(5);
+    expect(predictionFor(step, "stainless").total).toBe(11);
+  });
+
+  it("DROPS a predicted close rather than drawing a question that does not exist", async () => {
+    const { service } = makeWorld({
+      outcome: withLookahead({
+        stainless: predicted(),
+        mild_steel: predicted({ kind: "close", questionKey: null, promptText: "Shukriya!" }),
+      }),
+    });
+
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+    if (step.kind !== "question") throw new Error("unreachable");
+
+    // A `close` entry has no question to draw on a surface whose union models the end of the
+    // interview as its own `done` step. Dropping it leaves the client with the round trip, which
+    // moves the worker to the review screen — rendering it would have spoken a closing line as
+    // though it were the next question.
+    expect(Object.keys(step.lookahead ?? {})).toEqual(["stainless"]);
+  });
+
+  it("projects predicted options to key/label/flag, like the served question", async () => {
+    const { service } = makeWorld({
+      outcome: withLookahead({
+        stainless: predicted({ answerType: "single_select", options: MATERIALS }),
+      }),
+    });
+
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+
+    expect(predictionFor(step, "stainless").options).toEqual([
+      { option_key: "mild_steel", label_text: "Mild steel", is_none_of_above: false },
+      { option_key: "stainless", label_text: "Stainless steel", is_none_of_above: false },
+    ]);
+  });
+
+  it("a step with no prediction still validates, and an older one without the key does too", async () => {
+    const { service } = makeWorld({ outcome: withLookahead(null) });
+    const { step } = await service.answer(WORKER, chips("stainless"), CTX);
+    if (step.kind !== "question") throw new Error("unreachable");
+    expect(step.lookahead).toBeNull();
+
+    // BACKWARD COMPATIBILITY (CLAUDE.md §3): the voice form is the surface with the slowest
+    // client rollout, so a step shaped before this field existed must keep parsing.
+    const { lookahead: _dropped, ...older } = step;
+    const reparsed = ProfilingStepSchema.safeParse(older);
+    expect(reparsed.success).toBe(true);
+    expect(reparsed.success && reparsed.data.kind === "question" && reparsed.data.lookahead).toBe(
+      null,
+    );
   });
 });
 

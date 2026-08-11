@@ -1042,6 +1042,170 @@ describe("ChatService — AI-PERSONA-2 worker-name seam (SG-1 PII boundary)", ()
 });
 
 // ---------------------------------------------------------------------------
+// The lookahead on the wire (#765)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE ENGINE IS PROVEN ELSEWHERE; THIS IS THE WIRING, and it was the untested half.
+ *
+ * `lookahead.test.ts` and `lookahead.corpus.test.ts` cover `computeLookahead` against every
+ * single-select chip in the shipped corpus — but both of them stop at a `Lookahead` value.
+ * Everything between that value and a worker's screen was unasserted when the feature merged:
+ * the name interpolation, the option projection, the null passthrough, and the outbound schema.
+ *
+ * That gap is worse here than it looks, because a wrong prediction is SILENT BY DESIGN. The
+ * contract is advisory, so a client that renders a stale question simply repaints and nobody
+ * files a bug — which is exactly the condition under which a regression survives to production.
+ */
+describe("ChatService — the lookahead reaches the client (#765)", () => {
+  /** One predicted turn, in the engine's shape (`LookaheadEntry`), defaulted to a plain ask. */
+  const entry = (over: Record<string, unknown> = {}) => ({
+    questionKey: "years_experience",
+    kind: "ask",
+    promptText: "Kitne saal ka tajurba hai?",
+    whyText: null,
+    answerType: "number",
+    options: [],
+    progress: { answered: 4, total: 12 },
+    ...over,
+  });
+
+  const at = (res: { lookahead: unknown }, key: string) =>
+    (res.lookahead as Record<string, Record<string, unknown>> | null)?.[key];
+
+  it("passes the prediction through, keyed by the answer that would produce it", async () => {
+    const { res } = await run({
+      turn: {
+        lookahead: {
+          __declined: entry(),
+          pune: entry({ questionKey: "salary_expected", promptText: "Kitni salary chahiye?" }),
+        },
+      },
+    });
+
+    expect(Object.keys(res.lookahead ?? {}).sort()).toEqual(["__declined", "pune"]);
+    expect(at(res, "pune")?.question_key).toBe("salary_expected");
+    expect(at(res, "pune")?.prompt_text).toBe("Kitni salary chahiye?");
+    expect(at(res, "__declined")?.question_kind).toBe("ask");
+    expect(at(res, "__declined")?.progress).toEqual({ answered: 4, total: 12 });
+  });
+
+  it("interpolates {{worker_name}} into the PREDICTED prompt and why-text, not just the reply", async () => {
+    // THE PLAN NAMED THIS ASSERTION and it was the one most worth having: `projectTurn`
+    // interpolated `turn.reply` and nothing else for the whole of Phase 8, so a predicted
+    // question carrying the token would reach a worker's screen as the literal characters
+    // `{{worker_name}}` — on the one path that renders WITHOUT a round trip, and therefore
+    // without anything downstream to catch it.
+    const { res } = await run({
+      workerName: "Suresh Kumar",
+      turn: {
+        lookahead: {
+          pune: entry({
+            promptText: "{{worker_name}} ji, kitne saal ka tajurba hai?",
+            whyText: "{{worker_name}} ji, isse sahi kaam milega.",
+          }),
+        },
+      },
+    });
+
+    expect(at(res, "pune")?.prompt_text).toBe("Suresh ji, kitne saal ka tajurba hai?");
+    expect(at(res, "pune")?.why_text).toBe("Suresh ji, isse sahi kaam milega.");
+  });
+
+  it("leaves NO residual {{ }} token in any predicted string when the worker has no name", async () => {
+    const { res } = await run({
+      workerName: null,
+      turn: {
+        lookahead: {
+          a: entry({ promptText: "{{worker_name}} ji, kitna tajurba?", whyText: "{{unknown}} ji." }),
+          b: entry({ promptText: "Kaam kahan karte ho?" }),
+        },
+      },
+    });
+
+    // Serialized rather than field-by-field on purpose: this must hold for every string the
+    // shape carries, including ones added later.
+    expect(JSON.stringify(res.lookahead)).not.toContain("{{");
+    // The WHOLE vocative goes, not just the token — a bare "ji, kitna tajurba?" would read as a
+    // sentence missing its subject. Same treatment the reply gets.
+    expect(at(res, "a")?.prompt_text).toBe("kitna tajurba?");
+    // An UNRECOGNISED token takes the blunt path instead (`replace(/\{\{[^}]*\}\}/g, "")`), which
+    // removes the token and leaves its surrounding whitespace — asserted trimmed rather than
+    // exactly, because the residue is cosmetic and shared with the reply path. What matters is
+    // that no unresolved token survives; tightening the spacing would be a behaviour change and
+    // belongs with the reply, not in a coverage PR.
+    expect(at(res, "a")?.why_text).not.toContain("unknown");
+    expect(String(at(res, "a")?.why_text).trim()).toBe("ji.");
+    // A prediction with no token at all is passed through byte-for-byte.
+    expect(at(res, "b")?.prompt_text).toBe("Kaam kahan karte ho?");
+  });
+
+  it("projects predicted options to key/label/flag — never `value` or `implies_skill_id`", async () => {
+    const { res } = await run({
+      turn: {
+        lookahead: {
+          pune: entry({
+            options: [
+              {
+                option_key: "mig",
+                label_text: "MIG",
+                value: "mig_welding",
+                implies_skill_id: "skl_mig",
+                is_none_of_above: false,
+              },
+            ],
+          }),
+        },
+      },
+    });
+
+    // Same closed projection the served question gets. `implies_skill_id` is a taxonomy internal
+    // with no business on a worker's device, and `value` is engine business — a client that could
+    // see either would be tempted to answer with it.
+    expect(at(res, "pune")?.options).toEqual([
+      { option_key: "mig", label_text: "MIG", is_none_of_above: false },
+    ]);
+  });
+
+  it("reads the worker's name ONCE no matter how many branches are predicted", async () => {
+    // `renderPackText` runs per entry; the decrypt must not. A per-branch read would multiply
+    // the PII decrypt on the hot path by the option count.
+    const { pii, workers } = await run({
+      workerName: "Suresh Kumar",
+      turn: {
+        lookahead: Object.fromEntries(
+          ["a", "b", "c", "d", "e"].map((k) => [k, entry({ questionKey: `q_${k}` })]),
+        ),
+      },
+    });
+
+    expect(workers.findById).toHaveBeenCalledTimes(1);
+    expect(pii.decrypt).toHaveBeenCalledTimes(1);
+  });
+
+  it("a turn with no exact prediction sends `lookahead: null`, with the key present", async () => {
+    const { res } = await run({ turn: { lookahead: null } });
+    // PRESENT-AND-NULL, not absent: `null` is the engine saying "prediction would not be exact
+    // here" (a close, a disambiguation, free text), which the client must be able to read as a
+    // fact rather than infer from a missing key.
+    expect("lookahead" in res).toBe(true);
+    expect(res.lookahead).toBeNull();
+  });
+
+  it("an old client's payload — no `lookahead` at all — still validates and defaults to null", async () => {
+    // BACKWARD COMPATIBILITY (CLAUDE.md §3). The worker app ships slowly; a body produced before
+    // this field existed must keep parsing, and must not arrive as `undefined` for a client
+    // reading the parsed shape.
+    const { res } = await run();
+    const { lookahead: _dropped, ...withoutLookahead } = res;
+    const reparsed = PostMessageResponseSchema.safeParse(withoutLookahead);
+
+    expect(reparsed.success).toBe(true);
+    expect(reparsed.success && reparsed.data.lookahead).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The opener
 // ---------------------------------------------------------------------------
 
