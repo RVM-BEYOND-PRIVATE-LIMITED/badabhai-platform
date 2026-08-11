@@ -1,3 +1,4 @@
+import 'voice_correction_outcome.dart';
 import 'voice_form_models.dart';
 
 /// The seam between the [VoiceFormCubit] and the backend voice-form route.
@@ -44,4 +45,20 @@ abstract interface class VoiceFormGateway {
   /// the review screen after the engine has served [VoiceFormDone]. Idempotent:
   /// a retried finalize must not double-commit the profile.
   Future<void> finalize();
+
+  /// Correct ONE already-settled answer from the review screen's ⟲ (#700).
+  ///
+  /// [questionKey] is the settled question being re-answered — non-null (unlike
+  /// [submit], which allows null on the disambiguation turn: that turn belongs
+  /// to no pack, so there is nothing to correct). [answer] is the same
+  /// four-member union [submit] takes; a spoken correction carries a REGISTERED
+  /// `voice_note_id`, uploaded by the caller exactly like a first answer.
+  ///
+  /// Returns the engine's redrawn row + whether a built profile is now stale.
+  /// Fail-closed: a 409 (the question is still on screen, not settled), a 422
+  /// (the words parsed to no value) or the correction cap surface as `Failure`.
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  });
 }

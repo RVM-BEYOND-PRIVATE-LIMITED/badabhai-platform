@@ -749,6 +749,22 @@ class ApiClient {
       _post('/profiling/answer', body,
           authToken: authToken, timeout: kVoiceTranscriptWaitBudget);
 
+  /// POST /profiling/correct — a targeted correction of an already-SETTLED answer
+  /// (#700). [body] is `{session_id, question_key, answer}`, the same four-member
+  /// answer union as `/answer` (option KEYS / voice_note_id, never labels/bytes).
+  /// Returns `{session_id, question_key, row, correction_count,
+  /// profile_rebuild_required}`. A 409 means the question is still on screen (only
+  /// a settled answer is correctable); a 422 means the words parsed to no value.
+  ///
+  /// Uses the long [kVoiceTranscriptWaitBudget] like `/answer`: a SPOKEN
+  /// correction is transcribed in-request, so 15s would abort it mid-STT.
+  Future<Map<String, dynamic>> profilingCorrect({
+    required String authToken,
+    required Map<String, dynamic> body,
+  }) =>
+      _post('/profiling/correct', body,
+          authToken: authToken, timeout: kVoiceTranscriptWaitBudget);
+
   /// POST /profiling/finalize — commit the reviewed session. Idempotent. Returns
   /// `{session_id, committed}`.
   Future<Map<String, dynamic>> profilingFinalize({

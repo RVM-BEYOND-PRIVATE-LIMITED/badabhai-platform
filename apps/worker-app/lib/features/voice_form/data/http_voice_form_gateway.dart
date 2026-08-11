@@ -2,6 +2,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
 import '../../../core/session/session_repository.dart';
+import '../domain/voice_correction_outcome.dart';
 import '../domain/voice_form_gateway.dart';
 import '../domain/voice_form_models.dart';
 
@@ -117,7 +118,46 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
     }
   }
 
+  @override
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) async {
+    final String? id = _sessionId;
+    if (id == null) throw const UnauthorizedFailure();
+    final Map<String, dynamic> body = <String, dynamic>{
+      'session_id': id,
+      'question_key': questionKey,
+      'answer': _answerJson(answer),
+    };
+    try {
+      final Map<String, dynamic> json =
+          await _api.profilingCorrect(authToken: _token, body: body);
+      return _parseCorrection(json);
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      // 409 (still on screen), 422 (parsed to no value), the correction cap —
+      // all fail closed to worker-safe copy; nothing is banked on the client.
+      throw mapError(error);
+    }
+  }
+
   // ---- wire → domain --------------------------------------------------------
+
+  /// `POST /profiling/correct` response → the redrawn row + rebuild signal.
+  VoiceCorrectionOutcome _parseCorrection(Map<String, dynamic> json) {
+    final Map<String, dynamic> row =
+        (json['row'] as Map).cast<String, dynamic>();
+    return VoiceCorrectionOutcome(
+      questionId: (json['question_key'] as String?) ??
+          (row['question_key'] as String? ?? ''),
+      displayValue: row['display_value'] as String?,
+      declined: row['status'] == 'declined',
+      correctionCount: json['correction_count'] as int? ?? 0,
+      profileRebuildRequired: json['profile_rebuild_required'] == true,
+    );
+  }
 
   /// Answer → the discriminated-union body. Sends option KEYS, never labels, and for a
   /// spoken answer the REGISTERED `voice_note_id` — never bytes, never a device path.

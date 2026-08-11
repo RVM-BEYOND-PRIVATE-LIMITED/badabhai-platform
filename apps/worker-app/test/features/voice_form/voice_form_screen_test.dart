@@ -7,6 +7,7 @@ import 'package:badabhai_worker_app/features/voice/data/session_voice_recorder.d
 import 'package:badabhai_worker_app/features/voice_form/domain/question_audio_player.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointer.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_correction_outcome.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/cubit/voice_form_cubit.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/voice_form_screen.dart';
@@ -49,6 +50,13 @@ class OneQuestionGateway implements VoiceFormGateway {
 
   @override
   Future<void> finalize() async {}
+
+
+  @override
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) => throw UnimplementedError();
 }
 
 void main() {
