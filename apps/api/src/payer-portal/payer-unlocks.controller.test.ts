@@ -119,6 +119,29 @@ describe("PayerUnlocksController — identity from the session, never the body (
       NotFoundException,
     );
   });
+
+  /**
+   * GAP-PAY-04 — the mock grant and the real checkout must be MUTUALLY EXCLUSIVE.
+   *
+   * Both rows are asserted deliberately. A gate tested only for what it BLOCKS looks correct
+   * while silently refusing legitimate traffic, and gets deleted the first time it does; the
+   * PERMIT row is what proves the alpha path still works.
+   */
+  it("buyPack is a NEUTRAL 404 once PAYMENTS_ENABLE_REAL is live (no free credits beside the paywall)", async () => {
+    d.unlocks.realPaymentsLive = true;
+    await expect(d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    // The grant must not even be attempted — not merely discarded after the fact.
+    expect(d.unlocks.purchaseCredits).not.toHaveBeenCalled();
+  });
+
+  it("buyPack still GRANTS while PAYMENTS_ENABLE_REAL is off (the alpha default is untouched)", async () => {
+    d.unlocks.realPaymentsLive = false;
+    const out = await d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, CTX);
+    expect(d.unlocks.purchaseCredits).toHaveBeenCalledWith(PAYER_A.id, "starter", CTX);
+    expect(out).toMatchObject({ credits: 50 });
+  });
 });
 
 /**

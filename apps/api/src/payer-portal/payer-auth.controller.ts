@@ -6,6 +6,7 @@ import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
+import { PayerTestLoginGuard } from "../payers/payer-test-login.guard";
 import { PayerAuthService } from "./payer-auth.service";
 import {
   PayerSignupSchema,
@@ -17,6 +18,8 @@ import {
   type PayerAuthCodeResponse,
   type PayerSessionResponse,
   type PayerRefreshResponse,
+  PayerTestLoginSchema,
+  type PayerTestLoginDto,
 } from "./payer-auth.dto";
 
 /**
@@ -73,6 +76,28 @@ export class PayerAuthController {
   ): Promise<PayerSessionResponse> {
     await this.assertWithinIpCap(req);
     return this.auth.verifyLogin(dto, ctx);
+  }
+
+  /**
+   * POST /payer/test-login — mint a payer session WITHOUT an OTP round-trip (Phase 2.1).
+   *
+   * STAGING / E2E ONLY. {@link PayerTestLoginGuard} runs BEFORE the validation pipe, so with
+   * `PAYER_TEST_LOGIN_ENABLED` off (the default) this is a neutral 404 that cannot even be
+   * probed for its body shape. `assertPayerAuthConfig` refuses to BOOT if it is armed outside
+   * development/test/staging, or armed with a token shorter than 32 chars.
+   *
+   * WHY IT EXISTS: without it nothing can complete a payer login without a real mailbox, which
+   * is what keeps `payer-tenancy.e2e.test.ts` and three sibling suites hard-skipped and leaves
+   * cross-tenant isolation on `/payer/*` unproven at the HTTP layer (PAY-SEC-09, GAP-XC-07).
+   */
+  @Post("test-login")
+  @HttpCode(200)
+  @UseGuards(PayerTestLoginGuard)
+  testLogin(
+    @Body(new ZodValidationPipe(PayerTestLoginSchema)) dto: PayerTestLoginDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.auth.testLogin(dto.email, ctx);
   }
 
   /** Mint a fresh rolling token for the current payer session. */

@@ -1710,6 +1710,20 @@ export const PayerSessionStartedPayload = z.object({
 });
 export type PayerSessionStartedPayload = z.infer<typeof PayerSessionStartedPayload>;
 
+/**
+ * A payer session was minted through the TEST-LOGIN seam rather than a real OTP verification
+ * (Phase 2.1). It is a SEPARATE event, not a flag on `payer.session_started`, so a synthetic
+ * session can never be mistaken for a real one when reading the spine — the audit trail has to
+ * be able to answer "did a human actually prove mailbox control here?" without inspecting a
+ * boolean. FACELESS: the opaque payer id and the created-or-existing bit only; the synthetic
+ * email itself never reaches the spine.
+ */
+export const PayerTestLoginPayload = z.object({
+  payer_id: uuidSchema,
+  is_new_payer: z.boolean().default(false),
+});
+export type PayerTestLoginPayload = z.infer<typeof PayerTestLoginPayload>;
+
 /** A member's role within a payer org (ADR-0027 / B5). Enum-only → no PII. */
 export const OrgRoleEnum = z.enum(["owner", "recruiter"]);
 export type OrgRoleEnum = z.infer<typeof OrgRoleEnum>;
