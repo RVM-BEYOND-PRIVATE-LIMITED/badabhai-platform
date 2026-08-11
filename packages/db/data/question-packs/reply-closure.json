@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 434,
+  "clip_count": 439,
   "producers": {
-    "clarify": 150,
-    "why": 143,
-    "prompt": 129,
+    "clarify": 152,
+    "why": 144,
+    "prompt": 130,
     "constant": 8,
-    "retry": 4
+    "retry": 5
   },
   "clips": [
     {
@@ -410,6 +410,11 @@
       "producer": "prompt"
     },
     {
+      "id": "2bff64160f0f8a70",
+      "text": "Jahaan aap kaam karna chahte hain, wahin ki naukri pehle dikhayenge. Aap kahaan kaam karna chahte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "2c1393f48e2c10cb",
       "text": "Aap kaunsi fasal ka kaam karte hain?",
       "producer": "prompt"
@@ -603,6 +608,11 @@
       "id": "42a0cb94346f5908",
       "text": "Aap kaunsa kapda silte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "43667ffdb5ca7ba8",
+      "text": "Jahaan aap kaam karna chahte hain, wahin ki naukri pehle dikhayenge. Kis sheher mein kaam karna hai?",
+      "producer": "clarify"
     },
     {
       "id": "43f71774dc4cf35f",
@@ -1130,6 +1140,11 @@
       "producer": "clarify"
     },
     {
+      "id": "814af022723c4764",
+      "text": "Aap kahaan kaam karna chahte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "816ee2a1de2baf3b",
       "text": "Site par raat ka kaam aam hai. Kya aap raat ki shift kar sakte hain?",
       "producer": "clarify"
@@ -1305,6 +1320,11 @@
       "producer": "prompt"
     },
     {
+      "id": "91e27e1199684376",
+      "text": "Jahaan aap kaam karna chahte hain, wahin ki naukri pehle dikhayenge.",
+      "producer": "why"
+    },
+    {
       "id": "92c019cc888a9950",
       "text": "Machine wale ko badi jagah kaam milta hai.",
       "producer": "why"
@@ -1393,6 +1413,11 @@
       "id": "9eb2ecc17772d089",
       "text": "Sahi vetan wali naukri hi dikhayenge. Aap mahine ka kitna vetan chahte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "9f2a385d4561efdb",
+      "text": "Kis sheher mein kaam karna hai?",
+      "producer": "retry"
     },
     {
       "id": "9f2ef788711094b2",
