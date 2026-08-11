@@ -106,6 +106,32 @@ export const AVAILABILITY_VALUES = [
 ] as const;
 
 /**
+ * The closed sets gate 3 enforces, keyed by RFS field id — SO THAT THE PARSE CALL CAN DISCLOSE
+ * THEM.
+ *
+ * THE GATE KNEW THE ANSWER AND THE PROMPT DID NOT. `check_type_range` has always rejected an
+ * `availability` outside `AVAILABILITY_VALUES`, while the request built at
+ * `profile-extraction.processor.ts` sent `enum: null` on every target field — so the model was
+ * asked to hit a four-value target it was never shown, guessed the worker's own word, and was
+ * dropped as `availability_not_in_enum`. Verified live: a worker who answered "Present" produced
+ * `requested 15, accepted 8, rejected_by_gate {type_range: 1}` and a profile that said
+ * `availability: "unknown"`. `parse_prompt.py` has always carried the disclosure branch
+ * (`if target.enum: "one of ..."`); it was simply unreachable.
+ *
+ * DERIVED, NEVER RETYPED. Building this from `AVAILABILITY_VALUES` is the point: the literal
+ * above is what `apps/ai-service/tests/test_parse_gates.py` regexes out of THIS FILE to hold the
+ * two walls in parity, so a second hand-written copy of those four strings would be a third
+ * vocabulary free to drift from both. Adding a field here is a one-line change next to the
+ * constant that defines it.
+ *
+ * NOT A GATE CHANGE. Disclosing the set does not widen it — gate 3 runs unchanged on both walls.
+ * This only stops the model from having to guess a vocabulary we already own.
+ */
+export const PARSE_ENUM_VALUES: Readonly<Record<string, readonly string[]>> = {
+  availability: AVAILABILITY_VALUES,
+};
+
+/**
  * Whitespace-normalized containment.
  *
  * The model reflows whitespace constantly — a newline becomes a space, a double space collapses —
