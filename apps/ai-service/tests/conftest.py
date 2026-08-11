@@ -153,10 +153,18 @@ def _force_mock_only_env() -> None:
     # failure rather than an obvious config one.
     os.environ["GEMINI_API_BASE"] = "https://generativelanguage.googleapis.com/v1beta/models"
     os.environ["GEMINI_TIMEOUT_SECONDS"] = "30.0"
-    os.environ["GEMINI_MAX_RATE_LIMIT_RETRIES"] = "4"
+    os.environ["GEMINI_MAX_RATE_LIMIT_RETRIES"] = "1"
     os.environ["GEMINI_MAX_BACKOFF_SECONDS"] = "20.0"
+    # The CUMULATIVE ceiling, and the bound that actually matters: the per-sleep cap above
+    # permitted retries * backoff = 80 s of sleep inside one request, against a parse
+    # deadline of 6 s. Pinned here for the same reason as its neighbours — a developer .env
+    # tuning it would silently change how many POSTs a retry test observes.
+    os.environ["GEMINI_MAX_TOTAL_BACKOFF_SECONDS"] = "5.0"
     os.environ["GEMINI_BACKOFF_BASE"] = "2.0"
     os.environ["GEMINI_THINKING_BUDGET"] = "0"
+    # The rate-limit cooldown window. Pinned so a .env cannot make a cross-request
+    # cooldown test wait on a real clock, or disable the mechanism under test entirely.
+    os.environ["AI_PROVIDER_COOLDOWN_SECONDS"] = "60.0"
 
 
 # --- Layer 2: socket-level egress guard ------------------------------------

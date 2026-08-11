@@ -152,7 +152,18 @@ async def acomplete(
     system_param = _anthropic_system_param(system_texts)
 
     try:
-        client = AsyncAnthropic(api_key=api_key)
+        # `max_retries=0`, EXPLICITLY. The SDK's default is 2 retries — a silent third
+        # multiplier stacked under the router's own attempt loop, invisible at every
+        # call site and in every log this service writes. With the extraction route's
+        # 3 attempts that was 9 HTTP requests per candidate where the router believed
+        # it had made 3, so the retry budget, the spend ceiling and the attempt count
+        # in `AICallMetadata` were all understating reality.
+        #
+        # THE ROUTER OWNS RETRY POLICY — it is where the cross-provider fallback, the
+        # TD27 rolling budget and `_NO_RETRY_REASONS` live, and it is the only layer
+        # that can see all of them at once. A second, hidden policy underneath it can
+        # only disagree.
+        client = AsyncAnthropic(api_key=api_key, max_retries=0)
         # Do NOT set thinking/effort — unsupported on Haiku 4.5.
         resp = await client.messages.create(
             model=model,

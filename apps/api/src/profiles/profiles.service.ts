@@ -23,16 +23,102 @@ import { hasExtractedContent } from "./profile-content";
  * flight. Older than this it is treated as a zombie and a fresh extraction is
  * allowed (issue #420 review).
  *
- * 10 minutes is ~20x the longest legitimate lifecycle: the AI call has an 8s
- * timeout (`AiService.post`) and BullMQ retries it at most 3 times with 1s
- * exponential backoff (`queue.module.ts`), so a healthy job reaches a terminal
- * status in well under a minute. Nothing reaps stuck ai_jobs, and `extract`
- * INSERTs `queued` before enqueueing — a crash in that window strands a row that
- * no processor will ever touch. The window must therefore be comfortably longer
- * than any real run (so a slow-but-live job is never double-enqueued) and short
- * enough that a stranded session self-heals on a later tap rather than never.
+ * MUST STAY LONGER THAN THE FULL RETRY LADDER, and that is now the binding
+ * constraint. This was 10 minutes, justified as "~20x the longest legitimate
+ * lifecycle" because a healthy job reached a terminal status in under a minute:
+ * an 8s AI timeout and 3 BullMQ attempts at 1s exponential backoff.
+ *
+ * `EXTRACTION_JOB_OPTS` changes that arithmetic deliberately. An LLM outage now
+ * retries at 5 and 10 minutes, so a job that is genuinely, correctly waiting for
+ * a rate limit to clear is ~15 minutes old before its final attempt — well past
+ * the old window. Leaving it at 10 would have made the zombie rule fire on
+ * healthy jobs and mint a duplicate extraction for every one of them, which is
+ * the exact double-enqueue #420 closed, reintroduced through the back door.
+ *
+ * 30 minutes keeps the original property (comfortably longer than any real run,
+ * short enough that a genuinely stranded session self-heals on a later tap).
+ * Nothing reaps stuck ai_jobs, and `extract` INSERTs `queued` before enqueueing —
+ * a crash in that window strands a row no processor will ever touch.
  */
-export const EXTRACTION_IN_FLIGHT_WINDOW_MS = 10 * 60 * 1000;
+export const EXTRACTION_IN_FLIGHT_WINDOW_MS = 30 * 60 * 1000;
+
+/**
+ * Retry policy for the extraction job, overriding the queue-wide default.
+ *
+ * THE QUEUE-WIDE DEFAULT IS WRONG FOR THIS FAILURE MODE. `queue.module.ts` sets
+ * `attempts: 3` with a 1s exponential backoff — 1s and 2s — which is tuned for a
+ * transient database or network blip. The failure this job actually suffers is a
+ * provider rate limit, and retrying one after 1s is indistinguishable from not
+ * backing off at all: the window has not moved, so the retry is simply another
+ * rejected request charged against the same exhausted bucket.
+ *
+ * 5 min then 10 min is sized to the thing being waited on — a per-minute cap
+ * clears in 60s, and a per-day one will not clear at all, which is what the third
+ * attempt's terminal behaviour is for (the processor writes the profile from the
+ * answer map rather than leaving the worker with nothing).
+ *
+ * THIS IS NOT WHAT BOUNDS THE STORM. It bounds ONE job's attempts. The four
+ * independent triggers each mint a NEW job, and those are bounded by
+ * `EXTRACTION_ATTEMPT_CAP` below plus the ai-service's provider cooldown, which
+ * makes each attempt cost a Redis GET instead of an LLM call.
+ */
+export const EXTRACTION_JOB_OPTS = {
+  attempts: 3,
+  backoff: { type: "exponential" as const, delay: 5 * 60 * 1000 },
+};
+
+/**
+ * Max extraction jobs mintable for one (worker, session) per UTC hour.
+ *
+ * THE ACTUAL LOOP BREAKER, and the one guard that sees all four triggers. Per-job
+ * `attempts` bounds a single job; it cannot bound how many jobs get created, and
+ * creation is where the storm lived: the transcript-flush auto-trigger, the app's
+ * unconditional `POST /profile/extract` on the preview screen,
+ * `rebuildAfterCorrection`, and the worker tapping "Try again" each create their
+ * own. Every dedupe guard in front of them keys on "did this produce content",
+ * and during an outage the answer is always no — so all four re-fired, forever.
+ *
+ * 6 is deliberately generous: a healthy interview needs ONE, and the documented
+ * posture is that leaving a worker unprofiled is worse than a double spend. This
+ * is an abuse/incident backstop, not a metering primitive — it should never be
+ * reached by a worker having a normal day.
+ */
+export const EXTRACTION_ATTEMPT_CAP = 6;
+
+/**
+ * Minimal typed view of the Redis commands the attempt cap needs. BullMQ's
+ * `IRedisClient` declares only the subset BullMQ itself uses (no INCRBY/EXPIRE),
+ * but the runtime client is ioredis, which has them. Narrowed to an interface
+ * rather than `any` so the call sites stay type-checked — the same shape
+ * `SubjectRateLimit` and `ChatTranscriptBuffer` already use.
+ */
+interface RedisCounter {
+  incrby(key: string, increment: number): Promise<number>;
+  expire(key: string, seconds: number): Promise<number>;
+}
+
+/** UTC hour stamp `YYYYMMDDHH` — the attempt cap's key namespace. */
+function utcHourStamp(now: Date = new Date()): string {
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(now.getUTCDate()).padStart(2, "0");
+  const h = String(now.getUTCHours()).padStart(2, "0");
+  return `${y}${m}${d}${h}`;
+}
+
+/** Seconds remaining until the end of the current UTC hour (+1 to round up). */
+function secondsUntilEndOfUtcHour(now: Date = new Date()): number {
+  const endOfHour = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    now.getUTCHours() + 1,
+    0,
+    0,
+    0,
+  );
+  return Math.max(1, Math.ceil((endOfHour - now.getTime()) / 1000));
+}
 
 @Injectable()
 export class ProfilesService {
@@ -135,6 +221,29 @@ export class ProfilesService {
             `${existing.id} completed with an empty profile`,
         );
       }
+
+      // THE BACKSTOP ON RE-RUNNING. Every guard above asks "is a prior job usable?", and
+      // during an LLM outage the honest answer is no every single time — which is correct
+      // (the profile really is a placeholder) and is precisely why the loop ran: four
+      // triggers, each minting a fresh job, each getting a fresh empty profile.
+      //
+      // Session-scoped and hourly, so it bounds the incident without touching the normal
+      // case: a healthy interview mints one job, and the self-heal that #420 deliberately
+      // left open still works — it just cannot run unboundedly.
+      //
+      // AFTER the dedupe checks, so a request that would have been DEDUPED (the common,
+      // healthy double-trigger) never spends cap. Only a request about to create real work
+      // is charged.
+      if (!(await this.withinAttemptCap(input.worker_id, sessionId))) {
+        this.logger.warn(
+          `extract capped session=${sessionId} worker=${input.worker_id}: ` +
+            `${EXTRACTION_ATTEMPT_CAP} extraction jobs already created this hour; ` +
+            `refusing to mint another (the model leg is almost certainly still degraded)`,
+        );
+        throw new ServiceUnavailableException(
+          "Profile generation is temporarily unavailable; please try again later",
+        );
+      }
     }
 
     const job = await this.aiJobs.create({
@@ -160,13 +269,20 @@ export class ProfilesService {
     // If enqueue fails (e.g. Redis down), give the job a terminal state so it is
     // not orphaned in "queued" and the requested event is balanced by a failed.
     try {
-      await this.extractionQueue.add("extract", {
-        workerId: input.worker_id,
-        sessionId: input.session_id ?? null,
-        aiJobId: job.id,
-        correlationId: ctx.correlationId,
-        requestId: ctx.requestId,
-      });
+      await this.extractionQueue.add(
+        "extract",
+        {
+          workerId: input.worker_id,
+          sessionId: input.session_id ?? null,
+          aiJobId: job.id,
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        },
+        // Per-job, NOT queue-wide: the queue's 1s exponential backoff is right for the
+        // database blips every other queue suffers and useless against a rate limit,
+        // which does not clear in 1s. See `EXTRACTION_JOB_OPTS`.
+        EXTRACTION_JOB_OPTS,
+      );
     } catch (err) {
       const reason = `enqueue failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 240)}`;
       await this.aiJobs.markFailed(job.id, reason);
@@ -271,13 +387,20 @@ export class ProfilesService {
         requestId: ctx.requestId,
       });
 
-      await this.extractionQueue.add("extract", {
-        workerId: input.worker_id,
-        sessionId: input.session_id,
-        aiJobId: job.id,
-        correlationId: ctx.correlationId,
-        requestId: ctx.requestId,
-      });
+      await this.extractionQueue.add(
+        "extract",
+        {
+          workerId: input.worker_id,
+          sessionId: input.session_id,
+          aiJobId: job.id,
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        },
+        // The SAME retry policy as `extract`. A correction rebuild runs the identical
+        // processor against the identical provider, so it suffers the identical rate
+        // limit; giving the two paths different backoffs would mean one of them is wrong.
+        EXTRACTION_JOB_OPTS,
+      );
 
       this.logger.log(
         `correction rebuild queued session=${input.session_id} ` +
@@ -290,6 +413,52 @@ export class ProfilesService {
           `durable and the built profile is now stale: ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;
+    }
+  }
+
+  /**
+   * Charge one unit against this (worker, session)'s hourly extraction budget.
+   * `false` means the cap is spent and no new job should be created.
+   *
+   * FIXED UTC HOUR BUCKET, not a sliding window — the same trade `SubjectRateLimit`
+   * documents and for the same reason: one INCRBY per call, and a true sliding window
+   * needs a sorted set per subject. A caller can therefore spend the full cap at :59 and
+   * the full cap again at :00. Acceptable for an incident backstop.
+   *
+   * OPAQUE UUIDs, NOT HASHED. `IpRateLimit` HMACs its input because an IP is PII; a
+   * worker id and a session id are internal uuids that appear in this service's logs
+   * already, so hashing would buy nothing and make the key unreadable in an incident —
+   * the split `SubjectRateLimit` states explicitly.
+   *
+   * FAILS OPEN, and this is the deliberate opposite of `SubjectRateLimit`. That one
+   * guards writes into the audit spine, where an uncapped path during an incident is the
+   * worse outcome. This one guards a worker getting a profile at all: if Redis is
+   * unreachable we cannot know the count, and refusing would deny extraction to every
+   * worker on the platform over a cache outage. Erring toward "let it through" is the
+   * direction this file already documents — "being wrong in that direction leaves a
+   * worker with no profile at all — strictly worse than the double spend this guards" —
+   * and the provider cooldown in the ai-service still keeps a degraded attempt cheap.
+   */
+  private async withinAttemptCap(workerId: string, sessionId: string): Promise<boolean> {
+    const hour = utcHourStamp();
+    const key = `extract_cap:${workerId}:${sessionId}:${hour}`;
+    try {
+      const redis = (await this.extractionQueue.client) as unknown as RedisCounter;
+      const count = await redis.incrby(key, 1);
+      // Re-assert the TTL on EVERY hit, not only the first. A `if (count === 1)` guard
+      // leaves a TTL-less key whenever the process dies between INCRBY and EXPIRE — and
+      // because the key is hour-stamped that does not cap the worker forever (the next
+      // hour is a different key); it leaks a key that never expires, one per session per
+      // affected hour, in the Redis that also runs BullMQ. EXPIRE is idempotent and cheap.
+      await redis.expire(key, secondsUntilEndOfUtcHour());
+      return count <= EXTRACTION_ATTEMPT_CAP;
+    } catch (err) {
+      this.logger.warn(
+        `extraction attempt cap unavailable session=${sessionId}; allowing the job ` +
+          `(fail-open: an unprofiled worker is worse than a double spend) — ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+      return true;
     }
   }
 

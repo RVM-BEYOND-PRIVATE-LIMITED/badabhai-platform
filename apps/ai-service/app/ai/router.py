@@ -21,14 +21,39 @@ from ..config import Settings
 from ..contracts import AICallMetadata
 from ..logging_config import get_logger
 from . import cost_tracker, providers
-from .errors import REASON_MAX_TOKENS_NO_PARTS, LlmTransportError
+from .errors import REASON_HTTP_429, REASON_MAX_TOKENS_NO_PARTS, LlmTransportError
 from .langfuse_tracing import LLM_CALL, LangfuseTracer, Observation, get_tracer
 from .model_config import get_route, provider_for_model, resolve_model
+from .provider_cooldown import get_cooldown
 
 logger = get_logger("ai.router")
 
 # A chat message in OpenAI-style format (mapped to Gemini by the client).
 Message = dict[str, str]
+
+# FAILURES A RETRY CANNOT FIX. Hitting one breaks the per-candidate attempt loop and
+# escalates to the next provider immediately, instead of spending the remaining
+# attempts on an outcome that is already decided.
+#
+#   max_tokens_no_parts — the model hit its output ceiling and returned no parts.
+#     The next attempt sends the identical request and hits the identical ceiling.
+#
+#   http_429 — a rate limit, and retrying one is how you STAY rate-limited: every
+#     attempt spends another token from a bucket that is already empty, and the
+#     provider counts the rejected request against the same window. This loop runs
+#     ``max_retries + 1`` times (3 for extraction/parse) and each pass wraps the
+#     Gemini client's OWN in-call 429 loop, so one parse could put 15 POSTs on the
+#     wire, none of which could have succeeded. Falling over to Claude is both
+#     faster and cheaper than waiting out a window this request will not outlive.
+#
+# Everything else stays retryable: a timeout, a 5xx, or a malformed response can
+# genuinely differ on the next attempt.
+_NO_RETRY_REASONS: frozenset[str] = frozenset(
+    {
+        REASON_MAX_TOKENS_NO_PARTS,
+        REASON_HTTP_429,
+    }
+)
 
 # MSG-1: an accurate headline per spend-ledger block reason. The ledger already
 # returns a CLOSED SET of distinct reasons; collapsing them into one "spend cap
@@ -168,8 +193,10 @@ class AIRouter:
         # the per-call cap is skipped. Stateless runaway guard; per-profile
         # cumulative budgets are a deferred enhancement.
         ledger = cost_tracker.get_ledger()
+        cooldown = get_cooldown(self._settings)
         any_attempted = False  # did at least one candidate actually reach the network?
         ceiling_skipped_any = False
+        cooldown_skipped_any = False  # a candidate was skipped as rate-limited
         spend_block_reason: str | None = None  # daily/cumulative cap hit (TD27)
         retry_budget_hit = False  # rolling retry budget exhausted (TD27)
         # Diagnostics (reconcile per-attempt log volume vs per-call metadata, and
@@ -180,6 +207,23 @@ class AIRouter:
         attempt_count = 0  # every dispatch to providers.complete across candidates
         candidates_tried: list[str] = []  # each candidate that reached the network
         for model in candidates:
+            # 0. Rate-limit cooldown: this provider told us to stop recently enough that
+            # the window has not reopened. Skip it WITHOUT a network call and let the
+            # chain fall through to the next candidate.
+            #
+            # FIRST, before the cost estimate and before the ledger reserve, because a
+            # call we are not going to make should not reserve spend that then has to be
+            # refunded — and because being cheap is the entire point: this runs in front
+            # of every candidate on every real call.
+            provider = provider_for_model(model)
+            if await cooldown.is_cooling(provider, self._settings):
+                logger.warning(
+                    "provider cooling down after a rate limit; skipping candidate",
+                    extra={"extra": {"task": task_type, "model": model, "provider": provider}},
+                )
+                cooldown_skipped_any = True
+                continue
+
             worst_case_inr = cost_tracker.estimate_cost_inr(
                 model, cost_tracker.estimate_tokens(input_text), route.max_output_tokens
             )
@@ -372,7 +416,15 @@ class AIRouter:
                                     "typed_transport_error": (transport is not None),
                                 },
                             )
-                            if reason == REASON_MAX_TOKENS_NO_PARTS:
+                            # ARM THE COOLDOWN, so the NEXT request skips this provider
+                            # instead of rediscovering the same rate limit. Awaited rather
+                            # than fired-and-forgotten: a background task could still be
+                            # pending when the following request runs its check, which is
+                            # exactly the race the cooldown exists to close. The store
+                            # fails open, so this cannot raise.
+                            if reason == REASON_HTTP_429:
+                                await cooldown.start(provider, self._settings)
+                            if reason in _NO_RETRY_REASONS:
                                 break
             finally:
                 # Leak fix: if this candidate's reservation was not reconciled by a
@@ -392,15 +444,24 @@ class AIRouter:
         #     budget-blocked else "llm_call_failed".
         #   - no candidate attempted but a spend cap blocked them -> real_call
         #     False, success True, "daily_cap_exceeded"/"cumulative_cap_exceeded".
+        #   - no candidate attempted, every one cooling after a 429 -> real_call
+        #     False, success True, "provider_cooldown".
         #   - no candidate attempted, only ceiling-skipped -> real_call False,
         #     success True, "cost_ceiling_exceeded".
         #   - real disabled/opted-out/not-allowlisted -> "kill_switch_engaged"
         #     when the kill-switch is on, else plain mock (error_code None).
+        #
+        # THE COOLDOWN BRANCH OUTRANKS THE CEILING because it is the more specific and
+        # more actionable diagnosis: "we are rate-limited right now, this will clear on
+        # its own" is a different instruction to an operator than "this call is too
+        # expensive to make", and only one of them resolves without a config change.
         if any_attempted:
             real_flag, success = True, False
             error_code = "retry_budget_exhausted" if retry_budget_hit else "llm_call_failed"
         elif spend_block_reason is not None:
             real_flag, success, error_code = False, True, spend_block_reason
+        elif cooldown_skipped_any:
+            real_flag, success, error_code = False, True, "provider_cooldown"
         elif ceiling_skipped_any:
             real_flag, success, error_code = False, True, "cost_ceiling_exceeded"
         elif self._settings.ai_real_calls_kill_switch:

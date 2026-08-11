@@ -25,7 +25,7 @@ import logging
 
 import pytest
 
-from app.ai import cost_tracker
+from app.ai import cost_tracker, provider_cooldown
 from app.ai import router as router_module
 from app.ai.errors import REASON_HTTP_429, REASON_NO_TEXT_CONTENT, LlmTransportError
 from app.ai.router import AIRouter
@@ -43,12 +43,21 @@ def _run(coro):
 @pytest.fixture(autouse=True)
 def _reset_ledger():
     """Fresh, deterministic in-process ledger per test (retry budget + spend),
-    ignoring any ambient AI_SPEND_REDIS_URL/.env — mirrors tests/test_spend_cap.py."""
+    ignoring any ambient AI_SPEND_REDIS_URL/.env — mirrors tests/test_spend_cap.py.
+
+    THE COOLDOWN RESET IS NOT OPTIONAL, and leaving it out is a real trap rather than
+    tidiness: `ProviderCooldown` is a process-wide singleton keyed on the provider, and
+    every storm test here raises a 429 that arms `google` for 60 s. Without this, the
+    FIRST test in the file disables Gemini for every test after it, and those tests go
+    green for the wrong reason — they stop measuring the attempt arithmetic they exist
+    to measure, because the primary candidate is never dispatched at all."""
     cost_tracker._ledger = cost_tracker.SpendLedger(
         Settings(_env_file=None, ai_spend_redis_url=None)
     )
+    provider_cooldown.reset_cooldown()
     yield
     cost_tracker._ledger = None
+    provider_cooldown.reset_cooldown()
 
 
 def _patch_anthropic_sdk(monkeypatch, *, installed: bool = True) -> None:
@@ -119,12 +128,22 @@ def test_repro_storm_reconciles_attempts_and_surfaces_reason(monkeypatch, caplog
     assert meta.error_code == "llm_call_failed"
     assert meta.failure_reason == "no_text_content"
 
-    # Reconcile the "per-attempt vs per-call" gap: BOTH providers were tried, and
-    # the attempt count (3 Gemini + 3 Haiku, max_retries=2 each) equals the number
-    # of dispatches — no more phantom, unexplained failures.
+    # Reconcile the "per-attempt vs per-call" gap: BOTH providers were tried, and the
+    # attempt count equals the number of dispatches — no more phantom failures.
+    #
+    # 4, NOT 6, and the missing two are the point of this whole file. Gemini's 429 is now
+    # in `_NO_RETRY_REASONS`, so a rate limit costs ONE dispatch instead of three: the
+    # remaining `max_retries` are not spent re-asking a provider that has just said its
+    # bucket is empty, and the chain escalates to Haiku immediately. Haiku's
+    # `no_text_content` is genuinely retryable and still takes its full 3.
+    #
+    # This number is the regression guard. If it climbs back to 6, a 429 is being retried
+    # again — and each of those dispatches wraps the Gemini client's own in-call 429 loop,
+    # which is how one parse put 15 POSTs on the wire.
     assert meta.candidates_tried == ["gemini-2.5-flash", "claude-haiku-4-5"]
-    assert meta.attempt_count == 6
+    assert meta.attempt_count == 4  # 1 Gemini (429, no retry) + 3 Haiku (max_retries=2)
     assert meta.attempt_count == len(seen)
+    assert seen.count("gemini-2.5-flash") == 1
 
     # Attribution fix: the terminal failure is labelled under the model that
     # ACTUALLY failed last (the Haiku fallback), not always the primary.
@@ -148,8 +167,11 @@ def test_repro_storm_reconciles_attempts_and_surfaces_reason(monkeypatch, caplog
 def test_repro_storm_chat_turn_also_reconciles(monkeypatch):
     # The same reconciliation holds for the high-volume chat task. The primary is
     # the CAPABLE model now (the chat turn moved cheap -> capable with generalized
-    # profiling); max_retries=1 -> 2 attempts/candidate is unchanged, and that
-    # attempt arithmetic is what this test is actually about.
+    # profiling); max_retries=1 -> 2 attempts/candidate, and that attempt arithmetic
+    # is what this test is actually about.
+    #
+    # 3 rather than 4, for the same reason as above: the 429 does not buy Gemini a
+    # second dispatch. Haiku keeps both of its.
     _patch_anthropic_sdk(monkeypatch, installed=True)
     seen = _storm_dispatcher(monkeypatch)
     router = AIRouter(_storm_settings())
@@ -158,8 +180,70 @@ def test_repro_storm_chat_turn_also_reconciles(monkeypatch):
         router.run("profiling_chat_turn", messages=_MESSAGES, mock_response="MOCK")
     )
     assert meta.candidates_tried == ["gemini-2.5-flash", "claude-haiku-4-5"]
-    assert meta.attempt_count == len(seen) == 4  # 2 Gemini + 2 Haiku
+    assert meta.attempt_count == len(seen) == 3  # 1 Gemini (429) + 2 Haiku
     assert meta.failure_reason == "no_text_content"
+
+
+# --- The cooldown: the first 429 informs the requests behind it -------------
+
+
+def test_429_arms_a_cooldown_that_skips_the_provider_on_the_next_call(monkeypatch):
+    """THE OUTER LOOP, closed. Bounding one request's retries was never enough: the
+    reported incident was many SEPARATE requests each rediscovering the same rate limit,
+    because nothing survived the request that found it. After a 429, the next call must
+    not dispatch to that provider at all."""
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    seen = _storm_dispatcher(monkeypatch)
+    router = AIRouter(_storm_settings())
+
+    _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="MOCK"))
+    assert seen.count("gemini-2.5-flash") == 1
+
+    # A SECOND, INDEPENDENT call. Gemini is still cooling, so it is skipped without
+    # touching the network and the chain goes straight to Haiku.
+    seen.clear()
+    _content, meta = _run(
+        router.run("profile_extraction", messages=_MESSAGES, mock_response="MOCK")
+    )
+    assert "gemini-2.5-flash" not in seen
+    assert meta.candidates_tried == ["claude-haiku-4-5"]
+
+
+def test_cooldown_on_every_candidate_reports_provider_cooldown(monkeypatch):
+    """When the cooldown skips EVERY candidate the call is never attempted, so the
+    terminal metadata must say why. `provider_cooldown` is a distinct diagnosis from a
+    spend cap or a cost ceiling — it clears on its own, and apps/api needs to tell a
+    transient outage from a deliberate posture to decide whether to retry."""
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    _storm_dispatcher(monkeypatch)
+    settings = _storm_settings()
+    router = AIRouter(settings)
+    cooldown = provider_cooldown.get_cooldown(settings)
+
+    _run(cooldown.start("google", settings))
+    _run(cooldown.start("anthropic", settings))
+
+    content, meta = _run(
+        router.run("profile_extraction", messages=_MESSAGES, mock_response="MOCK")
+    )
+    assert content == "MOCK"
+    assert meta.real_call is False
+    assert meta.attempt_count == 0
+    assert meta.error_code == "provider_cooldown"
+
+
+def test_cooldown_disabled_by_zero_seconds(monkeypatch):
+    """The kill switch. Set to 0, no provider is ever skipped — so an operator can turn
+    the whole mechanism off without a deploy if it ever misfires."""
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    seen = _storm_dispatcher(monkeypatch)
+    settings = _storm_settings(ai_provider_cooldown_seconds=0.0)
+    router = AIRouter(settings)
+
+    _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="MOCK"))
+    seen.clear()
+    _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="MOCK"))
+    assert seen.count("gemini-2.5-flash") == 1  # dispatched again, never skipped
 
 
 # --- Repro B: the dropped canonical data (by-design gap + the city bug) ------
