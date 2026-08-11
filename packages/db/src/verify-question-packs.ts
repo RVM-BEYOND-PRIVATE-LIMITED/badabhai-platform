@@ -282,6 +282,7 @@ async function main(): Promise<void> {
 // that took verify-job-domains.ts down in CI.
 if (process.argv[1] && /verify-question-packs/.test(process.argv[1])) {
   main().catch((err) => {
+    // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- `SCRIPT` is a module-level string constant declared in this file, never input. This is the CLI's terminal error line; no user- or worker-supplied value reaches the template.
     console.error(`[${SCRIPT}] failed:`, err);
     process.exit(1);
   });

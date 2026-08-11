@@ -293,6 +293,7 @@ export function compilePattern(
   spec: PatternSpec,
   fragments?: Readonly<Record<string, string>>,
 ): RegExp {
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from repo-controlled values (a UUID, a reviewed lexicon pattern, or a literal in this file) and never from worker or request text.
   return new RegExp(expand(spec.source, fragments), toJsFlags(spec.flags ?? ""));
 }
 
@@ -339,5 +340,6 @@ export function compileNamed(stem: string, key: string): RegExp {
  * Every caller here creates its own and uses it within a single function body.
  */
 export function compilePatternGlobal(spec: PatternSpec): RegExp {
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from repo-controlled values (a UUID, a reviewed lexicon pattern, or a literal in this file) and never from worker or request text.
   return new RegExp(expand(spec.source), `${toJsFlags(spec.flags ?? "")}g`);
 }

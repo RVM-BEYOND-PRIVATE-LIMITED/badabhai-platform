@@ -30,12 +30,14 @@ const LOG_PATH = join(
 
 /** `static const String kName = 'value';` → `value`. */
 function dartConst(source: string, name: string): string {
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from repo-controlled values (a UUID, a reviewed lexicon pattern, or a literal in this file) and never from worker or request text.
   const m = new RegExp(`static const String ${name} = '([^']*)'`).exec(source);
   if (!m?.[1]) throw new Error(`could not read ${name} from ${LOG_PATH}`);
   return m[1];
 }
 
 function dartIntConst(source: string, name: string): number {
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from repo-controlled values (a UUID, a reviewed lexicon pattern, or a literal in this file) and never from worker or request text.
   const m = new RegExp(`static const int ${name} = (\\d+)`).exec(source);
   if (!m?.[1]) throw new Error(`could not read ${name} from ${LOG_PATH}`);
   return Number(m[1]);

@@ -332,6 +332,7 @@ if (process.argv[1] && /mine-chat-aliases/.test(process.argv[1])) {
       console.error(`[${SCRIPT}] ABORTED — ${err.message}`);
       process.exit(1);
     }
+    // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- `SCRIPT` is a module-level string constant declared in this file, never input. This is the CLI's terminal error line; no user- or worker-supplied value reaches the template.
     console.error(`[${SCRIPT}] failed:`, err);
     process.exit(1);
   });

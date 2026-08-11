@@ -48,6 +48,7 @@ describe("verifyWebhookSignature — the webhook credential", () => {
   });
 
   it("REJECTS a signature made with the WRONG SECRET (an attacker's own HMAC)", () => {
+    // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test fixture — a literal key inside a unit test, deliberately fake. Nothing here is a production secret and none of it ships.
     const forged = createHmac("sha256", "attacker_secret").update(BODY).digest("hex");
     expect(verifyWebhookSignature(BODY, forged, WEBHOOK_SECRET)).toBe(false);
   });
@@ -72,6 +73,7 @@ describe("verifyWebhookSignature — the webhook credential", () => {
       expect(verifyWebhookSignature(BODY, sig, blank)).toBe(false);
     }
     // …and a body signed with the EMPTY string as key must not verify against a blank secret.
+    // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test fixture — a literal key inside a unit test, deliberately fake. Nothing here is a production secret and none of it ships.
     const emptyKeySig = createHmac("sha256", "").update(BODY).digest("hex");
     expect(verifyWebhookSignature(BODY, emptyKeySig, "")).toBe(false);
   });
@@ -128,11 +130,13 @@ describe("verifyCheckoutSignature — the browser-returned credential", () => {
   });
 
   it("pins the exact signed message Razorpay specifies (order|payment, in that order)", () => {
+    // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test fixture — a literal key inside a unit test, deliberately fake. Nothing here is a production secret and none of it ships.
     const sig = createHmac("sha256", KEY_SECRET).update(`${ORDER}|${PAYMENT}`).digest("hex");
     expect(
       verifyCheckoutSignature({ orderId: ORDER, paymentId: PAYMENT, signature: sig }, KEY_SECRET),
     ).toBe(true);
     // Reversed order must NOT verify — otherwise a swapped-args refactor would go unnoticed.
+    // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test fixture — a literal key inside a unit test, deliberately fake. Nothing here is a production secret and none of it ships.
     const reversed = createHmac("sha256", KEY_SECRET).update(`${PAYMENT}|${ORDER}`).digest("hex");
     expect(
       verifyCheckoutSignature(

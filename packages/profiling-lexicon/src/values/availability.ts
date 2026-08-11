@@ -48,6 +48,7 @@ type Span = readonly [number, number];
 
 /** Walk every match of `pattern` in `text`, with offsets. Mirrors Python's `finditer`. */
 function* eachMatch(pattern: RegExp, text: string): Generator<Span> {
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from repo-controlled values (a UUID, a reviewed lexicon pattern, or a literal in this file) and never from worker or request text.
   const global = new RegExp(pattern.source, `${pattern.flags}g`);
   for (const m of text.matchAll(global)) yield [m.index, m.index + m[0].length] as const;
 }

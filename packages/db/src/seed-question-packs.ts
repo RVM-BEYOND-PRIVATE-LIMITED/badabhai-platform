@@ -217,6 +217,7 @@ async function main(): Promise<void> {
 
 if (process.argv[1] && /seed-question-packs/.test(process.argv[1])) {
   main().catch((err) => {
+    // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- `SCRIPT` is a module-level string constant declared in this file, never input. This is the CLI's terminal error line; no user- or worker-supplied value reaches the template.
     console.error(`[${SCRIPT}] failed:`, err);
     process.exit(1);
   });

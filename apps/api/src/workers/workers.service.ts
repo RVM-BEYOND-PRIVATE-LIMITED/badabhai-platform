@@ -258,6 +258,7 @@ export class WorkersService {
     }
 
     // (a) minted-key shape for THIS worker — uuid v4 under the caller's own prefix.
+    // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the only interpolated value is `workerId`, which is session-derived and a UUID (hex + dashes), so it carries no regex metacharacter and cannot widen the pattern. `dto.storage_path` is the string being TESTED, never part of the pattern.
     const mintedKeyShape = new RegExp(
       `^photos/${workerId}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.jpg$`,
     );

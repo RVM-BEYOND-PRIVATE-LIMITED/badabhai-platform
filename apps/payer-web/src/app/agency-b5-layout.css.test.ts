@@ -97,6 +97,7 @@ function rule(selector: string, atNeedle = ""): Rule {
 
 /** The last declared value of `prop` in a block, or null. */
 function decl(r: Rule, prop: string): string | null {
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from repo-controlled values (a UUID, a reviewed lexicon pattern, or a literal in this file) and never from worker or request text.
   const re = new RegExp(`(?:^|;|\\n)\\s*${prop}\\s*:\\s*([^;]+)`, "g");
   let last: string | null = null;
   let m: RegExpExecArray | null;
@@ -106,6 +107,7 @@ function decl(r: Rule, prop: string): string | null {
 
 /** A custom property's value as declared in tokens.css `:root` (light ramp). */
 function token(name: string): string {
+  // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the pattern is built from repo-controlled values (a UUID, a reviewed lexicon pattern, or a literal in this file) and never from worker or request text.
   const m = TOKENS.match(new RegExp(`${name}\\s*:\\s*([^;]+)`));
   expect(m, `token ${name} must be declared in tokens.css`).not.toBeNull();
   return m![1]!.trim();
