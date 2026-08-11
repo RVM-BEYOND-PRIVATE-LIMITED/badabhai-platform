@@ -237,11 +237,21 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
 
   /// Send an answer chosen from an OPTIONS list (chips or the disambiguate
   /// rows). One tap per turn: see [_optionTapPending].
+  ///
+  /// #761 — carries the tapped option as `optionKey` so the bloc can index the
+  /// previous turn's `lookahead` and render the predicted next question
+  /// optimistically. On chat the LABEL is the answer of record, so it is both the
+  /// submit text (byte-identical, unchanged) and the lookahead key; the
+  /// decline/escape chip is keyed `'__declined'`.
   void _sendOption(String label) {
     if (_optionTapPending) return;
     if (label.trim().isEmpty) return;
     setState(() => _optionTapPending = true);
-    _sendText(label);
+    final bool escape =
+        label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase();
+    context.read<ChatBloc>().add(
+          ChatMessageSent(label, optionKey: escape ? '__declined' : label),
+        );
   }
 
   /// Re-send the failed bubble at [index] (#343) — in place, no duplicate.
@@ -774,7 +784,11 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
                           ],
                         ),
                       ),
-                      if (state.sending)
+                      // #761 — while an optimistic predicted turn is on screen
+                      // (predictedQuestionKey != null), show its chips instead of
+                      // the typing indicator, so the worker can answer the
+                      // predicted question during the round trip.
+                      if (state.sending && state.predictedQuestionKey == null)
                         _typingIndicator()
                       else if (state.followups.isNotEmpty)
                         // A disambiguation turn is mutually-exclusive occupations

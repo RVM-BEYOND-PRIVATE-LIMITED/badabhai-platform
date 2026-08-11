@@ -147,16 +147,51 @@ sealed class VoiceFormStep extends Equatable {
   List<Object?> get props => <Object?>[];
 }
 
-/// The engine's next question, with its 1-based [index] of [total].
-class NextQuestion extends VoiceFormStep {
-  const NextQuestion(this.question, {required this.index, required this.total});
+/// The server's ADVISORY prediction of the step one option tap will lead to
+/// (#761, voice-form `lookahead`). Rendered OPTIMISTICALLY on a single-select
+/// chip or a boolean tap so the next prompt + the dot-rail move without waiting
+/// the blocking submit — but NEVER banked, and the mic is NEVER armed on it
+/// (#691): the real step is authoritative.
+///
+/// [question] is null for a predicted DONE (the tap ends the interview); the
+/// optimistic path then falls back to today's blocking submit — there is nothing
+/// to render and the mic must not arm on an unconfirmed end. [index]/[total] are
+/// the predicted dot-rail position so the rail moves on the tap too.
+class PredictedNext extends Equatable {
+  const PredictedNext({
+    this.question,
+    required this.index,
+    required this.total,
+  });
 
-  final VoiceQuestion question;
+  final VoiceQuestion? question;
   final int index;
   final int total;
 
   @override
   List<Object?> get props => <Object?>[question, index, total];
+}
+
+/// The engine's next question, with its 1-based [index] of [total].
+class NextQuestion extends VoiceFormStep {
+  const NextQuestion(
+    this.question, {
+    required this.index,
+    required this.total,
+    this.lookahead = const <String, PredictedNext>{},
+  });
+
+  final VoiceQuestion question;
+  final int index;
+  final int total;
+
+  /// Advisory next-step predictions keyed by `option_key` (+ `'__declined'`,
+  /// #761). Empty when the server sent none — the normal case on open, multi
+  /// select and every older build. Consumed by the cubit on a chip/boolean tap.
+  final Map<String, PredictedNext> lookahead;
+
+  @override
+  List<Object?> get props => <Object?>[question, index, total, lookahead];
 }
 
 /// The engine has no more questions — move to review + submit.

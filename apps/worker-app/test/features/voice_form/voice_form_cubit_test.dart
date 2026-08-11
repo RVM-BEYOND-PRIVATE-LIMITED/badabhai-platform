@@ -621,6 +621,114 @@ void main() {
         reason: 'two questions answered, three submits — the discarded one is not an answer');
     expect(gateway.submits, 3);
   });
+
+  // #761 — the advisory lookahead. On a single-select chip / boolean tap whose
+  // key the server predicted, render the predicted question + moved dot-rail
+  // immediately, mic UN-armed; the real step reconciles. NEVER banked early,
+  // submit key unchanged.
+  group('optimistic lookahead (#761)', () {
+    test('a chip tap renders the predicted question + dot-rail with the mic '
+        'UN-armed, then arms on the agreeing real step', () async {
+      final Completer<VoiceFormStep> gate = Completer<VoiceFormStep>();
+      final _LookaheadGateway gateway = _LookaheadGateway(gate);
+      final VoiceFormCubit cubit = build(gateway: gateway);
+      addTearDown(cubit.close);
+      await cubit.start();
+      expect((cubit.state as VoiceFormAsking).question.id, 'q1');
+      clearInteractions(plugin);
+
+      // Tap option 'a' — the submit is HELD so the optimistic render is visible.
+      final Future<void> advancing = cubit.answerByChips(<String>['a']);
+      await pumpEventQueue();
+
+      expect(gate.isCompleted, isFalse);
+      final VoiceFormAsking optimistic = cubit.state as VoiceFormAsking;
+      expect(optimistic.question.id, 'q2-pred',
+          reason: 'the predicted question is on screen already');
+      expect(optimistic.index, 2, reason: 'the dot-rail moved on the tap');
+      expect(optimistic.total, 8);
+      expect(optimistic.micPhase, MicPhase.uploading,
+          reason: 'a non-listening phase');
+      // The mic must NOT arm on the unconfirmed prediction (#691).
+      verifyNever(() => plugin.start(any(), path: any(named: 'path')));
+      // The submit names the ANSWERED question, not the prediction — byte-identical.
+      expect(gateway.questionKeys, <String?>['q1']);
+
+      // Real step AGREES with the prediction → arm the mic on the confirmed q.
+      gate.complete(const NextQuestion(
+        VoiceQuestion(id: 'q2-pred', prompt: 'Predicted Q2'),
+        index: 2,
+        total: 8,
+      ));
+      await advancing;
+
+      verify(() => plugin.start(any(), path: any(named: 'path'))).called(1);
+      expect((cubit.state as VoiceFormAsking).question.id, 'q2-pred');
+
+      // Exactly ONE answer banked for the tap — drive to review to count.
+      await cubit.answerBySpeaking(); // answers q2-pred → done
+      final VoiceFormReview review = cubit.state as VoiceFormReview;
+      expect(review.answers, hasLength(2),
+          reason: 'one answer per tap — the prediction never banked early');
+      expect(review.answers.first.optionKeys, <String>['a']);
+    });
+
+    test('a disagreeing real step REPLACES the optimistic render (still one bank)',
+        () async {
+      final Completer<VoiceFormStep> gate = Completer<VoiceFormStep>();
+      final _LookaheadGateway gateway = _LookaheadGateway(gate);
+      final VoiceFormCubit cubit = build(gateway: gateway);
+      addTearDown(cubit.close);
+      await cubit.start();
+
+      final Future<void> advancing = cubit.answerByChips(<String>['a']);
+      await pumpEventQueue();
+      expect((cubit.state as VoiceFormAsking).question.id, 'q2-pred');
+
+      // The real step is a DIFFERENT question than predicted.
+      gate.complete(const NextQuestion(
+        VoiceQuestion(id: 'q_other', prompt: 'Asli agla sawaal'),
+        index: 3,
+        total: 8,
+      ));
+      await advancing;
+      expect((cubit.state as VoiceFormAsking).question.id, 'q_other',
+          reason: 'the real step replaces the optimistic prediction');
+
+      await cubit.answerBySpeaking(); // answers q_other → done
+      final VoiceFormReview review = cubit.state as VoiceFormReview;
+      expect(review.answers, hasLength(2),
+          reason: 'still exactly one answer banked per tap');
+      expect(review.answers.first.optionKeys, <String>['a']);
+    });
+
+    test('multi-select and spoken taps render NO optimistic prediction (#761)',
+        () async {
+      // multi-select → 2 keys → no optimistic render.
+      final Completer<VoiceFormStep> gate1 = Completer<VoiceFormStep>();
+      final VoiceFormCubit c1 = build(gateway: _LookaheadGateway(gate1));
+      await c1.start();
+      final Future<void> a1 = c1.answerByChips(<String>['a', 'b']);
+      await pumpEventQueue();
+      expect((c1.state as VoiceFormAsking).question.id, 'q1',
+          reason: 'multi-select falls back to today\'s blocking submit');
+      gate1.complete(const VoiceFormDone());
+      await a1;
+      await c1.close();
+
+      // spoken → no prediction possible.
+      final Completer<VoiceFormStep> gate2 = Completer<VoiceFormStep>();
+      final VoiceFormCubit c2 = build(gateway: _LookaheadGateway(gate2));
+      await c2.start();
+      final Future<void> a2 = c2.answerBySpeaking();
+      await pumpEventQueue();
+      expect((c2.state as VoiceFormAsking).question.id, 'q1',
+          reason: 'a spoken answer never renders a prediction');
+      gate2.complete(const VoiceFormDone());
+      await a2;
+      await c2.close();
+    });
+  });
 }
 
 /// Serves Q1, answers the FIRST submit with the retryable step, then behaves normally.
@@ -761,4 +869,58 @@ class _HoldingGateway implements VoiceFormGateway {
     VoiceAnswer answer, {
     required String questionKey,
   }) => throw UnimplementedError();
+}
+
+/// Serves a single-select Q1 whose `lookahead` predicts a next question under
+/// option 'a' (#761). The FIRST submit is parked on [_firstGate] so a test can
+/// observe the optimistic render; later submits return [VoiceFormDone].
+class _LookaheadGateway implements VoiceFormGateway {
+  _LookaheadGateway(this._firstGate);
+
+  final Completer<VoiceFormStep> _firstGate;
+  int submits = 0;
+  final List<String?> questionKeys = <String?>[];
+
+  @override
+  String? get sessionId => 'sess-test';
+
+  @override
+  Future<VoiceFormStep> start() async => const NextQuestion(
+        VoiceQuestion(
+          id: 'q1',
+          prompt: 'Question 1',
+          kind: VoiceQuestionKind.singleSelect,
+          options: <VoiceChoice>[
+            VoiceChoice(key: 'a', label: 'A'),
+            VoiceChoice(key: 'b', label: 'B'),
+          ],
+        ),
+        index: 1,
+        total: 8,
+        lookahead: <String, PredictedNext>{
+          'a': PredictedNext(
+            question: VoiceQuestion(id: 'q2-pred', prompt: 'Predicted Q2'),
+            index: 2,
+            total: 8,
+          ),
+        },
+      );
+
+  @override
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) async {
+    submits++;
+    questionKeys.add(questionKey);
+    if (submits == 1) return _firstGate.future;
+    return const VoiceFormDone();
+  }
+
+  @override
+  Future<void> finalize() async {}
+
+  @override
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) =>
+      throw UnimplementedError();
 }

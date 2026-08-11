@@ -4,7 +4,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_models.dart'
-    show ChatInputMode, ChatProgress, ChatQuestionKind;
+    show ChatInputMode, ChatProgress, ChatQuestionKind, PredictedQuestion;
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
 import '../../domain/chat_message.dart';
@@ -26,13 +26,20 @@ class ChatStarted extends ChatEvent {
 }
 
 /// The worker sent a message.
+///
+/// [optionKey] is set ONLY when the message came from tapping a suggested-option
+/// chip (#761): it is the key to index the previous turn's `lookahead` by — the
+/// tapped label on chat, or `'__declined'` for the decline/escape chip. A typed
+/// send leaves it null and never renders a prediction. It does NOT change the
+/// submit: the wire body stays `{session_id, text}` with `text` = [text].
 class ChatMessageSent extends ChatEvent {
-  const ChatMessageSent(this.text);
+  const ChatMessageSent(this.text, {this.optionKey});
 
   final String text;
+  final String? optionKey;
 
   @override
-  List<Object?> get props => <Object?>[text];
+  List<Object?> get props => <Object?>[text, optionKey];
 }
 
 /// Re-send the failed worker message at [index] (#343). The transcript is
@@ -86,6 +93,8 @@ class ChatState extends Equatable {
     this.questionKind = ChatQuestionKind.ask,
     this.inputMode = ChatInputMode.text,
     this.occupationLabel,
+    this.lookahead = const <String, PredictedQuestion?>{},
+    this.predictedQuestionKey,
   });
 
   /// Ordered, append-only transcript.
@@ -156,6 +165,20 @@ class ChatState extends Equatable {
   /// interview). A fresh chat rebuilds the bloc, so it clears there.
   final String? occupationLabel;
 
+  /// The LATEST turn's advisory next-turn predictions (#761), keyed by the tapped
+  /// option (+ `'__declined'`). Consumed by the NEXT [ChatMessageSent] to render
+  /// the predicted question optimistically. Empty = no predictions.
+  final Map<String, PredictedQuestion?> lookahead;
+
+  /// The `question_key` of the optimistic predicted bubble currently on screen
+  /// (#761), or null when there is none — which is EITHER no prediction rendered
+  /// OR a `close`-shaped prediction (those carry a null key and so are never
+  /// rendered optimistically; the client waits the round trip for the closing
+  /// line). Non-null therefore means "an optimistic bubble is awaiting reconcile":
+  /// the next real turn replaces it, and its `asked_question_id` is compared
+  /// against this to tell whether the prediction was right.
+  final String? predictedQuestionKey;
+
   ChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
@@ -170,6 +193,12 @@ class ChatState extends Equatable {
     ChatQuestionKind? questionKind,
     ChatInputMode? inputMode,
     String? occupationLabel,
+    Map<String, PredictedQuestion?>? lookahead,
+    String? predictedQuestionKey,
+    // predictedQuestionKey is nullable AND must be settable back to null on
+    // reconcile — which `?? this` cannot express — so clearing it takes an
+    // explicit flag (the standard copyWith idiom for a clearable nullable).
+    bool clearPredictedQuestionKey = false,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -187,6 +216,10 @@ class ChatState extends Equatable {
       questionKind: questionKind ?? this.questionKind,
       inputMode: inputMode ?? this.inputMode,
       occupationLabel: occupationLabel ?? this.occupationLabel,
+      lookahead: lookahead ?? this.lookahead,
+      predictedQuestionKey: clearPredictedQuestionKey
+          ? null
+          : (predictedQuestionKey ?? this.predictedQuestionKey),
     );
   }
 
@@ -205,6 +238,8 @@ class ChatState extends Equatable {
         questionKind,
         inputMode,
         occupationLabel,
+        lookahead,
+        predictedQuestionKey,
       ];
 }
 
@@ -392,24 +427,57 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final String text = event.text.trim();
     if (text.isEmpty) return;
 
-    // Show the typing indicator and drop the previous turn's chips (they belong
-    // to a question already answered). The transcript is append-only, so this
-    // index stays valid for marking the bubble failed later (#343).
+    // The transcript is append-only, so this index stays valid for marking the
+    // worker bubble failed later (#343).
     final int index = state.messages.length;
-    emit(state.copyWith(
-      messages: <ChatMessage>[
-        ...state.messages,
-        ChatMessage(text: text, fromWorker: true),
-      ],
-      sending: true,
-      followups: const <String>[],
-      // The previous turn's kind belongs to a question already answered — reset
-      // so a stale disambiguate layout can't outlive its chips (#649).
-      questionKind: ChatQuestionKind.ask,
-      // Same reason (#770): bring the composer back the moment the worker answers
-      // so an options-only turn can never outlive the question that imposed it.
-      inputMode: ChatInputMode.text,
-    ));
+    // #761 — OPTIMISTIC LOOKAHEAD. If the tapped option carries a server
+    // prediction WITH a next question (a `close`-shaped prediction has a null
+    // key and is skipped — its closing line is not latency-critical), render the
+    // predicted next turn NOW so a 2G worker does not wait the round trip.
+    // ADVISORY ONLY: nothing here is banked as an answer, the [_deliver] below
+    // still submits the byte-identical `text`, and the real reply reconciles.
+    final PredictedQuestion? predicted =
+        event.optionKey == null ? null : state.lookahead[event.optionKey];
+
+    if (predicted != null && predicted.questionKey != null) {
+      emit(state.copyWith(
+        messages: <ChatMessage>[
+          ...state.messages,
+          ChatMessage(text: text, fromWorker: true),
+          // The optimistic bada-bhai bubble — REPLACED by the real reply in
+          // [_deliver]. It is never persisted to history: it lives only in this
+          // in-memory transcript until reconcile.
+          ChatMessage(text: predicted.promptText, fromWorker: false),
+        ],
+        sending: true,
+        followups: predicted.options,
+        // Sticky-forward: a null predicted progress keeps the last known bar.
+        progress: predicted.progress,
+        questionKind: predicted.questionKind,
+        // #770 — the composer returns the moment the worker answers, on the
+        // optimistic path too: an options-only turn must never outlive the
+        // question that imposed it, and the predicted turn brings its own mode.
+        inputMode: ChatInputMode.text,
+        predictedQuestionKey: predicted.questionKey,
+      ));
+    } else {
+      // No usable prediction → EXACTLY today's behaviour: show the typing
+      // indicator and drop the previous turn's chips (they belong to a question
+      // already answered).
+      emit(state.copyWith(
+        messages: <ChatMessage>[
+          ...state.messages,
+          ChatMessage(text: text, fromWorker: true),
+        ],
+        sending: true,
+        followups: const <String>[],
+        // The previous turn's kind belongs to a question already answered — reset
+        // so a stale disambiguate layout can't outlive its chips (#649).
+        questionKind: ChatQuestionKind.ask,
+        // Same reason (#770): bring the composer back the moment the worker answers.
+        inputMode: ChatInputMode.text,
+      ));
+    }
 
     await _deliver(text, index, emit);
   }
@@ -422,22 +490,42 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     try {
       final ChatTurn turn = await _repo.sendMessage(text);
       _inFlightSends--;
-      // Append to CURRENT state, never to a list captured before the await
-      // (#344): while this reply was in flight, a second send or a voice merge
-      // may have appended bubbles. Re-emitting a pre-await snapshot ERASED
-      // them from the visible transcript — the worker watched their own answers
-      // vanish mid-profiling.
+      // #761 — RECONCILE the optimistic lookahead render. The real reply is
+      // ALWAYS authoritative: when an optimistic predicted bubble is on screen
+      // (predictedQuestionKey != null) we REPLACE it rather than append a second
+      // bot bubble. If the prediction was RIGHT (its question_key matches the real
+      // turn's asked_question_id) the rendered bubble is kept and only the
+      // metadata refreshes; if WRONG, its text/chips are overwritten with the
+      // real turn. Either way the transcript ends with exactly one bot bubble for
+      // this turn, and the prediction is cleared.
+      //
       // Append to CURRENT state, never to a list captured before the await
       // (#344): while this reply was in flight, a second send or a voice merge
       // may have appended bubbles. Re-emitting a pre-await snapshot ERASED them
       // from the visible transcript — the worker watched their own answers
       // vanish mid-profiling.
-      emit(state.copyWith(
-        messages: <ChatMessage>[
-          // A retry heals its own bubble; a first send leaves it as-is.
-          ..._withStatus(state.messages, index, ChatSendStatus.sent),
+      final List<ChatMessage> healed =
+          _withStatus(state.messages, index, ChatSendStatus.sent);
+      final bool reconciling = state.predictedQuestionKey != null;
+      final bool predictionWasRight =
+          reconciling && turn.askedQuestionId == state.predictedQuestionKey;
+      final List<ChatMessage> nextMessages;
+      if (!reconciling) {
+        // No optimistic bubble — today's behaviour: append the reply.
+        nextMessages = <ChatMessage>[
+          ...healed,
           ChatMessage(text: turn.reply, fromWorker: false),
-        ],
+        ];
+      } else if (predictionWasRight) {
+        // The prediction stood — keep the optimistic bubble as-is (metadata
+        // refreshes below), so an agreeing turn causes no visible flicker.
+        nextMessages = healed;
+      } else {
+        // The prediction was wrong — overwrite the optimistic bubble in place.
+        nextMessages = _replaceLastBot(healed, turn.reply);
+      }
+      emit(state.copyWith(
+        messages: nextMessages,
         sending: _inFlightSends > 0,
         followups: turn.followups,
         // A delivered message proves the session is open again.
@@ -463,6 +551,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // the worker is never left without a way to answer.
         inputMode: turn.inputMode,
         occupationLabel: turn.occupationLabel,
+        // #761 — the fresh predictions for the NEXT tap; the current one is done.
+        lookahead: turn.lookahead,
+        clearPredictedQuestionKey: true,
       ));
       _logWrapUpOnce(ready: turn.extractionReady);
     } on Failure catch (_) {
@@ -471,11 +562,39 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // so it reads as undelivered and offers tap-to-retry — a worker whose
       // answers never reached the server must find out here, not when their
       // profile comes out empty.
+      //
+      // #761 — a failed send retracts any optimistic bubble: the predicted next
+      // question never actually happened, so drop it (and its chips) rather than
+      // leave a phantom turn above the worker's failed answer.
+      final bool reconciling = state.predictedQuestionKey != null;
+      final List<ChatMessage> reverted =
+          reconciling ? _removeLastBot(state.messages) : state.messages;
       emit(state.copyWith(
-        messages: _withStatus(state.messages, index, ChatSendStatus.failed),
+        messages: _withStatus(reverted, index, ChatSendStatus.failed),
         sending: _inFlightSends > 0,
+        followups: reconciling ? const <String>[] : state.followups,
+        questionKind: reconciling ? ChatQuestionKind.ask : state.questionKind,
+        clearPredictedQuestionKey: true,
       ));
     }
+  }
+
+  /// Returns [messages] with the LAST message replaced by a bot bubble carrying
+  /// [reply] (the #761 optimistic-bubble overwrite). Defensive, mirroring
+  /// [_withStatus]: an empty list or a worker-bubble tail is returned unchanged.
+  List<ChatMessage> _replaceLastBot(List<ChatMessage> messages, String reply) {
+    if (messages.isEmpty || messages.last.fromWorker) return messages;
+    final List<ChatMessage> next = List<ChatMessage>.of(messages);
+    next[next.length - 1] = ChatMessage(text: reply, fromWorker: false);
+    return next;
+  }
+
+  /// Returns [messages] with a trailing bot bubble removed (the #761 optimistic
+  /// bubble, retracted on a failed send). Unchanged when the tail is not a bot
+  /// bubble.
+  List<ChatMessage> _removeLastBot(List<ChatMessage> messages) {
+    if (messages.isEmpty || messages.last.fromWorker) return messages;
+    return messages.sublist(0, messages.length - 1);
   }
 
   /// Returns [messages] with the entry at [index] set to [status]. Out-of-range

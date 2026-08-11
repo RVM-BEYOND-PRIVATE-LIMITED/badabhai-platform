@@ -187,4 +187,117 @@ void main() {
       }
     });
   });
+  // #761 — the advisory lookahead. Parsed defensively like the chips (#371): a
+  // malformed entry yields "no prediction" for that key and the reply survives.
+  group('lookahead + PredictedQuestion parsing (#761)', () {
+    Map<String, dynamic> entry({
+      String? key = 'skills',
+      String prompt = 'Aapko kaunse kaam aate hain?',
+      String kind = 'ask',
+    }) =>
+        <String, dynamic>{
+          'question_key': key,
+          'question_kind': kind,
+          'prompt_text': prompt,
+          'why_text': 'Isse behtar match milta hai.',
+          'answer_type': 'single_select',
+          'options': <dynamic>[
+            <String, dynamic>{'option_key': 'weld', 'label_text': 'Welding'},
+            <String, dynamic>{'option_key': 'fit', 'label_text': 'Fitting'},
+          ],
+          'progress': <String, dynamic>{'answered': 4, 'total': 12},
+        };
+
+    test('parses well-formed entries keyed by option_key and __declined', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Kaunsa control?',
+        'suggested_followups': <dynamic>['Fanuc', 'Siemens'],
+        'lookahead': <String, dynamic>{
+          'Fanuc': entry(),
+          '__declined': entry(key: 'experience', prompt: 'Kitna anubhav?'),
+        },
+      });
+
+      expect(reply.lookahead.keys, containsAll(<String>['Fanuc', '__declined']));
+      final PredictedQuestion fanuc = reply.lookahead['Fanuc']!;
+      expect(fanuc.questionKey, 'skills');
+      expect(fanuc.promptText, 'Aapko kaunse kaam aate hain?');
+      expect(fanuc.questionKind, ChatQuestionKind.ask);
+      expect(fanuc.answerType, 'single_select');
+      expect(fanuc.whyText, 'Isse behtar match milta hai.');
+      // Options are LABEL strings on chat (the label is the answer of record).
+      expect(fanuc.options, <String>['Welding', 'Fitting']);
+      expect(fanuc.progress?.answered, 4);
+      expect(fanuc.progress?.total, 12);
+      expect(reply.lookahead['__declined']!.questionKey, 'experience');
+    });
+
+    test('a close prediction has a null question_key and the closing prompt', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Aakhri sawaal.',
+        'lookahead': <String, dynamic>{
+          '__declined': <String, dynamic>{
+            'question_kind': 'close',
+            'question_key': null,
+            'prompt_text': 'Shukriya, aapki poori baat ho gayi.',
+          },
+        },
+      });
+      final PredictedQuestion close = reply.lookahead['__declined']!;
+      expect(close.questionKind, ChatQuestionKind.close);
+      expect(close.questionKey, isNull);
+      expect(close.promptText, 'Shukriya, aapki poori baat ho gayi.');
+      expect(close.options, isEmpty);
+    });
+
+    test('a malformed entry is dropped and the reply survives (#371)', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Bada bhai ka jawaab',
+        // A <dynamic, dynamic> map so a non-string key can be exercised.
+        'lookahead': <dynamic, dynamic>{
+          'good': entry(),
+          'no_prompt': <String, dynamic>{'question_key': 'x'}, // no prompt_text
+          'blank_prompt': <String, dynamic>{'prompt_text': '   '},
+          'not_a_map': 'garbage',
+          42: entry(), // non-string key
+        },
+      });
+      expect(reply.reply, 'Bada bhai ka jawaab', reason: 'the reply must survive');
+      expect(reply.lookahead.keys, <String>['good'],
+          reason: 'every malformed entry is dropped, the good one kept');
+    });
+
+    test('a garbage option object is dropped, the rest survive', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'ok',
+        'lookahead': <String, dynamic>{
+          'k': <String, dynamic>{
+            'prompt_text': 'Aage?',
+            'options': <dynamic>[
+              <String, dynamic>{'option_key': 'a', 'label_text': 'Alpha'},
+              42, // not a map
+              <String, dynamic>{'option_key': 'b'}, // no label_text
+              <String, dynamic>{'label_text': 'Gamma'},
+            ],
+          },
+        },
+      });
+      expect(reply.lookahead['k']!.options, <String>['Alpha', 'Gamma']);
+    });
+
+    test('an absent lookahead is an empty map, not an error', () {
+      final ChatReply reply =
+          ChatReply.fromJson(<String, dynamic>{'reply': 'Theek hai'});
+      expect(reply.lookahead, isEmpty);
+    });
+
+    test('a non-map lookahead degrades to empty, reply survives', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Theek hai',
+        'lookahead': 'nonsense',
+      });
+      expect(reply.reply, 'Theek hai');
+      expect(reply.lookahead, isEmpty);
+    });
+  });
 }

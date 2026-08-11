@@ -49,6 +49,7 @@ class VoiceFormAsking extends VoiceFormState {
     required this.index,
     required this.total,
     required this.micPhase,
+    this.lookahead = const <String, PredictedNext>{},
   });
 
   final VoiceQuestion question;
@@ -56,15 +57,22 @@ class VoiceFormAsking extends VoiceFormState {
   final int total;
   final MicPhase micPhase;
 
+  /// The server's advisory next-step predictions for THIS question (#761), keyed
+  /// by `option_key` / `'__declined'`. Read on a chip/boolean tap to render the
+  /// predicted question optimistically. Empty when the server sent none.
+  final Map<String, PredictedNext> lookahead;
+
   VoiceFormAsking copyWith({MicPhase? micPhase}) => VoiceFormAsking(
         question: question,
         index: index,
         total: total,
         micPhase: micPhase ?? this.micPhase,
+        lookahead: lookahead,
       );
 
   @override
-  List<Object?> get props => <Object?>[question, index, total, micPhase];
+  List<Object?> get props =>
+      <Object?>[question, index, total, micPhase, lookahead];
 }
 
 /// A hard interruption (incoming call, backgrounding — #636). The current
@@ -382,7 +390,28 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         return;
       }
 
-      emit(current.copyWith(micPhase: MicPhase.uploading));
+      // #761 — OPTIMISTIC LOOKAHEAD. For a single-select chip or a boolean tap
+      // whose key the server predicted a next question for, render THAT predicted
+      // question (prompt + moved dot-rail) NOW, in a non-listening phase, so a 2G
+      // worker does not stare at a frozen screen through the blocking submit.
+      // ADVISORY ONLY and mic-SAFE: the mic is NOT armed here (#691 — no
+      // `_armFreshClip`), nothing is banked, and `current` (captured at the top
+      // of this advance) — never the prediction — still drives the submit key
+      // below, so the wire body is byte-identical. The real `step` reconciles via
+      // `_route`, replacing this render (and OVERRIDING it entirely on a
+      // Retry/Reattach/Done). Open/multi-select/spoken get no prediction and fall
+      // back to today's `current.copyWith(uploading)`.
+      final PredictedNext? predicted = _optimisticPrediction(current, chosen);
+      if (predicted != null) {
+        emit(VoiceFormAsking(
+          question: predicted.question!,
+          index: predicted.index,
+          total: predicted.total,
+          micPhase: MicPhase.uploading,
+        ));
+      } else {
+        emit(current.copyWith(micPhase: MicPhase.uploading));
+      }
       // THE QUESTION ON SCREEN, asserted by the thing that knows it. `current` was captured
       // at the top of this advance, so it is the question the worker actually answered even
       // if the engine has since moved on. An empty id is the disambiguation turn, which
@@ -428,6 +457,21 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         _answers.add(answer);
         if (answer.isSpoken) _actions.recordAnswerSpoken(current.index); // #639
       }
+      // #761 — a RetryCurrentQuestion re-asks the question the worker ANSWERED,
+      // and `_retry` reads it from `state`. If we optimistically rendered the
+      // predicted NEXT question, restore the real `current` first so the re-ask
+      // is of the right question, not the prediction. (A forward NextQuestion is
+      // re-presented by `_route` regardless; a ReattachedTo/Done does not read
+      // `state.question`, so only the Retry case needs this.)
+      if (predicted != null && step is RetryCurrentQuestion) {
+        emit(VoiceFormAsking(
+          question: current.question,
+          index: current.index,
+          total: current.total,
+          micPhase: MicPhase.uploading,
+          lookahead: current.lookahead,
+        ));
+      }
       await _route(step, gen);
     } on Failure catch (failure) {
       if (!_torndown) emit(VoiceFormError(failure));
@@ -449,6 +493,41 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         unawaited(resumeSession());
       }
     }
+  }
+
+  /// The advisory prediction to render for [chosen] on [current]'s question, or
+  /// null when there is none to render (#761).
+  ///
+  /// Rendered only for a SINGLE-select chip or a boolean tap whose `option_key`
+  /// the server predicted a NEXT QUESTION for (a predicted DONE has a null
+  /// question — nothing to show, and the mic must not arm on an unconfirmed end).
+  /// Spoken/text/multi-select get none — they fall back to today's blocking
+  /// submit, exactly as the invariants require. Guards the dot-rail invariant
+  /// (`total >= index >= 0`) so an out-of-range prediction is dropped rather than
+  /// asserting in [VoiceDotRail].
+  ///
+  /// The boolean lookup is keyed `'true'`/`'false'` (best-effort — a server that
+  /// keys it otherwise simply yields no prediction, i.e. today's behaviour).
+  PredictedNext? _optimisticPrediction(
+      VoiceFormAsking current, VoiceAnswer? chosen) {
+    if (chosen == null) return null; // spoken → no prediction
+    final Map<String, PredictedNext> lookahead = current.lookahead;
+    if (lookahead.isEmpty) return null;
+    final PredictedNext? predicted;
+    switch (chosen.kind) {
+      case VoiceAnswerKind.chips:
+        // multi-select must NOT render optimistically (#761).
+        if (chosen.optionKeys.length != 1) return null;
+        predicted = lookahead[chosen.optionKeys.first];
+      case VoiceAnswerKind.boolean:
+        predicted = lookahead[chosen.boolValue! ? 'true' : 'false'];
+      case VoiceAnswerKind.text:
+      case VoiceAnswerKind.spoken:
+        return null;
+    }
+    if (predicted == null || predicted.question == null) return null;
+    if (predicted.index < 0 || predicted.total < predicted.index) return null;
+    return predicted;
   }
 
   /// The recorded clip → a registered `voice_note_id`, against the engine's session (#717).
@@ -521,14 +600,17 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       index: next.index,
       total: next.total,
       micPhase: MicPhase.priming,
+      lookahead: next.lookahead, // #761 — carried for the next tap's prediction
     ));
     await _tts.play(next.question); // read aloud — mic not yet live
     if (_torndown || gen != _interruptGen) return;
-    await _armFreshClip(next.question, next.index, next.total, gen);
+    await _armFreshClip(next.question, next.index, next.total, gen,
+        lookahead: next.lookahead);
   }
 
-  Future<void> _rearm(VoiceFormAsking current, int gen) =>
-      _armFreshClip(current.question, current.index, current.total, gen);
+  Future<void> _rearm(VoiceFormAsking current, int gen) => _armFreshClip(
+      current.question, current.index, current.total, gen,
+      lookahead: current.lookahead);
 
   /// start → 250ms prime → arm → emit listening/holding. Shared by first-render,
   /// re-arm-after-empty, replay (#631), and resume (#636).
@@ -539,7 +621,9 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
   /// await, and the mic is released if the app backgrounded during the start
   /// window.
   Future<void> _armFreshClip(
-      VoiceQuestion question, int index, int total, int gen) async {
+      VoiceQuestion question, int index, int total, int gen,
+      {Map<String, PredictedNext> lookahead =
+          const <String, PredictedNext>{}}) async {
     if (_torndown || !_foreground || gen != _interruptGen) return;
     _startingMic = true;
     try {
@@ -562,6 +646,7 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       index: index,
       total: total,
       micPhase: _endpointer.manualOnly ? MicPhase.holding : MicPhase.listening,
+      lookahead: lookahead, // #761 — preserved when the mic goes live
     ));
   }
 
@@ -587,7 +672,8 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       emit(current.copyWith(micPhase: MicPhase.priming));
       await _tts.play(current.question); // read aloud while the mic is off
       if (_torndown || gen != _interruptGen) return;
-      await _armFreshClip(current.question, current.index, current.total, gen);
+      await _armFreshClip(current.question, current.index, current.total, gen,
+          lookahead: current.lookahead);
     } finally {
       _advancing = false;
     }
@@ -730,7 +816,8 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       try {
         await _recorder.cancel(); // the interrupted clip is unusable
         if (!_torndown && gen == _interruptGen) {
-          await _armFreshClip(current.question, current.index, current.total, gen);
+          await _armFreshClip(current.question, current.index, current.total, gen,
+              lookahead: current.lookahead);
         }
       } finally {
         _advancing = false;

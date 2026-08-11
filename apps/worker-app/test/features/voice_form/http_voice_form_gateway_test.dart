@@ -317,4 +317,93 @@ void main() {
         HttpVoiceFormGateway(api, SessionRepository());
     expect(gw.start(), throwsA(isA<UnauthorizedFailure>()));
   });
+
+  // #761 — the advisory lookahead. Predicted next steps keyed by option_key
+  // (+ __declined), parsed defensively; a garbage entry is dropped and the step
+  // survives.
+  test('a question step parses the lookahead map into predicted next steps (#761)',
+      () async {
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'session_id': 's1',
+              'step': <String, dynamic>{
+                'kind': 'question',
+                'index': 4,
+                'total': 11,
+                'question': <String, dynamic>{
+                  'question_key': 'q_material',
+                  'prompt_text': 'Kaunsa material?',
+                  'answer_type': 'single_select',
+                  'options': <dynamic>[
+                    <String, dynamic>{
+                      'option_key': 'mild_steel',
+                      'label_text': 'Mild steel'
+                    },
+                  ],
+                },
+                'lookahead': <String, dynamic>{
+                  // A predicted next QUESTION, dot-rail via explicit index/total.
+                  'mild_steel': <String, dynamic>{
+                    'question_key': 'q_thickness',
+                    'prompt_text': 'Kitni moti sheet?',
+                    'answer_type': 'single_select',
+                    'options': <dynamic>[
+                      <String, dynamic>{'option_key': 'thin', 'label_text': 'Patli'},
+                    ],
+                    'index': 5,
+                    'total': 11,
+                  },
+                  // A predicted DONE (question_kind: close), dot-rail via progress.
+                  '__declined': <String, dynamic>{
+                    'question_kind': 'close',
+                    'progress': <String, dynamic>{'answered': 11, 'total': 11},
+                  },
+                  // Garbage — dropped, and must not take down the step.
+                  'garbage': 'not a map',
+                },
+              },
+            }),
+            201,
+          )),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+
+    final VoiceFormStep step = await gw.start();
+    final NextQuestion q = step as NextQuestion;
+
+    final PredictedNext predicted = q.lookahead['mild_steel']!;
+    expect(predicted.question!.id, 'q_thickness');
+    expect(predicted.question!.kind, VoiceQuestionKind.singleSelect);
+    expect(predicted.question!.options.single.key, 'thin');
+    expect(predicted.index, 5);
+    expect(predicted.total, 11);
+
+    final PredictedNext declined = q.lookahead['__declined']!;
+    expect(declined.question, isNull, reason: 'a close prediction has no question');
+    expect(declined.index, 11, reason: 'dot-rail from progress.answered');
+    expect(declined.total, 11);
+
+    expect(q.lookahead.keys, containsAll(<String>['mild_steel', '__declined']));
+    expect(q.lookahead.containsKey('garbage'), isFalse,
+        reason: 'the garbage entry is dropped, the step survives');
+  });
+
+  test('a question step with NO lookahead yields an empty map (#761)', () async {
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((_) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'session_id': 's1',
+              'step': _questionStep(),
+            }),
+            201,
+          )),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+
+    final VoiceFormStep step = await gw.start();
+    expect((step as NextQuestion).lookahead, isEmpty);
+  });
 }

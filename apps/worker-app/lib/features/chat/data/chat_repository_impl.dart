@@ -113,6 +113,10 @@ class ChatRepositoryImpl implements ChatRepository {
         questionKind: reply.questionKind,
         inputMode: reply.inputMode,
         occupationLabel: reply.occupationLabel,
+        // #761 — carried for the optimistic-lookahead reconcile in ChatBloc:
+        // asked_question_id attributes THIS turn, lookahead predicts the next.
+        askedQuestionId: reply.askedQuestionId,
+        lookahead: reply.lookahead,
       );
     } catch (error) {
       throw mapError(error);
