@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, UseGuards } from "@nestjs/common";
 import { Ctx, type RequestContext } from "../../common/request-context";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import {
@@ -7,7 +7,8 @@ import {
   type AuthenticatedPayer,
 } from "../../payers/payer-auth.guard";
 import { SubjectRateLimit } from "../../common/rate-limit/subject-rate-limit.service";
-import { loadServerConfig } from "@badabhai/config";
+import type { ServerConfig } from "@badabhai/config";
+import { SERVER_CONFIG } from "../../config/config.module";
 import { JobPostingChatService } from "./job-posting-chat.service";
 import {
   StartJobPostingChatSchema,
@@ -48,12 +49,20 @@ export class JobPostingChatController {
    *
    * The read routes (`sessions`, `sessions/:id/messages`) are deliberately NOT capped: they touch
    * no provider and are already tenant-scoped, so a cap there would only degrade legitimate use.
+   *
+   * THE CAP COMES FROM THE INJECTED CONFIG, not from `loadServerConfig()` at field-initializer
+   * time. `loadServerConfig` re-parses `process.env` on every call and is not memoized, so
+   * calling it here would have re-validated the entire environment when Nest constructed this
+   * controller and thrown from a constructor if anything were missing — while every other
+   * consumer in this app (74 of them) reads the ONE validated object the `SERVER_CONFIG`
+   * provider already built. A second source of config also means a test, or any future
+   * environment-specific provider, cannot change this cap: the value would be read straight out
+   * of the ambient process instead of from the container.
    */
-  private readonly chatCapPerHour = loadServerConfig().PAYER_JOB_POSTING_CHAT_PER_HOUR;
-
   constructor(
     private readonly chat: JobPostingChatService,
     private readonly rateLimit: SubjectRateLimit,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
   /** Charge one unit of the payer's hourly AI budget, or 429. */
@@ -61,7 +70,7 @@ export class JobPostingChatController {
     await this.rateLimit.assertWithinHourlyCap(
       "payer_job_posting_chat",
       payerId,
-      this.chatCapPerHour,
+      this.config.PAYER_JOB_POSTING_CHAT_PER_HOUR,
     );
   }
 

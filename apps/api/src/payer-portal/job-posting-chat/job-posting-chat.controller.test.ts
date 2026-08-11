@@ -34,10 +34,19 @@ function makeCtrl() {
   // PAY-SEC-07 — the controller now charges a per-payer hourly AI budget before it spends.
   // Captured so the SPEND tests below can assert the cap is charged with the SESSION payer id.
   const rateLimit = { assertWithinHourlyCap: vi.fn(async () => undefined) };
+  // The cap is INJECTED, so a test states it rather than inheriting whatever `process.env`
+  // happens to hold — which is the practical reason the controller reads `SERVER_CONFIG`
+  // instead of calling `loadServerConfig()` for itself.
+  //
+  // DELIBERATELY NOT THE DEFAULT (60): the assertions below check this exact number, so a
+  // regression to reading the ambient config would produce 60 here and fail, where a stub
+  // holding the default would pass either way.
+  const config = { PAYER_JOB_POSTING_CHAT_PER_HOUR: 17 };
   return {
-    ctrl: new JobPostingChatController(chat as never, rateLimit as never),
+    ctrl: new JobPostingChatController(chat as never, rateLimit as never, config as never),
     chat,
     rateLimit,
+    config,
   };
 }
 
@@ -128,7 +137,7 @@ describe("JobPostingChatController — AI spend budget (PAY-SEC-07)", () => {
     expect(d.rateLimit.assertWithinHourlyCap).toHaveBeenCalledWith(
       "payer_job_posting_chat",
       PAYER.id,
-      expect.any(Number),
+      d.config.PAYER_JOB_POSTING_CHAT_PER_HOUR,
     );
   });
 
@@ -138,7 +147,7 @@ describe("JobPostingChatController — AI spend budget (PAY-SEC-07)", () => {
     expect(d.rateLimit.assertWithinHourlyCap).toHaveBeenCalledWith(
       "payer_job_posting_chat",
       PAYER.id,
-      expect.any(Number),
+      d.config.PAYER_JOB_POSTING_CHAT_PER_HOUR,
     );
   });
 
