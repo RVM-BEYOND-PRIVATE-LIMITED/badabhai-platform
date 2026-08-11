@@ -150,8 +150,22 @@ jobs:
     # account. Registry `p/*` rulesets are fetched anonymously at scan time.
     # Image is `semgrep/semgrep` (the current org; `returntocorp/*` is the legacy
     # name and is no longer the canonical push target).
+    #
+    # PINNED BY DIGEST, now that the job blocks. `:latest` moved under us on
+    # semgrep's release schedule, so an engine bump could turn this job red on a
+    # PR that changed nothing — which is the failure #737 just spent 39 findings
+    # undoing, and it would arrive on a day nobody connected it to a deploy. Same
+    # convention as every action above (digest + a version comment).
+    #
+    # WHAT THIS DOES NOT PIN, stated plainly: the `p/*` rulesets are fetched from
+    # semgrep's registry AT SCAN TIME and are not versionable in the OSS CLI, so
+    # rule content can still change under a fixed engine. If that starts costing
+    # red PRs, the fix is `--baseline-commit` (report only findings the PR
+    # introduced) rather than reverting to advisory — not done here because it
+    # needs full history in this job's checkout and would change what the green
+    # baseline measured.
     container:
-      image: semgrep/semgrep:latest
+      image: semgrep/semgrep@sha256:bdf7013b2c3634a487671158da77c554f531742326b543a9464d2adf6c433ac8 # 1.171.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
