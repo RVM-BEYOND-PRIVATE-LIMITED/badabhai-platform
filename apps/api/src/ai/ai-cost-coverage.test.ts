@@ -68,31 +68,54 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
  *
  * NAMED RATHER THAN TOLERATED. Delete an entry the moment its emitter lands.
  *
- * #745 CLOSED THREE OF THE FIVE and they are gone from this list:
+ * #745 CLOSED THREE and they are gone from this list:
  *
- *   skill_embedding     `/skills/canonicalize` — real Gemini spend on a contract that carried
- *                       no cost field (#738's exact root cause). `SkillCanonicalization` now
- *                       carries `ai_metadata`; `JobPostingsService.canonicalizeSkills` emits
- *                       ONE record per phrase, because a 10-skill posting is 10 billable
- *                       embeds and a per-posting record would under-count it tenfold.
- *   resume_generation   `/resume/generate` — same contract gap. `router.run` had always built
- *                       the metadata; the route discarded it. `ResumeService.generate` now
- *                       emits before any write, so a later failure cannot lose the record.
- *   profiling_chat_turn `/job-posting-chat/respond` — wired in `JobPostingChatService`. NOTE,
- *                       because the issue said otherwise and re-measurement disagreed: this
- *                       route makes ZERO LLM calls today, so it spends nothing and the
- *                       emitter is a no-op until the documented rephrase seam is armed in
- *                       the ai-service. It is wired ahead of the spend deliberately — the
- *                       person who arms that seam edits Python, not this app, which is
- *                       exactly how `stt_transcription` shipped unledgered.
+ *   skill_embedding     BOTH of its call paths, which is the correction this list exists to
+ *                       force. `/skills/canonicalize` (the job-posting write) emits one
+ *                       record per phrase via `JobPostingsService.canonicalizeSkills`, and
+ *                       the `/profile/extract` canonicalization fan-out emits one per embed
+ *                       via `ProfileExtractionProcessor` (that route is reached on the
+ *                       LEGACY extraction path — a session with no answer map, i.e. a
+ *                       pre-cutover interview or the "make the profile anyway" escape
+ *                       hatch). Wiring only the first would have left
+ *                       `WHERE task_type = 'skill_embedding'` returning part of the spend,
+ *                       and a partial ledger reads as complete where an empty one reads as
+ *                       "not instrumented" and invites a look.
+ *                       THE LESSON THIS ENCODES: this list is keyed by TASK TYPE, so ONE
+ *                       emitter anywhere satisfies it and deletes the entry naming ALL of
+ *                       that type's call paths. Before deleting an entry, enumerate every
+ *                       call path of that task type — not just the one you wired.
+ *   resume_generation   `/resume/generate` — the contract carried no cost field (#738's
+ *                       exact root cause). `router.run` had always built the metadata; the
+ *                       route discarded it. `ResumeService.generate` now emits before any
+ *                       write, so a later failure cannot lose the record.
+ *   job_posting_chat_turn
+ *                       `/job-posting-chat/respond` — wired in `JobPostingChatService`.
+ *                       NOTE, because the issue said otherwise and re-measurement
+ *                       disagreed: this route makes ZERO LLM calls today, so it spends
+ *                       nothing and the emitter is a no-op until the documented rephrase
+ *                       seam is armed in the ai-service. It is wired ahead of the spend
+ *                       deliberately — the person who arms that seam edits Python, not this
+ *                       app, which is exactly how `stt_transcription` shipped unledgered.
  *
- * WHAT REMAINS, and why neither is a gap of the same shape — both spend OUTSIDE apps/api, so
- * there is no request path here that could emit for them:
+ * WHAT REMAINS, and why none of the three is a gap of the same shape — all spend OUTSIDE
+ * apps/api, so there is no request path here that could emit for them:
  *
  *   tts_synthesis       no apps/api caller at all; spend originates in the render CLI (#701)
  *   domain_match        no apps/api caller; routed inside the ai-service
+ *   profiling_chat_turn no apps/api caller — the WORKER profiling chat (`/profiling/respond`)
+ *                       is routed inside the ai-service and this app never calls it (the
+ *                       interview's only LLM call reaching us is `profile_parse`). It was
+ *                       briefly absent from this list because the payer job-posting chat
+ *                       emitter borrowed its name; those are two different chats, and the
+ *                       payer one now has its own `job_posting_chat_turn`. Restoring it here
+ *                       is what stops a borrowed label from reading as coverage.
  */
-const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = ["domain_match", "tts_synthesis"];
+const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
+  "domain_match",
+  "tts_synthesis",
+  "profiling_chat_turn",
+];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {
   it("finds the real emitter call sites — without this the coverage check is vacuous", () => {
@@ -101,9 +124,9 @@ describe("every task type that can spend is either emitted or named as unledgere
     // pass by finding nothing to classify. Pin the six that exist today (#745 added three).
     const emitted = emittedTaskTypes();
     expect([...emitted].sort()).toEqual([
+      "job_posting_chat_turn",
       "profile_extraction",
       "profile_parse",
-      "profiling_chat_turn",
       "resume_generation",
       "skill_embedding",
       "stt_transcription",

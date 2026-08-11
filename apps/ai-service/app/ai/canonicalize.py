@@ -32,7 +32,7 @@ import time
 from typing import Protocol
 
 from ..config import Settings
-from ..contracts import SkillCanonicalization
+from ..contracts import AICallMetadata, SkillCanonicalization
 from . import cost_tracker
 from .embeddings import EMBEDDING_TASK_TYPE, embed_text
 
@@ -118,7 +118,9 @@ def canonicalize_skill(
     #
     # Costs one `ai_call` log line per embed, including the `canonicalize_labels` fan-out on
     # `/profile/extract` where these calls were previously invisible. That is the point: they
-    # were always real provider calls and were always unmeasured.
+    # were always real provider calls and were always unmeasured. `canonicalize_labels`
+    # collects these onto `ProfileExtractionOutput.skill_embedding_metadata`, so the fan-out
+    # reaches the same ledger as the single-phrase route rather than stopping at this log line.
     meta = cost_tracker.build_call_metadata(
         task_type=EMBEDDING_TASK_TYPE,
         model=emb.model,
@@ -158,20 +160,42 @@ def canonicalize_labels(
     settings: Settings,
     *,
     lang: str = "en",
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], list[AICallMetadata]]:
     """Canonicalize a list of model-emitted skill LABELS. Returns ``(assigned_skill_ids,
-    unresolved_labels)`` — assigned ids are de-duplicated in first-seen order; misses are
-    recorded (pseudonymized) by the store. SG-3: only vector-assigned ids are returned, so an
-    LLM-proposed phrase can NEVER inject an id the vector layer did not assign."""
+    unresolved_labels, embed_cost_records)`` — assigned ids are de-duplicated in first-seen
+    order; misses are recorded (pseudonymized) by the store. SG-3: only vector-assigned ids
+    are returned, so an LLM-proposed phrase can NEVER inject an id the vector layer did not
+    assign.
+
+    THE THIRD RETURN VALUE IS THE #745 FIX ON THIS PATH, and it exists because the first
+    version of that fix only covered one of the task type's two call paths.
+    ``/skills/canonicalize`` returns ONE ``SkillCanonicalization`` and its ``ai_metadata``
+    rides home on it, so the job-posting write could record its embeds. This function
+    collapsed N results into ids-and-labels and dropped every ``ai_metadata`` on the floor,
+    so the ``/profile/extract`` fan-out reached no ledger at all.
+
+    That left the worst available shape: ``WHERE task_type = 'skill_embedding'`` returning
+    SOME rows. An empty result reads as "not instrumented" and invites a look; a partial one
+    reads as complete and does not. One record per embed, on every outcome, is the same rule
+    ``canonicalize_skill`` already applies to matched-vs-miss, applied one level up.
+
+    ONE ENTRY PER EMBED THAT REACHED THE PIPELINE — never per label, and never per pass. A
+    blank label is skipped before any embed and contributes nothing; a pseudonymize-blocked
+    label produces no metadata (nothing was attempted) and so contributes nothing either.
+    The list is therefore <= the number of labels, and a caller must not infer either count
+    from the other."""
     assigned: list[str] = []
     unresolved: list[str] = []
+    cost_records: list[AICallMetadata] = []
     for label in labels:
         if not label or not label.strip():
             continue
         res = canonicalize_skill(label, domain_id, store, settings, lang=lang)
+        if res.ai_metadata is not None:
+            cost_records.append(res.ai_metadata)
         if res.status == MATCHED and res.skill_id is not None:
             if res.skill_id not in assigned:
                 assigned.append(res.skill_id)
         else:
             unresolved.append(label)
-    return assigned, unresolved
+    return assigned, unresolved, cost_records

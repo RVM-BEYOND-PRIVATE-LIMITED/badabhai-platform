@@ -316,7 +316,12 @@ describe("JobPostingChatService — session lifecycle", () => {
     // Null metadata ⇒ `record` no-ops. A ₹0 record here would put a provider call that
     // never happened onto the cost spine, which is the failure the recorder documents.
     expect(meta).toBeNull();
-    expect(taskType).toBe("profiling_chat_turn");
+    // ITS OWN TASK TYPE, not the worker chat's. `profiling_chat_turn` is `/profiling/respond`
+    // (the worker profiling loop, which this app never calls); this is the payer job-posting
+    // composer. The recorder labels the event from this argument, not from the metadata, so
+    // borrowing the worker's name would file payer spend under the worker chat the day the
+    // rephrase seam is armed — and the fix would then be an invisible one-word edit here.
+    expect(taskType).toBe("job_posting_chat_turn");
     expect(aiJobId).toBeNull(); // a payer turn is a synchronous reply, not an ai_jobs row
     // And no cost event reached the spine.
     expect(d.emitted.map((e) => e.event_name)).not.toContain("ai.cost_recorded");

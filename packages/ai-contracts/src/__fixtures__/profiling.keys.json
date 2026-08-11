@@ -63,6 +63,7 @@
     "extraction_status",
     "worker_profile_draft",
     "ai_metadata",
+    "skill_embedding_metadata",
     "job_domain_match",
     "error_code"
   ],

@@ -749,6 +749,18 @@ const aiTaskType = z.enum([
   "stt_transcription",
   "tts_synthesis",
   "skill_embedding",
+  // THE PAYER JOB-POSTING CHAT TURN, WHICH IS NOT `profiling_chat_turn` (#745).
+  //
+  // Two different chats, two different surfaces: `profiling_chat_turn` is the WORKER
+  // profiling loop (`/profiling/respond`, routed in `model_config`), and this is the payer
+  // job-posting composer (`/job-posting-chat/respond`). The payer route makes zero LLM
+  // calls today; when its rephrase seam is armed the ai-service will register
+  // `job_posting_chat_turn` in `model_config.TaskType` and stamp it on the metadata, so
+  // the emitter in `JobPostingChatService` must already be using THAT name. Labelling it
+  // `profiling_chat_turn` would have filed payer spend under the worker chat and needed a
+  // second, invisible fix in apps/api on the day the seam went live — the kind of
+  // follow-up that produced this defect class in the first place.
+  "job_posting_chat_turn",
 ]);
 
 /** Async AI job type. Mirrors `AI_JOB_TYPES` in @badabhai/types. */

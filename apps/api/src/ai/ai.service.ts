@@ -173,6 +173,9 @@ export class AiService {
       blocked: false,
       is_mock: true,
       ai_metadata: null,
+      // No canonicalization pass ran either — the request never left the process, so there
+      // are no embeds to report (#745). Empty means "nothing was attempted", not "free".
+      skill_embedding_metadata: [],
       error_code: "extract_service_unreachable",
     });
   }

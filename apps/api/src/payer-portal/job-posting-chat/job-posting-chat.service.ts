@@ -234,10 +234,20 @@ export class JobPostingChatService {
     // unledgered. The record now appears the moment the seam is armed, with no second
     // change and no second incident.
     //
+    // `job_posting_chat_turn`, NOT `profiling_chat_turn`, AND THE DIFFERENCE IS THE WHOLE
+    // POINT OF WIRING AHEAD. Those are two different chats: `profiling_chat_turn` is the
+    // WORKER profiling loop (`/profiling/respond`), which this app does not call at all.
+    // This is the payer job-posting composer. The seam above will register
+    // `job_posting_chat_turn` in `model_config.TaskType` and stamp it on the metadata, and
+    // `AiCostRecorder` labels the event from THIS argument rather than from the metadata —
+    // so naming it `profiling_chat_turn` would have filed payer spend under the worker chat
+    // and required a second, invisible fix here on the day the seam went live. Wiring ahead
+    // is only worth anything if what is wired is right.
+    //
     // `aiJobId` is null: a payer turn is a synchronous reply, not an `ai_jobs` row.
     await this.aiCost.record(
       aiResult.ai_metadata ?? null,
-      "profiling_chat_turn",
+      "job_posting_chat_turn",
       null,
       ctx.correlationId,
       ctx.requestId,

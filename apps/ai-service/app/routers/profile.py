@@ -241,6 +241,11 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     # role backfill, which the WS4 TODO above still defers (negative-tier risk).
     # Inert unless BOTH the flag is on AND the seam is configured (get_skill_store
     # returns the NullSkillStore otherwise) — the TD65 activation chain.
+    # #745: the embeds this pass pays for, one record per embed, returned on the response so
+    # apps/api can ledger them against the extraction's own `ai_jobs` row. Stays EMPTY on every
+    # path that reaches no provider (flag off, ledger block) — an absent record, never a
+    # fabricated ₹0 one.
+    embed_cost_records: list[AICallMetadata] = []
     if settings.skill_canonicalize_enabled:
         labels = rich.skills + rich.controllers
         # TD68 (TD27 SpendLedger wiring, REAL embed path only): reserve the projected
@@ -292,7 +297,7 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
                     # checks, every concurrent turn) for up to timeout x labels when the
                     # api/provider is slow — to_thread keeps the loop serving while the pass
                     # runs.
-                    assigned, _unresolved = await asyncio.to_thread(
+                    assigned, _unresolved, embed_cost_records = await asyncio.to_thread(
                         canonicalize_labels,
                         labels,
                         settings.skill_canonicalize_default_domain,
@@ -399,6 +404,12 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         extraction_status="completed",
         worker_profile_draft=rich,
         ai_metadata=meta,
+        # #745: the canonicalization pass's embeds — SEPARATE from `ai_metadata`, which is the
+        # extraction call alone. One entry per embed; empty when the pass did not reach a
+        # provider. Without this, this call path's `skill_embedding` spend reached no ledger
+        # while the job-posting path's did, and a partial `WHERE task_type = 'skill_embedding'`
+        # reads as complete.
+        skill_embedding_metadata=embed_cost_records,
         job_domain_match=(
             JobDomainMatch(
                 status=domain_match.status,
