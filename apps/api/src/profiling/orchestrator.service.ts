@@ -1423,6 +1423,11 @@ export class ProfilingOrchestrator {
         progress: result.progress,
         whyText: result.whyText,
         answerType: result.answerType,
+        // #766 item 2 — the prediction rides along, for the reason stated one line up: taken off
+        // `result` so the replay is the SAME response rather than a second derivation. Without it
+        // a retried submit replayed the words and silently dropped the instant next-question
+        // render, on exactly the flaky link that caused the retry.
+        lookahead: result.lookahead ?? null,
       },
     };
     const at = input.now.toISOString();
@@ -1503,6 +1508,12 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
     replayed: true,
     excludeFromParse: false,
     unavailable: false,
+    // FROM THE CACHE, like the four above and for the identical reason (#766 item 2). The
+    // lookahead is part of what the client draws — it renders the next question from it on the
+    // tap — so replaying the words without it is the same silent downgrade `options` and
+    // `progress` used to suffer here. `null` on a record written before the field existed, which
+    // is simply the round trip the client already falls back to.
+    lookahead: last.lookahead,
     // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
     // client retrying on a flaky connection drive one Postgres UPDATE per retry.
     checkpointDue: false,

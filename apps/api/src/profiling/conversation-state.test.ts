@@ -89,6 +89,7 @@ const FULL: ProfilingEnvelope = {
     progress: { answered: 4, total: 11 },
     whyText: "Isse hum aapke sheher ke kaam dikha payenge.",
     answerType: "single_select",
+    lookahead: null,
   },
   // Every bucket distinct and non-zero, for the same reason as every other field here: a
   // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.
@@ -212,6 +213,86 @@ describe("a present-but-damaged envelope is REPAIRED, never discarded", () => {
     // A value the client has never seen is worse than the neutral one it has.
     const bogus = narrowProfilingEnvelope({ ...FULL, lastTurn: { ...base, kind: "interrogate" } });
     expect(bogus?.lastTurn?.kind).toBe("ask");
+  });
+
+  /**
+   * #766 item 2 — the cached lookahead, and the ONE field on `lastTurn` that rejects WHOLE.
+   *
+   * Every drift rule above is per-entry: a malformed answer drops alone and the interview
+   * survives; an unknown turn kind narrows to `ask`. This field deliberately does the opposite,
+   * and the reason is what the worker would experience: a half-parsed map gives some chips an
+   * instant render and the rest a round trip, which reads as a bug rather than as a degradation
+   * — and on the voice form the entry drives `tts_clip_id`, so a surviving-but-wrong entry is
+   * SPOKEN.
+   *
+   * Two opposite policies on adjacent fields is exactly the pair a later refactor "tidies" into
+   * one. These pin which is which.
+   */
+  const PREDICTION = {
+    questionKey: "q_city",
+    kind: "ask",
+    promptText: "Aap kis sheher me kaam dhundh rahe hain?",
+    whyText: null,
+    answerType: "single_select",
+    options: [],
+    progress: { answered: 4, total: 11 },
+    turn: 5,
+  };
+
+  it("round-trips a stored lookahead intact, stamp included", () => {
+    const kept = narrowProfilingEnvelope({
+      ...FULL,
+      lastTurn: { ...FULL.lastTurn, lookahead: { pune: PREDICTION } },
+    });
+    // The stamp is the whole point of #766 item 4 — a prediction that survives the round trip
+    // without it cannot be checked for staleness by the client that reads it.
+    expect(kept?.lastTurn?.lookahead?.pune?.turn).toBe(5);
+    expect(kept?.lastTurn?.lookahead?.pune?.questionKey).toBe("q_city");
+  });
+
+  it("drops the WHOLE map when ONE entry drifted — never a partial prediction", () => {
+    // Contrast with "drops ONE malformed answer, never the whole interview" above: there the
+    // surviving entries are still true. Here a surviving entry would be served as a prediction
+    // beside chips that silently have none.
+    // NOTE the shape of this list: whole ENTRIES, not overrides spread onto a good one. The
+    // first draft used `{...PREDICTION, ...bad}` with `bad = {}` as a case, which is just a
+    // valid entry — it asserted nothing and failed, correctly, on the code being right.
+    const unstamped: Record<string, unknown> = { ...PREDICTION };
+    delete unstamped.turn;
+
+    for (const bad of [
+      { ...PREDICTION, turn: "five" }, // the stamp, wrong type
+      { ...PREDICTION, kind: "interrogate" }, // outside the closed set
+      { ...PREDICTION, progress: { answered: -1, total: 11 } }, // negative count
+      // NO STAMP AT ALL — the real mid-deploy record. Entries cached between #765 and this
+      // change have no `turn` and are sitting in Redis right now behind the 24 h TTL. Rejecting
+      // them is the wanted outcome: an unstamped prediction is one the client cannot check for
+      // staleness, and on the voice form it would be SPOKEN before anything could contradict it.
+      unstamped,
+    ]) {
+      const drifted = narrowProfilingEnvelope({
+        ...FULL,
+        lastTurn: { ...FULL.lastTurn, lookahead: { pune: PREDICTION, mumbai: bad } },
+      });
+      expect(
+        drifted?.lastTurn?.lookahead,
+        `a drifted entry (${JSON.stringify(bad)}) must take the whole map with it`,
+      ).toBeNull();
+      // The turn itself still replays — only the prediction is withheld.
+      expect(drifted?.lastTurn?.reply).toBe(FULL.lastTurn?.reply);
+    }
+  });
+
+  it("narrows an ABSENT lookahead to null — a record written before the field replays as today", () => {
+    // Every `lastTurn` in Redis right now predates this field, behind a 24 h TTL. `null` is a
+    // state the client already handles (it means the round trip it has today), so an interview
+    // mid-deploy degrades to exactly today's behaviour instead of losing its reply cache.
+    const legacy = narrowProfilingEnvelope({
+      ...FULL,
+      lastTurn: { ...FULL.lastTurn, lookahead: undefined },
+    });
+    expect(legacy?.lastTurn?.lookahead).toBeNull();
+    expect(legacy?.lastTurn?.reply).toBe(FULL.lastTurn?.reply);
   });
 
   it("keeps a reply-cache entry that has no question key — a CLOSE has none", () => {

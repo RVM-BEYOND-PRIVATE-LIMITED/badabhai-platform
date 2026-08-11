@@ -431,6 +431,8 @@ describe("the lookahead on the voice form (#765)", () => {
     answerType: "number",
     options: [],
     progress: { answered: 4, total: 11 },
+    // #766 item 4 — the turn this prediction is for.
+    turn: 5,
     ...over,
   });
 
