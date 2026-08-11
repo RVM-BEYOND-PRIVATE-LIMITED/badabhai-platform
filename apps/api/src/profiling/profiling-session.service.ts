@@ -599,6 +599,42 @@ export class ProfilingSessionService {
       // how many questions are behind the worker, so the one in front of them is the next.
       index: Math.min(turn.progress.answered + 1, Math.max(turn.progress.total, 1)),
       total: turn.progress.total,
+      // THE PREDICTION, projected through the SAME rules as the question above it — including the
+      // `tts_clip_id`, which is the whole reason this is worth more on the voice surface than on
+      // chat: a client that knows the next clip id can have the audio ready before the tap, so a
+      // worker who cannot read hears the next question immediately instead of hearing silence.
+      //
+      // A CLOSE PREDICTION IS DROPPED rather than rendered. This union models "the interview is
+      // over" as its own step (`done`), so a lookahead entry claiming `kind: "close"` has no
+      // question to draw and the client should simply take the round trip and be moved to the
+      // review screen by the real response.
+      lookahead: turn.lookahead
+        ? Object.fromEntries(
+            Object.entries(turn.lookahead)
+              .filter(([, entry]) => entry.kind === "ask" && entry.questionKey !== null)
+              .map(([answerKey, entry]) => [
+                answerKey,
+                {
+                  question_key: entry.questionKey,
+                  question_kind: entry.kind,
+                  prompt_text: entry.promptText,
+                  why_text: entry.whyText,
+                  answer_type: entry.answerType,
+                  options: entry.options.map((option) => ({
+                    option_key: option.option_key,
+                    label_text: option.label_text,
+                    is_none_of_above: option.is_none_of_above,
+                  })),
+                  tts_clip_id: clipId(entry.promptText),
+                  index: Math.min(
+                    entry.progress.answered + 1,
+                    Math.max(entry.progress.total, 1),
+                  ),
+                  total: entry.progress.total,
+                },
+              ]),
+          )
+        : null,
     };
   }
 

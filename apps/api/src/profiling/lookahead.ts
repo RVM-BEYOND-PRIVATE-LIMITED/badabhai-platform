@@ -73,7 +73,12 @@ export interface LookaheadEntry {
   readonly kind: "ask" | "close";
   readonly promptText: string;
   readonly whyText: string | null;
-  readonly answerType: string | null;
+  /**
+   * Typed as the item's own `answer_type` rather than `string`, so a surface projecting this into
+   * a closed enum (the voice form's `ProfilingQuestionSchema`) is checked at compile time rather
+   * than at the Zod boundary, where the failure would be a 500 mid-interview.
+   */
+  readonly answerType: QuestionPackItem["answer_type"] | null;
   readonly options: readonly QuestionPackOption[];
   readonly progress: { readonly answered: number; readonly total: number };
 }

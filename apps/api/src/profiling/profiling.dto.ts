@@ -200,6 +200,39 @@ export const ProfilingStepSchema = z.discriminatedUnion("kind", [
     /** 1-based position and the pinned pack's total, for the dot rail. Never a percentage. */
     index: z.number().int().positive(),
     total: z.number().int().nonnegative(),
+    /**
+     * What the engine WOULD serve next, keyed by the answer that would produce it — so the next
+     * question can be spoken on the tap rather than on the round trip.
+     *
+     * IT MATTERS MORE HERE THAN ON CHAT. This surface exists for a worker who cannot read the
+     * screen, so the round trip is not a blank pause — it is silence, and silence is the thing
+     * that makes a worker think the app has stopped working. Pre-resolving the next question also
+     * lets the client warm its `tts_clip_id` asset before it is needed.
+     *
+     * ADVISORY. The next real `POST /profiling/answer` response is authoritative and replaces
+     * whatever was rendered early. Nothing here may be treated as an answer of record, and the
+     * submit path is unchanged.
+     *
+     * `null` whenever prediction would not be exact — a close, a disambiguation, a free-text
+     * question, or a multi-select (where no single option is the answer). Additive and defaulted.
+     */
+    lookahead: z
+      .record(
+        z.object({
+          question_key: z.string().nullable(),
+          question_kind: z.enum(["ask", "close"]),
+          prompt_text: z.string(),
+          why_text: z.string().nullable(),
+          answer_type: z.enum(ANSWER_TYPES).nullable(),
+          options: z.array(ProfilingOptionSchema),
+          /** Content-addressed, exactly like the served question's — so the client can prefetch. */
+          tts_clip_id: z.string(),
+          index: z.number().int().positive(),
+          total: z.number().int().nonnegative(),
+        }),
+      )
+      .nullable()
+      .default(null),
   }),
   z.object({ kind: z.literal("done") }),
   /**
