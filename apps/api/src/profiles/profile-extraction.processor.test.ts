@@ -1,7 +1,11 @@
 import "reflect-metadata";
 import { Logger } from "@nestjs/common";
 import { describe, it, expect, vi } from "vitest";
-import { DraftProfileSchema, WorkerProfileDraftSchema } from "@badabhai/ai-contracts";
+import {
+  DraftProfileSchema,
+  WorkerProfileDraftSchema,
+  type DraftProfile,
+} from "@badabhai/ai-contracts";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
@@ -76,6 +80,13 @@ function make(
      * request never left the process; `undefined` reproduces a healthy response.
      */
     errorCode?: string;
+    /**
+     * Phase C — `CHAT_LLM_INTERVIEW_ENABLED`. OFF by default, which is the property most of this
+     * file depends on: with the flag down the processor makes exactly the calls it always did.
+     */
+    llmInterview?: boolean;
+    /** What `/profiling/extract` returned. `null` = unreachable/blocked/mis-shaped. */
+    interview?: unknown;
   } = {},
 ) {
   const draft = opts.profile ?? DraftProfileSchema.parse({});
@@ -140,6 +151,9 @@ function make(
           ? opts.parsed
           : { fields: {}, unparsed_field_ids: [], notes: [], ai_metadata: null },
       ),
+    // Phase C. Unreachable by default — the flag is off, so the processor must not call it at
+    // all, and a stub that returned something would hide a call this file says never happens.
+    extractInterview: vi.fn().mockResolvedValue("interview" in opts ? opts.interview : null),
     extractProfile: opts.extractThrows
       ? vi.fn().mockRejectedValue(new Error("boom"))
       : vi
@@ -203,6 +217,7 @@ function make(
     // are about what actually reaches `events.emit`, and a stubbed recorder would make every
     // one of them pass without an event ever being built (#738).
     new AiCostRecorder(events as never),
+    { CHAT_LLM_INTERVIEW_ENABLED: opts.llmInterview ?? false } as never,
   );
   return {
     proc, profiles, aiJobs, chat, buffer, events, ai, workers, pii, matchSkills, skills,
@@ -1614,5 +1629,169 @@ describe("an LLM outage retries instead of completing", () => {
 
     await proc.process(makeJob({ attemptsMade: 0, attempts: 3 }));
     expect(profiles.create).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * PHASE C — the conversation itself, read once, for what the answer map cannot hold.
+ *
+ * `experiences[]` is the whole reason this call exists. A pack asks its fixed question once, so
+ * a worker with three jobs has three different answers to "what did you do" and the answer map
+ * has room for one. That list only exists in the transcript.
+ *
+ * EVERY CASE HERE IS ALSO A FAIL-CLOSED CASE. The profile that comes out when this call fails
+ * must be exactly the profile the answer map alone produces — an overlay is never the profile.
+ */
+describe("the interview overlay (Phase C)", () => {
+  const ENTRY = {
+    role_label: "tandoor cook",
+    duration_text: "3 saal",
+    duration_months: 36,
+    work_done: "naan, roti",
+  };
+  const EXTRACT = (over: Record<string, unknown> = {}) => ({
+    domain_label: "cooking",
+    role_label: "tandoor cook",
+    skills: [],
+    experiences: [ENTRY],
+    shift: null,
+    current_city: null,
+    preferred_locations: [],
+    availability: null,
+    expected_salary: null,
+    blocked: false,
+    is_mock: false,
+    ai_metadata: null,
+    ...over,
+  });
+  // A REAL CONVERSATION IS REQUIRED. `interviewOverlay` returns before the network when the
+  // transcript is empty — an extraction with nothing said would otherwise spend a capable call to
+  // be told so. Every case below therefore carries messages, or it tests the guard instead.
+  const CHAT = [
+    { direction: "outbound", bodyText: "Aap kaunsa kaam karte hain?" },
+    { direction: "inbound", bodyText: "cook hu, tandoor pe 3 saal" },
+    { direction: "outbound", bodyText: "Aur koi experience jodna hai?" },
+    { direction: "inbound", bodyText: "nahi" },
+  ];
+  const rawOf = (profiles: { create: { mock: { calls: unknown[][] } } }): DraftProfile =>
+    (profiles.create.mock.calls[0]![0] as { rawProfile: DraftProfile }).rawProfile;
+
+  it("does not call the model at all while the flag is off", async () => {
+    // The OIE cutover's economics are "twelve capable calls became one". Turning that one into
+    // two is a trade that belongs to the LLM-led interview, not to every worker.
+    // WITH A REAL CONVERSATION ON PURPOSE. Without messages this would pass on the
+    // empty-transcript guard even if the flag check were deleted — the assertion has to be about
+    // the FLAG, not about there being nothing to read.
+    const { proc, ai } = make({ ...withMap(), messages: CHAT });
+    await proc.process(makeJob());
+    expect(ai.extractInterview).not.toHaveBeenCalled();
+  });
+
+  it("does not call the model when nothing was said, even with the flag on", async () => {
+    // The app's "make the profile anyway" escape hatch reaches here with no transcript. A
+    // capable call to be told the conversation was empty is spend for nothing.
+    const { proc, ai } = make({ ...withMap(), messages: [], llmInterview: true });
+    await proc.process(makeJob());
+    expect(ai.extractInterview).not.toHaveBeenCalled();
+  });
+
+  it("lands `experiences[]` on the stored profile — the thing no pack question can produce", async () => {
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT(),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).experiences).toEqual([ENTRY]);
+  });
+
+  it("still writes a profile when the interview call is unreachable", async () => {
+    // FAIL CLOSED (§3): the answer map alone is already a usable profile, and an overlay that
+    // could not be fetched must cost the overlay and nothing else.
+    const { proc, profiles } = make({ ...withMap(), messages: CHAT, llmInterview: true, interview: null });
+    await proc.process(makeJob());
+    expect(profiles.create).toHaveBeenCalledOnce();
+    expect(rawOf(profiles).experiences).toEqual([]);
+    // The deterministic values are untouched by the failure.
+    expect(rawOf(profiles).experience.total_years).toBe(7);
+  });
+
+  it("drops a BLOCKED overlay rather than storing it", async () => {
+    // `blocked` means the pseudonymizer refused the transcript. That is a definitive "do not
+    // store this", not an outage — and it must not reach a column.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ blocked: true }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).experiences).toEqual([]);
+  });
+
+  it("never lets the model overwrite a value the worker actually answered", async () => {
+    // FIRST-WRITE-WINS, the same rule capture enforces. "Pune" went through the city normalizer
+    // and the negation veto on a question that was really asked; "Mumbai" was read back out of a
+    // conversation by a model.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ current_city: "Mumbai", expected_salary: 99000 }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).location_preference.current_city).toBe("Pune");
+  });
+
+  it("fills a gap the deterministic map left empty", async () => {
+    // `salary_expected` was never asked in this fixture, so there is nothing to protect.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ expected_salary: 18000, preferred_locations: ["Mumbai"] }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).salary_expectation.amount_min).toBe(18000);
+    expect(rawOf(profiles).location_preference.preferred_cities).toEqual(["Mumbai"]);
+  });
+
+  it("unions skills rather than letting either source win", async () => {
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ skills: ["tandoor", "naan"] }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).skill_labels).toEqual(expect.arrayContaining(["tandoor", "naan"]));
+  });
+
+  it("ledgers the call's spend, so a second billable request is not silently free", async () => {
+    const meta = {
+      ai_call_id: "66666666-6666-4666-8666-666666666666",
+      task_type: "profile_extraction",
+      model_name: "gemini-2.5-pro",
+      provider: "google",
+      real_call: true,
+      input_tokens: 900,
+      output_tokens: 120,
+      estimated_cost_inr: 0.41,
+      latency_ms: 2100,
+      success: true,
+      created_at: "2026-08-11T12:00:00.000Z",
+    };
+    const { proc, events } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ ai_metadata: meta }),
+    });
+    await proc.process(makeJob());
+    const costs = events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: { ai_call_id?: string } })
+      .filter((e) => e.event_name === "ai.cost_recorded");
+    expect(costs.some((e) => e.payload.ai_call_id === meta.ai_call_id)).toBe(true);
   });
 });

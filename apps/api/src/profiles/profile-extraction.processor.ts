@@ -1,5 +1,5 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
-import { Logger } from "@nestjs/common";
+import { Inject, Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
 import {
   DraftProfileSchema,
@@ -9,9 +9,12 @@ import {
   type DraftProfile,
   type AICallMetadata,
   type ConversationMessage,
+  type InterviewExtractOutput,
   type OccupationPin,
   type ProfileExtractionOutput,
+  type TranscriptLine,
 } from "@badabhai/ai-contracts";
+import type { ServerConfig } from "@badabhai/config";
 import { PARSE_TARGET_FIELDS } from "@badabhai/profiling-lexicon";
 import {
   applyParseGates,
@@ -30,6 +33,7 @@ import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { EventsService } from "../events/events.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiService } from "../ai/ai.service";
+import { SERVER_CONFIG } from "../config/config.module";
 import { ChatRepository } from "../chat/chat.repository";
 import { ChatTranscriptBuffer } from "../chat/chat-transcript.buffer";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -164,6 +168,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // spend was emitted by nobody even though `aiTaskType` already listed it. `AiModule` is
     // @Global, so ProfilesModule needs no new import edge.
     private readonly aiCost: AiCostRecorder,
+    // Phase C reads ONE flag: `CHAT_LLM_INTERVIEW_ENABLED`. Off, and this processor makes exactly
+    // the calls it made before — the whole LLM-led change stays behind a single switch, on the
+    // extraction side as much as on the interview side.
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {
     super();
   }
@@ -733,13 +741,28 @@ export class ProfileExtractionProcessor extends WorkerHost {
     await this.recordGateRejections(job, gated.rejections, acceptedCount);
     await this.recordDisagreements(job, gated.disagreements, acceptedCount);
 
+    // ── PHASE C: THE CONVERSATION ITSELF, READ ONCE ───────────────────────────────────
+    //
+    // A SECOND CALL, AND DELIBERATELY SO. `/profile/parse` types a deterministic answer map
+    // against a closed field list — it is told "the answer for salary_expected was `pandrah
+    // hazaar`" and returns a typed value with a cited span. It cannot produce `experiences[]`,
+    // because there is no answer-map entry to type: a pack asks its fixed question once, and a
+    // worker with three jobs has three different answers to "what did you do". That list only
+    // exists in the conversation, so something has to read the conversation.
+    //
+    // AFTER THE GATES AND BEFORE THE PROJECTION, so an outage here costs the OVERLAY and never
+    // the profile. Null is the whole degraded set — down, 429, deadline, mock posture, blocked,
+    // malformed — and the profile that comes out is exactly the one the answer map alone
+    // produces, which is already a usable profile.
+    const interview = await this.interviewOverlay(job, lines, occupation.success ? occupation.data : null);
+
     const projection = projectProfile(answerMap, gated.accepted, { split: splitToolsEquipment });
     this.logger.log(
       `profile projected for job ${job.aiJobId} status=${projection.parseStatus} ` +
         `fields=${Object.keys(projection.draft).length} overlay=${projection.overlayFields.length}`,
     );
     return {
-      result: toExtractionOutput(projection),
+      result: toExtractionOutput(projection, interview),
       pin: occupation.success ? occupation.data : null,
       // THE LINE THAT WAS MISSING. `projectProfile` has computed this array on every interview
       // since V2 shipped; `toExtractionOutput` reads `projection.draft` and nothing else, so the
@@ -1050,6 +1073,68 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * (Across the deploy that changes this, an in-flight job redelivered mid-flight can write one
    * duplicate extraction row. Observability only, and `ai_call_id` lets a reader collapse it.)
    */
+  /**
+   * Phase C — read the whole conversation once, for what the answer map cannot hold.
+   *
+   * BEHIND THE SAME FLAG AS THE INTERVIEW. Off, and this returns null before touching the
+   * network: the OIE cutover's economics are "twelve capable calls became one", and turning that
+   * one into two is a trade that belongs to the LLM-led interview, not to every worker.
+   *
+   * IT RUNS EVEN WHEN PHASE A FELL BACK, and that is not an oversight. The transcript is still a
+   * conversation, `experiences[]` still has no other source, and an interview that lost the model
+   * halfway is exactly the one whose answer map is thinnest.
+   *
+   * NEVER THROWS AND NEVER BLOCKS THE PROFILE. Every failure is the same null, and the caller
+   * projects from the answer map alone — the fail-closed property the whole extraction path is
+   * built on (§3). Spend is ledgered on its own `ai_call_id`, so this call is visible in the cost
+   * spine rather than folded into the parse it sits beside.
+   */
+  private async interviewOverlay(
+    job: { workerId: string; aiJobId: string; correlationId?: string | null; requestId?: string | null },
+    transcript: readonly TranscriptLine[],
+    occupation: OccupationPin | null,
+  ): Promise<InterviewExtractOutput | null> {
+    if (this.config.CHAT_LLM_INTERVIEW_ENABLED !== true) return null;
+    // NOTHING SAID, NOTHING TO READ. A transcript-less extraction (the app's "make the profile
+    // anyway" escape hatch) would spend a capable call to be told the conversation was empty.
+    if (transcript.length === 0) return null;
+
+    const out = await this.ai.extractInterview({
+      schema_version: "oie.v1",
+      // PSEUDONYMOUS on the far side; the id is our correlation key and carries no identity.
+      worker_ref: job.workerId,
+      transcript: [...transcript],
+      occupation,
+    });
+
+    // ATTRIBUTED TO `profile_extraction`, WHICH IS WHAT THE AI-SERVICE ITSELF STAMPS on this
+    // route's metadata. Passing anything else here would make our event disagree with the
+    // metadata it was built from. It does mean the ledger cannot yet tell this call apart from
+    // the legacy `/profile/extract` one — they differ by `ai_call_id`, not by task type — and a
+    // dedicated type is a joint change with `model_config.TaskType`, not a rename on this side.
+    await this.recordAiCost(
+      out?.ai_metadata ?? null,
+      "profile_extraction",
+      job.aiJobId,
+      job.correlationId ?? "",
+      job.requestId ?? "",
+    );
+
+    if (out === null || out.blocked) {
+      this.logger.warn(
+        `interview extraction produced nothing for job ${job.aiJobId} ` +
+          `(${out === null ? "unreachable" : "blocked"}); the profile is projected from the ` +
+          `answer map alone and carries no experiences[]`,
+      );
+      return null;
+    }
+    this.logger.log(
+      `interview extraction for job ${job.aiJobId}: ${out.experiences.length} experience ` +
+        `entr${out.experiences.length === 1 ? "y" : "ies"}, ${out.skills.length} skill(s)`,
+    );
+    return out;
+  }
+
   private async recordAiCost(
     meta: AICallMetadata | null,
     taskType: AiCostTaskType,
@@ -1283,7 +1368,33 @@ function splitToolsEquipment(value: unknown): Record<string, unknown> {
  * usage/cost of the parse call belongs to the ai-service's own ledger, not to a synthesised
  * record here.
  */
-function toExtractionOutput(projection: ProjectionResult): ProfileExtractionOutput {
+/**
+ * The deterministic value, or the model's only when there is no deterministic one.
+ *
+ * FIRST-WRITE-WINS, the same rule `mayCommit` enforces during capture. A value the worker gave to
+ * a question that was actually asked went through a typed normalizer and the negation veto; a
+ * value read back out of a conversation did not, and must never overwrite it.
+ */
+function firstOf<T>(deterministic: T | null | undefined, model: T | null | undefined): T | null {
+  return deterministic ?? model ?? null;
+}
+
+/** Both lists, in order, without repeats — compared case-insensitively on the trimmed label. */
+function union(deterministic: readonly string[], model: readonly string[]): string[] {
+  const out = [...deterministic];
+  for (const candidate of model) {
+    const trimmed = candidate.trim();
+    if (trimmed && !out.some((held) => held.toLowerCase() === trimmed.toLowerCase())) {
+      out.push(trimmed);
+    }
+  }
+  return out;
+}
+
+function toExtractionOutput(
+  projection: ProjectionResult,
+  interview: InterviewExtractOutput | null = null,
+): ProfileExtractionOutput {
   const at = <T>(field: string): T | undefined => projection.draft[field]?.value as T | undefined;
   const arr = (field: string): string[] => {
     const value = projection.draft[field]?.value;
@@ -1315,15 +1426,38 @@ function toExtractionOutput(projection: ProjectionResult): ProfileExtractionOutp
     canonical_trade_id: null,
     canonical_role_id: null,
     skills: [],
-    skill_labels: draft.skills,
+    // UNION, NOT REPLACE. A skill the worker named in conversation and a skill a pack question
+    // captured are both things they can do; letting either win would drop the other.
+    skill_labels: union(draft.skills, interview?.skills ?? []),
     machines: draft.machines,
     education: draft.education,
     certifications: draft.certifications,
     education_level: draft.education_level,
     education_field: draft.education_field,
     experience: draft.experience_years === null ? {} : { total_years: draft.experience_years },
-    salary_expectation: draft.expected_salary === null ? {} : { amount_min: draft.expected_salary },
-    location_preference: { preferred_cities: draft.preferred_locations },
+    // THE NARRATIVE, which `experience.total_years` above is not and does not replace. The
+    // aggregate is what matching and ranking read; this is what an employer reads. Only the
+    // interview call can produce it — a pack asks its fixed question once, and a worker with
+    // three jobs has three different answers to "what did you do".
+    //
+    // NO EMPLOYER NAMES: `ExperienceEntrySchema` is `.strict()`, so a model that emits one fails
+    // at the boundary rather than in a column (CLAUDE.md §2).
+    experiences: interview?.experiences ?? [],
+    salary_expectation: firstOf(draft.expected_salary, interview?.expected_salary) === null
+      ? {}
+      : { amount_min: firstOf(draft.expected_salary, interview?.expected_salary) },
+    location_preference: {
+      // THE DETERMINISTIC VALUE WINS EVERY TIME IT EXISTS, and the model only ever fills a gap.
+      // A worker's typed answer to "abhi aap kaunse sheher mein hain?" went through the city
+      // normalizer and the negation veto; a value read back out of a conversation did not.
+      //
+      // `current_city` WAS BEING DROPPED ENTIRELY on this path — the field exists on the schema
+      // (#423 split it from `preferred_cities` precisely so "I live in Pune" stops becoming "I
+      // want to work in Pune"), and this projection never wrote it, so every OIE-path profile
+      // left it null and every consumer fell through to `preferred_cities[0]`.
+      current_city: firstOf(draft.current_city, interview?.current_city),
+      preferred_cities: union(draft.preferred_locations, interview?.preferred_locations ?? []),
+    },
     availability: { status: draft.availability },
   });
 
