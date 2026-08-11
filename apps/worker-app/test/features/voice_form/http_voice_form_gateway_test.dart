@@ -96,8 +96,8 @@ void main() {
         <String, dynamic>{'kind': 'chips', 'option_keys': ['mild_steel', 'stainless']});
   });
 
-  test('a 409 on submit re-attaches and redraws the current step, never retries '
-      'the same body (#699)', () async {
+  test('a 409 on submit re-attaches as ReattachedTo(current step), never retries '
+      'the same body (#699/#727)', () async {
     final List<String> hits = <String>[];
     int answerCalls = 0;
     final ApiClient api = ApiClient(
@@ -120,8 +120,12 @@ void main() {
     final VoiceFormStep step =
         await gw.submit(const VoiceAnswer.text('main welder hoon'), questionKey: 'q_material');
 
-    expect(step, isA<NextQuestion>());
-    expect((step as NextQuestion).question.id, 'q_now',
+    // #727 — wrapped so the cubit knows the answer was REJECTED (do not bank it),
+    // carrying the re-read current step.
+    expect(step, isA<ReattachedTo>());
+    final VoiceFormStep inner = (step as ReattachedTo).step;
+    expect(inner, isA<NextQuestion>());
+    expect((inner as NextQuestion).question.id, 'q_now',
         reason: 're-read gives the CURRENT question');
     expect(answerCalls, 1, reason: 'the same answer body is never re-POSTed');
     // start (initial) + answer(409) + session (reattach).
