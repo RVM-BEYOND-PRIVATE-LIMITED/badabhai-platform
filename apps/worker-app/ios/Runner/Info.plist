@@ -47,5 +47,7 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>BadaBhai needs the microphone so you can record a short voice note about your work experience, which is used to build your profile and resume.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>BadaBhai uses speech recognition to turn what you say into text in the chat, so you can speak your answers instead of typing them.</string>
 </dict>
 </plist>
