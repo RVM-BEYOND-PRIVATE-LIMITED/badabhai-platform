@@ -11,7 +11,15 @@ voice profiling form works at all, and neither is answerable from the repo:
    "Aap kaunsa kaam karte hain?", the result is confident nonsense in an English
    accent. For a worker who cannot read the screen to catch it, that is WORSE than
    silence, and the fix (a reviewed transliteration sidecar) is a whole extra
-   artifact with its own drift and review surface. Better to know for ~Rs 450.
+   artifact with its own drift and review surface. Better to know for Rs 15.00.
+
+   THAT FIGURE READ "~Rs 450" UNTIL #737/#701 RECONCILED IT, and it was overstating
+   the cost of this tool by 30x. Rs 450 was the run's BUDGET CEILING, not its price:
+   ``--matrix`` is 20 calls (5 probes x roman/Devanagari x hi-IN/en-IN), every one
+   under the 500-character billing floor, so at the configured Rs 15.00/10k chars it
+   is 20 x 0.75 = Rs 15.00 — which is what the 2026-08-08 armed run actually spent.
+   Rendering the FULL 434-clip catalogue is the Rs 325.50 number (``tts_render``);
+   neither of those is Rs 450, which is why the old figure reconciled with nothing.
 2. **What is the real billing unit?** The rate card says per character, rounded up
    PER REQUEST. A 40-character question billed as a full request is a completely
    different unit-economics story from 40 characters of a 10,000-character block,
