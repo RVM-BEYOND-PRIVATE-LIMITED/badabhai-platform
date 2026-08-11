@@ -47,6 +47,9 @@ class OneQGateway implements VoiceFormGateway {
     VoiceAnswer answer, {
     required String questionKey,
   }) => throw UnimplementedError();
+
+  @override
+  Future<Set<String>> answeredQuestionKeys() async => const <String>{};
 }
 
 void main() {

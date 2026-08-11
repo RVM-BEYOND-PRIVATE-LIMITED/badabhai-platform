@@ -60,6 +60,9 @@ class OneQuestionGateway implements VoiceFormGateway {
     VoiceAnswer answer, {
     required String questionKey,
   }) => throw UnimplementedError();
+
+  @override
+  Future<Set<String>> answeredQuestionKeys() async => const <String>{};
 }
 
 /// Reaches review with configurable [rows] and records what corrections the host
@@ -106,6 +109,12 @@ class ReviewHostGateway implements VoiceFormGateway {
       profileRebuildRequired: false,
     );
   }
+
+  /// Present because `VoiceFormGateway` declares it (#775). This fake does not
+  /// exercise the landed-409 confirmation, and an empty set is the "not confirmed"
+  /// answer — the safe, under-count direction.
+  @override
+  Future<Set<String>> answeredQuestionKeys() async => const <String>{};
 }
 
 void main() {
