@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { IdentifyService } from "./identify.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
+import { PackCacheService } from "./pack-cache.service";
 import { PackRegistryService } from "./pack-registry.service";
 import { PackRepository } from "./pack.repository";
 import { ProfilingController } from "./profiling.controller";
@@ -68,6 +69,11 @@ describe("ProfilingModule wiring", () => {
   it("provides the repository, the registry, identification, the orchestrator and the seam", () => {
     expect(getMeta("providers", ProfilingModule)).toEqual([
       PackRepository,
+      // The shared (Redis) tier behind the registry. Listed here rather than left implicit
+      // because `PackRegistryService` takes it as a CONSTRUCTOR dependency: omitting the provider
+      // does not fail a metadata test, it fails BOOT — the same class of defect this file's
+      // header comment on `PackRegistryService` already documents for value-vs-type imports.
+      PackCacheService,
       PackRegistryService,
       IdentifyService,
       ProfilingOrchestrator,

@@ -15,8 +15,6 @@
  * problem to get wrong.
  */
 
-import { createHash } from "node:crypto";
-
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import {
@@ -31,6 +29,14 @@ import { resolveFamily } from "@badabhai/db";
 
 import { SERVER_CONFIG } from "../config/config.module";
 import { isValidPredicate } from "./predicate";
+import { PackCacheService, type CacheLookup, type PackRef } from "./pack-cache.service";
+import {
+  computeContentHash,
+  resolutionKey,
+  PACK_CACHE_MAX_ENTRIES,
+  PACK_CACHE_TTL_MS,
+  PACK_RESOLUTION_TTL_MS,
+} from "./pack-cache.constants";
 import type { PackItemRow, PackOptionRow } from "./pack.repository";
 // A VALUE import, and it has to be. `PackRepository` is constructor-injected below, and Nest
 // reads that dependency from the `design:paramtypes` TypeScript emits for the decorator. For a
@@ -46,22 +52,43 @@ import type { PackItemRow, PackOptionRow } from "./pack.repository";
 // The first thing to import this module found it instantly, at boot, in CI.
 import { PackRepository } from "./pack.repository";
 
-/** How long a resolved pack stays in process. A pack edit is a deploy-scale event, not a turn. */
-export const PACK_CACHE_TTL_MS = 900_000;
+/**
+ * Re-exported so the many existing importers of `PACK_CACHE_TTL_MS` and `computeContentHash` keep
+ * working — both now live in `pack-cache.constants`, a leaf module that exists to keep this file
+ * and `PackCacheService` from importing each other as values. See that file's header.
+ */
+export { PACK_CACHE_TTL_MS, computeContentHash } from "./pack-cache.constants";
 
+/** A cached pack, with the instant it goes stale. */
 interface CacheEntry {
   readonly pack: QuestionPack;
+  readonly expiresAt: number;
+}
+
+/** A resolution the chain has already worked out, with the instant it goes stale. */
+interface ResolutionEntry {
+  readonly ref: PackRef | null;
   readonly expiresAt: number;
 }
 
 @Injectable()
 export class PackRegistryService implements OnModuleInit {
   private readonly logger = new Logger(PackRegistryService.name);
+  /**
+   * L1 for pack CONTENT. Insertion-ordered `Map`, expiring and capped — see
+   * {@link PACK_CACHE_TTL_MS} and {@link PACK_CACHE_MAX_ENTRIES}.
+   */
   private readonly cache = new Map<string, CacheEntry>();
+  /** L1 for RESOLUTIONS, which do expire. Keyed exactly as the Redis tier keys them. */
+  private readonly resolutions = new Map<string, ResolutionEntry>();
 
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly repo: PackRepository,
+    // The SHARED tier. In front of it sit the two `Map`s above; behind it, Postgres. Every method
+    // on it fails open, so this class needs no error handling around it — a Redis outage costs
+    // the queries it was saving and nothing else.
+    private readonly packCache: PackCacheService,
   ) {}
 
   /**
@@ -126,11 +153,54 @@ export class PackRegistryService implements OnModuleInit {
     occupation: OccupationPin | null,
     now: number,
   ): Promise<QuestionPack | null> {
-    const bindings = await this.repo.findBindings({
-      jobDomainId: occupation?.job_domain_id ?? null,
-      iscoUnitCode: occupation?.isco_unit_code ?? null,
-    });
-    if (bindings.length === 0) return null;
+    const jobDomainId = occupation?.job_domain_id ?? null;
+    const iscoUnitCode = occupation?.isco_unit_code ?? null;
+
+    // THE CACHED ANSWER, AND WHY IT IS RE-VERIFIED RATHER THAN TRUSTED WHOLE.
+    //
+    // A hit gives us the pack this chain landed on last time. Loading it can still come back
+    // null — a version deleted, or a row edited into something the contract rejects — and in that
+    // case the cached answer is simply wrong. Falling through to the full walk is the only safe
+    // response: returning null here would hand a worker `no_pack` on the strength of a stale
+    // entry, when the live chain would have fallen through to their parent family's pack. A cache
+    // may cost a query; it may never cost an interview.
+    const locale = this.config.PROFILING_PACK_LOCALE;
+    const l1Key = resolutionKey(locale, jobDomainId, iscoUnitCode);
+    const l1 = this.resolutions.get(l1Key);
+    let cached: CacheLookup<PackRef | null>;
+    if (l1 && l1.expiresAt > now) {
+      cached = { hit: true, value: l1.ref };
+    } else {
+      cached = await this.packCache.readResolution(locale, jobDomainId, iscoUnitCode);
+      // PROMOTE AN L2 HIT INTO L1. Without this the in-process tier is only ever populated by the
+      // instance that WALKED the chain, so every other instance pays a Redis round trip on every
+      // turn forever — most of the cost this change exists to remove, reintroduced one layer down.
+      if (cached.hit) this.rememberResolutionLocally(l1Key, cached.value, now);
+    }
+    if (cached.hit) {
+      if (cached.value === null) return null;
+      const pack = await this.load(cached.value.packId, cached.value.version, now);
+      if (pack) return pack;
+      this.logger.warn(
+        `cached resolution ${cached.value.packId}:${cached.value.version} no longer loads; ` +
+          `re-walking the chain`,
+      );
+    }
+
+    const bindings = await this.repo.findBindings({ jobDomainId, iscoUnitCode });
+    if (bindings.length === 0) {
+      // DELIBERATELY NOT CACHED, and this is the one negative that must not be.
+      //
+      // A healthy database always has at least the `is_universal` binding, so zero rows means
+      // either an unseeded database or — the dangerous case — a re-seed in flight:
+      // `seed-question-packs.ts` runs `db.delete(profilingFamilyBindings)` and re-inserts,
+      // OUTSIDE a transaction. A read landing in that window sees nothing.
+      //
+      // Caching it would take a millisecond-wide gap in an operator's `db:seed:packs --apply` and
+      // turn it into a fleet-wide `no_pack` outage lasting a full resolution TTL, for every worker
+      // on the platform. Re-running the query is cheap; the alternative is an incident.
+      return null;
+    }
 
     const heads = await this.repo.findActivePacks(
       [...new Set(bindings.map((b) => b.familyId))],
@@ -159,14 +229,24 @@ export class PackRegistryService implements OnModuleInit {
     };
     while (remaining.length > 0) {
       const resolved = resolveFamily(remaining, key);
-      if (!resolved) return null;
+      if (!resolved) break;
 
       const head = headByFamily.get(resolved.familyId);
       const pack = head ? await this.load(head.packId, head.version, now) : null;
-      if (pack) return pack;
+      if (pack) {
+        await this.remember(jobDomainId, iscoUnitCode, { packId: pack.pack_id, version: pack.version }, now);
+        return pack;
+      }
 
       remaining = remaining.filter((binding) => binding.familyId !== resolved.familyId);
     }
+    // THE CHAIN RAN AND PRODUCED NOTHING — cached as the definite answer it is. This is the
+    // normal outcome for a trade whose family is unauthored AND whose universal pack is missing;
+    // it is also the expensive one, because it is the path that walked every level.
+    //
+    // NOTE the `break` above rather than the `return null` this loop used to carry: an exhausted
+    // chain and an unresolvable one are the same answer, and both deserve the same entry.
+    await this.remember(jobDomainId, iscoUnitCode, null, now);
     return null;
   }
 
@@ -212,10 +292,25 @@ export class PackRegistryService implements OnModuleInit {
     return this.load(packId, version, now);
   }
 
+  /**
+   * A pack, from the nearest tier that has it: this process, then Redis, then Postgres.
+   *
+   * BOTH CACHES EXPIRE, on the same clock — see {@link PACK_CACHE_TTL_MS} for why that is
+   * deliberate rather than leftover, and what breaks if a future change "optimises" it away.
+   */
   private async load(packId: string, version: number, now: number): Promise<QuestionPack | null> {
     const key = `${packId}:${version}`;
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > now) return cached.pack;
+
+    // L2, and the tier that makes a cold instance cheap. A deploy, a restart or a scale-out used
+    // to mean every worker mid-interview paid four queries to rebuild a pack that another
+    // instance already had in memory.
+    const shared = await this.packCache.readPack(packId, version);
+    if (shared) {
+      this.rememberPack(key, shared, now);
+      return shared;
+    }
 
     const head = await this.repo.findPackHead(packId, version);
     if (!head) return null;
@@ -271,21 +366,73 @@ export class PackRegistryService implements OnModuleInit {
       return null;
     }
 
-    this.cache.set(key, { pack: parsed.data, expiresAt: now + PACK_CACHE_TTL_MS });
+    this.rememberPack(key, parsed.data, now);
+    // Populate the shared tier LAST, and only with a pack that survived validation — never with
+    // the raw candidate. Redis must not become a way to distribute a malformed pack to every
+    // instance that has not read the database yet.
+    await this.packCache.writePack(parsed.data);
     return parsed.data;
   }
-}
 
-/**
- * sha256 over the pack's loaded content, for drift detection.
- *
- * `JSON.stringify` of an array of objects built by {@link toItem} is stable HERE — and only here
- * — because every object is constructed with literal keys in a fixed order by that one function,
- * and the items arrive ordered by `display_order`. It would NOT be stable over arbitrary objects,
- * which is why this takes the mapped items rather than the raw rows.
- */
-export function computeContentHash(items: readonly unknown[]): string {
-  return createHash("sha256").update(JSON.stringify(items)).digest("hex");
+  /**
+   * Put a pack in the in-process tier, evicting the oldest entry once the cap is reached.
+   *
+   * INSERTION-ORDER EVICTION, not true LRU. `Map` preserves insertion order and
+   * `keys().next().value` is the oldest key, so this is FIFO — and for this workload the two are
+   * indistinguishable: the working set is the handful of packs the instance's live interviews are
+   * pinned to, the corpus is ~101 packs against a cap of 200, and the cap exists to bound a
+   * pathological process rather than to optimise a hit rate. Promoting on read would buy nothing
+   * measurable and would make every cache HIT a write.
+   */
+  private rememberPack(key: string, pack: QuestionPack, now: number): void {
+    if (this.cache.size >= PACK_CACHE_MAX_ENTRIES && !this.cache.has(key)) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) this.cache.delete(oldest);
+    }
+    this.cache.set(key, { pack, expiresAt: now + PACK_CACHE_TTL_MS });
+  }
+
+  /**
+   * Record which pack a trade resolves to, in BOTH tiers.
+   *
+   * Written through rather than left to the shared tier alone: `loadUniversal` runs on every turn
+   * of every interview, and a Redis round trip per turn to answer a question this process just
+   * answered is most of the cost this change exists to remove.
+   */
+  private async remember(
+    jobDomainId: string | null,
+    iscoUnitCode: string | null,
+    ref: PackRef | null,
+    now: number,
+  ): Promise<void> {
+    const locale = this.config.PROFILING_PACK_LOCALE;
+    this.rememberResolutionLocally(resolutionKey(locale, jobDomainId, iscoUnitCode), ref, now);
+    await this.packCache.writeResolution(locale, jobDomainId, iscoUnitCode, ref);
+  }
+
+  /**
+   * Put a resolution in the in-process tier, bounded the same way the content tier is.
+   *
+   * CAPPED AND SWEPT, because a `Map` keyed on `(locale, jobDomainId, iscoUnitCode)` is keyed on
+   * WORKER INPUT in a way the content map is not: there are thousands of `job_domain` rows and
+   * every distinct one a worker resolves mints an entry. Expiry alone does not bound it — an entry
+   * is only dropped when that exact key is next read, and the long tail of trades never is. The
+   * sweep is what makes a lapsed entry actually free its memory rather than merely stop being
+   * served.
+   */
+  private rememberResolutionLocally(key: string, ref: PackRef | null, now: number): void {
+    if (this.resolutions.size >= PACK_CACHE_MAX_ENTRIES) {
+      for (const [candidate, entry] of this.resolutions) {
+        if (entry.expiresAt <= now) this.resolutions.delete(candidate);
+      }
+      // Still full of live entries — drop the oldest, exactly as the content tier does.
+      if (this.resolutions.size >= PACK_CACHE_MAX_ENTRIES) {
+        const oldest = this.resolutions.keys().next().value;
+        if (oldest !== undefined) this.resolutions.delete(oldest);
+      }
+    }
+    this.resolutions.set(key, { ref, expiresAt: now + PACK_RESOLUTION_TTL_MS });
+  }
 }
 
 /**
