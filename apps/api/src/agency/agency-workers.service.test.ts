@@ -22,6 +22,7 @@ const WORKER = "11111111-1111-4111-8111-111111111111";
 
 /** A real keyed HMAC, so the per-agency divergence below is a measured fact. */
 const pii = {
+  // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test fixture — a literal key inside a unit test, deliberately fake. Nothing here is a production secret and none of it ships.
   hmac: (v: string) => createHmac("sha256", "test-pepper").update(v).digest("hex"),
 } as unknown as PiiCryptoService;
 
@@ -113,6 +114,7 @@ const CREW = [
 ];
 
 const refFor = (agency: string, worker: string) =>
+  // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key -- test fixture — a literal key inside a unit test, deliberately fake. Nothing here is a production secret and none of it ships.
   createHmac("sha256", "test-pepper")
     .update(`agency_worker:${agency}:${worker}`)
     .digest("hex")

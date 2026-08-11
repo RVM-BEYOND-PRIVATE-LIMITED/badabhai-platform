@@ -8,6 +8,14 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Do not open a PR for a release younger than 7 days (#737). Same reasoning as
+    # `minimumReleaseAge` in pnpm-workspace.yaml, applied to the OTHER way third-party
+    # code enters this repo: a compromised action release is typically found and pulled
+    # within hours-to-days, and an automated bot PR is the path most likely to land it
+    # before anyone has looked. The weekly cadence above bounds how often we ask; this
+    # bounds how FRESH — and therefore how unvetted — what it asks for can be.
+    cooldown:
+      default-days: 7
     ignore:
       # TD96 (owner ruling 2026-07-21, PR #473 closed): stay on ssh-action v1.0.3.
       # v1.1.0+ is a composite that curl-downloads the drone-ssh binary at deploy

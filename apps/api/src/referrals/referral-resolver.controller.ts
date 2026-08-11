@@ -66,10 +66,12 @@ export class ReferralResolverController {
 
     try {
       const outcome = await this.links.resolve({ code, ip, userAgent, skipClick });
+      // nosemgrep: typescript.nestjs.security.audit.nestjs-open-redirect.nestjs-open-redirect -- not caller-controlled: the destination is always `${REFERRAL_SHORT_LINK_BASE}/i/${encodeURIComponent(code)}`. The host comes from server config and the code is percent-encoded, so no supplied value can change the host or escape the path.
       return { url: outcome.redirectTo, statusCode: 302 };
     } catch {
       // The service is fail-safe internally; this is the last-resort belt so that no
       // unforeseen throw can turn a shared link into a 500.
+      // nosemgrep: typescript.nestjs.security.audit.nestjs-open-redirect.nestjs-open-redirect -- not caller-controlled: the destination is always `${REFERRAL_SHORT_LINK_BASE}/i/${encodeURIComponent(code)}`. The host comes from server config and the code is percent-encoded, so no supplied value can change the host or escape the path.
       return { url: fallbackTarget(this.config.REFERRAL_SHORT_LINK_BASE), statusCode: 302 };
     }
   }

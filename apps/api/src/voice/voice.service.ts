@@ -81,8 +81,9 @@ export class VoiceService {
     // or a free-text suffix (which would let self-chosen text reach the
     // voice_note.uploaded event payload). workerId is a UUID (hex+dashes only),
     // so interpolating it into the pattern is safe.
+    // nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp -- the only interpolated value is `workerId`, which is session-derived and a UUID (hex + dashes), so it carries no regex metacharacter and cannot widen the pattern. The `// nosem` that used to sit on the argument line below did not suppress this: semgrep anchors the finding to the `new RegExp(` line, so the comment has to be here.
     const mintedKeyShape = new RegExp(
-      `^voice-notes/${workerId}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.m4a$`, // nosem — workerId is UUID (hex+dashes only), interpolated into RegExp is safe
+      `^voice-notes/${workerId}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.m4a$`,
     );
     if (!mintedKeyShape.test(dto.storage_path)) {
       throw new BadRequestException("storage_path not owned by caller");
