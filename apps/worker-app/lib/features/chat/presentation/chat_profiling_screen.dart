@@ -1,11 +1,16 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show SystemUiOverlayStyle;
+import 'package:flutter/services.dart'
+    show HapticFeedback, SystemUiOverlayStyle;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart' show ChatProgress, ChatQuestionKind;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/error/failure.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -16,6 +21,7 @@ import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../router.dart';
+import '../../voice/domain/speech_dictation.dart';
 import '../../voice/domain/voice_models.dart';
 import '../domain/chat_message.dart';
 import 'bloc/chat_bloc.dart';
@@ -102,7 +108,7 @@ class _ChatView extends StatefulWidget {
   State<_ChatView> createState() => _ChatViewState();
 }
 
-class _ChatViewState extends State<_ChatView> {
+class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scroll = ScrollController();
 
@@ -135,15 +141,74 @@ class _ChatViewState extends State<_ChatView> {
   /// so that fires on the way IN and unlatches before the second tap.
   bool _wasSending = false;
 
+  // ---- Hold-to-talk (voice → text into the composer) ----------------------
+  //
+  // Long-pressing the composer mic runs the DEVICE's own speech recogniser
+  // ([SpeechDictation], the `speech_to_text` plugin). Recognised words fill the
+  // input field live as the worker speaks; on release the text stays there for
+  // them to review and Send — sent as an ORDINARY chat message. NO server, no
+  // upload, no `/voice/*` endpoint (so no bucket dependency, no 503). A plain
+  // TAP still opens the full server-side voice-note screen (unchanged).
+
+  /// Honest copy when the device recogniser could not be started (no engine, or
+  /// an unexpected error). Typing always stays available.
+  static const String _kVoiceToTextUnavailable =
+      'Awaaz text mein nahi badal payi. Dobara boliye ya type kijiye.';
+
+  /// Mic is held and the recorder is live.
+  bool _holdRecording = false;
+
+  /// A hold-to-talk leg (start OR transcribe) is in flight — reentrancy guard.
+  bool _holdBusy = false;
+
+  /// Release arrived before [_startHoldToTalk] finished starting the mic — ask
+  /// that in-flight start to cancel rather than leave a mic with no owner.
+  bool _holdStopRequested = false;
+
+  /// The centre "AB BOLEN" cue is showing — for the WHOLE hold (shown on press,
+  /// hidden on release), not a flash.
+  bool _showAbBolen = false;
+
+  /// True while the worker is actively speaking (recognised words are arriving).
+  /// Drives the cue's shake; goes false after a short idle so the cue stands
+  /// still when they pause.
+  bool _speaking = false;
+
+  /// Whatever was already typed when a hold began — recognised words append onto
+  /// it so live dictation never clobbers text the worker started by hand. Each
+  /// FINAL utterance is committed back into this so a continuous-listen restart
+  /// (see [SpeechDictation]) never drops an earlier sentence.
+  String _dictationBase = '';
+
+  /// Fires after a gap in recognised speech to drop [_speaking] (stop the shake).
+  Timer? _speechIdleTimer;
+
+  /// The last recognised text the shake reacted to. The shake ticks only when
+  /// the words actually CHANGE — the recogniser re-emits the same partial while
+  /// idle, so keying on change (not on every callback) is what lets the shake
+  /// stop when the worker goes quiet.
+  String _lastHeardForShake = '';
+
+  /// The cue's shake — repeats while [_speaking], parked centred otherwise.
+  late final AnimationController _shakeCtrl;
+
   @override
   void initState() {
     super.initState();
     // Manual scroll back near the bottom dismisses the pill.
     _scroll.addListener(_onScroll);
+    // A quick in-place shake while the worker speaks: one smooth sine cycle per
+    // ~90ms (~11Hz). Parked at 0 (centred) when not speaking.
+    _shakeCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 90),
+    );
   }
 
   @override
   void dispose() {
+    _speechIdleTimer?.cancel();
+    _shakeCtrl.dispose();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _controller.dispose();
@@ -275,16 +340,161 @@ class _ChatViewState extends State<_ChatView> {
   /// (see [ChatVoiceMerged]).
   Future<void> _openVoiceNote() async {
     final ChatBloc bloc = context.read<ChatBloc>();
-    final VoiceNoteOutcome? outcome =
-        await context.push<VoiceNoteOutcome>(Routes.voiceNote);
+    final VoiceNoteOutcome? outcome = await context.push<VoiceNoteOutcome>(
+      Routes.voiceNote,
+    );
     if (outcome == null) return;
-    bloc.add(ChatVoiceMerged(
-      transcript: outcome.transcript,
-      reply: outcome.reply,
-      // A voice answer is a normal chat turn server-side, so it carries the
-      // engine's readiness decision too (#421).
-      extractionReady: outcome.extractionReady,
-    ));
+    bloc.add(
+      ChatVoiceMerged(
+        transcript: outcome.transcript,
+        reply: outcome.reply,
+        // A voice answer is a normal chat turn server-side, so it carries the
+        // engine's readiness decision too (#421).
+        extractionReady: outcome.extractionReady,
+      ),
+    );
+  }
+
+  /// Long-press the composer mic: HOLD TO TALK. Buzzes, flashes the centre "AB
+  /// BOLEN" cue, and starts the DEVICE recogniser; recognised words fill the
+  /// composer live and the worker still taps Send. No recogniser or a denied mic
+  /// surfaces as an honest snackbar and leaves typing untouched — never a crash.
+  Future<void> _startHoldToTalk() async {
+    if (_holdRecording || _holdBusy) return;
+    if (!locator.isRegistered<SpeechDictation>()) return;
+    final SpeechDictation speech = locator<SpeechDictation>();
+    _holdBusy = true;
+    _holdStopRequested = false;
+    // Instant, BEFORE any await: a buzz + the "AB BOLEN" cue the moment the hold
+    // is recognised, so the worker feels the mic engage and does not wonder
+    // whether it is listening.
+    HapticFeedback.vibrate();
+    setState(() => _showAbBolen = true);
+    try {
+      final bool ready = await speech.initialize();
+      if (!mounted) return;
+      if (!ready) {
+        // No recogniser on the device, or the worker denied the mic.
+        _hideAbBolen();
+        _showComposerNotice(const MicPermissionFailure().message);
+        return;
+      }
+      if (_holdStopRequested) {
+        // Released before listening began — nothing to start.
+        _hideAbBolen();
+        return;
+      }
+      // Preserve anything already typed; recognised words append onto it.
+      _dictationBase = _controller.text.trimRight();
+      _lastHeardForShake = '';
+      await speech.listen(onResult: _onDictationResult);
+      if (!mounted) return;
+      setState(() => _holdRecording = true);
+    } catch (_) {
+      if (mounted) {
+        _hideAbBolen();
+        _showComposerNotice(_kVoiceToTextUnavailable);
+      }
+    } finally {
+      _holdBusy = false;
+    }
+  }
+
+  /// Release the mic: stop listening. The recognised words are ALREADY in the
+  /// composer (filled live by [_onDictationResult]); the worker reviews and taps
+  /// Send. NOTHING is sent here — from here it is an ordinary typed message.
+  Future<void> _stopHoldToTalk() async {
+    _hideAbBolen();
+    if (!_holdRecording) {
+      // Released mid-init: tell the start leg not to begin listening.
+      _holdStopRequested = true;
+      return;
+    }
+    setState(() => _holdRecording = false);
+    if (!locator.isRegistered<SpeechDictation>()) return;
+    try {
+      await locator<SpeechDictation>().stop();
+    } catch (_) {
+      // Best-effort — stopping a recogniser must never surface an error.
+    }
+  }
+
+  /// Live dictation callback: drops the recognised words into the composer AS
+  /// the worker speaks, appended onto whatever was already typed, cursor parked
+  /// at the end so Send is the natural next tap. No server, no upload — this text
+  /// is sent exactly like a typed message.
+  ///
+  /// A FINAL result is committed into [_dictationBase] so the next recognition
+  /// session (the continuous-listen restart) appends onto it instead of
+  /// overwriting the sentence just spoken.
+  void _onDictationResult(DictationResult result) {
+    if (!mounted) return;
+    final String heard = result.text.trim();
+    if (heard.isEmpty) return;
+    // Shake ONLY on genuinely new words — the recogniser re-emits the same
+    // partial while the worker is quiet, so keying on change is what lets the
+    // vibration stop between utterances.
+    if (heard != _lastHeardForShake) {
+      _lastHeardForShake = heard;
+      _onSpeechActivity();
+    }
+    final String merged = _dictationBase.isEmpty
+        ? heard
+        : '$_dictationBase $heard';
+    _controller.value = TextEditingValue(
+      text: merged,
+      selection: TextSelection.collapsed(offset: merged.length),
+    );
+    if (result.isFinal) {
+      _dictationBase = merged; // commit — the next utterance appends onto this
+    }
+  }
+
+  /// A speaking tick (new recognised words): run the vibration and (re)arm the
+  /// short idle timer that stops it the moment the words stop coming.
+  void _onSpeechActivity() {
+    _speechIdleTimer?.cancel();
+    if (!_speaking) setState(() => _speaking = true);
+    if (!_shakeCtrl.isAnimating) _shakeCtrl.repeat();
+    _speechIdleTimer = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      setState(() => _speaking = false);
+      _stopShake();
+    });
+  }
+
+  /// Parks the shake centred (offset 0) and stops the ticker.
+  void _stopShake() {
+    _shakeCtrl.stop();
+    _shakeCtrl.value = 0;
+  }
+
+  /// Hides the "AB BOLEN" cue and stops the shake at once (a failed start, or the
+  /// worker released the button).
+  void _hideAbBolen() {
+    _speechIdleTimer?.cancel();
+    _stopShake();
+    if (!mounted) return;
+    if (_showAbBolen || _speaking) {
+      setState(() {
+        _showAbBolen = false;
+        _speaking = false;
+      });
+    }
+  }
+
+  /// A transient, honest snackbar for the hold-to-talk failure paths (mic
+  /// denied, nothing heard, transcription unavailable). Typing is never blocked.
+  void _showComposerNotice(String message) {
+    if (!mounted || message.trim().isEmpty) return;
+    // Plain Text on purpose: a custom AppTypography style defaults to a DARK
+    // color, which is invisible on the SnackBar's dark surface (the "blank
+    // toast"). Letting the SnackBar theme the text keeps it readable.
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      );
   }
 
   /// A thin one-line notice above the composer (blocked cue). Additive —
@@ -296,7 +506,11 @@ class _ChatViewState extends State<_ChatView> {
   }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s1),
+        AppSpacing.s4,
+        AppSpacing.s1,
+        AppSpacing.s4,
+        AppSpacing.s1,
+      ),
       child: Row(
         children: <Widget>[
           Icon(icon, size: 16, color: color),
@@ -304,7 +518,10 @@ class _ChatViewState extends State<_ChatView> {
           Flexible(
             child: Text(
               text,
-              style: AppTypography.body(size: AppTypography.sizeSm, color: color),
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: color,
+              ),
             ),
           ),
         ],
@@ -322,7 +539,11 @@ class _ChatViewState extends State<_ChatView> {
     final bool ready = state.extractionReady;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.s4, 0, AppSpacing.s4, AppSpacing.s3),
+        AppSpacing.s4,
+        0,
+        AppSpacing.s4,
+        AppSpacing.s3,
+      ),
       child: BbButton(
         label: ready ? kChatDoneReadyLabel : kChatDoneNotReadyLabel,
         block: true,
@@ -443,24 +664,34 @@ class _ChatViewState extends State<_ChatView> {
                 color: AppColors.haldi,
                 borderRadius: BorderRadius.circular(9),
               ),
-              child: Text('BB',
-                  style: AppTypography.display(
-                      size: AppTypography.sizeSm, color: AppColors.onHaldi)),
+              child: Text(
+                'BB',
+                style: AppTypography.display(
+                  size: AppTypography.sizeSm,
+                  color: AppColors.onHaldi,
+                ),
+              ),
             ),
             const SizedBox(width: AppSpacing.s2),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                Text('Bada Bhai',
-                    style: AppTypography.body(
-                        size: AppTypography.sizeSm,
-                        weight: FontWeight.w700,
-                        color: AppColors.onBlue)),
-                Text('online',
-                    style: AppTypography.body(
-                        size: AppTypography.size2xs,
-                        color: AppColors.green300)),
+                Text(
+                  'Bada Bhai',
+                  style: AppTypography.body(
+                    size: AppTypography.sizeSm,
+                    weight: FontWeight.w700,
+                    color: AppColors.onBlue,
+                  ),
+                ),
+                Text(
+                  'online',
+                  style: AppTypography.body(
+                    size: AppTypography.size2xs,
+                    color: AppColors.green300,
+                  ),
+                ),
               ],
             ),
           ],
@@ -490,79 +721,85 @@ class _ChatViewState extends State<_ChatView> {
             if (state.initializing) {
               return const Center(child: CircularProgressIndicator());
             }
-            return SafeArea(
-              child: Column(
-                children: <Widget>[
-                  if (state.sessionFailed) _sessionBanner(),
-                  // OIE Phase 8 (#649): the pack progress bar + the pinned
-                  // occupation pill. Hidden until a pack resolves / a trade pins.
-                  if (state.progress != null || state.occupationLabel != null)
-                    _oieHeader(state.progress, state.occupationLabel),
-                  Expanded(
-                    child: Stack(
-                      children: <Widget>[
-                        ListView.builder(
-                          controller: _scroll,
-                          // Full horizontal gutter, lighter vertical rhythm so
-                          // more of the transcript stays visible with the
-                          // keyboard up.
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.s4,
-                            vertical: AppSpacing.s2,
-                          ),
-                          itemCount: state.messages.length,
-                          itemBuilder: (BuildContext context, int i) {
-                            final ChatMessage m = state.messages[i];
-                            final bool failed =
-                                m.status == ChatSendStatus.failed;
-                            return BbChatBubble(
-                              text: m.text,
-                              fromWorker: m.fromWorker,
-                              failed: failed,
-                              onRetry: failed ? () => _retry(i) : null,
-                            );
-                          },
+            return Stack(
+              children: <Widget>[
+                SafeArea(
+                  child: Column(
+                    children: <Widget>[
+                      if (state.sessionFailed) _sessionBanner(),
+                      // OIE Phase 8 (#649): the pack progress bar + the pinned
+                      // occupation pill. Hidden until a pack resolves / a trade pins.
+                      if (state.progress != null ||
+                          state.occupationLabel != null)
+                        _oieHeader(state.progress, state.occupationLabel),
+                      Expanded(
+                        child: Stack(
+                          children: <Widget>[
+                            ListView.builder(
+                              controller: _scroll,
+                              // Full horizontal gutter, lighter vertical rhythm so
+                              // more of the transcript stays visible with the
+                              // keyboard up.
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.s4,
+                                vertical: AppSpacing.s2,
+                              ),
+                              itemCount: state.messages.length,
+                              itemBuilder: (BuildContext context, int i) {
+                                final ChatMessage m = state.messages[i];
+                                final bool failed =
+                                    m.status == ChatSendStatus.failed;
+                                return BbChatBubble(
+                                  text: m.text,
+                                  fromWorker: m.fromWorker,
+                                  failed: failed,
+                                  onRetry: failed ? () => _retry(i) : null,
+                                );
+                              },
+                            ),
+                            if (_hasUnreadBelow)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: AppSpacing.s3,
+                                child: Center(child: _jumpPill()),
+                              ),
+                          ],
                         ),
-                        if (_hasUnreadBelow)
-                          Positioned(
-                            left: 0,
-                            right: 0,
-                            bottom: AppSpacing.s3,
-                            child: Center(child: _jumpPill()),
-                          ),
-                      ],
-                    ),
+                      ),
+                      if (state.sending)
+                        _typingIndicator()
+                      else if (state.followups.isNotEmpty)
+                        // A disambiguation turn is mutually-exclusive occupations
+                        // where the tapped label BECOMES the answer of record and
+                        // selects the pack — a vertical single-select, not the
+                        // horizontal scroller a worker can skim past (#649).
+                        state.questionKind == ChatQuestionKind.disambiguate
+                            ? _disambiguate(state.followups)
+                            : _followups(state.followups),
+                      // A blocked turn (pseudonymize fail-closed) never processed the
+                      // worker's last answer — say so rather than let the canned
+                      // fallback reply read as understood. Shown in every build.
+                      if (state.lastReplyBlocked)
+                        _replyNotice(
+                          icon: Icons.error_outline,
+                          color: AppColors.red600,
+                          text: kChatBlockedNotice,
+                        ),
+                      // B7 maintenance notice — ops copy, shown only when set.
+                      if (maintenance.isNotEmpty)
+                        _replyNotice(
+                          icon: Icons.info_outline,
+                          color: AppColors.textMuted,
+                          text: maintenance,
+                        ),
+                      _inputBar(showVoice),
+                      _doneCta(state),
+                    ],
                   ),
-                  if (state.sending)
-                    _typingIndicator()
-                  else if (state.followups.isNotEmpty)
-                    // A disambiguation turn is mutually-exclusive occupations
-                    // where the tapped label BECOMES the answer of record and
-                    // selects the pack — a vertical single-select, not the
-                    // horizontal scroller a worker can skim past (#649).
-                    state.questionKind == ChatQuestionKind.disambiguate
-                        ? _disambiguate(state.followups)
-                        : _followups(state.followups),
-                  // A blocked turn (pseudonymize fail-closed) never processed the
-                  // worker's last answer — say so rather than let the canned
-                  // fallback reply read as understood. Shown in every build.
-                  if (state.lastReplyBlocked)
-                    _replyNotice(
-                      icon: Icons.error_outline,
-                      color: AppColors.red600,
-                      text: kChatBlockedNotice,
-                    ),
-                  // B7 maintenance notice — ops copy, shown only when set.
-                  if (maintenance.isNotEmpty)
-                    _replyNotice(
-                      icon: Icons.info_outline,
-                      color: AppColors.textMuted,
-                      text: maintenance,
-                    ),
-                  _inputBar(showVoice),
-                  _doneCta(state),
-                ],
-              ),
+                ),
+                _abBolenOverlay(),
+              ],
             );
           },
         ),
@@ -617,7 +854,10 @@ class _ChatViewState extends State<_ChatView> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(AppRadii.pill),
-                  borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
+                  borderSide: const BorderSide(
+                    color: AppColors.blue,
+                    width: 1.5,
+                  ),
                 ),
               ),
             ),
@@ -626,7 +866,11 @@ class _ChatViewState extends State<_ChatView> {
           IconButton(
             tooltip: 'Bhejein',
             onPressed: _send,
-            icon: const Icon(Icons.send_rounded, color: AppColors.blue, size: 24),
+            icon: const Icon(
+              Icons.send_rounded,
+              color: AppColors.blue,
+              size: 24,
+            ),
           ),
         ],
       ),
@@ -638,19 +882,97 @@ class _ChatViewState extends State<_ChatView> {
   Widget _composerMic() {
     return Semantics(
       button: true,
-      label: 'Voice note bhejein',
+      label: 'Voice note bhejein ya dabaye rakhein',
       child: Tooltip(
-        message: 'Voice note bhejein',
-        child: Material(
-          color: AppColors.haldi,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: _openVoiceNote,
-            child: const SizedBox(
-              width: AppSpacing.tap,
-              height: AppSpacing.tap,
-              child: Icon(Icons.mic, color: AppColors.onHaldi, size: 22),
+        message: 'Tap: voice note · Dabaye rakhein: awaaz se likhein',
+        // Tap → the full voice-note screen (unchanged). HOLD → record straight
+        // into the composer. The long-press recognizer and the InkWell tap share
+        // the pointer: a quick tap wins the gesture arena, a hold wins it — so
+        // onTap never fires at the end of a hold, and a hold never opens the
+        // voice-note screen.
+        child: GestureDetector(
+          onLongPressStart: (_) => _startHoldToTalk(),
+          onLongPressEnd: (_) => _stopHoldToTalk(),
+          child: Material(
+            color: AppColors.haldi,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: _openVoiceNote,
+              child: SizedBox(
+                width: AppSpacing.tap,
+                height: AppSpacing.tap,
+                child: Icon(
+                  _holdRecording ? Icons.mic_none : Icons.mic,
+                  color: AppColors.onHaldi,
+                  size: 22,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The centre "AB BOLEN" cue — a soft, smoky pill that fades in when a hold
+  /// begins and fades out a moment later. Non-interactive (never eats a tap) and
+  /// always mounted so BOTH the fade-in and the fade-out animate.
+  Widget _abBolenOverlay() {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Center(
+          child: AnimatedOpacity(
+            opacity: _showAbBolen ? 1 : 0,
+            duration: AppMotion.base,
+            curve: Curves.easeOut,
+            child: AnimatedBuilder(
+              animation: _shakeCtrl,
+              builder: (BuildContext context, Widget? child) =>
+                  Transform.translate(
+                    // Smooth ±4px sine shake while speaking; 0 at rest.
+                    offset: Offset(
+                      math.sin(_shakeCtrl.value * 2 * math.pi) * 4,
+                      0,
+                    ),
+                    child: child,
+                  ),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.s5,
+                  vertical: AppSpacing.s4,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceInk.withValues(alpha: 0.86),
+                  borderRadius: BorderRadius.circular(AppRadii.lg),
+                  // The "smoke": a large, soft haldi glow bleeding outward.
+                  boxShadow: <BoxShadow>[
+                    BoxShadow(
+                      color: AppColors.haldi.withValues(alpha: 0.45),
+                      blurRadius: 48,
+                      spreadRadius: 8,
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Icon(
+                      Icons.graphic_eq,
+                      color: AppColors.haldi,
+                      size: 40,
+                    ),
+                    const SizedBox(height: AppSpacing.s2),
+                    Text(
+                      'AB BOLEN',
+                      style: AppTypography.display(
+                        size: AppTypography.sizeLg,
+                        color: AppColors.onBlue,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -700,7 +1022,11 @@ class _ChatViewState extends State<_ChatView> {
   Widget _typingIndicator() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s2),
+        AppSpacing.s4,
+        AppSpacing.s1,
+        AppSpacing.s4,
+        AppSpacing.s2,
+      ),
       child: Row(
         children: <Widget>[
           const Icon(Icons.more_horiz, size: 20, color: AppColors.brand),
@@ -734,7 +1060,11 @@ class _ChatViewState extends State<_ChatView> {
     return Container(
       alignment: Alignment.centerLeft,
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s2),
+        AppSpacing.s4,
+        AppSpacing.s1,
+        AppSpacing.s4,
+        AppSpacing.s2,
+      ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -761,7 +1091,11 @@ class _ChatViewState extends State<_ChatView> {
   Widget _oieHeader(ChatProgress? progress, String? occupation) {
     return Container(
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.s4, AppSpacing.s2, AppSpacing.s4, AppSpacing.s2),
+        AppSpacing.s4,
+        AppSpacing.s2,
+        AppSpacing.s4,
+        AppSpacing.s2,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -784,7 +1118,9 @@ class _ChatViewState extends State<_ChatView> {
   Widget _occupationPill(String label) {
     return Container(
       padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.s3, vertical: AppSpacing.s1),
+        horizontal: AppSpacing.s3,
+        vertical: AppSpacing.s1,
+      ),
       decoration: BoxDecoration(
         color: AppColors.haldiTint,
         borderRadius: BorderRadius.circular(AppRadii.pill),
@@ -798,8 +1134,7 @@ class _ChatViewState extends State<_ChatView> {
           Flexible(
             child: Text(
               label,
-              style: AppTypography.body(
-                  size: 14, weight: FontWeight.w600),
+              style: AppTypography.body(size: 14, weight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -815,7 +1150,11 @@ class _ChatViewState extends State<_ChatView> {
   Widget _disambiguate(List<String> options) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s2),
+        AppSpacing.s4,
+        AppSpacing.s1,
+        AppSpacing.s4,
+        AppSpacing.s2,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -840,7 +1179,9 @@ class _ChatViewState extends State<_ChatView> {
           child: Container(
             constraints: const BoxConstraints(minHeight: AppSpacing.tap),
             padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.s4, vertical: AppSpacing.s3),
+              horizontal: AppSpacing.s4,
+              vertical: AppSpacing.s3,
+            ),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(AppRadii.md),
               border: Border.all(
@@ -855,8 +1196,9 @@ class _ChatViewState extends State<_ChatView> {
                     style: AppTypography.body(
                       size: 15,
                       weight: escape ? FontWeight.w400 : FontWeight.w600,
-                      color:
-                          escape ? AppColors.textMuted : AppColors.textPrimary,
+                      color: escape
+                          ? AppColors.textMuted
+                          : AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -904,8 +1246,11 @@ class _ChatViewState extends State<_ChatView> {
                 ),
               ),
               const SizedBox(width: AppSpacing.s1),
-              const Icon(Icons.keyboard_arrow_down_rounded,
-                  color: AppColors.brand, size: 20),
+              const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: AppColors.brand,
+                size: 20,
+              ),
             ],
           ),
         ),
