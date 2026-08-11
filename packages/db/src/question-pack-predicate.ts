@@ -1,281 +1,118 @@
 /**
- * The `ask_if` / `skip_if` evaluator — a closed JSON AST, not an expression language.
+ * Build-time validation of an authored `ask_if` / `skip_if`, against the ONE definition of what a
+ * predicate is.
  *
- * WHY A JSON AST AND NOT A STRING EXPRESSION. A pack is authored data that ends up in a
- * database and is evaluated on every turn of every interview. If the condition were a
- * string — `"answers.experience_years >= 5"` — something would have to parse it, and the
- * only cheap ways to do that in JavaScript are the ones that execute attacker-controlled
- * text. There is no parser here because there is nothing to parse: the condition arrives
- * as JSON, and this file walks it. An ops user with write access to a pack row can make
- * the engine ask a different question; they cannot make it run code.
+ * WHAT THIS FILE USED TO BE, AND WHY THAT WAS THE BUG (#776). It carried a second, complete
+ * predicate implementation — its own `PREDICATE_OPS`, its own arity table, its own operand rules
+ * and its own `evaluatePredicate` — built around an `{ op, args: [...] }` AST. The engine that
+ * actually runs a live interview (`apps/api/src/profiling/predicate.ts`) reads the CONTRACT's
+ * shape, `{ op, field }` / `{ op, left, right }`, and `packages/ai-contracts` is the frozen
+ * definition both are supposed to agree with.
  *
- * THE EVALUATOR CAN ONLY READ THE NORMALIZED ANSWER MAP. Not the raw utterance, not the
- * transcript, not the clock, not the worker record. That restriction is what keeps pack
- * conditions reviewable: a reader of `{"gte": [{"field": "experience_years"}, {"const":
- * 5}]}` knows exactly what it can depend on without reading this file. Widening the
- * operand set later is the change that would quietly make packs unreviewable, so operands
- * are `{field}` or `{const}` and nothing else.
+ * They did not. Every authored predicate in the corpus was written in the `args` shape the
+ * validator taught, and every one of them evaluated to `false` at runtime because
+ * `predicate.field` was `undefined`. An `ask_if` that is permanently false means the question is
+ * NEVER ASKED; a `skip_if` that is permanently false means the skip NEVER FIRES. Two live
+ * questions in `qp_welding` behaved that way for the life of the pack.
  *
- * TOTAL, NEVER THROWING, AT EVALUATION TIME. A malformed node returns `false` rather than
- * raising, because the alternative is a live interview crashing on a bad pack row. Packs
- * are validated at BUILD time (`validatePredicate`) where a problem is a corpus error a
- * human fixes; at RUN time the engine's job is to keep talking to the worker. The two
- * functions are deliberately separate for exactly this reason.
+ * BOTH SIDES WERE THOROUGHLY UNIT-TESTED, which is exactly why nothing caught it: each suite
+ * exercised its own AST and passed. A pack author read the shipped examples, copied `args`, and
+ * the validator agreed with them. Two implementations of one rule cannot be kept in sync by
+ * testing them separately — so there is now only one.
  *
- * UNKNOWN = UNANSWERED, and that is a decision worth stating. `{"gte": [{"field":
- * "experience_years"}, {"const": 5}]}` is FALSE when the worker has not said, rather than
- * an error or a skip. A question gated on an unanswered field simply does not fire, which
- * is the behaviour that degrades safely when detection fails.
+ * THE FIX IS THE DELETION. This module no longer defines what a predicate is; it asks
+ * `PredicateSchema` — the same schema `QuestionPackItemSchema.ask_if` is typed by and the runtime
+ * engine's shape is derived from. What remains here is the part the contract cannot express: that
+ * a field named by a predicate is a `question_key` in the SAME pack.
  */
 
-/** The closed operator set. Adding one here means adding it in three places — see below. */
-export const PREDICATE_OPS = [
-  "all",
-  "any",
-  "not",
-  "answered",
-  "declined",
-  "eq",
-  "neq",
-  "in",
-  "gte",
-  "lte",
-  "occupation_is",
-  "occupation_under",
-  "phase_is",
-  "turn_gte",
-] as const;
+import { PredicateSchema, type Predicate, type PredicateOperand } from "@badabhai/ai-contracts";
 
-export type PredicateOp = (typeof PREDICATE_OPS)[number];
+/**
+ * How deep an authored condition may nest.
+ *
+ * NOT a contract rule — the schema is happily recursive — but an AUTHORING one. A human reviewing
+ * a pack has to be able to hold the condition in their head, and nothing in the shipped corpus is
+ * deeper than one level. Rejecting at build time is free; discovering an unreadable predicate
+ * while debugging a question that never appears is not.
+ */
+const MAX_DEPTH = 8;
 
-/** An operand reads a normalized answer, or is a literal. Nothing else. */
-export type PredicateOperand =
-  | { field: string }
-  | { const: string | number | boolean | null };
-
-export interface PredicateNode {
-  op: PredicateOp;
-  args?: unknown[];
+/** The `field` an operand reads, or null when it is a literal. */
+function operandField(operand: PredicateOperand | undefined): string | null {
+  if (operand === undefined || operand === null || typeof operand !== "object") return null;
+  const field = (operand as { field?: unknown }).field;
+  return typeof field === "string" ? field : null;
 }
 
 /**
- * What the evaluator is allowed to see.
+ * Every `question_key` a predicate reads, in the CONTRACT's shape.
  *
- * Deliberately NOT the conversation envelope: passing the envelope would let a future
- * operator reach anything on it, and the point of this interface is that the reachable
- * surface is enumerable by reading five lines.
+ * Three places carry a field: `field` (the `answered`/`declined` operand), and `left`/`right` (the
+ * comparison operands). `in` needs no special case here — the contract models its right-hand side
+ * as one operand carrying a `const` array, not as an array of operands, which is one of the
+ * simplifications that came free with dropping the second AST.
  */
-export interface PredicateContext {
-  /** question_key -> normalized value. Absent key means unanswered. */
-  answers: Record<string, string | number | boolean | null | undefined>;
-  /** question_keys the worker explicitly declined ("nahi pata"). */
-  declined: ReadonlySet<string>;
-  /** The pinned occupation, or null while still identifying. */
-  jobDomainId: string | null;
-  /** Ancestor codes of the pinned occupation, for `occupation_under`. */
-  occupationAncestors: readonly string[];
-  phase: string;
-  /** Engine ASKS so far — not turns. The distinction matters; see interview_engine.py. */
-  askCount: number;
-}
-
-/** Arity per operator. `null` means variadic (>= 1). */
-const ARITY: Record<PredicateOp, number | null> = {
-  all: null,
-  any: null,
-  not: 1,
-  answered: 1,
-  declined: 1,
-  eq: 2,
-  neq: 2,
-  in: 2,
-  gte: 2,
-  lte: 2,
-  occupation_is: 1,
-  occupation_under: 1,
-  phase_is: 1,
-  turn_gte: 1,
-};
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function isOperand(v: unknown): v is PredicateOperand {
-  if (!isRecord(v)) return false;
-  const keys = Object.keys(v);
-  if (keys.length !== 1) return false;
-  if (keys[0] === "field") return typeof v.field === "string" && v.field.length > 0;
-  if (keys[0] === "const") {
-    const c = v.const;
-    return c === null || ["string", "number", "boolean"].includes(typeof c);
+function walkFields(node: Predicate, visit: (field: string) => void, depth = 0): void {
+  if (depth > MAX_DEPTH) return;
+  if (typeof node.field === "string") visit(node.field);
+  for (const operand of [node.left, node.right]) {
+    const field = operandField(operand);
+    if (field !== null) visit(field);
   }
-  return false;
+  if (node.predicate) walkFields(node.predicate, visit, depth + 1);
+  for (const child of node.predicates ?? []) walkFields(child, visit, depth + 1);
 }
 
-function isNode(v: unknown): v is PredicateNode {
-  return isRecord(v) && typeof v.op === "string" && (PREDICATE_OPS as readonly string[]).includes(v.op);
-}
-
-/** Resolve an operand. Returns `undefined` for an unanswered field — see UNKNOWN above. */
-function resolve(operand: PredicateOperand, ctx: PredicateContext): unknown {
-  if ("const" in operand) return operand.const;
-  return ctx.answers[operand.field];
-}
-
-/** The field name an operand names, for the validator's cross-reference check. */
-function fieldOf(operand: unknown): string | null {
-  return isOperand(operand) && "field" in operand ? operand.field : null;
+/** How deep an already-parsed predicate actually nests. */
+function depthOf(node: Predicate, depth = 0): number {
+  if (depth > MAX_DEPTH) return depth;
+  let deepest = depth;
+  const children = [...(node.predicates ?? []), ...(node.predicate ? [node.predicate] : [])];
+  for (const child of children) deepest = Math.max(deepest, depthOf(child, depth + 1));
+  return deepest;
 }
 
 /**
- * Evaluate. TOTAL — any malformed input yields `false`.
+ * Problems with one authored condition — empty when it is sound.
  *
- * Comparisons are type-strict: `gte` on a non-number is false rather than coerced,
- * because "5" >= 5 being true in one pack and false in another (depending on whether a
- * normalizer ran) is the kind of bug that only shows up for one trade.
- */
-export function evaluatePredicate(node: unknown, ctx: PredicateContext): boolean {
-  if (!isNode(node)) return false;
-  const args = Array.isArray(node.args) ? node.args : [];
-  const expected = ARITY[node.op];
-  if (expected === null ? args.length < 1 : args.length !== expected) return false;
-
-  switch (node.op) {
-    case "all":
-      return args.every((a) => evaluatePredicate(a, ctx));
-    case "any":
-      return args.some((a) => evaluatePredicate(a, ctx));
-    case "not":
-      return !evaluatePredicate(args[0], ctx);
-
-    case "answered": {
-      const f = fieldOf(args[0]);
-      if (f === null) return false;
-      // Declining is a COMPLETE answer for the engine's purposes, but `answered` means
-      // "we have a value" — a question gated on it wants something to work with.
-      const v = ctx.answers[f];
-      return v !== undefined && v !== null;
-    }
-    case "declined": {
-      const f = fieldOf(args[0]);
-      return f !== null && ctx.declined.has(f);
-    }
-
-    case "eq":
-    case "neq": {
-      if (!isOperand(args[0]) || !isOperand(args[1])) return false;
-      const a = resolve(args[0], ctx);
-      const b = resolve(args[1], ctx);
-      // An unanswered field compares false under BOTH operators — including `neq`, which
-      // is the counter-intuitive half and the reason this is written out rather than
-      // folded into the comparison below. "The worker's trade is not welding" must not
-      // become true merely because they have not said what their trade is; a question
-      // gated that way would fire at the top of every interview. Unknown is unknown, not
-      // "different from everything".
-      if (a === undefined || b === undefined) return false;
-      return node.op === "eq" ? a === b : a !== b;
-    }
-
-    case "in": {
-      if (!isOperand(args[0])) return false;
-      const needle = resolve(args[0], ctx);
-      if (needle === undefined) return false;
-      const hay = args[1];
-      if (!Array.isArray(hay)) return false;
-      return hay.some((h) => isOperand(h) && resolve(h, ctx) === needle);
-    }
-
-    case "gte":
-    case "lte": {
-      if (!isOperand(args[0]) || !isOperand(args[1])) return false;
-      const a = resolve(args[0], ctx);
-      const b = resolve(args[1], ctx);
-      if (typeof a !== "number" || typeof b !== "number") return false;
-      return node.op === "gte" ? a >= b : a <= b;
-    }
-
-    case "occupation_is": {
-      if (!isOperand(args[0])) return false;
-      const want = resolve(args[0], ctx);
-      return typeof want === "string" && ctx.jobDomainId === want;
-    }
-    case "occupation_under": {
-      if (!isOperand(args[0])) return false;
-      const want = resolve(args[0], ctx);
-      return typeof want === "string" && ctx.occupationAncestors.includes(want);
-    }
-    case "phase_is": {
-      if (!isOperand(args[0])) return false;
-      const want = resolve(args[0], ctx);
-      return typeof want === "string" && ctx.phase === want;
-    }
-    case "turn_gte": {
-      if (!isOperand(args[0])) return false;
-      const want = resolve(args[0], ctx);
-      return typeof want === "number" && ctx.askCount >= want;
-    }
-  }
-}
-
-/**
- * BUILD-TIME validation. Returns every problem, never throws on the first.
+ * EXHAUSTIVE AND LOUD, unlike the runtime, and the asymmetry is deliberate: here a malformed
+ * condition is a build error a human fixes, whereas a live interview must not crash over a config
+ * row. The runtime's silence is only safe if this is noisy.
  *
- * Separate from `evaluatePredicate` on purpose: this is where a malformed condition is an
- * error a human fixes, so it is exhaustive and loud. At run time the same input is
- * silently false, because a live interview must not crash over a config row.
- *
- * `knownFields` is the set of `question_key`s in the SAME pack. A condition naming a key
- * from another pack is the single most likely authoring mistake — it evaluates to false
- * forever, so the gated question simply never appears and nobody notices.
+ * `knownFields` is the set of `question_key`s in the SAME pack. A condition naming a key from
+ * another pack is the single most likely authoring mistake and the hardest to see: it evaluates
+ * false forever, so the gated question simply never appears and nobody notices — the same class of
+ * silence #776 was.
  */
 export function validatePredicate(
   node: unknown,
   knownFields: ReadonlySet<string>,
   where: string,
-  depth = 0,
 ): string[] {
+  // THE CONTRACT DECIDES THE SHAPE. Op set, per-op arity, operand form and the
+  // exactly-one-of-{field,const} rule are all enforced here, by the same schema the engine's AST
+  // is derived from — so a corpus this accepts cannot be a corpus the engine reads differently.
+  const parsed = PredicateSchema.safeParse(node);
+  if (!parsed.success) {
+    return parsed.error.issues.map((issue) => {
+      const path = issue.path.length > 0 ? `.${issue.path.join(".")}` : "";
+      return `${where}${path}: ${issue.message}`;
+    });
+  }
+
+  const predicate = parsed.data as Predicate;
   const problems: string[] = [];
-  if (depth > 8) return [`${where}: predicate nested deeper than 8 levels`];
-  if (!isRecord(node)) return [`${where}: predicate must be an object, got ${typeof node}`];
-  if (typeof node.op !== "string") return [`${where}: predicate has no "op"`];
-  if (!(PREDICATE_OPS as readonly string[]).includes(node.op)) {
-    return [`${where}: unknown operator ${JSON.stringify(node.op)}. Allowed: ${PREDICATE_OPS.join(", ")}`];
-  }
-  const op = node.op as PredicateOp;
-  const args = Array.isArray(node.args) ? node.args : [];
-  const expected = ARITY[op];
-  if (expected === null) {
-    if (args.length < 1) problems.push(`${where}: "${op}" needs at least one argument`);
-  } else if (args.length !== expected) {
-    problems.push(`${where}: "${op}" takes exactly ${expected} argument(s), got ${args.length}`);
+  if (depthOf(predicate) > MAX_DEPTH) {
+    problems.push(`${where}: predicate nested deeper than ${MAX_DEPTH} levels`);
   }
 
-  if (op === "all" || op === "any" || op === "not") {
-    args.forEach((a, i) => problems.push(...validatePredicate(a, knownFields, `${where}.args[${i}]`, depth + 1)));
-    return problems;
-  }
-
-  args.forEach((a, i) => {
-    // `in`'s second argument is a LIST of operands, not an operand.
-    if (op === "in" && i === 1) {
-      if (!Array.isArray(a)) {
-        problems.push(`${where}.args[1]: "in" needs an array of operands`);
-        return;
-      }
-      a.forEach((el, j) => {
-        if (!isOperand(el)) problems.push(`${where}.args[1][${j}]: not a {field} or {const} operand`);
-      });
-      return;
-    }
-    if (!isOperand(a)) {
-      problems.push(`${where}.args[${i}]: not a {field} or {const} operand`);
-      return;
-    }
-    const f = fieldOf(a);
-    if (f !== null && !knownFields.has(f)) {
+  // The one rule the contract cannot express: a field has to exist IN THIS PACK. The schema knows
+  // a valid slug when it sees one; it has no idea which questions this pack authored.
+  walkFields(predicate, (field) => {
+    if (!knownFields.has(field)) {
       problems.push(
-        `${where}.args[${i}]: field ${JSON.stringify(f)} is not a question_key in this pack. ` +
+        `${where}: field ${JSON.stringify(field)} is not a question_key in this pack. ` +
           `A dangling field is false forever, so the gated question would silently never appear.`,
       );
     }
@@ -283,15 +120,16 @@ export function validatePredicate(
   return problems;
 }
 
-/** Every `question_key` a predicate reads. Used by the validator's dependency checks. */
+/**
+ * Every `question_key` a predicate reads. Used by the validator's dependency checks.
+ *
+ * Tolerant of an unparseable node ON PURPOSE: this feeds ordering/dependency analysis, which runs
+ * alongside {@link validatePredicate} rather than after it, and a malformed condition should be
+ * reported by that function as a shape error — not by this one as a phantom missing dependency.
+ */
 export function predicateFields(node: unknown, out: Set<string> = new Set()): Set<string> {
-  if (!isRecord(node)) return out;
-  const args = Array.isArray(node.args) ? node.args : [];
-  for (const a of args) {
-    const f = fieldOf(a);
-    if (f !== null) out.add(f);
-    else if (Array.isArray(a)) a.forEach((el) => { const g = fieldOf(el); if (g !== null) out.add(g); });
-    else if (isRecord(a)) predicateFields(a, out);
-  }
+  const parsed = PredicateSchema.safeParse(node);
+  if (!parsed.success) return out;
+  walkFields(parsed.data as Predicate, (field) => out.add(field));
   return out;
 }

@@ -64,6 +64,7 @@
     "db:audit:domains": "tsx src/audit-job-domains.ts"
   },
   "dependencies": {
+    "@badabhai/ai-contracts": "workspace:*",
     "@badabhai/match-engine": "workspace:*",
     "@badabhai/profiling-lexicon": "workspace:*",
     "@badabhai/reach-engine": "workspace:*",
