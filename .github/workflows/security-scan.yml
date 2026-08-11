@@ -122,14 +122,30 @@ jobs:
               --exit-code 1
 
   # ---- (b) SAST: semgrep OSS ----
-  # NON-BLOCKING (continue-on-error) — OSS rulesets only, NO SEMGREP_APP_TOKEN.
+  # BLOCKING as of #737 — OSS rulesets only, NO SEMGREP_APP_TOKEN.
   # CI-3: path-gated — runs on schedule (full scan) OR when app/packages code changes.
+  #
+  # `continue-on-error: true` was REMOVED here, and the baseline it was waiting for is
+  # what made that safe. This job failed on every single PR for its whole life — 39
+  # findings, none of them introduced by the PR being tested — so the red X carried no
+  # information and the only thing it trained anybody to do was ignore a security check.
+  # #737 took the count to 0 (2 real config fixes, 3 pnpm supply-chain policies enabled,
+  # 34 false positives suppressed inline with a written reason each), so a finding here
+  # now means the PR under test introduced one.
+  #
+  # STILL NOT A *REQUIRED* CONTEXT, and that is the remaining half. `ci-required` in
+  # ci.yml is the only required check on `main`, and it cannot `needs:` a job in another
+  # workflow file — the exact trap #718 measured on PR #711, where the Flutter gate went
+  # red while `ci-required` went green. Closing that needs one of two owner decisions:
+  # convert this job to a `workflow_call` reusable under ci.yml (the #718 pattern, which
+  # also puts semgrep on every PR's critical path), or add "SAST (semgrep OSS)" to branch
+  # protection directly. Until then this job goes red and stays visible, which is a
+  # strictly better state than green-and-meaningless.
   sast:
     name: SAST (semgrep OSS)
     if: github.event_name == 'schedule' || needs.changes.outputs.code == 'true'
     needs: [changes]
     runs-on: ubuntu-latest
-    continue-on-error: true
     # Official semgrep OSS image — pulls the `semgrep` CLI without any Cloud
     # account. Registry `p/*` rulesets are fetched anonymously at scan time.
     # Image is `semgrep/semgrep` (the current org; `returntocorp/*` is the legacy
@@ -140,8 +156,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # `semgrep scan` (the OSS subcommand) with open-source rulesets. `--error`
-      # makes findings exit non-zero so the STEP reflects them; `continue-on-error`
-      # on the job keeps the gate advisory until triaged to a clean baseline.
+      # makes findings exit non-zero, and with the job's `continue-on-error` gone
+      # (#737) that exit code is now the gate rather than a suggestion.
       # Explicitly NO SEMGREP_APP_TOKEN / no `semgrep ci` (that path needs Cloud).
       - name: Run semgrep (OSS rulesets)
         run: |
