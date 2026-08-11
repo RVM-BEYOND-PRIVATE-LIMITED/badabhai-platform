@@ -158,15 +158,21 @@ function parseMigration(sql: string): Expect {
   ))
     e.indexes.add(unquote(m[1]!));
 
-  for (const m of src.matchAll(/ADD\s+CONSTRAINT\s+("?\w+"?)/gi)) e.constraints.add(unquote(m[1]!));
-  // A constraint dropped later in the same migration must not be expected.
+  // Offsets, not a regex built from the constraint name. Interpolating a name into `new RegExp`
+  // alongside a `[\s\S]*` span is a ReDoS shape (semgrep detect-non-literal-regexp) and is also
+  // needlessly indirect: the actual question is "was this constraint dropped AFTER its last
+  // add?", which is a comparison of two offsets. Drop-then-re-add keeps the constraint;
+  // add-then-drop, or a bare drop, does not.
+  const lastAddAt = new Map<string, number>();
+  for (const m of src.matchAll(/ADD\s+CONSTRAINT\s+("?\w+"?)/gi)) {
+    const name = unquote(m[1]!);
+    e.constraints.add(name);
+    lastAddAt.set(name, m.index ?? 0);
+  }
   for (const m of src.matchAll(/DROP\s+CONSTRAINT\s+(?:IF\s+EXISTS\s+)?("?\w+"?)/gi)) {
     const name = unquote(m[1]!);
-    const addedAfter = new RegExp(
-      `DROP\\s+CONSTRAINT[^;]*"?${name}"?[\\s\\S]*ADD\\s+CONSTRAINT\\s+"?${name}"?`,
-      "i",
-    ).test(src);
-    if (!addedAfter) e.constraints.delete(name);
+    const addedAt = lastAddAt.get(name);
+    if (addedAt === undefined || (m.index ?? 0) > addedAt) e.constraints.delete(name);
   }
 
   for (const m of src.matchAll(
