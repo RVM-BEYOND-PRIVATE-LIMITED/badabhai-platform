@@ -13,7 +13,12 @@ import {
   type ProfileExtractionOutput,
 } from "@badabhai/ai-contracts";
 import { PARSE_TARGET_FIELDS } from "@badabhai/profiling-lexicon";
-import { applyParseGates, countByGate, type Rejection } from "../profiling/parse-gates";
+import {
+  applyParseGates,
+  countByGate,
+  PARSE_ENUM_VALUES,
+  type Rejection,
+} from "../profiling/parse-gates";
 import { narrowAnswerRecords } from "../profiling/conversation-state";
 import {
   projectProfile,
@@ -135,7 +140,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // never fail an extraction.
       const fullName = await this.workerFullName(workerId);
       const redacted = messages.map((m) => ({ ...m, text: redactKnownName(m.text, fullName) }));
-      const { result, pin, attributes, pack } = await this.extractOrParse(
+      const { result, pin, attributes, pack, parseMeta } = await this.extractOrParse(
         { workerId, sessionId, aiJobId, correlationId, requestId },
         redacted,
         redactKnownName(transcript, fullName),
@@ -252,7 +257,17 @@ export class ProfileExtractionProcessor extends WorkerHost {
         );
       }
 
-      await this.aiJobs.markCompleted(aiJobId, { profile_id: saved.id }, toAiJobUsage(aiMeta));
+      // `aiMeta ?? parseMeta`, and the order is the contract: the legacy route's extraction call is
+      // the job's spend when it happened, and the OIE route's parse is the job's spend when it did
+      // not. Exactly one of the two is ever non-null today (the paths are mutually exclusive — an
+      // empty answer map takes the legacy branch and returns before any parse), so this records the
+      // call that actually occurred rather than summing across a case that cannot arise. If a
+      // future path ever makes BOTH calls under one job, this must become a sum, not a preference.
+      await this.aiJobs.markCompleted(
+        aiJobId,
+        { profile_id: saved.id },
+        toAiJobUsage(aiMeta ?? parseMeta),
+      );
 
       // ── ADR-0036 MOMENTS ①/② ──────────────────────────────────────────────────
       // "Everything is computed on WRITE. Every read is an indexed sort." The profile
@@ -457,6 +472,13 @@ export class ProfileExtractionProcessor extends WorkerHost {
     pin: OccupationPin | null;
     attributes: readonly ProjectedAttribute[];
     pack: { packId: string | null; packVersion: number | null };
+    /**
+     * The `/profile/parse` call's usage, when this path made one. SEPARATE FROM
+     * `result.ai_metadata` on purpose — see the note at the OIE branch's `return`: that field
+     * feeds the `profile_extraction` cost event, and merging the two would double-count the
+     * interview's spend under the wrong task type.
+     */
+    parseMeta: AICallMetadata | null;
   }> {
     // NO SESSION, NO ANSWER MAP. An extraction can be triggered without one (the app's
     // "make the profile anyway" escape hatch); there is no interview record to read.
@@ -476,6 +498,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // Empty here is the honest value, not a degradation.
         attributes: [],
         pack: { packId: null, packVersion: null },
+        // The legacy route's spend rides on `result.ai_metadata` (the extraction call), which
+        // `markCompleted` already persists. No parse happened, so there is nothing extra to carry.
+        parseMeta: null,
       };
     }
 
@@ -489,7 +514,16 @@ export class ProfileExtractionProcessor extends WorkerHost {
         (m): m is { i: number; role: "worker" | "assistant"; text: string } =>
           m.role === "worker" || m.role === "assistant",
       );
-    const targets = PARSE_TARGET_FIELDS.map((f) => ({ ...f, enum: null }));
+    // DISCLOSE THE CLOSED SET THE GATE ALREADY ENFORCES. This was `enum: null` on every field,
+    // which made `parse_prompt.py`'s `if target.enum: "one of ..."` branch dead code and left the
+    // model guessing a vocabulary gate 3 would then reject it for missing. See `PARSE_ENUM_VALUES`
+    // for the live repro. `?? null` keeps every non-enum field byte-identical to before.
+    const targets = PARSE_TARGET_FIELDS.map((f) => {
+      // Copied, not aliased: the wire DTO wants a mutable `string[]`, and handing it the frozen
+      // module constant would let a serializer or a future caller mutate the gate's own vocabulary.
+      const values = PARSE_ENUM_VALUES[f.field_id];
+      return { ...f, enum: values ? [...values] : null };
+    });
 
     const occupation = OccupationPinSchema.safeParse(state?.occupation);
     const parsed = await this.ai.parseProfile({
@@ -579,6 +613,19 @@ export class ProfileExtractionProcessor extends WorkerHost {
         packId: typeof state?.pack_id === "string" ? state.pack_id : null,
         packVersion: typeof state?.pack_version === "number" ? state.pack_version : null,
       },
+      // THE INTERVIEW'S ONLY MODEL SPEND, CARRIED OUT TO THE JOB ROW.
+      //
+      // `toExtractionOutput` hardcodes `ai_metadata: null` — correctly, since no `/profile/extract`
+      // call happens on this path — so `markCompleted` was persisting nothing and every cost
+      // surface that reads `ai_jobs` (the ops routes, `chat-cli.ps1`, any dashboard) reported Rs 0
+      // for interviews that really did spend. The `ai.cost_recorded` EVENT was already correct;
+      // the ROW was not, and the two disagreed silently.
+      //
+      // Deliberately a SEPARATE field rather than stuffing it into `result.ai_metadata`: that
+      // value also feeds `recordAiCost(..., "profile_extraction", ...)` and `recordSpendCap`, and
+      // conflating them would emit the parse's usage a second time under the wrong task type —
+      // double-counting the interview's spend in the very ledger this is fixing.
+      parseMeta: parsed?.ai_metadata ?? null,
     };
   }
 
