@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MESSAGE_DIRECTIONS } from "@badabhai/types";
+import { ANSWER_TYPES } from "@badabhai/ai-contracts";
 import { uuidSchema, nonEmptyMessageSchema, safeTextSchema } from "@badabhai/validators";
 
 /**
@@ -146,7 +147,10 @@ export const PostMessageResponseSchema = z.object({
         question_kind: z.enum(["ask", "close"]),
         prompt_text: z.string(),
         why_text: z.string().nullable(),
-        answer_type: z.string().nullable(),
+        // THE SAME CLOSED SET the voice form uses for the identical field. An open `z.string()`
+        // here would let a contract mismatch reach a client as a value it cannot switch on,
+        // rather than failing at the boundary where it can be seen.
+        answer_type: z.enum(ANSWER_TYPES).nullable(),
         options: z.array(
           z.object({
             option_key: z.string(),

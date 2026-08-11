@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { QuestionPack, QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
 
+import { captureAnswer } from "./answer-capture";
 import { recordAnswer, recordDeclined, type AnswerMap } from "./answer-map";
 import {
   computeLookahead,
@@ -105,17 +106,29 @@ function ask(questionKey: string, options: readonly QuestionPackOption[] = []): 
 /**
  * WHAT THE ENGINE ACTUALLY DOES on the next turn — the oracle every prediction is judged against.
  *
- * Deliberately re-implements the ONE thing the orchestrator does between turns (record the answer,
- * advance the turn, reset the consecutive-run counters) and then calls the real `nextQuestion`.
- * If this helper and `computeLookahead` ever disagree, one of them is wrong about the engine, and
- * that is exactly the failure this suite exists to catch.
+ * IT RUNS THE REAL CAPTURE PATH, and the first version of this file did not. It hand-folded
+ * `recordAnswer(option.value)` — the identical fold the implementation used — so the two agreed by
+ * construction and the suite could not detect a capture divergence of any kind. It passed green
+ * against an implementation that mispredicted all three `qp_universal/relocation` chips, a question
+ * every worker reaches.
+ *
+ * An oracle that mirrors the code it checks is not an oracle. This one starts from the worker's
+ * TEXT and runs `captureAnswer`, exactly as `ProfilingOrchestrator.decide` does.
  */
 function actuallyServed(
   before: EngineState,
   packs: EnginePacks,
-  answers: AnswerMap,
+  item: QuestionPackItem,
+  text: string,
   nextTurn: number,
 ): Decision {
+  const capture = captureAnswer(text, item);
+  let answers: AnswerMap = before.answers;
+  if (capture.declined) {
+    answers = recordDeclined(answers, item.question_key, nextTurn);
+  } else {
+    for (const value of capture.values) answers = recordAnswer(answers, value, nextTurn);
+  }
   return nextQuestion(
     {
       ...before,
@@ -166,22 +179,7 @@ describe("the prediction equals what the engine really serves", () => {
     expect(predicted).not.toBeNull();
 
     for (const opt of machine.options) {
-      const real = actuallyServed(
-        before,
-        packs,
-        recordAnswer(
-          before.answers,
-          {
-            questionKey: "machine_type",
-            targetField: machine.target_field,
-            valueRaw: opt.label_text,
-            valueNormalized: opt.value,
-            evidence: null,
-          },
-          4,
-        ),
-        4,
-      );
+      const real = actuallyServed(before, packs, machine, opt.label_text, 4);
       expect(predicted?.[opt.option_key]?.questionKey).toBe(real.questionKey);
       expect(predicted?.[opt.option_key]?.promptText).toBe(real.promptText);
     }
@@ -209,13 +207,42 @@ describe("the prediction equals what the engine really serves", () => {
       items,
       nextTurn: 4,
     });
-    const real = actuallyServed(
-      before,
-      packs,
-      recordDeclined(before.answers, "machine_type", 4),
-      4,
-    );
+    const real = actuallyServed(before, packs, machine, "pata nahi", 4);
     expect(predicted?.[LOOKAHEAD_DECLINED]?.questionKey).toBe(real.questionKey);
+  });
+
+  it("predicts a RE-SERVE for a chip the capture path refuses — the shipped `relocation` case", () => {
+    // THE DEFECT THIS SUITE ORIGINALLY SHIPPED. `captureAnswer` classifies before it normalizes, so
+    // a chip whose label the item's normalizer refuses yields NO value, the question stays
+    // unsettled, and the engine asks it AGAIN. Measured on the corpus: 5 of 453 single-select chips
+    // behave this way, three of them on `qp_universal/relocation` — a question every worker reaches.
+    //
+    // The first implementation hand-folded `recordAnswer(option.value)` and predicted "next
+    // question" for all three. The fix is to run the real capture; this test is what holds it.
+    const relocation = item({
+      question_key: "relocation",
+      answer_type: "single_select",
+      target_field: "relocation_willingness",
+      options: [option("yes", { label_text: "Haan, jaa sakta hoon", value: true })],
+    });
+    const packs: EnginePacks = {
+      occupation: null,
+      universal: pack("qp_universal", [relocation, item({ question_key: "city" })]),
+    };
+    const items = [relocation, ...packs.universal.items.slice(1)];
+    const before = state({ engineAsks: 1, askCounts: { relocation: 1 }, turn: 3 });
+
+    const predicted = computeLookahead({
+      decision: ask("relocation", relocation.options),
+      state: before,
+      packs,
+      items,
+      nextTurn: 4,
+    });
+    const real = actuallyServed(before, packs, relocation, "Haan, jaa sakta hoon", 4);
+
+    // Whatever the engine does — re-serve or advance — the prediction must agree with it.
+    expect(predicted?.yes?.questionKey).toBe(real.questionKey);
   });
 
   it("predicts the CLOSE with the orchestrator's closing line, not an empty string", () => {
@@ -304,7 +331,11 @@ describe("what it refuses to predict", () => {
     expect(Object.keys(predicted ?? {})).toEqual([LOOKAHEAD_DECLINED]);
   });
 
-  it("caps the branches it will compute", () => {
+  it("DECLINES a question with too many options rather than truncating it", () => {
+    // Slicing to the cap was the first implementation and it is the wrong one: options are
+    // authored in display order and `is_none_of_above` — the "kuch aur" escape — goes last, so a
+    // truncation drops precisely the chip whose prediction is most worth having, silently. An
+    // absent entry is the round trip the client already handles.
     const many = item({
       question_key: "machine_type",
       answer_type: "single_select",
@@ -321,7 +352,28 @@ describe("what it refuses to predict", () => {
       items: [...(manyPacks.occupation?.items ?? []), ...UNIVERSAL.items],
       nextTurn: 4,
     });
-    // The cap governs OPTIONS; the decline branch rides on top of it.
+    // Only the decline branch survives — no per-option prediction at all.
+    expect(Object.keys(predicted ?? {})).toEqual([LOOKAHEAD_DECLINED]);
+  });
+
+  it("still predicts a question sitting exactly ON the cap", () => {
+    // The threshold is inclusive, so the common four- and five-chip questions are unaffected.
+    const atCap = item({
+      question_key: "machine_type",
+      answer_type: "single_select",
+      options: Array.from({ length: LOOKAHEAD_MAX_BRANCHES }, (_, i) => option(`o${i}`)),
+    });
+    const capPacks: EnginePacks = {
+      occupation: pack("qp_machining", [atCap, item({ question_key: "tools" })]),
+      universal: UNIVERSAL,
+    };
+    const predicted = computeLookahead({
+      decision: ask("machine_type", atCap.options),
+      state: base,
+      packs: capPacks,
+      items: [...(capPacks.occupation?.items ?? []), ...UNIVERSAL.items],
+      nextTurn: 4,
+    });
     expect(Object.keys(predicted ?? {})).toHaveLength(LOOKAHEAD_MAX_BRANCHES + 1);
   });
 });

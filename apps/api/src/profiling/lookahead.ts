@@ -38,6 +38,7 @@
 
 import type { QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
 
+import { captureAnswer } from "./answer-capture";
 import { recordAnswer, recordDeclined, type AnswerMap } from "./answer-map";
 import {
   CLOSING_REPLY_TEXT,
@@ -56,13 +57,18 @@ import {
 export const LOOKAHEAD_DECLINED = "__declined";
 
 /**
- * Ceiling on branches computed per turn.
+ * Above this many options, the question gets NO per-option prediction at all.
  *
- * Each branch is one `nextQuestion` call over the pack's items — microseconds, no I/O — so the
- * cost being bounded is the RESPONSE SIZE, not the CPU. Every entry carries a prompt, a why-text
- * and its options, and this rides on every turn of every interview to a device on 2G. Six covers
- * the shipped corpus's select questions with room to spare; beyond that the client can wait a
- * round trip.
+ * A THRESHOLD, NOT A TRUNCATION. Each branch is one `nextQuestion` call over the pack's items —
+ * microseconds, no I/O — so what is being bounded is the RESPONSE SIZE, not the CPU: every entry
+ * carries a prompt, a why-text and its own options, and this rides on every turn of every
+ * interview to a device on 2G.
+ *
+ * Slicing to the cap would have been the obvious implementation and is the wrong one. Options are
+ * authored in display order and `is_none_of_above` — the "kuch aur" escape — goes last by
+ * convention, so a truncation drops precisely the chip whose prediction is most worth having, and
+ * drops it silently. Declining the whole question instead degrades to the round trip that exists
+ * today, which is a behaviour the client already handles.
  */
 export const LOOKAHEAD_MAX_BRANCHES = 6;
 
@@ -124,44 +130,70 @@ export function computeLookahead(input: LookaheadInput): Lookahead | null {
   const item = items.find((candidate) => candidate.question_key === decision.questionKey);
   if (!item) return null;
 
-  const entries: Record<string, LookaheadEntry> = {};
+  // NULL-PROTOTYPE, because the keys are AUTHORED CONTENT. `question_pack_option.option_key` is
+  // constrained to `^[a-z0-9_]+$`, which permits `__proto__` — and `entries["__proto__"] = x` on an
+  // object literal sets the prototype instead of adding a key, silently dropping that branch. A
+  // pack reviewer has no reason to know that.
+  const entries: Record<string, LookaheadEntry> = Object.create(null) as Record<
+    string,
+    LookaheadEntry
+  >;
 
   // Declining is exact for every question — there is no value to guess.
   entries[LOOKAHEAD_DECLINED] = project(
-    nextQuestion(
-      { ...state, turn: nextTurn, answers: recordDeclined(state.answers, item.question_key, nextTurn), ...ANSWERED_TURN },
-      packs,
-    ),
+    predict(state, packs, recordDeclined(state.answers, item.question_key, nextTurn), nextTurn),
     items,
   );
 
-  if (item.answer_type === "single_select") {
-    for (const option of item.options.slice(0, LOOKAHEAD_MAX_BRANCHES)) {
-      const answers: AnswerMap = recordAnswer(
-        state.answers,
-        {
-          questionKey: item.question_key,
-          targetField: item.target_field,
-          // The label is what a worker's answer READS as; the option's typed value is what the
-          // engine stores. Both are the pack's own reviewed content — no worker text is involved,
-          // which is what keeps this branch free of anything that would need masking.
-          valueRaw: option.label_text,
-          // `?? option.label_text` mirrors `answer-capture`'s own fallback: an option with all
-          // three typed value columns null answers with its label. Using `??` and not `||` is
-          // load-bearing — `false` and `0` are answers.
-          valueNormalized: option.value ?? option.label_text,
-          evidence: null,
-        },
-        nextTurn,
-      );
-      entries[option.option_key] = project(
-        nextQuestion({ ...state, turn: nextTurn, answers, ...ANSWERED_TURN }, packs),
-        items,
-      );
+  // DECLINE TO PREDICT RATHER THAN TRUNCATE. Slicing to the cap would silently drop the tail of
+  // the option list — and `is_none_of_above`, the "kuch aur" escape, is authored LAST by
+  // convention, so the chip most worth predicting is the first one a truncation loses. A worker
+  // tapping it would get a stale render with nothing to explain it, where an absent entry is
+  // simply the round trip they have today.
+  if (item.answer_type === "single_select" && item.options.length <= LOOKAHEAD_MAX_BRANCHES) {
+    for (const option of item.options) {
+      // `__declined` IS AUTHORABLE — `^[a-z0-9_]+$` matches it — so an option carrying that key
+      // would overwrite the decline branch with an answer branch. Skipped rather than renamed:
+      // the collision is a corpus defect worth leaving visible, and dropping one prediction is a
+      // round trip while overwriting one is a wrong question.
+      if (option.option_key === LOOKAHEAD_DECLINED) continue;
+
+      // THE REAL CAPTURE PATH, not a hand-built answer, and this is the whole correctness of the
+      // feature. `captureAnswer` classifies the utterance BEFORE it normalizes: a chip whose label
+      // reads as "nahi pata" is recorded DECLINED, and one the item's normalizer refuses (or the
+      // negation veto rejects) yields NO value at all — leaving the question unsettled, so the
+      // engine RE-SERVES it rather than moving on.
+      //
+      // Measured against the shipped corpus, 5 of 453 single-select chips do exactly that — and
+      // three of them are `qp_universal/relocation`, a question EVERY worker reaches. Simulating a
+      // clean `recordAnswer(option.value)` predicted "next question" for all three where the real
+      // turn asks the same one again.
+      //
+      // The label rather than the option key, because the label is what `ProfilingSessionService`
+      // turns a tap into (`textFor`) before the turn ever runs — so this is the same string the
+      // real capture sees.
+      const capture = captureAnswer(option.label_text, item);
+      let answers: AnswerMap = state.answers;
+      if (capture.declined) {
+        answers = recordDeclined(answers, item.question_key, nextTurn);
+      } else {
+        for (const value of capture.values) answers = recordAnswer(answers, value, nextTurn);
+      }
+      entries[option.option_key] = project(predict(state, packs, answers, nextTurn), items);
     }
   }
 
   return entries;
+}
+
+/** One simulated turn: the post-turn state, plus this answer, one turn later. */
+function predict(
+  state: EngineState,
+  packs: EnginePacks,
+  answers: AnswerMap,
+  nextTurn: number,
+): Decision {
+  return nextQuestion({ ...state, turn: nextTurn, answers, ...ANSWERED_TURN }, packs);
 }
 
 /**
