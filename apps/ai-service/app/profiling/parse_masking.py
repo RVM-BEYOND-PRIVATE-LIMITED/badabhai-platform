@@ -139,3 +139,27 @@ def _publishable_normalized(record: AnswerRecord, mask: Masker) -> tuple[Any | N
         if blocked or certified != leaf:
             return None, 1
     return value, 0
+
+
+def mask_transcript_lines(
+    lines: list[TranscriptLine], mask: Masker = default_masker
+) -> list[TranscriptLine]:
+    """Mask a transcript PER MESSAGE, dropping only what the gateway refuses.
+
+    The LLM-led interview's twin of `mask_parse_input`, for the two routes that carry a
+    transcript and no answer map. Same bound and the same reason: `PARSE_MESSAGE_MAX_CHARS`
+    per line, never one 20k blob, because a blob gate returns `blocked` for the WHOLE
+    conversation once an interview gets long — which is how a thorough worker was handed an
+    empty profile for the crime of answering at length.
+
+    `i` IS PRESERVED ON SURVIVORS and never renumbered. It is a stable reference into the
+    conversation the caller still holds, so closing the gaps would silently re-point every
+    index that outlives this call.
+    """
+    out: list[TranscriptLine] = []
+    for line in lines:
+        blocked, text = mask(line.text)
+        if blocked or not text.strip():
+            continue
+        out.append(TranscriptLine(i=line.i, role=line.role, text=text))
+    return out

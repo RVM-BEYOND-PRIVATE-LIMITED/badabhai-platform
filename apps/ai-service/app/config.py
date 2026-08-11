@@ -215,6 +215,18 @@ class Settings(BaseSettings):
     # logged, `error_code` set) rather than presenting as an unexplained socket close.
     profile_extract_deadline_seconds: float = Field(default=7.0, gt=0.0, le=60.0)
 
+    # The Phase A turn deadline — a WORKER IS WAITING ON THIS ONE, which is what makes it
+    # different from every other deadline in this file. The deterministic turn it replaces
+    # answers in ~77 ms, so any budget here is a large regression by construction; the owner has
+    # accepted that for this stage, and the number's job is to bound how bad it can get rather
+    # than to be fast. On expiry the API serves its own authored question, so the cost of the
+    # timeout is a less tailored interview, never a failed turn.
+    #
+    # DELIBERATELY LARGER than `profile_parse_deadline_seconds` (6.0): that one degrades an
+    # overlay on a profile the worker never sees being built, while this one is the question in
+    # front of them — and a fallback question mid-conversation is more jarring than a slow one.
+    profiling_turn_deadline_seconds: float = Field(default=10.0, gt=0.0, le=60.0)
+
     ai_resume_max_output_tokens: int = Field(default=512, ge=16, le=8192)
     ai_resume_temperature: float = Field(default=0.4, ge=0.0, le=2.0)
     ai_resume_max_retries: int = Field(default=1, ge=0, le=5)

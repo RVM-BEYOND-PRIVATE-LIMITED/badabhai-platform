@@ -37,6 +37,7 @@ from .routers import (
     job_posting,
     privacy,
     profile,
+    profiling,
     resume,
     skills,
     voice,
@@ -152,5 +153,8 @@ app.include_router(skills.api_router)
 app.include_router(growth.api_router)
 app.include_router(job_posting.api_router)
 app.include_router(profile.api_router)
+# The LLM-led interview (Phase A) + its whole-chat extraction (Phase C). Registered AFTER
+# profile so the two /profile* routes keep their precedence in the route table.
+app.include_router(profiling.api_router)
 app.include_router(resume.api_router)
 app.include_router(voice.api_router)

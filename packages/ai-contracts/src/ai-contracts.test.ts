@@ -9,6 +9,12 @@ import {
   EvidenceSpanSchema,
   OccupationPinSchema,
   ParsedFieldSchema,
+  ExperienceEntrySchema,
+  LlmInterviewDraftSchema,
+  LlmTurnInputSchema,
+  LlmTurnOutputSchema,
+  InterviewExtractInputSchema,
+  InterviewExtractOutputSchema,
   PredicateOperandSchema,
   PredicateObjectShapeForParity,
   PredicateSchema,
@@ -753,6 +759,13 @@ describe("OIE contract parity (contracts.py mirror)", () => {
     ["ProfileParseInput", ProfileParseInputSchema.shape],
     ["ParsedField", ParsedFieldSchema.shape],
     ["ProfileParseOutput", ProfileParseOutputSchema.shape],
+    // Phase A (LLM-led interview) + Phase C (whole-chat extraction).
+    ["ExperienceEntry", ExperienceEntrySchema.shape],
+    ["LlmInterviewDraft", LlmInterviewDraftSchema.shape],
+    ["LlmTurnInput", LlmTurnInputSchema.shape],
+    ["LlmTurnOutput", LlmTurnOutputSchema.shape],
+    ["InterviewExtractInput", InterviewExtractInputSchema.shape],
+    ["InterviewExtractOutput", InterviewExtractOutputSchema.shape],
   ];
 
   it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {

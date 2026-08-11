@@ -6,6 +6,9 @@ import {
   languageCode,
 } from "./common";
 import { JobDomainMatchSchema } from "./occupation";
+// One-way edge: `oie.ts` imports nothing from this file, so carrying the experience entry
+// here does not close a cycle. It lives in `oie.ts` because the interview produces it.
+import { ExperienceEntrySchema } from "./oie";
 
 // The worker profile: the storage-shaped draft profile, the rich extraction
 // draft it is derived from, and the extraction / resume-generation contracts
@@ -83,6 +86,17 @@ export const DraftProfileSchema = z.object({
   education_level: z.string().nullable().default(null),
   education_field: z.string().nullable().default(null),
   experience: ExperienceSchema.default({}),
+  // The LLM-led interview's multi-job history. ADDITIVE AND DEFAULTED, so every snapshot ever
+  // written parses unchanged (invariant #8) — and it lands HERE rather than on the rich draft
+  // because `resume.service.ts` parses `rawProfile` through `DraftProfileSchema` and never
+  // reads `richProfileDraft`. On the rich draft these entries would be persisted and then
+  // silently absent from the résumé they exist to fill.
+  //
+  // `experience.total_years` above is NOT replaced. It stays the aggregate that matching and
+  // ranking already read; this is the narrative, and the two answer different questions.
+  //
+  // NO EMPLOYER NAMES — enforced by `ExperienceEntrySchema.strict()`, not by convention.
+  experiences: z.array(ExperienceEntrySchema).default([]),
   salary_expectation: SalaryExpectationSchema.default({}),
   location_preference: LocationPreferenceSchema.default({}),
   availability: AvailabilitySchema.default({}),

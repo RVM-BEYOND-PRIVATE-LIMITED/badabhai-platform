@@ -27,11 +27,45 @@ import { JOB_DOMAIN_MATCH_STATUSES } from "./occupation";
 export const PROFILING_PHASES = [
   "identify",
   "disambiguate",
+  // The LLM-led stretch: domain -> role -> skills -> experience, with the model choosing its
+  // own next question. APPENDED, never inserted: the list is ordered and `phase_is` predicates
+  // in authored packs compare against these literals, so re-ordering would silently re-target
+  // every predicate that mentions a later phase.
+  //
+  // The ORCHESTRATOR still owns the transition out of it. The model reports `phase_a_done` as
+  // ADVICE; the caps in next-question.ts are what actually end it. A model that could extend
+  // its own interview is a model that can spend an unbounded amount of a worker's time.
+  "llm_interview",
   "occupation_specific",
   "universal_tail",
   "close",
 ] as const;
 export type ProfilingPhase = (typeof PROFILING_PHASES)[number];
+
+/**
+ * ONE job a worker has held. The unit of `experiences[]`, which is the thing the deterministic
+ * pack model could never hold: packs ask a fixed question list once, and a worker with three
+ * jobs has three different answers to "what did you do".
+ *
+ * `.strict()` IS THE ENFORCEMENT, not documentation. CLAUDE.md §2 forbids storing employer
+ * names, and `FIELD_CROSSWALK` already parks `work_history` at `draftPath: null` for that
+ * reason. A prompt rule asking the model not to emit one is a request; a strict schema makes
+ * `employer_name` fail at the boundary, before it can reach a column. The model is untrusted
+ * input (§11) and this is the wall that treats it that way.
+ *
+ * `duration_months` is nullable because "kuch saal" is a real answer and inventing 24 from it
+ * would be the fabrication the parse gates exist to stop. `duration_text` keeps the worker's
+ * own words either way.
+ */
+export const ExperienceEntrySchema = z
+  .object({
+    role_label: z.string().min(1).max(120),
+    duration_text: z.string().max(120).default(""),
+    duration_months: z.number().int().min(0).max(720).nullable().default(null),
+    work_done: z.string().max(600).default(""),
+  })
+  .strict();
+export type ExperienceEntry = z.infer<typeof ExperienceEntrySchema>;
 
 /**
  * How the retrieval ladder resolved the occupation. Observability, never an input to
@@ -472,3 +506,109 @@ export const ProfileParseOutputSchema = z.object({
   ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type ProfileParseOutput = z.infer<typeof ProfileParseOutputSchema>;
+
+// ---------------------------------------------------------------------------
+// The LLM-led interview (Phase A) and its whole-chat extraction (Phase C).
+//
+// WHY THIS EXISTS AT ALL, given Phase 8 deleted the LLM turn loop on purpose: the packs ask
+// what was authored, and authoring cannot cover every trade in India. A worker who said
+// "cook hu" was offered [Pizza maker | यात्रा सेवा | khana | खाद्य प्रसंस्करण] — mixed-script,
+// two irrelevant, none of them "cook" — and fell through to the generic universal pack. The
+// model conducts the stretch that cannot be authored; the engine keeps everything that is the
+// same for every worker, and takes the turn back the moment the model is unavailable.
+// ---------------------------------------------------------------------------
+
+/** Where Phase A has got to. The API owns the transition; the model only reports. */
+export const LLM_INTERVIEW_STAGES = ["domain", "role", "skills", "experience", "done"] as const;
+export type LlmInterviewStage = (typeof LLM_INTERVIEW_STAGES)[number];
+
+/**
+ * How the client should let a worker answer THIS turn.
+ *
+ * A SEPARATE FIELD FROM `question_kind`, deliberately. That enum is the only rendering switch
+ * shipped clients already honour, so adding a value to it would change behaviour for builds in
+ * the field. This defaults to `text`, which is exactly what every client does today.
+ */
+export const INPUT_MODES = ["text", "options_only"] as const;
+export type InputMode = (typeof INPUT_MODES)[number];
+
+/** What the model has gathered so far. Sent back each turn so the call stays stateless. */
+export const LlmInterviewDraftSchema = z.object({
+  domain_label: z.string().nullable().default(null),
+  role_label: z.string().nullable().default(null),
+  skills: z.array(z.string()).default([]),
+  experiences: z.array(ExperienceEntrySchema).default([]),
+});
+export type LlmInterviewDraft = z.infer<typeof LlmInterviewDraftSchema>;
+
+export const LlmTurnInputSchema = z.object({
+  schema_version: z.literal("oie.v1").default("oie.v1"),
+  worker_ref: z.string().min(1),
+  language: languageCode.optional(),
+  stage: z.enum(LLM_INTERVIEW_STAGES).default("domain"),
+  /** The worker's message for this turn. Empty on the opening turn. */
+  message_text: z.string().default(""),
+  /** Rolling window, pseudonymized upstream per message. */
+  history: z.array(TranscriptLineSchema).default([]),
+  draft: LlmInterviewDraftSchema.default({}),
+  experience_count: z.number().int().nonnegative().default(0),
+  /**
+   * The API has hit a cap and this is the model's LAST turn. It must close, not ask.
+   * Sent because the caps live on the API side — the model is told the interview is over
+   * rather than being trusted to decide it is.
+   */
+  force_close: z.boolean().default(false),
+});
+export type LlmTurnInput = z.infer<typeof LlmTurnInputSchema>;
+
+export const LlmTurnOutputSchema = z.object({
+  /** The one question shown to the worker. Empty means the caller must fall back. */
+  reply_text: z.string().default(""),
+  stage: z.enum(LLM_INTERVIEW_STAGES).default("domain"),
+  input_mode: z.enum(INPUT_MODES).default("text"),
+  /** Chips, when the model can offer them. Capped by the persona's 4. */
+  suggested_answers: z.array(z.string()).max(4).default([]),
+  /**
+   * A LABEL, never a `job_domain_id`. The catalogue decides what it resolves to — a model that
+   * could hand us an id could hand us one that does not exist, or one that exists and is wrong,
+   * and both would be persisted as though retrieval had agreed.
+   */
+  domain_label: z.string().nullable().default(null),
+  role_label: z.string().nullable().default(null),
+  skills: z.array(z.string()).default([]),
+  /** Set only on a turn that completed one experience entry. */
+  experience_entry: ExperienceEntrySchema.nullable().default(null),
+  /** ADVISORY. The API's caps decide when Phase A actually ends. */
+  phase_a_done: z.boolean().default(false),
+  blocked: z.boolean().default(false),
+  blocked_reason: z.string().nullable().default(null),
+  is_mock: z.boolean().default(true),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type LlmTurnOutput = z.infer<typeof LlmTurnOutputSchema>;
+
+/** Phase C — the whole conversation in, the resume-shaped values out. */
+export const InterviewExtractInputSchema = z.object({
+  schema_version: z.literal("oie.v1").default("oie.v1"),
+  worker_ref: z.string().min(1),
+  language: languageCode.optional(),
+  transcript: z.array(TranscriptLineSchema).default([]),
+  occupation: OccupationPinSchema.nullable().default(null),
+});
+export type InterviewExtractInput = z.infer<typeof InterviewExtractInputSchema>;
+
+export const InterviewExtractOutputSchema = z.object({
+  domain_label: z.string().nullable().default(null),
+  role_label: z.string().nullable().default(null),
+  skills: z.array(z.string()).default([]),
+  experiences: z.array(ExperienceEntrySchema).default([]),
+  shift: z.string().nullable().default(null),
+  current_city: z.string().nullable().default(null),
+  preferred_locations: z.array(z.string()).default([]),
+  availability: z.string().nullable().default(null),
+  expected_salary: z.number().nullable().default(null),
+  blocked: z.boolean().default(false),
+  is_mock: z.boolean().default(true),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type InterviewExtractOutput = z.infer<typeof InterviewExtractOutputSchema>;

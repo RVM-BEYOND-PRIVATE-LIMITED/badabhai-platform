@@ -44,6 +44,12 @@ from app.contracts import (
     ProfileExtractionOutput,
     ProfileParseInput,
     ProfileParseOutput,
+    ExperienceEntry,
+    InterviewExtractInput,
+    InterviewExtractOutput,
+    LlmInterviewDraft,
+    LlmTurnInput,
+    LlmTurnOutput,
     ProfilingOpeningInput,
     ProfilingOpeningOutput,
     ProfilingPhase,
@@ -246,6 +252,13 @@ _OIE_MODELS = {
     "ProfileParseInput": ProfileParseInput,
     "ParsedField": ParsedField,
     "ProfileParseOutput": ProfileParseOutput,
+    # Phase A (LLM-led interview) + Phase C (whole-chat extraction).
+    "ExperienceEntry": ExperienceEntry,
+    "LlmInterviewDraft": LlmInterviewDraft,
+    "LlmTurnInput": LlmTurnInput,
+    "LlmTurnOutput": LlmTurnOutput,
+    "InterviewExtractInput": InterviewExtractInput,
+    "InterviewExtractOutput": InterviewExtractOutput,
 }
 
 
