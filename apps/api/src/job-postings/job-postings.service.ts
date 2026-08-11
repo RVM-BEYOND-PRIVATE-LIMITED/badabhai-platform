@@ -12,6 +12,7 @@ import type { JobPostingVerificationStatus } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
+import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { PublishReachService } from "../match/publish-reach.service";
 import { JobPostingsRepository, type JobPostingApi, type JobPostingUpdate } from "./job-postings.repository";
 import type {
@@ -73,6 +74,7 @@ export class JobPostingsService {
     private readonly repo: JobPostingsRepository,
     private readonly events: EventsService,
     private readonly ai: AiService,
+    private readonly aiCost: AiCostRecorder,
     // ADR-0036 moment ③ — resolves the reach set server-side and materializes it.
     // MatchModule is @Global, so no new import edge on JobPostingsModule.
     private readonly publishReach: PublishReachService,
@@ -89,7 +91,10 @@ export class JobPostingsService {
    * mirrors the worker-side default until per-label domain resolution lands.
    * NOT a RANK input (invariant #4) — the reach-engine guard test locks that.
    */
-  private async canonicalizeSkills(phrases: string[] | undefined): Promise<string[]> {
+  private async canonicalizeSkills(
+    phrases: string[] | undefined,
+    ctx: RequestContext,
+  ): Promise<string[]> {
     if (!phrases?.length) return [];
     // PARALLEL by design (#226 review M1): sequential awaits made the worst case
     // N x timeout (10 x 8s = 80s of a held-open posting write against a blackholed
@@ -105,6 +110,29 @@ export class JobPostingsService {
     for (const r of results) {
       if (r.status !== "fulfilled") continue; // never let canonicalization break a write
       const res = r.value;
+
+      // ONE COST RECORD PER PHRASE (#745). This is a FAN-OUT: a 10-skill posting is 10
+      // separate embeds and therefore 10 separate billable calls, which is precisely why
+      // per-call recording matters here and why the event is keyed on `ai_call_id` rather
+      // than on the write that triggered it. Recording once per posting would collapse ten
+      // calls into one row and under-report the surface by an order of magnitude.
+      //
+      // EMITTED FOR EVERY FULFILLED RESULT, not just `matched` ones. A below-floor miss and
+      // a no-candidate miss cost exactly the same embed as a hit; ledgering only the hits
+      // would under-count exactly the phrases the vocabulary is worst at — the ones that
+      // motivate growing it. `record` no-ops on null metadata, which covers the flag being
+      // off, a spend-ledger block, a pseudonymize block, and an unreachable ai-service.
+      //
+      // `aiJobId` is null: canonicalization runs inline inside a posting write, and minting
+      // an `ai_jobs` row per skill phrase to satisfy a signature would be worse than a null.
+      await this.aiCost.record(
+        res?.ai_metadata ?? null,
+        "skill_embedding",
+        null,
+        ctx.correlationId,
+        ctx.requestId,
+      );
+
       if (res?.status === "matched" && res.skill_id && !ids.includes(res.skill_id)) {
         ids.push(res.skill_id);
       }
@@ -125,7 +153,7 @@ export class JobPostingsService {
         description: dto.description ?? null,
         vacancyBand: resolveCreateBand(dto),
         skillPhrases: dto.skills ?? [],
-        skillIds: await this.canonicalizeSkills(dto.skills),
+        skillIds: await this.canonicalizeSkills(dto.skills, ctx),
       },
       { actor_type: "ops", actor_id: dto.created_by },
       ctx,
@@ -146,7 +174,7 @@ export class JobPostingsService {
     const current = await this.getOne(id);
     const prepared = this.prepareUpdate(current, dto);
     if (prepared.changedFields.includes("skills")) {
-      prepared.patch.skillIds = await this.canonicalizeSkills(dto.skills);
+      prepared.patch.skillIds = await this.canonicalizeSkills(dto.skills, ctx);
     }
 
     const updated = await this.repo.update(id, prepared.patch);
@@ -247,7 +275,7 @@ export class JobPostingsService {
         description: dto.description ?? null,
         vacancyBand: resolveCreateBand(dto),
         skillPhrases: dto.skills ?? [],
-        skillIds: await this.canonicalizeSkills(dto.skills),
+        skillIds: await this.canonicalizeSkills(dto.skills, ctx),
       },
       { actor_type: "payer", actor_id: payerId },
       ctx,
@@ -274,7 +302,7 @@ export class JobPostingsService {
     const current = await this.getOneForPayer(id, payerId); // no-oracle 404
     const prepared = this.prepareUpdate(current, dto);
     if (prepared.changedFields.includes("skills")) {
-      prepared.patch.skillIds = await this.canonicalizeSkills(dto.skills);
+      prepared.patch.skillIds = await this.canonicalizeSkills(dto.skills, ctx);
     }
 
     const updated = await this.repo.updateOwned(id, payerId, prepared.patch);

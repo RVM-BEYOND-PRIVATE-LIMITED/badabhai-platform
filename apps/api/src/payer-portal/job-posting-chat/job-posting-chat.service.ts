@@ -18,6 +18,7 @@ import type { PayerJobPostingChatSession, PayerJobPostingChatStatus } from "@bad
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import { AiService } from "../../ai/ai.service";
+import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import { PiiCryptoService } from "../../common/pii-crypto.service";
 import { PayersRepository } from "../../payers/payers.repository";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
@@ -87,6 +88,7 @@ export class JobPostingChatService {
     private readonly chat: JobPostingChatRepository,
     private readonly events: EventsService,
     private readonly ai: AiService,
+    private readonly aiCost: AiCostRecorder,
     private readonly payers: PayersRepository,
     private readonly pii: PiiCryptoService,
     private readonly jobPostings: JobPostingsService,
@@ -213,6 +215,33 @@ export class JobPostingChatService {
         "The assistant is unavailable right now. Your message was saved — please try again.",
       );
     }
+
+    // COST RECORD FOR THE TURN (#745) — WIRED AHEAD OF THE SPEND, DELIBERATELY.
+    //
+    // STATE THE HONEST THING FIRST: this route spends nothing today. `/job-posting-chat/
+    // respond` makes ZERO LLM calls on every path — the engine's question is already short
+    // and on-tone, so it is returned verbatim — and the ai-service therefore returns
+    // `ai_metadata: null`, which `record` no-ops on. So this line emits no event today and
+    // adds no rows. #745 filed this surface as money-with-no-record; re-measured here, that
+    // is not true of it (it IS true of `resume_generation` and `skill_embedding`, both fixed
+    // in this change).
+    //
+    // IT IS STILL THE RIGHT LINE TO WRITE, because the rephrase seam is written and
+    // documented in `app/routers/job_posting.py` and turning it on is a two-line change
+    // there (register `job_posting_chat_turn` in `model_config.py` + a settings flag).
+    // Whoever does that is editing the ai-service, not this file, and would have had no
+    // reason to come back here — which is exactly how `stt_transcription` shipped
+    // unledgered. The record now appears the moment the seam is armed, with no second
+    // change and no second incident.
+    //
+    // `aiJobId` is null: a payer turn is a synchronous reply, not an `ai_jobs` row.
+    await this.aiCost.record(
+      aiResult.ai_metadata ?? null,
+      "profiling_chat_turn",
+      null,
+      ctx.correlationId,
+      ctx.requestId,
+    );
 
     // 4. Store the engine's reply + put it on the spine.
     const outbound = await this.chat.insertMessage({

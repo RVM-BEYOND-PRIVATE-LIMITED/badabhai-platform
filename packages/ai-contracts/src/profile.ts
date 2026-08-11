@@ -218,5 +218,10 @@ export const ResumeGenerationOutputSchema = z.object({
   resume_json: z.record(z.string(), z.unknown()),
   format: z.enum(["text", "json"]).default("text"),
   is_mock: z.boolean().default(true),
+  // #745 — `router.run` always produced this on the résumé route; the route dropped it,
+  // so real resume spend reached no ledger. Additive + defaulted (the §3 discipline #738
+  // used). null on the pseudonymize-blocked path, which completes from the LOCAL
+  // deterministic résumé without calling a provider.
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type ResumeGenerationOutput = z.infer<typeof ResumeGenerationOutputSchema>;

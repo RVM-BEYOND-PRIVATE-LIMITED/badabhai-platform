@@ -131,6 +131,45 @@ def test_profile_extract_deadline_defaults_inside_the_callers_abort():
     assert Settings().profile_extract_deadline_seconds < 8.0
 
 
+def test_resume_generate_returns_the_cost_record(monkeypatch):
+    """#745 — `router.run` always built this metadata; the route used to discard it.
+
+    With no field on the contract there was no way for apps/api to record resume spend,
+    so `SELECT ... WHERE task_type = 'resume_generation'` read as "no spend" rather than
+    "not instrumented" — the identical root cause #738 fixed for STT.
+    """
+    body = client.post(
+        "/resume/generate",
+        json={"profile": {"canonical_role_id": "role_vmc_operator", "machines": ["mach_vmc"]}},
+    ).json()
+
+    meta = body["ai_metadata"]
+    assert meta is not None, "a routed call must report what it cost"
+    assert meta["task_type"] == "resume_generation"
+    assert meta["ai_call_id"]
+    # Mock run => real_call False => Rs 0. `real_call` follows the money, so a mocked
+    # environment records nothing rather than the fiction TD81 wrote into staging.
+    assert meta["real_call"] is False
+    assert meta["estimated_cost_inr"] == 0.0
+
+
+def test_resume_generate_reports_no_cost_when_the_gate_blocks():
+    """The pseudonymize block returns BEFORE the provider, so there is nothing to record.
+
+    The route still COMPLETES from the local deterministic resume — a worker never loses
+    their resume over a gateway block — but an absent cost record is the honest output;
+    a synthesized Rs 0 one would describe a call that never happened.
+    """
+    body = client.post(
+        "/resume/generate",
+        json={"profile": {"education_level": "my reference number is 12345678"}},
+    ).json()
+
+    assert body["is_mock"] is True
+    assert body["resume_text"]  # the resume still exists
+    assert body["ai_metadata"] is None
+
+
 def test_profile_extract_fails_closed_on_unsafe_input():
     # Privacy gate for the extraction path we are about to make real: if
     # pseudonymization blocks, the endpoint returns BEFORE the router/LLM is

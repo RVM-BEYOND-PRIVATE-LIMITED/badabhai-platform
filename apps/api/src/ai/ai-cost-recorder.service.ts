@@ -39,11 +39,23 @@ export class AiCostRecorder {
    * plus `/profile/parse`, or a retried transcription — and a per-job key silently deduped the
    * later ones away, which is how an interview's model spend once disappeared into a dedupe. The
    * call id is what this event is about, so it is what exactly-once means here.
+   *
+   * `aiJobId` IS NULLABLE, AND THAT IS THE #745 WIDENING. Three spending surfaces have no
+   * `ai_jobs` row at all: the résumé route runs inline on the request, skill canonicalization
+   * fans out N embeds inside one posting write, and the payer chat turn is a synchronous reply.
+   * Requiring a job id here is what kept them unledgered — the alternative was minting a fake
+   * `ai_jobs` row purely to satisfy this signature, which would have put rows describing no
+   * async job into the table every dashboard reads.
+   *
+   * `subject_id` and `ai_job_id` both go null in that case (the envelope and the payload each
+   * declare them nullable), so every cost record still has ONE shape and the ledger query stays
+   * `WHERE task_type = ?` — the query the whole defect class is about. `ai_call_id` remains the
+   * identity of the event either way.
    */
   async record(
     meta: AICallMetadata | null,
     taskType: AiCostTaskType,
-    aiJobId: string,
+    aiJobId: string | null,
     correlationId: string,
     requestId: string,
   ): Promise<void> {
@@ -52,10 +64,10 @@ export class AiCostRecorder {
       await this.events.emit({
         event_name: "ai.cost_recorded",
         actor: { actor_type: "ai_service" },
-        subject: { subject_type: "ai_job", subject_id: aiJobId },
+        subject: { subject_type: "ai_job", subject_id: aiJobId ?? null },
         payload: {
           ai_call_id: meta.ai_call_id,
-          ai_job_id: aiJobId,
+          ai_job_id: aiJobId ?? null,
           task_type: taskType,
           model: meta.model_name || "unknown",
           provider: meta.provider || "unknown",
@@ -73,7 +85,8 @@ export class AiCostRecorder {
       });
     } catch (err) {
       this.logger.warn(
-        `ai.cost_recorded emit failed for job ${aiJobId} task=${taskType} (non-fatal): ${String(err)}`,
+        `ai.cost_recorded emit failed for job ${aiJobId ?? "(none — inline surface)"} ` +
+          `task=${taskType} (non-fatal): ${String(err)}`,
       );
     }
   }

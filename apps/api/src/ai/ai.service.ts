@@ -224,6 +224,11 @@ export class AiService {
       resume_json: { profile },
       format: "text",
       is_mock: true,
+      // The AI service was never reached, so nothing was spent and there is nothing to
+      // record (#745). Explicit rather than leaning on the schema default: this is the
+      // same deliberate `null` the extraction fallback above documents at length — a
+      // synthesized zero-cost record would describe a provider call that never happened.
+      ai_metadata: null,
     });
   }
 

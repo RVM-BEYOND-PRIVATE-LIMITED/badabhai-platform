@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { AICallMetadataSchema } from "./common";
+
 // Skill taxonomy seams (ADR-0030): phrase canonicalization (TAX-4), the alias
 // embedding batch (TAX-3), growth-loop clustering (TAX-7) and the offline
 // skill re-tag plan (TAX-9).
@@ -20,6 +22,13 @@ export const SkillCanonicalizationSchema = z.object({
   status: z.enum(["matched", "unresolved"]),
   skill_id: z.string().nullable().default(null),
   score: z.number().nullable().default(null),
+  // #745 — the embed is a PAID provider call and this contract had no way to carry its
+  // cost, which is the same root cause #738 fixed for STT: no field ⇒ no emitter could
+  // exist ⇒ `WHERE task_type = 'skill_embedding'` returned empty and read as "no spend".
+  // Additive + defaulted, so an ai-service that predates the field still parses.
+  // null on every path that reached no provider (flag off, ledger block, pseudonymize
+  // block); `AiCostRecorder.record` no-ops on null so the caller never branches.
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type SkillCanonicalization = z.infer<typeof SkillCanonicalizationSchema>;
 

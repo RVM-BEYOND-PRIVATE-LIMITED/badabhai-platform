@@ -194,15 +194,32 @@ function make(
     ),
   };
 
+  // #745: the turn's cost emitter. This route makes no LLM call today, so the stub exists
+  // to satisfy the constructor AND to let a test prove the emitter stays silent on null
+  // metadata rather than writing a ₹0 record for a call that never happened.
+  // Typed to the recorder's real signature so the argument assertions stay type-checked.
+  const aiCost = {
+    record: vi.fn(
+      async (
+        _meta: unknown,
+        _taskType: string,
+        _aiJobId: string | null,
+        _correlationId: string,
+        _requestId: string,
+      ) => {},
+    ),
+  };
+
   const svc = new JobPostingChatService(
     chat as never,
     events as never,
     ai as never,
+    aiCost as never,
     payers as never,
     pii as never,
     jobPostings as never,
   );
-  return { svc, chat, events, emitted, ai, payers, pii, jobPostings };
+  return { svc, chat, events, emitted, ai, aiCost, payers, pii, jobPostings };
 }
 
 /** Re-build each recorded emit through `createEvent` — proves it is registry-valid. */
@@ -263,6 +280,69 @@ describe("JobPostingChatService — session lifecycle", () => {
     expect(res.message_id).toBeNull();
     expect(d.chat.insertMessage).not.toHaveBeenCalled();
     expect(d.emitted.map((e) => e.event_name)).toEqual(["job_posting_chat.session_started"]);
+  });
+
+  /**
+   * #745 — the emitter is wired AHEAD of the spend, and that is deliberate.
+   *
+   * `/job-posting-chat/respond` makes ZERO LLM calls today (the engine's question is
+   * returned verbatim), so the ai-service returns `ai_metadata: null` and this emits
+   * nothing. The issue filed this surface as money-with-no-record; re-measurement showed
+   * it spends nothing, so the honest guarantee to lock is the pair below: the call is
+   * made on every turn, and it stays silent while there is nothing to report.
+   *
+   * The seam that will start spending (`job_posting_chat_turn` in the ai-service's
+   * `model_config.py`) is edited in Python by someone with no reason to open this file —
+   * which is precisely how `stt_transcription` shipped unledgered in the first place.
+   */
+  it("asks the recorder on every turn, but records NOTHING while the route makes no LLM call", async () => {
+    const d = make({
+      session: {
+        id: SESSION,
+        payerId: PAYER_A,
+        status: "active",
+        conversationState: ENGINE_STATE,
+        draft: null,
+        publishedJobPostingId: null,
+        startedAt: new Date("2026-07-28T09:00:00.000Z"),
+        lastMessageAt: null,
+        endedAt: null,
+      },
+    });
+    await d.svc.postMessage(PAYER_A, { session_id: SESSION, text: PAYER_TEXT }, CTX);
+
+    expect(d.aiCost.record).toHaveBeenCalledOnce();
+    const [meta, taskType, aiJobId] = d.aiCost.record.mock.calls[0]!;
+    // Null metadata ⇒ `record` no-ops. A ₹0 record here would put a provider call that
+    // never happened onto the cost spine, which is the failure the recorder documents.
+    expect(meta).toBeNull();
+    expect(taskType).toBe("profiling_chat_turn");
+    expect(aiJobId).toBeNull(); // a payer turn is a synchronous reply, not an ai_jobs row
+    // And no cost event reached the spine.
+    expect(d.emitted.map((e) => e.event_name)).not.toContain("ai.cost_recorded");
+  });
+
+  it("does not reach the recorder at all when the engine turn failed", async () => {
+    // The 503 path: nothing was spent because nothing was answered, and the payer's
+    // message is already stored so a retry resumes exactly here.
+    const d = make({
+      session: {
+        id: SESSION,
+        payerId: PAYER_A,
+        status: "active",
+        conversationState: ENGINE_STATE,
+        draft: null,
+        publishedJobPostingId: null,
+        startedAt: new Date("2026-07-28T09:00:00.000Z"),
+        lastMessageAt: null,
+        endedAt: null,
+      },
+      turn: null,
+    });
+    await expect(
+      d.svc.postMessage(PAYER_A, { session_id: SESSION, text: PAYER_TEXT }, CTX),
+    ).rejects.toThrow();
+    expect(d.aiCost.record).not.toHaveBeenCalled();
   });
 
   it("postMessage stores both turns, calls the engine with the loaded state, and persists state + draft", async () => {

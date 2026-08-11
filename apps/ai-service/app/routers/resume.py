@@ -101,6 +101,10 @@ async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput
             resume_json=data,
             format="text",
             is_mock=True,
+            # No provider was called, so there is no cost to record (#745). An absent
+            # record is the honest answer; a synthesized zero-cost one would appear in
+            # `ai.cost_recorded` as a call that never happened.
+            ai_metadata=None,
         )
 
     messages = [
@@ -120,4 +124,9 @@ async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput
         resume_json=data,
         format="text",
         is_mock=not meta.real_call,
+        # #745: `meta` was already built by `router.run` and was being discarded, which is
+        # why resume spend reached `ai_jobs` nowhere and `ai.cost_recorded` never. It is
+        # returned verbatim — `real_call` already zeroes the rupees on a mocked run, so a
+        # mocked environment still records ₹0 rather than fiction.
+        ai_metadata=meta,
     )

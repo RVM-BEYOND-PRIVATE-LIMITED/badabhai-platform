@@ -696,6 +696,18 @@ class SkillCanonicalization(BaseModel):
     status: Literal["matched", "unresolved"]
     skill_id: str | None = None
     score: float | None = None
+    # #745: THE EMBED IS A PAID PROVIDER CALL AND HAD NO WAY HOME.
+    #
+    # This is the exact root cause #738 fixed for STT, on a second surface: the response
+    # contract carried no cost field, so no emitter could exist in apps/api even if someone
+    # wrote one, and `SELECT ... WHERE task_type = 'skill_embedding'` returned empty — which
+    # reads as "no spend" rather than "not instrumented". Additive + defaulted, so every
+    # existing caller and stored payload stays valid (the §3 discipline #738 used).
+    #
+    # None on every path that did NOT reach a provider: the flag being off, a spend-ledger
+    # block, and a pseudonymize block. `AiCostRecorder.record` no-ops on None, so the caller
+    # never has to branch, and a mocked environment never writes fictional money.
+    ai_metadata: AICallMetadata | None = None
 
 
 # --- Skill-alias embedding batch (ADR-0030 / TAX-3 fork-B runner seam) ------
@@ -964,6 +976,11 @@ class ResumeGenerationOutput(BaseModel):
     resume_json: dict = Field(default_factory=dict)
     format: Literal["text", "json"] = "text"
     is_mock: bool = True
+    # #745: `router.run` has always produced this metadata here — the route simply dropped
+    # it on the floor, so resume spend reached no ledger. Same additive/defaulted shape as
+    # the STT fix (#738). None on the pseudonymize-blocked path, where the route completes
+    # from the LOCAL deterministic resume and no provider is called.
+    ai_metadata: AICallMetadata | None = None
 
 
 # --- Voice transcription (STT) ---------------------------------------------

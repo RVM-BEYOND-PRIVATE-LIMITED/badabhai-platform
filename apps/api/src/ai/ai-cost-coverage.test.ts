@@ -66,37 +66,46 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
 /**
  * Surfaces that reach a provider and have NO `ai.cost_recorded` emitter in apps/api today.
  *
- * NAMED RATHER THAN TOLERATED. Each of these is the same defect #738 fixed for STT, and two of
- * them share its exact root cause — the response contract carries no cost field, so an emitter
- * could not exist even if someone wrote one:
+ * NAMED RATHER THAN TOLERATED. Delete an entry the moment its emitter lands.
  *
- *   skill_embedding     `/skills/canonicalize` — real Gemini spend, `SkillCanonicalizationSchema`
- *                       has no `ai_metadata`
- *   resume_generation   `/resume/generate` — `ResumeGenerationOutputSchema` has no `ai_metadata`
- *   profiling_chat_turn `/job-posting-chat/respond` — the contract DOES carry `ai_metadata`;
- *                       apps/api simply never records it
- *   tts_synthesis       no apps/api caller at all; spend originates in the render script
+ * #745 CLOSED THREE OF THE FIVE and they are gone from this list:
+ *
+ *   skill_embedding     `/skills/canonicalize` — real Gemini spend on a contract that carried
+ *                       no cost field (#738's exact root cause). `SkillCanonicalization` now
+ *                       carries `ai_metadata`; `JobPostingsService.canonicalizeSkills` emits
+ *                       ONE record per phrase, because a 10-skill posting is 10 billable
+ *                       embeds and a per-posting record would under-count it tenfold.
+ *   resume_generation   `/resume/generate` — same contract gap. `router.run` had always built
+ *                       the metadata; the route discarded it. `ResumeService.generate` now
+ *                       emits before any write, so a later failure cannot lose the record.
+ *   profiling_chat_turn `/job-posting-chat/respond` — wired in `JobPostingChatService`. NOTE,
+ *                       because the issue said otherwise and re-measurement disagreed: this
+ *                       route makes ZERO LLM calls today, so it spends nothing and the
+ *                       emitter is a no-op until the documented rephrase seam is armed in
+ *                       the ai-service. It is wired ahead of the spend deliberately — the
+ *                       person who arms that seam edits Python, not this app, which is
+ *                       exactly how `stt_transcription` shipped unledgered.
+ *
+ * WHAT REMAINS, and why neither is a gap of the same shape — both spend OUTSIDE apps/api, so
+ * there is no request path here that could emit for them:
+ *
+ *   tts_synthesis       no apps/api caller at all; spend originates in the render CLI (#701)
  *   domain_match        no apps/api caller; routed inside the ai-service
- *
- * Delete an entry the moment its emitter lands. Filed as #745.
  */
-const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
-  "profiling_chat_turn",
-  "resume_generation",
-  "domain_match",
-  "tts_synthesis",
-  "skill_embedding",
-];
+const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = ["domain_match", "tts_synthesis"];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {
   it("finds the real emitter call sites — without this the coverage check is vacuous", () => {
     // `emittedTaskTypes` reads source text, so a moved file, a renamed method or a reformat that
     // outruns the window would quietly return an empty set and make the classification test below
-    // pass by finding nothing to classify. Pin the three that exist today.
+    // pass by finding nothing to classify. Pin the six that exist today (#745 added three).
     const emitted = emittedTaskTypes();
     expect([...emitted].sort()).toEqual([
       "profile_extraction",
       "profile_parse",
+      "profiling_chat_turn",
+      "resume_generation",
+      "skill_embedding",
       "stt_transcription",
     ]);
   });
