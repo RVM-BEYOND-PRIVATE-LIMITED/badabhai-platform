@@ -6,6 +6,8 @@ import {
   CurrentPayer,
   type AuthenticatedPayer,
 } from "../../payers/payer-auth.guard";
+import { SubjectRateLimit } from "../../common/rate-limit/subject-rate-limit.service";
+import { loadServerConfig } from "@badabhai/config";
 import { JobPostingChatService } from "./job-posting-chat.service";
 import {
   StartJobPostingChatSchema,
@@ -38,28 +40,53 @@ import {
 @Controller("payer/job-posting-chat")
 @UseGuards(PayerAuthGuard)
 export class JobPostingChatController {
-  constructor(private readonly chat: JobPostingChatService) {}
+  /**
+   * PAY-SEC-07 — this surface SPENDS. Every `session` and `message` turn is a paid LLM call, so
+   * an uncapped route lets one authenticated payer bill the platform without limit. The cap is
+   * per-PAYER (the verified session id, never a body value) and shares the single
+   * `SubjectRateLimit` counter rather than adding a third copy of INCR/EXPIRE.
+   *
+   * The read routes (`sessions`, `sessions/:id/messages`) are deliberately NOT capped: they touch
+   * no provider and are already tenant-scoped, so a cap there would only degrade legitimate use.
+   */
+  private readonly chatCapPerHour = loadServerConfig().PAYER_JOB_POSTING_CHAT_PER_HOUR;
+
+  constructor(
+    private readonly chat: JobPostingChatService,
+    private readonly rateLimit: SubjectRateLimit,
+  ) {}
+
+  /** Charge one unit of the payer's hourly AI budget, or 429. */
+  private async assertChatBudget(payerId: string): Promise<void> {
+    await this.rateLimit.assertWithinHourlyCap(
+      "payer_job_posting_chat",
+      payerId,
+      this.chatCapPerHour,
+    );
+  }
 
   /** Start a conversation owned by the caller. Nothing is read from the body. */
   @Post("session")
   @HttpCode(201)
-  startSession(
+  async startSession(
     @CurrentPayer() payer: AuthenticatedPayer,
     @Body(new ZodValidationPipe(StartJobPostingChatSchema)) _dto: StartJobPostingChatDto,
     @Ctx() ctx: RequestContext,
   ) {
+    await this.assertChatBudget(payer.id);
     return this.chat.startSession(payer.id, ctx);
   }
 
   /** Send one payer turn; get the engine's reply + the updated draft back. */
   @Post("message")
   @HttpCode(201)
-  postMessage(
+  async postMessage(
     @CurrentPayer() payer: AuthenticatedPayer,
     @Body(new ZodValidationPipe(PostJobPostingChatMessageSchema))
     dto: PostJobPostingChatMessageDto,
     @Ctx() ctx: RequestContext,
   ) {
+    await this.assertChatBudget(payer.id);
     return this.chat.postMessage(payer.id, dto, ctx);
   }
 

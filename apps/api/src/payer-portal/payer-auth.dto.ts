@@ -60,3 +60,13 @@ export interface PayerRefreshResponse {
   token_type: "Bearer";
   expires_in_seconds: number;
 }
+
+/**
+ * Body for the test-login seam (Phase 2.1). Only an email — no code, no role, no org name: the
+ * seam is not a signup API and must not become one. `.strict()` so an unexpected field is a 400
+ * rather than a silently ignored attempt to influence the minted account.
+ */
+export const PayerTestLoginSchema = z
+  .object({ email: z.string().email().max(320) })
+  .strict();
+export type PayerTestLoginDto = z.infer<typeof PayerTestLoginSchema>;

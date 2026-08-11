@@ -20,6 +20,7 @@ import { AppModule } from "./app.module";
 import { StructuredLogger } from "./common/logging/structured-logger";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 import { loadRootEnv } from "./config/root-env";
+import { securityHeadersMiddleware } from "./common/middleware/security-headers.middleware";
 import {
   RAZORPAY_WEBHOOK_PATH,
   razorpayRawBodyMiddleware,
@@ -75,6 +76,11 @@ async function bootstrap(): Promise<void> {
   // The deliberately-not-taken alternative is `NestFactory.create(…, { rawBody: true })`,
   // which would retain a raw copy of EVERY request body — including the OTP / PIN /
   // worker-answer routes, whose bodies are PII (CLAUDE.md §2 #2).
+  // Baseline security headers on EVERY response (PAY-SEC-08). Registered before the route
+  // handlers and before the raw-body middleware so it also covers the webhook path and any
+  // response produced by the global exception filter.
+  app.use(securityHeadersMiddleware);
+
   app.use(RAZORPAY_WEBHOOK_PATH, razorpayRawBodyMiddleware);
 
   // TD25 — trust exactly the configured number of reverse-proxy hops when deriving

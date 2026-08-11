@@ -146,6 +146,29 @@ export const serverEnvSchema = z.object({
   // product limit, and no honest client should ever see it. Same fail-closed idiom as the caps
   // above: a Redis outage rejects (429) rather than uncapping the events table.
   WORKER_ACTIONS_PER_HOUR: z.coerce.number().int().positive().default(500),
+  /**
+   * PAY-SEC-07 — per-payer hourly cap on the AI job-posting chat. Each message is a PAID LLM
+   * call, so this route is a direct spend surface: uncapped, one authenticated payer can bill
+   * the platform without limit. Sized for a generous drafting session (a posting takes ~10-20
+   * turns), not for a scripted loop. `SubjectRateLimit` is a fixed UTC-hour bucket, so size for
+   * 2x across an hour boundary.
+   */
+  PAYER_JOB_POSTING_CHAT_PER_HOUR: z.coerce.number().int().positive().default(60),
+
+  /**
+   * PAYER test-login seam (Phase 2.1) — the payer analogue of TEST_LOGIN_ENABLED.
+   *
+   * WHY IT EXISTS: payer login is EMAIL OTP with no dev echo and no mock provider, so nothing
+   * — not a developer, not CI — can complete a payer login without a mailbox. That single fact
+   * blocks local E2E of the whole payer + agency surface and is why four e2e suites are hard
+   * `describe.skip` (GAP-XC-07, GAP-LOCAL-01, PAY-SEC-09).
+   *
+   * It is NOT a dev-mode bypass: the seam is a server secret + an env gate + a reserved-domain
+   * restriction, and `assertPayerAuthConfig` makes it structurally impossible to arm in
+   * production. Default OFF.
+   */
+  PAYER_TEST_LOGIN_ENABLED: booleanFromString.default("false"),
+  PAYER_TEST_LOGIN_TOKEN: z.string().optional(),
   // Referral-attribution hook (ADR-0022 Amendment 1) per-IP cap / rolling UTC hour. The
   // worker-authed POST /referrals/attribute is a low-frequency onboarding side-signal; an
   // uncapped one lets an authed worker spam attribution reads (DB-load + a timing probe) —
@@ -1592,6 +1615,29 @@ export function assertPayerAuthConfig(
 
   if (!isDevEnv(rawNodeEnv) && config.JWT_SECRET === DEV_JWT_SECRET) {
     problems.push("JWT_SECRET must be overridden (the payer session is signed with it)");
+  }
+
+  // PAYER test-login seam. Same two-part discipline as TEST_LOGIN_ENABLED (TD67):
+  //  1. It may NEVER be armed outside development/test/staging — a login bypass in production
+  //     is a total authentication failure, so this refuses to BOOT rather than refusing at the
+  //     route (a route-level check can be lost in a refactor; a boot check cannot).
+  //  2. Armed with no/short token is worse than disabled — it looks protected and is not.
+  //     An empty-string secret must never arm the gate vacuously.
+  if (config.PAYER_TEST_LOGIN_ENABLED) {
+    const env = (rawNodeEnv ?? "").trim();
+    if (env !== "development" && env !== "test" && env !== "staging") {
+      problems.push(
+        `PAYER_TEST_LOGIN_ENABLED is true but NODE_ENV is "${env || "unset"}" — the payer ` +
+          "test-login seam may only be armed in development/test/staging (fail closed)",
+      );
+    }
+    const token = config.PAYER_TEST_LOGIN_TOKEN ?? "";
+    if (token.length < 32) {
+      problems.push(
+        "PAYER_TEST_LOGIN_ENABLED is true but PAYER_TEST_LOGIN_TOKEN is not set to a >=32-char " +
+          "secret — refusing to arm a half-configured test-login gate (TD67, fail closed)",
+      );
+    }
   }
 
   if (problems.length > 0) {

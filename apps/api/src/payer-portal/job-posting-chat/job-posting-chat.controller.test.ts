@@ -31,7 +31,14 @@ function makeCtrl() {
     listMessages: vi.fn(async () => ({ messages: [] })),
     publish: vi.fn(async () => ({ job_posting_id: "d" })),
   };
-  return { ctrl: new JobPostingChatController(chat as never), chat };
+  // PAY-SEC-07 — the controller now charges a per-payer hourly AI budget before it spends.
+  // Captured so the SPEND tests below can assert the cap is charged with the SESSION payer id.
+  const rateLimit = { assertWithinHourlyCap: vi.fn(async () => undefined) };
+  return {
+    ctrl: new JobPostingChatController(chat as never, rateLimit as never),
+    chat,
+    rateLimit,
+  };
 }
 
 const getMeta = (key: string, target: unknown): unknown[] =>
@@ -103,5 +110,50 @@ describe("JobPostingChatController — every route is behind PayerAuthGuard", ()
 
   it("mounts under /payer/job-posting-chat (the external payer route group)", () => {
     expect(Reflect.getMetadata("path", JobPostingChatController)).toBe("payer/job-posting-chat");
+  });
+});
+
+/**
+ * PAY-SEC-07 — the AI chat is a SPEND surface: every session/message turn is a paid LLM call.
+ * These pin that the budget is charged BEFORE the provider is reached, that it is keyed to the
+ * VERIFIED SESSION payer (never a body value), and — the row that stops the cap being deleted
+ * the first time it inconveniences someone — that reads stay UNCAPPED.
+ */
+describe("JobPostingChatController — AI spend budget (PAY-SEC-07)", () => {
+  const PAYER = { id: "aaaaaaaa-0000-4000-8000-000000000001", sid: "sid-a", role: "employer" };
+
+  it("charges the payer's hourly budget before starting a session", async () => {
+    const d = makeCtrl();
+    await d.ctrl.startSession(PAYER as never, {} as never, CTX);
+    expect(d.rateLimit.assertWithinHourlyCap).toHaveBeenCalledWith(
+      "payer_job_posting_chat",
+      PAYER.id,
+      expect.any(Number),
+    );
+  });
+
+  it("charges the budget before every message turn", async () => {
+    const d = makeCtrl();
+    await d.ctrl.postMessage(PAYER as never, { session_id: SESSION, text: "hi" } as never, CTX);
+    expect(d.rateLimit.assertWithinHourlyCap).toHaveBeenCalledWith(
+      "payer_job_posting_chat",
+      PAYER.id,
+      expect.any(Number),
+    );
+  });
+
+  it("does NOT reach the LLM when the budget is exhausted (charge precedes spend)", async () => {
+    const d = makeCtrl();
+    d.rateLimit.assertWithinHourlyCap.mockRejectedValueOnce(new Error("429") as never);
+    await expect(
+      d.ctrl.postMessage(PAYER as never, { session_id: SESSION, text: "hi" } as never, CTX),
+    ).rejects.toThrow();
+    expect(d.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("leaves READ routes uncapped — they touch no provider and are already tenant-scoped", async () => {
+    const d = makeCtrl();
+    await d.ctrl.listSessions(PAYER as never);
+    expect(d.rateLimit.assertWithinHourlyCap).not.toHaveBeenCalled();
   });
 });

@@ -6,10 +6,12 @@ import {
   Injectable,
   Logger,
   UnauthorizedException,
+  NotFoundException,
 } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { PayerLoginMethodEnum } from "@badabhai/event-schema";
 import { SERVER_CONFIG } from "../config/config.module";
+import { isSyntheticPayerEmail } from "../payers/payer-test-login.guard";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import type { RequestContext } from "../common/request-context";
@@ -129,6 +131,76 @@ export class PayerAuthService {
     } catch (err) {
       return this.neutralOnSendCapBreach(err, ctx);
     }
+  }
+
+  /**
+   * POST /payer/test-login — mint a payer session WITHOUT an OTP round-trip (Phase 2.1).
+   *
+   * Reachable only behind {@link PayerTestLoginGuard} (env gate + server secret) and only for an
+   * address inside the reserved `.invalid` domain. Staging runs a real email provider, so real
+   * payer accounts exist there; without the domain restriction one leaked gate token would mean
+   * full impersonation of a real customer. A non-synthetic address gets the SAME neutral 404 the
+   * guard returns while disabled, so a token holder cannot distinguish "seam off" from "address
+   * not allowed" — no oracle either way. The refusal is logged WITHOUT the address (PII).
+   *
+   * It reuses the ordinary account path (`createOrGet` + `ensureSoloOrg` + the free-tier grant)
+   * so a test session is identical in every respect to a real one EXCEPT that no mailbox was
+   * proven — which is precisely what `payer.test_login` records on the spine.
+   */
+  async testLogin(email: string, ctx: RequestContext): Promise<PayerSessionResponse> {
+    if (!isSyntheticPayerEmail(email)) {
+      this.logger.warn(
+        "payer test login refused: address outside the reserved synthetic domain",
+      );
+      throw new NotFoundException("Not found");
+    }
+
+    const { id, created } = await this.payers.createOrGet({
+      role: "employer",
+      email,
+      orgName: "E2E Test Org",
+      phone: undefined,
+    });
+
+    if (created) {
+      await this.events.emit({
+        event_name: "payer.created",
+        actor: { actor_type: "payer", actor_id: id },
+        subject: { subject_type: "payer", subject_id: id },
+        payload: { payer_id: id, role: "employer", method: this.method },
+        idempotencyKey: `payer.created:${id}`,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    }
+    if (!(await this.orgs.resolveOrgForPayer(id))) {
+      await this.orgs.ensureSoloOrg(id);
+    }
+    // A synthetic account must be `active` or PayerAuthGuard 403s it on the very next request.
+    await this.payers.activate(id);
+
+    const session = await this.sessions.create(id, "employer");
+
+    // NOT `payer.session_started`: a synthetic session must never be indistinguishable from a
+    // real login when reading the spine. No idempotencyKey — each mint is a distinct fact.
+    await this.events.emit({
+      event_name: "payer.test_login",
+      actor: { actor_type: "payer", actor_id: id },
+      subject: { subject_type: "payer", subject_id: id },
+      payload: { payer_id: id, is_new_payer: created },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+    this.logger.log("payer test login minted");
+
+    return {
+      access_token: session.token,
+      token_type: "Bearer",
+      expires_in_seconds: session.expiresInSeconds,
+      payer_id: id,
+      role: "employer",
+      is_new_payer: created,
+    };
   }
 
   /** POST /payer/login/verify — verify the code then mint a session (only for a real account). */

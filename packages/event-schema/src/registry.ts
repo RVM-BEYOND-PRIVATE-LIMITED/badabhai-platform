@@ -421,6 +421,9 @@ export const EVENT_REGISTRY = {
   "payer.created": { version: 1, domain: "payer", payload: p.PayerCreatedPayload },
   "payer.login_requested": { version: 1, domain: "payer", payload: p.PayerLoginRequestedPayload },
   "payer.session_started": { version: 1, domain: "payer", payload: p.PayerSessionStartedPayload },
+  // The test-login seam mints a session WITHOUT an OTP verification — a distinct event so a
+  // synthetic session is never indistinguishable from a real login on the spine (Phase 2.1).
+  "payer.test_login": { version: 1, domain: "payer", payload: p.PayerTestLoginPayload },
   // Payer LIFECYCLE transitions (ADR-0037): pending → active on first successful OTP
   // verification, and the admin suspend/reinstate pair. FACELESS: opaque payer_id + the
   // two closed status enums. These are additive and v1; `admin.action_performed` still

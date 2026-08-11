@@ -2436,8 +2436,8 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 155 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction)", () => {
-    expect(EVENT_NAMES).toHaveLength(155);
+  it("exposes all 156 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login)", () => {
+    expect(EVENT_NAMES).toHaveLength(156);
     // The pack pin — which QUESTIONS the worker got, as distinct from which trade they are in.
     // Separate from `occupation_identified` because a trade can resolve while its family has no
     // authored pack, which is the normal state during Phase 6 authoring.

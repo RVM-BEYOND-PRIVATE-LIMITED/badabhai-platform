@@ -125,6 +125,15 @@ export class PayerUnlocksController {
    * An UNKNOWN pack returns a real 404 (NestJS NotFoundException) — this is NOT the
    * unlock no-oracle path: a pack code is a public catalog item, not a per-tenant
    * resource, so a 404 leaks nothing about another payer.
+   *
+   * MUTUAL EXCLUSION WITH THE REAL PATH (GAP-PAY-04). This route grants a pack's credits
+   * through `purchasePackMock` with NO money taken (`real_call:false`). It is the correct
+   * default while `PAYMENTS_ENABLE_REAL` is off. But the moment real payments are switched
+   * on, `POST /payer/credits/order` starts charging through Razorpay while this route would
+   * still hand out the SAME credits for free — a paywall bypass sitting beside the paywall.
+   * So the two are now mutually exclusive by construction: with real payments live this
+   * answers the same NEUTRAL 404 that `/credits/order` gives when they are off. Neither
+   * route ever leaks which mode the deployment is in.
    */
   @Post("credits")
   @HttpCode(201)
@@ -133,6 +142,7 @@ export class PayerUnlocksController {
     @CurrentPayer() payer: AuthenticatedPayer,
     @Ctx() ctx: RequestContext,
   ) {
+    if (this.unlocks.realPaymentsLive) throw new NotFoundException();
     const result = await this.unlocks.purchaseCredits(payer.id, dto.pack_code, ctx);
     if (!result) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
     return result;

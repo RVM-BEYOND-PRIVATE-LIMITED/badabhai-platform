@@ -94,6 +94,7 @@ const AR = "AdminRolesGuard";
 const CNR = "ConsentNotRevokedGuard";
 const SI = "SkillsInternalGuard";
 const TL = "TestLoginGuard";
+const PTL = "PayerTestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
 const RZ = "RazorpayWebhookGuard";
 
@@ -216,7 +217,17 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "PayerAuth",
     ctor: PayerAuthController,
-    routes: { signup: [], requestLogin: [], verifyLogin: [], refresh: [P], logout: [P] },
+    // `testLogin` carries PayerTestLoginGuard and NOT PayerAuthGuard — it MINTS the session, so
+    // requiring one would be circular. Its protection is the env gate + server secret + the
+    // reserved-domain restriction, plus a boot guard that refuses to arm it outside dev/test/staging.
+    routes: {
+      signup: [],
+      requestLogin: [],
+      verifyLogin: [],
+      testLogin: [PTL],
+      refresh: [P],
+      logout: [P],
+    },
   },
   {
     // `createOrder` + `verifyPayment` are the REAL-payments routes (Razorpay). Same
