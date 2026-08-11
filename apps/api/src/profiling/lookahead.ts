@@ -22,6 +22,19 @@
  * whole thing safe to ship, because it means a wrong prediction costs a repaint and never a wrong
  * answer of record.
  *
+ * A RE-PIN INVALIDATES EVERY PREDICTION, and this is the known way to get a wrong one (#766 item
+ * 3). Predictions are computed against the pack pinned at THIS turn; `identify()` can re-pin the
+ * worker's trade on the NEXT turn, and the engine then selects from a different pack entirely, so
+ * every entry here is stale the moment that happens. The advisory contract bounds it — the real
+ * response replaces the render — but it is stated here so the next reader meets it in the source
+ * rather than while debugging a mispredicted turn.
+ *
+ * The cost is not symmetric across surfaces. On chat a stale prediction is a repaint. On the voice
+ * form the client pre-resolves a `tts_clip_id` from it, so a stale prediction is SPOKEN to the
+ * worker before the correction lands — and a worker who cannot read the screen has no way to catch
+ * it. That asymmetry is why #766 item 4 wants a turn stamp on each entry: it is what would let a
+ * client detect staleness instead of trusting the prediction until contradicted.
+ *
  * EXACTNESS IS THE DESIGN CONSTRAINT, which is why this is narrower than it could be:
  *
  *   - `single_select` only, among answering shapes. The option carries the exact typed value that
