@@ -11,6 +11,7 @@ import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointe
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_correction_outcome.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_review_row.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/cubit/voice_form_cubit.dart';
 import 'voice_form_doubles.dart';
 
@@ -64,6 +65,8 @@ class ScriptGateway implements VoiceFormGateway {
   @override
   Future<void> finalize() async {}
 
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
 
   @override
   Future<VoiceCorrectionOutcome> correct(
@@ -372,6 +375,8 @@ class _BlockingSubmitGateway implements VoiceFormGateway {
   @override
   Future<void> finalize() async {}
 
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
 
   @override
   Future<VoiceCorrectionOutcome> correct(

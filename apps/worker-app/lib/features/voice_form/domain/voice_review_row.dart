@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'voice_form_models.dart';
+
 /// One row on the end-of-session review screen (#632): a short FIELD LABEL (not
 /// the full question) and the engine's CAPTURED, NORMALIZED value.
 ///
@@ -16,6 +18,8 @@ class VoiceReviewRow extends Equatable {
     this.declined = false,
     this.numeric = false,
     this.hasChoices = false,
+    this.kind = VoiceQuestionKind.open,
+    this.options = const <VoiceChoice>[],
     this.clipPath,
   });
 
@@ -43,12 +47,42 @@ class VoiceReviewRow extends Equatable {
   final bool numeric;
 
   /// The question offered options — correction can start with chips (#632's
-  /// chips → mic → typing order).
+  /// chips → mic → typing order). Derived from [options]/[kind] when mapped from
+  /// server truth, so a chip/boolean correction can render its picker without a
+  /// second fetch.
   final bool hasChoices;
+
+  /// How this row's question is answered (#700). Carried so a chips/boolean
+  /// correction can render the right picker (a boolean's Haan/Nahi, a
+  /// single/multi-select's chips) straight from the row already on screen.
+  final VoiceQuestionKind kind;
+
+  /// The selectable options for a single/multi-select correction (engine keys +
+  /// labels). Empty for [VoiceQuestionKind.open] and [VoiceQuestionKind.boolean]
+  /// (boolean's Haan/Nahi are client-rendered).
+  final List<VoiceChoice> options;
 
   /// The worker's own recorded clip for a spoken answer (local path), replayed
   /// on the review row. Null for chip/boolean/text answers.
   final String? clipPath;
+
+  /// A row redrawn after a correction — the value/decline change, the addressing
+  /// id and the picker metadata stay put.
+  VoiceReviewRow copyWith({
+    String? displayValue,
+    bool? declined,
+  }) =>
+      VoiceReviewRow(
+        questionId: questionId,
+        fieldLabel: fieldLabel,
+        displayValue: displayValue ?? this.displayValue,
+        declined: declined ?? this.declined,
+        numeric: numeric,
+        hasChoices: hasChoices,
+        kind: kind,
+        options: options,
+        clipPath: clipPath,
+      );
 
   @override
   List<Object?> get props => <Object?>[
@@ -58,6 +92,8 @@ class VoiceReviewRow extends Equatable {
         declined,
         numeric,
         hasChoices,
+        kind,
+        options,
         clipPath,
       ];
 }

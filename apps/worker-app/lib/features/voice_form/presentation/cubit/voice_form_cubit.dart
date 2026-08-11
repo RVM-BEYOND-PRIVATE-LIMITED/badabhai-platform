@@ -14,8 +14,10 @@ import '../../../voice/domain/voice_pipeline.dart';
 import '../../data/voice_form_action_log.dart';
 import '../../domain/question_audio_player.dart';
 import '../../domain/silence_endpointer.dart';
+import '../../domain/voice_correction_outcome.dart';
 import '../../domain/voice_form_gateway.dart';
 import '../../domain/voice_form_models.dart';
+import '../../domain/voice_review_row.dart';
 
 /// Shown when two consecutive questions came back silent — a dead/muted mic
 /// (#636). Persona-clean; points at settings, does not blame the worker.
@@ -92,15 +94,51 @@ class VoiceFormInterrupted extends VoiceFormState {
   List<Object?> get props => <Object?>[question, index, total];
 }
 
-/// Every question answered. The review screen (#632) shows [answers]; it is the
+/// Every question answered. The review screen (#632) shows [rows]; it is the
 /// ONLY place the session is committed.
 class VoiceFormReview extends VoiceFormState {
-  const VoiceFormReview(this.answers);
+  const VoiceFormReview({
+    required this.answers,
+    this.rows = const <VoiceReviewRow>[],
+    this.correctionError,
+    this.profileRebuildRequired = false,
+  });
 
+  /// The local echo of the answers as they were given (#717). KEPT alongside
+  /// [rows] because the analytics/interruption suites read it; the screen renders
+  /// [rows] (server truth), which a correction can redraw one row at a time.
   final List<VoiceAnswer> answers;
 
+  /// The review rows, read from `GET /profiling/session` server truth (#700). A
+  /// successful correction redraws exactly the one row it addressed. Empty when
+  /// the rows fetch failed — the worker degrades to a bare submit rather than
+  /// dead-ending.
+  final List<VoiceReviewRow> rows;
+
+  /// The worker-safe message from the LAST correction that failed (a 409/422/cap
+  /// — #700). Non-null keeps the worker ON review (never [VoiceFormError]) and is
+  /// cleared the moment the next correction is attempted.
+  final String? correctionError;
+
+  /// The last correction rebuilt an already-built profile (#700's fourth
+  /// trigger) — surfaced as a calm notice, never a block.
+  final bool profileRebuildRequired;
+
+  VoiceFormReview copyWith({
+    List<VoiceReviewRow>? rows,
+    String? correctionError,
+    bool profileRebuildRequired = false,
+  }) =>
+      VoiceFormReview(
+        answers: answers,
+        rows: rows ?? this.rows,
+        correctionError: correctionError,
+        profileRebuildRequired: profileRebuildRequired,
+      );
+
   @override
-  List<Object?> get props => <Object?>[answers];
+  List<Object?> get props =>
+      <Object?>[answers, rows, correctionError, profileRebuildRequired];
 }
 
 /// Committing the reviewed session.
@@ -549,7 +587,21 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
         await _present(step, gen);
       case VoiceFormDone():
         unawaited(_actions.flush()); // best-effort, off the critical path (#639)
-        emit(VoiceFormReview(List<VoiceAnswer>.of(_answers)));
+        // Rows come from SERVER TRUTH (#700), not `_answers`. A failed fetch must
+        // NOT dead-end into VoiceFormError (whose only action is onExit) — the
+        // worker must still be able to submit, so review is entered either way,
+        // with a degraded empty list when the fetch throws.
+        List<VoiceReviewRow> rows = const <VoiceReviewRow>[];
+        try {
+          rows = await _gateway.reviewRows();
+        } catch (_) {
+          rows = const <VoiceReviewRow>[];
+        }
+        if (_torndown) return;
+        emit(VoiceFormReview(
+          answers: List<VoiceAnswer>.of(_answers),
+          rows: rows,
+        ));
       case RetryCurrentQuestion():
         await _retry(step, gen);
       case ReattachedTo():
@@ -719,6 +771,74 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     } catch (error) {
       if (!_torndown) emit(VoiceFormError(mapError(error)));
     }
+  }
+
+  /// Correct ONE already-settled answer from the review screen's ⟲ (#700).
+  ///
+  /// FAIL-CLOSED, ON REVIEW. A 409 (still on screen), a 422 (parsed to no value)
+  /// or the correction cap must NOT become [VoiceFormError] — that state's only
+  /// action is onExit, which would throw away a completed interview over one
+  /// mistyped fix. They land in [VoiceFormReview.correctionError] instead, and
+  /// the worker stays on review with every other row intact.
+  ///
+  /// On success the one addressed row is redrawn from the engine's echo (no
+  /// whole-session re-fetch on a 2G link), and any prior [correctionError] is
+  /// cleared.
+  Future<void> correctAnswer(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) async {
+    final VoiceFormState captured = state;
+    if (captured is! VoiceFormReview) return;
+    final VoiceFormReview current = captured;
+    try {
+      final VoiceCorrectionOutcome outcome =
+          await _gateway.correct(answer, questionKey: questionKey);
+      if (_torndown) return;
+      final List<VoiceReviewRow> updated = <VoiceReviewRow>[
+        for (final VoiceReviewRow row in current.rows)
+          if (row.questionId == outcome.questionId)
+            row.copyWith(
+              displayValue: outcome.displayValue ?? '',
+              declined: outcome.declined,
+            )
+          else
+            row,
+      ];
+      emit(current.copyWith(
+        rows: updated,
+        correctionError: null,
+        profileRebuildRequired: outcome.profileRebuildRequired,
+      ));
+    } on Failure catch (f) {
+      if (!_torndown) emit(current.copyWith(correctionError: f.message));
+    } catch (e) {
+      if (!_torndown) emit(current.copyWith(correctionError: mapError(e).message));
+    }
+  }
+
+  /// Register a correction's recorded clip through the EXACT first-answer upload
+  /// path (#700) — token + engine session + registrar, temp file deleted in the
+  /// uploader's own `finally`. The host hands the resulting `voice_note_id` to
+  /// [correctAnswer] as `VoiceAnswer.spoken`.
+  Future<String> registerCorrectionClip(RecordedClip clip) =>
+      _registerClip(clip);
+
+  /// Open the mic for a one-shot voice CORRECTION (#700). The interview is done
+  /// by the review screen, so the shared recorder is idle — reuse it rather than
+  /// stand up a second. This is NOT part of the answer cycle: it does not touch
+  /// the endpointer, the meter or `_advancing`; the host drives start → stop.
+  Future<void> startCorrectionCapture() async {
+    if (_torndown || !_foreground) return;
+    await _recorder.start();
+  }
+
+  /// Stop the one-shot correction capture and hand back the clip (or null if
+  /// nothing was captured / teardown raced). The host uploads it via
+  /// [registerCorrectionClip].
+  Future<RecordedClip?> stopCorrectionCapture() async {
+    if (_torndown) return null;
+    return _recorder.stop();
   }
 
   /// App lifecycle transitions (#636), forwarded by the screen's observer. The

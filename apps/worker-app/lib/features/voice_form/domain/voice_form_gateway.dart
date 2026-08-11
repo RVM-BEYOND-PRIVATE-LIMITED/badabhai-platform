@@ -1,5 +1,6 @@
 import 'voice_correction_outcome.dart';
 import 'voice_form_models.dart';
+import 'voice_review_row.dart';
 
 /// The seam between the [VoiceFormCubit] and the backend voice-form route.
 ///
@@ -61,4 +62,13 @@ abstract interface class VoiceFormGateway {
     VoiceAnswer answer, {
     required String questionKey,
   });
+
+  /// The review screen's rows, read from SERVER TRUTH (#700) — the engine's
+  /// `AnswerMap` via `GET /profiling/session/:id`, not the client's local echo.
+  ///
+  /// Each row carries its stable question id, field label, normalized value,
+  /// decline flag and (for a choice/boolean question) its picker metadata, so a
+  /// chips/boolean correction renders without a second fetch. Fail-closed on a
+  /// transport error; a malformed individual row is dropped, never thrown.
+  Future<List<VoiceReviewRow>> reviewRows();
 }
