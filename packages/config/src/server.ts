@@ -743,6 +743,21 @@ export const serverEnvSchema = z.object({
   // deploy, not a code change.
   PROFILING_PACK_LOCALE: z.string().min(2).max(8).default("hi-IN"),
 
+  // ── The LLM-led interview (Phase A) ────────────────────────────────────────────
+  // The packs ask what was authored, and authoring cannot cover every trade: a worker who
+  // said "cook hu" was offered [Pizza maker | यात्रा सेवा | khana | खाद्य प्रसंस्करण] and
+  // fell through to the generic pack. With this ON, the model conducts domain -> role ->
+  // skills -> experience and the engine keeps everything identical for every worker.
+  //
+  // booleanFromString (NOT z.coerce.boolean, whose "false"/"0" coerce to TRUE) so a falsey
+  // string stays OFF — fail-safe to today's exact behaviour, like AI_ENABLE_REAL_CALLS.
+  // DEFAULT OFF: turning it on puts a model in front of a worker and multiplies per-profile
+  // cost, which is a decision to make per environment and measure, never to inherit.
+  //
+  // OFF DOES NOT DISABLE THE FALLBACK. The engine is the fallback and it is always live;
+  // this only decides whether the model is asked first.
+  CHAT_LLM_INTERVIEW_ENABLED: booleanFromString,
+
   // ── Agency payout ledger (ADR-0022 module 3+7, Amendment 2, owner-ratified 2026-07-23) ──
   // Master switch for the agency SUPPLY payout surface. Default OFF = inert: the payout
   // request/earnings routes return a neutral 404 and NO accrual is ever claimed into a
