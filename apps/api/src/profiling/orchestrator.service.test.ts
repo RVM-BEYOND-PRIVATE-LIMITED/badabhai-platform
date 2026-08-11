@@ -626,10 +626,36 @@ describe("LAYER A — the reply cache", () => {
         progress: { answered: 0, total: 0 },
         whyText: null,
         answerType: null,
+        lookahead: null,
       },
     });
     const result = await orchestrator.takeTurn(say("main pune me rehta hu"));
     expect(result.replayed).toBe(false);
+  });
+
+  /**
+   * #766 item 2 — a replay carries the PREDICTION too, not just the words.
+   *
+   * The replay path is reached exactly when the link is flaky, which is the connection the
+   * lookahead exists for. Serving the reply back without it would hand that worker the words and
+   * silently drop the instant next-question render — the same downgrade `options` and `progress`
+   * used to suffer here, and the reason `LastTurn` caches what the client draws.
+   */
+  it("replays the lookahead with the reply, rather than dropping it on the flaky link", async () => {
+    const { orchestrator } = makeWorld();
+
+    const first = await orchestrator.takeTurn(say("main welder hoon"));
+    expect(first.replayed).toBe(false);
+    // Guard against a vacuous assertion below: if the real turn predicted nothing there is
+    // nothing for the replay to carry, and the test would pass without proving anything.
+    expect(first.lookahead, "the seeded turn must predict for this test to mean anything").not
+      .toBeNull();
+
+    // The SAME words again inside the replay window — a retried submit over 2G.
+    const replay = await orchestrator.takeTurn(say("main welder hoon"));
+    expect(replay.replayed).toBe(true);
+    expect(replay.reply).toBe(first.reply);
+    expect(replay.lookahead).toEqual(first.lookahead);
   });
 });
 
@@ -887,6 +913,7 @@ describe("the mid-interview checkpoint boundary (Phase 9, risk #10)", () => {
         progress: { answered: 0, total: 0 },
         whyText: null,
         answerType: null,
+        lookahead: null,
       },
     });
 

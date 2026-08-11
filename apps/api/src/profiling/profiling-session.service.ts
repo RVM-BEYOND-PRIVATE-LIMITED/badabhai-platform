@@ -631,6 +631,9 @@ export class ProfilingSessionService {
                     Math.max(entry.progress.total, 1),
                   ),
                   total: entry.progress.total,
+                  // #766 item 4. Load-bearing on THIS surface specifically: `tts_clip_id` above
+                  // means a stale prediction is spoken, not repainted.
+                  turn: entry.turn,
                 },
               ]),
           )

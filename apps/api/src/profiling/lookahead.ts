@@ -100,6 +100,21 @@ export interface LookaheadEntry {
   readonly answerType: QuestionPackItem["answer_type"] | null;
   readonly options: readonly QuestionPackOption[];
   readonly progress: { readonly answered: number; readonly total: number };
+  /**
+   * The turn number this prediction was computed FOR — i.e. the turn it would become if the
+   * worker answers this way (#766 item 4).
+   *
+   * WITHOUT IT A STALE PREDICTION IS UNDETECTABLE CLIENT-SIDE, and the cost of that is not the
+   * same on both surfaces. On chat a stale prediction is a repaint the worker may not even
+   * notice. On the voice form the client pre-resolves a `tts_clip_id` from it, so a stale
+   * prediction is SPOKEN — and a worker who cannot read the screen has no way to catch it before
+   * the correction arrives. A re-pin (see the file header) is the known way to get one.
+   *
+   * With the stamp, a client holding a prediction can compare it against the turn the real
+   * response carries and drop it rather than trusting it until contradicted. That check belongs
+   * to the consumer (#761); this is the field it needs to make it.
+   */
+  readonly turn: number;
 }
 
 /** `option_key` (or {@link LOOKAHEAD_DECLINED}) → the turn it would produce. */
@@ -156,6 +171,7 @@ export function computeLookahead(input: LookaheadInput): Lookahead | null {
   entries[LOOKAHEAD_DECLINED] = project(
     predict(state, packs, recordDeclined(state.answers, item.question_key, nextTurn), nextTurn),
     items,
+    nextTurn,
   );
 
   // DECLINE TO PREDICT RATHER THAN TRUNCATE. Slicing to the cap would silently drop the tail of
@@ -192,7 +208,7 @@ export function computeLookahead(input: LookaheadInput): Lookahead | null {
       } else {
         for (const value of capture.values) answers = recordAnswer(answers, value, nextTurn);
       }
-      entries[option.option_key] = project(predict(state, packs, answers, nextTurn), items);
+      entries[option.option_key] = project(predict(state, packs, answers, nextTurn), items, nextTurn);
     }
   }
 
@@ -226,7 +242,11 @@ const ANSWERED_TURN = {
 } as const;
 
 /** A decision → the wire-ready entry, resolving the item for its shape fields. */
-function project(decision: Decision, items: readonly QuestionPackItem[]): LookaheadEntry {
+function project(
+  decision: Decision,
+  items: readonly QuestionPackItem[],
+  turn: number,
+): LookaheadEntry {
   const item =
     decision.questionKey === null
       ? undefined
@@ -245,5 +265,6 @@ function project(decision: Decision, items: readonly QuestionPackItem[]): Lookah
     answerType: item?.answer_type ?? null,
     options: decision.options,
     progress: decision.progress,
+    turn,
   };
 }

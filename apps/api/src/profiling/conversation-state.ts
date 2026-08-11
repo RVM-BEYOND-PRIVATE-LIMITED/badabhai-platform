@@ -51,6 +51,9 @@ import {
 } from "@badabhai/ai-contracts";
 
 import { toAnswerArray, toAnswerMap, toCapturedProjection, type AnswerMap } from "./answer-map";
+// Type-only, and one-directional: `lookahead.ts` does not import this file, so persisting its
+// shape here cannot create the cycle the module header warns about.
+import type { Lookahead } from "./lookahead";
 import type { EngineState } from "./next-question";
 
 /**
@@ -128,6 +131,22 @@ export interface LastTurn {
   readonly whyText: string | null;
   /** How the question on screen is answered, so the client knows chips from mic. */
   readonly answerType: AnswerType | null;
+  /**
+   * The predicted next turns served with that reply (#766 item 2) — cached for exactly the reason
+   * `options` and `progress` above are.
+   *
+   * A REPLAY WITHOUT IT IS A DOWNGRADE, not a repeat. The lookahead is now part of what the client
+   * DRAWS: it renders the next question from it on the tap. Dropping it on the replay path would
+   * hand a worker the words back while silently removing the instant next-question render — and
+   * the replay path is reached precisely when the link is flaky, which is the connection the
+   * whole feature exists for. The cache promises the byte-identical previous response; that has
+   * to include this.
+   *
+   * Cached rather than re-derived for the same reason as the others: `replayOf` runs BEFORE packs
+   * are resolved, so recomputing would put a Redis read and a possible database round trip on the
+   * one path whose entire purpose is to be cheaper than taking the turn again.
+   */
+  readonly lookahead: Lookahead | null;
 }
 
 /**
@@ -472,7 +491,43 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     progress: progress.success ? progress.data : { answered: 0, total: 0 },
     whyText: typeof v.whyText === "string" ? v.whyText : null,
     answerType: isAnswerType(v.answerType) ? v.answerType : null,
+    // FAIL-SAFE TO `null`, which is a state the client already handles: "no prediction" means the
+    // round trip it has today, not an error. So a record written before this field existed — or
+    // one whose shape drifted — degrades to today's behaviour rather than being discarded or
+    // replayed with a half-parsed prediction.
+    lookahead: lookaheadOf(v.lookahead),
   };
+}
+
+/**
+ * A stored lookahead map, or `null` if it is absent or not the shape we wrote.
+ *
+ * VALIDATED RATHER THAN CAST, even though this service wrote it. It round-trips through Redis as
+ * JSON, and a prediction is rendered to a worker's screen — on the voice form it is SPOKEN — so a
+ * drifted entry should degrade to "no prediction" rather than reach a client half-formed. Whole-map
+ * rejection, not per-entry: a partial map would give some chips an instant render and others a
+ * round trip, which reads as a bug to the worker rather than as a degradation.
+ */
+function lookaheadOf(value: unknown): Lookahead | null {
+  const parsed = z
+    .record(
+      z.string(),
+      z.object({
+        questionKey: z.string().nullable(),
+        kind: z.enum(["ask", "close"]),
+        promptText: z.string(),
+        whyText: z.string().nullable(),
+        answerType: z.enum(ANSWER_TYPES).nullable(),
+        options: z.array(QuestionPackOptionSchema),
+        progress: z.object({
+          answered: z.number().int().nonnegative(),
+          total: z.number().int().nonnegative(),
+        }),
+        turn: z.number().int().nonnegative(),
+      }),
+    )
+    .safeParse(value);
+  return parsed.success ? (parsed.data as Lookahead) : null;
 }
 
 /** A stored turn kind that is still in the closed set — see {@link TURN_KINDS}. */

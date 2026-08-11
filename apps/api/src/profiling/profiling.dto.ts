@@ -229,6 +229,16 @@ export const ProfilingStepSchema = z.discriminatedUnion("kind", [
           tts_clip_id: z.string(),
           index: z.number().int().positive(),
           total: z.number().int().nonnegative(),
+          /**
+           * The turn this prediction is FOR (#766 item 4).
+           *
+           * IT MATTERS MORE HERE THAN ON CHAT, and `tts_clip_id` above is the reason. This
+           * surface pre-resolves the audio for a predicted question, so a stale prediction is
+           * not repainted — it is SPOKEN, to a worker who cannot read the screen to catch that
+           * it was wrong. A re-pin between turns invalidates every entry, and without a stamp
+           * the client has no way to notice before playing it.
+           */
+          turn: z.number().int().nonnegative(),
         }),
       )
       .nullable()

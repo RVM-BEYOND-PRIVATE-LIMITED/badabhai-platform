@@ -89,6 +89,7 @@ const FULL: ProfilingEnvelope = {
     progress: { answered: 4, total: 11 },
     whyText: "Isse hum aapke sheher ke kaam dikha payenge.",
     answerType: "single_select",
+    lookahead: null,
   },
   // Every bucket distinct and non-zero, for the same reason as every other field here: a
   // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.

@@ -441,3 +441,58 @@ describe("it cannot perturb the turn it runs beside", () => {
     expect(entry.kind).toBe("close");
   });
 });
+
+/**
+ * #766 item 4 — every entry says which turn it was computed FOR.
+ *
+ * The point is detectability, not decoration. A re-pin between turns invalidates every prediction,
+ * and the advisory contract only bounds that AFTER the real response arrives. On chat that is a
+ * repaint; on the voice form the client pre-resolves a `tts_clip_id`, so a stale prediction is
+ * SPOKEN to a worker who cannot read the screen to catch it. The stamp is what lets a client
+ * compare and drop instead of trusting until contradicted.
+ */
+describe("the turn stamp (#766 item 4)", () => {
+  const machine = item({
+    question_key: "machine_type",
+    answer_type: "single_select",
+    options: [option("lathe"), option("cnc_turning")],
+  });
+  const packs: EnginePacks = {
+    occupation: pack("qp_machining", [machine, item({ question_key: "tools" })]),
+    universal: UNIVERSAL,
+  };
+  const items = [...(packs.occupation?.items ?? []), ...UNIVERSAL.items];
+
+  it("stamps EVERY entry — the option branches and the decline — with `nextTurn`", () => {
+    const predicted = computeLookahead({
+      decision: ask("machine_type", machine.options),
+      state: state({ engineAsks: 1, askCounts: { machine_type: 1 }, turn: 3 }),
+      packs,
+      items,
+      nextTurn: 4,
+    });
+
+    const entries = Object.entries(predicted ?? {});
+    // Vacuity guard: an empty map would satisfy the `every` below without asserting anything.
+    expect(entries.length).toBeGreaterThan(1);
+    expect(entries.map(([key]) => key)).toContain(LOOKAHEAD_DECLINED);
+    for (const [key, entry] of entries) {
+      expect(entry.turn, `entry ${key} carries the wrong turn`).toBe(4);
+    }
+  });
+
+  it("tracks `nextTurn` rather than hard-coding it", () => {
+    // The stamp is only useful if it MOVES with the turn — a constant would compare equal
+    // forever and silently disable the client's staleness check.
+    for (const nextTurn of [2, 7, 41]) {
+      const predicted = computeLookahead({
+        decision: ask("machine_type", machine.options),
+        state: state({ engineAsks: 1, askCounts: { machine_type: 1 }, turn: nextTurn - 1 }),
+        packs,
+        items,
+        nextTurn,
+      });
+      for (const entry of Object.values(predicted ?? {})) expect(entry.turn).toBe(nextTurn);
+    }
+  });
+});

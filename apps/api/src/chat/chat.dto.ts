@@ -162,6 +162,13 @@ export const PostMessageResponseSchema = z.object({
           answered: z.number().int().nonnegative(),
           total: z.number().int().nonnegative(),
         }),
+        /**
+         * The turn this prediction is FOR (#766 item 4) — what lets a client detect a stale one
+         * instead of trusting it until the real response contradicts it. A re-pin between turns
+         * invalidates every entry, and on the voice form a stale prediction is SPOKEN rather than
+         * merely repainted.
+         */
+        turn: z.number().int().nonnegative(),
       }),
     )
     .nullable()

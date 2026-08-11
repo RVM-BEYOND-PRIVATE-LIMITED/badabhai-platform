@@ -614,6 +614,9 @@ export class ChatService {
                 answer_type: entry.answerType,
                 options: entry.options.map(toWireOption),
                 progress: entry.progress,
+                // #766 item 4 — the turn this prediction is FOR, so a client can drop a stale
+                // one rather than trusting it until the real response contradicts it.
+                turn: entry.turn,
               },
             ]),
           )
