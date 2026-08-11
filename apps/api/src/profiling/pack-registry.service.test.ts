@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 
 import { PackRegistryService, computeContentHash } from "./pack-registry.service";
+import { PACK_CACHE_MAX_ENTRIES, PACK_RESOLUTION_TTL_MS } from "./pack-cache.constants";
+import { fakePackCache, type FakePackCache } from "./pack-cache.fake";
 import type { PackHeadRow, PackItemRow, PackOptionRow } from "./pack.repository";
 
 const NOW = 1_700_000_000_000;
@@ -59,6 +61,8 @@ function makeRegistry(world: {
   bindings?: { familyId: string; specificity: number }[];
   packs?: Record<string, { head: PackHeadRow; items: PackItemRow[] }>;
   options?: PackOptionRow[];
+  /** Share one L2 across two registries, to prove a cold instance reads a warm one's entry. */
+  shared?: FakePackCache;
 }) {
   const packs = world.packs ?? {};
   const repo = {
@@ -86,7 +90,15 @@ function makeRegistry(world: {
     ),
   };
   const config = { PROFILING_PACK_LOCALE: "hi-IN" };
-  return { registry: new PackRegistryService(config as never, repo as never), repo };
+  // A REAL in-memory shared tier, not a null object — see `pack-cache.fake.ts`. A double that
+  // always missed would make every caching assertion below pass against an implementation that
+  // cached nothing at all.
+  const shared = world.shared ?? fakePackCache();
+  return {
+    registry: new PackRegistryService(config as never, repo as never, shared.cache),
+    repo,
+    shared,
+  };
 }
 
 const WELDING = {
@@ -316,15 +328,31 @@ describe("caching", () => {
     expect(repo.findItems).toHaveBeenCalledTimes(1);
   });
 
-  it("re-reads once the entry expires", async () => {
-    const { registry, repo } = makeRegistry({ packs: { WELDING } });
+  it("re-reads once BOTH tiers have expired", async () => {
+    // Both, because they expire on the same clock: the in-process entry lapsing only sends the
+    // read to Redis, whose key carries the same TTL. `expire()` is how the fake says the Redis
+    // keys have gone too — see `pack-cache.fake.ts`.
+    const shared = fakePackCache();
+    const { registry, repo } = makeRegistry({ packs: { WELDING }, shared });
     await registry.loadPinned("qp_welding", 1, NOW);
+    shared.expire();
     await registry.loadPinned("qp_welding", 1, NOW + 900_001);
     expect(repo.findItems).toHaveBeenCalledTimes(2);
   });
 
+  it("an expired in-process entry is served by the SHARED tier without touching the database", async () => {
+    // The tier that makes an expiry cheap. Before this existed, every lapse cost four queries.
+    const { registry, repo } = makeRegistry({ packs: { WELDING } });
+    await registry.loadPinned("qp_welding", 1, NOW);
+    await registry.loadPinned("qp_welding", 1, NOW + 900_001);
+    expect(repo.findItems).toHaveBeenCalledTimes(1);
+  });
+
   it("keys on version, so a new version is a new entry and never a stale hit", async () => {
-    // Immutability IS the cache invalidation: there is no invalidation logic to get wrong.
+    // Versioning is MOST of the invalidation — but deliberately not all of it, which is why the
+    // TTL above still exists. `seed-question-packs.ts` deletes and re-inserts a version's items in
+    // place, so re-seeding an edited file rewrites content under an unchanged key; the expiry is
+    // what bounds that. See PACK_CACHE_TTL_MS.
     const v1 = { head: head("qp_welding", "fam_welding", 1), items: WELDING.items };
     const v2 = {
       head: head("qp_welding", "fam_welding", 2),
@@ -336,7 +364,175 @@ describe("caching", () => {
     );
     expect((await registry.loadPinned("qp_welding", 2, NOW))?.items[0]?.question_key).toBe("q_new");
   });
+
+  it("evicts oldest-first once the entry cap is reached", async () => {
+    // The TTL alone does not bound the map — an entry is only dropped when it is next READ. A
+    // process that resolves many packs and re-reads few would otherwise hold every one of them.
+    const packs: Record<string, { head: PackHeadRow; items: PackItemRow[] }> = {};
+    for (let v = 1; v <= PACK_CACHE_MAX_ENTRIES + 1; v++) {
+      packs[`v${v}`] = {
+        head: head("qp_welding", "fam_welding", v),
+        items: [itemRow({ questionKey: "q_process" })],
+      };
+    }
+    const shared = fakePackCache();
+    const { registry, repo } = makeRegistry({ packs, shared });
+    for (let v = 1; v <= PACK_CACHE_MAX_ENTRIES + 1; v++) {
+      await registry.loadPinned("qp_welding", v, NOW);
+    }
+    // The shared tier is emptied so the assertion measures the IN-PROCESS map, which is what the
+    // cap governs. Left populated, an evicted entry would simply be re-served from Redis and the
+    // eviction would be invisible.
+    shared.expire();
+    repo.findItems.mockClear();
+    // Version 1 was the first in and is therefore the first out; the newest is still resident.
+    await registry.loadPinned("qp_welding", 1, NOW);
+    await registry.loadPinned("qp_welding", PACK_CACHE_MAX_ENTRIES + 1, NOW);
+    expect(repo.findItems).toHaveBeenCalledTimes(1);
+  });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * THE RESOLUTION CACHE — the part of this path that was never cached at all.
+ *
+ * `load()` has always cached pack CONTENT. What ran uncached on EVERY turn of EVERY interview is
+ * the resolution in front of it: `resolvePacks` calls `loadUniversal`, which is
+ * `resolveForOccupation(null, …)`, which runs `findBindings` — a SELECT over
+ * `profiling_family_binding` with no WHERE clause, filtered in JS — and then `findActivePacks`.
+ * Two round trips per turn, one a full table read, to re-derive an answer that changes only when a
+ * reviewer publishes a pack.
+ * ══════════════════════════════════════════════════════════════════════════ */
+describe("the resolution cache", () => {
+  const WORLD = {
+    bindings: [binding("fam_welding", 50), binding("fam_universal", 0)],
+    packs: { WELDING, UNIVERSAL },
+  };
+
+  it("walks the chain ONCE across many turns — the whole point of the change", async () => {
+    const { registry, repo } = makeRegistry(WORLD);
+    for (let turn = 0; turn < 10; turn++) {
+      expect((await registry.loadUniversal(NOW + turn))?.pack_id).toBe("qp_universal");
+    }
+    // ONE, not ten. This is the acceptance criterion for the whole change; if it regresses, the
+    // hot path is back to a full-table read per turn.
+    expect(repo.findBindings).toHaveBeenCalledTimes(1);
+    expect(repo.findActivePacks).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-walks once the resolution expires, so a published pack is picked up", async () => {
+    // The one thing this cache may NOT do is pin a stale answer forever: which version is `active`
+    // is exactly what a reviewer changes.
+    const shared = fakePackCache();
+    const { registry, repo } = makeRegistry({ ...WORLD, shared });
+    await registry.loadUniversal(NOW);
+    shared.expire("resolutions");
+    await registry.loadUniversal(NOW + PACK_RESOLUTION_TTL_MS + 1);
+    expect(repo.findBindings).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches an EXHAUSTED chain, so an unauthored trade stops re-reading the table", async () => {
+    // Half the corpus is unauthored at any time and those trades walk the whole chain to reach
+    // nothing. Collapsing "not cached" into "no pack" would make them the most expensive callers.
+    // Bindings EXIST here; no family among them has a loadable pack — the legitimate negative.
+    const { registry, repo } = makeRegistry({
+      bindings: [binding("fam_welding", 50), binding("fam_universal", 0)],
+      packs: {},
+    });
+    expect(await registry.resolveForOccupation(PIN, NOW)).toBeNull();
+    expect(await registry.resolveForOccupation(PIN, NOW + 1)).toBeNull();
+    expect(repo.findBindings).toHaveBeenCalledTimes(1);
+  });
+
+  it("NEVER caches zero bindings — that is a re-seed in flight, not an answer", async () => {
+    // THE OUTAGE THIS PREVENTS. A healthy database always has the `is_universal` binding, so zero
+    // rows means unseeded or mid-reseed: `seed-question-packs.ts` runs
+    // `db.delete(profilingFamilyBindings)` and re-inserts, OUTSIDE a transaction. Caching that
+    // millisecond-wide gap would hold `no_pack` for a full TTL, fleet-wide, for every worker.
+    const { registry, repo } = makeRegistry({ bindings: [], packs: {} });
+    expect(await registry.loadUniversal(NOW)).toBeNull();
+    expect(await registry.loadUniversal(NOW + 1)).toBeNull();
+    expect(repo.findBindings).toHaveBeenCalledTimes(2);
+  });
+
+  it("promotes a SHARED hit into memory, so only the first turn pays a round trip", async () => {
+    // Without this the in-process tier is populated only by the instance that WALKED the chain, so
+    // every other instance pays a Redis round trip on every turn — most of the saving, undone one
+    // layer down.
+    const shared = fakePackCache();
+    const warm = makeRegistry({ ...WORLD, shared });
+    await warm.registry.loadUniversal(NOW);
+
+    const cold = makeRegistry({ ...WORLD, shared });
+    const reads = vi.spyOn(shared.cache, "readResolution");
+    await cold.registry.loadUniversal(NOW);
+    await cold.registry.loadUniversal(NOW + 1);
+    await cold.registry.loadUniversal(NOW + 2);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(cold.repo.findBindings).not.toHaveBeenCalled();
+  });
+
+  it("a cached resolution whose pack no longer loads RE-WALKS rather than answering null", async () => {
+    // A cache may cost a query; it may never cost an interview. If the pinned version has been
+    // deleted or edited into something the contract rejects, the cached answer is simply wrong —
+    // and the live chain would have fallen through to the parent family's pack.
+    const shared = fakePackCache();
+    const warm = makeRegistry({ ...WORLD, shared });
+    expect((await warm.registry.resolveForOccupation(PIN, NOW))?.pack_id).toBe("qp_welding");
+
+    // The RESOLUTION survives (it is what we are testing) while the cached CONTENT has aged out —
+    // the realistic shape, since content and resolution expire on different clocks.
+    shared.expire("packs");
+
+    // A second instance, cold in-process, reading that surviving resolution — against a database
+    // that has since lost the welding pack entirely.
+    const cold = makeRegistry({ bindings: WORLD.bindings, packs: { UNIVERSAL }, shared });
+    expect((await cold.registry.resolveForOccupation(PIN, NOW))?.pack_id).toBe("qp_universal");
+  });
+});
+
+describe("the shared tier", () => {
+  it("lets a COLD instance skip the database entirely", async () => {
+    // A deploy, a restart or a scale-out used to mean every worker mid-interview paid four queries
+    // to rebuild a pack another instance already had.
+    const shared = fakePackCache();
+    const warm = makeRegistry({ packs: { WELDING }, shared });
+    await warm.registry.loadPinned("qp_welding", 1, NOW);
+    expect(shared.packWrites).toContain("qp_welding:1");
+
+    const cold = makeRegistry({ packs: { WELDING }, shared });
+    expect((await cold.registry.loadPinned("qp_welding", 1, NOW))?.pack_id).toBe("qp_welding");
+    expect(cold.repo.findItems).not.toHaveBeenCalled();
+  });
+
+  it("FAILS OPEN — a Redis outage costs queries, never an interview", async () => {
+    // The deliberate opposite of the rate limiters and the spend ledger, which fail closed. Being
+    // wrong there permits an unaccounted spend; being wrong here would refuse to serve a worker
+    // their questions over a cache outage.
+    const shared = fakePackCache();
+    shared.fail();
+    const { registry, repo } = makeRegistry({ ...WORLD_FOR_OUTAGE, shared });
+    expect((await registry.resolveForOccupation(PIN, NOW))?.pack_id).toBe("qp_welding");
+    expect(repo.findBindings).toHaveBeenCalled();
+  });
+
+  it("only ever publishes a pack that passed validation", async () => {
+    // Redis must not become a way to distribute a malformed pack to every instance that has not
+    // read the database yet.
+    const broken = {
+      head: head("qp_broken", "fam_welding"),
+      items: [itemRow({ questionKey: "NOT A VALID KEY" })],
+    };
+    const shared = fakePackCache();
+    const { registry } = makeRegistry({ packs: { broken }, shared });
+    expect(await registry.loadPinned("qp_broken", 1, NOW)).toBeNull();
+    expect(shared.packWrites).toEqual([]);
+  });
+});
+
+const WORLD_FOR_OUTAGE = {
+  bindings: [binding("fam_welding", 50), binding("fam_universal", 0)],
+  packs: { WELDING, UNIVERSAL },
+};
 
 /* ════════════════════════════════════════════════════════════════════════════
  * R2 — an unseeded database must SAY SO at boot.
@@ -426,6 +622,12 @@ describe("boot-time seeding check", () => {
       registry.onModuleInit(); // returns while the query is still pending
       expect(spy.error).not.toHaveBeenCalled();
 
+      // WAIT FOR THE QUERY TO BE REACHED before releasing it. `resolveForOccupation` now consults
+      // the resolution cache first, so `findBindings` is dispatched a microtask later than it used
+      // to be and `release` is not yet assigned when this line is reached synchronously. The
+      // property under test is unchanged — `onModuleInit` returned above without awaiting
+      // anything, which is the assertion two lines up.
+      await vi.waitFor(() => expect(release).toBeTypeOf("function"));
       release();
       await vi.waitFor(() => expect(spy.error).toHaveBeenCalled());
     } finally {

@@ -4,6 +4,7 @@ import { WorkerProfileDraftSchema } from "@badabhai/ai-contracts";
 import type { QuestionPackItem } from "@badabhai/ai-contracts";
 
 import { PackRegistryService } from "./pack-registry.service";
+import { fakePackCache } from "./pack-cache.fake";
 import type { PackHeadRow, PackItemRow, PackOptionRow } from "./pack.repository";
 import { captureAnswer } from "./answer-capture";
 import { recordAnswer } from "./answer-map";
@@ -102,7 +103,11 @@ function registryServing(options: PackOptionRow[], over: Partial<PackItemRow> = 
     findItems: vi.fn(async () => [item]),
     findOptions: vi.fn(async () => options),
   };
-  return new PackRegistryService({ PROFILING_PACK_LOCALE: "hi-IN" } as never, repo as never);
+  return new PackRegistryService(
+    { PROFILING_PACK_LOCALE: "hi-IN" } as never,
+    repo as never,
+    fakePackCache().cache,
+  );
 }
 
 async function relocationItem(): Promise<QuestionPackItem> {

@@ -1,5 +1,7 @@
 import { Module, forwardRef } from "@nestjs/common";
+import { BullModule } from "@nestjs/bullmq";
 
+import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { AiModule } from "../ai/ai.module";
 import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
@@ -9,6 +11,7 @@ import { ProfilesModule } from "../profiles/profiles.module";
 import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
+import { PackCacheService } from "./pack-cache.service";
 import { PackRegistryService } from "./pack-registry.service";
 import { PackRepository } from "./pack.repository";
 import { ProfilingController } from "./profiling.controller";
@@ -68,10 +71,16 @@ import { ProfilingVoiceRepository } from "./profiling-voice.repository";
     // module metadata is evaluated at require time, and only `app.module.graph.test.ts` says so
     // in under a minute.
     forwardRef(() => ProfilesModule),
+    // REGISTERED ONLY TO OBTAIN THE REDIS CLIENT — no second connection, and nothing here ever
+    // enqueues. The identical idiom `RateLimitModule` uses, and the reason the module doc above
+    // gives for not opening one: a second client would make the envelope and the transcript two
+    // keys with two TTLs, free to disagree about whether an interview exists.
+    BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],
   controllers: [ProfilingController],
   providers: [
     PackRepository,
+    PackCacheService,
     PackRegistryService,
     IdentifyService,
     ProfilingOrchestrator,
