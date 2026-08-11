@@ -651,7 +651,12 @@ def map_rich_to_legacy(
     # TAX-4: flagged vector canonicalization over the DB seam (default off → no-op).
     if skill_store is not None and settings is not None and settings.skill_canonicalize_enabled:
         domain_id = settings.skill_canonicalize_default_domain
-        assigned, _unresolved = canonicalize_labels(
+        # #745: the third value is the per-embed cost records. DISCARDED HERE, and only here,
+        # because this WS4 backfill path has no response object to carry them on and is not
+        # wired to any route today (`/profile/extract` runs its own pass and returns them on
+        # `skill_embedding_metadata`). Whoever un-defers this backfill owns plumbing them out
+        # — dropping them silently is the exact defect #745 is about.
+        assigned, _unresolved, _embed_costs = canonicalize_labels(
             rich.skills + rich.controllers, domain_id, skill_store, settings
         )
         for sid in assigned:

@@ -426,6 +426,30 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // observability emit must never turn a SUCCESSFUL extraction into a failure.
       await this.recordAiCost(aiMeta, "profile_extraction", aiJobId, correlationId, requestId);
 
+      // #745: THE CANONICALIZATION PASS'S EMBEDS — a SECOND set of billable calls on this
+      // same job, and the one this issue's first cut missed.
+      //
+      // `aiMeta` above is the extraction call alone. The TAX-4 pass that runs after it
+      // embeds one vector PER SKILL LABEL, and those records used to stop at an ai-service
+      // log line: `canonicalize_labels` returned ids and unresolved labels only. That left
+      // `skill_embedding` half-ledgered — the job-posting write emitted, this did not — and
+      // a partial ledger reads as a complete one.
+      //
+      // ONLY THE LEGACY LEG REACHES THIS. `/profile/extract` is called when the session has
+      // no answer map (a pre-cutover interview, or the "make the profile anyway" escape
+      // hatch); the OIE path projects locally and calls `/profile/parse` instead, so its
+      // `skill_embedding_metadata` is empty and this loop is a no-op there. That is a fact
+      // about where the embeds happen, not a scope decision.
+      //
+      // ONE EVENT PER EMBED, keyed on each record's own `ai_call_id`: a per-job key would
+      // dedupe the whole fan-out down to one row, which is the same collapse that once lost
+      // the parse call's spend. Unlike the job-posting side there IS a real `ai_jobs` row
+      // here, so these attribute to it. Sequential and awaited to match the sibling calls;
+      // `record` never throws and no-ops on an empty list.
+      for (const embedMeta of result.skill_embedding_metadata) {
+        await this.recordAiCost(embedMeta, "skill_embedding", aiJobId, correlationId, requestId);
+      }
+
       // TD27: if the gateway BLOCKED a real call because a spend cap / circuit
       // breaker tripped, surface it on its own observability event (in addition
       // to the cost record above, which is unchanged). Same guarded, fire-and-

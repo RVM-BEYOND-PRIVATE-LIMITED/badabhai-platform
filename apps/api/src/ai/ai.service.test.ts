@@ -344,7 +344,16 @@ describe("AiService", () => {
       );
 
       const result = await ai.canonicalizeSkill({ phrase: "CNC setting", domain_id: "cnc_vmc", lang: "en" });
-      expect(result).toEqual({ status: "matched", skill_id: "sk_001", score: 0.9 });
+      // The stubbed body above carries NO `ai_metadata` — i.e. it is exactly what an
+      // ai-service deployed BEFORE #745 returns. It still parses, and the field defaults
+      // to null, which is what "additive and back-compatible" has to mean in practice:
+      // the two services can be rolled out in either order.
+      expect(result).toEqual({
+        status: "matched",
+        skill_id: "sk_001",
+        score: 0.9,
+        ai_metadata: null,
+      });
     });
 
     it("returns null when remote unreachable", async () => {

@@ -150,7 +150,7 @@ def test_canonicalize_labels_only_returns_vector_assigned_ids():
     store.seed("skill_surface_grinding", "vmc-machining", "surface grinding")
 
     labels = ["VMC operator", "surface grinding", "underwater basket weaving"]
-    assigned, unresolved = canonicalize_labels(labels, "vmc-machining", store, _settings())
+    assigned, unresolved, _costs = canonicalize_labels(labels, "vmc-machining", store, _settings())
 
     assert assigned == ["skill_vmc_operator", "skill_surface_grinding"]
     assert unresolved == ["underwater basket weaving"]  # no match → not assigned, recorded
@@ -161,10 +161,60 @@ def test_canonicalize_labels_only_returns_vector_assigned_ids():
 def test_canonicalize_labels_dedupes_and_skips_blank():
     store = MemCanonStore()
     store.seed("skill_vmc_operator", "vmc-machining", "VMC operator")
-    assigned, _ = canonicalize_labels(
+    assigned, _, _costs = canonicalize_labels(
         ["VMC operator", "  ", "VMC operator"], "vmc-machining", store, _settings()
     )
     assert assigned == ["skill_vmc_operator"]  # de-duplicated, blank skipped
+
+
+# --- #745: the fan-out's embeds each report their own cost -------------------
+#
+# The gap this closes: the FIRST cut of #745 wired `/skills/canonicalize` (the job-posting
+# side) and left this one, because `canonicalize_labels` collapsed N results into
+# ids-and-labels and dropped every `ai_metadata`. That made
+# `WHERE task_type = 'skill_embedding'` return SOME rows — worse than none, since a partial
+# ledger reads as a complete one. Only a test that COUNTS the records can tell them apart.
+def test_canonicalize_labels_returns_one_cost_record_per_embed():
+    store = MemCanonStore()
+    store.seed("skill_vmc_operator", "vmc-machining", "VMC operator")
+
+    # One hit, one miss, one blank. The blank never reaches an embed; the miss pays for one.
+    _assigned, _unresolved, costs = canonicalize_labels(
+        ["VMC operator", "underwater basket weaving", "   "],
+        "vmc-machining",
+        store,
+        _settings(),
+    )
+
+    assert len(costs) == 2, "a miss costs the same embed as a hit; a blank costs nothing"
+    assert {c.task_type for c in costs} == {"skill_embedding"}
+    # Distinct call ids — the identity `ai.cost_recorded` dedupes on. Sharing one would
+    # collapse the whole fan-out into a single row downstream.
+    assert len({c.ai_call_id for c in costs}) == 2
+    # Mock run ⇒ no money. `real_call` follows the money, not the intent.
+    assert all(c.real_call is False and c.estimated_cost_inr == 0.0 for c in costs)
+
+
+def test_canonicalize_labels_reports_no_cost_for_a_blocked_label(monkeypatch):
+    """A pseudonymize block attempted nothing, so it contributes no record.
+
+    Distinct from a MOCK embed, which ran the pipeline and is reported at ₹0.
+    """
+    from app.ai import canonicalize as canon_mod
+    from app.ai.embeddings import EmbeddingResult
+
+    monkeypatch.setattr(
+        canon_mod,
+        "embed_text",
+        lambda text, settings: EmbeddingResult(
+            vector=None, blocked=True, is_mock=True, model="mock", text=None
+        ),
+    )
+    _assigned, unresolved, costs = canonicalize_labels(
+        ["call me on 9876543210"], "vmc-machining", MemCanonStore(), _settings()
+    )
+    assert unresolved == ["call me on 9876543210"]
+    assert costs == []
 
 
 # --- fail-closed: a blocked phrase is UNRESOLVED and NOT recorded -------------

@@ -62,6 +62,49 @@ def test_profile_extract_returns_structured_draft():
     assert "skill_fanuc" in body["profile"]["skills"]
 
 
+def test_extract_returns_a_cost_record_per_canonicalization_embed(monkeypatch):
+    """#745 — the `/profile/extract` fan-out reaches the ledger too, not just the log.
+
+    THE CALL PATH THIS CLOSES. The first cut of #745 wired `/skills/canonicalize` (the
+    job-posting side) and left this one, because `canonicalize_labels` collapsed N results
+    into ids-and-labels and dropped every `ai_metadata`. `skill_embedding` therefore had two
+    call paths and one emitter, so `WHERE task_type = 'skill_embedding'` returned only part
+    of the spend. An empty result reads as "not instrumented" and invites a look; a partial
+    one reads as complete.
+    """
+    from app.routers import profile as profile_router
+
+    enabled = profile_router.settings.model_copy(update={"skill_canonicalize_enabled": True})
+    monkeypatch.setattr(profile_router, "settings", enabled)
+
+    body = client.post(
+        "/profile/extract",
+        json={"transcript": "I run a VMC, 5 years experience, Fanuc controller"},
+    ).json()
+
+    records = body["skill_embedding_metadata"]
+    assert records, "the canonicalization pass embedded labels and must report what it cost"
+    assert {r["task_type"] for r in records} == {"skill_embedding"}
+    # One per embed, each with its own id — the identity `ai.cost_recorded` dedupes on.
+    assert len({r["ai_call_id"] for r in records}) == len(records)
+    # Mock run ⇒ ₹0. `real_call` follows the money, so a mocked environment records nothing
+    # rather than the fiction TD81 used to write into staging.
+    assert all(r["real_call"] is False and r["estimated_cost_inr"] == 0.0 for r in records)
+
+
+def test_extract_reports_no_embed_cost_when_canonicalization_is_off():
+    """The default: the pass never runs, so there is nothing to report.
+
+    `[]` here means "no embed was attempted", NOT "the embeds were free" — the same
+    distinction `ai_metadata: None` draws on every other surface.
+    """
+    body = client.post(
+        "/profile/extract",
+        json={"transcript": "I run a VMC, 5 years experience, Fanuc controller"},
+    ).json()
+    assert body["skill_embedding_metadata"] == []
+
+
 def test_resume_generate_builds_text():
     res = client.post(
         "/resume/generate",
@@ -129,6 +172,45 @@ def test_profile_extract_deadline_defaults_inside_the_callers_abort():
     from app.config import Settings
 
     assert Settings().profile_extract_deadline_seconds < 8.0
+
+
+def test_resume_generate_returns_the_cost_record(monkeypatch):
+    """#745 — `router.run` always built this metadata; the route used to discard it.
+
+    With no field on the contract there was no way for apps/api to record resume spend,
+    so `SELECT ... WHERE task_type = 'resume_generation'` read as "no spend" rather than
+    "not instrumented" — the identical root cause #738 fixed for STT.
+    """
+    body = client.post(
+        "/resume/generate",
+        json={"profile": {"canonical_role_id": "role_vmc_operator", "machines": ["mach_vmc"]}},
+    ).json()
+
+    meta = body["ai_metadata"]
+    assert meta is not None, "a routed call must report what it cost"
+    assert meta["task_type"] == "resume_generation"
+    assert meta["ai_call_id"]
+    # Mock run => real_call False => Rs 0. `real_call` follows the money, so a mocked
+    # environment records nothing rather than the fiction TD81 wrote into staging.
+    assert meta["real_call"] is False
+    assert meta["estimated_cost_inr"] == 0.0
+
+
+def test_resume_generate_reports_no_cost_when_the_gate_blocks():
+    """The pseudonymize block returns BEFORE the provider, so there is nothing to record.
+
+    The route still COMPLETES from the local deterministic resume — a worker never loses
+    their resume over a gateway block — but an absent cost record is the honest output;
+    a synthesized Rs 0 one would describe a call that never happened.
+    """
+    body = client.post(
+        "/resume/generate",
+        json={"profile": {"education_level": "my reference number is 12345678"}},
+    ).json()
+
+    assert body["is_mock"] is True
+    assert body["resume_text"]  # the resume still exists
+    assert body["ai_metadata"] is None
 
 
 def test_profile_extract_fails_closed_on_unsafe_input():

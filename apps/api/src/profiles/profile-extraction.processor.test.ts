@@ -30,6 +30,11 @@ function make(
     findById?: unknown;
     extractThrows?: boolean;
     aiMetadata?: unknown;
+    /**
+     * #745 — `ProfileExtractionOutput.skill_embedding_metadata`: one record per embed the
+     * TAX-4 canonicalization pass paid for. Omit for a pass that reached no provider.
+     */
+    skillEmbedMetadata?: unknown[];
     /** Issue #419 — the rich WorkerProfileDraft the response carries; omit to simulate none. */
     richDraft?: unknown;
     /**
@@ -148,6 +153,9 @@ function make(
             // signal profile_status must NOT be derived from.
             is_mock: true,
             ai_metadata: opts.aiMetadata ?? null,
+            // #745 — the canonicalization pass's embeds. `[]` (the default) reproduces a
+            // pass that never reached a provider; a populated list is N billable embeds.
+            skill_embedding_metadata: opts.skillEmbedMetadata ?? [],
             // Issue #419 — the response has always carried the rich draft; `undefined`
             // here reproduces an AI service that omits it entirely.
             worker_profile_draft: opts.richDraft,
@@ -1169,6 +1177,83 @@ describe("the interview's one LLM call is ledgered", () => {
       .map((e) => e.idempotencyKey);
     expect(new Set(keys).size).toBe(records.length);
     expect(keys).toContain(`ai.cost_recorded:${PARSE_META.ai_call_id}`);
+  });
+
+  /**
+   * #745 — the canonicalization fan-out on the SAME job.
+   *
+   * This is the call path the issue's first cut missed. `/skills/canonicalize` (the
+   * job-posting write) was wired and this was not, so `WHERE task_type = 'skill_embedding'`
+   * returned only part of the spend — and a partial ledger reads as complete, where an empty
+   * one reads as "not instrumented" and invites a look. Only COUNTING the records can tell
+   * the two apart, so these tests count.
+   *
+   * NO `withMap()` HERE, AND THAT IS THE POINT. `/profile/extract` — the route that runs the
+   * canonicalization pass — is reached only when the session has no answer map (a
+   * pre-cutover interview, or the "make the profile anyway" escape hatch). The OIE path
+   * projects locally and calls `/profile/parse`, so it never embeds anything. Writing these
+   * against `withMap()` produced a green-looking assertion of zero, which is how the first
+   * draft of this test proved nothing.
+   *
+   * The recorder here is the REAL `AiCostRecorder` over a stubbed `EventsService`, so every
+   * assertion below also proves the event validates against the registry — including the
+   * `skill_embedding` task type carrying a real `ai_jobs` id.
+   */
+  const EMBED_META = (id: string, cost: number) => ({
+    ...PARSE_META,
+    ai_call_id: id,
+    task_type: "skill_embedding",
+    model_name: "gemini-embedding-001",
+    output_tokens: 0,
+    estimated_cost_inr: cost,
+  });
+
+  it("emits one ai.cost_recorded per canonicalization embed, attributed to this job", async () => {
+    const { proc, events } = make({
+      skillEmbedMetadata: [
+        EMBED_META("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", 0.03),
+        EMBED_META("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", 0.03),
+        EMBED_META("cccccccc-cccc-4ccc-8ccc-cccccccccccc", 0.03),
+      ],
+    });
+
+    await proc.process(makeJob());
+
+    const embeds = costRecords(events).filter((e) => e.payload.task_type === "skill_embedding");
+    // THREE, not one: a 3-label pass is 3 billable embeds. A per-pass record would
+    // under-report this surface by the number of labels on every extraction that runs it.
+    expect(embeds).toHaveLength(3);
+    // Attributed to the extraction's own ai_jobs row — unlike the job-posting write, this
+    // surface HAS one, so null would be throwing away attribution that exists.
+    expect(new Set(embeds.map((e) => e.payload.ai_job_id))).toEqual(new Set([JOB.aiJobId]));
+    // Distinct dedupe keys, or the fan-out collapses to one row on the way in.
+    const keys = events.emit.mock.calls
+      .map(
+        (c) =>
+          c[0] as {
+            event_name: string;
+            payload: Record<string, unknown>;
+            idempotencyKey?: string;
+          },
+      )
+      .filter(
+        (e) => e.event_name === "ai.cost_recorded" && e.payload.task_type === "skill_embedding",
+      )
+      .map((e) => e.idempotencyKey);
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it("emits no embed records when the canonicalization pass never ran", async () => {
+    // The default posture (flag off) and the ledger-blocked path both return an empty list.
+    // Empty means "nothing was attempted" — a ₹0 row here would describe an embed that
+    // never happened, which is the same lie a fabricated extraction record would be.
+    const { proc, events } = make();
+
+    await proc.process(makeJob());
+
+    expect(costRecords(events).filter((e) => e.payload.task_type === "skill_embedding")).toEqual(
+      [],
+    );
   });
 
   it("records NOTHING when the parse degraded — a zero-cost row would be a lie", async () => {

@@ -136,7 +136,18 @@ function make(existing?: Row) {
     );
   const canonicalize = vi
     .fn()
-    .mockResolvedValue({ status: "unresolved", skill_id: null, score: null });
+    .mockResolvedValue({ status: "unresolved", skill_id: null, score: null, ai_metadata: null });
+  // Typed to `AiCostRecorder.record`'s real signature so `mock.calls[n][i]` stays checked —
+  // an untyped `vi.fn()` makes every argument assertion below silently `any`.
+  const recordAiCost = vi.fn(
+    async (
+      _meta: unknown,
+      _taskType: string,
+      _aiJobId: string | null,
+      _correlationId: string,
+      _requestId: string,
+    ) => {},
+  );
   const materializeReach = vi.fn().mockResolvedValue({
     jobPostingId: "posting",
     matchSkillIds: [],
@@ -163,6 +174,9 @@ function make(existing?: Row) {
     { emit } as never,
     // TAX-6: AiService stub — canonicalize returns UNRESOLVED unless a test overrides.
     { canonicalizeSkill: canonicalize } as never,
+    // #745: one `ai.cost_recorded` per canonicalized phrase. Stubbed so a test can count
+    // the fan-out — a 3-skill posting must produce 3 records, not 1.
+    { record: recordAiCost } as never,
     // ADR-0036 moment ③. These cases exercise the ops/payer lifecycle, not reach; a
     // resolving stub keeps `materializeIfNeeded` inert. Reach materialization has its
     // own coverage in `apps/api/src/match/`.
@@ -172,6 +186,7 @@ function make(existing?: Row) {
     svc,
     emit,
     canonicalize,
+    recordAiCost,
     materializeReach,
     create,
     findById,
@@ -193,6 +208,73 @@ function assertNoFreeText(payload: Record<string, unknown>): void {
     expect(serialized).not.toContain(text);
   }
 }
+
+/**
+ * #745 — skill_embedding spend reaches the ledger.
+ *
+ * The defect this locks: `AiCostRecorder` swallows emit failures by design, so an
+ * uninstrumented surface does not raise — it produces an empty result for
+ * `SELECT ... WHERE task_type = 'skill_embedding'`, which reads as "no spend" rather than
+ * "not instrumented". Only a test that COUNTS the records can tell those apart.
+ */
+describe("JobPostingsService — one cost record per embed (#745)", () => {
+  const THREE_SKILLS = ["welding", "vmc operation", "fanuc control"];
+
+  it("records ONE ai.cost_recorded per phrase — a 3-skill posting is 3 billable embeds", async () => {
+    const { svc, recordAiCost, canonicalize } = make();
+    canonicalize.mockResolvedValue({
+      status: "matched",
+      skill_id: "skill_welding",
+      score: 0.91,
+      ai_metadata: { ai_call_id: "call-1", model_name: "text-embedding-004", real_call: true },
+    });
+
+    await svc.create(
+      { created_by: CREATED_BY, org_label: ORG, role_title: ROLE, skills: THREE_SKILLS },
+      CTX as never,
+    );
+
+    // The fan-out is the whole point: a per-POSTING record would report 1 and under-count
+    // this surface by the number of skills on every posting ever created.
+    expect(recordAiCost).toHaveBeenCalledTimes(3);
+    for (const call of recordAiCost.mock.calls) {
+      expect(call[1]).toBe("skill_embedding");
+      // No `ai_jobs` row backs an inline posting write — null is the honest job id.
+      expect(call[2]).toBeNull();
+    }
+  });
+
+  it("records the embed even when the phrase does NOT resolve — a miss costs the same", async () => {
+    // Ledgering only the matches would under-count exactly the phrases the vocabulary is
+    // worst at, which are the ones that justify growing it.
+    const { svc, recordAiCost } = make(); // default stub returns `unresolved`
+    await svc.create(
+      { created_by: CREATED_BY, org_label: ORG, role_title: ROLE, skills: THREE_SKILLS },
+      CTX as never,
+    );
+    expect(recordAiCost).toHaveBeenCalledTimes(3);
+    expect(recordAiCost.mock.calls[0]![1]).toBe("skill_embedding");
+  });
+
+  it("passes null metadata straight through when the ai-service is unreachable", async () => {
+    // `canonicalizeSkill` resolves null on an unreachable service. `record` no-ops on null,
+    // so nothing is emitted — an absent record, never a fabricated ₹0 one.
+    const { svc, recordAiCost, canonicalize } = make();
+    canonicalize.mockResolvedValue(null);
+    await svc.create(
+      { created_by: CREATED_BY, org_label: ORG, role_title: ROLE, skills: THREE_SKILLS },
+      CTX as never,
+    );
+    expect(recordAiCost).toHaveBeenCalledTimes(3);
+    for (const call of recordAiCost.mock.calls) expect(call[0]).toBeNull();
+  });
+
+  it("makes no cost call at all when the posting carries no skills", async () => {
+    const { svc, recordAiCost } = make();
+    await svc.create({ created_by: CREATED_BY, org_label: ORG, role_title: ROLE }, CTX as never);
+    expect(recordAiCost).not.toHaveBeenCalled();
+  });
+});
 
 describe("JobPostingsService.create", () => {
   it("creates as draft and emits job_posting.created with correct flags", async () => {

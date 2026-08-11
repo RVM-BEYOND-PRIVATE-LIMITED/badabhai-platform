@@ -172,6 +172,23 @@ export const ProfileExtractionOutputSchema = z.object({
   worker_profile_draft: WorkerProfileDraftSchema.nullable().default(null),
   ai_metadata: AICallMetadataSchema.nullable().default(null),
   /**
+   * #745 — the embeds the TAX-4 canonicalization pass paid for. ONE ENTRY PER EMBED.
+   *
+   * `ai_metadata` above is the EXTRACTION call alone. The canonicalization pass that runs
+   * after it makes a second set of billable provider calls (one per skill label), and they
+   * had no way home: `canonicalize_labels` returned ids and unresolved labels only. The
+   * first cut of #745 wired `/skills/canonicalize` (the job-posting side) and left this
+   * one, so `WHERE task_type = 'skill_embedding'` returned only part of the spend — and a
+   * partial ledger reads as a complete one, which is worse than an empty one.
+   *
+   * A LIST because the count is the point: a 10-label pass is 10 billable embeds and a
+   * per-pass record would under-report it tenfold. EMPTY on every path that reached no
+   * provider (flag off, spend-ledger block, blocked extraction) — which means "nothing was
+   * attempted", never "the embeds were free". Additive + defaulted, so an ai-service that
+   * predates the field still parses (§3).
+   */
+  skill_embedding_metadata: z.array(AICallMetadataSchema).default([]),
+  /**
    * The RAG job-domain classification. `null` = the pass DID NOT RUN (the flag is off,
    * or the extraction was blocked), which is deliberately distinct from a pass that ran
    * and came back unmatched: the first writes nothing, the second records the reason.
@@ -218,5 +235,10 @@ export const ResumeGenerationOutputSchema = z.object({
   resume_json: z.record(z.string(), z.unknown()),
   format: z.enum(["text", "json"]).default("text"),
   is_mock: z.boolean().default(true),
+  // #745 — `router.run` always produced this on the résumé route; the route dropped it,
+  // so real resume spend reached no ledger. Additive + defaulted (the §3 discipline #738
+  // used). null on the pseudonymize-blocked path, which completes from the LOCAL
+  // deterministic résumé without calling a provider.
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type ResumeGenerationOutput = z.infer<typeof ResumeGenerationOutputSchema>;

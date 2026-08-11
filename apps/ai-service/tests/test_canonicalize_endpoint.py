@@ -154,3 +154,91 @@ def test_mock_embed_path_never_touches_the_ledger(monkeypatch):
     assert resp.status_code == 200
     assert resp.json()["status"] == "matched"
     assert fake.reserves == [] and fake.records == []
+
+
+# --- #745: the embed's cost record rides home on the response ----------------
+#
+# ROOT CAUSE THIS CLOSES (the same one #738 fixed for STT): the response contract carried
+# no cost field, so no emitter could exist in apps/api even if someone wrote one, and
+# `SELECT ... WHERE task_type = 'skill_embedding'` came back empty — which reads as
+# "no spend" rather than "not instrumented". `AiCostRecorder` swallows emit failures by
+# design, so nothing anywhere raised. Only asserting on the field can catch it.
+
+
+def test_matched_response_carries_the_embed_cost_record(monkeypatch):
+    enabled = Settings(_env_file=None, skill_canonicalize_enabled=True)
+    monkeypatch.setattr(skills_router, "get_settings", lambda: enabled)
+    monkeypatch.setattr(skills_router, "get_skill_store", lambda s: OneHitStore())
+
+    body = client.post(
+        "/skills/canonicalize",
+        json={"phrase": "lathe operation", "domain_id": "cnc-machining"},
+    ).json()
+
+    meta = body["ai_metadata"]
+    assert meta is not None, "the embed is a billable call and must report one"
+    assert meta["task_type"] == "skill_embedding"
+    assert meta["ai_call_id"]  # the identity `ai.cost_recorded` is keyed on
+    # MOCK RUN => NO MONEY. `real_call` follows the money, not the intent, so a mocked
+    # environment records Rs 0 rather than the fiction TD81 used to write into staging.
+    assert meta["real_call"] is False
+    assert meta["estimated_cost_inr"] == 0.0
+
+
+def test_an_unresolved_phrase_still_reports_its_cost(monkeypatch):
+    """A miss costs the same embed as a hit.
+
+    Recording only the matches would under-count exactly the phrases the vocabulary is
+    worst at — which are the ones that justify growing it (TAX-5).
+    """
+    enabled = Settings(_env_file=None, skill_canonicalize_enabled=True)
+    monkeypatch.setattr(skills_router, "get_settings", lambda: enabled)
+    monkeypatch.setattr(skills_router, "get_skill_store", lambda s: OneHitStore())
+
+    body = client.post(
+        "/skills/canonicalize",
+        json={"phrase": "lathe operation", "domain_id": "some-other-domain"},
+    ).json()
+
+    assert body["status"] == "unresolved"
+    assert body["ai_metadata"] is not None
+    assert body["ai_metadata"]["task_type"] == "skill_embedding"
+
+
+def test_flag_off_reports_no_cost_at_all(monkeypatch):
+    """No provider was reached, so there is nothing to record.
+
+    An absent record is the honest answer; a synthesized zero-cost one would put a call
+    that never happened onto the cost spine.
+    """
+    monkeypatch.setattr(skills_router, "get_settings", lambda: Settings(_env_file=None))
+    body = client.post(
+        "/skills/canonicalize",
+        json={"phrase": "lathe operation", "domain_id": "cnc-machining"},
+    ).json()
+    assert body["status"] == "unresolved"
+    assert body["ai_metadata"] is None
+
+
+def test_a_pseudonymize_block_reports_no_cost(monkeypatch):
+    """The gate refused BEFORE the provider — distinct from a mock, which ran the pipeline."""
+    from app.ai import canonicalize as canon_mod
+    from app.ai.embeddings import EmbeddingResult
+
+    enabled = Settings(_env_file=None, skill_canonicalize_enabled=True)
+    monkeypatch.setattr(skills_router, "get_settings", lambda: enabled)
+    monkeypatch.setattr(skills_router, "get_skill_store", lambda s: OneHitStore())
+    monkeypatch.setattr(
+        canon_mod,
+        "embed_text",
+        lambda text, settings: EmbeddingResult(
+            vector=None, blocked=True, is_mock=True, model="mock", text=None
+        ),
+    )
+
+    body = client.post(
+        "/skills/canonicalize",
+        json={"phrase": "call me on 9876543210", "domain_id": "cnc-machining"},
+    ).json()
+    assert body["status"] == "unresolved"
+    assert body["ai_metadata"] is None

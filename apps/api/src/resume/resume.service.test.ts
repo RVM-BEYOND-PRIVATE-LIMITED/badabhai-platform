@@ -16,6 +16,7 @@ import type { ProfilesRepository } from "../profiles/profiles.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { EventsService } from "../events/events.service";
 import type { AiService } from "../ai/ai.service";
+import type { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { StorageService } from "../storage/storage.service";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
@@ -51,12 +52,24 @@ function setup(
   };
   // The AI mock returns a NAME-LESS resume (as the real service does).
   const ai = {
-    generateResume: vi.fn(async (_input: unknown) => ({
-      resume_text: "PROFESSIONAL SUMMARY (draft)",
-      resume_json: { profile: {} },
-      format: "text",
-      is_mock: true,
-    })),
+    generateResume: vi.fn(
+      async (
+        _input: unknown,
+      ): Promise<{
+        resume_text: string;
+        resume_json: Record<string, unknown>;
+        format: string;
+        is_mock: boolean;
+        // #745 — part of the contract now; a mock run reports no spend.
+        ai_metadata: Record<string, unknown> | null;
+      }> => ({
+        resume_text: "PROFESSIONAL SUMMARY (draft)",
+        resume_json: { profile: {} },
+        format: "text",
+        is_mock: true,
+        ai_metadata: null,
+      }),
+    ),
   };
   const workers = {
     findById: vi.fn(async () => ({ id: "w-1", fullName: fullNameToken })),
@@ -99,12 +112,27 @@ function setup(
     RESUME_RATE_LIMIT_PER_IP_PER_HOUR: 20,
   } as ServerConfig;
 
+  // #745: the résumé cost emitter. Stubbed (not the real recorder) so a test asserts on
+  // the RECORD CALL rather than on an event round-trip through EventsService.
+  const aiCost = {
+    record: vi.fn(
+      async (
+        _meta: unknown,
+        _taskType: string,
+        _aiJobId: string | null,
+        _correlationId: string,
+        _requestId: string,
+      ) => {},
+    ),
+  };
+
   const svc = new ResumeService(
     resumes as unknown as ResumeRepository,
     profiles as unknown as ProfilesRepository,
     workers as unknown as WorkersRepository,
     events as unknown as EventsService,
     ai as unknown as AiService,
+    aiCost as unknown as AiCostRecorder,
     pii as unknown as PiiCryptoService,
     rateLimit as unknown as ResumeRateLimit,
     storage as unknown as StorageService,
@@ -112,8 +140,95 @@ function setup(
     renderQueue as unknown as Queue<ResumeRenderJobData>,
   );
   EVENTS.set(svc, events);
-  return { svc, ai, pii, profiles, resumes, rateLimit, renderQueue, events, storage, config };
+  return {
+    svc,
+    ai,
+    aiCost,
+    pii,
+    profiles,
+    resumes,
+    rateLimit,
+    renderQueue,
+    events,
+    storage,
+    config,
+  };
 }
+
+/**
+ * #745 — résumé spend reaches the ledger.
+ *
+ * `router.run` on the ai-service had always built this metadata; `/resume/generate` simply
+ * dropped it, so the contract carried no cost field and no emitter could exist. The failure
+ * was silent by construction: no exception, just an empty
+ * `SELECT ... WHERE task_type = 'resume_generation'` that reads as "no spend".
+ */
+describe("ResumeService — resume_generation cost is recorded (#745)", () => {
+  const META = {
+    ai_call_id: "11111111-1111-4111-8111-111111111111",
+    model_name: "gemini-2.5-flash",
+    real_call: true,
+    estimated_cost_inr: 0.42,
+  };
+
+  it("records the metadata the AI service returned, against a null ai_job id", async () => {
+    const { svc, ai, aiCost } = setup("v1.ciphertext");
+    ai.generateResume.mockResolvedValue({
+      resume_text: "RESUME",
+      resume_json: { profile: {} },
+      format: "text",
+      is_mock: false,
+      ai_metadata: META,
+    });
+
+    await svc.generate(DTO, CTX);
+
+    expect(aiCost.record).toHaveBeenCalledOnce();
+    const [meta, taskType, aiJobId] = aiCost.record.mock.calls[0]!;
+    expect(meta).toEqual(META);
+    expect(taskType).toBe("resume_generation");
+    // Résumé generation runs inline (and its BullMQ path is a queue job, not an ai_jobs
+    // row), so there is no job id to attribute to and null is the honest value.
+    expect(aiJobId).toBeNull();
+  });
+
+  it("passes null through when nothing was spent — no fabricated ₹0 record", async () => {
+    // The pseudonymize-blocked and service-unreachable paths both return null metadata.
+    // `record` no-ops on null, so the ledger stays silent rather than logging a call that
+    // never reached a provider.
+    const { svc, ai, aiCost } = setup("v1.ciphertext");
+    ai.generateResume.mockResolvedValue({
+      resume_text: "LOCAL DRAFT",
+      resume_json: { profile: {} },
+      format: "text",
+      is_mock: true,
+      ai_metadata: null,
+    });
+
+    await svc.generate(DTO, CTX);
+
+    expect(aiCost.record).toHaveBeenCalledOnce();
+    expect(aiCost.record.mock.calls[0]![0]).toBeNull();
+  });
+
+  it("records BEFORE the row is written, so a failed write cannot lose the spend", async () => {
+    // The ordering #738 chose for STT: the rupees are already gone by the time the AI call
+    // returns, so the record must not be downstream of anything that can throw.
+    const { svc, ai, aiCost, resumes } = setup("v1.ciphertext");
+    ai.generateResume.mockResolvedValue({
+      resume_text: "RESUME",
+      resume_json: { profile: {} },
+      format: "text",
+      is_mock: false,
+      ai_metadata: META,
+    });
+    resumes.createInitial.mockRejectedValue(new Error("db down"));
+
+    await expect(svc.generate(DTO, CTX)).rejects.toThrow("db down");
+    expect(aiCost.record).toHaveBeenCalledOnce();
+    expect(aiCost.record.mock.calls[0]![0]).toEqual(META);
+  });
+});
 
 describe("ResumeService — TD21 name injection", () => {
   it("injects the decrypted name into the resume but NEVER sends it to the AI service", async () => {

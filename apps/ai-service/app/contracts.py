@@ -696,6 +696,18 @@ class SkillCanonicalization(BaseModel):
     status: Literal["matched", "unresolved"]
     skill_id: str | None = None
     score: float | None = None
+    # #745: THE EMBED IS A PAID PROVIDER CALL AND HAD NO WAY HOME.
+    #
+    # This is the exact root cause #738 fixed for STT, on a second surface: the response
+    # contract carried no cost field, so no emitter could exist in apps/api even if someone
+    # wrote one, and `SELECT ... WHERE task_type = 'skill_embedding'` returned empty — which
+    # reads as "no spend" rather than "not instrumented". Additive + defaulted, so every
+    # existing caller and stored payload stays valid (the §3 discipline #738 used).
+    #
+    # None on every path that did NOT reach a provider: the flag being off, a spend-ledger
+    # block, and a pseudonymize block. `AiCostRecorder.record` no-ops on None, so the caller
+    # never has to branch, and a mocked environment never writes fictional money.
+    ai_metadata: AICallMetadata | None = None
 
 
 # --- Skill-alias embedding batch (ADR-0030 / TAX-3 fork-B runner seam) ------
@@ -936,6 +948,24 @@ class ProfileExtractionOutput(BaseModel):
     extraction_status: Literal["completed", "blocked"] = "completed"
     worker_profile_draft: WorkerProfileDraft | None = None
     ai_metadata: AICallMetadata | None = None
+    # #745: THE EMBEDS THE CANONICALIZATION PASS PAID FOR — one entry per embed, not one
+    # per extraction.
+    #
+    # `ai_metadata` above is the EXTRACTION call and nothing else. The TAX-4 pass that runs
+    # after it is a SECOND set of billable provider calls (one embed per skill label), and
+    # they had no way home: `canonicalize_labels` returned ids and unresolved labels only.
+    # The first cut of #745 wired `/skills/canonicalize` — the job-posting side — and left
+    # this one, which meant `WHERE task_type = 'skill_embedding'` returned SOME rows. Empty
+    # reads as "not instrumented"; partial reads as complete, and is worse. The coverage
+    # guard in apps/api is keyed by TASK TYPE, so wiring either path deletes the entry that
+    # names both — which is exactly how one path stayed dark.
+    #
+    # A LIST, not a single record, because the count is the whole point: a 10-label pass is
+    # 10 billable embeds and a per-pass record would under-report it tenfold. EMPTY on every
+    # path that reached no provider — the flag off, a spend-ledger block, a blocked
+    # extraction — which is distinct from `[]` meaning "free": nothing was attempted at all.
+    # Additive + defaulted, so a caller that predates it is unaffected (§3).
+    skill_embedding_metadata: list[AICallMetadata] = Field(default_factory=list)
     # Generalized profiling: the RAG domain match. `None` = the pass did not run at all
     # (flag off, or a blocked extraction), which is DISTINCT from a match that ran and
     # came back unmatched — the caller writes nothing in the first case and records the
@@ -964,6 +994,11 @@ class ResumeGenerationOutput(BaseModel):
     resume_json: dict = Field(default_factory=dict)
     format: Literal["text", "json"] = "text"
     is_mock: bool = True
+    # #745: `router.run` has always produced this metadata here — the route simply dropped
+    # it on the floor, so resume spend reached no ledger. Same additive/defaulted shape as
+    # the STT fix (#738). None on the pseudonymize-blocked path, where the route completes
+    # from the LOCAL deterministic resume and no provider is called.
+    ai_metadata: AICallMetadata | None = None
 
 
 # --- Voice transcription (STT) ---------------------------------------------

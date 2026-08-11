@@ -173,6 +173,9 @@ export class AiService {
       blocked: false,
       is_mock: true,
       ai_metadata: null,
+      // No canonicalization pass ran either — the request never left the process, so there
+      // are no embeds to report (#745). Empty means "nothing was attempted", not "free".
+      skill_embedding_metadata: [],
       error_code: "extract_service_unreachable",
     });
   }
@@ -224,6 +227,11 @@ export class AiService {
       resume_json: { profile },
       format: "text",
       is_mock: true,
+      // The AI service was never reached, so nothing was spent and there is nothing to
+      // record (#745). Explicit rather than leaning on the schema default: this is the
+      // same deliberate `null` the extraction fallback above documents at length — a
+      // synthesized zero-cost record would describe a provider call that never happened.
+      ai_metadata: null,
     });
   }
 

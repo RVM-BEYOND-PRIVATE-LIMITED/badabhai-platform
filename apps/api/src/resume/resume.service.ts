@@ -17,6 +17,7 @@ import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ProfilesRepository } from "../profiles/profiles.repository";
 import { AiService } from "../ai/ai.service";
+import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { StorageService } from "../storage/storage.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
@@ -34,6 +35,7 @@ export class ResumeService {
     private readonly workers: WorkersRepository,
     private readonly events: EventsService,
     private readonly ai: AiService,
+    private readonly aiCost: AiCostRecorder,
     private readonly pii: PiiCryptoService,
     private readonly rateLimit: ResumeRateLimit,
     private readonly storage: StorageService,
@@ -79,6 +81,24 @@ export class ResumeService {
 
     // The AI service receives ONLY the structured profile (no name/phone).
     const result = await this.ai.generateResume({ profile: draft });
+
+    // THE COST RECORD, EMITTED BEFORE ANY OF THE WRITES BELOW (#745) — the same ordering
+    // #738 chose for STT, for the same reason: the rupees are already spent by this line, so
+    // a failure in the name decrypt, the row insert, or the render enqueue must not be able
+    // to lose the record of them. `record` never throws and no-ops on null metadata (the
+    // pseudonymize-blocked and service-unreachable paths), so this cannot turn a résumé into
+    // a failure and cannot invent spend that did not happen.
+    //
+    // `aiJobId` is null BY CONSTRUCTION: résumé generation runs inline here, and the BullMQ
+    // path (`ResumeGenerateProcessor`) is a queue job with no `ai_jobs` row either. The
+    // subject the spend belongs to is on the payload's `ai_call_id`, not a job row.
+    await this.aiCost.record(
+      result.ai_metadata ?? null,
+      "resume_generation",
+      null,
+      ctx.correlationId,
+      ctx.requestId,
+    );
 
     // TD21: put the worker's real name on the resume — decrypted SERVER-SIDE and
     // injected AFTER the AI call, so the name never reaches the LLM (the AI service
