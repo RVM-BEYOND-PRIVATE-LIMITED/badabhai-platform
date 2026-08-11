@@ -407,6 +407,23 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       // banking here would append an answer the engine never took (and, for a spoken
       // answer, a `voice_note_id`) against the wrong question, plus over-count
       // `profiling_answer_spoken` on the flaky-2G path. Present it without banking.
+      //
+      // A RE-ATTACH IS NOT THE SAME SHAPE AS A RETRY, and the difference is worth
+      // stating because both land in this one guard. On `RetryCurrentQuestion` the
+      // server wrote NOTHING, so skipping both is simply accurate. On `ReattachedTo`
+      // the server DID take an answer to this question — the earlier attempt that
+      // timed out client-side (`profiling-session.service.ts` names exactly that case
+      // in its stale-answer guard) — just not THIS clip. So the local echo and the
+      // spoken counter both end up one short for a question the worker really did
+      // answer, and by voice.
+      //
+      // ACCEPTED, NOT OVERLOOKED. The alternative is banking a `voice_note_id` the
+      // engine discarded, which is worse than a gap: `_answers` only ever feeds the
+      // review screen's local echo, and #700's remaining work replaces that with rows
+      // read from `GET /profiling/session` — server truth, where the accepted answer
+      // already is. The counter stays consistent with the rule the line above states
+      // ("only an answer the engine actually took"); it is not silently different for
+      // this variant.
       if (step is! RetryCurrentQuestion && step is! ReattachedTo) {
         _answers.add(answer);
         if (answer.isSpoken) _actions.recordAnswerSpoken(current.index); // #639
