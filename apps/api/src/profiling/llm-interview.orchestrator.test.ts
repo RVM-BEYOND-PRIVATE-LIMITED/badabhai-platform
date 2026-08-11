@@ -63,6 +63,20 @@ const CITY = item({
   is_mandatory: true,
 });
 const SHIFT = item({ question_key: "q_shift", prompt_text: "Din ya raat ki shift?" });
+// The two the LLM-led opening covers in conversation. Ordered AFTER `q_city` and left
+// non-mandatory so the tail's own priority order is unaffected by their presence.
+const TRADE = item({
+  question_key: "primary_trade",
+  target_kind: "rfs",
+  target_field: "trade",
+  prompt_text: "Aap kaunsa kaam karte hain?",
+});
+const YEARS = item({
+  question_key: "experience_years",
+  target_kind: "rfs",
+  target_field: "experience_years",
+  prompt_text: "Is kaam mein aapko kitne saal ho gaye?",
+});
 
 const UNIVERSAL_PACK: QuestionPack = {
   pack_id: "qp_universal",
@@ -71,7 +85,7 @@ const UNIVERSAL_PACK: QuestionPack = {
   locale: "hi-IN",
   status: "active",
   content_hash: "hash_universal",
-  items: [CITY, SHIFT],
+  items: [CITY, SHIFT, TRADE, YEARS],
 };
 
 const ASK: LlmTurnResult = {
@@ -242,6 +256,103 @@ describe("Phase A ends and the template tail takes over", () => {
     const saved = store.get(SESSION)?.profiling;
     expect(saved?.llmStage).toBe("done");
     expect(saved?.engineAsks).toBe(1);
+  });
+
+  it("settles what Phase A learned, so the tail does not re-ask the trade", async () => {
+    const { orchestrator, store } = makeWorld({
+      take: {
+        kind: "done",
+        patch: {
+          llmStage: "done",
+          llmDraft: {
+            domain_label: "cooking",
+            role_label: "tandoor cook",
+            skills: [],
+            experiences: [
+              { role_label: "tandoor cook", duration_text: "3 saal", duration_months: 36, work_done: "naan" },
+              { role_label: "helper", duration_text: "1 saal", duration_months: 12, work_done: "prep" },
+            ],
+          },
+        },
+      },
+    });
+    await orchestrator.takeTurn(say("bas itna hi"));
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    // KEYED OFF `target_field`, so it lands on whichever pack question owns the RFS field.
+    expect(map.find((a) => a.target_field === "trade")).toMatchObject({
+      question_key: "primary_trade",
+      value_normalized: "tandoor cook",
+      status: "answered",
+    });
+    expect(map.find((a) => a.target_field === "experience_years")?.value_normalized).toBe(4);
+  });
+
+  it("leaves `experience_years` for the pack when an entry carries no duration", async () => {
+    // Summing over an entry the model could not put a number on UNDERSTATES the worker, and
+    // understating experience is the one direction that costs them jobs.
+    const { orchestrator, store } = makeWorld({
+      take: {
+        kind: "done",
+        patch: {
+          llmStage: "done",
+          llmDraft: {
+            domain_label: "cooking",
+            role_label: null,
+            skills: [],
+            experiences: [
+              { role_label: "cook", duration_text: "kaafi saal", duration_months: null, work_done: "" },
+            ],
+          },
+        },
+      },
+    });
+    await orchestrator.takeTurn(say("bas itna hi"));
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(map.find((a) => a.target_field === "experience_years")).toBeUndefined();
+    expect(map.find((a) => a.target_field === "trade")?.value_normalized).toBe("cooking");
+  });
+
+  it("never overwrites an answer the worker gave against a real question", async () => {
+    const { orchestrator, store } = makeWorld({
+      take: {
+        kind: "done",
+        patch: {
+          llmStage: "done",
+          llmDraft: {
+            domain_label: "catering",
+            role_label: null,
+            skills: [],
+            experiences: [],
+          },
+        },
+      },
+    });
+    // NOTHING ON SCREEN, so this turn captures nothing of its own: what is under test is the
+    // projection, not the ordinary capture path that would legitimately overwrite an answer the
+    // worker is being re-asked.
+    seed(store, {
+      servedQuestionKey: null,
+      engineAsks: 1,
+      askCounts: { primary_trade: 1 },
+      answerMap: [
+        {
+          question_key: "primary_trade",
+          target_field: "trade",
+          value_raw: "halwai",
+          value_normalized: "halwai",
+          status: "answered",
+          evidence: null,
+          turn: 1,
+          history: [],
+        },
+      ],
+    });
+    await orchestrator.takeTurn(say("bas itna hi"));
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(map.find((a) => a.question_key === "primary_trade")?.value_normalized).toBe("halwai");
   });
 
   it("stops consulting the model once the stage is done", async () => {

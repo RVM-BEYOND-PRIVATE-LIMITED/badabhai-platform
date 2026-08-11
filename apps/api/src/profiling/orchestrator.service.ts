@@ -1004,9 +1004,14 @@ export class ProfilingOrchestrator {
             checkpointDue: false,
           });
         }
-        // `done` — Phase A is over. FALL THROUGH so the engine serves the template pack's first
-        // question on THIS turn: returning the model's closing words here would cost the worker a
-        // round trip to see a bubble with no question in it.
+        // `done` — Phase A is over. What the model gathered becomes ANSWERS before the engine is
+        // consulted, or the template tail opens by asking a worker their trade immediately after
+        // a conversation that was largely about it.
+        answers = settleFromLlmDraft(answers, next.llmDraft, items, turn);
+        next = withAnswers(next, answers);
+        // FALL THROUGH so the engine serves the template pack's first question on THIS turn:
+        // returning the model's closing words here would cost the worker a round trip to see a
+        // bubble with no question in it.
       }
     }
 
@@ -1759,6 +1764,65 @@ function unavailable(): TurnResult {
     // Nothing was written to Redis either, so there is no state a checkpoint could make durable.
     checkpointDue: false,
   };
+}
+
+/**
+ * What Phase A learned, written into the deterministic answer map.
+ *
+ * WHY THIS IS NOT OPTIONAL. Phase A spends most of an interview on the worker's trade and their
+ * jobs, and the template tail opens with `primary_trade` — so without this the first thing a
+ * worker hears after the conversation ends is a question the conversation already answered. It
+ * is also what keeps `progress` and `unansweredEssentials` honest: both are computed from settled
+ * pack questions, and a Phase A that filled neither reports a worker who has answered nothing.
+ *
+ * KEYED ON `target_field`, NEVER ON A QUESTION KEY. The trade question is `primary_trade` in the
+ * universal pack and something else in an occupation pack, and hardcoding either would silently
+ * settle nothing for the other. The RFS field is the fact the packs agree on.
+ *
+ * FIRST-WRITE-WINS, the same rule the cross-question path follows: a value the worker established
+ * against a real question is theirs, and a draft assembled by a model must never overwrite it.
+ *
+ * `experience_years` IS ONLY SETTLED WHEN EVERY ENTRY CARRIES A DURATION. A sum over entries the
+ * model could not put a number on understates a worker's experience, and understating it is the
+ * one direction that costs them jobs — so a partial answer is left for the pack question to ask
+ * properly rather than filled in with a number nobody can defend.
+ */
+function settleFromLlmDraft(
+  answers: AnswerMap,
+  draft: ProfilingEnvelope["llmDraft"],
+  items: readonly QuestionPackItem[],
+  turn: number,
+): AnswerMap {
+  const trade = (draft.role_label ?? draft.domain_label ?? "").trim();
+  const months = draft.experiences.map((entry) => entry.duration_months);
+  const years =
+    months.length > 0 && months.every((m): m is number => typeof m === "number")
+      ? Math.round(months.reduce((sum, m) => sum + m, 0) / 12)
+      : null;
+
+  let next = answers;
+  const settle = (field: string, raw: string, normalized: unknown): void => {
+    const item = items.find((candidate) => candidate.target_field === field);
+    if (!item || isSettled(next, item.question_key)) return;
+    next = recordAnswer(
+      next,
+      {
+        questionKey: item.question_key,
+        targetField: field,
+        valueRaw: raw,
+        valueNormalized: normalized,
+        // NO EVIDENCE SPAN. These come from the model's structured draft rather than from a
+        // quoted stretch of transcript, and inventing an index the provenance gate would then
+        // verify against is worse than admitting there is nothing to cite.
+        evidence: null,
+      },
+      turn,
+    );
+  };
+
+  if (trade) settle("trade", trade, trade);
+  if (years !== null) settle("experience_years", `${years}`, years);
+  return next;
 }
 
 /**
