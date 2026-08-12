@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { createTransport, type Transporter } from "nodemailer";
-import type { ServerConfig } from "@badabhai/config";
+import { isDevEnv, type ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 
@@ -74,14 +74,16 @@ export class EmailNotificationService {
   async send(message: EmailMessage): Promise<void> {
     const hashPrefix = this.pii.hmac(message.to).slice(0, 8);
     const transport = this.resolveTransport();
-    // A leftover ZEPTOMAIL_SANDBOX_MODE=true in a PRODUCTION deployment must never
-    // silently swallow a transactional email (#814): sandbox is honoured only
-    // outside production. Warn loudly rather than trust the flag, so a misconfig
-    // is visible in the log instead of surfacing as an OTP that "sent" (2xx) but
-    // never arrived.
-    if (this.config.ZEPTOMAIL_SANDBOX_MODE && this.config.NODE_ENV === "production") {
+    // A leftover ZEPTOMAIL_SANDBOX_MODE=true on a DEPLOYED box must never silently
+    // swallow a transactional email (#813/#814): sandbox is honoured only inside
+    // development/test. `isDevEnv()` — NOT the parsed `config.NODE_ENV`, which
+    // fail-OPENs to "development" on an unset/mangled var (the exact R14 trap) —
+    // reads the raw env, so a box with NODE_ENV unset gets the override rather than
+    // a free pass. Warn loudly rather than trust the flag, so a misconfig is visible
+    // in the log instead of surfacing as an OTP that "sent" (2xx) but never arrived.
+    if (this.config.ZEPTOMAIL_SANDBOX_MODE && !isDevEnv()) {
       this.logger.warn(
-        "ZEPTOMAIL_SANDBOX_MODE=true IGNORED in production — delivering for real (#814)",
+        "ZEPTOMAIL_SANDBOX_MODE=true IGNORED outside development/test — delivering for real (#813/#814)",
       );
     }
     const sandbox = this.sandboxActive() && transport === "zeptomail";
@@ -134,27 +136,25 @@ export class EmailNotificationService {
   }
 
   /**
-   * Whether sandbox (accept-but-do-not-deliver) is in effect. Honoured ONLY
-   * outside production: a deployed production box — the staging box runs
-   * `NODE_ENV=production` — must always deliver its transactional emails. A
-   * leftover `ZEPTOMAIL_SANDBOX_MODE=true` there was making every payer OTP return
-   * `code_sent` (2xx) while ZeptoMail delivered nothing (#814); in production the
-   * flag is ignored (real delivery) rather than trusted.
+   * Whether sandbox (accept-but-do-not-deliver) is in effect. Honoured ONLY inside
+   * development/test (`isDevEnv()`, same raw-env fail-closed check as
+   * `health.controller.ts`'s storage gate and the R14 boot guards) — a deployed box
+   * must always deliver its transactional emails. A leftover
+   * `ZEPTOMAIL_SANDBOX_MODE=true` on one was making every payer OTP return
+   * `code_sent` (2xx) while ZeptoMail delivered nothing (#813/#814); outside
+   * development/test the flag is ignored (real delivery) rather than trusted.
    */
   private sandboxActive(): boolean {
-    return (
-      Boolean(this.config.ZEPTOMAIL_SANDBOX_MODE) &&
-      this.config.NODE_ENV !== "production"
-    );
+    return Boolean(this.config.ZEPTOMAIL_SANDBOX_MODE) && isDevEnv();
   }
 
   /** True when the full ZeptoMail cred set is present (mirrors emailProviderBlockedReason). */
   private hasZeptoMailCreds(): boolean {
     return Boolean(
       this.config.ZEPTOMAIL_API_TOKEN &&
-        this.config.ZEPTOMAIL_MAIL_AGENT &&
-        this.config.EMAIL_FROM_ADDRESS &&
-        this.config.ZEPTOMAIL_API_URL,
+      this.config.ZEPTOMAIL_MAIL_AGENT &&
+      this.config.EMAIL_FROM_ADDRESS &&
+      this.config.ZEPTOMAIL_API_URL,
     );
   }
 

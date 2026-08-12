@@ -109,6 +109,7 @@ describe("EmailNotificationService — principal-agnostic by construction", () =
 describe("EmailNotificationService.send — ZeptoMail HTTPS path", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     sendMailMock.mockReset();
     createTransportMock.mockClear();
   });
@@ -209,6 +210,9 @@ describe("EmailNotificationService.send — ZeptoMail HTTPS path", () => {
   });
 
   it("sets the documented sandbox flag on the request when ZEPTOMAIL_SANDBOX_MODE=true", async () => {
+    // Explicit rather than relying on vitest's ambient NODE_ENV — isDevEnv() now gates
+    // this (#813/#814), so the case under test must pin its own env like the others.
+    vi.stubEnv("NODE_ENV", "development");
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -229,17 +233,20 @@ describe("EmailNotificationService.send — ZeptoMail HTTPS path", () => {
     expect(sent.sandbox).toBe(true);
   });
 
-  it("IGNORES sandbox in production, so a leftover SANDBOX_MODE=true still DELIVERS (#814)", async () => {
-    // The staging box runs NODE_ENV=production; a leftover ZEPTOMAIL_SANDBOX_MODE=true
+  it("IGNORES sandbox in production, so a leftover SANDBOX_MODE=true still DELIVERS (#813/#814)", async () => {
+    // The deployed box runs NODE_ENV=production; a leftover ZEPTOMAIL_SANDBOX_MODE=true
     // there was making every payer OTP return code_sent while ZeptoMail delivered
-    // nothing. In production the flag is ignored — the request fires for real, with
-    // NO sandbox flag on the body.
+    // nothing. `isDevEnv()` reads the RAW env — not the parsed `config.NODE_ENV` — so
+    // the stub is what actually decides the branch under test, matching
+    // health.controller.test.ts's convention for the same gate.
+    vi.stubEnv("NODE_ENV", "production");
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({ data: [{ code: "EM_104" }] }),
     });
     vi.stubGlobal("fetch", fetchMock);
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
 
     const channel = new EmailNotificationService(
       zeptoConfig({ ZEPTOMAIL_SANDBOX_MODE: true, NODE_ENV: "production" }),
@@ -251,6 +258,55 @@ describe("EmailNotificationService.send — ZeptoMail HTTPS path", () => {
     const init = fetchMock.mock.calls[0]![1] as RequestInit;
     const sent = JSON.parse(init.body as string) as { sandbox?: boolean };
     expect(sent.sandbox).toBeUndefined();
+    // The override is logged LOUD — an operator watching logs must be able to see it.
+    assertNoPiiInLogs([warnSpy]);
+    expect(warnSpy.mock.calls.flat().join(" ")).toContain("IGNORED");
+  });
+
+  it("IGNORES sandbox with an UNSET NODE_ENV too — isDevEnv is fail-closed, not the parsed default (R14)", async () => {
+    // The R14 trap: nodeEnvSchema defaults the PARSED config to "development" when
+    // NODE_ENV is unset, so a check against `config.NODE_ENV !== "production"` would
+    // read an unset var as "not production" and keep honouring sandbox — silently
+    // reopening the exact #813/#814 hole on a box that simply forgot to set NODE_ENV.
+    // `isDevEnv()` reads the raw env and is fail-closed: unset is NOT dev, so the
+    // override still fires here even though `config.NODE_ENV` is left at its default.
+    vi.stubEnv("NODE_ENV", undefined);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ code: "EM_104" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const channel = new EmailNotificationService(
+      zeptoConfig({ ZEPTOMAIL_SANDBOX_MODE: true }),
+      pii,
+    );
+    await expect(channel.send(MESSAGE)).resolves.toBeUndefined();
+
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    const sent = JSON.parse(init.body as string) as { sandbox?: boolean };
+    expect(sent.sandbox).toBeUndefined();
+  });
+
+  it("still HONOURS sandbox under NODE_ENV=test — CI/local dev must not start real-sending", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ code: "EM_104" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const channel = new EmailNotificationService(
+      zeptoConfig({ ZEPTOMAIL_SANDBOX_MODE: true }),
+      pii,
+    );
+    await expect(channel.send(MESSAGE)).resolves.toBeUndefined();
+
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    const sent = JSON.parse(init.body as string) as { sandbox?: boolean };
+    expect(sent.sandbox).toBe(true);
   });
 });
 
