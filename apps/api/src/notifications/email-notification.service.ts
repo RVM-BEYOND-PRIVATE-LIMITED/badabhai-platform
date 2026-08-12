@@ -74,7 +74,17 @@ export class EmailNotificationService {
   async send(message: EmailMessage): Promise<void> {
     const hashPrefix = this.pii.hmac(message.to).slice(0, 8);
     const transport = this.resolveTransport();
-    const sandbox = Boolean(this.config.ZEPTOMAIL_SANDBOX_MODE) && transport === "zeptomail";
+    // A leftover ZEPTOMAIL_SANDBOX_MODE=true in a PRODUCTION deployment must never
+    // silently swallow a transactional email (#814): sandbox is honoured only
+    // outside production. Warn loudly rather than trust the flag, so a misconfig
+    // is visible in the log instead of surfacing as an OTP that "sent" (2xx) but
+    // never arrived.
+    if (this.config.ZEPTOMAIL_SANDBOX_MODE && this.config.NODE_ENV === "production") {
+      this.logger.warn(
+        "ZEPTOMAIL_SANDBOX_MODE=true IGNORED in production — delivering for real (#814)",
+      );
+    }
+    const sandbox = this.sandboxActive() && transport === "zeptomail";
     const tag =
       `principal=${message.principal} purpose=${message.purpose} ` +
       `email_hash=${hashPrefix} provider=${transport} sandbox=${sandbox}`;
@@ -123,6 +133,21 @@ export class EmailNotificationService {
     }
   }
 
+  /**
+   * Whether sandbox (accept-but-do-not-deliver) is in effect. Honoured ONLY
+   * outside production: a deployed production box — the staging box runs
+   * `NODE_ENV=production` — must always deliver its transactional emails. A
+   * leftover `ZEPTOMAIL_SANDBOX_MODE=true` there was making every payer OTP return
+   * `code_sent` (2xx) while ZeptoMail delivered nothing (#814); in production the
+   * flag is ignored (real delivery) rather than trusted.
+   */
+  private sandboxActive(): boolean {
+    return (
+      Boolean(this.config.ZEPTOMAIL_SANDBOX_MODE) &&
+      this.config.NODE_ENV !== "production"
+    );
+  }
+
   /** True when the full ZeptoMail cred set is present (mirrors emailProviderBlockedReason). */
   private hasZeptoMailCreds(): boolean {
     return Boolean(
@@ -156,8 +181,9 @@ export class EmailNotificationService {
       textbody: message.text,
     };
     if (this.config.EMAIL_REPLY_TO) body.reply_to = [{ address: this.config.EMAIL_REPLY_TO }];
-    // ZeptoMail does NOT deliver when this is set, but the full request path still runs.
-    if (this.config.ZEPTOMAIL_SANDBOX_MODE) body.sandbox = true;
+    // ZeptoMail does NOT deliver when this is set, but the full request path still
+    // runs — so it is applied ONLY when sandbox is active (never in production, #814).
+    if (this.sandboxActive()) body.sandbox = true;
 
     let res: Response;
     try {

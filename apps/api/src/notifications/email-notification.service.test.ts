@@ -228,6 +228,30 @@ describe("EmailNotificationService.send — ZeptoMail HTTPS path", () => {
     const sent = JSON.parse(init.body as string) as { sandbox?: boolean };
     expect(sent.sandbox).toBe(true);
   });
+
+  it("IGNORES sandbox in production, so a leftover SANDBOX_MODE=true still DELIVERS (#814)", async () => {
+    // The staging box runs NODE_ENV=production; a leftover ZEPTOMAIL_SANDBOX_MODE=true
+    // there was making every payer OTP return code_sent while ZeptoMail delivered
+    // nothing. In production the flag is ignored — the request fires for real, with
+    // NO sandbox flag on the body.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ code: "EM_104" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const channel = new EmailNotificationService(
+      zeptoConfig({ ZEPTOMAIL_SANDBOX_MODE: true, NODE_ENV: "production" }),
+      pii,
+    );
+    await expect(channel.send(MESSAGE)).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    const sent = JSON.parse(init.body as string) as { sandbox?: boolean };
+    expect(sent.sandbox).toBeUndefined();
+  });
 });
 
 describe("EmailNotificationService.send — logging discipline (no raw PII)", () => {
