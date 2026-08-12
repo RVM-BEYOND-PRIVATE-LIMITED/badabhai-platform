@@ -81,7 +81,12 @@ export class EmailNotificationService {
     // reads the raw env, so a box with NODE_ENV unset gets the override rather than
     // a free pass. Warn loudly rather than trust the flag, so a misconfig is visible
     // in the log instead of surfacing as an OTP that "sent" (2xx) but never arrived.
-    if (this.config.ZEPTOMAIL_SANDBOX_MODE && !isDevEnv()) {
+    // Gated on `transport === "zeptomail"` AND derived from `sandboxActive()` itself
+    // (never a hand-written second copy of its condition) — SMTP never reads this
+    // flag at all, so a stale ZEPTOMAIL_SANDBOX_MODE left on an SMTP-configured box
+    // must not print a false "delivering for real" warning about a flag that was
+    // always inert there.
+    if (this.config.ZEPTOMAIL_SANDBOX_MODE && transport === "zeptomail" && !this.sandboxActive()) {
       this.logger.warn(
         "ZEPTOMAIL_SANDBOX_MODE=true IGNORED outside development/test — delivering for real (#813/#814)",
       );

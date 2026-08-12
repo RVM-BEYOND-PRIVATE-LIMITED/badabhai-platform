@@ -249,7 +249,7 @@ describe("EmailNotificationService.send — ZeptoMail HTTPS path", () => {
     const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
 
     const channel = new EmailNotificationService(
-      zeptoConfig({ ZEPTOMAIL_SANDBOX_MODE: true, NODE_ENV: "production" }),
+      zeptoConfig({ ZEPTOMAIL_SANDBOX_MODE: true }),
       pii,
     );
     await expect(channel.send(MESSAGE)).resolves.toBeUndefined();
@@ -277,6 +277,7 @@ describe("EmailNotificationService.send — ZeptoMail HTTPS path", () => {
       json: async () => ({ data: [{ code: "EM_104" }] }),
     });
     vi.stubGlobal("fetch", fetchMock);
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
 
     const channel = new EmailNotificationService(
       zeptoConfig({ ZEPTOMAIL_SANDBOX_MODE: true }),
@@ -287,6 +288,26 @@ describe("EmailNotificationService.send — ZeptoMail HTTPS path", () => {
     const init = fetchMock.mock.calls[0]![1] as RequestInit;
     const sent = JSON.parse(init.body as string) as { sandbox?: boolean };
     expect(sent.sandbox).toBeUndefined();
+    // Same operator-visible signal as the production case — this branch is the
+    // entire point of this test, so the WARN firing is part of what it proves.
+    assertNoPiiInLogs([warnSpy]);
+    expect(warnSpy.mock.calls.flat().join(" ")).toContain("IGNORED");
+  });
+
+  it("does NOT warn when SANDBOX_MODE is stale on an SMTP-configured box — the flag is inert there", async () => {
+    // ZEPTOMAIL_SANDBOX_MODE only ever affects sendViaZeptoMail's request body; SMTP
+    // never reads it. A box migrated to EMAIL_PROVIDER=smtp with a leftover
+    // ZEPTOMAIL_SANDBOX_MODE=true from its ZeptoMail days must not print a false
+    // "delivering for real" warning about a flag that was always doing nothing here.
+    vi.stubEnv("NODE_ENV", "production");
+    sendMailMock.mockResolvedValue({ messageId: "m-smtp-sandbox" });
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+
+    const channel = new EmailNotificationService(smtpConfig({ ZEPTOMAIL_SANDBOX_MODE: true }), pii);
+    await expect(channel.send(MESSAGE)).resolves.toBeUndefined();
+
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls.flat().join(" ")).not.toContain("IGNORED");
   });
 
   it("still HONOURS sandbox under NODE_ENV=test — CI/local dev must not start real-sending", async () => {
