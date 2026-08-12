@@ -917,6 +917,14 @@ jobs:
           FAST2SMS_API_KEY: ${{ secrets.FAST2SMS_API_KEY }}
           FAST2SMS_SENDER_ID: ${{ secrets.FAST2SMS_SENDER_ID }}
           FAST2SMS_DLT_TEMPLATE_ID: ${{ secrets.FAST2SMS_DLT_TEMPLATE_ID }}
+          # Payer OTP email (ADR-0019) — the ZeptoMail analogue of the FAST2SMS_* trio
+          # above. EMAIL_PROVIDER/ZEPTOMAIL_SANDBOX_MODE are NOT here: they now default
+          # correctly at the compose level (docker-compose.staging.yml's
+          # `${EMAIL_PROVIDER:-zeptomail}` / `${ZEPTOMAIL_SANDBOX_MODE:-false}`), so only
+          # the actual credentials — which have no safe default — need a secrets channel.
+          ZEPTOMAIL_API_TOKEN: ${{ secrets.ZEPTOMAIL_API_TOKEN }}
+          ZEPTOMAIL_MAIL_AGENT: ${{ secrets.ZEPTOMAIL_MAIL_AGENT }}
+          EMAIL_FROM_ADDRESS: ${{ secrets.EMAIL_FROM_ADDRESS }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
         with:
           host: ${{ secrets.LIGHTSAIL_HOST }}
@@ -927,7 +935,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,CORS_ALLOWED_ORIGINS
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS
           script: |
             set -e
             # CD-1: never leave a registry credential (even an expired job token)
