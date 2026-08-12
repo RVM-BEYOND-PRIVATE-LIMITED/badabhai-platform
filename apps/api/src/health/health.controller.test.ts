@@ -10,7 +10,29 @@ import { ACCOUNT_DELETION_SWEEP_SCHEDULER_ID } from "../queue/queue.constants";
 import { HealthController } from "./health.controller";
 import { HealthService } from "./health.service";
 
-const CONFIG = { NODE_ENV: "test" } as never;
+/**
+ * Storage fully wired — the default for every test NOT specifically about
+ * storage_config, so the ai_service/deletion_sweep/database/redis suites above stay
+ * exactly as they were (this field is additive, orthogonal to everything else here).
+ */
+const STORAGE_CONFIGURED = {
+  SUPABASE_URL: "https://project.supabase.co",
+  SUPABASE_SERVICE_ROLE_KEY: "service-role-key-value",
+  RESUMES_BUCKET: "worker-resumes",
+  WORKER_PHOTOS_BUCKET: "worker-profile-photos",
+  VOICE_NOTES_BUCKET: "worker-voice-notes",
+  INTERVIEW_KIT_BUCKET: "interview-kits",
+  RESUME_RENDER_ENABLED: true,
+};
+
+/** The expected `storage_config` body for the STORAGE_CONFIGURED fixture above. */
+const STORAGE_CONFIG_UP = {
+  supabase: "configured",
+  buckets: { resumes: true, photos: true, voice_notes: true, interview_kit: true },
+  resume_render_enabled: true,
+};
+
+const CONFIG = { NODE_ENV: "test", ...STORAGE_CONFIGURED } as never;
 
 /** The ai-service reachable and reporting REAL calls on (the non-default posture). */
 const AI_REAL: AiServiceHealthSnapshot = { realCallsEnabled: true };
@@ -40,18 +62,22 @@ function fakeRes() {
  *   - `aiProbe`: the TD81 ai-service `probeHealth` (a snapshot = reachable, reject/hang
  *     = unreachable). Defaults to the REAL posture so the ai-service is not the thing
  *     under test in every unrelated case above.
+ *   - `config`: the storage-config-presence fixture. Defaults to STORAGE_CONFIGURED so
+ *     storage_config is not the thing under test in every unrelated case above either.
  */
 function setup(opts: {
   dbExecute?: () => Promise<unknown>;
   redisPing?: () => Promise<unknown>;
   getJobScheduler?: () => Promise<unknown>;
   aiProbe?: () => Promise<AiServiceHealthSnapshot>;
+  config?: unknown;
 }) {
   const dbExecute = opts.dbExecute ?? (async () => [{ "?column?": 1 }]);
   const redisPing = opts.redisPing ?? (async () => "PONG");
   const getJobSchedulerImpl =
     opts.getJobScheduler ?? (async () => ({ key: "account-deletion-sweep", every: "3600000" }));
   const aiProbeImpl = opts.aiProbe ?? (async () => AI_REAL);
+  const config = (opts.config ?? { NODE_ENV: "test", ...STORAGE_CONFIGURED }) as never;
 
   const db = { execute: vi.fn(dbExecute) } as unknown as Database;
   // queue.client is a Promise<ioredis> in BullMQ; ping() lives on the resolved client.
@@ -62,7 +88,7 @@ function setup(opts: {
   const probeHealth = vi.fn(aiProbeImpl);
   const ai = { probeHealth } as unknown as AiService;
 
-  const service = new HealthService(db, queue, deletionQueue, ai);
+  const service = new HealthService(db, queue, deletionQueue, ai, config);
   const controller = new HealthController(CONFIG, service);
   return { controller, db, pingFn, getJobScheduler, probeHealth };
 }
@@ -86,6 +112,7 @@ describe("HealthController.check — readiness probes", () => {
       deletion_sweep: "up",
       ai_service: "up",
       ai_posture: "real",
+      storage_config: STORAGE_CONFIG_UP,
     });
   });
 
@@ -177,6 +204,7 @@ describe("HealthController.check — readiness probes", () => {
       deletion_sweep: "down",
       ai_service: "down",
       ai_posture: "mock",
+      storage_config: STORAGE_CONFIG_UP,
     });
   });
 
@@ -207,6 +235,7 @@ describe("HealthController.check — readiness probes", () => {
       deletion_sweep: "down",
       ai_service: "up",
       ai_posture: "real",
+      storage_config: STORAGE_CONFIG_UP,
     });
   });
 
@@ -432,6 +461,145 @@ describe("HealthController.check — readiness probes", () => {
       warnSpy.mockRestore();
       logSpy.mockRestore();
     }
+  });
+
+  // ---- storage_config: worker photo upload / resume download config-presence signal ----
+  //
+  // A real incident (a deployed box with no SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY /
+  // WORKER_PHOTOS_BUCKET wired) went undetected because /health said nothing about
+  // Storage. This is a PURE config read — no probe, no network call — so every case
+  // here drives it purely through the `config` fixture, never through a mocked probe.
+
+  it("fully wired storage → supabase configured, every bucket true, render enabled", async () => {
+    const { controller } = setup({});
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.storage_config).toEqual(STORAGE_CONFIG_UP);
+  });
+
+  it("Supabase creds entirely absent (the reported incident) → supabase not_configured", async () => {
+    const { controller } = setup({
+      config: { NODE_ENV: "test", ...STORAGE_CONFIGURED, SUPABASE_URL: undefined },
+    });
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.storage_config.supabase).toBe("not_configured");
+  });
+
+  it("only the service-role key missing → still not_configured (BOTH vars required)", async () => {
+    const { controller } = setup({
+      config: {
+        NODE_ENV: "test",
+        ...STORAGE_CONFIGURED,
+        SUPABASE_SERVICE_ROLE_KEY: undefined,
+      },
+    });
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.storage_config.supabase).toBe("not_configured");
+  });
+
+  it("empty-string is treated as absent, same as undefined (docker-compose pass-through shape)", async () => {
+    const { controller } = setup({
+      config: { NODE_ENV: "test", ...STORAGE_CONFIGURED, SUPABASE_URL: "" },
+    });
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.storage_config.supabase).toBe("not_configured");
+  });
+
+  it("WORKER_PHOTOS_BUCKET unset (the empty-default bucket) → buckets.photos false, others unaffected", async () => {
+    const { controller } = setup({
+      config: { NODE_ENV: "test", ...STORAGE_CONFIGURED, WORKER_PHOTOS_BUCKET: "" },
+    });
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.storage_config.buckets).toEqual({
+      resumes: true,
+      photos: false,
+      voice_notes: true,
+      interview_kit: true,
+    });
+  });
+
+  it("VOICE_NOTES_BUCKET unset → buckets.voice_notes false only", async () => {
+    const { controller } = setup({
+      config: { NODE_ENV: "test", ...STORAGE_CONFIGURED, VOICE_NOTES_BUCKET: "" },
+    });
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.storage_config.buckets.voice_notes).toBe(false);
+    expect(body.checks.storage_config.buckets.resumes).toBe(true);
+  });
+
+  it("RESUME_RENDER_ENABLED false → resume_render_enabled false in the body", async () => {
+    const { controller } = setup({
+      config: { NODE_ENV: "test", ...STORAGE_CONFIGURED, RESUME_RENDER_ENABLED: false },
+    });
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.storage_config.resume_render_enabled).toBe(false);
+  });
+
+  it("a completely unconfigured (local dev / CI) box → not_configured + every optional bucket false, still 200/ok", async () => {
+    // The gate this field must NOT trip: an env that legitimately has no Storage wiring
+    // (local dev, CI, a fresh box before devops provisions the bucket) must stay green.
+    const { controller } = setup({
+      config: {
+        NODE_ENV: "test",
+        SUPABASE_URL: undefined,
+        SUPABASE_SERVICE_ROLE_KEY: undefined,
+        RESUMES_BUCKET: "worker-resumes", // schema default — always non-empty
+        WORKER_PHOTOS_BUCKET: "",
+        VOICE_NOTES_BUCKET: "",
+        INTERVIEW_KIT_BUCKET: "interview-kits", // schema default — always non-empty
+        RESUME_RENDER_ENABLED: false,
+      },
+    });
+    const res = fakeRes();
+    const body = await controller.check(res);
+
+    expect(res.statusCode).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(body.checks.storage_config).toEqual({
+      supabase: "not_configured",
+      buckets: { resumes: true, photos: false, voice_notes: false, interview_kit: true },
+      resume_render_enabled: false,
+    });
+  });
+
+  it("does NOT gate 200/503 even when EVERYTHING storage-related is unconfigured and hard deps are down", async () => {
+    // Mirrors the mocked-AI/dead-sweep precedent: the 503 here must stay the DATABASE's.
+    const { controller } = setup({
+      dbExecute: async () => {
+        throw new Error("db down");
+      },
+      config: {
+        NODE_ENV: "test",
+        SUPABASE_URL: undefined,
+        SUPABASE_SERVICE_ROLE_KEY: undefined,
+        RESUMES_BUCKET: "worker-resumes",
+        WORKER_PHOTOS_BUCKET: "",
+        VOICE_NOTES_BUCKET: "",
+        INTERVIEW_KIT_BUCKET: "interview-kits",
+        RESUME_RENDER_ENABLED: false,
+      },
+    });
+    const res = fakeRes();
+    const body = await controller.check(res);
+
+    expect(res.statusCode).toBe(503);
+    expect(body.checks.storage_config.supabase).toBe("not_configured");
+  });
+
+  it("never leaks the actual URL, service-role key, or bucket name — booleans/enum only", async () => {
+    const { controller } = setup({});
+    const body = await controller.check(fakeRes());
+
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toMatch(/project\.supabase\.co/);
+    expect(serialized).not.toMatch(/service-role-key-value/);
+    expect(serialized).not.toMatch(/worker-resumes|worker-profile-photos|worker-voice-notes|interview-kits/);
   });
 });
 
