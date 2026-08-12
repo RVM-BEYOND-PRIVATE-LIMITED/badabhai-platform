@@ -12,7 +12,7 @@ import {
 } from "./actions";
 
 /**
- * Client job-management surface (ADR-0019 Phase 1) — DS2.2 skin, LIVE lifecycle.
+ * Client job-management surface (ADR-0019 Phase 1) — UI-1 skin, LIVE lifecycle.
  *
  * Runs in the BROWSER and sees NO secret. Each posting renders as a DS Card with its
  * real `status` Badge and links to its manage page + faceless applicant feed (XB-A: the
@@ -95,13 +95,25 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
   }
 
   if (rows.length === 0) {
+    // Phase 16 empty state: what is empty, why it matters, and the one thing to do next.
+    // FACELESS: an empty feed names nobody — the copy is about the payer's own postings.
     return (
-      <Card variant="flat" className="postings-empty">
-        You haven&rsquo;t posted a job yet.{" "}
-        <Link className="postings-link" href="/postings/new">
-          Post your first job
-        </Link>{" "}
-        — free through launch.
+      <Card>
+        <div className="state">
+          <span className="state__icon">
+            <i className="ph ph-briefcase" aria-hidden="true" />
+          </span>
+          <h2 className="state__title">No postings yet</h2>
+          <p className="state__body">
+            Matched workers can only find you once a role is live. Posting is free through
+            launch.
+          </p>
+          <div className="state__actions">
+            <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
+              Post your first job
+            </Link>
+          </div>
+        </div>
       </Card>
     );
   }
@@ -143,6 +155,31 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                     Edit
                   </Link>
                 </span>
+              </div>
+
+              {/* B8 — the per-row result region is announceable (aria-live): a retryable
+                  error OR the success notice (e.g. the paid top-up confirmation). It sits
+                  in the row's text column so the message reads left-aligned under the row
+                  it belongs to, and its tone now says which of the two it is. */}
+              <div aria-live="polite">
+                {rs.error !== null && (
+                  <div className="alert alert--danger">
+                    <i className="ph ph-warning-circle alert__icon" aria-hidden="true" />
+                    <div className="alert__text">
+                      <p className="alert__title">That didn&rsquo;t go through</p>
+                      <p className="alert__body">{rs.error}</p>
+                    </div>
+                  </div>
+                )}
+                {rs.notice !== null && (
+                  <div className="alert alert--success">
+                    <i className="ph ph-check-circle alert__icon" aria-hidden="true" />
+                    <div className="alert__text">
+                      <p className="alert__title">Done</p>
+                      <p className="alert__body">{rs.notice}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -194,12 +231,6 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                     Close
                   </Button>
                 )}
-              </div>
-              {/* B8 — the per-row result region is announceable (aria-live): a retryable
-                  error OR the success notice (e.g. the paid top-up confirmation). */}
-              <div aria-live="polite">
-                {rs.error !== null && <p className="posting-card__soon">{rs.error}</p>}
-                {rs.notice !== null && <p className="posting-card__soon">{rs.notice}</p>}
               </div>
             </div>
           </Card>

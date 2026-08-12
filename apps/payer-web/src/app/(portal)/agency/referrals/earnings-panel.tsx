@@ -1,7 +1,7 @@
 import type { AgencyEarnings } from "../../../../lib/contracts";
 import { formatInr } from "../../../../lib/format";
 import { accrualBasisLabel } from "../../../../lib/agency-view";
-import { Badge, Card, StatTile } from "../../../../components/ds";
+import { StatTile } from "../../../../components/ds";
 
 /**
  * AGENCY EARNINGS panel (ADR-0022 Amendment 2, LIVE) — the agency's OWN referral-earnings
@@ -25,32 +25,38 @@ export function EarningsPanel({ earnings }: { earnings: AgencyEarnings }) {
   } = earnings;
 
   return (
-    <section className="agency-section">
-      <h2 className="agency-section__title">Your earnings</h2>
+    // A `.section`, not a `.panel`: the body is a run of StatTiles that already carry their own
+    // surface, so a bordered frame around them would be a box inside a box.
+    <section className="section">
+      <div className="section__head">
+        <h2 className="section__title">Your earnings</h2>
+        {/* Accrual basis — read from config values the API returns, never hard-coded. */}
+        <p className="section__sub">
+          {accrualBasisLabel(rateBps, basisInr, windowDays)}. Accrued across{" "}
+          <span className="bb-mono">{accrualCount}</span>{" "}
+          {accrualCount === 1 ? "unlock" : "unlocks"} of workers you referred.
+        </p>
+      </div>
 
       {/* Mock-money disclosure — always visible where money is shown. */}
-      <Card variant="flat" className="agency-invite__note">
-        <Badge tone="warning" upper>
-          Mock
-        </Badge>{" "}
-        <strong>No real money is disbursed.</strong> Earnings, thresholds, and payouts here
-        are mock figures for the alpha — no payment provider is connected.
-      </Card>
+      <div className="alert alert--warning">
+        <i className="ph ph-info alert__icon" aria-hidden="true" />
+        <div className="alert__text">
+          <p className="alert__title">No real money is disbursed</p>
+          <p className="alert__body">
+            Earnings, thresholds, and payouts here are mock figures for the alpha — no payment
+            provider is connected.
+          </p>
+        </div>
+      </div>
 
       {/* Four ₹ tiles — StatTile renders its value in mono tabular by design. */}
-      <div className="agency-stats">
+      <div className="stat-row">
         <StatTile label="Total accrued" value={formatInr(totalAccruedInr)} icon="wallet" />
         <StatTile label="Requestable" value={formatInr(requestableInr)} icon="hand-coins" />
         <StatTile label="In request" value={formatInr(inRequestInr)} icon="hourglass-medium" />
         <StatTile label="Paid" value={formatInr(paidInr)} icon="check-circle" />
       </div>
-
-      {/* Accrual basis — read from config values the API returns, never hard-coded. */}
-      <p className="agency-section__sub">
-        {accrualBasisLabel(rateBps, basisInr, windowDays)}. Accrued across{" "}
-        <span className="bb-mono">{accrualCount}</span>{" "}
-        {accrualCount === 1 ? "unlock" : "unlocks"} of workers you referred.
-      </p>
     </section>
   );
 }

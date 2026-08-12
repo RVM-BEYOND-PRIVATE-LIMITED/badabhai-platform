@@ -87,7 +87,19 @@ export default async function WorkersPage({
         </div>
 
         {failed ? (
-          <p className="empty">The server rejected these filters. Check the values and retry.</p>
+          <div className="state state--error">
+            <h3 className="state__title">The server rejected these filters</h3>
+            <p className="state__body">
+              One of the values is not a worker status this portal recognises, so nothing was
+              fetched. Check the values in the filter bar above, or clear them and start
+              again.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/workers">
+                Clear filters
+              </Link>
+            </div>
+          </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">
             <table className="table">
@@ -142,10 +154,33 @@ export default async function WorkersPage({
               </tbody>
             </table>
           </div>
+        ) : filtered ? (
+          <div className="state">
+            <h3 className="state__title">No workers match these filters</h3>
+            <p className="state__body">
+              Nobody on the roster is in this state right now. Widen the filter, or clear it
+              to see every registered worker.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/workers">
+                Clear filters
+              </Link>
+            </div>
+          </div>
         ) : (
-          <p className="empty">
-            {filtered ? "No workers match these filters." : "No workers registered yet."}
-          </p>
+          <div className="state">
+            <h3 className="state__title">No workers registered yet</h3>
+            <p className="state__body">
+              Workers appear here as soon as they finish signing up in the app. Until one
+              does, the event timeline is where you confirm the sign-up path is running at
+              all.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/events">
+                Open the event timeline
+              </Link>
+            </div>
+          </div>
         )}
 
         <Pager

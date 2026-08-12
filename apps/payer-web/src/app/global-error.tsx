@@ -26,6 +26,14 @@ import {
  * no-FOUC script themes it from the cookie/OS before paint (so the error screen never flips to
  * light in dark mode); the effect mirrors that into React state after hydration. The env
  * default is the stable SSR baseline (a client boundary can't read the server cookie at render).
+ *
+ * UI-1: composed from the shared `.state state--error` block, same as `error.tsx` and
+ * `(portal)/error.tsx` — markup only, the copy and the `reset()` wiring are unchanged.
+ * The one deliberate difference: NO `.state__icon`. Phosphor (`ph ph-*`) is appended at
+ * runtime by ASYNC_CSS_SCRIPT in the ROOT LAYOUT, and the root layout is exactly what is NOT
+ * applied when this boundary fires — the glyph would render as a tofu box inside an empty
+ * circle. The DS pairs every icon with a text label precisely so the label carries the
+ * meaning, so dropping the icon here costs nothing.
  */
 export default function GlobalError({ reset }: { error: Error; reset: () => void }) {
   const envDark = process.env.NEXT_PUBLIC_PAYER_THEME?.trim().toLowerCase() === "ink";
@@ -47,12 +55,12 @@ export default function GlobalError({ reset }: { error: Error; reset: () => void
         <script dangerouslySetInnerHTML={{ __html: THEME_NO_FOUC_SCRIPT }} />
       </head>
       <body>
-        <div role="alert">
-          <h1 className="chrome-title">Something went wrong</h1>
-          <p className="chrome-sub">
+        <div className="state state--error" role="alert">
+          <h1 className="state__title">Something went wrong</h1>
+          <p className="state__body">
             We couldn&rsquo;t load this page right now. This is on our side — please try again.
           </p>
-          <div className="chrome-actions">
+          <div className="state__actions">
             <button className="bb-btn bb-btn--primary" type="button" onClick={() => reset()}>
               <span>Try again</span>
             </button>

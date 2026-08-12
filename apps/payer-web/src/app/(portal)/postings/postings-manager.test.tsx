@@ -79,6 +79,34 @@ interface Collected {
   ariaLiveCount: number;
 }
 
+/** Every static className TOKEN in the tree (UI-1 markup is asserted by its primitive). */
+function classTokens(node: ReactNode, acc: Set<string> = new Set()): Set<string> {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    for (const c of node) classTokens(c, acc);
+    return acc;
+  }
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (typeof el.props?.className === "string") {
+    for (const t of el.props.className.split(/\s+/).filter(Boolean)) acc.add(t);
+  }
+  if (el.props && "children" in el.props) classTokens(el.props.children, acc);
+  return acc;
+}
+
+/** Every `href` in the tree — used to pin an empty state's recovery action. */
+function hrefs(node: ReactNode, acc: string[] = []): string[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    for (const c of node) hrefs(c, acc);
+    return acc;
+  }
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (typeof el.props?.href === "string") acc.push(el.props.href);
+  if (el.props && "children" in el.props) hrefs(el.props.children, acc);
+  return acc;
+}
+
 function textOf(node: ReactNode): string {
   if (node === null || node === undefined || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -241,7 +269,18 @@ describe("PostingsManager — A11Y-OF-FAILURE: per-row error region is aria-live
     expect(ariaLiveCount).toBe(2);
   });
 
-  it("renders a faceless empty state when there are no postings", () => {
-    expect(textOf(render([]))).toContain("haven");
+  it("renders a faceless empty state with a recovery action when there are no postings", () => {
+    // UI-1/Phase 16: the empty case is the shared `.state` block (what is empty + why +
+    // what to do), not a bare sentence. The recovery action is still the only way out.
+    const tree = render([]);
+    const cls = classTokens(tree);
+    expect(cls.has("state")).toBe(true);
+    expect(cls.has("state__actions")).toBe(true);
+    const text = textOf(tree);
+    expect(text).toContain("No postings yet");
+    expect(text).toContain("Post your first job");
+    expect(hrefs(tree)).toContain("/postings/new");
+    // FACELESS: an empty feed names nobody.
+    expect(text).not.toMatch(/\b(phone|worker name)\b/i);
   });
 });

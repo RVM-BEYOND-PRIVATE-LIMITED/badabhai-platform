@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
 import { listEvents, type EventFilters } from "../../../lib/events";
 import { EventTable } from "../../../components/event-table";
+import { Pager } from "../../../components/pager";
 import { EventFilterBar } from "./filter-bar";
 
 export const dynamic = "force-dynamic";
@@ -57,10 +58,8 @@ export default async function EventsPage({
   }).filter(([, v]) => Boolean(v));
 
   // The cursor is deliberately dropped when building the "next" link's base, so paging
-  // never stacks cursors and a filter change always restarts at page one.
-  const nextParams = new URLSearchParams();
-  for (const [k, v] of active) nextParams.set(k, v as string);
-  if (page?.nextCursor) nextParams.set("cursor", page.nextCursor);
+  // never stacks cursors and a filter change always restarts at page one. `Pager` is the
+  // one implementation of that rule — this screen used to hand-roll a second copy of it.
 
   return (
     <div className="page">
@@ -105,25 +104,56 @@ export default async function EventsPage({
         </div>
 
         {failed ? (
-          <p className="empty">
-            The server rejected these filters. A correlation id must be a full UUID —
-            check the value and try again.
-          </p>
+          <div className="state state--error">
+            <h3 className="state__title">The server rejected these filters</h3>
+            <p className="state__body">
+              Nothing was fetched. A correlation id must be a full UUID — the short id shown
+              in the table is only the first segment. Correct the value above, or clear the
+              filters and start again.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/events">
+                Clear filters
+              </Link>
+            </div>
+          </div>
         ) : (
-          <EventTable events={page?.events ?? []} />
+          <EventTable
+            events={page?.events ?? []}
+            emptyMessage={
+              active.length > 0 ? "No events match these filters" : "No events recorded yet"
+            }
+            /* Truthful per case: a filtered view CAN be hidden by a narrow filter; an
+               unfiltered one genuinely has nothing on the spine, and telling that operator
+               to "widen the filters" would send them looking for a control they have not
+               used. The clear-filters action is likewise offered only when there is
+               something to clear — it previously pointed at /events from /events. */
+            emptyBody={
+              active.length > 0
+                ? "A narrow filter can hide a busy day. Widen it, or clear it to see the whole timeline."
+                : "The audit spine fills as the platform is used. Events will appear here as they are emitted."
+            }
+            emptyAction={
+              active.length > 0 ? (
+                <Link className="btn btn--ghost" href="/events">
+                  Clear filters
+                </Link>
+              ) : null
+            }
+          />
         )}
 
-        {page?.nextCursor && (
-          <div className="pager">
-            <Link className="btn btn--ghost" href={`/events?${nextParams.toString()}`}>
-              Next page
-            </Link>
-            <p className="field__help">
-              Paging uses a keyset cursor, so new events arriving mid-scan cannot make
-              rows skip or repeat.
-            </p>
-          </div>
-        )}
+        <Pager
+          basePath="/events"
+          params={{
+            eventName: filters.eventName,
+            actorType: filters.actorType,
+            subjectType: filters.subjectType,
+            correlationId: filters.correlationId,
+          }}
+          nextCursor={page?.nextCursor}
+          note="Paging uses a keyset cursor, so new events arriving mid-scan cannot make rows skip or repeat."
+        />
       </section>
     </div>
   );

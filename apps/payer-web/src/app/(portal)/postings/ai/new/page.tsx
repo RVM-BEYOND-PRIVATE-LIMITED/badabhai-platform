@@ -41,11 +41,15 @@ export default async function AiPostingChatPage() {
       <p className="page-back">
         <Link href="/postings/new">← Post a {isAgency ? "vacancy" : "job"}</Link>
       </p>
-      <h1 className="dash-title">Post with AI</h1>
-      <p className="dash-sub">
-        Have a short conversation instead of filling a form. Applicants stay faceless until you
-        unlock them.
-      </p>
+      <div className="page-head">
+        <div className="page-head__text">
+          <h1 className="page-head__title">Post with AI</h1>
+          <p className="page-head__sub">
+            Have a short conversation instead of filling a form. Applicants stay faceless
+            until you unlock them.
+          </p>
+        </div>
+      </div>
 
       <JobPostingChat resumable={resumable} loadFailed={loadFailed} />
     </>

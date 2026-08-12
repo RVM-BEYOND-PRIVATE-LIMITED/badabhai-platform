@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireSession } from "../../../lib/auth";
 import { getCapabilityMatrix } from "../../../lib/entities";
 import { CAPABILITY_LABELS, ROLE_LABELS, isAdminCapability } from "../../../lib/auth/capabilities";
@@ -60,10 +61,17 @@ export default async function RolesPage() {
             </li>
           ))}
         </ul>
-        <p className="field__help">
-          Hiding a control you cannot use is a convenience, not a security boundary — every
-          request is re-checked server-side regardless of what this list says.
-        </p>
+        {/* `.field__help` is the FORM caption class; this is a standing statement about how
+            authorization works, which is what `.alert--info` is the primitive for. */}
+        <div className="alert alert--info">
+          <div className="alert__text">
+            <p className="alert__title">This list is not the enforcement</p>
+            <p className="alert__body">
+              Hiding a control you cannot use is a convenience, not a security boundary —
+              every request is re-checked server-side regardless of what this list says.
+            </p>
+          </div>
+        </div>
       </section>
 
       <section className="panel" aria-labelledby="rc-matrix">
@@ -78,7 +86,20 @@ export default async function RolesPage() {
         </div>
 
         {matrix === null ? (
-          <p className="empty">The capability matrix is unavailable right now.</p>
+          <div className="state state--error">
+            <h3 className="state__title">The capability matrix could not be loaded</h3>
+            <p className="state__body">
+              This table is served by the API from the same matrix the guards enforce, and
+              that read failed — so the model is unknown here, not empty. Nothing about what
+              is permitted has changed; only this view of it is missing. Your own
+              capabilities are listed above and came from your session, not from this read.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/roles">
+                Retry
+              </Link>
+            </div>
+          </div>
         ) : (
           <div className="tablewrap">
             <table className="table">
@@ -126,10 +147,15 @@ export default async function RolesPage() {
           </div>
         )}
 
-        <p className="field__help">
-          Your column is highlighted. Changing a role is a governed action
-          (<code>manage_admins</code>, super admin only) and emits an audited event.
-        </p>
+        <div className="alert alert--info">
+          <div className="alert__text">
+            <p className="alert__title">Your column is highlighted</p>
+            <p className="alert__body">
+              Changing a role is a governed action (<code>manage_admins</code>, super admin
+              only) and emits an audited event. It cannot be done from this portal.
+            </p>
+          </div>
+        </div>
       </section>
     </div>
   );

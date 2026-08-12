@@ -1,5 +1,5 @@
 import type { AgencyFlags } from "../../../../lib/config";
-import { Badge, Card } from "../../../../components/ds";
+import { Badge } from "../../../../components/ds";
 
 /**
  * PARKED / DEAD / DEFERRED module cards (informational, NON-interactive) — DS3.1 re-skin
@@ -15,9 +15,12 @@ import { Badge, Card } from "../../../../components/ds";
  * module + its gate ONLY. A flag being ON would still build NOTHING — it only changes
  * the wording from "Parked" to "flagged on but unbuilt".
  *
- * Each card is a MUTED DS `Card` (variant `flat`) marked `aria-disabled` — clearly a
- * coming-soon/post-alpha placeholder, never broken and never interactive (no DS Button,
- * no link). Tokens only (no raw hex/px).
+ * Each card is the UI-1 `soon-card` primitive marked `aria-disabled` — the one visual
+ * language for "not open yet": a dashed, colourless placeholder, never broken and never
+ * interactive (no DS Button, no link). The status pill stays a DS `Badge` rather than the
+ * `soon-badge`, because "Soon" is precisely the promise these cards must NEVER make: three
+ * of the four are gated on legal/money/consent decisions and one will not be built at all.
+ * Tokens only (no raw hex/px).
  */
 
 interface ParkedCard {
@@ -57,26 +60,26 @@ export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
     // but it stays `open` by DEFAULT so nothing is hidden on first paint. Layout/disclosure
     // only: the same heading, sub-copy, and parked cards render unchanged. The native
     // <summary> is keyboard-operable for free; the chevron motion honors reduced-motion.
-    <details className="agency-section agency-parked-disclosure" open>
+    // `.agency-parked-disclosure` carries this block's own bottom rhythm, so the retired
+    // `.agency-section` wrapper class is not replaced by anything.
+    <details className="agency-parked-disclosure" open>
       <summary className="agency-parked-disclosure__summary">
-        <span className="agency-section__title">Not in this release</span>
+        <span className="section__title">Not in this release</span>
         <i className="ph ph-caret-down agency-parked-disclosure__caret" aria-hidden="true" />
       </summary>
-      <p className="agency-section__sub">
+      <p className="section__sub">
         These modules are deliberately not built. They are gated on legal, money, consent, or
         product decisions — not engineering readiness.
       </p>
-      <div className="agency-parked">
+      <div className="stat-row">
         {cards.map((c) => (
-          <Card key={c.title} variant="flat" className="agency-parked__card" aria-disabled="true">
-            <div className="agency-parked__head">
-              <h3 className="agency-parked__title">{c.title}</h3>
-              <Badge tone="warning" upper>
-                {c.flaggedOn ? "Flagged on — still unbuilt" : "Parked"}
-              </Badge>
-            </div>
-            <p className="agency-parked__note">{c.note}</p>
-          </Card>
+          <div key={c.title} className="soon-card" aria-disabled="true">
+            <Badge tone="warning" upper>
+              {c.flaggedOn ? "Flagged on — still unbuilt" : "Parked"}
+            </Badge>
+            <h3 className="soon-card__title">{c.title}</h3>
+            <p className="soon-card__body">{c.note}</p>
+          </div>
         ))}
       </div>
     </details>

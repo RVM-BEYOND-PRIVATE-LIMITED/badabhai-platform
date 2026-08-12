@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { ReactElement, ReactNode } from "react";
 import type { PayerSession } from "../../lib/auth/types";
 
@@ -115,11 +117,30 @@ describe("login page — left value panel is truthful + non-PII", () => {
     expect(txt).not.toMatch(/\d/);
   });
 
-  it("is aria-hidden so screen-reader users aren't read a decorative column twice", async () => {
+  it("is EXPOSED to assistive tech, with an accessible name", async () => {
+    // This assertion used to be the exact inverse: the panel was aria-hidden, on the
+    // reasoning that a screen-reader user should not be read "a decorative column twice".
+    // Nothing in it is duplicated anywhere else on the page, so hiding it did not spare a
+    // repeat — it removed the ONLY product context on the screen for anyone using assistive
+    // tech, leaving them an unexplained email field. Below 1024px the panel is display:none,
+    // which keeps it out of the a11y tree there without hiding it everywhere.
     currentSession.mockResolvedValue(null);
     const tree = (await LoginPage()) as ReactElement;
     const aside = findByClass(tree, "login-aside")[0]!;
-    expect((aside.props as Record<string, unknown>)["aria-hidden"]).toBe("true");
+    const props = aside.props as Record<string, unknown>;
+    expect(props["aria-hidden"]).toBeUndefined();
+    expect(props["aria-label"]).toBe("Why BadaBhai");
+  });
+
+  it("keeps the page's only <h1> ahead of the panel's tagline in the heading order", () => {
+    // The tagline renders BEFORE the card, so marking it up as <h2> put an h2 ahead of the
+    // page's single h1. It is a tagline, not a document section, so it is a <p> now.
+    const source = readFileSync(
+      fileURLToPath(new URL("./page.tsx", import.meta.url)),
+      "utf8",
+    );
+    expect(source).not.toMatch(/<h2 className="login-aside__headline"/);
+    expect(source).toMatch(/<p className="login-aside__headline"/);
   });
 
   it("exposes no PII fields from any session (the panel is static product copy only)", async () => {

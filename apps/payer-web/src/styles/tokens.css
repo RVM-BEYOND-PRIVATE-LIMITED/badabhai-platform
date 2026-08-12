@@ -249,9 +249,19 @@
    Devanagari" families sit right behind "Anek" in the fallback chain.
    ============================================================ */
 :root {
-  /* families */
+  /* families
+     UI-1 — the BODY/UI face is Inter, with Roboto kept directly behind it. Inter is drawn
+     for screen UI: a tall x-height and open apertures hold up at the 12–14px the portal's
+     tables, labels and forms actually run at, where Roboto's wider, lower-contrast forms
+     start to mush. The brand voice is UNCHANGED — Anek still owns the wordmark, every
+     heading and every button (--font-display), so the product still reads as BadaBhai.
+
+     Roboto stays second in the chain on purpose, and MUST stay in the loaded font URL:
+     font fallback resolves PER GLYPH, and Inter ships no Devanagari. Any Hindi/Hinglish
+     run (the worker-facing /i/<code> landing, regional copy) therefore still renders in
+     Roboto exactly as before, while Latin picks up Inter. */
   --font-display: "Anek", "Anek Latin", "Anek Devanagari", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-sans: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Inter", "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Roboto Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* type scale (px) — mobile-first, generous for low literacy */
@@ -410,8 +420,12 @@
   /* pressed / sunken inputs */
   --shadow-inset: none;
 
-  /* focus ring (compose with box-shadow) */
-  --ring-focus: 0 0 0 3px var(--ring);
+  /* focus ring (compose with box-shadow) — TWO-TONE, deliberately. A single ring inherits
+     whatever it lands on: drawn straight onto a haldi primary button it measured 1.93:1 in
+     the ink theme, i.e. no visible focus at all on the one control users tab to most. The
+     inner surface-coloured band separates the ring from the fill, so the indicator reads on
+     a white card, on the canvas, and on a filled button alike. */
+  --ring-focus: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--ring);
   --ring-focus-tight: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--ring);
 
   /* border widths */
@@ -542,4 +556,303 @@ button {
 .bb-mark {
   background-image: linear-gradient(transparent 62%, var(--marigold-200) 62%);
   padding: 0 0.04em;
+}
+
+/* ============================================================
+   UI-1 · ENTERPRISE PORTAL LAYER — the desktop density mode.
+   ------------------------------------------------------------
+   WHY THIS IS A SEPARATE LAYER, NOT AN EDIT TO THE SCALE ABOVE.
+
+   The scale above is deliberately mobile-first and "generous for low literacy": a 16px
+   body FLOOR, sized for a worker holding a cheap Android in a workshop. That is correct
+   for the surface it was drawn for — and payer-web still SERVES that surface, at the
+   public /i/<code> referral landing. Re-tuning --text-* in place would have silently
+   shrunk the one genuinely worker-facing page in this app.
+
+   But the authenticated portal is a different product: a B2B console where a recruiter
+   scans dense tables of postings, applicants and ledger rows on a 1440px+ monitor. There
+   a 16px floor is not "readable", it is sparse — it pushes ~30% fewer rows above the fold
+   and forces every table to wrap.
+
+   So the density lives in ROLE tokens instead. Each --ui-* role bundles the four values
+   that actually make type work together — size, line-height, weight, tracking — so a
+   heading or a table cell is set by NAMING it, not by re-picking four numbers per page.
+   Nothing above changes; the worker-facing page keeps the generous scale untouched.
+   ============================================================ */
+:root {
+  /* ---- type roles: size / line-height / weight / tracking ---- */
+
+  /* display — the one hero figure on an overview screen */
+  --ui-display-size: 1.75rem; /* 28px */
+  --ui-display-leading: 1.15;
+  --ui-display-weight: var(--weight-bold);
+  --ui-display-tracking: -0.02em;
+
+  /* h1 — page title. One per screen. */
+  --ui-h1-size: 1.375rem; /* 22px */
+  --ui-h1-leading: 1.2;
+  --ui-h1-weight: var(--weight-bold);
+  --ui-h1-tracking: -0.018em;
+
+  /* h2 — section within a page */
+  --ui-h2-size: 1.0625rem; /* 17px */
+  --ui-h2-leading: 1.3;
+  --ui-h2-weight: var(--weight-bold);
+  --ui-h2-tracking: -0.012em;
+
+  /* h3 — card / panel title */
+  --ui-h3-size: 0.9375rem; /* 15px */
+  --ui-h3-leading: 1.35;
+  --ui-h3-weight: var(--weight-semibold);
+  --ui-h3-tracking: -0.006em;
+
+  /* h4 — sub-group inside a panel */
+  --ui-h4-size: 0.8125rem; /* 13px */
+  --ui-h4-leading: 1.4;
+  --ui-h4-weight: var(--weight-semibold);
+  --ui-h4-tracking: 0;
+
+  /* body — the portal's default reading size */
+  --ui-body-lg-size: 0.9375rem; /* 15px — intro / lead paragraphs */
+  --ui-body-size: 0.875rem; /* 14px — DEFAULT */
+  --ui-body-sm-size: 0.8125rem; /* 13px — secondary/supporting prose */
+  --ui-body-leading: 1.55;
+
+  /* label — form labels, definition terms, tile captions */
+  --ui-label-size: 0.8125rem; /* 13px */
+  --ui-label-leading: 1.3;
+  --ui-label-weight: var(--weight-semibold);
+
+  /* caption — helper text, timestamps, footnotes */
+  --ui-caption-size: 0.75rem; /* 12px */
+  --ui-caption-leading: 1.45;
+
+  /* eyebrow — the uppercase micro-label above a section */
+  --ui-eyebrow-size: 0.6875rem; /* 11px */
+  --ui-eyebrow-leading: 1.2;
+  --ui-eyebrow-weight: var(--weight-bold);
+  --ui-eyebrow-tracking: 0.08em;
+
+  /* navigation — sidebar + header links */
+  --ui-nav-size: 0.84375rem; /* 13.5px */
+  --ui-nav-leading: 1.2;
+  --ui-nav-weight: var(--weight-medium);
+  --ui-nav-weight-active: var(--weight-bold);
+
+  /* table — a header is a LABEL (small, heavy, tracked); a cell is DATA (bigger, quiet).
+     Inverting that pair is the single most common reason a dense table reads as noise. */
+  --ui-th-size: 0.71875rem; /* 11.5px */
+  --ui-th-leading: 1.3;
+  --ui-th-weight: var(--weight-bold);
+  --ui-th-tracking: 0.06em;
+  --ui-td-size: 0.84375rem; /* 13.5px */
+  --ui-td-leading: 1.45;
+
+  /* KPI — the numeral roles. Always tabular so columns of figures align on the decimal. */
+  --ui-kpi-size: 1.875rem; /* 30px */
+  --ui-kpi-sm-size: 1.375rem; /* 22px */
+  --ui-kpi-leading: 1.05;
+  --ui-kpi-weight: var(--weight-bold);
+  --ui-kpi-tracking: -0.025em;
+
+  /* ---- density rails ---- */
+  --row-h: 44px; /* table row target */
+  --row-h-compact: 36px;
+  --panel-pad: var(--space-5);
+  --panel-pad-sm: var(--space-4);
+
+  /* ---- shell geometry ---- */
+  --shell-nav-w: 16.5rem; /* 264px — fits the longest nav label without truncation */
+  --shell-nav-w-collapsed: 4.75rem; /* 76px — icon rail */
+  --shell-header-h: 3.75rem; /* 60px */
+
+  /* ---- responsive rails (override the fixed rails declared earlier in this file) ----
+     --content-max was a hard 1200px. On the 1440px/1600px/1920px displays this product is
+     actually used on that left 240px+ of the viewport permanently unused — the console got
+     NARROWER in relative terms the bigger the monitor, which is the opposite of what a
+     data-dense tool should do. 1440px holds a 6-column tile row and a wide table without
+     the line lengths in prose blocks running past comfortable (those are separately capped
+     by --reading-max, which is unchanged).
+
+     --gutter-web was a fixed 32px, so the page edge looked tight at 1920px and wasteful at
+     1280px. As a clamp it stays proportional across the whole desktop range. */
+  --content-max: 90rem; /* 1440px */
+  --gutter-web: clamp(1.25rem, 2.2vw, 2.5rem); /* 20px → 40px */
+
+  /* ---- MISSING semantics the component layer had to improvise ---- */
+
+  /* A disabled control's text. Previously every disabled/placeholder/optional label
+     reached for --text-faint, which is a 3:1 grey — fine as a decorative hint, below the
+     AA floor as text. Splitting the two lets --text-faint carry real contrast again. */
+  --text-disabled: var(--ink-400);
+  --surface-hover: var(--surface-sunken);
+
+  /* Primary-action aliases. The component layer already had brand/hover/press/tint; these
+     are the names the rest of the industry (and every future contributor) reaches for. */
+  --primary: var(--brand);
+  --primary-hover: var(--brand-hover);
+  --primary-active: var(--brand-press);
+  --primary-soft: var(--brand-tint);
+
+  /* COMING SOON — one visual language for a capability that exists on the server but is
+     not open to this user yet. Deliberately colourless: a greyed affordance reads as
+     "not yet", where any tint reads as a status the user should act on. */
+  --soon-fg: var(--text-disabled);
+  --soon-bg: var(--surface-sunken);
+  --soon-border: var(--border-subtle);
+
+  /* FOCUS — the keyboard indicator has its own token because it is the one colour that may
+     never be the brand. Haldi measures 1.6:1 on the card surface, under the 3:1 that WCAG
+     2.2 SC 1.4.11 requires of a focus indicator; the structural blue measures 10.4:1. */
+  --focus-ring: var(--blue-500);
+
+  /* CONTROL BORDER — the line that DRAWS an input, as opposed to the hairline that merely
+     separates two cards. That distinction is the whole reason this is its own token: SC
+     1.4.11 governs the boundary of a user-interface component, so an input's border has to
+     clear 3:1 against the surface behind it, while a decorative divider does not. The
+     shared --border-strong measured 1.63:1 on paper and 1.95:1 on ink — invisible as a
+     control boundary in both themes — so inputs now take this darker step and the divider
+     tokens stay light. */
+  --border-control: var(--ink-500);
+}
+
+/* --text-faint is a TEXT token, so it has to clear AA against the surfaces it sits on.
+   At --ink-400 (#8a92a6) it measured ~3.0:1 on paper and ~3.6:1 on the ink card — under
+   the 4.5:1 floor in BOTH themes. It now resolves to the same ramp step as --text-muted,
+   and everything that genuinely wanted "greyed out, not readable prose" (placeholders,
+   disabled labels, Coming Soon) moves to --text-disabled above. */
+:root {
+  --text-faint: var(--ink-500);
+}
+[data-theme="ink"] {
+  --text-faint: var(--ink-300);
+  --text-disabled: var(--ink-500);
+  --surface-hover: #1a2b4d;
+  --soon-fg: var(--ink-500);
+  --soon-bg: #0e1830;
+  --soon-border: #1e2a45;
+  /* On the ink canvas the deep structural blue disappears; the ring moves up the ramp. */
+  --focus-ring: var(--blue-300);
+  --border-control: var(--ink-400);
+}
+
+/* ============================================================
+   UI-1 · OVERLAY ELEVATION — the ONE exception to the shadow ban.
+   ------------------------------------------------------------
+   The system flattens every --shadow-* to `none` and separates surfaces with a 1px
+   hairline. That holds for anything IN the page — cards, panels, tiles — and it is a big
+   part of why the product reads as calm rather than bubbly.
+
+   It does not hold for things that float ABOVE the page. A dropdown, dialog or toast
+   rendered as white-on-white with a hairline is genuinely ambiguous: nothing tells the
+   eye which plane it is on, and on a busy screen the panel visually merges with the card
+   behind it. That is a legibility failure, not a decorative preference, so overlays get
+   their own token rather than un-banning the flat ones.
+   ============================================================ */
+:root {
+  --shadow-overlay:
+    0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -4px rgba(16, 24, 40, 0.1),
+    0 2px 6px -2px rgba(16, 24, 40, 0.06);
+  --shadow-overlay-lg:
+    0 1px 2px rgba(16, 24, 40, 0.04), 0 20px 48px -8px rgba(16, 24, 40, 0.16),
+    0 4px 12px -4px rgba(16, 24, 40, 0.08);
+  /* A sticky header needs to show that content has scrolled UNDER it — a hairline alone
+     disappears the moment a card's own border lines up with it. */
+  --shadow-sticky: 0 1px 0 var(--border-subtle), 0 1px 3px rgba(16, 24, 40, 0.04);
+}
+[data-theme="ink"] {
+  /* On a dark canvas a light-scattering shadow does nothing; depth has to come from a
+     darker pool plus a top hairline that catches the "light". */
+  --shadow-overlay:
+    0 0 0 1px rgba(255, 255, 255, 0.04), 0 8px 24px -4px rgba(3, 7, 15, 0.6),
+    0 2px 6px -2px rgba(3, 7, 15, 0.4);
+  --shadow-overlay-lg:
+    0 0 0 1px rgba(255, 255, 255, 0.05), 0 20px 48px -8px rgba(3, 7, 15, 0.72),
+    0 4px 12px -4px rgba(3, 7, 15, 0.5);
+  --shadow-sticky: 0 1px 0 var(--border-subtle), 0 1px 3px rgba(3, 7, 15, 0.5);
+}
+
+/* ============================================================
+   UI-1 · TYPE-ROLE UTILITIES — apply a role by naming it.
+   Every rule below is only the four values of one role; nothing sets colour, so a role
+   never fights the semantic colour tokens at the call site.
+   ============================================================ */
+.ui-display {
+  font-family: var(--font-display);
+  font-size: var(--ui-display-size);
+  line-height: var(--ui-display-leading);
+  font-weight: var(--ui-display-weight);
+  letter-spacing: var(--ui-display-tracking);
+}
+.ui-h1 {
+  font-family: var(--font-display);
+  font-size: var(--ui-h1-size);
+  line-height: var(--ui-h1-leading);
+  font-weight: var(--ui-h1-weight);
+  letter-spacing: var(--ui-h1-tracking);
+}
+.ui-h2 {
+  font-family: var(--font-display);
+  font-size: var(--ui-h2-size);
+  line-height: var(--ui-h2-leading);
+  font-weight: var(--ui-h2-weight);
+  letter-spacing: var(--ui-h2-tracking);
+}
+.ui-h3 {
+  font-family: var(--font-display);
+  font-size: var(--ui-h3-size);
+  line-height: var(--ui-h3-leading);
+  font-weight: var(--ui-h3-weight);
+  letter-spacing: var(--ui-h3-tracking);
+}
+.ui-h4 {
+  font-family: var(--font-sans);
+  font-size: var(--ui-h4-size);
+  line-height: var(--ui-h4-leading);
+  font-weight: var(--ui-h4-weight);
+}
+.ui-body-lg {
+  font-size: var(--ui-body-lg-size);
+  line-height: var(--ui-body-leading);
+}
+.ui-body {
+  font-size: var(--ui-body-size);
+  line-height: var(--ui-body-leading);
+}
+.ui-body-sm {
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+}
+.ui-label {
+  font-size: var(--ui-label-size);
+  line-height: var(--ui-label-leading);
+  font-weight: var(--ui-label-weight);
+}
+.ui-caption {
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+}
+.ui-eyebrow {
+  font-size: var(--ui-eyebrow-size);
+  line-height: var(--ui-eyebrow-leading);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+}
+/* Numerals only. `tabular-nums` locks every digit to one advance width so a column of
+   figures aligns; `slashed-zero` keeps 0 and O apart in IDs and codes. */
+.ui-num {
+  font-variant-numeric: tabular-nums slashed-zero;
+  letter-spacing: var(--ui-kpi-tracking);
+}
+.ui-kpi {
+  font-family: var(--font-display);
+  font-size: var(--ui-kpi-size);
+  line-height: var(--ui-kpi-leading);
+  font-weight: var(--ui-kpi-weight);
+  letter-spacing: var(--ui-kpi-tracking);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+.ui-kpi--sm {
+  font-size: var(--ui-kpi-sm-size);
 }

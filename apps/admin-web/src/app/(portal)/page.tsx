@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { requireSession } from "../../lib/auth";
-import { can } from "../../lib/auth/capabilities";
+import { ROLE_LABELS, can } from "../../lib/auth/capabilities";
 import { getHealth, getMetrics, listEvents } from "../../lib/events";
 import { EventTable } from "../../components/event-table";
+import { buildAdminAttention } from "./attention";
 import {
   formatCount,
   formatSuppressible,
@@ -24,9 +25,23 @@ export const metadata = { title: "Dashboard" };
  * Metrics, health and the recent feed are fetched CONCURRENTLY — they are independent
  * reads, and serialising them would make the slowest one the page's latency floor.
  */
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await requireSession();
   const mayReadEvents = can(session.capabilities, "read_events");
+
+  /**
+   * `requireCapability()` bounces an operator here with `?denied=<capability>` (see
+   * lib/auth/session.ts). Nothing read that parameter, so the redirect was silent: you
+   * clicked "Admin users", the URL flickered, and you were on the dashboard with no idea
+   * whether the click had missed, the page was broken, or you simply were not allowed.
+   * Saying so plainly is the difference between a permission boundary and a bug.
+   */
+  const deniedParam = (await searchParams).denied;
+  const denied = Array.isArray(deniedParam) ? deniedParam[0] : deniedParam;
 
   // `allSettled`, not `all`: health is a different service from the events API, and one
   // being down must not blank the whole dashboard. Each region renders its own failure.
@@ -43,6 +58,15 @@ export default async function DashboardPage() {
   const totalEvents = metrics?.by_event_name.reduce((sum, b) => sum + b.count, 0) ?? 0;
   const breachTotal = metrics?.breaches.reduce((sum, b) => sum + b.count, 0) ?? 0;
 
+  // The console's first question is "is anything wrong?", not "how much happened?".
+  const attention = buildAdminAttention({
+    metrics,
+    health,
+    mayReadEvents,
+    metricsFailed: mayReadEvents && metricsRes.status === "rejected",
+    recentFailed: mayReadEvents && recentRes.status === "rejected",
+  });
+
   return (
     <div className="page">
       <header className="page__head">
@@ -53,6 +77,39 @@ export default async function DashboardPage() {
           </p>
         </div>
       </header>
+
+      {denied ? (
+        <p className="notice notice--warn" role="status">
+          You do not have the <code className="code">{denied}</code> capability, so that
+          section is not available to your role ({ROLE_LABELS[session.role]}). Ask an
+          administrator if you need it.
+        </p>
+      ) : null}
+
+      {/* NEEDS ATTENTION — rendered only when something genuinely does, so its presence is
+          itself information. See attention.ts for why each item is here. */}
+      {attention.length > 0 ? (
+        <section className="attention" aria-labelledby="attention-heading">
+          <h2 className="attention__heading" id="attention-heading">
+            Needs attention
+          </h2>
+          <ul className="attention__list">
+            {attention.map((item) => (
+              <li className={`attention__item attention__item--${item.tone}`} key={item.id}>
+                <div className="attention__text">
+                  <p className="attention__title">{item.title}</p>
+                  <p className="attention__body">{item.body}</p>
+                </div>
+                {item.href ? (
+                  <Link className="btn btn--ghost btn--sm attention__action" href={item.href}>
+                    {item.linkLabel}
+                  </Link>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {/* ---- headline counters ------------------------------------------- */}
       {mayReadEvents && (
@@ -172,7 +229,15 @@ export default async function DashboardPage() {
           </div>
 
           {recent ? (
-            <EventTable events={recent.events} emptyMessage="No events recorded yet." />
+            <EventTable
+              events={recent.events}
+              emptyMessage="No events recorded yet"
+              /* This widget has NO filters, so it must not tell anyone to widen one; and the
+                 panel head above already renders "View all events" to the same target, so an
+                 action here would be a duplicate link with an identical accessible name
+                 inside one panel. */
+              emptyBody="The audit spine fills as the platform is used. Recent activity will appear here."
+            />
           ) : (
             <p className="empty">The event feed is unavailable right now.</p>
           )}

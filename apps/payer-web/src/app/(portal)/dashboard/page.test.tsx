@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
-import { Card, MaskedCandidate, StatTile } from "../../../components/ds";
+import { MaskedCandidate, StatTile } from "../../../components/ds";
 
 /**
  * DASHBOARD (DS1.2) — server component rendered to an element tree in the node env and
@@ -207,18 +207,28 @@ describe("DS1.2 · recent-unlock teasers are faceless MaskedCandidate rows", () 
   });
 });
 
-describe("DS1.2 · DS Card empty + error states", () => {
-  it("renders DS Card empty states (no teasers, no posting rows) when there is no data", async () => {
+describe("UI-1 · empty + error states", () => {
+  // The empty/error surfaces used to be bare DS Cards carrying one line of text. They are
+  // now the shared `.state` block (icon + what is empty + why + what to do), so these assert
+  // the STATE blocks rather than counting Cards — same intent, at the layer that now owns it.
+  it("renders an empty state per section (no teasers, no posting rows) when there is no data", async () => {
     const tree = await render({ unlocks: [], postings: [] });
     expect(findAll(tree, MaskedCandidate).length).toBe(0);
-    expect(findAll(tree, Card).length).toBeGreaterThanOrEqual(2);
+    expect(findByClass(tree, "dash-posting").length).toBe(0);
+    // One for "Your postings", one for "Recent unlocks".
+    expect(findByClass(tree, "state").length).toBeGreaterThanOrEqual(2);
     expect(textOf(tree)).toContain("No contacts unlocked yet");
+    expect(textOf(tree)).toContain("No postings yet");
+    // PHASE 16 — an empty state must say what to do next, not just that it is empty.
+    expect(textOf(tree)).toContain("Post a job");
   });
 
-  it("renders a neutral 'Service unavailable' DS Card when the read fails", async () => {
+  it("renders a neutral error state (no raw backend detail) when the read fails", async () => {
     const tree = await render({ throws: true });
-    expect(textOf(tree)).toContain("Service unavailable");
-    expect(findAll(tree, Card).length).toBeGreaterThanOrEqual(1);
+    expect(textOf(tree)).toContain("We could not load your account");
+    expect(findByClass(tree, "state--error").length).toBe(1);
+    // The recovery action is part of the contract — an error with no way forward is a wall.
+    expect(findByClass(tree, "state__actions").length).toBe(1);
     // no candidate/posting data leaks on the error path
     expect(findAll(tree, MaskedCandidate).length).toBe(0);
   });

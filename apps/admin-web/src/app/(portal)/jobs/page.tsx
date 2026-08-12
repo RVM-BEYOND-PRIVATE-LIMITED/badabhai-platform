@@ -89,9 +89,19 @@ export default async function JobsPage({
         </div>
 
         {failed ? (
-          <p className="empty">
-            The server rejected these filters. An owner account id must be a full UUID.
-          </p>
+          <div className="state state--error">
+            <h3 className="state__title">The server rejected these filters</h3>
+            <p className="state__body">
+              Nothing was fetched. An owner account id must be a full UUID — a short id
+              copied from a table cell will not do. Correct the value above, or clear the
+              filters and start again.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/jobs">
+                Clear filters
+              </Link>
+            </div>
+          </div>
         ) : page && page.items.length > 0 ? (
           <div className="tablewrap">
             <table className="table">
@@ -147,10 +157,32 @@ export default async function JobsPage({
               </tbody>
             </table>
           </div>
+        ) : filtered ? (
+          <div className="state">
+            <h3 className="state__title">No postings match these filters</h3>
+            <p className="state__body">
+              Nothing matches the filters currently applied. Widen them, or clear them to
+              see every posting on the platform.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/jobs">
+                Clear filters
+              </Link>
+            </div>
+          </div>
         ) : (
-          <p className="empty">
-            {filtered ? "No postings match these filters." : "No job postings created yet."}
-          </p>
+          <div className="state">
+            <h3 className="state__title">No job postings created yet</h3>
+            <p className="state__body">
+              Postings appear here the moment an employer or an operator publishes one.
+              Until then there is nothing in the feed workers see either.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/events">
+                Open the event timeline
+              </Link>
+            </div>
+          </div>
         )}
 
         <Pager

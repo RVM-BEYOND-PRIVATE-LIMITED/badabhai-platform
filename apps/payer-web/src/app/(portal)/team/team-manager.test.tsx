@@ -10,6 +10,10 @@ import { Button } from "../../../components/ds";
  * address; an empty directory renders an empty state. A member's own row / an owner row hides the
  * Remove affordance. Env is node — React state is stubbed via a mocked useState/useTransition; the
  * Server Actions are mocked inert.
+ *
+ * UI-1: the two blocks are now `panel`s, the directory is the `table` primitive and the empty
+ * directory is the shared `state` block — the assertions below name those primitives instead of
+ * the retired `team-table` / `team-empty` classes.
  */
 
 vi.mock("react", async () => {
@@ -50,6 +54,20 @@ function gatherButtons(tree: ReactNode): string[] {
     if (el.props && "children" in el.props) w(el.props.children as ReactNode);
   })(tree);
   return out;
+}
+
+/** Every element carrying `cls` in its className (space-separated), depth-first. */
+function findByClass(node: ReactNode, cls: string, acc: ReactElement[] = []): ReactElement[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    node.forEach((c) => findByClass(c, cls, acc));
+    return acc;
+  }
+  const el = node as ReactElement<{ className?: unknown; children?: ReactNode }>;
+  const cn = el.props?.className;
+  if (typeof cn === "string" && cn.split(/\s+/).includes(cls)) acc.push(el);
+  if (el.props && "children" in el.props) findByClass(el.props.children, cls, acc);
+  return acc;
 }
 
 function gatherText(tree: ReactNode): string {
@@ -95,6 +113,11 @@ describe("TeamManager — invite affordance + masked members list, PII-free", ()
     expect(text).toMatch(/No members yet/i);
     expect(text).not.toMatch(/\d{10,}/);
     expect(text).not.toMatch(/\+\d{7,}/);
+    // The empty directory is the shared `state` block, and it offers a way forward.
+    expect(findByClass(tree, "state").length).toBe(1);
+    expect(findByClass(tree, "state__actions").length).toBe(1);
+    // No table is rendered when there is nothing to put in it.
+    expect(findByClass(tree, "table").length).toBe(0);
   });
 
   it("renders masked email + role + status, and a per-row Remove for a removable member", () => {
@@ -105,6 +128,10 @@ describe("TeamManager — invite affordance + masked members list, PII-free", ()
     expect(text).toContain("recruiter");
     expect(text).toContain("invited");
     expect(text).not.toMatch(/\d{10,}/);
+    // The directory is the `table` primitive inside its scroll wrapper — no empty state.
+    expect(findByClass(tree, "table").length).toBe(1);
+    expect(findByClass(tree, "tablewrap").length).toBe(1);
+    expect(findByClass(tree, "state").length).toBe(0);
   });
 
   it("hides Remove for the caller's own row / an owner (marks it 'You')", () => {

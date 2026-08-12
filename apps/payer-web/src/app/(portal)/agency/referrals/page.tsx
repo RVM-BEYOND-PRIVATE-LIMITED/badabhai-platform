@@ -14,7 +14,7 @@ import type {
   AgencyPayout,
   AgencyReferralsSummary,
 } from "../../../../lib/contracts";
-import { Badge, Card, ProgressBar, StatTile } from "../../../../components/ds";
+import { ProgressBar, StatTile } from "../../../../components/ds";
 import { RetryButton } from "../../../../components/retry-button";
 import { AgencyBatchInvitePanel } from "../dashboard/batch-invite-panel";
 import { AgencyInvitePanel } from "../dashboard/invite-panel";
@@ -92,15 +92,19 @@ export default async function AgencyReferralsPage() {
 
   return (
     <>
-      <p className="agency-back">
+      <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <h1 className="agency-title">Referrals &amp; earnings</h1>
-      <p className="agency-sub">
-        Share your referral link, track your consent-safe funnel, and — where enabled — earn
-        a mock rev-share when workers you referred get contacted. BadaBhai protects worker
-        privacy: agencies see aggregate counts, never a per-worker breakdown.
-      </p>
+      <div className="page-head">
+        <div className="page-head__text">
+          <h1 className="page-head__title">Referrals &amp; earnings</h1>
+          <p className="page-head__sub">
+            Share your referral link, track your consent-safe funnel, and — where enabled —
+            earn a mock rev-share when workers you referred get contacted. BadaBhai protects
+            worker privacy: agencies see aggregate counts, never a per-worker breakdown.
+          </p>
+        </div>
+      </div>
 
       {/* a) REFERRAL LINK — LIVE faceless mint (opaque code/link + copy; consent-first). */}
       <AgencyInvitePanel />
@@ -118,12 +122,28 @@ export default async function AgencyReferralsPage() {
         <AgencyBatchInvitePanel />
       </div>
 
-      {/* b) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). */}
-      <section className="agency-section">
-        <h2 className="agency-section__title">Referral funnel</h2>
+      {/*
+        b) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle).
+
+        A `.section` (not a `.panel`): the body is a run of StatTiles that already carry their
+        own surface, so a bordered frame around them would be a box inside a box. The k-anon
+        disclosure is the section's SUB — it describes the whole funnel, so it reads before the
+        numbers rather than as a footnote after them.
+      */}
+      <section className="section">
+        <div className="section__head">
+          <h2 className="section__title">Referral funnel</h2>
+          {summary && !funnelError ? (
+            <p className="section__sub">
+              Aggregate only — counts below {summary.minBucket} show as &ldquo;&lt;
+              {summary.minBucket}&rdquo; to protect a single worker&rsquo;s privacy. There is
+              no per-worker breakdown.
+            </p>
+          ) : null}
+        </div>
         {summary && !funnelError ? (
           <>
-            <div className="agency-stats">
+            <div className="stat-row">
               <StatTile
                 label="Invites created"
                 value={kAnonCount(summary.created, summary.minBucket)}
@@ -141,64 +161,74 @@ export default async function AgencyReferralsPage() {
               />
             </div>
 
-            <div className="agency-funnel__conv">
-              <ProgressBar
-                tone="success"
-                label="Created → clicked conversion"
-                value={pct ?? 0}
-                showValue={pct !== null}
-              />
-              {pct === null && (
-                <p className="agency-funnel__hint">
-                  Conversion appears once both stages clear the privacy floor of{" "}
-                  {summary.minBucket}.
-                </p>
-              )}
-            </div>
-
-            <p className="agency-section__sub">
-              Aggregate only — counts below {summary.minBucket} show as &ldquo;&lt;
-              {summary.minBucket}&rdquo; to protect a single worker&rsquo;s privacy. There is
-              no per-worker breakdown.
-            </p>
+            <ProgressBar
+              tone="success"
+              label="Created → clicked conversion"
+              value={pct ?? 0}
+              showValue={pct !== null}
+            />
+            {pct === null && (
+              <p className="section__sub">
+                Conversion appears once both stages clear the privacy floor of{" "}
+                {summary.minBucket}.
+              </p>
+            )}
           </>
         ) : (
-          <Card variant="flat" className="agency-jobs__empty">
-            <Badge tone="warning" upper>
-              Service unavailable
-            </Badge>{" "}
-            The referral funnel could not load right now. Please retry shortly. <RetryButton />
-          </Card>
+          <div className="state state--error">
+            <span className="state__icon">
+              <i className="ph ph-warning-circle" aria-hidden="true" />
+            </span>
+            <h3 className="state__title">Referral funnel unavailable</h3>
+            <p className="state__body">
+              Your funnel counts could not load right now. Nothing has changed — your invites
+              and referrals are safe. Please retry shortly.
+            </p>
+            <div className="state__actions">
+              <RetryButton />
+            </div>
+          </div>
         )}
       </section>
 
       {/* c) SUPPLY MONEY — earnings + KYC + payout, gated behind AGENCY_PAYOUTS_ENABLED. */}
       {earningsError ? (
-        <section className="agency-section">
-          <h2 className="agency-section__title">Your earnings</h2>
-          <Card variant="flat" className="agency-jobs__empty">
-            <Badge tone="warning" upper>
-              Service unavailable
-            </Badge>{" "}
-            Earnings could not load right now. Please retry shortly. <RetryButton />
-          </Card>
+        <section className="section">
+          <div className="section__head">
+            <h2 className="section__title">Your earnings</h2>
+          </div>
+          <div className="state state--error">
+            <span className="state__icon">
+              <i className="ph ph-warning-circle" aria-hidden="true" />
+            </span>
+            <h3 className="state__title">Earnings unavailable</h3>
+            <p className="state__body">
+              Your earnings could not load right now. Nothing has changed — anything you have
+              accrued is still there. Please retry shortly.
+            </p>
+            <div className="state__actions">
+              <RetryButton />
+            </div>
+          </div>
         </section>
       ) : !payoutsEnabled ? (
-        <section className="agency-section">
-          <h2 className="agency-section__title">Earnings &amp; payouts</h2>
-          <Card variant="flat" className="agency-parked__card" aria-disabled="true">
-            <div className="agency-parked__head">
-              <h3 className="agency-parked__title">Payouts coming soon</h3>
-              <Badge tone="warning" upper>
-                Coming soon
-              </Badge>
+        <section className="section">
+          <div className="section__head">
+            <h2 className="section__title">Earnings &amp; payouts</h2>
+            <div className="section__actions">
+              <span className="soon-badge">Soon</span>
             </div>
-            <p className="agency-parked__note">
+          </div>
+          {/* `aria-disabled` is kept: the block is a placeholder for a surface that is real on
+              the server but not switched on, and nothing in it is operable. */}
+          <div className="soon-card" aria-disabled="true">
+            <h3 className="soon-card__title">Payouts coming soon</h3>
+            <p className="soon-card__body">
               Referral earnings and payouts aren&rsquo;t switched on yet. Keep sharing your
               referral link above — when a worker you referred joins and gets contacted, your
               mock rev-share will start accruing here.
             </p>
-          </Card>
+          </div>
         </section>
       ) : earnings ? (
         <>

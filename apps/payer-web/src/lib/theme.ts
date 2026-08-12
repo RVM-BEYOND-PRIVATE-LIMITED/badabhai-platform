@@ -61,7 +61,13 @@ if(s){var mt=document.querySelector('meta[name="theme-color"]');if(mt){mt.setAtt
  * 244 relative imports rewritten, on a shared integration branch. Recorded, not attempted.
  */
 export const ASYNC_STYLESHEETS: readonly string[] = [
-  "https://fonts.googleapis.com/css2?family=Anek+Latin:wght@400;500;600;700;800&family=Anek+Devanagari:wght@400;500;600;700;800&family=Roboto:wght@300;400;500;700&display=swap",
+  // UI-1 — Inter joins as the Latin UI face (--font-sans). Roboto STAYS in this URL and is
+  // not optional: it is the Devanagari half of the --font-sans chain, and font fallback is
+  // resolved per glyph, so dropping it would silently re-render every Hindi/Hinglish run in
+  // a system face. Anek keeps the brand voice (wordmark, headings, buttons).
+  // Google Fonts splits each family by unicode-range, so the Devanagari bytes are only
+  // fetched by a page that actually paints a Devanagari glyph.
+  "https://fonts.googleapis.com/css2?family=Anek+Latin:wght@400;500;600;700;800&family=Anek+Devanagari:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Roboto:wght@300;400;500;700&display=swap",
   "https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css",
   "https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css",
   "https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css",

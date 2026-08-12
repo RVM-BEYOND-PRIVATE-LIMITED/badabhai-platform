@@ -76,7 +76,18 @@ export default async function AgenciesPage({
         </div>
 
         {failed ? (
-          <p className="empty">The server rejected that filter. Check the value and retry.</p>
+          <div className="state state--error">
+            <h3 className="state__title">The server rejected that filter</h3>
+            <p className="state__body">
+              That is not an account status this portal recognises, so nothing was fetched.
+              Pick a status from the list above, or clear the filter and start again.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/agencies">
+                Clear filter
+              </Link>
+            </div>
+          </div>
         ) : (
           <PayerList
             payers={page?.items ?? []}

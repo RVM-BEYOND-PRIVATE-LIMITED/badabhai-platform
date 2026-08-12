@@ -95,22 +95,34 @@ export async function AgentSections() {
 
   return (
     <>
+      {/* Partial-read degrade: the UI-1 `alert` primitive (the DS replacement for the
+          flat-Card + uppercase-Badge + paragraph this used to build by hand). The tone spine
+          carries the "warning" the Badge used to; the recovery action moves into the
+          alert's own action slot so a degraded read always offers the way out. */}
       {readError ? (
-        <Card variant="flat" className="agency-degrade">
-          <Badge tone="warning" upper>
-            Some signals unavailable
-          </Badge>
-          <p className="agency-degrade__msg">
-            One or more reads could not load right now — those panels show
-            &ldquo;&mdash;&rdquo; until they recover. <RetryButton />
-          </p>
-        </Card>
+        <div className="alert alert--warning">
+          <i className="ph ph-warning alert__icon" aria-hidden="true" />
+          <div className="alert__text">
+            <p className="alert__title">Some signals unavailable</p>
+            <p className="alert__body">
+              One or more reads could not load right now — those panels show
+              &ldquo;&mdash;&rdquo; until they recover.
+            </p>
+          </div>
+          <div className="alert__actions">
+            <RetryButton />
+          </div>
+        </div>
       ) : null}
 
-      {/* a) AGENCY IDENTITY — the agency's OWN non-PII org label + account status. */}
-      <section className="agency-section">
-        <h2 className="agency-section__title">Your agency</h2>
-        <div className="agency-stats">
+      {/* a) AGENCY IDENTITY — the agency's OWN non-PII org label + account status.
+          The tile row is the shared `stat-row` grid, which also carries the section's
+          bottom rhythm — hence no block class on the <section> itself. */}
+      <section>
+        <div className="section__head">
+          <h2 className="section__title">Your agency</h2>
+        </div>
+        <div className="stat-row">
           <Card
             className="agency-stat"
             href="/account"
@@ -134,9 +146,14 @@ export async function AgentSections() {
 
       {/* b) DEMAND SUMMARY — counts derived from the agency's OWN LIVE jobs. This is the
           AGENT's authoritative vacancy count (NOT the shared top's job-postings tile). */}
-      <section className="agency-section">
-        <h2 className="agency-section__title">Demand summary</h2>
-        <div className="agency-stats">
+      <section>
+        <div className="section__head">
+          <h2 className="section__title">Demand summary</h2>
+          <p className="section__sub">
+            Counts across the vacancies your agency has posted.
+          </p>
+        </div>
+        <div className="stat-row">
           {/* Whole-card link to the vacancy manager section below (same page now, #-fragment). */}
           <Card
             className="agency-stat"
@@ -219,15 +236,32 @@ export async function AgentSections() {
 
       {/* c) VACANCY MANAGEMENT — LIVE list + create/edit/pause/close on the agency jobs.
           `id` is the in-page anchor target for the "Total vacancies" demand tile (#-fragment). */}
-      <section id="agency-vacancies" className="agency-section">
-        <h2 className="agency-section__title">Your vacancies</h2>
-        {jobs ? (
-          <AgencyJobsManager jobs={jobs} />
-        ) : (
-          <Card variant="flat" className="agency-jobs__empty">
-            Vacancies are unavailable right now. Please retry shortly. <RetryButton />
-          </Card>
-        )}
+      <section id="agency-vacancies" className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">Your vacancies</h2>
+          <p className="panel__sub">
+            The roles your agency has posted — create, edit, pause or close them here.
+          </p>
+        </div>
+        <div className="panel__body">
+          {jobs ? (
+            <AgencyJobsManager jobs={jobs} />
+          ) : (
+            <div className="state state--error">
+              <span className="state__icon">
+                <i className="ph ph-warning-circle" aria-hidden="true" />
+              </span>
+              <h3 className="state__title">Vacancies are unavailable right now</h3>
+              <p className="state__body">
+                The list could not be read. Nothing has changed — your vacancies are still
+                there. Please retry shortly.
+              </p>
+              <div className="state__actions">
+                <RetryButton />
+              </div>
+            </div>
+          )}
+        </div>
       </section>
 
       {/* d) INVITE — LIVE faceless mint (opaque code only; consent-first). */}
@@ -242,10 +276,12 @@ export async function AgentSections() {
           The two must stay distinguishable in the copy, not blurred into "bulk unavailable".
           The bulk card still LINKS to /agency/bulk-upload, which explains the reason (the
           route stays so the tile never 404s). */}
-      <section className="agency-section">
-        <h2 className="agency-section__title">Invite tools</h2>
-        <p className="agency-section__sub">More ways to hand out invite links.</p>
-        <div className="agency-stats">
+      <section>
+        <div className="section__head">
+          <h2 className="section__title">Invite tools</h2>
+          <p className="section__sub">More ways to hand out invite links.</p>
+        </div>
+        <div className="stat-row">
           <Card
             className="agency-stat"
             href="/agency/qr"
@@ -297,9 +333,13 @@ export async function AgentSections() {
       </section>
 
       {/* e) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). */}
-      <section className="agency-section">
-        <h2 className="agency-section__title">Referral funnel</h2>
-        <ReferralFunnel summary={referrals} />
+      <section className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">Referral funnel</h2>
+        </div>
+        <div className="panel__body">
+          <ReferralFunnel summary={referrals} />
+        </div>
       </section>
 
       {/* f) PARKED MODULE CARDS — disabled, informational, NOT clickable fake flows. */}

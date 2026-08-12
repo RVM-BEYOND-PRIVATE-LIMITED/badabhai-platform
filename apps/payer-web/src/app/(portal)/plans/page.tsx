@@ -9,7 +9,7 @@ import {
 } from "../../../lib/pricing-config";
 import { formatInr } from "../../../lib/format";
 import type { Capacity } from "../../../lib/contracts";
-import { Badge, Button, Card, StatTile, Toast } from "../../../components/ds";
+import { Badge, Card, StatTile } from "../../../components/ds";
 import { CachedPricingNote } from "../../../components/cached-pricing-note";
 import { RetryButton } from "../../../components/retry-button";
 import { CapacityPanel } from "../capacity/capacity-panel";
@@ -40,32 +40,44 @@ export default async function PlansPage() {
 
   return (
     <>
-      <p className="capacity-back">
+      <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <h1 className="dash-title">Plans &amp; Capacity</h1>
-      <p className="dash-sub">
-        Your current usage, available plans, and add-ons — all in one place.
-      </p>
+      <div className="page-head">
+        <div className="page-head__text">
+          <h1 className="page-head__title">Plans &amp; Capacity</h1>
+          <p className="page-head__sub">
+            Your current usage, available plans, and add-ons — all in one place.
+          </p>
+        </div>
+      </div>
 
       {!live ? <CachedPricingNote /> : null}
 
       {/* ── Capacity overview ── */}
-      <section className="plans-section">
-        <h2 className="plans-section__title">Your current capacity</h2>
+      <section className="section">
+        <div className="section__head">
+          <h2 className="section__title">Your current capacity</h2>
+        </div>
         {capacityError ? (
-          <Card variant="outline" className="capacity-state">
-            <Badge tone="warning" upper>
-              Service unavailable
-            </Badge>
-            <p className="capacity-state__msg">
-              We couldn&rsquo;t load your capacity right now. Please retry.
-            </p>
-            <RetryButton />
+          <Card>
+            <div className="state state--error">
+              <span className="state__icon">
+                <i className="ph ph-warning-circle" aria-hidden="true" />
+              </span>
+              <h3 className="state__title">Service unavailable</h3>
+              <p className="state__body">
+                We couldn&rsquo;t load your capacity right now. Nothing has changed — please
+                retry.
+              </p>
+              <div className="state__actions">
+                <RetryButton />
+              </div>
+            </div>
           </Card>
         ) : capacity ? (
           <>
-            <div className="capacity-stats">
+            <div className="stat-row">
               <StatTile
                 label={`Active ${unit}`}
                 value={
@@ -91,116 +103,154 @@ export default async function PlansPage() {
             </div>
 
             {atCapacity ? (
-              <Card variant="outline" className="capacity-alert">
-                <Badge tone="warning" upper>
-                  At capacity
-                </Badge>
-                <p className="capacity-alert__msg">
-                  You are at capacity — new {unit} will be paused until you add capacity.
-                </p>
-              </Card>
+              <div className="alert alert--warning">
+                <i className="ph ph-warning alert__icon" aria-hidden="true" />
+                <div className="alert__text">
+                  <p className="alert__title">At capacity</p>
+                  <p className="alert__body">
+                    You are at capacity — new {unit} will be paused until you add capacity.
+                  </p>
+                </div>
+              </div>
             ) : null}
           </>
         ) : null}
       </section>
 
       {/* ── Capacity tiers ── */}
-      <section className="plans-section">
-        <h2 className="plans-section__title">Hiring Capacity</h2>
-        <p className="plans-section__sub">
-          Increase how many concurrent {unitOne}s you can run at once. Your active count above is{" "}
-          <strong>live from the enforcement engine</strong>. Prices are <strong>mock</strong> — no
-          real payment is taken.
-        </p>
+      <section className="section">
+        <div className="section__head">
+          <h2 className="section__title">Hiring Capacity</h2>
+          <p className="section__sub">
+            Increase how many concurrent {unitOne}s you can run at once. Your active count above
+            is <strong>live from the enforcement engine</strong>. Prices are <strong>mock</strong>{" "}
+            — no real payment is taken.
+          </p>
+        </div>
         {tiers.length === 0 ? (
-          <Card variant="flat" className="plans-empty">
-            No capacity tiers are currently offered.
-          </Card>
+          <div className="state">
+            <span className="state__icon">
+              <i className="ph ph-stack" aria-hidden="true" />
+            </span>
+            <h3 className="state__title">No capacity tiers on offer</h3>
+            <p className="state__body">
+              There is nothing to buy right now — this usually means the price list is being
+              updated. Your current allowance is unaffected; check back shortly.
+            </p>
+          </div>
         ) : (
           <CapacityPanel tiers={tiers} />
         )}
-        <div className="plans-nudge">
-          <Toast tone="neutral">
-            <strong>Recorded only — nothing is blocked yet.</strong> Buying capacity is stored
-            against your account; the concurrent-vacancy cap is not yet enforced, so it does not
-            pause or block any {unitOne} today. Mock payments only — no money moves.
-          </Toast>
+        <div className="alert alert--info">
+          <i className="ph ph-info alert__icon" aria-hidden="true" />
+          <div className="alert__text">
+            <p className="alert__title">Recorded only — nothing is blocked yet.</p>
+            <p className="alert__body">
+              Buying capacity is stored against your account; the concurrent-vacancy cap is not
+              yet enforced, so it does not pause or block any {unitOne} today. Mock payments only
+              — no money moves.
+            </p>
+          </div>
         </div>
       </section>
 
       {/* ── Per-posting applicant quota table ── */}
-      {capacity && capacity.postings.length > 0 ? (
-        <section className="plans-section">
-          <h2 className="plans-section__title">Per {unitOne} applicant quota</h2>
-          <p className="plans-section__sub">
-            Your concurrent allowance and active count above are <strong>live</strong> from the
-            backend enforcement engine. The per-{unitOne} rows reflect backend-seeded plans only.
-          </p>
-          <Card padding="none" className="capacity-table-card">
-            <table>
-              <thead>
-                <tr>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Vacancies</th>
-                  <th>Applicants seen</th>
-                  <th>Applicant quota</th>
-                </tr>
-              </thead>
-              <tbody>
-                {capacity.postings.map((p) => (
-                  <tr key={p.postingId}>
-                    <td>
-                      <Link className="capacity-link" href={`/postings/${p.postingId}/applicants`}>
-                        {p.roleTitle}
-                      </Link>
-                    </td>
-                    <td>
-                      <Badge
-                        tone={
-                          p.status === "open"
-                            ? "success"
-                            : p.status === "paused"
-                              ? "warning"
-                              : "neutral"
-                        }
-                        upper
-                      >
-                        {p.status}
-                      </Badge>
-                    </td>
-                    <td>{p.vacancyBand}</td>
-                    <td className="bb-mono">{p.applicantsUsed}</td>
-                    <td className="bb-mono">{p.applicantQuota}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        </section>
-      ) : capacity && capacity.postings.length === 0 ? (
-        <section className="plans-section">
-          <h2 className="plans-section__title">Per {unitOne} applicant quota</h2>
-          <Card variant="flat" className="plans-empty">
-            You haven&rsquo;t posted {isAgency ? "a vacancy" : "a job"} yet.{" "}
-            <Link className="capacity-link" href="/postings/new">
-              {isAgency ? "Post your first vacancy" : "Post your first job"}
-            </Link>
-            .
-          </Card>
+      {capacity ? (
+        <section className="panel panel--table">
+          <div className="panel__head">
+            <h2 className="panel__title">Per {unitOne} applicant quota</h2>
+            <p className="panel__sub">
+              Your concurrent allowance and active count above are <strong>live</strong> from the
+              backend enforcement engine. The per-{unitOne} rows reflect backend-seeded plans
+              only.
+            </p>
+          </div>
+          <div className="panel__body">
+            {capacity.postings.length > 0 ? (
+              <div className="tablewrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Role</th>
+                      <th>Status</th>
+                      <th>Vacancies</th>
+                      <th className="num">Applicants seen</th>
+                      <th className="num">Applicant quota</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {capacity.postings.map((p) => (
+                      <tr key={p.postingId}>
+                        <td>
+                          <Link
+                            className="capacity-link"
+                            href={`/postings/${p.postingId}/applicants`}
+                          >
+                            {p.roleTitle}
+                          </Link>
+                        </td>
+                        <td>
+                          <Badge
+                            tone={
+                              p.status === "open"
+                                ? "success"
+                                : p.status === "paused"
+                                  ? "warning"
+                                  : "neutral"
+                            }
+                            upper
+                          >
+                            {p.status}
+                          </Badge>
+                        </td>
+                        <td>{p.vacancyBand}</td>
+                        <td className="num">{p.applicantsUsed}</td>
+                        <td className="num">{p.applicantQuota}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="state">
+                <span className="state__icon">
+                  <i className="ph ph-briefcase" aria-hidden="true" />
+                </span>
+                <h3 className="state__title">No {unit} yet</h3>
+                <p className="state__body">
+                  You haven&rsquo;t posted {isAgency ? "a vacancy" : "a job"} yet. Once you do,
+                  its applicant quota shows here.
+                </p>
+                <div className="state__actions">
+                  <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/postings/new">
+                    {isAgency ? "Post your first vacancy" : "Post your first job"}
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
         </section>
       ) : null}
 
       {/* ── Credit packs ── */}
-      <section className="plans-section">
-        <h2 className="plans-section__title">Contact Unlock Credits</h2>
-        <p className="plans-section__sub">
-          Buy credits to unlock worker contact details. 1 credit = 1 contact unlock.
-        </p>
+      <section className="section">
+        <div className="section__head">
+          <h2 className="section__title">Contact Unlock Credits</h2>
+          <p className="section__sub">
+            Buy credits to unlock worker contact details. 1 credit = 1 contact unlock.
+          </p>
+        </div>
         {packs.length === 0 ? (
-          <Card variant="flat" className="plans-empty">
-            No credit packs are currently offered.
-          </Card>
+          <div className="state">
+            <span className="state__icon">
+              <i className="ph ph-wallet" aria-hidden="true" />
+            </span>
+            <h3 className="state__title">No credit packs on offer</h3>
+            <p className="state__body">
+              There is nothing to buy right now — this usually means the price list is being
+              updated. Your existing balance is unaffected; check back shortly.
+            </p>
+          </div>
         ) : (
           <div className="plans-grid">
             {packs.map((p) => (
@@ -212,8 +262,10 @@ export default async function PlansPage() {
                 <p className="plan-card__detail">
                   <span className="bb-mono">{p.credits}</span> credits
                 </p>
-                <Link href="/credits" className="plan-card__action">
-                  <Button variant="primary" block>Buy</Button>
+                {/* The action is the LINK itself (`bb-btn` on the anchor), not a <button>
+                    inside an <a> — one control, one accessible role. */}
+                <Link className="bb-btn bb-btn--primary bb-btn--block" href="/credits">
+                  Buy
                 </Link>
               </Card>
             ))}
@@ -222,15 +274,24 @@ export default async function PlansPage() {
       </section>
 
       {/* ── Posting plans ── */}
-      <section className="plans-section">
-        <h2 className="plans-section__title">{isAgency ? "Vacancy" : "Job"} Posting Plans</h2>
-        <p className="plans-section__sub">
-          {isAgency ? "Vacancies" : "Postings"} are free through launch.
-        </p>
+      <section className="section">
+        <div className="section__head">
+          <h2 className="section__title">{isAgency ? "Vacancy" : "Job"} Posting Plans</h2>
+          <p className="section__sub">
+            {isAgency ? "Vacancies" : "Postings"} are free through launch.
+          </p>
+        </div>
         {postingTiers.length === 0 ? (
-          <Card variant="flat" className="plans-empty">
-            No posting plans are currently offered.
-          </Card>
+          <div className="state">
+            <span className="state__icon">
+              <i className="ph ph-briefcase" aria-hidden="true" />
+            </span>
+            <h3 className="state__title">No posting plans on offer</h3>
+            <p className="state__body">
+              No plan is listed right now — this usually means the price list is being updated.
+              Any {unitOne} you have already posted stays live; check back shortly.
+            </p>
+          </div>
         ) : (
           <div className="plans-grid">
             {postingTiers.map((t) => (
@@ -240,8 +301,8 @@ export default async function PlansPage() {
                 </div>
                 <div className="plan-card__price bb-mono">Free</div>
                 <p className="plan-card__detail">Valid for {t.validityDays} days</p>
-                <Link href="/postings/new" className="plan-card__action">
-                  <Button variant="primary" block>Post now</Button>
+                <Link className="bb-btn bb-btn--primary bb-btn--block" href="/postings/new">
+                  Post now
                 </Link>
               </Card>
             ))}
@@ -250,14 +311,15 @@ export default async function PlansPage() {
       </section>
 
       {/* ── Mock payments disclaimer ── */}
-      <section className="plans-section">
-        <Card variant="flat" className="plans-nudge">
-          <Badge tone="neutral" upper>Mock payments</Badge>
-          <p className="plans-nudge__msg">
+      <div className="alert alert--info">
+        <i className="ph ph-info alert__icon" aria-hidden="true" />
+        <div className="alert__text">
+          <p className="alert__title">Mock payments</p>
+          <p className="alert__body">
             No real money is taken. Prices shown are mock figures for the staging preview.
           </p>
-        </Card>
-      </section>
+        </div>
+      </div>
     </>
   );
 }

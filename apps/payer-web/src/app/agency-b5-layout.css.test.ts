@@ -194,7 +194,7 @@ describe("B5 · /agency/qr — the code fits the viewport it is previewed on", (
   it("the chrome around the code is still built from the tokens this test measures", () => {
     // The arithmetic below is only honest if the structure is still the one it models:
     // portal rail → sheet padding → frame padding (the quiet zone) → the code.
-    expect(decl(rule(".portal-main", "max-width: 768px"), "padding")).toContain("var(--gutter)");
+    expect(decl(rule(".pshell__content", "max-width: 1023px"), "padding")).toContain("var(--gutter)");
     expect(decl(sheet, "padding")).toContain("var(--space-6)");
     expect(decl(frame, "padding")).toBe("var(--qr-quiet-screen)");
     expect(decl(qrBlock, "--qr-quiet-screen")).toBe("var(--space-5)");
@@ -204,7 +204,7 @@ describe("B5 · /agency/qr — the code fits the viewport it is previewed on", (
 
   it("MEASURED: the declared code width + its chrome never exceeds a common phone width", () => {
     // Horizontal chrome between the viewport edge and the code, straight from the tokens:
-    //   portal-main gutter ×2 + sheet padding ×2 + sheet border ×2 + frame quiet zone ×2 + frame border ×2
+    //   shell content gutter ×2 + sheet padding ×2 + sheet border ×2 + frame quiet zone ×2 + frame border ×2
     const hairline = tokenPx("--border-hairline");
     const chrome =
       2 * tokenPx("--gutter") + 2 * tokenPx("--space-6") + 2 * tokenPx("--space-5") + 4 * hairline;
@@ -314,14 +314,14 @@ describe("B5 · /agency/qr — print sizes come from the local rail, not from li
 /* ================================================================== *
  * FINDING 3 — the column headers must be visible, i.e. not pinned under the portal bar.
  * ================================================================== */
-describe("B5 · /agency/workers — the table header is not stuck behind the portal bar", () => {
-  it("the portal bar is still the opaque sticky element this trades against", () => {
-    const top = rule(".portal-top");
+describe("B5 · /agency/workers — the table header is not stuck behind the shell header", () => {
+  it("the shell header is still the opaque sticky element this trades against", () => {
+    const top = rule(".pshell__header");
     expect(decl(top, "position")).toBe("sticky");
-    expect(decl(top, "z-index")).toBe("var(--z-nav)");
+    expect(decl(top, "z-index")).toBe("var(--z-sticky)");
     expect(decl(top, "background")).toBe("var(--surface-card)");
-    // --z-nav sits far above --z-raised, so a raised sticky header can never win.
-    expect(Number(token("--z-nav"))).toBeGreaterThan(Number(token("--z-raised")));
+    // --z-sticky sits far above --z-raised, so a raised sticky header can never win.
+    expect(Number(token("--z-sticky"))).toBeGreaterThan(Number(token("--z-raised")));
   });
 
   it("no rule makes the worker table's column headers sticky", () => {
@@ -397,8 +397,15 @@ describe("B5 · /agency/workers — the empty state matches the portal's other e
     expect(decl(title, "font-weight")).not.toBe("var(--weight-bold)");
   });
 
-  it("lets the DS Card own the surface (the markup renders it inside <Card>)", () => {
-    expect(WORKER_LIST_TSX).toMatch(/<Card[^>]*className="agency-workers__empty"/);
+  it("lets the design system own the surface (the markup renders the shared state primitive)", () => {
+    // UI-1 MIGRATION: the empty state was a DS <Card className="agency-workers__empty"> whose
+    // point was that the CARD — not a bespoke frame — owned the surface. It is now the shared
+    // `.state` primitive, which owns it for the same reason. The intent is unchanged: this
+    // component must not grow a surface of its own. (The `.agency-workers__empty*` rules above
+    // are now unreferenced by this component — see the migration report.)
+    expect(WORKER_LIST_TSX).toMatch(/className="state"/);
+    expect(WORKER_LIST_TSX).toMatch(/className="state__title"/);
+    expect(WORKER_LIST_TSX).not.toMatch(/agency-workers__empty/);
   });
 });
 
@@ -406,8 +413,13 @@ describe("B5 · /agency/workers — the empty state matches the portal's other e
  * FINDING 6 — the ref treatment must target the element the component actually renders.
  * ================================================================== */
 describe("B5 · /agency/workers — the ref selector matches the shipped markup", () => {
-  it("the component renders the class on a <th>, with no inner <code>", () => {
-    expect(WORKER_LIST_TSX).toMatch(/<th[^>]*className="agency-workers__ref/);
+  it("the handle is rendered on the cell itself, with no inner <code>", () => {
+    // UI-1 MIGRATION: the handle cell moved from `<th scope="row" className="agency-workers__ref
+    // bb-mono">` onto the shared `.table` primitive's `mono` DATA cell. `.table th` is that
+    // primitive's COLUMN-header treatment (sticky/uppercase/sunken), which a row header would
+    // wrongly inherit, so the handle is a <td>. The invariant this test exists for is unchanged:
+    // the treatment lands on the CELL, never on a nested wrapper element.
+    expect(WORKER_LIST_TSX).toMatch(/<td className="mono">\{w\.ref\}<\/td>/);
     expect(WORKER_LIST_TSX).not.toMatch(/<code/);
   });
 

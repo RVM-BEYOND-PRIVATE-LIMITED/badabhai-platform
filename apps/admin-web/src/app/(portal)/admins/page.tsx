@@ -40,6 +40,14 @@ export default async function AdminsPage({
   const role = one(sp.role);
   const status = one(sp.status);
 
+  // The URL the operator is already on, so a retry after a failed read keeps their filters
+  // instead of silently dropping them and showing a different list than the one that broke.
+  const selfParams = new URLSearchParams();
+  if (role) selfParams.set("role", role);
+  if (status) selfParams.set("status", status);
+  const selfQuery = selfParams.toString();
+  const selfHref = selfQuery ? `/admins?${selfQuery}` : "/admins";
+
   let directory: Awaited<ReturnType<typeof listAdmins>> | null = null;
   let failed = false;
   try {
@@ -138,11 +146,37 @@ export default async function AdminsPage({
         </div>
 
         {failed ? (
-          <p className="empty">The admin directory is unavailable right now.</p>
+          <div className="state state--error">
+            <h3 className="state__title">The admin directory could not be loaded</h3>
+            <p className="state__body">
+              The directory read failed, so this list is missing rather than empty — and the
+              counters above are computed from it, so they read zero and mean nothing right
+              now. Do not conclude from this screen that nobody holds access.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href={selfHref}>
+                Retry
+              </Link>
+            </div>
+          </div>
         ) : admins.length === 0 ? (
-          <p className="empty">
-            {role || status ? "No admins match these filters." : "No admin accounts exist."}
-          </p>
+          <div className="state">
+            <h3 className="state__title">
+              {role || status ? "No admins match these filters" : "No admin accounts exist"}
+            </h3>
+            <p className="state__body">
+              {role || status
+                ? "The directory loaded, but nobody holds this combination of role and status. Clear the filters to see everyone."
+                : "The directory loaded and it is genuinely empty. On a running platform that is not a normal state — you are signed in, so at least your own account should be here."}
+            </p>
+            {(role || status) && (
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/admins">
+                  Clear filters
+                </Link>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="tablewrap">
             <table className="table">
@@ -220,14 +254,22 @@ export default async function AdminsPage({
           </div>
         )}
 
-        <p className="field__help">
-          This portal is read-only. Inviting an admin, changing a role, resetting a second
-          factor and suspending an account are governed actions that emit an audited{" "}
-          <Link className="link" href="/events?eventName=admin.action_performed">
-            admin.action_performed
-          </Link>{" "}
-          event.
-        </p>
+        {/* Why this screen has no buttons. `.field__help` is the FORM caption class and was
+            carrying a page-level limit; `.alert--info` is the primitive for a statement the
+            operator needs before they go looking for a control that is not here. */}
+        <div className="alert alert--info">
+          <div className="alert__text">
+            <p className="alert__title">This portal is read-only</p>
+            <p className="alert__body">
+              Inviting an admin, changing a role, resetting a second factor and suspending
+              an account are governed actions that happen elsewhere and emit an audited{" "}
+              <Link className="link" href="/events?eventName=admin.action_performed">
+                admin.action_performed
+              </Link>{" "}
+              event.
+            </p>
+          </div>
+        </div>
       </section>
     </div>
   );

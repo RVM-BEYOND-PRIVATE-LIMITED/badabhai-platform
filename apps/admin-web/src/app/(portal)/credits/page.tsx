@@ -45,6 +45,20 @@ export default async function CreditsPage({
   const cursor = one(sp.cursor);
   const reason = one(sp.reason);
 
+  /**
+   * The CURRENT query, rebuilt — so a "Retry" repeats what failed instead of resetting it.
+   * The two retry links below pointed at `/credits?windowDays=N`, which silently dropped
+   * `reason` and `cursor`: an operator filtered to a reason and three pages into the ledger
+   * was returned, unannounced, to an unfiltered page one that looked like a successful
+   * reload. `cursor` is included deliberately — retrying should land you where you were.
+   */
+  const retryHref = (() => {
+    const qs = new URLSearchParams({ windowDays: String(windowDays) });
+    if (reason) qs.set("reason", reason);
+    if (cursor) qs.set("cursor", cursor);
+    return `/credits?${qs.toString()}`;
+  })();
+
   // Independent reads: a failing ledger must not blank the position, and vice versa.
   const [summaryRes, ledgerRes] = await Promise.allSettled([
     getFinanceSummary({ windowDays }),
@@ -130,7 +144,21 @@ export default async function CreditsPage({
                 </p>
               </div>
               {summary.by_reason.length === 0 ? (
-                <p className="empty">No credit movement in this window.</p>
+                <div className="state">
+                  <h3 className="state__title">No credit movement in this window</h3>
+                  <p className="state__body">
+                    Nothing was granted, purchased, spent on an unlock or refunded in the
+                    last {summary.window_days} days. A quiet window is a real answer — try a
+                    longer one before treating it as a fault.
+                  </p>
+                  {windowDays !== 90 && (
+                    <div className="state__actions">
+                      <Link className="btn btn--ghost" href="/credits?windowDays=90">
+                        Widen to 90 days
+                      </Link>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="tablewrap">
                   <table className="table">
@@ -147,9 +175,9 @@ export default async function CreditsPage({
                       {summary.by_reason.map((b) => (
                         <tr key={b.reason}>
                           <td>{creditReasonLabel(b.reason)}</td>
-                          <td>{formatCount(b.movements)}</td>
-                          <td className="mono">{formatDelta(b.credits_delta)}</td>
-                          <td className="table__meta">
+                          <td className="ui-num">{formatCount(b.movements)}</td>
+                          <td className="mono ui-num">{formatDelta(b.credits_delta)}</td>
+                          <td className="table__meta ui-num">
                             {/* Only purchases carry a stamped price; a debit or a grant has
                                 no rupee amount, and showing ₹0 would claim one. */}
                             {b.amount_inr > 0 ? formatRupees(b.amount_inr) : "—"}
@@ -170,7 +198,18 @@ export default async function CreditsPage({
                 <p className="panel__sub">Who is holding the outstanding credits.</p>
               </div>
               {summary.top_balances.length === 0 ? (
-                <p className="empty">No payer holds a credit balance yet.</p>
+                <div className="state">
+                  <h3 className="state__title">No payer holds a credit balance yet</h3>
+                  <p className="state__body">
+                    Nothing has been granted or purchased, so no account has credits to
+                    spend on an unlock. The ledger below is the place to confirm that.
+                  </p>
+                  <div className="state__actions">
+                    <Link className="btn btn--ghost" href="/transactions">
+                      Open transactions
+                    </Link>
+                  </div>
+                </div>
               ) : (
                 <div className="tablewrap">
                   <table className="table">
@@ -193,7 +232,7 @@ export default async function CreditsPage({
                               {shortId(b.payer_id)}
                             </Link>
                           </td>
-                          <td className="mono">{formatCount(b.balance)}</td>
+                          <td className="mono ui-num">{formatCount(b.balance)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -204,8 +243,27 @@ export default async function CreditsPage({
           </div>
         </>
       ) : (
-        <section className="panel">
-          <p className="empty">The credit position is unavailable right now.</p>
+        // The summary and the ledger are read independently on purpose, so this failure
+        // states its own scope: the ledger below may well still be rendering.
+        <section className="panel" aria-labelledby="cr-position-error">
+          <div className="panel__head">
+            <h2 className="panel__title" id="cr-position-error">
+              Credit position
+            </h2>
+          </div>
+          <div className="state state--error">
+            <h3 className="state__title">The credit position is unavailable</h3>
+            <p className="state__body">
+              The finance summary did not load, so the outstanding balance and the movement
+              breakdown are missing. The credit ledger below is a separate read and is
+              unaffected. Reload to try again.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href={retryHref}>
+                Retry
+              </Link>
+            </div>
+          </div>
         </section>
       )}
 
@@ -239,11 +297,49 @@ export default async function CreditsPage({
         </div>
 
         {ledger === null ? (
-          <p className="empty">The ledger is unavailable right now.</p>
+          <div className="state state--error">
+            <h3 className="state__title">The ledger is unavailable</h3>
+            <p className="state__body">
+              The credit movements did not load. The position above is a separate read and
+              is unaffected, so a balance shown there is still current. Reload to try again.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href={retryHref}>
+                Retry
+              </Link>
+            </div>
+          </div>
         ) : ledger.items.length === 0 ? (
-          <p className="empty">
-            {reason ? "No movements with this reason." : "No credit movements recorded yet."}
-          </p>
+          reason ? (
+            <div className="state">
+              <h3 className="state__title">No movements with this reason</h3>
+              {/* The selected reason is not echoed back into the copy: it comes straight
+                  from the query string, and the highlighted chip above already says which
+                  one is active. */}
+              <p className="state__body">
+                Nothing has been recorded under the selected reason. Clear it to see every
+                movement, newest first.
+              </p>
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/credits">
+                  Clear filter
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="state">
+              <h3 className="state__title">No credit movements recorded yet</h3>
+              <p className="state__body">
+                The ledger is append-only and still empty: no pack has been purchased, no
+                grant issued and no contact unlocked. It fills from the first purchase.
+              </p>
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/transactions">
+                  Open transactions
+                </Link>
+              </div>
+            </div>
+          )
         ) : (
           <div className="tablewrap">
             <table className="table">
@@ -283,8 +379,8 @@ export default async function CreditsPage({
                         title={`${row.reason} · ${row.delta < 0 ? "spends" : "adds"} credits`}
                       />
                     </td>
-                    <td className="mono">{formatDelta(row.delta)}</td>
-                    <td className="table__meta">
+                    <td className="mono ui-num">{formatDelta(row.delta)}</td>
+                    <td className="table__meta ui-num">
                       {/* A null price is a legacy row or a non-purchase. Rendering the
                           current catalog price here would retroactively rewrite what a past
                           purchase appears to have cost. */}

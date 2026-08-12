@@ -80,13 +80,15 @@ function setData(opts: { balance: number; unlocks?: UnlockHistoryItem[]; topUps?
 
 interface Collected {
   text: string[];
+  /** Every `className` on the tree — the page-spine primitives are asserted through this. */
+  classes: string[];
   panelPacks: unknown;
   /** The `real` flag the server page hands the client panel. */
   panelReal: unknown;
 }
 function collect(
   node: ReactNode,
-  acc: Collected = { text: [], panelPacks: undefined, panelReal: undefined },
+  acc: Collected = { text: [], classes: [], panelPacks: undefined, panelReal: undefined },
 ): Collected {
   if (node === null || node === undefined || typeof node === "boolean") return acc;
   if (typeof node === "string" || typeof node === "number") {
@@ -98,6 +100,7 @@ function collect(
     return acc;
   }
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (el.props && typeof el.props.className === "string") acc.classes.push(el.props.className);
   // The CreditsPanel child receives the config packs as a prop (we never hook-render it).
   if (el.props && "packs" in el.props && acc.panelPacks === undefined) {
     acc.panelPacks = el.props.packs;
@@ -125,7 +128,13 @@ async function render(opts: { balance: number; unlocks?: UnlockHistoryItem[]; to
   setData(opts);
   const tree = (await CreditsPage()) as ReactElement;
   const c = collect(tree);
-  return { joined: c.text.join(" "), panelPacks: c.panelPacks, panelReal: c.panelReal };
+  return {
+    joined: c.text.join(" "),
+    flat: c.text.join(" ").replace(/\s+/g, " "),
+    classes: c.classes,
+    panelPacks: c.panelPacks,
+    panelReal: c.panelReal,
+  };
 }
 
 beforeEach(() => {
@@ -338,6 +347,67 @@ describe("credits page — (f) D-6: the LIVE catalog drives the render; fallback
     expect(joined).toMatch(/cached pricing/i); // the subtle disclosure
     expect(panelPacks).toEqual(offeredCreditPacks(DEFAULT_CATALOG.products)); // defaults, not blank
     expect(joined).toContain(`₹${unlockUnitPriceInr(DEFAULT_CATALOG.products)} per unlock`);
+  });
+});
+
+/**
+ * UI-1 PAGE SPINE — the screen composes onto the shared primitives (page-head / stat-row /
+ * section / panel--table / alert / state) instead of its own `dash-title` / `credits-section` /
+ * `credits-state` / `credits-empty` names, and BOTH data surfaces (history + expiry) now carry
+ * a real empty state and a real error state rather than rendering nothing at all.
+ */
+describe("credits page — (g) UI-1 page spine + real empty/error states", () => {
+  it("renders the spine primitives and none of the retired bespoke class names", async () => {
+    const { classes } = await render({ balance: 50 });
+    expect(classes).toContain("page-head");
+    expect(classes).toContain("page-head__title");
+    expect(classes).toContain("page-head__sub");
+    expect(classes).toContain("stat-row");
+    expect(classes).toContain("panel panel--table");
+    expect(classes).toContain("alert alert--info");
+    for (const retired of [
+      "dash-title",
+      "dash-sub",
+      "credits-section",
+      "credits-state",
+      "credits-alert",
+      "credits-stats",
+      "credits-table-card",
+      "credits-nudge",
+    ]) {
+      expect(classes).not.toContain(retired);
+    }
+  });
+
+  it("the low-balance nudge is the DS alert, not an ad-hoc Card + Badge", async () => {
+    process.env.PAYER_LOW_BALANCE_THRESHOLD = "8";
+    const { classes, joined } = await render({ balance: 7 });
+    expect(classes).toContain("alert alert--warning");
+    expect(joined).toMatch(/running low/i); // intent of (a) preserved through the new markup
+  });
+
+  it("an EMPTY history/expiry renders a real empty state, never a missing panel", async () => {
+    const { flat, classes } = await render({ balance: 50 });
+    // Both panels are present…
+    expect(flat).toContain("History");
+    expect(flat).toContain("Credit expiry");
+    // …and each says what is empty and what to do next.
+    expect(flat).toContain("No credit movements yet");
+    expect(flat).toContain("Nothing expiring yet");
+    expect(classes).toContain("state");
+  });
+
+  it("a FAILED balance read gives the history panel an error state with a retry (no leak)", async () => {
+    getDashboard.mockRejectedValueOnce(new Error("balance down: secret backend reason"));
+    getCreditTopUps.mockResolvedValue([]);
+    const tree = (await CreditsPage()) as ReactElement;
+    const { text, classes } = collect(tree);
+    const flat = text.join(" ").replace(/\s+/g, " ");
+    expect(flat).toContain("Service unavailable"); // the page-level state
+    expect(flat).toContain("History unavailable"); // the table's own state
+    expect(classes).toContain("state state--error");
+    // NO-LEAK: the thrown cause never reaches the screen.
+    expect(flat).not.toContain("secret backend reason");
   });
 });
 

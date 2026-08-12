@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { SidebarNav } from "./nav";
+import { TopbarCrumb } from "./topbar-crumb";
 import type { NavSection } from "./nav-model";
 
 /**
@@ -92,7 +93,12 @@ export function Shell({
             <span aria-hidden="true">☰</span>
             <span className="sr-only">Navigation</span>
           </button>
+          {/* The topbar used to be a hamburger and a spacer. It now says where you are —
+              the only such signal on a detail route, where the sidebar can name the section
+              but not the row. */}
+          <TopbarCrumb />
           <div className="topbar__spacer" />
+          <span className="topbar__env">{roleLabel}</span>
         </header>
 
         <main className="content" id="main">

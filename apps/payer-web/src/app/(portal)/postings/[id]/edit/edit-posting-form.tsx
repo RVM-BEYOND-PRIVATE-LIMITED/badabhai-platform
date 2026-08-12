@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { looksLikePii } from "@badabhai/validators";
-import { Button, Card, Input, Textarea } from "../../../../../components/ds";
+import { Button, Input, Textarea } from "../../../../../components/ds";
 import { updatePostingAction } from "./actions";
 
 /**
@@ -75,42 +75,73 @@ export function EditPostingForm({
   }
 
   return (
-    <Card padding="md" className="posting-card">
-      <form onSubmit={onSubmit} noValidate>
-        <Input
-          label="Role title"
-          value={roleTitle}
-          onChange={(e) => setRoleTitle(e.target.value)}
-          required
-        />
-        <Input
-          label="Location (optional)"
-          value={locationLabel}
-          onChange={(e) => setLocationLabel(e.target.value)}
-          hint="Leaving this blank keeps the current value (clearing is not supported yet)."
-        />
-        <Input
-          label="Vacancies"
-          type="number"
-          min={1}
-          value={vacancies}
-          onChange={(e) => setVacancies(e.target.value)}
-          hint="Left unchanged, the stored vacancy band is kept as-is; a new count re-derives the band server-side."
-          required
-        />
-        <Textarea
-          label="Description (optional — no phone/email)"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={4}
-          hint="Leaving this blank keeps the current description (clearing is not supported yet)."
-        />
-        {/* Announceable, retryable error region — the form never blanks on failure. */}
-        <div aria-live="polite">{error !== null && <p className="posting-card__soon">{error}</p>}</div>
-        <Button type="submit" loading={pending} disabled={pending}>
-          Save changes
-        </Button>
-      </form>
-    </Card>
+    <section className="panel">
+      <div className="panel__body">
+        <form onSubmit={onSubmit} noValidate>
+          <div className="form__section">
+            <p className="form__legend">The role</p>
+            <Input
+              label="Role title"
+              value={roleTitle}
+              onChange={(e) => setRoleTitle(e.target.value)}
+              required
+            />
+            <div className="form-grid">
+              <Input
+                label="Location (optional)"
+                value={locationLabel}
+                onChange={(e) => setLocationLabel(e.target.value)}
+                hint="Leaving this blank keeps the current value (clearing is not supported yet)."
+              />
+              <Input
+                label="Vacancies"
+                type="number"
+                min={1}
+                value={vacancies}
+                onChange={(e) => setVacancies(e.target.value)}
+                hint="Left unchanged, the stored vacancy band is kept as-is; a new count re-derives the band server-side."
+                required
+              />
+            </div>
+          </div>
+
+          <div className="form__section">
+            <p className="form__legend">Description</p>
+            <Textarea
+              label="Description (optional — no phone/email)"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              hint="Leaving this blank keeps the current description (clearing is not supported yet)."
+            />
+          </div>
+
+          {/* Announceable, retryable error region — the form never blanks on failure.
+              The aria-live node is the INNER div and is always in the tree: `.form-status`
+              carries the layout but must never be the live region itself, because its
+              `:empty { display: none }` rule would drop the region out of the
+              accessibility tree while idle and the first error would go unannounced. */}
+          <div className="form-status">
+            <div aria-live="polite">
+              {error !== null ? (
+                <div className="alert alert--danger">
+                  <i className="ph ph-warning-circle alert__icon" aria-hidden="true" />
+                  <div className="alert__text">
+                    <p className="alert__title">Your changes were not saved</p>
+                    <p className="alert__body">{error}</p>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="form-actions">
+            <Button type="submit" loading={pending} disabled={pending}>
+              Save changes
+            </Button>
+          </div>
+        </form>
+      </div>
+    </section>
   );
 }

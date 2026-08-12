@@ -15,8 +15,11 @@ import { dirname, join, relative } from "node:path";
  * flip: a raw hex/rgb/hsl COLOR literal, or one of the pre-DS LEGACY light-palette vars
  * (--bg / --panel / --panel-2 / --border / --text / --muted / --accent / --ok / --warn) or the
  * legacy non-flipping component classes that consume them (.btn / .card / .badge / .note / .input
- * / .empty / .form / .field / .page-title / .page-sub / .footer / …). This test is the regression
+ * / .empty / .field / .page-title / .page-sub / .footer / …). This test is the regression
  * fence: env is node (no jsdom/axe), so it audits the SOURCE, not a rendered DOM.
+ *
+ * (.form / .section / .req were on that list until UI-1 retired their legacy definitions and
+ * re-declared them as design-system primitives — see the note on LEGACY_CLASS_WORDS below.)
  *
  * It asserts three things:
  *  1. No screen/component source carries a raw hex/rgb/hsl COLOR literal.
@@ -79,12 +82,16 @@ const LEGACY_CLASS_WORDS = [
   "note",
   "input",
   "field",
-  "req",
   "empty",
-  "form",
+  // `form`, `section` and `req` were on this list because globals.css defined them in the
+  // pre-design-system block. UI-1 removed those legacy definitions and re-declared all three
+  // as design-system primitives built from flip-safe tokens (`.form` / `.form__section` /
+  // `.form-actions`, `.section` / `.section__head`, and the `.req` required-marker), so a
+  // screen using them is now doing the RIGHT thing and the guard would be blocking the very
+  // migration it exists to drive. Every other name below still points at legacy CSS and
+  // still fails the audit.
   "page-title",
   "page-sub",
-  "section",
   "footer",
   "topbar",
   "topnav",

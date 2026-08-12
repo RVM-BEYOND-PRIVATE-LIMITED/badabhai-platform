@@ -50,7 +50,9 @@ export default async function WorkerDetailPage({
           </p>
           <h1 className="page__title mono">{shortId(worker.id)}</h1>
           <p className="page__sub">
-            Registered {formatRelative(worker.created_at)} · {formatTimestamp(worker.created_at)}
+            One worker account as this portal sees it — what they did, never who they are.
+            Registered {formatRelative(worker.created_at)} ·{" "}
+            {formatTimestamp(worker.created_at)}.
           </p>
         </div>
         <div className="page__actions">
@@ -156,9 +158,29 @@ export default async function WorkerDetailPage({
         </div>
 
         {apps === null ? (
-          <p className="empty">Job decisions are unavailable right now.</p>
+          // No retry LINK on this screen, unlike the other detail pages: the retry target is
+          // this page's own URL, which carries the worker id, and nothing on the faceless
+          // side of the portal grows a new worker-id-bearing href for a convenience. The
+          // recovery instruction is in the body instead.
+          <div className="state state--error">
+            <h3 className="state__title">Job decisions could not be loaded</h3>
+            <p className="state__body">
+              The worker record above loaded, but the applications read failed — so this
+              table is missing, not empty. The &ldquo;Job decisions&rdquo; counter above is
+              read from the worker record and is still the true total. Reload this page; if
+              it keeps failing, the event timeline holds the same applies and skips as audit
+              records.
+            </p>
+          </div>
         ) : apps.items.length === 0 ? (
-          <p className="empty">This worker has not applied to or skipped any job yet.</p>
+          <div className="state">
+            <h3 className="state__title">No job decisions yet</h3>
+            <p className="state__body">
+              This worker has not applied to or skipped a posting. Nothing is broken — it is
+              the normal state of a new account, but it also means matching has no
+              engagement signal for them yet, so they will rank cold until they swipe.
+            </p>
+          </div>
         ) : (
           <div className="tablewrap">
             <table className="table">

@@ -45,11 +45,20 @@ export default async function EditPostingPage({
 
   return (
     <>
-      <p className="postings-back">
+      <p className="page-back">
         <Link href={`/postings/${id}`}>← Posting details</Link>
       </p>
-      <h1 className="postings-title">Edit posting</h1>
-      <p className="postings-sub">{draft.summary.roleTitle}</p>
+      <div className="page-head">
+        <div className="page-head__text">
+          <h1 className="page-head__title">Edit posting</h1>
+          {/* The role title is the payer's OWN posting field — it identifies which posting
+              is being edited. FACELESS: no worker field is ever rendered here. */}
+          <p className="page-head__sub">
+            Change the role title, location, vacancy count or description for{" "}
+            {draft.summary.roleTitle}.
+          </p>
+        </div>
+      </div>
       <EditPostingForm
         postingId={id}
         initial={{

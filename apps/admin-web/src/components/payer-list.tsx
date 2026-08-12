@@ -31,7 +31,25 @@ export function PayerList({
   basePath: string;
   emptyMessage: string;
 }) {
-  if (payers.length === 0) return <p className="empty">{emptyMessage}</p>;
+  if (payers.length === 0) {
+    // The recovery action is the identification path documented above: an account cannot be
+    // found by name here, so the way back in is through the postings it published.
+    return (
+      <div className="state">
+        <h3 className="state__title">{emptyMessage}</h3>
+        <p className="state__body">
+          Accounts are opaque on this screen by design, so there is nothing to search by
+          name. The way in is the other direction — find the posting, then follow it to the
+          account that published it.
+        </p>
+        <div className="state__actions">
+          <Link className="btn btn--ghost" href="/jobs">
+            Browse job postings
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="tablewrap">
