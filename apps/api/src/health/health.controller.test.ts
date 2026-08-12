@@ -30,6 +30,7 @@ const STORAGE_CONFIG_UP = {
   supabase: "configured",
   buckets: { resumes: true, photos: true, voice_notes: true, interview_kit: true },
   resume_render_enabled: true,
+  armed_without_credentials: false,
 };
 
 const CONFIG = { NODE_ENV: "test", ...STORAGE_CONFIGURED } as never;
@@ -191,13 +192,7 @@ describe("HealthController.check — readiness probes", () => {
     expect(serialized).not.toMatch(/token/i);
     expect(serialized).not.toMatch(/5432|6379|8000/);
     // The body carries only the structured up/down checks — no error/host/stack.
-    expect(Object.keys(body)).toEqual([
-      "status",
-      "service",
-      "environment",
-      "timestamp",
-      "checks",
-    ]);
+    expect(Object.keys(body)).toEqual(["status", "service", "environment", "timestamp", "checks"]);
     expect(body.checks).toEqual({
       database: "down",
       redis: "down",
@@ -565,6 +560,11 @@ describe("HealthController.check — readiness probes", () => {
       supabase: "not_configured",
       buckets: { resumes: true, photos: false, voice_notes: false, interview_kit: true },
       resume_render_enabled: false,
+      // TRUE even here, and the 200 above is what proves the scoping works: the two
+      // schema-defaulted buckets DO arm this box, so the fact is reported honestly — but
+      // `NODE_ENV=test` means the controller does not gate on it. Exactly the local-dev
+      // and CI shape that must never go red. See the #793 gate suite below.
+      armed_without_credentials: true,
     });
   });
 
@@ -592,6 +592,159 @@ describe("HealthController.check — readiness probes", () => {
     expect(body.checks.storage_config.supabase).toBe("not_configured");
   });
 
+  // ---- #793: a DEPLOYED box that armed Storage without credentials gates the deploy ----
+  //
+  // THE INCIDENT. The worker app, in release against the deployed base URL, loaded chat,
+  // jobs, profile and auth — and resume download plus photo upload failed for every worker.
+  // `/health` was green throughout, so the CD gate (`curl -sf .../health`) and the staging
+  // smoke both passed a box on which every Storage request was already guaranteed to 503.
+  // #796 made Storage VISIBLE in the body; visible is not gating, so the class of failure
+  // the issue named ("this class of failure passes health") still passed.
+  //
+  // MOST OF THIS SUITE IS GREEN ROWS ON PURPOSE. A gate is only worth having if it is safe
+  // to leave in, and this one sits on the path that decides whether a deploy is allowed to
+  // finish. The cases it must NOT trip — a bare laptop, CI, a fresh box, a fully wired box
+  // — outnumber the one it must, because those are what would get it deleted the first time
+  // it blocked legitimate work.
+  describe("the armed-without-credentials gate", () => {
+    /** A box that has been told to store things, with nowhere to store them. */
+    const ARMED_NO_CREDS = {
+      SUPABASE_URL: undefined,
+      SUPABASE_SERVICE_ROLE_KEY: undefined,
+      RESUMES_BUCKET: "worker-resumes",
+      WORKER_PHOTOS_BUCKET: "worker-profile-photos",
+      VOICE_NOTES_BUCKET: "",
+      INTERVIEW_KIT_BUCKET: "interview-kits",
+      RESUME_RENDER_ENABLED: true,
+    };
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("RED: a production box with buckets armed and no credentials → 503", async () => {
+      // The literal #793 shape. `isDevEnv()` reads the RAW env, so this is what actually
+      // decides the branch — not the parsed `config.NODE_ENV`.
+      vi.stubEnv("NODE_ENV", "production");
+      const { controller } = setup({ config: { NODE_ENV: "production", ...ARMED_NO_CREDS } });
+      const res = fakeRes();
+      const body = await controller.check(res);
+
+      expect(res.statusCode).toBe(503);
+      expect(body.status).toBe("error");
+      expect(body.checks.storage_config.armed_without_credentials).toBe(true);
+      // The hard deps are FINE — this 503 is the storage state's alone, which is the whole
+      // claim. Without this the test would pass on any unrelated failure.
+      expect(body.checks.database).toBe("up");
+      expect(body.checks.redis).toBe("up");
+    });
+
+    it("RED: render armed alone is enough, with every optional bucket empty", async () => {
+      // RESUME_RENDER_ENABLED arms the render→upload path independently of the optional
+      // buckets, and RESUMES_BUCKET carries a schema default — so "no buckets configured"
+      // is not the same as "nothing armed".
+      vi.stubEnv("NODE_ENV", "production");
+      const { controller } = setup({
+        config: {
+          NODE_ENV: "production",
+          SUPABASE_URL: undefined,
+          SUPABASE_SERVICE_ROLE_KEY: undefined,
+          RESUMES_BUCKET: "worker-resumes",
+          WORKER_PHOTOS_BUCKET: "",
+          VOICE_NOTES_BUCKET: "",
+          INTERVIEW_KIT_BUCKET: "",
+          RESUME_RENDER_ENABLED: true,
+        },
+      });
+      const res = fakeRes();
+
+      await controller.check(res);
+      expect(res.statusCode).toBe(503);
+    });
+
+    it("GREEN: the same armed-without-credentials box in DEV stays 200", async () => {
+      // REQUIRED FOR CORRECTNESS, not politeness. docker-compose.yml — the dev-laptop file
+      // — ships RESUME_RENDER_ENABLED "true" with SUPABASE_URL empty, so this exact state
+      // is the DEFAULT on every `compose up`. Gating it would red-line local dev.
+      vi.stubEnv("NODE_ENV", "development");
+      const { controller } = setup({ config: { NODE_ENV: "development", ...ARMED_NO_CREDS } });
+      const res = fakeRes();
+      const body = await controller.check(res);
+
+      expect(res.statusCode).toBe(200);
+      // Still REPORTED — the fact does not change, only whether it gates.
+      expect(body.checks.storage_config.armed_without_credentials).toBe(true);
+    });
+
+    it("GREEN: the same box under NODE_ENV=test stays 200 — the e2e job runs here", async () => {
+      vi.stubEnv("NODE_ENV", "test");
+      const { controller } = setup({ config: { NODE_ENV: "test", ...ARMED_NO_CREDS } });
+      const res = fakeRes();
+
+      await controller.check(res);
+      expect(res.statusCode).toBe(200);
+    });
+
+    it("GREEN: a production box that armed NOTHING stays 200 — dormant is not broken", async () => {
+      // The state staging is in today after #803 (render off) and before devops provisions
+      // anything. An empty bucket means that leg is DORMANT BY DESIGN; promising nothing and
+      // delivering nothing is consistent, and gating it would repeat the ai_service mistake.
+      vi.stubEnv("NODE_ENV", "production");
+      const { controller } = setup({
+        config: {
+          NODE_ENV: "production",
+          SUPABASE_URL: undefined,
+          SUPABASE_SERVICE_ROLE_KEY: undefined,
+          RESUMES_BUCKET: "",
+          WORKER_PHOTOS_BUCKET: "",
+          VOICE_NOTES_BUCKET: "",
+          INTERVIEW_KIT_BUCKET: "",
+          RESUME_RENDER_ENABLED: false,
+        },
+      });
+      const res = fakeRes();
+      const body = await controller.check(res);
+
+      expect(res.statusCode).toBe(200);
+      expect(body.checks.storage_config.armed_without_credentials).toBe(false);
+    });
+
+    it("GREEN: a production box that is fully wired stays 200", async () => {
+      // The state #793 asks the owner to reach. Arming is only a problem WITHOUT credentials.
+      vi.stubEnv("NODE_ENV", "production");
+      const { controller } = setup({ config: { NODE_ENV: "production", ...STORAGE_CONFIGURED } });
+      const res = fakeRes();
+      const body = await controller.check(res);
+
+      expect(res.statusCode).toBe(200);
+      expect(body.checks.storage_config.armed_without_credentials).toBe(false);
+    });
+
+    it("gates on an UNSET NODE_ENV — isDevEnv is fail-closed, so a mangled env is not exempt", async () => {
+      // A box whose NODE_ENV never got set must not silently inherit the dev exemption.
+      vi.stubEnv("NODE_ENV", undefined);
+      const { controller } = setup({ config: { NODE_ENV: "production", ...ARMED_NO_CREDS } });
+      const res = fakeRes();
+
+      await controller.check(res);
+      expect(res.statusCode).toBe(503);
+    });
+
+    it("still leaks nothing when it gates — the 503 body carries booleans, not values", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const { controller } = setup({
+        config: {
+          NODE_ENV: "production",
+          ...ARMED_NO_CREDS,
+          WORKER_PHOTOS_BUCKET: "super-secret-bucket-name",
+        },
+      });
+      const body = await controller.check(fakeRes());
+
+      expect(JSON.stringify(body)).not.toMatch(/super-secret-bucket-name/);
+    });
+  });
+
   it("never leaks the actual URL, service-role key, or bucket name — booleans/enum only", async () => {
     const { controller } = setup({});
     const body = await controller.check(fakeRes());
@@ -599,7 +752,9 @@ describe("HealthController.check — readiness probes", () => {
     const serialized = JSON.stringify(body);
     expect(serialized).not.toMatch(/project\.supabase\.co/);
     expect(serialized).not.toMatch(/service-role-key-value/);
-    expect(serialized).not.toMatch(/worker-resumes|worker-profile-photos|worker-voice-notes|interview-kits/);
+    expect(serialized).not.toMatch(
+      /worker-resumes|worker-profile-photos|worker-voice-notes|interview-kits/,
+    );
   });
 });
 

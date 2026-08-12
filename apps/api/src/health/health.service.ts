@@ -60,6 +60,30 @@ export interface StorageConfigChecks {
   buckets: StorageBucketPresence;
   /** Master switch for the WeasyPrint render step (resume + interview-kit PDFs). */
   resume_render_enabled: boolean;
+  /**
+   * SOMETHING IS SWITCHED ON THAT CANNOT WORK (#793). True when at least one Storage
+   * consumer is ARMED — a bucket name is set, or the resume render is enabled — while
+   * `supabase` is `not_configured`.
+   *
+   * WHY THIS IS A DIFFERENT FACT FROM "not configured", and why the difference is the
+   * whole point. An unconfigured box is not a broken one: an empty `VOICE_NOTES_BUCKET`
+   * means the spoken leg is DORMANT by design, and local dev / CI / a fresh box before
+   * devops provisions anything are all legitimately bare. Those states are consistent —
+   * nothing promises a capability it cannot deliver.
+   *
+   * Armed-without-credentials is not a state anyone chose. It is the exact shape of the
+   * #793 incident: buckets named, `StorageService.requireStorage` throwing 503 on the
+   * FIRST upload or download a worker attempts, and `/health` reporting fully healthy
+   * throughout because it only asked about Postgres and Redis. Every request that needs
+   * Storage is already guaranteed to fail; the only question is whether anyone finds out
+   * before a worker does.
+   *
+   * Reported here as a FACT in every environment. Whether it flips the 200/503 is a
+   * POLICY decision that belongs to the caller — see health.controller.ts, which applies
+   * it only outside dev/test (the base compose file ships render-on with empty
+   * credentials, which is fine on a laptop and is not fine on a box).
+   */
+  armed_without_credentials: boolean;
 }
 
 export interface HealthChecks {
@@ -299,18 +323,32 @@ export class HealthService {
    * never a value (§2 — no secrets in logs or responses).
    */
   private readStorageConfig(): StorageConfigChecks {
+    const supabase =
+      this.config.SUPABASE_URL && this.config.SUPABASE_SERVICE_ROLE_KEY
+        ? "configured"
+        : "not_configured";
+    const buckets = {
+      resumes: Boolean(this.config.RESUMES_BUCKET),
+      photos: Boolean(this.config.WORKER_PHOTOS_BUCKET),
+      voice_notes: Boolean(this.config.VOICE_NOTES_BUCKET),
+      interview_kit: Boolean(this.config.INTERVIEW_KIT_BUCKET),
+    };
+
+    // ARMED = this box has been told to do something that needs Supabase Storage. A bucket
+    // name is the arming signal for its own leg (an empty one means dormant, deliberately),
+    // and RESUME_RENDER_ENABLED arms the render→upload path independently of any of them.
+    //
+    // `RESUMES_BUCKET` is counted like the others even though it carries a committed
+    // default (`worker-resumes` in docker-compose.yml) rather than being empty-by-default:
+    // a defaulted bucket name is still a promise to write somewhere, and the credentials it
+    // needs are exactly as absent.
+    const armed = this.config.RESUME_RENDER_ENABLED || Object.values(buckets).some(Boolean);
+
     return {
-      supabase:
-        this.config.SUPABASE_URL && this.config.SUPABASE_SERVICE_ROLE_KEY
-          ? "configured"
-          : "not_configured",
-      buckets: {
-        resumes: Boolean(this.config.RESUMES_BUCKET),
-        photos: Boolean(this.config.WORKER_PHOTOS_BUCKET),
-        voice_notes: Boolean(this.config.VOICE_NOTES_BUCKET),
-        interview_kit: Boolean(this.config.INTERVIEW_KIT_BUCKET),
-      },
+      supabase,
+      buckets,
       resume_render_enabled: this.config.RESUME_RENDER_ENABLED,
+      armed_without_credentials: armed && supabase === "not_configured",
     };
   }
 
