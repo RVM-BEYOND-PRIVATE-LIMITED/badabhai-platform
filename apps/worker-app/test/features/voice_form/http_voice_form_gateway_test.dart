@@ -521,4 +521,63 @@ void main() {
       await expectLater(gw.reviewRows(), throwsA(isA<UnauthorizedFailure>()));
     });
   });
+  test('#775 answeredQuestionKeys() maps rows to the answered-key set', () async {
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async {
+        if (req.method == 'POST' && req.url.path == '/profiling/session') {
+          return http.Response(
+              jsonEncode(<String, dynamic>{'session_id': 's1', 'step': _questionStep()}),
+              201);
+        }
+        if (req.method == 'GET' && req.url.path == '/profiling/session/s1') {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'session_id': 's1',
+              'complete': false,
+              'rows': <dynamic>[
+                <String, dynamic>{'question_key': 'q1', 'display_value': 'Welder'},
+                <String, dynamic>{'question_key': 'q2', 'display_value': 'CNC'},
+                <String, dynamic>{'display_value': 'no key'}, // dropped
+                'garbage', // dropped
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+    await gw.start();
+    expect(await gw.answeredQuestionKeys(), <String>{'q1', 'q2'});
+  });
+
+  test('#775 answeredQuestionKeys() fails soft to an empty set (never throws)',
+      () async {
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async {
+        if (req.method == 'POST' && req.url.path == '/profiling/session') {
+          return http.Response(
+              jsonEncode(<String, dynamic>{'session_id': 's1', 'step': _questionStep()}),
+              201);
+        }
+        return http.Response('{}', 500); // the confirmation GET blows up
+      }),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+    await gw.start();
+    expect(await gw.answeredQuestionKeys(), isEmpty);
+  });
+
+  test('#775 answeredQuestionKeys() is empty before start() (no session)',
+      () async {
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((_) async => http.Response('{}', 200)),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+    expect(await gw.answeredQuestionKeys(), isEmpty);
+  });
 }

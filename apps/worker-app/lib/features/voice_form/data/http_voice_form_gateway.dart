@@ -164,6 +164,28 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
     }
   }
 
+  @override
+  Future<Set<String>> answeredQuestionKeys() async {
+    final String? id = _sessionId;
+    if (id == null) return const <String>{};
+    try {
+      final Map<String, dynamic> json =
+          await _api.profilingSession(authToken: _token, sessionId: id);
+      final Object? rows = json['rows'];
+      if (rows is! List) return const <String>{};
+      return rows
+          .whereType<Map<dynamic, dynamic>>()
+          .map((Map<dynamic, dynamic> r) => r['question_key'] as String? ?? '')
+          .where((String k) => k.isNotEmpty)
+          .toSet();
+    } catch (_) {
+      // Fail-soft (#775): a failed confirmation read leaves the spoken signal
+      // uncounted rather than throwing into the re-attach flow. The caller treats
+      // an empty set as "not confirmed", which is the safe (under-count) direction.
+      return const <String>{};
+    }
+  }
+
   // ---- wire → domain --------------------------------------------------------
 
   /// `GET /profiling/session/:id` `rows` → review rows. Defensive like

@@ -27,11 +27,18 @@ class FakeTts implements QuestionAudioPlayer {
 
 /// A gateway whose submit returns whatever [onSubmit] scripts — so a 409
 /// re-attach (a [ReattachedTo] step) can be exercised through the cubit.
+///
+/// [answered] is the server-truth set the cubit reads via [answeredQuestionKeys]
+/// to CONFIRM a re-attach's answer actually landed before recovering the spoken
+/// signal (#775): put the question's key in it to simulate "the earlier attempt
+/// landed", leave it empty to simulate a 409 from another cause.
 class ScriptedGateway implements VoiceFormGateway {
-  ScriptedGateway(this.onSubmit);
+  ScriptedGateway(this.onSubmit, {this.answered = const <String>{}});
 
   final VoiceFormStep Function(int submitNo) onSubmit;
+  final Set<String> answered;
   int submits = 0;
+  int answeredReads = 0;
 
   @override
   String? get sessionId => 'sess-test';
@@ -63,6 +70,13 @@ class ScriptedGateway implements VoiceFormGateway {
     VoiceAnswer answer, {
     required String questionKey,
   }) => throw UnimplementedError();
+
+
+  @override
+  Future<Set<String>> answeredQuestionKeys() async {
+    answeredReads++;
+    return answered;
+  }
 }
 
 /// #727 — a 409 on submit re-attaches as a [ReattachedTo]; the cubit must NOT
@@ -110,11 +124,11 @@ void main() {
         actionLog: actionLog,
       );
 
-  test('a 409 re-attach does NOT bank the answer and emits no spoken signal',
+  test('a 409 re-attach never banks the stale answer into the local echo',
       () async {
-    // First (and only) submit re-attaches straight to done — the classic
-    // retry-after-timeout: the answer landed server-side, the client re-sent,
-    // the server rejected the re-send as stale.
+    // The classic retry-after-timeout: the answer landed server-side, the client
+    // re-sent, the server rejected the re-send as stale. The rejected clip is
+    // NEVER banked into `_answers` — the echo heals via #700's server-fed review.
     final ScriptedGateway gateway =
         ScriptedGateway((int n) => const ReattachedTo(VoiceFormDone()));
     final VoiceFormCubit cubit = build(gateway);
@@ -123,11 +137,75 @@ void main() {
     await cubit.start();
     await cubit.answerBySpeaking(); // spoken answer to q1 → 409 → re-attach
 
-    // Routed to done → review, but with NOTHING banked (the answer was stale).
     expect(cubit.state, isA<VoiceFormReview>());
     expect((cubit.state as VoiceFormReview).answers, isEmpty);
+  });
 
-    // The flush ran on done; no profiling_answer_spoken was ever recorded.
+  test(
+      '#775 — a re-attach the server CONFIRMS landed recovers the spoken signal '
+      '(exact, still not banked)', () async {
+    // The server records q1 as answered — the earlier attempt landed. The spoken
+    // engagement signal, under-counted only on this flaky-2G path, is recovered.
+    final ScriptedGateway gateway = ScriptedGateway(
+      (int n) => const ReattachedTo(VoiceFormDone()),
+      answered: const <String>{'q1'},
+    );
+    final VoiceFormCubit cubit = build(gateway);
+    addTearDown(cubit.close);
+
+    await cubit.start();
+    await cubit.answerBySpeaking(); // spoken q1 → 409 → reattach; server has q1
+    await Future<void>.delayed(Duration.zero); // let the done-flush settle
+
+    expect(gateway.answeredReads, 1, reason: 'confirmed from server truth');
+    // The echo is still not banked; only the SIGNAL is recovered.
+    expect((cubit.state as VoiceFormReview).answers, isEmpty);
+    expect(
+      sunk.map((BbAnalyticsEvent e) => e.name),
+      contains('profiling_answer_spoken'),
+    );
+  });
+
+  test(
+      '#775 — a re-attach the server does NOT confirm never over-counts',
+      () async {
+    // A 409 from another cause (e.g. a reopen mid-offer): the server does NOT
+    // record q1 answered, so the signal must NOT fire.
+    final ScriptedGateway gateway = ScriptedGateway(
+      (int n) => const ReattachedTo(VoiceFormDone()),
+      answered: const <String>{}, // q1 is NOT answered server-side
+    );
+    final VoiceFormCubit cubit = build(gateway);
+    addTearDown(cubit.close);
+
+    await cubit.start();
+    await cubit.answerBySpeaking();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(gateway.answeredReads, 1);
+    expect(
+      sunk.map((BbAnalyticsEvent e) => e.name),
+      isNot(contains('profiling_answer_spoken')),
+    );
+  });
+
+  test('#775 — a re-attach of a NON-spoken answer never emits the spoken signal',
+      () async {
+    // The signal is SPOKEN-only. A chip answer that re-attaches must not fire it,
+    // even when the server confirms the question landed — so the server truth is
+    // not even read.
+    final ScriptedGateway gateway = ScriptedGateway(
+      (int n) => const ReattachedTo(VoiceFormDone()),
+      answered: const <String>{'q1'},
+    );
+    final VoiceFormCubit cubit = build(gateway);
+    addTearDown(cubit.close);
+
+    await cubit.start();
+    await cubit.answerByChips(<String>['x']); // NOT spoken
+    await Future<void>.delayed(Duration.zero);
+
+    expect(gateway.answeredReads, 0, reason: 'spoken-only: no confirmation read');
     expect(
       sunk.map((BbAnalyticsEvent e) => e.name),
       isNot(contains('profiling_answer_spoken')),

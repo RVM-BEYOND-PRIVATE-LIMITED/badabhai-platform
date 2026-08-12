@@ -71,4 +71,14 @@ abstract interface class VoiceFormGateway {
   /// chips/boolean correction renders without a second fetch. Fail-closed on a
   /// transport error; a malformed individual row is dropped, never thrown.
   Future<List<VoiceReviewRow>> reviewRows();
+
+  /// The set of question keys the ENGINE records as answered for this session
+  /// (`GET /profiling/session` → `rows[].question_key`) — server truth (#775).
+  ///
+  /// Used only to CONFIRM that a 409 re-attach was the timeout-then-retry case
+  /// (the earlier attempt landed) before recovering `profiling_answer_spoken`, so
+  /// the signal is never over-counted on a 409 from another cause. Fail-soft: an
+  /// implementation returns an empty set rather than throwing, because a failed
+  /// confirmation must leave the count untouched, never guessed.
+  Future<Set<String>> answeredQuestionKeys();
 }
