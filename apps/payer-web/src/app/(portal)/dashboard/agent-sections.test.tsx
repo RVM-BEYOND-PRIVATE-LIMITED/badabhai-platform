@@ -11,7 +11,8 @@ import { Card } from "../../../components/ds";
  * Asserts the section is:
  *  - role-gated (requireAgent runs FIRST; an employer 404s before any agency read), as
  *    defence-in-depth on top of the page's own isAgency branch,
- *  - portal-flag gated (off → notFound()),
+ *  - portal-flag gated (off → renders nothing, reads nothing; the shared dashboard
+ *    around it is unaffected),
  *  - FACELESS: a worker name/phone in a regressed agency-jobs payload is NEVER rendered
  *    (the section-level assertNoAgencyPII throws → the panel degrades), and
  *  - LIVE: identity / demand summary / vacancy manager / invite / referral funnel / parked
@@ -172,10 +173,29 @@ describe("agent sections — role + flag gating (defence-in-depth)", () => {
     expect(listAgencyJobs).not.toHaveBeenCalled();
   });
 
-  it("404s when the agency portal flag is OFF (before any read)", async () => {
+  /**
+   * THE FLAG HIDES THESE SECTIONS; IT DOES NOT KILL THE PAGE.
+   *
+   * This asserted `notFound()` until an agent hit a 500 on `/dashboard` with the flag off.
+   * That was correct while the code guarded a standalone `/agency/dashboard` — a switched-off
+   * surface should not exist. Once MERGE-1 moved the modules INLINE onto the SHARED dashboard,
+   * the same call took the whole page down for an agent, and because `/agency/dashboard` is now
+   * a `redirect()` here, they had no reachable home screen at all.
+   *
+   * Both halves are asserted, because only the pair is the contract: nothing renders (the
+   * rollback works) AND no agency read runs (fail-closed is intact). A version that returned
+   * the sections while skipping the fetches, or that fetched and then hid, would satisfy one
+   * and not the other.
+   */
+  it("renders NOTHING (and reads nothing) when the agency portal flag is OFF", async () => {
     agencyFlags.mockReturnValueOnce({ ...flags, agencyPortalEnabled: false });
-    await expect(AgentSections()).rejects.toThrow("NEXT_NOT_FOUND");
-    expect(notFound).toHaveBeenCalled();
+
+    await expect(AgentSections()).resolves.toBeNull();
+
+    expect(notFound).not.toHaveBeenCalled();
+    expect(getAgencyAccount).not.toHaveBeenCalled();
+    expect(listAgencyJobs).not.toHaveBeenCalled();
+    expect(getAgencyReferralsSummary).not.toHaveBeenCalled();
   });
 });
 
