@@ -38,7 +38,7 @@ describe("docker-compose.staging.yml — voice storage is declared symmetrically
     // BOTH canaries are unrelated to voice and have been in the file since CD-1 — one per
     // service, so a parse that finds only one block still fails here.
     //
-    // NOT `AI_ENABLE_REAL_CALLS` any more: #798 armed it, so its value is now a MOVING
+    // NOT `AI_ENABLE_REAL_CALLS` any more: #798 made it a substitution, so its value is a MOVING
     // target owned by the real-call posture guard. A canary must be something stable that
     // this file does not care about, or it turns every posture change into a spurious
     // failure in the voice suite. `AI_SERVICE_URL` and `NODE_ENV` are both literals fixed
@@ -78,7 +78,7 @@ describe("docker-compose.staging.yml — voice storage is declared symmetrically
   it("NEITHER Sarvam leg is on the default real-call allowlist", () => {
     // THE ASSERTION HERE CHANGED SHAPE WITH #798, AND THE INVARIANT DID NOT. This used to
     // read `AI_REAL_CALL_TASKS === "${AI_REAL_CALL_TASKS:-}"` — an EMPTY allowlist, which
-    // blocked every task and so blocked these two for free. #798 armed exactly one task
+    // blocked every task and so blocked these two for free. #798 put exactly one task on it
     // (`profiling_chat_turn`), so "empty" is no longer the thing that protects the voice
     // legs and asserting it would only re-assert the chat decision from the wrong file.
     //

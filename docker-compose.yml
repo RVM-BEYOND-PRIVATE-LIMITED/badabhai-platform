@@ -222,14 +222,16 @@ services:
       # the value's whole job is to be unconditional. Arming it would spend real money
       # on every `docker compose up` and send worker text to a provider from a laptop.
       #
-      # THE SCOPE OF THIS RULE NARROWED ON 2026-08-12 (#798) AND THE COMMENT MUST SAY SO.
-      # It used to read "must STAY 'false' in every committed file"; the staging overlay
-      # now ships `${AI_ENABLE_REAL_CALLS:-true}` under an owner ruling, so that sentence
-      # is no longer true and leaving it would recreate #798's actual cause — a comment
-      # asserting one arming procedure while the file implements another. The rule that
-      # survives is narrower and still absolute: THIS file stays "false", and the
-      # docker-compose.yml half of apps/api/src/config/real-call-posture-compose.guard.test.ts
-      # fails the build if anyone flips it.
+      # THE SHAPE OF THIS RULE CHANGED ON 2026-08-12 (#798) AND THE COMMENT MUST SAY SO.
+      # It used to read "must STAY 'false' in every committed file", which conflated two
+      # different things and is why #798 happened: the staging overlay now ships
+      # `${AI_ENABLE_REAL_CALLS:-false}` — still OFF, but a SUBSTITUTION, so the box can arm
+      # it with an export instead of a code change. A literal there defeated the documented
+      # arming procedure; a literal HERE is correct, because there is no box to arm.
+      #
+      # So the surviving rule is two rules, both pinned by
+      # apps/api/src/config/real-call-posture-compose.guard.test.ts: the overlay must never
+      # be a bare literal, and THIS file must never be anything else.
       #
       # Real calls need GEMINI_FLASH_API_KEY as well — the config fails closed on either
       # being absent. The keys below are declared so arming is an ENV action with NO code

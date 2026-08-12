@@ -131,10 +131,18 @@ services:
       # box's shell while `loadServerConfig` read the schema default `false`, and every turn
       # stayed deterministic with nothing naming the cause.
       #
-      # DEFAULT `true` PER THE SAME OWNER RULING (2026-08-12, #798) that armed the
-      # ai-service block below; `:-` keeps the box authoritative, so `export
-      # CHAT_LLM_INTERVIEW_ENABLED=false` + re-deploy reverts to the deterministic engine
-      # WITHOUT a code change — the per-surface kill switch for this feature.
+      # DEFAULT `true`, AND UNLIKE THE AI-SERVICE BLOCK BELOW THAT IS SAFE TO COMMIT — this
+      # is not a privacy gate. It decides WHO composes the question (model vs question bank),
+      # not whether worker text may leave for a provider; that decision is
+      # `AI_ENABLE_REAL_CALLS`, which stays `false` here pending R30. With the master gate
+      # off, this flag on is EXACTLY TODAY'S BEHAVIOUR: `/profiling/turn` returns the mock
+      # path's empty `reply_text`, `AiService.llmTurn` normalises that to null, and the
+      # deterministic engine answers — see "DEGRADES SAFELY" below. Committing it armed is
+      # what makes the box's single `AI_ENABLE_REAL_CALLS=true` export sufficient.
+      #
+      # `:-` keeps the box authoritative, so `export CHAT_LLM_INTERVIEW_ENABLED=false` +
+      # re-deploy reverts to the deterministic engine WITHOUT a code change — the per-surface
+      # kill switch for this feature.
       #
       # DEGRADES SAFELY, INDEPENDENTLY OF THE AI-SERVICE. If the ai-service is unreachable,
       # mocked, or out of budget, `LlmTurnService.take` returns null, the envelope is marked
@@ -248,7 +256,7 @@ services:
     # `${VAR:?}` fails at COMPOSE time, before any container starts.
     image: ${AI_SERVICE_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-ai-service:sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
     environment:
-      # ---- REAL LLM CALLS ARE ARMED ON THIS BOX (owner ruling, 2026-08-12, #798).
+      # ---- THE BOX CAN NOW ARM REAL LLM CALLS. IT IS NOT ARMED BY DEFAULT (#798).
       #
       # WHAT CHANGED AND WHY. This was the hard literal `"false"`, whose own comment said
       # the flip is "made in the box's environment … NEVER in a committed file". Those two
@@ -260,25 +268,50 @@ services:
       # the bug report: `/health` kept reporting `ai_posture: "mock"` on a box someone had
       # already tried to arm, and the worker app kept serving the canned interview.
       #
-      # THE SUBSTITUTION FORM IS LOAD-BEARING, not cosmetic. `${VAR:-true}` keeps the box
-      # authoritative in BOTH directions: it is the emergency OFF switch (`export
-      # AI_ENABLE_REAL_CALLS=false` and re-run the deploy) that a literal `"true"` would
-      # have taken away, and it is what makes the setting recoverable without a code change
-      # and a rebuild — the same property the `:-` credentials below rely on. `:-` (not `-`)
-      # is deliberate: an EMPTY export must fall back to the committed default rather than
-      # hand pydantic an empty string.
+      # THE SUBSTITUTION FORM IS LOAD-BEARING, not cosmetic. `${VAR:-…}` keeps the box
+      # authoritative in BOTH directions: it is what makes arming an export plus a re-deploy
+      # instead of a code change and a rebuild, and it keeps the emergency OFF switch
+      # (`export AI_ENABLE_REAL_CALLS=false`) available once the box has armed it — the same
+      # property the `:-` credentials below rely on. `:-` (not `-`) is deliberate: an EMPTY
+      # export must fall back to the committed default rather than hand pydantic an empty
+      # string, which matters because the deploy's secrets bridge exports an unset GitHub
+      # secret as "".
       #
-      # THIS ARMS ONLY THIS OVERLAY. The base docker-compose.yml keeps `"false"` — it is the
-      # dev-laptop file, and arming it there would spend real money on every `compose up`.
+      # THE DEFAULT STAYS `false`, AND THAT IS A PRIVACY DECISION, NOT AN OVERSIGHT.
+      # Fixing the LITERAL is what #798 actually reported: the documented arming procedure
+      # had no path into the container. Changing the committed DEFAULT to `true` is a second,
+      # separate act, and it is the one that is not ours to make yet — because the
+      # pseudonymization gateway carries a KNOWN, ASSERTED PII gap whose own precondition
+      # names this exact flag:
       #
-      # STILL NOT SUFFICIENT ON ITS OWN, BY DESIGN — three independent gates remain, and
-      # every one of them fails CLOSED to the mock path:
+      #   apps/ai-service/app/pseudonymize.py (~L350):
+      #     "KNOWN RESIDUAL — risks-register R30 is OPEN, not closed. […]
+      #      Neither is live: AI_ENABLE_REAL_CALLS=false by default (invariant #5).
+      #      Both MUST be re-assessed before that flag flips."
+      #
+      # R30's open half is a 9-13 digit phone split by a WORD — "mera number 98765 aur 43210
+      # hai" — which is NOT masked and NOT blocked, and which
+      # apps/ai-service/tests/test_pseudonymize.py pins as an HONEST NEGATIVE today. That is
+      # free-text worker chat, i.e. exactly `profiling_chat_turn`, the one task the allowlist
+      # below arms. Defaulting this to `true` would ship a raw worker phone number to a
+      # provider on the first armed box, past a test that says so out loud — and CLAUDE.md
+      # §3 "Privacy First" / "Fail Closed" makes a fail-OPEN default the wrong direction for
+      # a gate of this class regardless.
+      #
+      # SO ARMING IS ONE EXPORT, MADE DELIBERATELY, ALONGSIDE THE KEY THE BOX ALREADY OWES:
+      #   export AI_ENABLE_REAL_CALLS=true GEMINI_FLASH_API_KEY=…   # then re-run the deploy
+      # Flipping this line to `:-true` is a one-word change once R30 is closed (or explicitly
+      # accepted in writing) — and the guard test pins the direction so it cannot drift there
+      # silently in the meantime.
+      #
+      # STILL NOT SUFFICIENT ON ITS OWN EVEN WHEN ARMED, BY DESIGN — three independent gates
+      # remain, and every one of them fails CLOSED to the mock path:
       #   1. GEMINI_FLASH_API_KEY must be non-empty (below, box-supplied — never committed).
       #      Without it real_calls_blocked_reason() still returns "GEMINI_FLASH_API_KEY is
       #      not set" and `ai_posture` stays "mock" no matter what this flag says.
       #   2. AI_REAL_CALL_TASKS must LIST the task (below). Empty = no task may go real.
       #   3. AI_REAL_CALLS_KILL_SWITCH, checked FIRST, overrides this flag outright.
-      AI_ENABLE_REAL_CALLS: ${AI_ENABLE_REAL_CALLS:-true}
+      AI_ENABLE_REAL_CALLS: ${AI_ENABLE_REAL_CALLS:-false}
 
       # ---- Provider credentials: PASS-THROUGH, never committed, never required.
       # Declared so the owner can supply them from the box env / environment
@@ -343,6 +376,12 @@ services:
       # Widening is an env action, not a code change — `export
       # AI_REAL_CALL_TASKS=profiling_chat_turn,profile_extraction` on the box and re-run the
       # deploy. Narrowing works the same way, which is why this keeps the `:-` form.
+      #
+      # THIS LINE IS INERT UNTIL THE BOX ARMS THE MASTER FLAG ABOVE, and the split of duties
+      # is deliberate: this line answers WHICH task may go real, `AI_ENABLE_REAL_CALLS`
+      # answers WHETHER any may. Committing the narrow scope here — while the master gate
+      # stays `false` — means the operator's one export cannot accidentally arm the whole
+      # surface, because the scope decision was already made, reviewed and pinned by a test.
       AI_REAL_CALL_TASKS: ${AI_REAL_CALL_TASKS:-profiling_chat_turn}
 
       # ---- The two TTS values are RESTATED, not passed through empty, and that difference

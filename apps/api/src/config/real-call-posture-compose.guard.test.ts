@@ -66,6 +66,35 @@ describe("docker-compose.staging.yml — the deployed real-LLM posture (#798)", 
       );
     });
 
+    it("defaults to OFF — R30 is open, and this is the flag its residual names", () => {
+      // THE ASSERTION ABOVE DELIBERATELY ACCEPTS EITHER DIRECTION, because what it is about
+      // is the SUBSTITUTION FORM (#798's actual defect: a literal the box cannot override).
+      // That leaves the DIRECTION unpinned, and the direction is a separate, privacy-owned
+      // decision that must not be able to drift in silently — so it gets its own assertion.
+      //
+      // WHY OFF. apps/ai-service/app/pseudonymize.py records R30 as OPEN and states its own
+      // precondition against this exact flag: "Neither is live: AI_ENABLE_REAL_CALLS=false
+      // by default (invariant #5). Both MUST be re-assessed before that flag flips."
+      // R30's open half is a 9-13 digit phone split by a WORD ("mera number 98765 aur 43210
+      // hai") — not masked, not blocked, and pinned as an HONEST NEGATIVE by
+      // apps/ai-service/tests/test_pseudonymize.py. That is free-text worker chat, which is
+      // `profiling_chat_turn` — the one task the allowlist below arms. Defaulting this to
+      // `true` egresses a raw worker phone number to a provider on the first armed box.
+      //
+      // THIS IS NOT A BLOCK ON ARMING, and it must not be read as one: arming is one export
+      // on the box (`export AI_ENABLE_REAL_CALLS=true`) next to the GEMINI_FLASH_API_KEY it
+      // already owes, which is exactly what the substitution form above exists to permit.
+      // What it blocks is arming EVERY box by committing it, silently, while a test in this
+      // repo asserts the leak.
+      //
+      // WHEN R30 CLOSES (or is accepted in writing by the owner), flip the default here and
+      // update this assertion in the same commit — that pairing is the point.
+      expect(
+        aiService.get("AI_ENABLE_REAL_CALLS"),
+        "arming the committed default requires closing R30 first — see pseudonymize.py",
+      ).toBe(overridableDefault("AI_ENABLE_REAL_CALLS", "false"));
+    });
+
     it("uses `:-` so an EMPTY export falls back to the default", () => {
       // `-` (unset only) would let an empty export through, and empty is not a legal
       // `booleanFromString` input on the api side nor a meaningful bool on this one. The
@@ -144,9 +173,10 @@ describe("docker-compose.yml — the DEV-LAPTOP file stays unarmed (#798)", () =
   });
 
   it("real calls are OFF in the base file, which every `compose up` inherits", () => {
-    // #798 armed the STAGING OVERLAY and only that. This file is what a developer runs
-    // locally and what the e2e/dev paths compose against; arming it would spend real money
-    // on every `docker compose up` and send worker text to a provider from a laptop.
+    // #798 made the STAGING OVERLAY arm-able from the box, and only that. This file is what
+    // a developer runs locally and what the e2e/dev paths compose against; making it
+    // arm-able would put real money one stray export away on every `docker compose up`,
+    // and send worker text to a provider from a laptop.
     //
     // A LITERAL is correct HERE, unlike in the overlay: there is no box to arm, no operator
     // procedure to honour, and the value's whole job is to be unconditional.
