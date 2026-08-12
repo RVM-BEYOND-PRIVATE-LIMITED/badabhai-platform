@@ -3,7 +3,9 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { sql } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
+import type { ServerConfig } from "@badabhai/config";
 import { AiService } from "../ai/ai.service";
+import { SERVER_CONFIG } from "../config/config.module";
 import { DATABASE } from "../database/database.module";
 import {
   ACCOUNT_DELETION_QUEUE,
@@ -30,6 +32,35 @@ export type DependencyStatus = "up" | "down";
  *                 Honest ignorance, never silently downgraded to `mock`.
  */
 export type AiPosture = "real" | "mock" | "unknown";
+
+/**
+ * Config-presence state for a provider dependency — `configured` means the required
+ * env vars are non-empty, NOT that the provider was reached. See `HealthChecks.storage_config`
+ * for the full caveat (same shape as `ai_posture`'s "config-presence only" warning).
+ */
+export type ConfigPresence = "configured" | "not_configured";
+
+/** Which of the Storage buckets have a non-empty env var set — names only, never content. */
+export interface StorageBucketPresence {
+  resumes: boolean;
+  photos: boolean;
+  voice_notes: boolean;
+  interview_kit: boolean;
+}
+
+/**
+ * A real incident (worker photo upload + resume download failing on a deployed box
+ * whose Supabase Storage env was never wired) is what this field exists to catch
+ * BEFORE a worker hits it: `GET /health` checked Postgres and Redis, said nothing
+ * about Storage, and reported fully healthy while every upload/download 503'd.
+ */
+export interface StorageConfigChecks {
+  /** Both SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY non-empty (StorageService.requireStorage's gate). */
+  supabase: ConfigPresence;
+  buckets: StorageBucketPresence;
+  /** Master switch for the WeasyPrint render step (resume + interview-kit PDFs). */
+  resume_render_enabled: boolean;
+}
 
 export interface HealthChecks {
   database: DependencyStatus;
@@ -65,6 +96,23 @@ export interface HealthChecks {
    * look at `ai_jobs.real_call` on an actual job.
    */
   ai_posture: AiPosture;
+  /**
+   * Storage config-presence signal — see `StorageConfigChecks` for what it does and does
+   * not prove. Reported for DETECTION (an operator or the staging smoke can see a
+   * misconfigured box at a glance) and, like `ai_posture`/`deletion_sweep`, is
+   * INFORMATIONAL: it does NOT flip the 200/503 — see the justification in
+   * health.controller.ts. An env that legitimately has no photo/voice/interview-kit
+   * traffic (local dev, CI, a fresh box before devops provisions the bucket) reports
+   * `not_configured` here and MUST stay green — 503-ing on it would be the exact
+   * ai_service/deletion_sweep mistake, repeated for a third dependency.
+   *
+   * NO network call to Supabase is made to produce this — it is a pure env-var read,
+   * same idiom as `StorageService.requireStorage`'s `if (!url || !serviceKey)` check.
+   * A revoked/expired service-role key or a bucket deleted out-of-band still reads
+   * `configured` here; that failure surfaces as a `StorageService` 503 at the point of
+   * use, not this field (same "config-presence, not reachability" caveat as `ai_posture`).
+   */
+  storage_config: StorageConfigChecks;
 }
 
 /** Cap each probe so a stuck socket can never hang the /health response. */
@@ -98,6 +146,8 @@ interface RedisHealthClient {
  *   - AI service (TD81): a GET of the ai-service's own /health through the EXISTING
  *     `AiService` client (global `fetch` + AbortController, the same idiom its POST
  *     helper uses) — do NOT introduce a second HTTP client for one probe.
+ *   - Storage config: NOT a probe — a synchronous read of the already-loaded
+ *     `ServerConfig` (no I/O, no timeout needed). See `HealthChecks.storage_config`.
  *
  * Probes run in parallel and each is wrapped in a short timeout. The underlying
  * error (if any) is logged server-side only; it NEVER leaves this service. The
@@ -132,11 +182,16 @@ export class HealthService {
     // DATABASE token arrives the same way). HealthService neither profiles nor sends
     // anything through it; it calls `probeHealth()` and nothing else.
     private readonly ai: AiService,
+    // Storage config-presence signal — the already-validated `ServerConfig`, read
+    // synchronously (no new client, no I/O). AppConfigModule is @Global (same idiom
+    // as DATABASE/AiService above), so this resolves without an import in HealthModule.
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
   /**
    * Probe every dependency in parallel; returns their up/down states, plus the TD81
-   * `ai_posture` derived from the ai_service probe (real-vs-mocked AI at a glance).
+   * `ai_posture` derived from the ai_service probe (real-vs-mocked AI at a glance) and
+   * the storage config-presence signal (synchronous — no probe to await).
    */
   async check(): Promise<HealthChecks> {
     const [database, redis, deletionSweep, aiService] = await Promise.all([
@@ -151,6 +206,7 @@ export class HealthService {
       deletion_sweep: deletionSweep,
       ai_service: aiService.status,
       ai_posture: aiService.posture,
+      storage_config: this.readStorageConfig(),
     };
   }
 
@@ -228,6 +284,34 @@ export class HealthService {
     if (status === "down") return "mock";
     if (realCallsEnabled === null) return "unknown"; // TD67 locked posture — withheld
     return realCallsEnabled ? "real" : "mock";
+  }
+
+  /**
+   * Storage config-presence signal. A PURE read of the already-validated `ServerConfig`
+   * — no I/O, no timeout, never throws, so it does not go through `runProbe`/`ProbeName`
+   * (those exist for things that can hang or fail over the network; a config object in
+   * memory can do neither). See `HealthChecks.storage_config` for the full rationale and
+   * caveat.
+   *
+   * Every value here is a boolean/enum derived from whether an env var is non-empty —
+   * never the URL, the service-role key, or a bucket name's actual content — mirroring
+   * `StorageService.requireStorage`, which names missing var NAMES in its own error but
+   * never a value (§2 — no secrets in logs or responses).
+   */
+  private readStorageConfig(): StorageConfigChecks {
+    return {
+      supabase:
+        this.config.SUPABASE_URL && this.config.SUPABASE_SERVICE_ROLE_KEY
+          ? "configured"
+          : "not_configured",
+      buckets: {
+        resumes: Boolean(this.config.RESUMES_BUCKET),
+        photos: Boolean(this.config.WORKER_PHOTOS_BUCKET),
+        voice_notes: Boolean(this.config.VOICE_NOTES_BUCKET),
+        interview_kit: Boolean(this.config.INTERVIEW_KIT_BUCKET),
+      },
+      resume_render_enabled: this.config.RESUME_RENDER_ENABLED,
+    };
   }
 
   /**

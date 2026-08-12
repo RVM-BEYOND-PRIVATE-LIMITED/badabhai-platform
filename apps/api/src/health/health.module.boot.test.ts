@@ -19,6 +19,10 @@ import { HealthService } from "./health.service";
  * It needs no import here — AiModule is @Global — so the guard it needs is the opposite
  * one: that nobody "fixes" a future DI error by re-declaring AiService locally, which
  * would resolve cleanly and silently mint a SECOND client alongside the shared one.
+ *
+ * The storage config-presence signal added a FIFTH dependency (`SERVER_CONFIG`, read
+ * synchronously — no I/O). Same shape as AiService: AppConfigModule is @Global, so this
+ * needs no import here either, and the guard is the same "don't re-provide it locally".
  */
 
 const getMeta = (key: string, target: unknown): unknown[] =>

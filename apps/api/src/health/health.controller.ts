@@ -52,6 +52,16 @@ interface HealthResponse {
  * and loud in the logs (HealthService logs the posture on every change, at WARN whenever
  * AI is mocked or undeterminable). Same shape as deletion_sweep — surfaced for DETECTION,
  * not for rotation control.
+ *
+ * `checks.storage_config` follows the SAME informational rule, for the same reason: a real
+ * incident (worker photo upload + resume download failing on a deployed box whose Supabase
+ * Storage env — SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / *_BUCKET — was never wired) went
+ * undetected because /health said nothing about Storage. A 503 was REJECTED here too: an
+ * environment with no photo/voice/interview-kit traffic (local dev, CI, a fresh box before
+ * devops provisions the bucket) is legitimately unconfigured and must stay green — gating
+ * on it would repeat the ai_service/deletion_sweep mistake for a third dependency. It is a
+ * config-PRESENCE read only (see `HealthChecks.storage_config`), not a Supabase reachability
+ * probe: no network call is made, so a blip there can never flip this field.
  */
 @Controller("health")
 export class HealthController {
@@ -63,8 +73,8 @@ export class HealthController {
   @Get()
   async check(@Res({ passthrough: true }) res: Response): Promise<HealthResponse> {
     const checks = await this.health.check();
-    // Gate: hard dependencies only — see the deletion_sweep + ai_service notes above.
-    // Both of those are reported in `checks` and deliberately absent from this line.
+    // Gate: hard dependencies only — see the deletion_sweep + ai_service + storage_config
+    // notes above. All three are reported in `checks` and deliberately absent from this line.
     const healthy = checks.database === "up" && checks.redis === "up";
 
     res.status(healthy ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE);
