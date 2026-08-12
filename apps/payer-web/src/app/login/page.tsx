@@ -7,39 +7,20 @@ export const dynamic = "force-dynamic";
 
 /**
  * Payer login (ADR-0019 Phase 1 — REAL-OTP only, B-R1 OPEN) — DS1.1 re-skin onto the
- * design system, elevated to an enterprise-grade two-column auth shell (AUTH-1).
+ * design system.
  *
- * On ≥1024px the screen is a two-pane split: a restrained left BRAND/VALUE panel + the
- * right form card. Below 1024px the brand panel collapses and the card centres — the
- * SAME single-card experience as before. The value panel uses ONLY the product's real,
- * truthful positioning (verified CNC/VMC talent · real applicants · masked-until-unlocked
- * trust) — no invented testimonials, customer logos, or stats.
+ * ONE centred card at every width. A two-column split with a left brand/value panel was
+ * tried and removed: this screen is reached by someone who has already decided to sign in,
+ * so a marketing column beside the form is a second thing to read before the one control
+ * that matters. Nothing was lost with it — the panel carried no state, no affordance and
+ * no copy the form needs — and the card is now identical from a phone to an ultrawide
+ * rather than being two different screens at 1023px and 1024px.
  *
  * Login is the backend payer-auth OTP flow ONLY; there is NO mock/dev sign-in and NO
  * code convenience on this surface. The code is delivered to the payer's email and typed
  * in — never displayed, pre-filled, or one-click skipped. A third-party IdP / MFA is a
  * separate human gate (B-R1).
  */
-
-/** Truthful, on-brand value props for the left panel (no invented metrics/logos). */
-const VALUE_PROPS: ReadonlyArray<{ icon: string; title: string; body: string }> = [
-  {
-    icon: "seal-check",
-    title: "Verified CNC/VMC talent",
-    body: "Profiled, consent-gated applicants for industrial manufacturing roles.",
-  },
-  {
-    icon: "eye-slash",
-    title: "Masked until you unlock",
-    body: "Every applicant is faceless first — you decide who to reveal and contact.",
-  },
-  {
-    icon: "lightning",
-    title: "Your hiring desk, self-serve",
-    body: "Post a role, review real applicants, and move fast — no sales call to start.",
-  },
-];
-
 export default async function LoginPage() {
   const existing = await payerAuth().currentSession();
   if (existing) redirect("/dashboard");
@@ -51,59 +32,17 @@ export default async function LoginPage() {
         <ThemeToggle />
       </div>
 
-      <div className="login-shell">
-        {/* LEFT — brand / value panel (≥1024px only). Truthful copy only.
+      <main className="login-card">
+        <div className="login-card__brand">
+          <BadaBhaiLogo size={34} />
+        </div>
+        <h1 className="login-card__title">Your hiring desk</h1>
+        <p className="login-card__sub">
+          Sign in, or create a Company or Agency account. We email you a one-time code.
+        </p>
 
-            It was `aria-hidden="true"`, on the reasoning that a screen-reader user should
-            not be read "a decorative marketing column twice". Nothing here is duplicated
-            anywhere, though: this panel is the ONLY place the product says what it is, so
-            hiding it did not spare a repeat — it removed the entire product context for
-            anyone using assistive tech, leaving them an unexplained email field. It is
-            announced now, as the complementary content it actually is. Below 1024px the
-            panel is `display: none`, which keeps it out of the a11y tree there anyway. */}
-        <aside className="login-aside" aria-label="Why BadaBhai">
-          <div className="login-aside__inner">
-            <div className="login-aside__brand">
-              <BadaBhaiLogo size={40} theme="ink" />
-            </div>
-            <p className="login-aside__eyebrow">For employers &amp; agencies</p>
-            {/* A tagline, not a document section — and it renders BEFORE the card's <h1>,
-                so marking it up as <h2> put an h2 ahead of the page's only h1. */}
-            <p className="login-aside__headline">
-              Hire verified manufacturing talent — applicants you can trust.
-            </p>
-            <ul className="login-aside__points">
-              {VALUE_PROPS.map((vp) => (
-                <li key={vp.title} className="login-aside__point">
-                  <span className="login-aside__point-icon">
-                    <i className={`ph-fill ph-${vp.icon}`} aria-hidden="true" />
-                  </span>
-                  <span className="login-aside__point-text">
-                    <span className="login-aside__point-title">{vp.title}</span>
-                    <span className="login-aside__point-body">{vp.body}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="login-aside__foot">
-              Worker identities are masked and consent-gated until you unlock them.
-            </p>
-          </div>
-        </aside>
-
-        {/* RIGHT — the auth card (the single centred card below 1024px). */}
-        <main className="login-card">
-          <div className="login-card__brand">
-            <BadaBhaiLogo size={34} />
-          </div>
-          <h1 className="login-card__title">Your hiring desk</h1>
-          <p className="login-card__sub">
-            Sign in, or create a Company or Agency account. We email you a one-time code.
-          </p>
-
-          <LoginForm />
-        </main>
-      </div>
+        <LoginForm />
+      </main>
     </div>
   );
 }

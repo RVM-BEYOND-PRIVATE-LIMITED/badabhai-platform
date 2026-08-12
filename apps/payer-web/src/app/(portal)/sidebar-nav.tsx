@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { NavSection } from "./nav-model";
+import { isNavItemActive, type NavSection } from "./nav-model";
 
 /**
  * The portal's primary navigation (IA-1) — a CLIENT wrapper that adds the active-route
@@ -47,7 +47,7 @@ export function SidebarNav({ sections }: { sections: NavSection[] }) {
                 );
               }
 
-              const active = item.match(pathname);
+              const active = isNavItemActive(item.match, pathname);
               return (
                 <li key={item.href}>
                   <Link

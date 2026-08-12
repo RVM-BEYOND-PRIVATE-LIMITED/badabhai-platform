@@ -40,9 +40,14 @@ name: Security scan
 #
 # FLIP-TO-BLOCKING criteria (remove `continue-on-error` per job once met):
 #   - secret-scan: zero findings on a full-history run, OR a committed .gitleaks.toml
-#     allowlist for every justified hit (e.g. .env.example placeholders). This is the
-#     CI-side complement to the local harness guard (.claude/hooks/guard-secrets.mjs)
-#     and CLAUDE.md §2 invariant 2 (no raw PII / secret leaves its boundary). FLIP FIRST.
+#     allowlist for every justified hit (e.g. .env.example placeholders).
+#     THIS JOB'S IMPORTANCE WENT UP, NOT DOWN, ON 2026-08-12. It used to be described here
+#     as the CI-side COMPLEMENT to a local harness guard (`.claude/hooks/guard-secrets.mjs`
+#     plus a `permissions.deny` list covering .env*/*.pem/*.key/service-account*.json).
+#     Both were removed by owner decision, so the local half of that pairing is gone and
+#     this is now the ONLY mechanical check standing between a committed secret and the
+#     remote. CLAUDE.md §3 "Privacy First" is unchanged; what changed is that nothing
+#     catches a mistake before `git add` any more. FLIP FIRST — and it is worth more now.
 #   - sast: triage p/default + p/typescript + p/python + p/secrets to zero (fix or a
 #     committed .semgrepignore / inline `# nosem` with justification). Owners:
 #     @prakashkantumutchu (apps/api, apps/web, apps/worker-app, packages/config),

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { NavSection } from "./nav-model";
+import { isNavItemActive, type NavSection } from "./nav-model";
 
 /**
  * The header's location indicator (IA-1).
@@ -50,7 +50,7 @@ export function PortalBreadcrumb({
   let matched: { href: string; label: string } | undefined;
   for (const section of sections) {
     for (const item of section.items) {
-      if (!item.match(pathname)) continue;
+      if (!isNavItemActive(item.match, pathname)) continue;
       // Prefer the most specific match when two items both claim the path.
       if (!matched || item.href.length > matched.href.length) {
         matched = { href: item.href, label: item.label };
