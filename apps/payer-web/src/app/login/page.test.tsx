@@ -5,15 +5,17 @@ import type { ReactElement, ReactNode } from "react";
 import type { PayerSession } from "../../lib/auth/types";
 
 /**
- * LOGIN PAGE (AUTH-1) — the enterprise two-column auth shell, rendered to an element tree in the
- * node env and walked. The page is a server component: it resolves `currentSession()` (→ redirect
- * to /dashboard when present) and otherwise renders the left BRAND/VALUE panel + the right card
- * with the (mocked) {@link LoginForm}.
+ * LOGIN PAGE — the single centred auth card, rendered to an element tree in the node env and
+ * walked. The page is a server component: it resolves `currentSession()` (→ redirect to
+ * /dashboard when present) and otherwise renders the card with the (mocked) {@link LoginForm}.
  *
- * This suite locks the TRUTHFUL-content contract of the left panel: it renders ONLY the product's
- * real positioning (verified CNC/VMC talent · masked-until-unlocked · self-serve) and carries NO
- * invented testimonials / customer logos / fake stats, and NO PII. The form itself is mocked to a
- * marker so this is purely about the page shell's content + structure.
+ * This suite locks the SHAPE of the screen: one card, no second column. It used to assert the
+ * opposite — a left brand/value panel with truthful-only copy — and that panel has been removed,
+ * so the assertions are inverted rather than deleted: the marketing column must not come back
+ * silently, because a reader on this screen has already decided to sign in. The remaining
+ * content checks (no PII, no invented stats) now run over the WHOLE page, which is the stronger
+ * guarantee the panel-scoped versions were approximating. The form itself is mocked to a marker
+ * so this is purely about the page shell's content + structure.
  */
 
 const currentSession = vi.fn<() => Promise<PayerSession | null>>();
@@ -87,66 +89,50 @@ describe("login page — auth shell", () => {
     await expect(LoginPage()).rejects.toThrow("REDIRECT:/dashboard");
   });
 
-  it("renders the form + the left value panel when unauthenticated", async () => {
+  it("renders the form in ONE card when unauthenticated", async () => {
     currentSession.mockResolvedValue(null);
     const tree = (await LoginPage()) as ReactElement;
-    // The <LoginForm /> element is present (its .type is the mock); the left panel renders once.
+    // The <LoginForm /> element is present (its .type is the mock); exactly one card holds it.
     expect(findAll(tree, MockedLoginForm).length).toBe(1);
-    expect(findByClass(tree, "login-aside").length).toBe(1);
+    expect(findByClass(tree, "login-card").length).toBe(1);
   });
 });
 
-describe("login page — left value panel is truthful + non-PII", () => {
-  it("renders the product's REAL positioning (verified talent · masked-until-unlocked · self-serve)", async () => {
+describe("login page — one column, no marketing panel", () => {
+  it("renders NO second column beside the form", async () => {
+    // The screen was a two-pane split above 1024px: a brand/value panel + the card. It is one
+    // centred card at every width now. Asserted by class AND by element type, so re-adding the
+    // panel under a different class name still trips this.
     currentSession.mockResolvedValue(null);
     const tree = (await LoginPage()) as ReactElement;
-    const aside = findByClass(tree, "login-aside")[0]!;
-    const txt = textOf(aside);
-    expect(txt).toContain("Verified CNC/VMC talent");
-    expect(txt).toContain("Masked until you unlock");
-    expect(txt).toContain("self-serve");
+    expect(findByClass(tree, "login-aside")).toHaveLength(0);
+    expect(findByClass(tree, "login-shell")).toHaveLength(0);
+    expect(findAll(tree, "aside")).toHaveLength(0);
   });
 
-  it("carries NO invented testimonials / customer logos / fake stats", async () => {
+  it("carries no value-prop / testimonial copy at all", async () => {
     currentSession.mockResolvedValue(null);
-    const tree = (await LoginPage()) as ReactElement;
-    const txt = textOf(findByClass(tree, "login-aside")[0]!);
-    // No quotation-style testimonials, no "trusted by N", no star-rating / logo-wall claims.
+    const txt = textOf((await LoginPage()) as ReactElement);
+    // The panel's own copy is gone with it.
+    expect(txt).not.toMatch(/Verified CNC\/VMC talent|Masked until you unlock|self-serve/);
+    // And the guard the panel used to carry now covers the WHOLE page: no testimonials, no
+    // logo-wall claims, no invented metrics anywhere on the sign-in screen.
     expect(txt).not.toMatch(/testimonial|trusted by|loved by|rated \d|\d+ ?stars?/i);
-    // No numeric stat/metric claims (e.g. "10,000+ hires", "98% match", "500 companies").
-    expect(txt).not.toMatch(/\d/);
   });
 
-  it("is EXPOSED to assistive tech, with an accessible name", async () => {
-    // This assertion used to be the exact inverse: the panel was aria-hidden, on the
-    // reasoning that a screen-reader user should not be read "a decorative column twice".
-    // Nothing in it is duplicated anywhere else on the page, so hiding it did not spare a
-    // repeat — it removed the ONLY product context on the screen for anyone using assistive
-    // tech, leaving them an unexplained email field. Below 1024px the panel is display:none,
-    // which keeps it out of the a11y tree there without hiding it everywhere.
+  it("keeps a single <h1> and no heading above it", () => {
+    // The panel's tagline used to render BEFORE the card; as an <h2> it put a heading ahead of
+    // the page's only <h1>. With the panel gone the card's <h1> is the first heading — locked
+    // at the source level so a future addition above it is caught.
+    const source = readFileSync(fileURLToPath(new URL("./page.tsx", import.meta.url)), "utf8");
+    expect(source).not.toMatch(/login-aside/);
+    expect(source.match(/<h1\b/g) ?? []).toHaveLength(1);
+    expect(source).not.toMatch(/<h2\b/);
+  });
+
+  it("exposes no PII anywhere on the page (it is static copy + the form)", async () => {
     currentSession.mockResolvedValue(null);
-    const tree = (await LoginPage()) as ReactElement;
-    const aside = findByClass(tree, "login-aside")[0]!;
-    const props = aside.props as Record<string, unknown>;
-    expect(props["aria-hidden"]).toBeUndefined();
-    expect(props["aria-label"]).toBe("Why BadaBhai");
-  });
-
-  it("keeps the page's only <h1> ahead of the panel's tagline in the heading order", () => {
-    // The tagline renders BEFORE the card, so marking it up as <h2> put an h2 ahead of the
-    // page's single h1. It is a tagline, not a document section, so it is a <p> now.
-    const source = readFileSync(
-      fileURLToPath(new URL("./page.tsx", import.meta.url)),
-      "utf8",
-    );
-    expect(source).not.toMatch(/<h2 className="login-aside__headline"/);
-    expect(source).toMatch(/<p className="login-aside__headline"/);
-  });
-
-  it("exposes no PII fields from any session (the panel is static product copy only)", async () => {
-    currentSession.mockResolvedValue(null);
-    const tree = (await LoginPage()) as ReactElement;
-    const txt = textOf(findByClass(tree, "login-aside")[0]!);
+    const txt = textOf((await LoginPage()) as ReactElement);
     expect(txt).not.toMatch(/@/); // no email
     expect(txt).not.toMatch(/\+?\d[\d\s-]{7,}/); // no phone-like run
   });

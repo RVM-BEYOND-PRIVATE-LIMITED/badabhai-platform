@@ -7,6 +7,14 @@
  * time. The portal layout builds this list on the server, so the data has to live somewhere
  * the server can actually read it.
  *
+ * PLAIN DATA MEANS PLAIN DATA — NO FUNCTIONS. The layout is a Server Component and
+ * `AppShell` is a Client Component, so these sections are serialized across the RSC
+ * boundary. `match` used to be a closure (`match: (p) => p === "/dashboard"`), which is not
+ * serializable: every portal route threw "Functions cannot be passed directly to Client
+ * Components" and `/dashboard` returned a 500. It is a DESCRIPTOR now, evaluated by
+ * {@link isNavItemActive}, which the client components import directly rather than being
+ * handed. `nav-model.test.ts` fails on any function reintroduced anywhere in this model.
+ *
  * ────────────────────────────────────────────────────────────────────────────────
  * AUTHORIZATION IS NOT HERE. The nav is an AFFORDANCE — it decides which doors a user is
  * shown, never which doors open. Every route keeps its own server gate (`requirePayer` /
@@ -37,6 +45,26 @@
  * instead of hiding roadmap that already exists in the codebase.
  */
 
+/**
+ * WHICH PATHS LIGHT AN ITEM UP — as data, so it survives the RSC boundary.
+ *
+ * Every clause is segment-aware: a base matches itself and its children (`/plans`,
+ * `/plans/upgrade`) but never a mere string neighbour (`/plans-archive`), which the old
+ * `startsWith` closures would have claimed.
+ */
+export interface NavMatch {
+  /** Paths that activate this item and nothing below them. */
+  exact?: string[];
+  /** Bases that activate this item along with everything under them. */
+  prefix?: string[];
+  /**
+   * Bases that VETO a `prefix` hit, with their children. This is what keeps siblings from
+   * lighting each other up: `/postings` owns its subtree EXCEPT the two routes that are
+   * their own nav entry (`/postings/new`, `/postings/ai/*`).
+   */
+  except?: string[];
+}
+
 export interface NavItem {
   href: string;
   label: string;
@@ -46,10 +74,10 @@ export interface NavItem {
   description?: string;
   /**
    * Active when the current path is this route or a child of it. Kept as an explicit
-   * matcher because several routes are siblings that must NOT light each other up
+   * descriptor because several routes are siblings that must NOT light each other up
    * (`/postings` vs `/postings/new` vs `/postings/ai/*`).
    */
-  match: (pathname: string) => boolean;
+  match: NavMatch;
   /**
    * NOT REACHABLE yet: the route exists but its gate would answer with a neutral 404 for
    * this user (a fail-closed flag that defaults OFF). Renders disabled and is never a link,
@@ -91,6 +119,62 @@ export interface NavModelInput {
   isOwner: boolean;
 }
 
+/** True when `pathname` IS `base` or sits underneath it. Never a bare string prefix. */
+function isUnder(pathname: string, base: string): boolean {
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
+/**
+ * Evaluate a {@link NavMatch} against the current path.
+ *
+ * Exported so the client rail and the breadcrumb can both import it — importing a function
+ * from a shared module is not the same as being PASSED one across the RSC boundary, which
+ * is the thing that broke. Pure, so the whole activation table is unit-testable without a
+ * renderer.
+ */
+export function isNavItemActive(match: NavMatch, pathname: string): boolean {
+  if (match.exact?.includes(pathname)) return true;
+  if (!match.prefix?.some((base) => isUnder(pathname, base))) return false;
+  return !match.except?.some((base) => isUnder(pathname, base));
+}
+
+/** `/postings` owns its subtree except the two routes that carry their own nav entry. */
+const POSTINGS_LIST_MATCH: NavMatch = {
+  prefix: ["/postings"],
+  except: ["/postings/new", "/postings/ai"],
+};
+/** Posting a role and the AI chat that does the same job are ONE destination. */
+const POSTINGS_NEW_MATCH: NavMatch = { exact: ["/postings/new"], prefix: ["/postings/ai"] };
+/** /capacity is a subset of /plans (plans embeds the same CapacityPanel). */
+const PLANS_MATCH: NavMatch = { prefix: ["/plans", "/capacity"] };
+
+/** Owner-only billing entry — identical for both account types. */
+function creditsItem(): NavItem {
+  return {
+    href: "/credits",
+    label: "Credits",
+    icon: "wallet",
+    description: "Your unlock balance, top-ups and payment history.",
+    match: { prefix: ["/credits"] },
+  };
+}
+
+/** Owner-only organisation group — identical for both account types. */
+function organisationSection(): NavSection {
+  return {
+    title: "Organisation",
+    items: [
+      {
+        href: "/team",
+        label: "Team",
+        icon: "users-three",
+        description: "Invite recruiters and manage who can access this account.",
+        match: { prefix: ["/team"] },
+      },
+    ],
+  };
+}
+
 /** Level 1 + 2 + 3 for a COMPANY (employer) account. */
 function companySections({ isOwner }: NavModelInput): NavSection[] {
   return [
@@ -101,7 +185,7 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
           label: "Dashboard",
           icon: "squares-four",
           description: "Everything that needs you today, in one view.",
-          match: (p) => p === "/dashboard",
+          match: { exact: ["/dashboard"] },
         },
       ],
     },
@@ -113,18 +197,14 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
           label: "Post a job",
           icon: "plus-circle",
           description: "Describe the role and publish it to matched workers.",
-          // The AI chat at /postings/ai/* is the SAME task, so it keeps this entry active
-          // rather than lighting up "Postings".
-          match: (p) => p === "/postings/new" || p.startsWith("/postings/ai"),
+          match: POSTINGS_NEW_MATCH,
         },
         {
           href: "/postings",
           label: "Postings",
           icon: "briefcase",
           description: "Manage open roles and review their applicants.",
-          match: (p) =>
-            p === "/postings" ||
-            (p.startsWith("/postings/") && p !== "/postings/new" && !p.startsWith("/postings/ai")),
+          match: POSTINGS_LIST_MATCH,
         },
       ],
     },
@@ -136,39 +216,12 @@ function companySections({ isOwner }: NavModelInput): NavSection[] {
           label: "Plans & capacity",
           icon: "chart-donut",
           description: "How many roles you can run at once, and what each costs.",
-          // /capacity is a subset of this page (plans embeds the same CapacityPanel), so it
-          // lights this entry instead of asking for a nav slot of its own.
-          match: (p) => p.startsWith("/plans") || p.startsWith("/capacity"),
+          match: PLANS_MATCH,
         },
-        ...(isOwner
-          ? [
-              {
-                href: "/credits",
-                label: "Credits",
-                icon: "wallet",
-                description: "Your unlock balance, top-ups and payment history.",
-                match: (p: string) => p.startsWith("/credits"),
-              },
-            ]
-          : []),
+        ...(isOwner ? [creditsItem()] : []),
       ],
     },
-    ...(isOwner
-      ? [
-          {
-            title: "Organisation",
-            items: [
-              {
-                href: "/team",
-                label: "Team",
-                icon: "users-three",
-                description: "Invite recruiters and manage who can access this account.",
-                match: (p: string) => p.startsWith("/team"),
-              },
-            ],
-          },
-        ]
-      : []),
+    ...(isOwner ? [organisationSection()] : []),
   ];
 }
 
@@ -182,7 +235,7 @@ function agencySections({ isOwner }: NavModelInput): NavSection[] {
           label: "Dashboard",
           icon: "squares-four",
           description: "Demand, supply and referrals in one view.",
-          match: (p) => p === "/dashboard",
+          match: { exact: ["/dashboard"] },
         },
       ],
     },
@@ -194,16 +247,14 @@ function agencySections({ isOwner }: NavModelInput): NavSection[] {
           label: "Post a vacancy",
           icon: "plus-circle",
           description: "Publish a vacancy and reach matched workers.",
-          match: (p) => p === "/postings/new" || p.startsWith("/postings/ai"),
+          match: POSTINGS_NEW_MATCH,
         },
         {
           href: "/postings",
           label: "Vacancies",
           icon: "briefcase",
           description: "Manage open vacancies and review their applicants.",
-          match: (p) =>
-            p === "/postings" ||
-            (p.startsWith("/postings/") && p !== "/postings/new" && !p.startsWith("/postings/ai")),
+          match: POSTINGS_LIST_MATCH,
         },
       ],
     },
@@ -215,21 +266,21 @@ function agencySections({ isOwner }: NavModelInput): NavSection[] {
           label: "Workers",
           icon: "users",
           description: "Workers who joined through your referrals.",
-          match: (p) => p.startsWith("/agency/workers"),
+          match: { prefix: ["/agency/workers"] },
         },
         {
           href: "/agency/referrals",
           label: "Referrals",
           icon: "share-network",
           description: "Invite links, sign-up funnel and payout status.",
-          match: (p) => p.startsWith("/agency/referrals"),
+          match: { prefix: ["/agency/referrals"] },
         },
         {
           href: "/agency/qr",
           label: "QR poster",
           icon: "qr-code",
           description: "A printable invite sheet for a workshop wall or chai stall.",
-          match: (p) => p.startsWith("/agency/qr"),
+          match: { prefix: ["/agency/qr"] },
         },
       ],
     },
@@ -241,37 +292,12 @@ function agencySections({ isOwner }: NavModelInput): NavSection[] {
           label: "Plans & capacity",
           icon: "chart-donut",
           description: "How many vacancies you can run at once, and what each costs.",
-          match: (p) => p.startsWith("/plans") || p.startsWith("/capacity"),
+          match: PLANS_MATCH,
         },
-        ...(isOwner
-          ? [
-              {
-                href: "/credits",
-                label: "Credits",
-                icon: "wallet",
-                description: "Your unlock balance, top-ups and payment history.",
-                match: (p: string) => p.startsWith("/credits"),
-              },
-            ]
-          : []),
+        ...(isOwner ? [creditsItem()] : []),
       ],
     },
-    ...(isOwner
-      ? [
-          {
-            title: "Organisation",
-            items: [
-              {
-                href: "/team",
-                label: "Team",
-                icon: "users-three",
-                description: "Invite recruiters and manage who can access this account.",
-                match: (p: string) => p.startsWith("/team"),
-              },
-            ],
-          },
-        ]
-      : []),
+    ...(isOwner ? [organisationSection()] : []),
     {
       // LEVEL 4 — built on the server, not open yet. Every entry here corresponds to a real
       // route or a real flag in this repo; none is invented roadmap.
@@ -284,7 +310,7 @@ function agencySections({ isOwner }: NavModelInput): NavSection[] {
           // REACHABLE: agencyPortalEnabled defaults ON, so this renders a real parked page
           // that explains what is coming (agency/revenue/page.tsx). Kept as a link.
           description: "Earnings, payout history and revenue analytics for your agency.",
-          match: (p) => p.startsWith("/agency/revenue"),
+          match: { prefix: ["/agency/revenue"] },
           parked: true,
         },
         {
@@ -294,7 +320,7 @@ function agencySections({ isOwner }: NavModelInput): NavSection[] {
           // Route is real and guarded, but gated on agencyBulkUploadEnabled, which is a
           // fail-closed NEXT_PUBLIC_* flag that defaults OFF.
           description: "Mint invite codes for many workers from one spreadsheet.",
-          match: (p) => p.startsWith("/agency/bulk-upload"),
+          match: { prefix: ["/agency/bulk-upload"] },
           comingSoon: true,
         },
       ],
