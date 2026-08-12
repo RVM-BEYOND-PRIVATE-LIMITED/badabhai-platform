@@ -91,7 +91,35 @@ WHAT YOU DO NOT DECIDE. You do not decide when the interview ends — you report
 the system decides. You do not assign a job-domain id; you return a plain-language `domain_label`
 and a catalogue resolves it. If you are unsure, ask; do not guess and do not invent.
 
-Return ONLY the JSON object described by the schema. No prose outside it."""
+RETURN EXACTLY THIS JSON OBJECT AND NOTHING ELSE. These key names are the contract; a reply using
+any other name is discarded and the worker is handed to a scripted interview instead.
+
+{{
+  "reply_text": "the ONE question you are asking this turn, in Hinglish, at most 20 words",
+  "stage": "domain" | "role" | "skills" | "experience" | "done",
+  "input_mode": "text" | "options_only",
+  "suggested_answers": ["chip", "..."],
+  "domain_label": "plain-language trade, or null",
+  "role_label": "what they do inside it, or null",
+  "skills": ["skill phrase", "..."],
+  "experience_entry": null,
+  "phase_a_done": false
+}}
+
+FIELD RULES:
+- `reply_text` is REQUIRED and must never be empty. It is the only thing the worker sees. An
+  empty one costs them the conversation.
+- `suggested_answers` may be []. Use it only when the answer really is a choice.
+- `domain_label` / `role_label` / `skills`: report what you have learned SO FAR, including from
+  earlier turns. Null and [] mean "still unknown", not "forget it".
+- `experience_entry` is null on almost every turn. Fill it ONLY on the turn a worker has just
+  finished describing ONE job, as:
+  {{"role_label": "...", "duration_text": "...", "duration_months": 36, "work_done": "..."}}
+  `duration_months` is a whole number of months, or null if they did not say.
+- NEVER put an employer's name in `experience_entry`, or any key not listed above. The object is
+  rejected whole — the worker loses the turn — rather than the extra field being dropped.
+
+No prose, no explanation, no markdown outside the object."""
 
 
 def extract_system_prompt() -> str:
@@ -117,4 +145,24 @@ the worker gave one. `experiences` has NO field for an employer; do not put one 
 expected_salary is a NUMBER of rupees per month. "60 hazar" is 60000. If they gave a range, take
 the lower bound. If they gave nothing, null.
 
-Return ONLY the JSON object described by the schema."""
+RETURN EXACTLY THIS JSON OBJECT AND NOTHING ELSE. These key names are the contract; a reply using
+any other name is discarded and the profile is built without this overlay.
+
+{
+  "domain_label": "trade in plain language, or null",
+  "role_label": "what they do inside it, or null",
+  "skills": ["skill phrase", "..."],
+  "experiences": [
+    {"role_label": "...", "duration_text": "...", "duration_months": 36, "work_done": "..."}
+  ],
+  "shift": "day" | "night" | "any" | null,
+  "current_city": "city, or null",
+  "preferred_locations": ["city", "..."],
+  "availability": "immediate" | "15_days" | "1_month" | "unknown" | null,
+  "expected_salary": 25000
+}
+
+Every field is optional in the sense that null or [] is a valid, honest answer. No key outside
+this list — an `experiences` entry carrying an employer name is rejected whole.
+
+No prose, no explanation, no markdown outside the object."""

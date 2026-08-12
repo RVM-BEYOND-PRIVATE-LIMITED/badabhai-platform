@@ -31,6 +31,7 @@ import { hasFirstPersonClaim, parseAffirmation } from "@badabhai/profiling-lexic
 import type { ServerConfig } from "@badabhai/config";
 
 import { AiService } from "../ai/ai.service";
+import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { ProfilingEnvelope } from "./conversation-state";
 
@@ -81,6 +82,12 @@ export class LlmTurnService {
   constructor(
     private readonly ai: AiService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // EVERY PHASE A TURN IS A BILLABLE CALL, and this is the only thing that says so. Measured
+    // on the first live interview: twelve real `profiling_chat_turn` calls, and ZERO
+    // `ai.cost_recorded` events — the ai-service logged them into its own ledger and the
+    // platform's cost spine never heard. That is the same defect #738 fixed for STT and #745 for
+    // the payer chat turn, on the one path whose entire economic argument is per-profile cost.
+    private readonly cost: AiCostRecorder,
   ) {}
 
   /** Is the LLM path armed at all? Read by the orchestrator before anything else. */
@@ -109,7 +116,11 @@ export class LlmTurnService {
     envelope: ProfilingEnvelope,
     text: string,
     history: readonly TranscriptLine[],
-    ctx: { readonly workerId: string },
+    ctx: {
+      readonly workerId: string;
+      readonly correlationId: string;
+      readonly requestId: string;
+    },
   ): Promise<LlmTurnResult | null> {
     if (!this.leads(envelope)) return null;
 
@@ -148,6 +159,22 @@ export class LlmTurnService {
       // This is what lets the model spend its final question on the thing it most needs.
       force_close: asks + 1 >= MAX_LLM_ASKS,
     });
+
+    // LEDGERED BEFORE THE NULL CHECK, because a turn we could not USE is still a turn that may
+    // have been PAID FOR — a reply that failed the contract burned tokens exactly like one that
+    // passed. `record` no-ops on null metadata, which is the degraded path (mock posture, a cap,
+    // an unreachable service) where there genuinely was no call.
+    //
+    // NO `ai_job` ID: an interview turn is synchronous and has no async job behind it. The
+    // recorder takes null by design — see its own note on the payer chat turn — rather than
+    // minting a row in a table every dashboard reads to describe a job that never existed.
+    await this.cost.record(
+      out?.ai_metadata ?? null,
+      "profiling_chat_turn",
+      null,
+      ctx.correlationId,
+      ctx.requestId,
+    );
 
     if (out === null) {
       this.logger.warn(

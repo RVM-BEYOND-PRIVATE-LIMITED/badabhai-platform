@@ -28,6 +28,7 @@ from ..contracts import (
     LlmTurnInput,
     LlmTurnOutput,
 )
+from ..profiling.canonical_roles import coerce_json_text
 from ..profiling.interview_prompts import extract_system_prompt, interview_system_prompt
 from ..profiling.parse_masking import mask_transcript_lines
 from ..pseudonymize import pseudonymize
@@ -85,8 +86,14 @@ def _turn_messages(body: LlmTurnInput, masked_message: str) -> list[dict[str, st
 
 def _parse_turn(content: str, body: LlmTurnInput) -> LlmTurnOutput | None:
     """Model output is untrusted input (§11). `None` on anything unreadable."""
+    # THROUGH `coerce_json_text` FIRST, which is not optional — its own docstring says every
+    # place that parses model JSON for a profile must go through it. Claude has no strict JSON
+    # mode and routinely wraps the object in a ```json fence, so a bare `json.loads` rejects a
+    # perfectly good turn. Measured live: a real call came back with 102 tokens of valid content
+    # and this function threw it away, which the caller then reported as "the model is
+    # unavailable", falling the whole interview back to the packs.
     try:
-        raw = json.loads(content)
+        raw = json.loads(coerce_json_text(content))
     except (TypeError, ValueError):
         logger.warning("llm turn output was not JSON")
         return None
@@ -100,10 +107,12 @@ def _parse_turn(content: str, body: LlmTurnInput) -> LlmTurnOutput | None:
         # to hand us an employer once will try again, and a silent strip hides that.
         logger.warning("llm turn output failed the contract")
         return None
-    # The model does not get to move the stage backwards or skip ahead past `done`; the API
-    # owns progression. Anything else is treated as "still where we were".
-    if out.stage not in ("domain", "role", "skills", "experience", "done"):
-        out.stage = body.stage
+    # NO STAGE NORMALIZATION HERE, and the absence is deliberate. This used to re-check
+    # `out.stage` against the closed set and fall back to `body.stage` — unreachable code:
+    # `LlmInterviewStage` is a `Literal`, so `model_validate` above has already refused anything
+    # outside it and returned None. A stage the model invented therefore fails the whole turn,
+    # which is the same fail-closed direction every other branch here takes, and the API owns
+    # progression regardless: `LlmTurnService` decides `done` from its own caps, never from this.
     return out
 
 
@@ -210,7 +219,8 @@ async def profiling_extract(body: InterviewExtractInput) -> InterviewExtractOutp
         return InterviewExtractOutput(is_mock=True)
 
     try:
-        raw = json.loads(content)
+        # Same fence tolerance as the turn parser above, and for the same reason.
+        raw = json.loads(coerce_json_text(content))
         out = InterviewExtractOutput.model_validate(raw if isinstance(raw, dict) else {})
     except Exception:
         logger.warning("interview extract output failed the contract")

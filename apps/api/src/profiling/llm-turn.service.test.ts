@@ -19,7 +19,11 @@ import {
 } from "./llm-turn.service";
 import { emptyProfilingEnvelope, type ProfilingEnvelope } from "./conversation-state";
 
-const CTX = { workerId: "11111111-1111-4111-8111-111111111111" };
+const CTX = {
+  workerId: "11111111-1111-4111-8111-111111111111",
+  correlationId: "44444444-4444-4444-8444-444444444444",
+  requestId: "req_1",
+};
 
 const TURN = (over: Record<string, unknown> = {}) => ({
   reply_text: "Aap kaunsi cuisine banate hain?",
@@ -52,8 +56,9 @@ function make(over: { turn?: unknown; enabled?: boolean } = {}) {
     llmTurn: vi.fn(async (_input: unknown) => ("turn" in over ? over.turn : TURN())),
   };
   const config = { CHAT_LLM_INTERVIEW_ENABLED: over.enabled ?? true };
-  const svc = new LlmTurnService(ai as never, config as never);
-  return { svc, ai };
+  const cost = { record: vi.fn(async () => undefined) };
+  const svc = new LlmTurnService(ai as never, config as never, cost as never);
+  return { svc, ai, cost };
 }
 
 const env = (over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope => ({
@@ -269,5 +274,56 @@ describe("the draft accumulates rather than overwrites", () => {
       CTX,
     );
     expect(out?.patch.llmDraft?.domain_label).toBe("cooking");
+  });
+});
+
+describe("every Phase A turn is a billable call, and the ledger has to say so", () => {
+  const META = {
+    ai_call_id: "77777777-7777-4777-8777-777777777777",
+    task_type: "profiling_chat_turn",
+    model_name: "claude-haiku-4-5",
+    provider: "anthropic",
+    real_call: true,
+    input_tokens: 897,
+    output_tokens: 112,
+    estimated_cost_inr: 0.157,
+    latency_ms: 2863,
+    success: true,
+    created_at: "2026-08-12T05:04:02.270Z",
+  };
+
+  it("records the spend under `profiling_chat_turn` with no ai_job behind it", async () => {
+    // MEASURED, NOT IMAGINED. The first live interview made twelve real calls and emitted zero
+    // cost events: the ai-service logged them into its own ledger and the platform's cost spine
+    // never heard. An interview turn is synchronous, so `ai_job_id` is null by design.
+    const { svc, cost } = make({ turn: TURN({ ai_metadata: META }) });
+    await svc.take(env(), "cook hu", [], CTX);
+    expect(cost.record).toHaveBeenCalledWith(
+      META,
+      "profiling_chat_turn",
+      null,
+      CTX.correlationId,
+      CTX.requestId,
+    );
+  });
+
+  it("still records a turn whose reply we could NOT use", async () => {
+    // A reply that failed the contract burned the same tokens as one that passed. Charging it to
+    // nobody is how a broken parser looks free.
+    const { svc, cost } = make({ turn: null });
+    await svc.take(env(), "cook hu", [], CTX);
+    expect(cost.record).toHaveBeenCalledWith(
+      null,
+      "profiling_chat_turn",
+      null,
+      CTX.correlationId,
+      CTX.requestId,
+    );
+  });
+
+  it("records nothing when a cap ended Phase A without calling", async () => {
+    const { svc, cost } = make();
+    await svc.take(env({ llmAsks: MAX_LLM_ASKS }), "haan", [], CTX);
+    expect(cost.record).not.toHaveBeenCalled();
   });
 });

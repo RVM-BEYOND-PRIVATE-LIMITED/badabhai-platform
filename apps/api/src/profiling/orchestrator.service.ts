@@ -964,6 +964,8 @@ export class ProfilingOrchestrator {
     if (this.llm.leads(next)) {
       const led = await this.llm.take(next, input.text, transcriptOf(buffer), {
         workerId: input.workerId,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
       });
 
       if (led === null) {
