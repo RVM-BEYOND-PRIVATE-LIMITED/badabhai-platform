@@ -10,7 +10,7 @@ import math
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # INTERVIEW-1 §7 parity: Zod's `z.number().int().nonnegative()` REJECTS -1 and the
 # string "2". Plain `int` here would accept both (Pydantic coerces "2" -> 2), so the
@@ -77,8 +77,17 @@ class PseudonymizationMeta(BaseModel):
 PositiveInt = Annotated[int, Field(ge=1, strict=True)]
 
 ProfilingPhase = Literal[
-    "identify", "disambiguate", "occupation_specific", "universal_tail", "close"
+    "identify",
+    "disambiguate",
+    # The LLM-led stretch. APPENDED, never inserted — authored packs carry `phase_is`
+    # predicates comparing against these literals, so re-ordering silently re-targets them.
+    "llm_interview",
+    "occupation_specific",
+    "universal_tail",
+    "close",
 ]
+LlmInterviewStage = Literal["domain", "role", "skills", "experience", "done"]
+InputMode = Literal["text", "options_only"]
 OccupationMatchLayer = Literal["l0_exact", "l1_skeleton", "l2_trigram", "l3_vector"]
 # The five job-domain statuses PLUS the two deterministic-engine outcomes migration 0076
 # adds to the worker_profiles CHECK — declared ahead of 0076 because this file freezes at
@@ -390,6 +399,103 @@ class ProfileParseOutput(BaseModel):
     # ``None`` on every degraded path (deadline, mock posture, spend cap): a fabricated
     # zero-cost record is worse than an absent one, being indistinguishable from a real
     # call that happened to be free. PII-free — ids, model names, counts, an INR estimate.
+    ai_metadata: AICallMetadata | None = None
+
+
+# --- The LLM-led interview (Phase A) and its whole-chat extraction (Phase C) --
+#
+# Mirrors `packages/ai-contracts/src/oie.ts`. The packs ask what was authored, and authoring
+# cannot cover every trade: a worker who said "cook hu" was offered
+# [Pizza maker | यात्रा सेवा | khana | खाद्य प्रसंस्करण] and fell through to the generic pack.
+# The model conducts the stretch that cannot be authored; the API keeps the rest and takes the
+# turn back the moment the model is unavailable.
+
+
+class ExperienceEntry(BaseModel):
+    """ONE job a worker has held.
+
+    ``extra="forbid"`` IS THE ENFORCEMENT, mirroring the TS ``.strict()``. §2 forbids storing
+    employer names and ``FIELD_CROSSWALK`` parks ``work_history`` at ``draftPath: None`` for
+    that reason. A prompt rule is a request; a forbidding schema makes ``employer_name`` fail
+    at the boundary, before it can reach a column. Model output is untrusted input (§11).
+
+    ``duration_months`` is optional because "kuch saal" is a real answer, and inventing 24 from
+    it would be exactly the fabrication the parse gates exist to stop.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    role_label: str = Field(min_length=1, max_length=120)
+    duration_text: str = Field(default="", max_length=120)
+    duration_months: int | None = Field(default=None, ge=0, le=720)
+    work_done: str = Field(default="", max_length=600)
+
+
+class LlmInterviewDraft(BaseModel):
+    """What the model has gathered so far, echoed back each turn so the call stays stateless."""
+
+    domain_label: str | None = None
+    role_label: str | None = None
+    skills: list[str] = Field(default_factory=list)
+    experiences: list[ExperienceEntry] = Field(default_factory=list)
+
+
+class LlmTurnInput(BaseModel):
+    schema_version: Literal["oie.v1"] = "oie.v1"
+    worker_ref: str = Field(min_length=1)
+    language: str | None = None
+    stage: LlmInterviewStage = "domain"
+    message_text: str = ""
+    history: list[TranscriptLine] = Field(default_factory=list)
+    draft: LlmInterviewDraft = Field(default_factory=LlmInterviewDraft)
+    experience_count: int = Field(default=0, ge=0)
+    # The model's LAST allowed question: ask the most valuable one left, then stop. The cap is
+    # API-authoritative because the API owns the session state — this service holds none and
+    # could not count turns even if it were trusted to. A cap that has already fired never
+    # reaches here: the API ends Phase A without calling, so a runaway costs nothing.
+    force_close: bool = False
+
+
+class LlmTurnOutput(BaseModel):
+    reply_text: str = ""
+    stage: LlmInterviewStage = "domain"
+    input_mode: InputMode = "text"
+    suggested_answers: list[str] = Field(default_factory=list, max_length=4)
+    # A LABEL, never a job_domain_id. A model that could hand us an id could hand us one that
+    # does not exist, or one that exists and is wrong — both would persist as though retrieval
+    # had agreed. The catalogue decides what this resolves to.
+    domain_label: str | None = None
+    role_label: str | None = None
+    skills: list[str] = Field(default_factory=list)
+    experience_entry: ExperienceEntry | None = None
+    # ADVISORY ONLY. The API's caps decide when Phase A ends.
+    phase_a_done: bool = False
+    blocked: bool = False
+    blocked_reason: str | None = None
+    is_mock: bool = True
+    ai_metadata: AICallMetadata | None = None
+
+
+class InterviewExtractInput(BaseModel):
+    schema_version: Literal["oie.v1"] = "oie.v1"
+    worker_ref: str = Field(min_length=1)
+    language: str | None = None
+    transcript: list[TranscriptLine] = Field(default_factory=list)
+    occupation: OccupationPin | None = None
+
+
+class InterviewExtractOutput(BaseModel):
+    domain_label: str | None = None
+    role_label: str | None = None
+    skills: list[str] = Field(default_factory=list)
+    experiences: list[ExperienceEntry] = Field(default_factory=list)
+    shift: str | None = None
+    current_city: str | None = None
+    preferred_locations: list[str] = Field(default_factory=list)
+    availability: str | None = None
+    expected_salary: float | None = None
+    blocked: bool = False
+    is_mock: bool = True
     ai_metadata: AICallMetadata | None = None
 
 

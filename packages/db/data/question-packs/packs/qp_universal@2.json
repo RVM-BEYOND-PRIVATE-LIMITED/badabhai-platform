@@ -1,13 +1,14 @@
 {
   "_why": "THE FALLBACK OF LAST RESORT. Every occupation with no family of its own resolves here through the universal binding, so this pack is the difference between an unauthored trade getting a degraded interview and getting NO interview at all. It is also the tail every other pack runs after its trade-specific questions — the fields that must survive abandonment because they are the strongest matching signals.",
   "_ordering": "current_city and salary_expected are hoisted with min_turn/max_turn rather than left at the end. Occupation questions first is right (workers answer fluently about their own trade, and leading with salary has the highest abandon rate), but city and salary are what the match engine actually ranks on, so they must be asked before a worker is likely to walk. That hoist is DATA on the row, not a special case in the engine.",
+  "_v2": "THREE CHANGES, ALL FOR THE LLM-LED OPENING (Phase B). (1) `preferred_locations` was the one Resume Field Set entry with no question anywhere in the corpus — the interview asked where a worker IS and never where they want to WORK, so `location_preference.preferred_cities` was only ever filled by the extraction model guessing. (2) `relocation` is REMOVED: 'kya doosre sheher jaa sakte hain' and 'kahaan kaam karna chahte hain' are the same question asked twice, and the second carries strictly more information. Owner ruling 2026-08-11: the template tail is SIX questions. (3) The `max_turn` ceilings come off `current_city` and `salary_expected` — see below.",
+  "_v2_max_turn": "WHY THE CEILINGS HAD TO GO, and it is a live defect rather than a preference. `isServable` refuses an item once `state.turn > max_turn`, so `current_city` (mandatory, max_turn 5) became UNASKABLE from turn 6 onward — permanently, with no re-ask left, and the interview then closed `complete` without the single strongest matching signal. Measured by walking the real corpus: a tail entered at turn 8 served neither city nor salary. Any interview that spent a few turns on silences, clarifies or hardship acknowledgements already hit this; the LLM-led opening hits it EVERY time, because Phase A is several turns long by construction. `min_turn` is kept — the hoist the v1 note describes is the min side, which is what stops salary leading the interview. A ceiling that turns a mandatory question into one that is never asked protects nothing.",
   "pack_id": "qp_universal",
-  "version": 1,
+  "version": 2,
   "family_id": "fam_universal",
   "locale": "hi-IN",
-  "status": "deprecated",
-  "review_note": "Authored as the Phase 4 fallback. Reviewer of record is git blame. DEPRECATED by v2 (2026-08-11), which adds preferred_locations and retires relocation behind it.",
-  "_deprecated": "KEPT ON DISK, NOT DELETED. A session can pin (pack_id, version) and `loadPinned` loads that exact version whatever its status — and the TTS reply-closure manifest is built from whatever this corpus holds, so a version that stops existing serves a mid-interview worker strings that were never rendered. On the voice form that is silence, at a question they cannot read. Retiring this line from _published-versions.jsonl is a separate, reviewable claim that no live session pins it any more.",
+  "status": "active",
+  "review_note": "v2 adds preferred_locations and retires relocation behind it. v1 is deprecated in the same commit — the corpus validator refuses a second ACTIVE pack for one family+locale, because the resolver must never have to choose.",
   "items": [
     {
       "question_key": "primary_trade",
@@ -43,8 +44,7 @@
       "is_mandatory": true,
       "is_core": true,
       "max_asks": 2,
-      "min_turn": 2,
-      "max_turn": 5
+      "min_turn": 2
     },
     {
       "question_key": "salary_expected",
@@ -56,22 +56,19 @@
       "answer_type": "salary",
       "is_core": true,
       "max_asks": 2,
-      "min_turn": 3,
-      "max_turn": 7
+      "min_turn": 3
     },
     {
-      "question_key": "relocation",
-      "prompt_text": "Kya aap doosre sheher jaa sakte hain?",
-      "why_text": "Doosre sheher mein bhi achhi naukri mil sakti hai.",
+      "question_key": "preferred_locations",
+      "prompt_text": "Aap kahaan kaam karna chahte hain?",
+      "why_text": "Jahaan aap kaam karna chahte hain, wahin ki naukri pehle dikhayenge.",
+      "retry_text": "Kis sheher mein kaam karna hai?",
       "target_kind": "rfs",
-      "target_field": "relocation_willingness",
-      "answer_type": "single_select",
-      "max_asks": 1,
-      "options": [
-        { "option_key": "yes", "label_text": "Haan, jaa sakta hoon", "value_bool": true },
-        { "option_key": "no", "label_text": "Nahi, yahi rehna hai", "value_bool": false },
-        { "option_key": "maybe", "label_text": "Sahi kaam mile to soch sakta hoon", "value_bool": true }
-      ]
+      "target_field": "preferred_locations",
+      "answer_type": "city",
+      "is_core": true,
+      "max_asks": 2,
+      "min_turn": 3
     },
     {
       "question_key": "availability",

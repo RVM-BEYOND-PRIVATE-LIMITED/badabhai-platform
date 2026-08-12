@@ -29,6 +29,9 @@ from app.contracts import (
     ConversationMessage,
     ConversationState,
     EvidenceSpan,
+    ExperienceEntry,
+    InterviewExtractInput,
+    InterviewExtractOutput,
     JobDomainMatch,
     JobPostingChatOpeningInput,
     JobPostingChatOpeningOutput,
@@ -36,6 +39,9 @@ from app.contracts import (
     JobPostingChatTurnInput,
     JobPostingChatTurnOutput,
     JobPostingDraft,
+    LlmInterviewDraft,
+    LlmTurnInput,
+    LlmTurnOutput,
     OccupationPin,
     ParsedField,
     Predicate,
@@ -246,6 +252,13 @@ _OIE_MODELS = {
     "ProfileParseInput": ProfileParseInput,
     "ParsedField": ParsedField,
     "ProfileParseOutput": ProfileParseOutput,
+    # Phase A (LLM-led interview) + Phase C (whole-chat extraction).
+    "ExperienceEntry": ExperienceEntry,
+    "LlmInterviewDraft": LlmInterviewDraft,
+    "LlmTurnInput": LlmTurnInput,
+    "LlmTurnOutput": LlmTurnOutput,
+    "InterviewExtractInput": InterviewExtractInput,
+    "InterviewExtractOutput": InterviewExtractOutput,
 }
 
 

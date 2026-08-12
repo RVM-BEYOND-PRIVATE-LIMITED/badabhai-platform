@@ -575,7 +575,7 @@ const LAYER_TO_CONTRACT = {
 } as const;
 
 /**
- * The synthesised chip key, as a slug `QuestionPackOptionSchema` will actually accept.
+ * A synthesised chip key, as a slug `QuestionPackOptionSchema` will actually accept.
  *
  * `occ_${index}` WAS NOT ONE. `option_key` is `slugKey` — `/^[a-z_]+$/`, no digits — so every
  * catalogue chip failed that parse, and nothing caught it because {@link toPackOption} is TYPED
@@ -584,16 +584,24 @@ const LAYER_TO_CONTRACT = {
  * so one `occ_0` emptied the whole offer on the way out of Redis while `kind: "disambiguate"`
  * survived — a single-select with no options, on a replay, for a worker who cannot type.
  *
- * Bijective base-26, so it stays a slug at any offer size: 0→`occ_a`, 25→`occ_z`, 26→`occ_aa`.
+ * Bijective base-26, so it stays a slug at any offer size: 0→`_a`, 25→`_z`, 26→`_aa`.
+ *
+ * EXPORTED because the LLM-led stretch mints chips the same way and for the same reason — its
+ * options come from a model rather than from a pack row. One implementation, so a second caller
+ * cannot rediscover the digit bug on its own.
  */
-function occKey(index: number): string {
+export function slugIndexKey(prefix: string, index: number): string {
   let n = index;
   let suffix = "";
   do {
     suffix = String.fromCharCode(97 + (n % 26)) + suffix;
     n = Math.floor(n / 26) - 1;
   } while (n >= 0);
-  return `occ_${suffix}`;
+  return `${prefix}_${suffix}`;
+}
+
+function occKey(index: number): string {
+  return slugIndexKey("occ", index);
 }
 
 /**

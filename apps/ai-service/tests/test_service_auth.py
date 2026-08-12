@@ -158,6 +158,12 @@ class TestServiceAuthEnabled:
         # the interview is now a deterministic state machine in apps/api and the LLM is
         # called once, at the end, through /profile/parse. Two fewer LLM-driven entry points
         # is the point, not a regression.
+        #
+        # 11 -> 13 with the LLM-led interview: POST /profiling/turn (one Phase A question) and
+        # POST /profiling/extract (the whole-chat extraction). The Phase 8 cutover deleted
+        # /profiling/opening and /profiling/respond and this is NOT their restoration — the old
+        # pair let a model run the interview and hold the state; these hold none, and the API
+        # bounds every turn. Both carry worker text, so both must be gated exactly like the rest.
         assert post_paths == [
             "/embeddings/skill-alias",
             "/growth/cluster",
@@ -165,6 +171,8 @@ class TestServiceAuthEnabled:
             "/job-posting-chat/respond",
             "/profile/extract",
             "/profile/parse",
+            "/profiling/extract",
+            "/profiling/turn",
             "/pseudonymize",
             "/resume/generate",
             "/skills/canonicalize",

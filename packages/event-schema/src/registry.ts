@@ -785,6 +785,16 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileAnswerCorrectedPayload,
   },
+
+  // The LLM-led opening handed the interview back to the deterministic engine. Designed to be
+  // invisible to the worker, which is exactly why it needs an event: a degraded ai-service
+  // otherwise thins every profile with every user-visible signal still green. Once per
+  // session — the fallback flag is sticky. v1.
+  "profile.llm_interview_fallback": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileLlmInterviewFallbackPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

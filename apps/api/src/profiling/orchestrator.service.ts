@@ -19,9 +19,11 @@ import { Injectable, Logger } from "@nestjs/common";
 import type {
   AnswerRecord,
   AnswerType,
+  InputMode,
   QuestionPack,
   QuestionPackItem,
   QuestionPackOption,
+  TranscriptLine,
 } from "@badabhai/ai-contracts";
 
 import { ChatTranscriptBuffer, type TranscriptBuffer } from "../chat/chat-transcript.buffer";
@@ -37,7 +39,13 @@ import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { catalogVersionForEvent } from "../occupation/occupation.repository";
-import { DISAMBIGUATION_PROMPT, IdentifyService, toPackOption } from "./identify.service";
+import {
+  DISAMBIGUATION_PROMPT,
+  IdentifyService,
+  slugIndexKey,
+  toPackOption,
+} from "./identify.service";
+import { LlmTurnService } from "./llm-turn.service";
 import { captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
 import {
   answerSetHash,
@@ -239,6 +247,18 @@ export interface TurnResult {
    * incorrect question.
    */
   readonly lookahead?: Lookahead | null;
+  /**
+   * Whether the worker may TYPE this turn's answer, or must choose one of the options.
+   *
+   * OPTIONAL AND ABSENT MEANS `text`, for the same reason {@link lookahead} is optional: the
+   * failure mode of forgetting it is today's behaviour (a keyboard), not a wrong screen. Only
+   * two turns ever set it — the experience loop gate and a model turn that asks for one of a
+   * closed set — and both still ACCEPT typed text, because shipped clients render the TextField
+   * regardless until they honour the wire field. This is an instruction to the client, never a
+   * server-side validation: rejecting typed text on it would dead-end every interview running on
+   * a build that has not shipped the change yet.
+   */
+  readonly inputMode?: InputMode;
 }
 
 export interface TurnInput {
@@ -354,6 +374,7 @@ export class ProfilingOrchestrator {
     private readonly identify: IdentifyService,
     private readonly chat: ChatRepository,
     private readonly events: EventsService,
+    private readonly llm: LlmTurnService,
   ) {}
 
   /**
@@ -487,6 +508,33 @@ export class ProfilingOrchestrator {
           options: offer.options,
           whyText: null,
           answerType: "single_select",
+          progress: progressOf(items, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: true,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        };
+      }
+
+      // THE MODEL'S QUESTION OUTRANKS THE PACK RE-SERVE for the same reason the offer above
+      // does: it belongs to no pack, so the lookup below cannot find it and would answer a cold
+      // start mid-Phase-A by serving an authored question instead.
+      const asked = outstandingLlmAsk(envelope, this.llm.leads(envelope));
+      if (asked) {
+        return {
+          reply: asked.prompt,
+          kind: "ask",
+          questionKey: null,
+          options: asked.options,
+          whyText: null,
+          answerType: asked.answerType,
+          // DERIVED, because `lastTurn` does not cache it: the gate is the only turn the engine
+          // itself sends `options_only`, and a model turn that asked for one re-opens with the
+          // keyboard available — which is what every shipped client does anyway.
+          inputMode: envelope.llmGateOpen ? "options_only" : "text",
           progress: progressOf(items, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -902,6 +950,73 @@ export class ProfilingOrchestrator {
       }
     }
 
+    // --- PHASE A: the model chooses the question ----------------------------
+    //
+    // AT THE SELECTION SEAM, NOT ABOVE IT. Everything before this line still runs exactly as it
+    // does for a deterministic interview: the turn classes bound abuse and hardship, the worker's
+    // answer to whatever WAS on screen is captured, free information is filled cross-question,
+    // and retrieval pins the pack. The model replaces question SELECTION and nothing else — so
+    // `answer_map` keeps filling underneath the conversation, which is what makes both the
+    // fallback and Phase C work on an interview that switched engines halfway through.
+    //
+    // `next` is passed rather than `envelope`: the draft this turn's patch is folded into must be
+    // the one carrying this turn's answers, or a fallback would lose them.
+    if (this.llm.leads(next)) {
+      const led = await this.llm.take(next, input.text, transcriptOf(buffer), {
+        workerId: input.workerId,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+
+      if (led === null) {
+        // THE MODEL WENT AWAY. Sticky from here, and the gate is closed on the way out — leaving
+        // it open would make the worker's next sentence be read as a yes/no to a question the
+        // engine is about to replace.
+        next = { ...next, llmFallback: true, llmGateOpen: false };
+        await this.recordFallback(next, input);
+        // ...and FALL THROUGH. `nextQuestion` below serves the next pack question, which is the
+        // whole design: one branch, not a second engine to keep in step.
+      } else {
+        next = { ...next, ...led.patch };
+        if (led.kind === "ask") {
+          // NO `servedQuestionKey`. A model's question belongs to no pack, and claiming a pack's
+          // key for it would make the next turn's `askedItem` lookup capture the answer as that
+          // question's — the same rule the disambiguation offer follows one branch up.
+          next = { ...next, phase: "llm_interview", servedQuestionKey: null };
+          const options = led.chips.map(toLlmOption);
+          return this.turn(buffer, next, input, {
+            reply: led.reply,
+            kind: "ask",
+            questionKey: null,
+            options,
+            // ASSERTED, NOT LOOKED UP, exactly as the disambiguation branch does it: there is no
+            // pack row to read an `answer_type` off. Chips mean one tap becomes the answer;
+            // without them the worker speaks or types.
+            answerType: options.length > 0 ? "single_select" : "text",
+            whyText: null,
+            inputMode: led.inputMode,
+            progress: progressOf(items, answers),
+            unansweredEssentials: essentialsOf(items, answers),
+            complete: false,
+            completionReason: null,
+            replayed: false,
+            excludeFromParse: capture.excludeFromParse,
+            unavailable: false,
+            // An LLM ask spends no ENGINE ask, so it can never cross a checkpoint boundary.
+            checkpointDue: false,
+          });
+        }
+        // `done` — Phase A is over. What the model gathered becomes ANSWERS before the engine is
+        // consulted, or the template tail opens by asking a worker their trade immediately after
+        // a conversation that was largely about it.
+        answers = settleFromLlmDraft(answers, next.llmDraft, items, turn);
+        next = withAnswers(next, answers);
+        // FALL THROUGH so the engine serves the template pack's first question on THIS turn:
+        // returning the model's closing words here would cost the worker a round trip to see a
+        // bubble with no question in it.
+      }
+    }
+
     // --- The decision -------------------------------------------------------
     const decision = nextQuestion(toEngineState(next, turn), engine);
 
@@ -1092,6 +1207,26 @@ export class ProfilingOrchestrator {
           promptText: offer.prompt,
           answerType: "single_select",
           options: offer.options,
+          whyText: null,
+          progress: progressOf(items, answers),
+        },
+      };
+    }
+
+    // AND THE MODEL'S QUESTION OUTRANKS IT TOO — the same precedence `openTurn` applies, through
+    // the same helper, so the two readers of a reopened session cannot disagree about what the
+    // worker is looking at.
+    const asked = outstandingLlmAsk(envelope, this.llm.leads(envelope));
+    if (asked) {
+      return {
+        buffer,
+        envelope,
+        items,
+        served: {
+          questionKey: null,
+          promptText: asked.prompt,
+          answerType: asked.answerType,
+          options: asked.options,
           whyText: null,
           progress: progressOf(items, answers),
         },
@@ -1316,6 +1451,46 @@ export class ProfilingOrchestrator {
    * self-healing write would have to run on every turn, which is the cost this method exists to
    * avoid.
    */
+  /**
+   * The model stopped leading and the engine took over. Recorded ONCE per session.
+   *
+   * EMITTED FROM INSIDE `decide()`, WHICH RUNS UNDER THE CAS RETRY — so a losing attempt can
+   * reach this line and then be thrown away. The session-scoped idempotency key is what makes
+   * that harmless, and it is the same backstop `profile.pack_pinned` relies on for at-least-once
+   * delivery. Emitting after the CAS instead would need the fallback decision threaded out of the
+   * decision and back in, for a fact that is true of the SESSION rather than of the turn.
+   *
+   * NEVER THROWS. A worker whose interview just lost the model must not also lose the turn
+   * because the audit write failed; the fallback itself is already the recovery path.
+   */
+  private async recordFallback(envelope: ProfilingEnvelope, input: TurnInput): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.llm_interview_fallback",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          // EVERY TRANSPORT FAILURE COLLAPSED, because `llmTurn` returns one `null` for all of
+          // them. A finer reason here would be this layer guessing at something it cannot see.
+          reason: "unavailable",
+          stage: envelope.llmStage,
+          asks: envelope.llmAsks,
+        },
+        idempotencyKey: `profile.llm_interview_fallback:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the LLM-interview fallback for session ${input.sessionId} was not recorded; the ` +
+          `interview continues on pack questions but the switch is now invisible: ` +
+          `${(error as Error).message}`,
+      );
+    }
+  }
+
   private async persistPin(
     before: ProfilingEnvelope,
     after: ProfilingEnvelope | null | undefined,
@@ -1428,6 +1603,7 @@ export class ProfilingOrchestrator {
         // a retried submit replayed the words and silently dropped the instant next-question
         // render, on exactly the flaky link that caused the retry.
         lookahead: result.lookahead ?? null,
+        inputMode: result.inputMode ?? "text",
       },
     };
     const at = input.now.toISOString();
@@ -1502,6 +1678,7 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
     progress: last.progress,
     whyText: last.whyText,
     answerType: last.answerType,
+    inputMode: last.inputMode,
     unansweredEssentials: [],
     complete: false,
     completionReason: null,
@@ -1540,6 +1717,32 @@ function outstandingOffer(
   };
 }
 
+/**
+ * The model's question, still on screen, for a session being REOPENED.
+ *
+ * THE SAME HAZARD `outstandingOffer` EXISTS FOR, and a worse version of it. A model's question
+ * belongs to no pack, so `servedQuestionKey` is null for the whole LLM-led stretch — which means
+ * the pack re-serve in `openTurn` finds nothing, falls through to `nextQuestion`, and answers a
+ * cold start mid-Phase-A by silently serving an authored question instead. The worker's screen
+ * would jump from a conversation to a form on every resume-after-kill, and `viewSession` would
+ * report `served: null` for the same session at the same moment. Read from `lastTurn` because
+ * that is literally what the worker was shown, verbatim, chips included.
+ *
+ * NULL BEFORE THE MODEL HAS SPOKEN. A brand-new session has `llmAsks: 0` and no gate, so opening
+ * still serves pack question one — the model takes over from the worker's first words, which is
+ * also the first thing it has anything to respond to.
+ */
+function outstandingLlmAsk(
+  envelope: ProfilingEnvelope,
+  leads: boolean,
+): { prompt: string; options: readonly QuestionPackOption[]; answerType: AnswerType | null } | null {
+  if (!leads) return null;
+  if (envelope.llmAsks === 0 && !envelope.llmGateOpen) return null;
+  const last = envelope.lastTurn;
+  if (!last || last.reply.trim().length === 0) return null;
+  return { prompt: last.reply, options: last.options, answerType: last.answerType };
+}
+
 function unavailable(): TurnResult {
   return {
     reply: UNAVAILABLE_REPLY,
@@ -1562,6 +1765,100 @@ function unavailable(): TurnResult {
     unavailable: true,
     // Nothing was written to Redis either, so there is no state a checkpoint could make durable.
     checkpointDue: false,
+  };
+}
+
+/**
+ * What Phase A learned, written into the deterministic answer map.
+ *
+ * WHY THIS IS NOT OPTIONAL. Phase A spends most of an interview on the worker's trade and their
+ * jobs, and the template tail opens with `primary_trade` — so without this the first thing a
+ * worker hears after the conversation ends is a question the conversation already answered. It
+ * is also what keeps `progress` and `unansweredEssentials` honest: both are computed from settled
+ * pack questions, and a Phase A that filled neither reports a worker who has answered nothing.
+ *
+ * KEYED ON `target_field`, NEVER ON A QUESTION KEY. The trade question is `primary_trade` in the
+ * universal pack and something else in an occupation pack, and hardcoding either would silently
+ * settle nothing for the other. The RFS field is the fact the packs agree on.
+ *
+ * FIRST-WRITE-WINS, the same rule the cross-question path follows: a value the worker established
+ * against a real question is theirs, and a draft assembled by a model must never overwrite it.
+ *
+ * `experience_years` IS ONLY SETTLED WHEN EVERY ENTRY CARRIES A DURATION. A sum over entries the
+ * model could not put a number on understates a worker's experience, and understating it is the
+ * one direction that costs them jobs — so a partial answer is left for the pack question to ask
+ * properly rather than filled in with a number nobody can defend.
+ */
+function settleFromLlmDraft(
+  answers: AnswerMap,
+  draft: ProfilingEnvelope["llmDraft"],
+  items: readonly QuestionPackItem[],
+  turn: number,
+): AnswerMap {
+  const trade = (draft.role_label ?? draft.domain_label ?? "").trim();
+  const months = draft.experiences.map((entry) => entry.duration_months);
+  const years =
+    months.length > 0 && months.every((m): m is number => typeof m === "number")
+      ? Math.round(months.reduce((sum, m) => sum + m, 0) / 12)
+      : null;
+
+  let next = answers;
+  const settle = (field: string, raw: string, normalized: unknown): void => {
+    const item = items.find((candidate) => candidate.target_field === field);
+    if (!item || isSettled(next, item.question_key)) return;
+    next = recordAnswer(
+      next,
+      {
+        questionKey: item.question_key,
+        targetField: field,
+        valueRaw: raw,
+        valueNormalized: normalized,
+        // NO EVIDENCE SPAN. These come from the model's structured draft rather than from a
+        // quoted stretch of transcript, and inventing an index the provenance gate would then
+        // verify against is worse than admitting there is nothing to cite.
+        evidence: null,
+      },
+      turn,
+    );
+  };
+
+  if (trade) settle("trade", trade, trade);
+  if (years !== null) settle("experience_years", `${years}`, years);
+  return next;
+}
+
+/**
+ * The buffered conversation, as the contract's transcript lines.
+ *
+ * INDEXED BY POSITION IN THE BUFFER, matching what `/profile/parse` sends — `i` is what an
+ * evidence span cites, so the two callers must number the same conversation the same way or a
+ * quote verified against line 4 in one call points at line 5 in the other.
+ */
+function transcriptOf(buffer: TranscriptBuffer): TranscriptLine[] {
+  return buffer.messages.map((message, i) => ({ i, role: message.role, text: message.text }));
+}
+
+/**
+ * A model-authored chip, in the shape the client already renders.
+ *
+ * THE KEY IS SYNTHESISED AND NEVER READ BACK, exactly as a disambiguation chip's is: these come
+ * from a model rather than from an authored pack row, so there is no `option_key` to carry. It
+ * goes through {@link slugIndexKey} rather than an index because `QuestionPackOptionSchema`'s
+ * `slugKey` forbids digits, and `narrowLastTurn` parses the cached option list all-or-nothing —
+ * one `llm_0` would empty the whole chip list on a replay and leave a worker who cannot type
+ * looking at a question with nothing to tap.
+ *
+ * THE LABEL IS THE VALUE, which is the same contract every chip has: what the worker taps is
+ * what they said. Nothing here is a business decision — the chips are an affordance for typing,
+ * and the answer of record is the label either way.
+ */
+function toLlmOption(label: string, index: number): QuestionPackOption {
+  return {
+    option_key: slugIndexKey("llm", index),
+    label_text: label,
+    value: label,
+    implies_skill_id: null,
+    is_none_of_above: false,
   };
 }
 

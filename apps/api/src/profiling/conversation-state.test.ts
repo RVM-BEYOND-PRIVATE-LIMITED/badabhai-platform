@@ -90,12 +90,27 @@ const FULL: ProfilingEnvelope = {
     whyText: "Isse hum aapke sheher ke kaam dikha payenge.",
     answerType: "single_select",
     lookahead: null,
+    // NON-DEFAULT for the same reason as everything else here: `text` is what a `narrow` that
+    // dropped the field would rebuild.
+    inputMode: "options_only",
   },
   // Every bucket distinct and non-zero, for the same reason as every other field here: a
   // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.
   turnLatency: { le_100: 4, le_200: 3, le_400: 2, le_800: 1, gt_800: 5, max_ms: 1234 },
   occupationFamilyId: "fam_welding",
   occupationRepins: 1,
+  llmStage: "experience",
+  llmDraft: {
+    domain_label: "cooking",
+    role_label: "tandoor cook",
+    skills: ["naan", "roti"],
+    experiences: [
+      { role_label: "tandoor cook", duration_text: "3 saal", duration_months: 36, work_done: "naan" },
+    ],
+  },
+  llmAsks: 5,
+  llmFallback: true,
+  llmGateOpen: true,
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {

@@ -2436,8 +2436,11 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 156 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login)", () => {
-    expect(EVENT_NAMES).toHaveLength(156);
+  it("exposes all 157 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback)", () => {
+    expect(EVENT_NAMES).toHaveLength(157);
+    // The LLM-led opening handed back to the deterministic engine. Designed to be invisible to
+    // the worker, so this event is the only place a degraded ai-service becomes visible at all.
+    expect(isEventName("profile.llm_interview_fallback")).toBe(true);
     // The pack pin — which QUESTIONS the worker got, as distinct from which trade they are in.
     // Separate from `occupation_identified` because a trade can resolve while its family has no
     // authored pack, which is the normal state during Phase 6 authoring.
