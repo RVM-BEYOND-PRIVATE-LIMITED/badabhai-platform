@@ -651,7 +651,34 @@ jobs:
   build-and-push-image:
     name: Build & Push Docker Image
     needs: [node, ai-service, e2e]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # BUG FIXED HERE: this `if:` used to be the plain boolean
+    #   `github.event_name == 'push' && github.ref == 'refs/heads/main'`
+    # with no `always()`/`success()`/`failure()`/`cancelled()` anywhere in it. Per GitHub
+    # Actions semantics, a job-level `if:` with none of those functions gets an IMPLICIT
+    # `&& success()` ANDed across every job in `needs:` — and a job that is `skipped`
+    # (not run) never satisfies `success()`. `ai-service` AND `e2e` are BOTH path-filtered
+    # by the `changes` job above and report `skipped` on most pushes to main: `ai-service`
+    # skips unless `apps/ai-service/**` or `packages/profiling-lexicon/**` changed, and
+    # `e2e` skips unless `apps/api/**`, `packages/**`, `tests/**`, the lockfile/workspace/
+    # turbo config, `apps/ai-service/**`, or this workflow file changed — so a frontend-
+    # only, docs-only, or infra-only push skips BOTH. Net effect: this job (and
+    # `deploy-lightsail` below it, via `needs: [build-and-push-image]`) silently skipped
+    # for the large majority of pushes to main — no new images built or pushed, nothing
+    # deployed to Lightsail — even though the job's own explicit condition (push to main)
+    # was true. Confirmed via `gh run view` on real runs.
+    #
+    # `always()` removes that implicit success() gate; the explicit checks below become
+    # the ONLY gate, mirroring the `ci-required` idiom above (a path-filtered job's `skip`
+    # is fine, its `failure`/`cancelled` is not): `node` carries no path filter of its own
+    # (it always runs) so it must have actually succeeded; `ai-service` and `e2e` must
+    # each have either succeeded or been skipped by the path filter — never have actually
+    # run and failed, and never have been cancelled.
+    if: >-
+      always() &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.node.result == 'success' &&
+      (needs.ai-service.result == 'success' || needs.ai-service.result == 'skipped') &&
+      (needs.e2e.result == 'success' || needs.e2e.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -758,6 +785,13 @@ jobs:
   # ---- AWS Lightsail Deployment ----
   deploy-lightsail:
     name: Deploy to AWS Lightsail
+    # This job's plain `if:` (no `always()`) is CORRECT as-is, unlike the old
+    # `build-and-push-image` above: its only dependency is `build-and-push-image`
+    # itself, which is no longer a path-filtered job — it now either (a) actually runs
+    # and finishes `success`/`failure`, or (b) is `skipped` only when ITS OWN gate above
+    # legitimately said no (not a push to main, or `node`/`ai-service`/`e2e` genuinely
+    # failed/was cancelled). Case (b) is exactly when this job SHOULD also skip, so the
+    # implicit `success()` here does the right thing without needing the same idiom.
     needs: [build-and-push-image]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
