@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import { ResumeRenderer, type ResumeRenderInput } from "./resume-renderer.service";
 import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
+import { RESUME_TEMPLATES } from "./templates/registry";
 
 // Mock the subprocess module so the real WeasyPrint binary is NEVER spawned and
 // we can assert on calls. vi.mock is hoisted; the factory must not close over
@@ -31,6 +32,10 @@ const BASE_INPUT: ResumeRenderInput = {
   education: [],
   certifications: [],
   responsibilities: ["Operate VMC to drawing", "First-piece inspection"],
+  trade: null,
+  experiences: [],
+  preferredLocations: [],
+  expectedSalary: null,
 };
 
 describe("ResumeRenderer.buildResumeHtml — template binding + output encoding (TD5 security)", () => {
@@ -137,4 +142,124 @@ describe("ResumeRenderer.renderPdf — kill-switch", () => {
     expect(out).toBeNull();
     expect(spawnMock).not.toHaveBeenCalled();
   });
+});
+
+/**
+ * OBJECT REGIONS — `{{#experiences}}…{{role}}…{{duration}}…{{work}}…{{/experiences}}`.
+ *
+ * The slot engine only had STRING regions (`{{.}}`) until v3, which is the structural reason
+ * `experiences[]` could not be rendered at all: a job entry is three printable fields, and
+ * flattening it to one string in the mapper would have hard-coded the layout there.
+ */
+describe("ResumeRenderer.fillSlots — object regions (work history)", () => {
+  const ENTRIES = [
+    { role: "VMC Operator", duration: "3.5 saal", work: "Read drawings, machine setup" },
+    { role: "Helper", duration: "1 saal", work: "Loading, deburring" },
+  ];
+  const bind = (skeleton: string, over: Partial<ResumeRenderInput> = {}): string => {
+    const renderer = makeRenderer();
+    (renderer as unknown as { loadTemplate: (f: string) => string }).loadTemplate = () => skeleton;
+    return renderer.buildResumeHtml({ ...BASE_INPUT, ...over });
+  };
+
+  it("repeats the block once per job, resolving each token from THAT entry", () => {
+    const html = bind("<x>{{#experiences}}<li>{{role}}|{{duration}}|{{work}}</li>{{/experiences}}</x>", {
+      experiences: ENTRIES,
+    });
+    expect(html).toContain("<li>VMC Operator|3.5 saal|Read drawings, machine setup</li>");
+    expect(html).toContain("<li>Helper|1 saal|Loading, deburring</li>");
+  });
+
+  it("collapses to nothing when there is no work history", () => {
+    // Every pre-v3 profile and every deterministic-only extraction is in this state, so an
+    // empty region must vanish rather than leave an empty bullet behind.
+    const html = bind("<x>{{#experiences}}<li>{{role}}</li>{{/experiences}}</x>", { experiences: [] });
+    expect(html).toBe("<x></x>");
+  });
+
+  it("does NOT leak an outer scalar into an inner token", () => {
+    // The per-item lookup is total: an inner `{{location}}` resolves to "" rather than picking up
+    // the worker's city from the outer scope, which would print the same wrong value under every
+    // job and look authoritative doing it.
+    const html = bind("<x>{{#experiences}}[{{location}}]{{/experiences}}</x>", {
+      experiences: [ENTRIES[0]!],
+      location: "Pune",
+    });
+    expect(html).toBe("<x>[]</x>");
+  });
+
+  it("escapes every field — the model wrote these and they are untrusted (§11)", () => {
+    const html = bind("<x>{{#experiences}}{{work}}{{/experiences}}</x>", {
+      experiences: [{ role: "R", duration: "d", work: "<script>alert(1)</script>" }],
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("omits the salary cleanly when the value is absent", () => {
+    // ALWAYS absent on the payer disclosure, so this is the production case, not an edge one.
+    expect(bind("<x>{{expected_salary}}</x>", { expectedSalary: null })).toBe("<x></x>");
+    expect(bind("<x>{{expected_salary}}</x>", { expectedSalary: 40000 })).toBe("<x>40000</x>");
+  });
+});
+
+/**
+ * EVERY SHIPPED TEMPLATE, RENDERED FOR REAL — the regression guard for v3.
+ *
+ * The v3 layouts were authored to a slot contract, and the failure modes they can hit are all
+ * SILENT: the renderer deletes a region name it does not know, and a heading placed inside a
+ * repeat region prints once per item. Both produce a plausible-looking PDF, so only an
+ * assertion catches them. Two of the four templates had no render coverage at all before this.
+ */
+describe("every registered template renders cleanly (v3 contract)", () => {
+  const RICH: ResumeRenderInput = {
+    ...BASE_INPUT,
+    trade: "CNC Machining",
+    expectedSalary: 40000,
+    preferredLocations: ["Pune", "Nashik"],
+    skills: ["VMC operation", "G-code reading", "Machine setup"],
+    experiences: [
+      { role: "VMC Operator", duration: "3.5 saal", work: "Read drawings, machine setup" },
+      { role: "Helper", duration: "1 saal", work: "Loading, deburring" },
+    ],
+  };
+
+  for (const t of RESUME_TEMPLATES) {
+    it(`${t.id} v${t.version}: leaves no unresolved token, with data or without`, () => {
+      for (const input of [{ ...RICH, templateId: t.id }, { ...BASE_INPUT, templateId: t.id }]) {
+        const html = makeRenderer().buildResumeHtml(input);
+        // An unknown region name is DELETED silently; an unresolved scalar leaks braces. Either
+        // way the worker gets a broken PDF and nothing else would tell us.
+        expect(html).not.toContain("{{");
+        expect(html).not.toContain("}}");
+      }
+    });
+
+    it(`${t.id} v${t.version}: prints each section heading exactly once`, () => {
+      // THE DEFECT THIS CATCHES: a heading inside `{{#skills}}` repeats per item — three skills
+      // printed "Skills" three times. The correct idiom puts the heading on the container's
+      // ::before, where `:empty` can take it away with the section.
+      const html = makeRenderer().buildResumeHtml({ ...RICH, templateId: t.id });
+      const headings = html.match(/<h[1-6][^>]*>[^<]+<\/h[1-6]>/g) ?? [];
+      const seen = headings.map((h) => h.replace(/<[^>]+>/g, "").trim().toLowerCase());
+      expect(new Set(seen).size).toBe(seen.length);
+    });
+
+    it(`${t.id} v${t.version}: renders both jobs of the work history`, () => {
+      const html = makeRenderer().buildResumeHtml({ ...RICH, templateId: t.id });
+      expect(html).toContain("VMC Operator");
+      expect(html).toContain("3.5 saal");
+      expect(html).toContain("Helper");
+      expect(html).toContain("Loading, deburring");
+    });
+
+    it(`${t.id} v${t.version}: shows no salary and no stray currency mark when it is absent`, () => {
+      // The payer-facing disclosure ALWAYS passes expectedSalary null, so this is the common
+      // production case. A "₹" written into the markup rather than into CSS would survive the
+      // empty value and print alone.
+      const html = makeRenderer().buildResumeHtml({ ...RICH, templateId: t.id, expectedSalary: null });
+      expect(html).not.toContain("40000");
+      expect(html).not.toMatch(/₹\s*<\//);
+    });
+  }
 });

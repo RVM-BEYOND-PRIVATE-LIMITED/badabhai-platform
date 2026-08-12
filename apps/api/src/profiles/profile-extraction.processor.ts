@@ -1619,6 +1619,36 @@ function toExtractionOutput(
     // MAPPED, NOT ASSIGNED. The model's vocabulary and this schema's do not overlap on two of
     // five values, and a raw assignment throws inside the job. See `availabilityOf`.
     availability: availabilityOf(interview?.availability, draft.availability),
+    // ── THE RÉSUMÉ CONTAINER — THE PHASE C OBJECT, UNTOUCHED ──────────────────────────
+    //
+    // Everything above this line reassembles the model's nine flat keys into the legacy
+    // storage shape: scattered across `salary_expectation{}` / `location_preference{}` /
+    // `availability{}`, unioned, outranked, enum-mapped. Each of those steps is a place a
+    // value can change, and the résumé could never be diffed against the trace as a result.
+    //
+    // THIS IS THE SAME DATA WITH NONE OF THAT DONE TO IT, and it is what the résumé reads.
+    // No merge, no precedence, no derivation — `preferModel` and `availabilityOf` deliberately
+    // do NOT run here. The two shapes are two records of one interview written for two
+    // readers: this one for the worker's résumé, the fields above for matching and ranking.
+    //
+    // NULL WHEN THERE WAS NO INTERVIEW, never an empty object. A deterministic-only extraction
+    // has no Phase C response, and inventing a hollow container would make "the model said
+    // nothing" indistinguishable from "the model was never asked" — the renderer reads null as
+    // "fall back to the old path", which is what keeps pre-existing profiles rendering exactly
+    // as they do today.
+    resume_profile: interview
+      ? {
+          domain_label: interview.domain_label,
+          role_label: interview.role_label,
+          skills: interview.skills,
+          experiences: interview.experiences,
+          shift: interview.shift,
+          current_city: interview.current_city,
+          preferred_locations: interview.preferred_locations,
+          availability: interview.availability,
+          expected_salary: interview.expected_salary,
+        }
+      : null,
   });
 
   return ProfileExtractionOutputSchema.parse({

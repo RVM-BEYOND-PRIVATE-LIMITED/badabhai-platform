@@ -66,6 +66,10 @@ describe("B-G golden-render: the resume renderer masks when fed maskInitials(rea
     education: [],
     certifications: [],
     responsibilities: ["Operate VMC to drawing"],
+    trade: null,
+    experiences: [],
+    preferredLocations: [],
+    expectedSalary: null,
   };
 
   it("renders the masked initials and NEVER the raw name or any phone", () => {

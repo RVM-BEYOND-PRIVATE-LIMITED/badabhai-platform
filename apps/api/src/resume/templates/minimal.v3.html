@@ -1,0 +1,181 @@
+<!doctype html>
+<!--
+  Resume template — id: "minimal", version: 3
+
+  v2's compact label/value layout, unchanged in character: one column, hairline
+  rules, a narrow uppercase label column, and almost no colour. What v3 adds is
+  the material the LLM-led interview produces and v2 had nowhere to put — a real
+  WORK HISTORY (one entry per job: the role, how long in the worker's OWN words,
+  and what they did), plus the trade, the expected pay and the cities the worker
+  wants to work in.
+
+  WORK HISTORY LEADS. For an industrial / skilled-trade worker it is the most
+  useful thing on the page after the name and the job title, so it sits ABOVE
+  skills and is the one section with a full-width heading and a dark rule. Job
+  entries carry no dates and no employer names — the data model has neither, and
+  ordering is not known to be chronological, so nothing here implies either.
+
+  DURATIONS PRINT VERBATIM ("3.5 saal"). They are set in the same face as the
+  rest of the page — no italics, no quotes, no brackets — because typographic
+  quarantine is what would make a worker's own words look like a defect.
+
+  EVERY SECTION COLLAPSES WHEN ITS DATA IS ABSENT, headings and rules included.
+  The slot engine has no conditional for a scalar and no 0-or-1 region for the
+  work history, so the collapse is done in CSS instead: an element holds NOTHING
+  but its slot, its heading/label is generated content on ::before, and an
+  ":empty" rule removes the element — label, rule and all. THIS IS WHY THE
+  TOKENS SIT FLUSH AGAINST THEIR TAGS. One stray space or newline inside such an
+  element and ":empty" stops matching, so the row survives its own data and
+  prints a bare label. Whitespace INSIDE a repeat region is safe: it is removed
+  along with the region.
+
+  DO NOT WRITE SLOT OR REGION SYNTAX INSIDE A COMMENT. The renderer's region
+  regex is not comment-aware — a region opener written in prose pairs with the
+  real closer further down and eats every line between them.
+
+  Print-first (A4). No JavaScript, no fonts, images, stylesheets or network
+  references of any kind: WeasyPrint renders this offline. No PII beyond the
+  name slot and the photo region (TD21 / ADR-0032) — there is deliberately no
+  slot for phone, address, email or employer name.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{full_name}} — Resume</title>
+    <style>
+      :root {
+        --ink: #222;
+        --strong: #111;
+        --muted: #666;
+        --faint: #999;
+        --rule: #eee;
+        --rule-lead: #333;
+      }
+      * { box-sizing: border-box; }
+      body { font-family: "Helvetica Neue", Arial, sans-serif; color: var(--ink); margin: 0; line-height: 1.5; }
+      .page { max-width: 720px; margin: 0 auto; padding: 40px 44px; }
+
+      /* ── Identity ─────────────────────────────────────────────────────── */
+      .id-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+      .id-main { min-width: 0; }
+      .photo { width: 72px; height: 72px; object-fit: cover; border-radius: 4px; flex: 0 0 auto; }
+      h1 { font-size: 24px; font-weight: 600; margin: 0; color: var(--strong); }
+      h1:empty { display: none; }
+      .headline { color: var(--muted); font-size: 15px; margin-top: 2px; }
+      .headline:empty { display: none; }
+      /* The trade sets the job title in its industry. Label typography, not a
+         second headline, so it reads as context rather than a rival title. */
+      .trade { color: var(--faint); font-size: 10.5px; text-transform: uppercase;
+               letter-spacing: 1px; margin-top: 5px; }
+      .trade:empty { display: none; }
+
+      /* ── Fact strip ───────────────────────────────────────────────────────
+         Each fact is its OWN element holding only its slot, so an absent one
+         disappears with its unit and its spacing. No "·" between facts: a
+         separator lives on a neighbour, and every neighbour here is optional
+         (pay is always absent on a payer disclosure, city and availability can
+         be null), so any separator scheme eventually prints a stray mark. */
+      .meta { color: var(--faint); font-size: 12px; margin: 12px 0 22px; }
+      .fact { display: inline-block; margin-right: 18px; }
+      .fact:empty { display: none; }
+      .fact-years::after { content: "\0000A0yrs"; }
+      /* The template owns the currency symbol and the period; the slot is a
+         bare number. Both ride on pseudo-elements so an empty slot leaves an
+         empty element for ":empty" to remove — a "₹" written into the markup
+         would print on its own on every disclosure. */
+      .fact-pay::before { content: "Expects\0000A0₹"; }
+      .fact-pay::after { content: "\0000A0/\0000A0month"; }
+
+      /* ── Label / value rows ───────────────────────────────────────────────
+         The label is generated content, so the row element can hold nothing but
+         its slot and ":empty" can take the whole row away. Hanging indent
+         (padding-left + negative text-indent) keeps wrapped value lines off the
+         label column without a flex or grid container. The three 130px values
+         are one measurement and must be changed together; they are written as
+         literals rather than a custom property so the layout never depends on
+         var()/calc() resolving inside a length. */
+      .row { border-top: 1px solid var(--rule); padding: 8px 0 8px 130px;
+             text-indent: -130px; font-size: 13.5px; break-inside: avoid; }
+      .row:empty { display: none; }
+      .row::before { display: inline-block; width: 130px; padding-right: 14px;
+                     text-indent: 0; font-size: 10.5px; letter-spacing: 0.9px;
+                     text-transform: uppercase; color: var(--faint); }
+      .row-summary::before { content: "Summary"; }
+      .row-skills::before { content: "Skills"; }
+      .row-machines::before { content: "Machines"; }
+      .row-controllers::before { content: "Controllers"; }
+      /* Trade-typical duties, NOT a personal claim — the label says so, now that
+         the work history above states what this worker actually did. */
+      .row-duties::before { content: "Typical duties"; }
+      .row-education::before { content: "Education"; }
+      .row-cities::before { content: "Open to work in"; }
+
+      /* Inline lists. The separator hangs off each item and is dropped on the
+         last one, so no trailing comma survives; the nbsp keeps the dot tied to
+         the item it follows and the space after it allows the wrap. */
+      .t::after { content: "\0000A0· "; color: #ccc; }
+      .t:last-child::after { content: none; }
+      .t-strong { font-weight: 600; }
+
+      /* ── Work history ─────────────────────────────────────────────────────
+         The heading is generated content on the list container, so it exists
+         only while the container has entries — with no 0-or-1 region for the
+         work history, this is the only way the heading and its rule can leave
+         together with the jobs. A heading placed inside the repeat would print
+         once per job. */
+      .jobs { margin: 4px 0 2px; }
+      .jobs:empty { display: none; }
+      .jobs::before { content: "Work history"; display: block; border-top: 1px solid var(--rule-lead);
+                      padding-top: 9px; font-size: 10.5px; letter-spacing: 1.2px;
+                      text-transform: uppercase; color: var(--rule-lead); font-weight: 600;
+                      break-after: avoid; }
+      .job { padding: 9px 0 2px; break-inside: avoid; }
+      .job + .job { border-top: 1px solid var(--rule); }
+      .job-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+      /* The role is a plain div, never an h-tag: it sits INSIDE the repeat, so a
+         heading element here would emit one heading per job. This section's only
+         heading is the container's ::before above. */
+      .job-role { font-size: 14px; font-weight: 600; margin: 0; color: var(--strong); }
+      .job-role:empty { display: none; }
+      /* The worker's own words, kept on one line so "3.5 saal" cannot break. */
+      .job-dur { font-size: 12px; color: var(--muted); white-space: nowrap; flex: 0 0 auto; }
+      .job-dur:empty { display: none; }
+      .job-work { margin: 3px 0 0; font-size: 13px; color: #444; orphans: 2; widows: 2; }
+      .job-work:empty { display: none; }
+
+      @media print { .page { max-width: none; padding: 0; } }
+      @page { size: A4; margin: 16mm; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="id-row">
+        <div class="id-main">
+          <h1>{{full_name}}</h1>
+          <div class="headline">{{headline}}</div>
+          <div class="trade">{{trade}}</div>
+        </div>
+        {{#photo}}<img class="photo" src="{{.}}" alt="" />{{/photo}}
+      </header>
+
+      <div class="meta"><span class="fact">{{location}}</span><span class="fact fact-years">{{experience_years}}</span><span class="fact">{{availability}}</span><span class="fact fact-pay">{{expected_salary}}</span></div>
+
+      <div class="row row-summary">{{summary}}</div>
+
+      <section class="jobs">{{#experiences}}
+        <article class="job">
+          <div class="job-head"><div class="job-role">{{role}}</div><span class="job-dur">{{duration}}</span></div>
+          <p class="job-work">{{work}}</p>
+        </article>
+      {{/experiences}}</section>
+
+      <div class="row row-skills">{{#skills}}<span class="t">{{.}}</span>{{/skills}}</div>
+      <div class="row row-machines">{{#machines}}<span class="t">{{.}}</span>{{/machines}}</div>
+      <div class="row row-controllers">{{#controllers}}<span class="t">{{.}}</span>{{/controllers}}</div>
+      <div class="row row-duties">{{#responsibilities}}<span class="t">{{.}}</span>{{/responsibilities}}</div>
+      <div class="row row-education">{{#education_headline}}<span class="t t-strong">{{.}}</span>{{/education_headline}}{{#education}}<span class="t">{{.}}</span>{{/education}}{{#certifications}}<span class="t">{{.}}</span>{{/certifications}}</div>
+      <div class="row row-cities">{{#preferred_locations}}<span class="t">{{.}}</span>{{/preferred_locations}}</div>
+    </main>
+  </body>
+</html>

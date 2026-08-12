@@ -1,0 +1,237 @@
+<!doctype html>
+<!--
+  Resume template — id: "modern", version: 3
+
+  v2's layout identity, unchanged: two column (250px sidebar + main), the same
+  palette (#f2f6f9 sidebar, #0b5 accent, Segoe UI/Arial), the same circular
+  ADR-0032 photo at the top of the sidebar. v2 stays on disk untouched — a
+  shipped <id>.v<n>.html is immutable by the registry contract.
+
+  NOTE FOR EDITORS: this comment deliberately contains NO mustache syntax. The
+  renderer runs its region regexes over the WHOLE file, comments included, and a
+  region opener written here would pair with the first closer BELOW it and eat
+  the real markup in between. Region names are written bare (e.g. "experiences").
+
+  WHAT v3 ADDS
+  - experiences — THE WORK HISTORY, an object region, one repeat per job
+    (role / duration / work). It is the first and most prominent section of the
+    MAIN column, ABOVE skills: for an industrial worker this is the resume, and
+    v2 had nowhere to put it. Durations are the worker's OWN words ("3.5 saal"),
+    so each is set in a bordered pill in the position a recruiter expects dates
+    — reads as deliberate metadata, not as a malformed date.
+  - trade, expected_salary, preferred_locations.
+  - Skills moved sidebar -> main (below work history) as chips; the sidebar now
+    carries the at-a-glance facts, tooling and qualifications.
+
+  HOW SECTIONS COLLAPSE (sparse data is the normal case, not the edge case)
+  - NO SECTION HEADING IS EVER WRITTEN INSIDE A REPEAT REGION. The renderer
+    repeats the ENTIRE inner block once per item, so a heading placed there
+    prints once per item — a worker with 17 skills gets 17 "Skills" headings.
+    For the same reason a list container (ul/ol) inside a region yields one
+    list per item instead of one list. Every section heading is therefore
+    generated content on the section CONTAINER, via ::before: it exists exactly
+    once regardless of how many items the region yields, and the container is
+    also the single list wrapper.
+  - Because each collapsible <section> holds ONLY region markup and NO
+    whitespace, an empty region leaves the element genuinely empty and
+    `section:empty { display: none }` removes it outright — no stray margin.
+    The heading leaves with it: ":empty" tests child NODES, so generated
+    content never keeps a container alive, and a display:none element renders
+    no ::before. THIS IS WHY THE REGIONS SIT FLUSH AGAINST THEIR TAGS, each
+    section written on ONE line — a single space or newline inside a section
+    and ":empty" stops matching, so the section survives its own missing data
+    and prints a bare heading.
+  - The per-job wrapper in the work history is the deliberate exception: it is
+    SUPPOSED to repeat, once per job, so it stays inside the region. Only the
+    section heading moved out.
+  - Scalars have no region to hide behind, so each sits alone in its own element
+    and is removed by `:empty`. expected_salary can therefore never print a lone
+    rupee sign: the symbol is generated content on an element that is gone when
+    the value is (it is structurally null on payer disclosures).
+
+  Slot + region syntax is documented in templates/README.md. ONLY renderer-known
+  region names appear below — an unknown one is deleted silently.
+
+  Print-first (A4), offline: inline CSS only, no JS, no external font/image/CSS.
+  No PII beyond the name slot + the photo region (TD21 / ADR-0032) — no phone,
+  address, email or employer name exists in the data model or in this file.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{full_name}} — Resume</title>
+    <style>
+      :root {
+        --ink: #16202a;
+        --body: #33424f;
+        --muted: #5b6b7a;
+        --accent: #0b5;      /* v2's accent — the layout's identity, unchanged */
+        --accent-ink: #0a7a45;
+        --accent-soft: #eaf7f0;
+        --side: #f2f6f9;
+        --line: #e2e9ef;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+        color: var(--ink);
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      @page {
+        size: A4;
+        /* Vertical margins only: page 2 of a rich profile gets the same breathing
+           room as page 1, while the sidebar band still runs to the sheet edge. */
+        margin: 12mm 0;
+        /* Sidebar colour as a PAGE background so the band continues onto page 2+.
+           <aside> paints the same colour itself, so an engine that ignores this
+           degrades to v2's behaviour (band ends with the content), never breaks. */
+        background: linear-gradient(to right, #f2f6f9 250px, #ffffff 250px);
+      }
+      .page { max-width: 820px; margin: 0 auto; display: grid; grid-template-columns: 250px 1fr; }
+      aside { background: var(--side); padding: 0 20px 24px; }
+      main { padding: 0 28px 24px; }
+
+      /* ── Header (main column) ─────────────────────────────────────────────── */
+      .head { margin-bottom: 12px; }
+      .head:empty { display: none; }
+      h1 { font-size: 26px; line-height: 1.15; margin: 0; }
+      h1:empty { display: none; }
+      .headline { color: var(--accent); font-weight: 700; font-size: 15px; margin-top: 4px; }
+      .headline:empty { display: none; }
+      .trade {
+        margin-top: 3px; font-size: 10.5px; font-weight: 700; letter-spacing: 1px;
+        text-transform: uppercase; color: var(--muted);
+      }
+      .trade:empty { display: none; }
+      .summary { margin: 0 0 18px; font-size: 13.5px; line-height: 1.5; color: var(--body); orphans: 2; widows: 2; }
+      .summary:empty { display: none; }
+
+      /* ── Section headings ─────────────────────────────────────────────────────
+         The heading is generated content on the section CONTAINER, never an
+         element inside the repeat — inside, it would print once per item. It
+         disappears with its data for free: the region collapses, the container
+         matches ":empty", display:none removes it, and a display:none element
+         renders no ::before. */
+      .sec::before, .side-sec::before {
+        display: block;
+        font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
+        color: var(--muted); margin: 0 0 8px;
+        break-after: avoid; page-break-after: avoid;
+      }
+      .sec { margin-bottom: 18px; }
+      .sec:empty { display: none; }
+      main .sec::before { border-bottom: 2px solid #e8eef3; padding-bottom: 5px; margin-bottom: 10px; }
+      /* Work history is the headline section: darker title, accent rule. */
+      main .work::before { font-size: 12px; color: var(--ink); border-bottom-color: var(--accent); }
+
+      /* The heading TEXT, one declaration per section. A section carrying no
+         content rule generates no ::before box at all, so an unlabelled
+         container costs nothing. */
+      main .work::before            { content: "Work History"; }
+      .sec-skills::before           { content: "Skills"; }
+      .sec-duties::before           { content: "Key Responsibilities"; }
+      .side-sec-cities::before      { content: "Open to Work In"; }
+      .side-sec-machines::before    { content: "Machines"; }
+      .side-sec-controllers::before { content: "Controllers"; }
+      .side-sec-edu::before         { content: "Education & Certifications"; }
+
+      /* ── Work history entries ─────────────────────────────────────────────── */
+      .job { clear: both; margin-bottom: 12px; break-inside: avoid; page-break-inside: avoid; }
+      .job-dur {
+        float: right; margin-left: 10px; padding: 1px 9px;
+        border: 1px solid #d7e0e8; border-radius: 999px; background: #fff;
+        font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap;
+      }
+      .job-dur:empty { display: none; }
+      .job-role { margin: 0; font-size: 14px; font-weight: 700; color: var(--ink); }
+      .job-role:empty { display: none; }
+      .job-work { clear: right; margin: 3px 0 0; font-size: 12.5px; color: var(--body); orphans: 2; widows: 2; }
+      .job-work:empty { display: none; }
+
+      /* ── Skills (main, below work history) ────────────────────────────────── */
+      .chip {
+        display: inline-block; margin: 0 5px 5px 0; padding: 3px 9px;
+        border: 1px solid var(--line); border-radius: 3px; background: #f7fafc;
+        font-size: 12px; color: var(--ink);
+      }
+
+      /* ── Responsibilities ─────────────────────────────────────────────────── */
+      .bullet {
+        padding-left: 13px; text-indent: -13px; margin-bottom: 3px;
+        font-size: 12.5px; color: var(--body);
+      }
+      .bullet::before { content: "\2022"; padding-right: 7px; color: var(--accent); font-weight: 700; }
+
+      /* ── Sidebar facts — one element per fact, label as generated content, so
+            each collapses on its own with no dangling separator or unit. ────── */
+      .fact { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; }
+      .fact:empty { display: none; }
+      .fact::before {
+        display: block; margin-bottom: 1px; content: "";
+        font-size: 8.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted);
+      }
+      .fact-city::before { content: "City"; }
+      .fact-exp::before { content: "Experience"; }
+      .fact-exp::after { content: " yrs"; font-weight: 400; color: var(--muted); }
+      .fact-avail::before { content: "Availability"; }
+      /* The rupee sign is written by the TEMPLATE and lives on the value element
+         itself, so an empty expected_salary takes the symbol with it. */
+      .pay {
+        margin-top: 14px; padding: 10px 12px; border-radius: 6px;
+        background: var(--accent-soft); color: var(--accent-ink);
+        font-size: 16px; font-weight: 700;
+      }
+      .pay:empty { display: none; }
+      .pay::before { content: "\20B9"; }
+      .pay::after {
+        content: "expected per month"; display: block; margin-top: 1px;
+        font-size: 9.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted);
+      }
+
+      /* ── Sidebar lists ────────────────────────────────────────────────────── */
+      .side-sec { margin-top: 20px; }
+      .side-sec:empty { display: none; }
+      .row { padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--body); }
+      .row-strong { font-weight: 700; color: var(--ink); }
+      .photo {
+        display: block; width: 120px; height: 120px; margin: 0 auto 18px;
+        object-fit: cover; border-radius: 50%; border: 3px solid #fff;
+      }
+
+      @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside>
+        {{#photo}}<img class="photo" src="{{.}}" alt="" />{{/photo}}
+        <div class="fact fact-city">{{location}}</div>
+        <div class="fact fact-exp">{{experience_years}}</div>
+        <div class="fact fact-avail">{{availability}}</div>
+        <div class="pay">{{expected_salary}}</div>
+        <!-- Collapsible sections are written on ONE line each: no whitespace inside,
+             so an empty region leaves the <section> truly :empty and it disappears.
+             The heading is on the container's ::before — see the CSS above — so it
+             prints once and leaves with the section, never once per item. -->
+        <section class="side-sec side-sec-cities">{{#preferred_locations}}<div class="row">{{.}}</div>{{/preferred_locations}}</section>
+        <section class="side-sec side-sec-machines">{{#machines}}<div class="row">{{.}}</div>{{/machines}}</section>
+        <section class="side-sec side-sec-controllers">{{#controllers}}<div class="row">{{.}}</div>{{/controllers}}</section>
+        <!-- Three regions, one heading: the container labels all of them, which the
+             per-region heading could never do without printing it three times. -->
+        <section class="side-sec side-sec-edu">{{#education_headline}}<div class="row row-strong">{{.}}</div>{{/education_headline}}{{#education}}<div class="row">{{.}}</div>{{/education}}{{#certifications}}<div class="row">{{.}}</div>{{/certifications}}</section>
+      </aside>
+      <main>
+        <header class="head"><h1>{{full_name}}</h1><div class="headline">{{headline}}</div><div class="trade">{{trade}}</div></header>
+        <p class="summary">{{summary}}</p>
+        <!-- The job wrapper stays INSIDE the region — it is the one thing here that
+             is supposed to repeat, once per job. Only the section heading moved out. -->
+        <section class="sec work">{{#experiences}}<article class="job"><span class="job-dur">{{duration}}</span><div class="job-role">{{role}}</div><p class="job-work">{{work}}</p></article>{{/experiences}}</section>
+        <section class="sec sec-skills">{{#skills}}<span class="chip">{{.}}</span>{{/skills}}</section>
+        <section class="sec sec-duties">{{#responsibilities}}<div class="bullet">{{.}}</div>{{/responsibilities}}</section>
+      </main>
+    </div>
+  </body>
+</html>

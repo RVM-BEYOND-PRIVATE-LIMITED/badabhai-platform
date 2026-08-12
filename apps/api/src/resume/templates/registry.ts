@@ -23,18 +23,25 @@ export interface ResumeTemplate {
 }
 
 export const RESUME_TEMPLATES: readonly ResumeTemplate[] = [
-  // v2 (ADR-0032): adds the {{#photo}} region — the worker's OWN photo, 0-or-1
-  // items, collapses when absent (masked disclosures always pass no photo). The
-  // v1 files stay on disk untouched (shipped versions are immutable); already-
-  // rendered PDFs are never re-rendered (renderStatus idempotency).
-  { id: "classic", version: 2, label: "Classic (single column)", file: "classic.v2.html" },
-  { id: "modern", version: 2, label: "Modern (two column)", file: "modern.v2.html" },
-  { id: "minimal", version: 2, label: "Minimal (compact)", file: "minimal.v2.html" },
+  // v3: WORK HISTORY. The LLM-led interview produces `experiences[]` — real jobs with a role,
+  // a duration in the worker's own words, and what they did — and the v2 layouts had nowhere
+  // to put it. For an industrial or skilled-trade résumé that list is the most important thing
+  // on the page after the name and title, so it sits directly under the summary, above skills.
+  // Also new: the `{{trade}}` and `{{expected_salary}}` slots and the `{{#preferred_locations}}`
+  // region, plus the slot engine's first OBJECT region (`{{#experiences}}` with per-entry
+  // `{{role}}`/`{{duration}}`/`{{work}}`).
+  //
+  // THE v1 AND v2 FILES STAY ON DISK, UNTOUCHED. A shipped version is immutable by this
+  // registry's own contract, and a résumé row records the `template_id` it was rendered with —
+  // so every PDF already issued keeps rendering identically. Only NEW renders pick up v3.
+  { id: "classic", version: 3, label: "Classic (single column)", file: "classic.v3.html" },
+  { id: "modern", version: 3, label: "Modern (two column)", file: "modern.v3.html" },
+  { id: "minimal", version: 3, label: "Minimal (compact)", file: "minimal.v3.html" },
   {
     id: "fallback",
-    version: 2,
+    version: 3,
     label: "Generic fallback",
-    file: "fallback.v2.html",
+    file: "fallback.v3.html",
     fallback: true,
   },
 ];

@@ -1,0 +1,177 @@
+<!doctype html>
+<!--
+  Resume template — id: "fallback", version: 3  (the GENERIC FALLBACK)
+
+  v2 + THE WORK HISTORY. The LLM-led interview reads the whole conversation and
+  produces several jobs, each with a role, a duration in the worker's own words
+  ("3.5 saal") and what they did; v2 had nowhere to put any of it. Here it is the
+  first section after the identity block, above skills — for an industrial /
+  blue-collar resume it is the most important thing a hiring manager reads. Also
+  new in v3: the trade, expected-salary and preferred-locations slots.
+
+  Keeps v2's identity: single column, Arial, black on white, ruled section headings,
+  print-first A4, minimal CSS. Deliberately the plainest layout we ship — it is what
+  an unknown/empty template_id resolves to, so it must degrade gracefully with almost
+  no data. On the legacy (deterministic) path the work history, preferred locations,
+  trade and expected salary are ALL empty, and on the payer-facing masked disclosure
+  the salary and the photo are empty too: sparse is the common case, not the edge.
+
+  NOTE FOR EDITORS: nothing below this comment block may contain a slot or region
+  tag inside an HTML comment. The renderer string-scans the WHOLE file, so a region
+  opener written in prose pairs with the real closing tag further down and deletes
+  everything between them. Region and slot names are therefore written here without
+  their braces (#experiences, expected_salary, …).
+
+  ── HOW SECTIONS DISAPPEAR (read before editing) ──────────────────────────────────
+  The slot engine has no conditionals — only single slots, string repeat regions and
+  the #experiences object region. ONE rule gives every section a heading that vanishes
+  together with its data, and it is the same rule for regions and for scalars:
+
+   AN ELEMENT HOLDS NOTHING BUT ITS SLOT OR ITS REGION. Its heading/label is
+   generated content on ::before, and `:empty` removes the element — heading, rule
+   and all. Generated content is not a child node, so `:empty` still matches a
+   container that has only a ::before, and display:none takes that ::before with it.
+   That is how the "Expected salary" line leaves no stray currency symbol behind on a
+   payer disclosure, and how a section heading leaves with its data.
+
+   Three things follow, and breaking any of them is a visible defect:
+
+   1. A HEADING MUST NEVER BE WRITTEN INSIDE A REGION. The renderer repeats the whole
+      inner block once per item, so an <h2> in there prints once per skill — a worker
+      with 17 skills would get 17 "Skills" headings. For exactly the same reason the
+      <ul> is the CONTAINER and only the <li> repeats: a <ul> inside the region yields
+      one single-item list per item instead of one list.
+   2. NO WHITESPACE OR NEWLINE INSIDE A CONTAINER. A single space or line break
+      defeats `:empty`, and the section then prints a bare heading over nothing. Write
+      the container and its region on ONE line. Whitespace INSIDE a region is safe —
+      it is removed along with the region.
+   3. #experiences is an OBJECT region: its per-job wrapper genuinely repeats per job
+      and so stays inside the region. Only the section heading moves to the container.
+
+  Two consequences, both deliberate: a container that can end up completely empty
+  carries NO margin, padding or border (all vertical spacing hangs off the heading's
+  ::before), and the meta line separates its facts with space rather than "·", because
+  a punctuation separator between two slots prints as a stray "·" the moment either
+  one is empty.
+
+  No JavaScript, no network references of any kind (WeasyPrint renders offline).
+  No PII beyond the name slot + the photo region (TD21 / ADR-0032) — there is
+  deliberately no slot for a phone, address, email or employer name.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{full_name}} — Resume</title>
+    <style>
+      /* Arial keeps v2's face; the Linux names are the fonts the render container
+         actually has, and they carry the rupee sign. No webfonts — offline render. */
+      body { font-family: Arial, "Liberation Sans", "DejaVu Sans", sans-serif; color: #000;
+             margin: 0; font-size: 14px; line-height: 1.45; orphans: 2; widows: 2; }
+      .page { max-width: 760px; margin: 0 auto; padding: 24px; }
+      section { margin: 0; }
+      p { margin: 0; }
+      /* The indent lives on the <li>, not on the <ul>: the <ul> is a collapsing
+         container and must carry no padding of its own, or an empty one would still
+         reserve its gutter. Marker position is unchanged. */
+      ul { margin: 0; padding: 0; }
+      li { margin-left: 20px; }
+
+      /* Identity */
+      .photo { width: 76px; height: 76px; object-fit: cover; float: right; margin: 0 0 8px 12px; }
+      h1 { font-size: 22px; margin: 0 0 2px; }
+      .headline { font-weight: bold; }
+      .trade { font-size: 13px; color: #333; }
+      .meta { font-size: 12px; color: #444; margin-top: 6px; }
+      .meta > span { display: inline-block; margin-right: 18px; }
+      .yrs::after { content: " yrs experience"; }
+      /* The summary is the lead line under the identity block and carries no heading
+         at all — an unlabelled opening sentence reads as a professional summary
+         anyway, and the identity block above it is label enough. */
+      .summary { margin-top: 8px; }
+
+      /* Section headings — generated content on the CONTAINER, never an element inside
+         the region. A region repeats its whole inner block, so a heading written in
+         there prints once per item. All vertical rhythm lives here, so a section whose
+         region collapsed contributes exactly zero height. */
+      .sec { margin: 0; padding: 0; }
+      .sec::before { display: block; font-size: 14px; font-weight: bold; margin: 16px 0 4px;
+                     border-bottom: 1px solid #000; clear: both;
+                     break-after: avoid; page-break-after: avoid; }
+      .sec-experience::before { content: "Work History"; }
+      .sec-responsibilities::before { content: "Key Responsibilities"; }
+      .sec-machines::before { content: "Machines"; }
+      .sec-skills::before { content: "Skills"; }
+      .sec-controllers::before { content: "Controllers"; }
+      /* Three regions share ONE container, so they share one heading — and it leaves
+         only when all three are empty. */
+      .sec-education::before { content: "Education & Certifications"; }
+      .sec-locations::before { content: "Preferred Work Locations"; }
+
+      /* Work history. Role on the left, the worker's own duration right-aligned in the
+         date column a recruiter expects — so "3.5 saal" reads as a deliberate entry
+         and not as an error. Float, not flex: this is the robust template. */
+      .job { clear: both; margin-top: 8px; break-inside: avoid; page-break-inside: avoid; }
+      .duration { float: right; margin-left: 12px; font-size: 13px; color: #333; }
+      .role { font-weight: bold; }
+      .work { clear: both; margin-top: 2px; }
+
+      /* Practical closing facts */
+      .city { display: inline-block; margin-right: 16px; }
+      .salary { margin-top: 12px; }
+      .salary::before { content: "Expected salary ₹"; color: #444; }
+      .salary::after { content: " per month"; color: #444; }
+
+      /* The collapse. An element that holds only its slot, or only its region,
+         disappears when that slot/region is empty — and its ::before heading or label
+         goes with it, because a display:none element renders no generated content. */
+      .sec:empty,
+      h1:empty, .headline:empty, .trade:empty, .meta > span:empty, .summary:empty,
+      .duration:empty, .role:empty, .work:empty, .salary:empty { display: none; }
+
+      @page { size: A4; margin: 12mm; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        {{#photo}}<img class="photo" src="{{.}}" alt="" />{{/photo}}
+        <h1>{{full_name}}</h1>
+        <div class="headline">{{headline}}</div>
+        <div class="trade">{{trade}}</div>
+        <div class="meta"><span class="loc">{{location}}</span><span class="yrs">{{experience_years}}</span><span class="avail">{{availability}}</span></div>
+        <p class="summary">{{summary}}</p>
+      </header>
+
+      <!-- THE HEADLINE SECTION OF v3, first after the name and title. role, duration
+           and work resolve PER ENTRY; any other slot placed in here resolves to
+           empty, never to the worker-level value of the same name. The per-job
+           wrapper repeats WITH the region because there is one per job; the section
+           heading does not, so it sits on the container's ::before. -->
+      <section class="sec sec-experience">{{#experiences}}<div class="job"><span class="duration">{{duration}}</span><div class="role">{{role}}</div><p class="work">{{work}}</p></div>{{/experiences}}</section>
+
+      <!-- One <ul> per section, not one per item: the list is the container and only
+           the <li> sits inside the region. Nothing but the region inside the tags —
+           a stray space or newline would defeat :empty. -->
+      <ul class="sec sec-responsibilities">{{#responsibilities}}<li>{{.}}</li>{{/responsibilities}}</ul>
+
+      <ul class="sec sec-machines">{{#machines}}<li>{{.}}</li>{{/machines}}</ul>
+
+      <ul class="sec sec-skills">{{#skills}}<li>{{.}}</li>{{/skills}}</ul>
+
+      <ul class="sec sec-controllers">{{#controllers}}<li>{{.}}</li>{{/controllers}}</ul>
+
+      <!-- Three regions in ONE container, so they share the container's single
+           heading: whichever have data contribute items, and the heading prints
+           nothing when all three are empty. -->
+      <ul class="sec sec-education">{{#education_headline}}<li><strong>{{.}}</strong></li>{{/education_headline}}{{#education}}<li>{{.}}</li>{{/education}}{{#certifications}}<li>{{.}}</li>{{/certifications}}</ul>
+
+      <!-- Where they WANT to work — distinct from the current city in the meta line. -->
+      <div class="sec sec-locations">{{#preferred_locations}}<span class="city">{{.}}</span>{{/preferred_locations}}</div>
+
+      <!-- Worker's own copy only: empty on every payer disclosure, and the whole
+           line including the currency symbol goes with it. -->
+      <div class="salary">{{expected_salary}}</div>
+    </main>
+  </body>
+</html>

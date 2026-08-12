@@ -694,6 +694,43 @@ class Availability(BaseModel):
     notice_period_days: int | None = None
 
 
+class ResumeProfile(BaseModel):
+    """The LLM-led interview's Phase C object, stored as the model produced it.
+
+    The résumé's ONLY input. ``DraftProfile`` below is a storage shape inherited from the
+    deterministic pack era — flat model values arrive and get scattered into
+    ``salary_expectation{}`` / ``location_preference{}`` / ``availability{}`` beside eight
+    taxonomy fields the LLM path never fills — and every reassembly step was a place a value
+    could be dropped or outvoted. Four of nine keys were being discarded that way before #812.
+
+    THE RULE IS: NO MERGE, NO PRECEDENCE, NO DERIVATION. These keys are the Phase C response
+    one-for-one, so a reader can diff this against the Langfuse assistant message and expect
+    equality. Anything that "improves" a value on the way in destroys that property.
+
+    DELIBERATELY NARROWER THAN THE ANSWER MAP (fifteen crosswalk fields vs these nine).
+    Education, certifications, languages, tools and relocation stay on ``DraftProfile`` and are
+    not rendered from here — an accepted, temporary loss (owner decision 2026-08-12) while the
+    pipeline is proven end-to-end on a narrow field set.
+
+    NEVER used for matching or ranking: this is free text a model wrote (§3).
+
+    Mirrors ResumeProfileSchema in packages/ai-contracts/src/profile.ts (§7 parity).
+    """
+
+    domain_label: str | None = None
+    role_label: str | None = None
+    skills: list[str] = Field(default_factory=list)
+    experiences: list[ExperienceEntry] = Field(default_factory=list)
+    shift: str | None = None
+    current_city: str | None = None
+    preferred_locations: list[str] = Field(default_factory=list)
+    # The MODEL's vocabulary, kept verbatim — ``Availability.status`` uses a different closed
+    # set and translating here would break the diff-against-the-trace property. The renderer
+    # humanises it at the edge, which is where a presentation concern belongs.
+    availability: str | None = None
+    expected_salary: float | None = None
+
+
 class DraftProfile(BaseModel):
     canonical_trade_id: str | None = None
     canonical_role_id: str | None = None
@@ -741,6 +778,13 @@ class DraftProfile(BaseModel):
     location_preference: LocationPreference = Field(default_factory=LocationPreference)
     availability: Availability = Field(default_factory=Availability)
     confidence: float | None = None
+    # THE RÉSUMÉ CONTAINER, CARRIED INSIDE THIS ONE. Nested rather than given its own column:
+    # `raw_profile` is jsonb, so this costs no migration and no production column (§10), and it
+    # rides to the résumé for free because `resumes.source_profile_snapshot` already snapshots
+    # the whole DraftProfile. None is the honest value for every profile written before this and
+    # for every deterministic-only extraction — the renderer reads None as "use the old path",
+    # which keeps existing résumés rendering unchanged (invariant #8).
+    resume_profile: ResumeProfile | None = None
 
 
 # --- Rich worker profile draft (human-readable; richer than DraftProfile) ---
