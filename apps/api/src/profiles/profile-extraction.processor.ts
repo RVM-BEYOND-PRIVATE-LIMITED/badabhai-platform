@@ -1459,26 +1459,81 @@ function splitToolsEquipment(value: unknown): Record<string, unknown> {
  * record here.
  */
 /**
- * The deterministic value, or the model's only when there is no deterministic one.
+ * ── MODEL-WINS, AND WHY THIS REVERSED ─────────────────────────────────────────────────
  *
- * FIRST-WRITE-WINS, the same rule `mayCommit` enforces during capture. A value the worker gave to
- * a question that was actually asked went through a typed normalizer and the negation veto; a
- * value read back out of a conversation did not, and must never overwrite it.
+ * This was `firstOf(deterministic, model)` — first-write-wins, the same rule `mayCommit`
+ * enforces during capture, on the reasoning that a value the worker gave to a question that was
+ * actually asked went through a typed normalizer and the negation veto while a value read back
+ * out of a conversation did not.
+ *
+ * REVERSED ON AN EXPLICIT OWNER DECISION (2026-08-12, Divyanshu), recorded here because it is a
+ * documented invariant being overridden and not a refactor. The requirement is that the stored
+ * profile equal the model's Phase C object as traced in Langfuse: the two disagreed on four of
+ * nine keys and nothing on the path said so. Precedence is now the model's wherever it spoke.
+ *
+ * WHAT THIS COSTS, STATED PLAINLY so the next reader is not surprised by it: a salary or city the
+ * worker typed into a pack question can now be overwritten by the same value re-read out of the
+ * conversation, normalizer and negation veto bypassed. `null`/absent still yields to the
+ * deterministic value, so the model can only ever REPLACE, never ERASE.
  */
-function firstOf<T>(deterministic: T | null | undefined, model: T | null | undefined): T | null {
-  return deterministic ?? model ?? null;
+function preferModel<T>(model: T | null | undefined, deterministic: T | null | undefined): T | null {
+  return model ?? deterministic ?? null;
 }
 
-/** Both lists, in order, without repeats — compared case-insensitively on the trimmed label. */
-function union(deterministic: readonly string[], model: readonly string[]): string[] {
-  const out = [...deterministic];
-  for (const candidate of model) {
+/**
+ * The model's list when it produced one, the deterministic list when it did not.
+ *
+ * WAS `union(deterministic, model)`, which appended the model's entries after the answer map's
+ * and made the stored array a superset in a different order — the array was never the traced one.
+ * Same owner decision as `preferModel`.
+ *
+ * AN EMPTY MODEL LIST IS NOT AN ANSWER, it is the shape of every degraded Phase C response, so it
+ * yields rather than wiping skills the worker really confirmed — the same reasoning
+ * `overlayCarriesValues` applies one layer up. Entries are trimmed and deduped
+ * case-insensitively, which is the one way the result can still differ from the trace: a model
+ * that emits "Welding" and "welding" gets one of them.
+ */
+function preferModelList(model: readonly string[] | undefined, deterministic: readonly string[]): string[] {
+  const source = model && model.length > 0 ? model : deterministic;
+  const out: string[] = [];
+  for (const candidate of source) {
     const trimmed = candidate.trim();
     if (trimmed && !out.some((held) => held.toLowerCase() === trimmed.toLowerCase())) {
       out.push(trimmed);
     }
   }
   return out;
+}
+
+/**
+ * The model's `availability` vocabulary is NOT this schema's, and passing it through raw throws.
+ *
+ * `extract_system_prompt` asks for `"immediate" | "15_days" | "1_month" | "unknown" | null`;
+ * `AvailabilitySchema.status` is `"immediate" | "notice_period" | "not_looking" | "unknown"`.
+ * `15_days` and `1_month` are in neither set the other accepts, so a straight assignment makes
+ * `DraftProfileSchema.parse` throw INSIDE the extraction job — the worker gets no profile at all
+ * rather than a slightly wrong one. The two enums were written for different readers and only
+ * ever met here.
+ *
+ * The notice lengths are preserved rather than flattened, so "1 month" survives as
+ * `notice_period` + 30 days instead of collapsing to a bare status. Anything unrecognised —
+ * including `unknown`, `null`, and whatever a model invents, since the wire type is a bare
+ * `str | None` with no Literal to constrain it — yields to the deterministic value.
+ */
+const MODEL_AVAILABILITY: Readonly<Record<string, DraftProfile["availability"]>> = {
+  immediate: { status: "immediate", notice_period_days: null },
+  "15_days": { status: "notice_period", notice_period_days: 15 },
+  "1_month": { status: "notice_period", notice_period_days: 30 },
+  notice_period: { status: "notice_period", notice_period_days: null },
+  not_looking: { status: "not_looking", notice_period_days: null },
+};
+
+function availabilityOf(
+  model: string | null | undefined,
+  deterministic: DraftProfile["availability"]["status"],
+): DraftProfile["availability"] {
+  const mapped = model ? MODEL_AVAILABILITY[model.trim().toLowerCase()] : undefined;
+  return mapped ?? { status: deterministic, notice_period_days: null };
 }
 
 function toExtractionOutput(
@@ -1516,9 +1571,9 @@ function toExtractionOutput(
     canonical_trade_id: null,
     canonical_role_id: null,
     skills: [],
-    // UNION, NOT REPLACE. A skill the worker named in conversation and a skill a pack question
-    // captured are both things they can do; letting either win would drop the other.
-    skill_labels: union(draft.skills, interview?.skills ?? []),
+    // THE MODEL'S LIST WHEN IT PRODUCED ONE. Was a union with the answer map's skills, which
+    // made this a superset in a different order and never the traced array. See `preferModelList`.
+    skill_labels: preferModelList(interview?.skills, draft.skills),
     machines: draft.machines,
     education: draft.education,
     certifications: draft.certifications,
@@ -1533,22 +1588,37 @@ function toExtractionOutput(
     // NO EMPLOYER NAMES: `ExperienceEntrySchema` is `.strict()`, so a model that emits one fails
     // at the boundary rather than in a column (CLAUDE.md §2).
     experiences: interview?.experiences ?? [],
-    salary_expectation: firstOf(draft.expected_salary, interview?.expected_salary) === null
+    // ── THE THREE KEYS THAT USED TO HAVE NO READER ────────────────────────────────────
+    //
+    // `domain_label`, `role_label` and `shift` were referenced ZERO times in this file. The
+    // extract prompt names all three, the model fills them, the contract validates them, the
+    // wire carries them — and the merge never looked. Together with `availability` below, that
+    // was four of the model's nine data keys silently discarded, which is most of the gap
+    // between the Langfuse assistant response and the stored profile.
+    //
+    // No deterministic counterpart exists for any of them: the answer map has no domain or shift
+    // question, and `primary_role` lives on the RICH draft, which the résumé never reads.
+    domain_label: interview?.domain_label ?? null,
+    role_label: interview?.role_label ?? null,
+    shift: interview?.shift ?? null,
+    salary_expectation: preferModel(interview?.expected_salary, draft.expected_salary) === null
       ? {}
-      : { amount_min: firstOf(draft.expected_salary, interview?.expected_salary) },
+      : { amount_min: preferModel(interview?.expected_salary, draft.expected_salary) },
     location_preference: {
-      // THE DETERMINISTIC VALUE WINS EVERY TIME IT EXISTS, and the model only ever fills a gap.
-      // A worker's typed answer to "abhi aap kaunse sheher mein hain?" went through the city
-      // normalizer and the negation veto; a value read back out of a conversation did not.
+      // THE MODEL WINS WHEREVER IT SPOKE (owner decision — see `preferModel`). This was
+      // deterministic-wins, so a city the model read out of the conversation was discarded
+      // whenever the answer map held one, and the trace and the row disagreed.
       //
       // `current_city` WAS BEING DROPPED ENTIRELY on this path — the field exists on the schema
       // (#423 split it from `preferred_cities` precisely so "I live in Pune" stops becoming "I
       // want to work in Pune"), and this projection never wrote it, so every OIE-path profile
       // left it null and every consumer fell through to `preferred_cities[0]`.
-      current_city: firstOf(draft.current_city, interview?.current_city),
-      preferred_cities: union(draft.preferred_locations, interview?.preferred_locations ?? []),
+      current_city: preferModel(interview?.current_city, draft.current_city),
+      preferred_cities: preferModelList(interview?.preferred_locations, draft.preferred_locations),
     },
-    availability: { status: draft.availability },
+    // MAPPED, NOT ASSIGNED. The model's vocabulary and this schema's do not overlap on two of
+    // five values, and a raw assignment throws inside the job. See `availabilityOf`.
+    availability: availabilityOf(interview?.availability, draft.availability),
   });
 
   return ProfileExtractionOutputSchema.parse({

@@ -143,3 +143,92 @@ describe("buildResumeRenderInput — education_level + education_field", () => {
     expect(input.educationField).toBeNull();
   });
 });
+
+/**
+ * THE LLM-LED PATH'S OWN LABELS — `role_label`, `domain_label`, `shift`.
+ *
+ * `toExtractionOutput` hardcodes both canonical ids to null on this path (inventing a taxonomy
+ * id would put an unvalidated value where the match engine trusts absolutely), so
+ * `resolveTradeContent` finds nothing and `resolveId` returns null. Before these legs, an
+ * OIE-path resume rendered with an EMPTY headline AND an empty summary — the model had named the
+ * role and the trade in plain language, the column held both, and the PDF showed neither.
+ *
+ * Every assertion below is about a slot that ALREADY EXISTS on all four shipped templates. A
+ * shipped `<id>.v<n>.html` is immutable by the registry contract, so nothing here adds a token.
+ */
+describe("buildResumeRenderInput — the LLM-led labels", () => {
+  it("prints role_label as the headline when the taxonomy resolved nothing", () => {
+    const input = buildResumeRenderInput({ role_label: "Tandoor Cook" }, null, null, null);
+    expect(input.canonicalRole).toBe("Tandoor Cook");
+  });
+
+  it("never lets role_label outrank a resolved taxonomy role", () => {
+    // The canonical id is the reviewed, matchable value; the label is free text the model wrote.
+    // Where both exist the taxonomy wins, so this leg can only ever FILL A BLANK.
+    const input = buildResumeRenderInput(
+      { canonical_role_id: "role_welder", role_label: "something the model wrote" },
+      null,
+      null,
+      null,
+    );
+    expect(input.canonicalRole).not.toBe("something the model wrote");
+  });
+
+  it("builds a summary from the labels when the trade is unknown", () => {
+    const input = buildResumeRenderInput(
+      { role_label: "Tandoor Cook", domain_label: "catering", experience: { total_years: 3 } },
+      null,
+      null,
+      null,
+    );
+    expect(input.summary).toBe("Tandoor Cook with 3 years of experience in catering.");
+  });
+
+  it("says each thing once when the domain repeats the role", () => {
+    const input = buildResumeRenderInput(
+      { role_label: "Cooking", domain_label: "cooking" },
+      null,
+      null,
+      null,
+    );
+    expect(input.summary).toBe("Cooking.");
+  });
+
+  it("fabricates no summary when the model captured no labels", () => {
+    // THE FAIL-CLOSED LEG. A sentence about a worker we know nothing about is worse than a
+    // blank section — §11, and the same rule the trade branches already follow.
+    const input = buildResumeRenderInput({ experience: { total_years: 3 } }, null, null, null);
+    expect(input.summary).toBeNull();
+  });
+
+  it("appends the shift to the availability line", () => {
+    const input = buildResumeRenderInput(
+      { shift: "night", availability: { status: "immediate" } },
+      null,
+      null,
+      null,
+    );
+    expect(input.availability).toBe("Available immediately · Night shift");
+  });
+
+  it("prints the shift alone when the status has no phrase", () => {
+    // `unknown` yields no availability phrase, but "I work nights" is still an answer the worker
+    // gave. The whole line used to collapse and take it down with it.
+    const input = buildResumeRenderInput({ shift: "day" }, null, null, null);
+    expect(input.availability).toBe("Day shift");
+  });
+
+  it("passes through a shift value outside the prompt's vocabulary", () => {
+    // The wire type is a bare `str | None` with no Literal behind it. Dropping what we did not
+    // anticipate is how the four keys got lost in the first place.
+    const input = buildResumeRenderInput({ shift: "rotational" }, null, null, null);
+    expect(input.availability).toBe("Rotational");
+  });
+
+  it("old snapshot without the keys renders exactly as before", () => {
+    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null);
+    expect(input.canonicalRole).toBeNull();
+    expect(input.summary).toBeNull();
+    expect(input.availability).toBeNull();
+  });
+});

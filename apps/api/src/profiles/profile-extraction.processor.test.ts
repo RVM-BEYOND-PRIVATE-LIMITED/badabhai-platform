@@ -1876,10 +1876,12 @@ describe("the interview overlay (Phase C)", () => {
     expect(rawOf(profiles).experiences).toEqual([]);
   });
 
-  it("never lets the model overwrite a value the worker actually answered", async () => {
-    // FIRST-WRITE-WINS, the same rule capture enforces. "Pune" went through the city normalizer
-    // and the negation veto on a question that was really asked; "Mumbai" was read back out of a
-    // conversation by a model.
+  it("lets the model's value win over the one the worker answered", async () => {
+    // THIS ASSERTED THE OPPOSITE UNTIL 2026-08-12, and the reversal is an explicit owner
+    // decision (Divyanshu), not a drift: the stored profile must equal the Phase C object as
+    // traced in Langfuse, and under first-write-wins "Mumbai" was discarded because the answer
+    // map held "Pune". The cost is stated on `preferModel` — a value that skipped the city
+    // normalizer and the negation veto now outranks one that went through both.
     const { proc, profiles } = make({
       ...withMap(),
       messages: CHAT,
@@ -1887,11 +1889,82 @@ describe("the interview overlay (Phase C)", () => {
       interview: EXTRACT({ current_city: "Mumbai", expected_salary: 99000 }),
     });
     await proc.process(makeJob());
+    expect(rawOf(profiles).location_preference.current_city).toBe("Mumbai");
+    expect(rawOf(profiles).salary_expectation.amount_min).toBe(99000);
+  });
+
+  it("replaces but never erases — a silent model yields to the answer map", async () => {
+    // THE BOUND ON THE REVERSAL ABOVE. `preferModel` falls through on null/absent, so a Phase C
+    // response that simply did not mention the city cannot blank a value the worker gave. Without
+    // this, "the model wins" would read as "the model's nulls win" and every quiet field would
+    // erase a real answer — the degraded Phase C response is mostly nulls.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ current_city: null }),
+    });
+    await proc.process(makeJob());
     expect(rawOf(profiles).location_preference.current_city).toBe("Pune");
   });
 
+  it("lands the four keys the merge used to discard", async () => {
+    // `domain_label`, `role_label` and `shift` had ZERO readers in the processor, and
+    // `availability` was read off the answer map only. Four of the model's nine data keys were
+    // prompted for, billed for, validated and dropped — most of the gap between the Langfuse
+    // assistant response and the stored row.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({
+        domain_label: "cooking",
+        role_label: "tandoor cook",
+        shift: "night",
+        availability: "immediate",
+      }),
+    });
+    await proc.process(makeJob());
+    const raw = rawOf(profiles);
+    expect(raw.domain_label).toBe("cooking");
+    expect(raw.role_label).toBe("tandoor cook");
+    expect(raw.shift).toBe("night");
+    expect(raw.availability.status).toBe("immediate");
+  });
+
+  it("maps the model's notice-period vocabulary instead of throwing on it", async () => {
+    // THE ONE THAT WOULD HAVE COST THE WHOLE PROFILE. The extract prompt asks for `15_days` /
+    // `1_month`; `AvailabilitySchema.status` accepts neither. Assigned raw, `DraftProfileSchema
+    // .parse` throws INSIDE the job and the worker gets nothing — strictly worse than the
+    // dropped field this change set out to fix. The notice LENGTH is preserved, not flattened.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ availability: "1_month" }),
+    });
+    await proc.process(makeJob());
+    expect(profiles.create).toHaveBeenCalledOnce();
+    expect(rawOf(profiles).availability).toEqual({ status: "notice_period", notice_period_days: 30 });
+  });
+
+  it("yields to the deterministic status on an availability value it does not know", async () => {
+    // The wire type is a bare `str | None` with no Literal behind it, so the model can return
+    // anything at all. Unrecognised must mean "the answer map decides", never a throw and never
+    // an invented status.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ availability: "rotational-ish" }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).availability.status).toBe("unknown");
+  });
+
   it("fills a gap the deterministic map left empty", async () => {
-    // `salary_expected` was never asked in this fixture, so there is nothing to protect.
+    // Unchanged by the precedence reversal — with nothing on the answer map to outrank, both
+    // rules agree here. Kept because it pins the fallback direction independently of `preferModel`.
     const { proc, profiles } = make({
       ...withMap(),
       messages: CHAT,
@@ -1903,7 +1976,10 @@ describe("the interview overlay (Phase C)", () => {
     expect(rawOf(profiles).location_preference.preferred_cities).toEqual(["Mumbai"]);
   });
 
-  it("unions skills rather than letting either source win", async () => {
+  it("stores the model's skill list verbatim rather than a union with the answer map", async () => {
+    // WAS A UNION, which made `skill_labels` a superset in answer-map-first order — so it never
+    // equalled the traced array even when every entry the model produced was present. Exact
+    // equality is the assertion that matters here; `arrayContaining` passed under both rules.
     const { proc, profiles } = make({
       ...withMap(),
       messages: CHAT,
@@ -1911,7 +1987,24 @@ describe("the interview overlay (Phase C)", () => {
       interview: EXTRACT({ skills: ["tandoor", "naan"] }),
     });
     await proc.process(makeJob());
-    expect(rawOf(profiles).skill_labels).toEqual(expect.arrayContaining(["tandoor", "naan"]));
+    expect(rawOf(profiles).skill_labels).toEqual(["tandoor", "naan"]);
+  });
+
+  it("keeps the answer map's skills when the model returned none", async () => {
+    // AN EMPTY LIST IS THE SHAPE OF EVERY DEGRADED PHASE C RESPONSE, not an assertion that the
+    // worker has no skills. Letting [] win would make a provider blip erase confirmed skills.
+    const { proc, profiles } = make({
+      ...withMap({
+        answer_map: [
+          record({ question_key: "skills", target_field: "skills", value_normalized: ["welding"] }),
+        ],
+      }),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ skills: [] }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).skill_labels).toEqual(["welding"]);
   });
 
   it("ledgers the call's spend, so a second billable request is not silently free", async () => {
