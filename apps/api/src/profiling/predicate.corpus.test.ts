@@ -26,7 +26,14 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import type { AnswerRecord, Predicate } from "@badabhai/ai-contracts";
+import {
+  OccupationPinSchema,
+  PROFILING_PHASES,
+  type AnswerRecord,
+  type OccupationPin,
+  type Predicate,
+  type ProfilingPhase,
+} from "@badabhai/ai-contracts";
 
 import type { AnswerMap } from "./answer-map";
 import { toAnswerMap } from "./answer-map";
@@ -67,16 +74,40 @@ function authoredPredicates(): Authored[] {
   return out;
 }
 
-/** The `question_key`s a predicate reads, in the CONTRACT's shape. */
-function fieldsOf(node: Predicate, out: Set<string> = new Set()): Set<string> {
-  if (typeof node.field === "string") out.add(node.field);
+/**
+ * Everything a predicate constrains, gathered so a probe can be built that SATISFIES it.
+ *
+ * `EvaluationContext` has four members and a predicate can constrain all four — answers (`answered`
+ * / `declined` / the comparison operands), the occupation pin (`occupation_is`, `occupation_under`),
+ * the phase (`phase_is`) and the turn (`turn_gte`). A probe set that varies only the answers would
+ * report every occupation- or phase-gated condition as inert, which is a FALSE ALARM in exactly the
+ * voice this file uses for a real one — the first author to write `occupation_under` would be told
+ * their working predicate gates nothing.
+ */
+interface Demands {
+  readonly fields: Set<string>;
+  readonly domains: Set<string>;
+  readonly iscos: Set<string>;
+  turn: number;
+}
+
+function demandsOf(node: Predicate, into: Demands): Demands {
+  if (typeof node.field === "string") into.fields.add(node.field);
   for (const operand of [node.left, node.right]) {
     const field = (operand as { field?: unknown } | undefined)?.field;
-    if (typeof field === "string") out.add(field);
+    if (typeof field === "string") into.fields.add(field);
   }
-  if (node.predicate) fieldsOf(node.predicate, out);
-  for (const child of node.predicates ?? []) fieldsOf(child, out);
-  return out;
+  if (typeof node.job_domain_id === "string") into.domains.add(node.job_domain_id);
+  if (typeof node.isco_code === "string") into.iscos.add(node.isco_code);
+  if (typeof node.turn === "number") into.turn = Math.max(into.turn, node.turn);
+  if (node.predicate) demandsOf(node.predicate, into);
+  for (const child of node.predicates ?? []) demandsOf(child, into);
+  return into;
+}
+
+/** A pin the schema accepts, carrying the identity a condition asked for. */
+function pin(domain: string, isco: string | null): OccupationPin {
+  return OccupationPinSchema.parse({ job_domain_id: domain, label: "probe", isco_unit_code: isco });
 }
 
 function record(questionKey: string, status: AnswerRecord["status"], value: unknown): AnswerRecord {
@@ -97,20 +128,60 @@ function ctx(answers: AnswerMap): EvaluationContext {
 }
 
 /**
- * A handful of contexts one of which any USEFUL predicate should be true in.
+ * Contexts one of which any USEFUL predicate should be true in.
  *
- * Not an attempt to prove the condition correct — that is the pack author's judgement. It is a
- * check for INERTNESS, which is what #776 actually was: a predicate false under every reachable
- * state gates nothing, and is indistinguishable from one nobody wrote.
+ * Not an attempt to prove the condition CORRECT — that is the pack author's judgement, and this is
+ * deliberately not a SAT solver. It is a check for INERTNESS, which is what #776 actually was: a
+ * predicate false under every reachable state gates nothing, and is indistinguishable from one
+ * nobody wrote.
  *
- * The three cover the shapes the corpus authors: nothing answered (a `not(...)` or a negated
- * gate), the referenced fields answered (`answered`, `eq`, comparisons), and the referenced
- * fields declined (`declined`).
+ * Each of the four context members is varied along the axis a predicate can constrain it on:
+ *   answers    — nothing answered (a `not(...)` or negated gate), the referenced fields answered
+ *                (`answered`, `eq`, comparisons), and the referenced fields declined (`declined`);
+ *   occupation — null, plus a pin carrying each `job_domain_id` / `isco_code` the condition names;
+ *   phase      — all five, since there are only five and collecting them buys nothing;
+ *   turn       — at or past the highest `turn_gte` the condition asks for (there is no `turn_lte`,
+ *                so a late turn is never less satisfying than an early one).
+ *
+ * BIASED TOWARDS SILENCE, on purpose. A condition this cannot satisfy is reported; one it satisfies
+ * only by an unreachable combination is not. Missing an inert predicate costs what #776 cost;
+ * crying wolf at a working one costs this test its credibility, and a guard nobody believes is
+ * worth less than no guard at all.
  */
-function probes(fields: readonly string[]): EvaluationContext[] {
-  const answered = toAnswerMap(fields.map((f) => record(f, "answered", "yes")));
-  const declined = toAnswerMap(fields.map((f) => record(f, "declined", null)));
-  return [ctx({} as AnswerMap), ctx(answered), ctx(declined)];
+function probes(node: Predicate): EvaluationContext[] {
+  const demands = demandsOf(node, {
+    fields: new Set(),
+    domains: new Set(),
+    iscos: new Set(),
+    turn: 0,
+  });
+
+  const fields = [...demands.fields];
+  const answerMaps: AnswerMap[] = [
+    {} as AnswerMap,
+    toAnswerMap(fields.map((f) => record(f, "answered", "yes"))),
+    toAnswerMap(fields.map((f) => record(f, "declined", null))),
+  ];
+
+  const domains = [...demands.domains];
+  const iscos = [...demands.iscos];
+  const occupations: (OccupationPin | null)[] = [null];
+  // One pin per alternative the condition names, each also carrying the other axis' first value so
+  // an `all` of `occupation_is` AND `occupation_under` is satisfiable by a single pin.
+  for (let i = 0; i < Math.max(domains.length, iscos.length); i++) {
+    occupations.push(pin(domains[i] ?? domains[0] ?? "jd_probe", iscos[i] ?? iscos[0] ?? null));
+  }
+
+  const turn = Math.max(3, demands.turn);
+  const out: EvaluationContext[] = [];
+  for (const answers of answerMaps) {
+    for (const occupation of occupations) {
+      for (const phase of PROFILING_PHASES as readonly ProfilingPhase[]) {
+        out.push({ answers, occupation, phase, turn });
+      }
+    }
+  }
+  return out;
 }
 
 describe("every authored predicate, against the RUNTIME evaluator (#776)", () => {
@@ -142,8 +213,7 @@ describe("every authored predicate, against the RUNTIME evaluator (#776)", () =>
     for (const entry of authored) {
       if (!isValidPredicate(entry.node)) continue; // already reported above
       const predicate = entry.node as Predicate;
-      const fields = [...fieldsOf(predicate)];
-      const reachable = probes(fields).some((context) => evaluatePredicate(predicate, context));
+      const reachable = probes(predicate).some((context) => evaluatePredicate(predicate, context));
       if (!reachable) inert.push(`${entry.pack}/${entry.questionKey}.${entry.where}`);
     }
     expect(
@@ -151,6 +221,47 @@ describe("every authored predicate, against the RUNTIME evaluator (#776)", () =>
       `these authored predicates are FALSE under every probed state, so they gate nothing: ` +
         `${JSON.stringify(inert)}`,
     ).toEqual([]);
+  });
+
+  it("does not call a working occupation / phase / turn gate inert", () => {
+    // THE PROBE SET'S OWN GUARD. `EvaluationContext` has four members and the sweep above is only
+    // as good as its coverage of them: an earlier revision varied the answers alone, so every one
+    // of these — all perfectly serviceable gates — would have been reported as gating nothing.
+    // The corpus authors none of them TODAY, which is exactly why this has to be asserted directly
+    // rather than left to the sweep: the sweep would stay green while the trap sat armed for
+    // whoever wrote the first `occupation_under`.
+    const workable: readonly Predicate[] = [
+      { op: "occupation_is", job_domain_id: "jd_isco_7223" },
+      { op: "occupation_under", isco_code: "72" },
+      { op: "phase_is", phase: "universal_tail" },
+      { op: "turn_gte", turn: 40 },
+      {
+        op: "all",
+        predicates: [
+          { op: "occupation_under", isco_code: "72" },
+          { op: "answered", field: "welding_process" },
+          { op: "turn_gte", turn: 12 },
+        ],
+      },
+    ];
+    for (const predicate of workable) {
+      const reachable = probes(predicate).some((context) => evaluatePredicate(predicate, context));
+      expect(reachable, `probe set cannot satisfy ${JSON.stringify(predicate)}`).toBe(true);
+    }
+  });
+
+  it("still reports a genuinely unsatisfiable condition", () => {
+    // The other side of the previous test: widening the probe set must not have widened it into
+    // uselessness. A contradiction has no satisfying context and must still come back inert.
+    const contradiction: Predicate = {
+      op: "all",
+      predicates: [
+        { op: "answered", field: "welding_process" },
+        { op: "declined", field: "welding_process" },
+      ],
+    };
+    const reachable = probes(contradiction).some((c) => evaluatePredicate(contradiction, c));
+    expect(reachable).toBe(false);
   });
 
   it("pins the two conditions #776 found inert, so a regression names them", () => {
