@@ -290,19 +290,19 @@ describe("conditions and follow-ups", () => {
   it("catches a DANGLING ask_if key", () => {
     // It evaluates false forever, so the gated question silently never appears.
     const c = valid();
-    c.packs[0]!.items[1]!.ask_if = { op: "answered", args: [{ field: "typo_key" }] };
+    c.packs[0]!.items[1]!.ask_if = { op: "answered", field: "typo_key" };
     expect(fatal(c).join()).toContain("not a question_key in this pack");
   });
 
   it("catches a question gated on ITSELF", () => {
     const c = valid();
-    c.packs[0]!.items[1]!.ask_if = { op: "answered", args: [{ field: "experience_years" }] };
+    c.packs[0]!.items[1]!.ask_if = { op: "answered", field: "experience_years" };
     expect(fatal(c).join()).toContain("could never fire");
   });
 
   it("accepts a well-formed condition", () => {
     const c = valid();
-    c.packs[0]!.items[1]!.ask_if = { op: "answered", args: [{ field: "welding_type" }] };
+    c.packs[0]!.items[1]!.ask_if = { op: "answered", field: "welding_type" };
     expect(fatal(c)).toEqual([]);
   });
 

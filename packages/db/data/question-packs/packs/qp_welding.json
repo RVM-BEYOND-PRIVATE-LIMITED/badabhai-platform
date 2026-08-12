@@ -36,7 +36,7 @@
       "answer_type": "single_select",
       "max_asks": 1,
       "parent_item_key": "welding_process",
-      "ask_if": { "op": "answered", "args": [{ "field": "welding_process" }] },
+      "ask_if": { "op": "answered", "field": "welding_process" },
       "options": [
         { "option_key": "yes", "label_text": "Haan, kar leta hoon", "value_bool": true },
         { "option_key": "no", "label_text": "Nahi, sirf flat", "value_bool": false }
@@ -88,7 +88,7 @@
       "target_field": "certification",
       "answer_type": "boolean",
       "max_asks": 1,
-      "skip_if": { "op": "declined", "args": [{ "field": "welding_process" }] }
+      "skip_if": { "op": "declined", "field": "welding_process" }
     }
   ]
 }

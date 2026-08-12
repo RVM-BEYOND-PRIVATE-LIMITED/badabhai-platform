@@ -252,6 +252,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@badabhai/ai-contracts':
+        specifier: workspace:*
+        version: link:../ai-contracts
       '@badabhai/match-engine':
         specifier: workspace:*
         version: link:../match-engine
