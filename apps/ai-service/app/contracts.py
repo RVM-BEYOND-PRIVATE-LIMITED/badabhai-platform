@@ -726,6 +726,17 @@ class DraftProfile(BaseModel):
     education_level: str | None = None
     education_field: str | None = None
     experience: Experience = Field(default_factory=Experience)
+    # ── THE THREE PHASE C KEYS THAT HAD NOWHERE TO LAND ──────────────────────────
+    # `InterviewExtractOutput` returns nine data keys and extract_system_prompt asks
+    # for all nine by name; only five had a destination on this model. The processor's
+    # merge read these three ZERO times, so they were prompted for, billed for,
+    # validated, sent — and dropped. Additive (default None → old rows unchanged,
+    # invariant #8); `raw_profile` is jsonb, so no migration. Mirrors
+    # DraftProfileSchema in packages/ai-contracts/src/profile.ts (§7 parity), where
+    # the length bounds that keep model output from writing unbounded text live.
+    domain_label: str | None = None
+    role_label: str | None = None
+    shift: str | None = None
     salary_expectation: SalaryExpectation = Field(default_factory=SalaryExpectation)
     location_preference: LocationPreference = Field(default_factory=LocationPreference)
     availability: Availability = Field(default_factory=Availability)

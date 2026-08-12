@@ -97,6 +97,31 @@ export const DraftProfileSchema = z.object({
   //
   // NO EMPLOYER NAMES — enforced by `ExperienceEntrySchema.strict()`, not by convention.
   experiences: z.array(ExperienceEntrySchema).default([]),
+  // ── THE THREE PHASE C KEYS THAT HAD NOWHERE TO LAND ───────────────────────────────
+  //
+  // `InterviewExtractOutput` returns nine data keys and the extract prompt asks the model for
+  // all nine by name. Five had a destination on this schema; `experiences` has one above. These
+  // three did not, so the processor's merge read them ZERO times — prompted for, billed for,
+  // validated, carried across the wire, then dropped on the floor. The Langfuse assistant
+  // response and the stored profile disagreed on four of nine keys and nothing said so.
+  //
+  // ADDITIVE + DEFAULTED, so every snapshot ever written parses unchanged (invariant #8), and
+  // `raw_profile` is `jsonb` — no migration, no column, nothing to roll back (§10).
+  //
+  // THEY LAND HERE, NOT ON THE RICH DRAFT, for the reason `experiences` does: `resume.service.ts`
+  // parses `rawProfile` through THIS schema and never reads `richProfileDraft`. On the rich draft
+  // they would be persisted and still absent from the résumé.
+  //
+  // BOUNDED LENGTHS BECAUSE THIS IS MODEL OUTPUT (§11). A runaway completion must not be able to
+  // write unbounded text into a jsonb column; the bounds are generous enough that no honest
+  // answer is clipped.
+  //
+  // PII-free by the same rule as `skills`/`education`: a trade name, a job title and a shift
+  // descriptor are occupational vocabulary, not identity — and the ai-service has already
+  // re-certified every composed string through the pseudonymizer before this point.
+  domain_label: z.string().max(120).nullable().default(null),
+  role_label: z.string().max(120).nullable().default(null),
+  shift: z.string().max(40).nullable().default(null),
   salary_expectation: SalaryExpectationSchema.default({}),
   location_preference: LocationPreferenceSchema.default({}),
   availability: AvailabilitySchema.default({}),
