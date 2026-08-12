@@ -847,7 +847,6 @@ textarea.input {
   text-align: center;
 }
 
-
 .login-wrap {
   flex: 1 0 auto;
   display: flex;
@@ -3841,8 +3840,7 @@ img.agency-qr__code,
 :root {
   --theme-fade:
     background-color var(--duration-base) var(--ease-out),
-    color var(--duration-base) var(--ease-out),
-    border-color var(--duration-base) var(--ease-out);
+    color var(--duration-base) var(--ease-out), border-color var(--duration-base) var(--ease-out);
 }
 @media (prefers-reduced-motion: no-preference) {
   html.theme-anim,
