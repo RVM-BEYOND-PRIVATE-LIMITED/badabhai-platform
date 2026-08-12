@@ -88,6 +88,30 @@ services:
       FAST2SMS_SENDER_ID: ${FAST2SMS_SENDER_ID:?required in staging — the DLT-registered sender id}
       FAST2SMS_DLT_TEMPLATE_ID: ${FAST2SMS_DLT_TEMPLATE_ID:?required in staging — the DLT template id}
 
+      # ---- Payer email OTP (ADR-0019, real-only channel — the ZeptoMail analogue of the
+      # Fast2SMS block above) — PASS-THROUGH, NEVER DECLARED HERE UNTIL NOW.
+      #
+      # THIS WAS THE SAME #798/#794 FAILURE CLASS: compose forwards ONLY the names a
+      # service's `environment:` block declares, and none of these were declared. Setting
+      # EMAIL_PROVIDER/ZEPTOMAIL_*/EMAIL_FROM_ADDRESS on the box (in `.env` or the shell)
+      # had NO path into the api container — `loadServerConfig` read the schema default
+      # (EMAIL_PROVIDER=zeptomail, everything else empty) regardless of the box, and a
+      # payer OTP either sandbox-validated without delivering or failed
+      # `assertPayerAuthConfig` at boot with nothing on the box explaining why.
+      #
+      # `:-` NOT `:?`: `assertPayerAuthConfig` (packages/config/src/server.ts) already
+      # fails the container closed at boot when EMAIL_PROVIDER=zeptomail and the ZeptoMail
+      # creds are incomplete — a compose-level `:?` here would just be a second, less
+      # specific place for the same check, and would add EMAIL_FROM_ADDRESS etc. to the
+      # required-secret set even for a box that intentionally runs SMTP instead. Passing
+      # through and letting the app enforce it keeps one source of truth.
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-zeptomail}
+      ZEPTOMAIL_API_TOKEN: ${ZEPTOMAIL_API_TOKEN:-}
+      ZEPTOMAIL_MAIL_AGENT: ${ZEPTOMAIL_MAIL_AGENT:-}
+      ZEPTOMAIL_SANDBOX_MODE: ${ZEPTOMAIL_SANDBOX_MODE:-false}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-BadaBhai}
+
       # ---- InternalServiceGuard shared secret. The base default ("dev-internal-token")
       # is a repo literal guarding the ops-only routes (resume reads, ops unlocks —
       # TD33/TD50) and has NO boot assert — this compose-level requirement is the only

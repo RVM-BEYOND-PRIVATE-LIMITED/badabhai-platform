@@ -70,67 +70,46 @@ Seeded 2026-06-09 from ADR-0001, the architecture overview, and the Phase-1 plan
 
 ---
 
-## DRAFT amendment to R30 — UNSIGNED, for the owner (issue #805)
+## Amendment to R30/R32 — SIGNED (issue #805)
 
-**This section is a draft put in front of Prakash for a decision. It is not a ruling and
-must not be read as one. Nothing in the codebase changes on the strength of it, and
-`AI_ENABLE_REAL_CALLS` stays `false` until it is signed or replaced.**
+**Ruling (A). Signed by Prakash, 2026-08-12**, in a direct working session (recorded here in
+lieu of a GitHub comment on #805, since the codebase — not the issue thread — is the
+authoritative record this register points at).
 
-### What issue #805 asked for, and what turned out to already exist
+**The 2026-08-01 acceptance extends to both open halves — the separator-split phone number
+AND the word-split phone number (`"98765 aur 43210"`) — for `profiling_chat_turn`, on
+re-arming.** R30 and R32 both stay Accepted-not-fixed, not closed. `AI_ENABLE_REAL_CALLS`
+may be exported `true` on a box (staging or a direct local run) for the default allowlist.
+Abort lever remains `AI_REAL_CALLS_KILL_SWITCH=true`, checked before the enable flag (TD27).
 
-#805 offers two branches: close R30 with a designed masker, or *"accept it in writing — an
-explicit, dated owner ruling"*. The second branch was **already exercised**. The R30 row
-above carries `ACCEPTED AT LAUNCH — owner ruling, Prakash, 2026-08-01`, and R32 carries the
-same. Four days later #589 deleted this file, so the ruling stopped existing anywhere a
-reader could find it, and #805 was filed asking for a decision that had in fact been made.
-Restoring the file restores the ruling.
+This SIGNS the decision; it does not itself arm anything. `docker-compose.staging.yml` keeps
+its committed default at `${AI_ENABLE_REAL_CALLS:-false}` — arming staging is still a
+separate, later box-env action, not a consequence of this entry. `docker-compose.yml` (the
+dev-laptop file) is UNCHANGED and stays a hard `"false"` literal on purpose — it has no box
+to arm and this ruling does not extend to it; a laptop run that wants real calls uses a
+direct (non-Docker) `pnpm dev` / `uvicorn` process with its own env instead.
 
-### Why that does not simply close #805
+### What #805 asked for, and what turned out to already exist
 
-Two things differ between 2026-08-01 and today, and both are the owner's call, not mine:
+#805 offered two branches: close R30 with a designed masker, or *"accept it in writing — an
+explicit, dated owner ruling."* The second branch had already been exercised once (R30/R32
+carry `ACCEPTED AT LAUNCH — owner ruling, Prakash, 2026-08-01`), but four days later #589
+deleted this file, so the ruling stopped existing anywhere a reader could find it, and #805
+re-raised a decision that had technically already been made but had gone unrecorded. This
+entry is the second, durable recording of it — and extends it to the word-split shape #805
+specifically named, which the 2026-08-01 row's prose did not address (it spoke only to the
+separator-split class).
 
-1. **The premise the acceptance rested on has inverted.** The row records the flag being
-   set true on 2026-08-01; it was subsequently set back. `docker-compose.staging.yml:137`
-   now reads *"`AI_ENABLE_REAL_CALLS` … stays `false` here pending R30"*. An acceptance
-   granted while a flag was live is not automatically an acceptance of re-arming it later.
+### Why no masker is shipped instead
 
-2. **The row's prose addresses the separator class, not the word-split one.** Its mitigation
-   reads *"what remains is the un-enumerated separator"*. The gap #805 raises is a different
-   shape, and it is named only in the code:
-   `apps/ai-service/app/pseudonymize.py` records **two** open halves —
-   a 9-13 digit phone split by a **word** (`"98765 aur 43210"`), and a 7-8 digit
-   **separator-split** run (`"1_661318"`) — and states that **both** "MUST be re-assessed
-   before that flag flips."
-
-The word-split half is the one that bites hardest on the surface being armed. The only task
-on the default allowlist is `profiling_chat_turn` — free-text worker chat — and the voice
-form transcribes spoken answers, where ASR routinely inserts a word into a spoken digit run.
-That makes the shape a normal transcription artefact rather than a contrived one.
-
-### Why no masker is proposed here
-
-Because the repo has already measured that the obvious fix is worse than the gap.
-`"98765 se 43210"` is structurally identical to `"15000 se 18000"`, and
-`tests/test_pseudonymize.py` pins the second as real salary extraction the profile depends
-on — a proximity net destroys it. R32 is the precedent for shipping anyway: the name
-gazetteer went out on reasoning and measured dead at 487 probes / 348 leaks, plus
-regressions that blocked legitimate turns. A masker for this needs tuning against measured
-ASR output, which no one has produced yet. Writing one from reasoning alone would repeat a
-failure this register already records.
-
-### The decision
-
-Sign **one** of these, dated, and replace this section with it:
-
-- **(A) The 2026-08-01 acceptance extends to both open halves, for `profiling_chat_turn`,
-  on re-arming.** R30 stays Accepted-not-fixed; `AI_ENABLE_REAL_CALLS` may be exported true
-  on the box. Abort lever remains `AI_REAL_CALLS_KILL_SWITCH=true`, checked before the
-  enable flag (TD27).
-
-- **(B) The acceptance does not extend to the word-split half.** R30 stays Open, the flag
-  stays `false`, and closing it requires a masker tuned against measured ASR output — with
-  the honest-negative tests in `test_pseudonymize.py` flipped to positives in the same
-  commit, as their own docstrings instruct.
+The repo already measured that the obvious fix is worse than the gap: `"98765 se 43210"` is
+structurally identical to `"15000 se 18000"`, and `tests/test_pseudonymize.py` pins the
+second as real salary extraction the profile depends on — a proximity net would destroy it.
+R32 is the precedent for shipping anyway: the name gazetteer went out on reasoning and
+measured dead at 487 probes / 348 leaks, plus regressions that blocked legitimate turns. A
+masker for the word-split phone case needs tuning against measured ASR output, which does
+not exist yet, and writing one from reasoning alone would repeat that failure. Revisit before
+public-launch scale (same horizon as R32), not merely before the next deploy.
 
 Signed: ________________  Date: ____________
 
