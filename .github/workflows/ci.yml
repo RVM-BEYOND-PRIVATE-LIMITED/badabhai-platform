@@ -650,7 +650,7 @@ jobs:
   # break any branch-protection required check that references them by name).
   build-and-push-image:
     name: Build & Push Docker Image
-    needs: [node, ai-service, e2e]
+    needs: [changes, node, ai-service, e2e]
     # BUG FIXED HERE: this `if:` used to be the plain boolean
     #   `github.event_name == 'push' && github.ref == 'refs/heads/main'`
     # with no `always()`/`success()`/`failure()`/`cancelled()` anywhere in it. Per GitHub
@@ -673,9 +673,29 @@ jobs:
     # (it always runs) so it must have actually succeeded; `ai-service` and `e2e` must
     # each have either succeeded or been skipped by the path filter — never have actually
     # run and failed, and never have been cancelled.
+    #
+    # `changes` IS ALSO A REQUIRED `needs:` ENTRY, and must be `success` (not merely
+    # allowed to be skipped or absent from the expression) — this closes a real gap an
+    # adversarial review caught in an earlier version of this fix. `ai-service` and `e2e`
+    # each derive their own skip/run decision from `needs.changes.outputs.*` via a PLAIN
+    # `if:`, so they ALSO carry an implicit `&& success()` on `changes`. If `changes`
+    # itself fails (dorny/paths-filter errors, its checkout step fails — a real, if
+    # infrequent, CI-infra failure category), `ai-service` and `e2e` both report
+    # `skipped` — indistinguishable, at the `needs.*.result` level, from a legitimate
+    # "no relevant paths touched" skip. `node` has no dependency on `changes` at all and
+    # can independently report `success` in that scenario. Without `changes` in THIS
+    # job's own `needs:`, `needs.changes.result` is not even in scope for this
+    # expression, so nothing here could tell the two cases apart — this job would run
+    # and push images with NONE of the path-filtered validation having actually
+    # executed, which is precisely the failure class this fix exists to eliminate, one
+    # hop up the dependency graph. `ci-required` does not have this gap because `changes`
+    # IS directly in ITS `needs:` list, so a `changes` failure surfaces there as
+    # `needs.changes.result == 'failure'`, caught by its `contains(needs.*.result,
+    # 'failure')` check regardless of how ai-service/e2e cascade.
     if: >-
       always() &&
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.changes.result == 'success' &&
       needs.node.result == 'success' &&
       (needs.ai-service.result == 'success' || needs.ai-service.result == 'skipped') &&
       (needs.e2e.result == 'success' || needs.e2e.result == 'skipped')
@@ -789,9 +809,10 @@ jobs:
     # `build-and-push-image` above: its only dependency is `build-and-push-image`
     # itself, which is no longer a path-filtered job — it now either (a) actually runs
     # and finishes `success`/`failure`, or (b) is `skipped` only when ITS OWN gate above
-    # legitimately said no (not a push to main, or `node`/`ai-service`/`e2e` genuinely
-    # failed/was cancelled). Case (b) is exactly when this job SHOULD also skip, so the
-    # implicit `success()` here does the right thing without needing the same idiom.
+    # legitimately said no (not a push to main; `changes` itself failing; or `node`/
+    # `ai-service`/`e2e` genuinely failed/was cancelled). Case (b) is exactly when this
+    # job SHOULD also skip, so the implicit `success()` here does the right thing
+    # without needing the same idiom.
     needs: [build-and-push-image]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
