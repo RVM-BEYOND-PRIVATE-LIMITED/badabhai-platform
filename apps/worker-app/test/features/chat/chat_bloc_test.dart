@@ -1,9 +1,11 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
-    show ChatInputMode, ChatProgress, ChatQuestionKind;
+    show ChatInputMode, ChatProgress, ChatQuestionKind, PredictedQuestion;
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
@@ -499,6 +501,191 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 30));
       expect(bloc.state.inputMode, ChatInputMode.text,
           reason: 'a normal turn returns the composer — never latched');
+    });
+  });
+
+  // #761 — the advisory lookahead: render the predicted next turn on the tap,
+  // reconcile when the real reply lands. NEVER an answer of record.
+  group('optimistic lookahead (#761)', () {
+    const PredictedQuestion predSkills = PredictedQuestion(
+      questionKey: 'skills',
+      promptText: 'Aapko kaunse kaam aate hain?',
+      options: <String>['Welding', 'Fitting'],
+      progress: ChatProgress(answered: 4, total: 12),
+    );
+
+    /// Drives one turn that leaves the bloc with chips + a lookahead keyed
+    /// 'Fanuc', then returns the bloc with the 'Fanuc' send held open on
+    /// [pending] so the optimistic render can be observed pre-reply.
+    Future<ChatBloc> primeAndTapFanuc(Completer<ChatTurn> pending) async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.sendMessage('cnc')).thenAnswer((_) async => const ChatTurn(
+            reply: 'Kaunsa control?',
+            followups: <String>['Fanuc', 'Siemens'],
+            askedQuestionId: 'controller',
+            lookahead: <String, PredictedQuestion?>{'Fanuc': predSkills},
+          ));
+      when(() => repo.sendMessage('Fanuc')).thenAnswer((_) => pending.future);
+
+      final ChatBloc bloc = ChatBloc(repo);
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      // Precondition: the prediction is available for the next tap.
+      expect(bloc.state.lookahead.containsKey('Fanuc'), isTrue);
+
+      bloc.add(const ChatMessageSent('Fanuc', optionKey: 'Fanuc'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      return bloc;
+    }
+
+    test('(a) renders the predicted bubble + chips + progress BEFORE the reply',
+        () async {
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      final ChatBloc bloc = await primeAndTapFanuc(pending);
+      addTearDown(bloc.close);
+
+      expect(pending.isCompleted, isFalse,
+          reason: 'the repo has not replied — this render is optimistic');
+      final List<String> texts =
+          bloc.state.messages.map((ChatMessage m) => m.text).toList();
+      expect(texts.last, predSkills.promptText,
+          reason: 'the predicted question is on screen already');
+      expect(texts, contains('Fanuc'), reason: 'the tapped label is the answer');
+      // EXACTLY ONCE. `contains` above is satisfied by a duplicate, and the bot-bubble
+      // counts in (b)/(c) filter on `!fromWorker`, so nothing here would otherwise notice
+      // the worker's own answer being appended twice. The optimistic and plain branches
+      // each append it exactly once and are mutually exclusive — a refactor that restores
+      // a shared append ahead of them (or merges this handler with one that has one) puts
+      // two identical bubbles on screen, and only the first is ever marked sent because
+      // `index` predates both.
+      expect(
+        texts.where((String t) => t == 'Fanuc'),
+        hasLength(1),
+        reason: 'the worker bubble is appended by exactly one branch',
+      );
+      expect(bloc.state.followups, predSkills.options);
+      expect(bloc.state.progress?.answered, 4);
+      expect(bloc.state.progress?.total, 12);
+      expect(bloc.state.predictedQuestionKey, 'skills');
+      expect(bloc.state.sending, isTrue);
+    });
+
+    test('(b) agreement keeps ONE bot bubble and refreshes metadata',
+        () async {
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      final ChatBloc bloc = await primeAndTapFanuc(pending);
+      addTearDown(bloc.close);
+
+      // The real reply's asked_question_id MATCHES the prediction's key.
+      pending.complete(const ChatTurn(
+        reply: 'Aap konsa kaam karte hain — bataiye.',
+        askedQuestionId: 'skills',
+        followups: <String>['Welding', 'Fitting', 'Turning'],
+        progress: ChatProgress(answered: 4, total: 12),
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final List<ChatMessage> bots =
+          bloc.state.messages.where((ChatMessage m) => !m.fromWorker).toList();
+      // opening + turn-1 reply + the single kept predicted bubble = 3 bot bubbles.
+      expect(bots, hasLength(3));
+      expect(bots.last.text, predSkills.promptText,
+          reason: 'agreement keeps the optimistic bubble (no flicker)');
+      expect(bloc.state.followups, <String>['Welding', 'Fitting', 'Turning'],
+          reason: 'metadata still refreshes from the real turn');
+      expect(bloc.state.predictedQuestionKey, isNull,
+          reason: 'the prediction is reconciled and cleared');
+    });
+
+    test('(c) disagreement REPLACES the optimistic bubble (still one bubble)',
+        () async {
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      final ChatBloc bloc = await primeAndTapFanuc(pending);
+      addTearDown(bloc.close);
+
+      // The real reply is a DIFFERENT question than predicted.
+      pending.complete(const ChatTurn(
+        reply: 'Kaunsi machine chalate hain?',
+        askedQuestionId: 'machines',
+        followups: <String>['CNC', 'VMC'],
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final List<ChatMessage> bots =
+          bloc.state.messages.where((ChatMessage m) => !m.fromWorker).toList();
+      expect(bots, hasLength(3),
+          reason: 'the optimistic bubble is replaced, never doubled');
+      expect(bots.last.text, 'Kaunsi machine chalate hain?');
+      expect(bloc.state.messages.map((ChatMessage m) => m.text),
+          isNot(contains(predSkills.promptText)),
+          reason: 'the wrong prediction was overwritten');
+      expect(bloc.state.followups, <String>['CNC', 'VMC']);
+      expect(bloc.state.predictedQuestionKey, isNull);
+    });
+
+    test('(d) absent lookahead → today\'s flow (append, no optimistic bubble)',
+        () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      when(() => repo.sendMessage('cnc')).thenAnswer((_) => pending.future);
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      // A typed send: no optionKey, no prediction on screen.
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(bloc.state.predictedQuestionKey, isNull);
+      // Only the worker bubble is appended; no phantom bot bubble.
+      expect(bloc.state.messages.last.text, 'cnc');
+      expect(bloc.state.messages.last.fromWorker, isTrue);
+
+      pending.complete(const ChatTurn(reply: 'Theek hai.'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(bloc.state.messages.last.text, 'Theek hai.');
+    });
+
+    test('(e) the submit body is byte-identical and the prediction is NEVER sent',
+        () async {
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      final ChatBloc bloc = await primeAndTapFanuc(pending);
+      addTearDown(bloc.close);
+      pending.complete(const ChatTurn(reply: 'ok', askedQuestionId: 'skills'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // The wire send is the tapped LABEL, verbatim and once — the predicted
+      // prompt is a render-only artefact and reaches no endpoint.
+      verify(() => repo.sendMessage('Fanuc')).called(1);
+      verifyNever(() => repo.sendMessage(predSkills.promptText));
+    });
+
+    test('a failed send RETRACTS the optimistic bubble and marks the answer failed',
+        () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.sendMessage('cnc')).thenAnswer((_) async => const ChatTurn(
+            reply: 'Kaunsa control?',
+            followups: <String>['Fanuc', 'Siemens'],
+            askedQuestionId: 'controller',
+            lookahead: <String, PredictedQuestion?>{'Fanuc': predSkills},
+          ));
+      when(() => repo.sendMessage('Fanuc')).thenThrow(const NetworkFailure());
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      bloc.add(const ChatMessageSent('Fanuc', optionKey: 'Fanuc'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final List<String> texts =
+          bloc.state.messages.map((ChatMessage m) => m.text).toList();
+      expect(texts, isNot(contains(predSkills.promptText)),
+          reason: 'the predicted turn never happened — drop it on failure');
+      // The worker's 'Fanuc' answer is kept, marked failed + retryable (#343).
+      final ChatMessage last = bloc.state.messages.last;
+      expect(last.text, 'Fanuc');
+      expect(last.status, ChatSendStatus.failed);
+      expect(bloc.state.predictedQuestionKey, isNull);
     });
   });
 }

@@ -203,6 +203,7 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
           _parseQuestion(q),
           index: step['index'] as int? ?? 0,
           total: step['total'] as int? ?? 0,
+          lookahead: _parseLookahead(step['lookahead']),
         );
       case 'done':
         return const VoiceFormDone();
@@ -220,6 +221,52 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
         // longer be on screen. Fail closed.
         throw const VoiceUnavailableFailure();
     }
+  }
+
+  /// Advisory next-step predictions keyed by `option_key` / `'__declined'`
+  /// (#761). Parsed DEFENSIVELY: a non-map, a non-string key, or a garbage entry
+  /// is dropped — never a throw, so a bad prediction can never take down the step
+  /// (a bad prediction just falls back to today's blocking submit for that tap).
+  /// Absent ⇒ empty map.
+  Map<String, PredictedNext> _parseLookahead(Object? raw) {
+    if (raw is! Map) return const <String, PredictedNext>{};
+    final Map<String, PredictedNext> out = <String, PredictedNext>{};
+    raw.forEach((Object? key, Object? value) {
+      if (key is! String || value is! Map) return;
+      final PredictedNext? predicted =
+          _parsePredictedNext(value.cast<String, dynamic>());
+      if (predicted != null) out[key] = predicted;
+    });
+    return out;
+  }
+
+  /// One lookahead entry → a [PredictedNext]. The entry carries the predicted
+  /// question INLINE (same `question_key`/`prompt_text`/`answer_type`/`options`/
+  /// `why_text` shape [_parseQuestion] reads) plus its dot-rail position, taken
+  /// from an explicit `index`/`total` or a nested `progress {answered,total}`.
+  ///
+  /// A `close`/`done` marker ⇒ a predicted DONE ([question] null); an entry with
+  /// no usable prompt ⇒ no prediction (null).
+  PredictedNext? _parsePredictedNext(Map<String, dynamic> entry) {
+    final Map<String, dynamic>? progress = entry['progress'] is Map
+        ? (entry['progress'] as Map).cast<String, dynamic>()
+        : null;
+    final int index =
+        (entry['index'] as int?) ?? (progress?['answered'] as int?) ?? 0;
+    final int total =
+        (entry['total'] as int?) ?? (progress?['total'] as int?) ?? 0;
+    final bool done =
+        entry['question_kind'] == 'close' || entry['kind'] == 'done';
+    if (done) {
+      return PredictedNext(question: null, index: index, total: total);
+    }
+    final Object? prompt = entry['prompt_text'];
+    if (prompt is! String || prompt.trim().isEmpty) return null;
+    return PredictedNext(
+      question: _parseQuestion(entry),
+      index: index,
+      total: total,
+    );
   }
 
   VoiceQuestion _parseQuestion(Map<String, dynamic> q) {

@@ -418,6 +418,92 @@ enum ChatInputMode {
       raw == 'options_only' ? ChatInputMode.optionsOnly : ChatInputMode.text;
 }
 
+/// The server's ADVISORY prediction of the NEXT chat turn for one option tap
+/// (`lookahead` entry, #761). Rendered OPTIMISTICALLY the instant a chip is
+/// tapped so a 2G worker sees the next prompt + chips + progress without waiting
+/// the round trip — but it is NEVER an answer of record: the submit still
+/// happens byte-identically and the real [ChatReply] reconciles/overrides this.
+///
+/// Parsed DEFENSIVELY (the #371 discipline): [fromJson] returns null on anything
+/// that is not a Map with a usable [promptText], and drops garbage options — a
+/// malformed prediction must yield "no prediction" (fall back to the round trip),
+/// never throw the whole reply away.
+class PredictedQuestion extends Equatable {
+  const PredictedQuestion({
+    this.questionKey,
+    this.questionKind = ChatQuestionKind.ask,
+    required this.promptText,
+    this.whyText,
+    this.answerType,
+    this.options = const <String>[],
+    this.progress,
+  });
+
+  /// The Resume Field Set id the predicted turn is asking about, or null on a
+  /// `close` prediction (`question_kind:"close"` — [promptText] is then the
+  /// closing line and there is no next question).
+  final String? questionKey;
+
+  /// The predicted turn's kind. `close` marks the interview ending on this tap.
+  final ChatQuestionKind questionKind;
+
+  /// The predicted prompt (or the closing line on a `close` prediction).
+  final String promptText;
+
+  /// Predicted "why are we asking" copy. No chat sink today — parsed, unused.
+  final String? whyText;
+
+  /// The predicted answer_type. No chat sink today — parsed, unused.
+  final String? answerType;
+
+  /// Predicted tap-to-answer chips as LABEL strings (chat chips submit the
+  /// label, which on chat is the answer of record). Each wire option is an
+  /// object `{option_key,label_text,is_none_of_above}`; only its `label_text`
+  /// survives, garbage entries are dropped.
+  final List<String> options;
+
+  /// Predicted pack progress so the completion bar moves on the tap too, or null.
+  final ChatProgress? progress;
+
+  static PredictedQuestion? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? prompt = raw['prompt_text'];
+    // No usable prompt ⇒ no prediction. An empty/whitespace line would render an
+    // empty bubble, which is worse than falling back to the round trip.
+    if (prompt is! String || prompt.trim().isEmpty) return null;
+    final Object? rawOptions = raw['options'];
+    final List<String> options = rawOptions is List
+        ? rawOptions
+            .whereType<Map>()
+            .map((Map<dynamic, dynamic> o) => o['label_text'])
+            .whereType<String>()
+            .toList(growable: false)
+        : const <String>[];
+    return PredictedQuestion(
+      // `is String` not a cast (#371) — a non-string key from a future contract
+      // change must not throw; it just reads as a `close`-shaped null key.
+      questionKey: raw['question_key'] is String ? raw['question_key'] as String : null,
+      questionKind: ChatQuestionKind.parse(raw['question_kind']),
+      promptText: prompt,
+      whyText: raw['why_text'] is String ? raw['why_text'] as String : null,
+      answerType: raw['answer_type'] is String ? raw['answer_type'] as String : null,
+      options: options,
+      progress: ChatProgress.fromJson(raw['progress']),
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[
+        questionKey,
+        questionKind,
+        promptText,
+        whyText,
+        answerType,
+        options,
+        progress,
+      ];
+}
+
 /// Result of POST /chat/message.
 class ChatReply extends Equatable {
   const ChatReply({
@@ -433,6 +519,7 @@ class ChatReply extends Equatable {
     this.questionKind = ChatQuestionKind.ask,
     this.inputMode = ChatInputMode.text,
     this.occupationLabel,
+    this.lookahead = const <String, PredictedQuestion?>{},
   });
 
   final String reply;
@@ -508,6 +595,31 @@ class ChatReply extends Equatable {
   /// null before it pins. The trust moment of the interview (#649).
   final String? occupationLabel;
 
+  /// ADVISORY next-turn predictions keyed by the tapped option (#761), plus the
+  /// decline/escape chip under `'__declined'`. Each value is what THIS turn's
+  /// chips are predicted to lead to, so the client can render it optimistically
+  /// on the tap and reconcile when the real reply lands.
+  ///
+  /// ABSENT / EMPTY is the normal case and NOT an error: the server omits it on
+  /// close, disambiguation, clarify, free-text and multi_select turns, and any
+  /// build that predates the field. A missing key means "no prediction for that
+  /// tap — wait for the round trip", which is exactly today's behaviour.
+  final Map<String, PredictedQuestion?> lookahead;
+
+  /// Parses the `lookahead` map defensively: a non-map, a non-string key, or a
+  /// malformed entry is dropped (never thrown), so a bad prediction can never
+  /// take down the whole reply (#371). Absent ⇒ empty map.
+  static Map<String, PredictedQuestion?> _parseLookahead(Object? raw) {
+    if (raw is! Map) return const <String, PredictedQuestion?>{};
+    final Map<String, PredictedQuestion?> out = <String, PredictedQuestion?>{};
+    raw.forEach((Object? key, Object? value) {
+      if (key is! String) return;
+      final PredictedQuestion? predicted = PredictedQuestion.fromJson(value);
+      if (predicted != null) out[key] = predicted;
+    });
+    return out;
+  }
+
   factory ChatReply.fromJson(Map<String, dynamic> json) => ChatReply(
         reply: json['reply'] as String? ?? '',
         blocked: json['blocked'] as bool? ?? false,
@@ -548,6 +660,8 @@ class ChatReply extends Equatable {
         occupationLabel: json['occupation_label'] is String
             ? json['occupation_label'] as String
             : null,
+        // Absent / malformed -> empty map ("no predictions"), never thrown (#371).
+        lookahead: _parseLookahead(json['lookahead']),
       );
 
   @override
@@ -564,6 +678,7 @@ class ChatReply extends Equatable {
         questionKind,
         inputMode,
         occupationLabel,
+        lookahead,
       ];
 }
 

@@ -6,7 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
-    show ChatInputMode;
+    show ChatInputMode, ChatProgress, PredictedQuestion;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chat_bubble.dart';
@@ -528,5 +528,59 @@ void main() {
         expect(find.text(kChatOptionsOnlyHint), findsNothing);
       },
     );
+  });
+  // #761 — a predicted chip renders the next prompt + chips instantly, before the
+  // round trip. The optimistic render must not break the one-tap-per-turn latch.
+  group('optimistic lookahead (#761)', () {
+    const PredictedQuestion predSkills = PredictedQuestion(
+      questionKey: 'skills',
+      promptText: 'Aapko kaunse kaam aate hain?',
+      options: <String>['Welding', 'Fitting'],
+      progress: ChatProgress(answered: 4, total: 12),
+    );
+
+    testWidgets(
+        'tapping a predicted chip shows the next prompt+chips with NO network '
+        'wait, and the one-tap latch still holds', (WidgetTester tester) async {
+      // Turn 1 establishes the chips + the lookahead for the next tap.
+      when(() => repo.sendMessage('cnc')).thenAnswer((_) async => const ChatTurn(
+            reply: 'Kaunsa control?',
+            followups: <String>['Fanuc', 'Siemens'],
+            askedQuestionId: 'controller',
+            lookahead: <String, PredictedQuestion?>{'Fanuc': predSkills},
+          ));
+      // Turn 2 (the chip tap) is HELD open — nothing may need it to render.
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      when(() => repo.sendMessage('Fanuc')).thenAnswer((_) => pending.future);
+
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'cnc');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+      expect(find.text('Fanuc'), findsOneWidget);
+      expect(find.text('Siemens'), findsOneWidget);
+
+      // Tap the predicted chip. The reply future is held, so we only PUMP — the
+      // render must not depend on the network.
+      await tester.tap(find.text('Fanuc'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350)); // finish auto-scroll
+
+      expect(pending.isCompleted, isFalse,
+          reason: 'the repo has not replied — this render is optimistic');
+      expect(find.text(predSkills.promptText), findsOneWidget,
+          reason: 'the predicted question is on screen');
+      expect(find.text('Welding'), findsOneWidget);
+      expect(find.text('Fitting'), findsOneWidget);
+      expect(find.text('Bada Bhai type kar raha hai…'), findsNothing,
+          reason: 'predicted chips replace the typing indicator');
+
+      // The one-tap latch still holds: a second option tap while the turn is
+      // unsettled is swallowed (no second send).
+      await tester.tap(find.text('Welding'));
+      await tester.pump();
+      verifyNever(() => repo.sendMessage('Welding'));
+      verify(() => repo.sendMessage('Fanuc')).called(1);
+    });
   });
 }

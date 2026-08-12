@@ -1,7 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../core/api/api_models.dart'
-    show ChatInputMode, ChatProgress, ChatQuestionKind;
+    show ChatInputMode, ChatProgress, ChatQuestionKind, PredictedQuestion;
 
 /// One assistant turn from the profiling chat: bada bhai's [reply] plus any
 /// [followups].
@@ -21,10 +21,25 @@ class ChatTurn extends Equatable {
     this.questionKind = ChatQuestionKind.ask,
     this.inputMode = ChatInputMode.text,
     this.occupationLabel,
+    this.askedQuestionId,
+    this.lookahead = const <String, PredictedQuestion?>{},
   });
 
   final String reply;
   final List<String> followups;
+
+  /// The Resume Field Set id THIS turn asked about (`asked_question_id`), or null
+  /// on the wrap-up turn. NOT carried before #761 — added to reconcile the
+  /// optimistic lookahead render: the client compares it against the predicted
+  /// question_key to decide whether the prediction was right. It is NEVER echoed
+  /// back (the POST body stays `{session_id, text}`).
+  final String? askedQuestionId;
+
+  /// ADVISORY next-turn predictions keyed by the tapped option (+ `'__declined'`,
+  /// #761). Empty when the server sent none. Never an answer of record — the
+  /// client renders it optimistically on the tap and this real turn is
+  /// authoritative.
+  final Map<String, PredictedQuestion?> lookahead;
 
   /// How far through the pinned pack the worker is (OIE Phase 8 / #649), or null
   /// when no pack has resolved yet. Drives the progress bar.
@@ -77,5 +92,7 @@ class ChatTurn extends Equatable {
         questionKind,
         inputMode,
         occupationLabel,
+        askedQuestionId,
+        lookahead,
       ];
 }
