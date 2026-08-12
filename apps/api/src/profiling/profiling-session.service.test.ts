@@ -354,6 +354,83 @@ describe("the guards that stop an answer landing on the wrong question", () => {
     expect(chatService.runTurn).not.toHaveBeenCalled();
   });
 
+  describe("the 409 says WHICH kind of stale it is (#779)", () => {
+    /**
+     * A stale view whose answer map is under this test's control. `q_material` is the question
+     * `chips()` answers, so putting a record on it is what makes "the worker's first submit
+     * landed" true rather than merely asserted.
+     */
+    const staleWorld = (answerMap: unknown[]) =>
+      makeWorld({
+        view: {
+          buffer: {} as never,
+          envelope: { answerMap } as never,
+          items: [],
+          served: served({ questionKey: "q_years" }),
+        },
+      });
+
+    /** The `stale_reason` off the thrown 409's body, via the shape the filter serialises. */
+    const reasonOf = async (world: ReturnType<typeof staleWorld>) => {
+      const error = await world.service
+        .answer(WORKER, chips("stainless"), CTX)
+        .then(() => null)
+        .catch((thrown: unknown) => thrown);
+      expect(error).toBeInstanceOf(ConflictException);
+      return (error as ConflictException).getResponse() as Record<string, unknown>;
+    };
+
+    it("`answer_already_landed` when the engine DID take the earlier answer", async () => {
+      // THE CASE THE FIELD EXISTS FOR. The first submit landed and only the RESPONSE was lost,
+      // so the client may count `profiling_answer_spoken` for a question it knows it spoke —
+      // exactly, and without the extra round trip #782 spends on a link that is already failing.
+      const body = await reasonOf(
+        staleWorld([{ question_key: "q_material", status: "answered", value_normalized: "steel" }]),
+      );
+
+      expect(body.stale_reason).toBe("answer_already_landed");
+    });
+
+    it("`other` when nothing landed — the world moved for some other reason", async () => {
+      // A reopen mid-offer, a correction, a closed interview. The client's answer was NOT taken,
+      // so counting engagement here would OVER-count, which is the failure the guard prevents.
+      const body = await reasonOf(staleWorld([]));
+
+      expect(body.stale_reason).toBe("other");
+    });
+
+    it("`other` on a DECLINED question — settled is not the same as answered", async () => {
+      // `isSettled` admits "declined" and this deliberately does not: the engine moved on, but
+      // the worker's ANSWER was never taken, so "landed" would be a false claim. Under-counting
+      // by one is the correct trade against banking engagement for an answer that does not exist.
+      const body = await reasonOf(
+        staleWorld([{ question_key: "q_material", status: "declined", value_normalized: null }]),
+      );
+
+      expect(body.stale_reason).toBe("other");
+    });
+
+    it("still carries every key a client reads today", async () => {
+      // Passing an OBJECT to ConflictException REPLACES Nest's default body wholesale, so the
+      // three keys it would have generated are restated by hand. A client that never learns
+      // about `stale_reason` must be unable to tell this release from the last one.
+      const body = await reasonOf(staleWorld([]));
+
+      expect(body.statusCode).toBe(409);
+      expect(body.error).toBe("Conflict");
+      expect(body.message).toContain("is no longer on screen");
+    });
+
+    it("degrades to `other` — never throws — on a malformed answer map", async () => {
+      // THIS RUNS INSIDE THE CONSTRUCTION OF THE 409. A throw here would return a 500 instead,
+      // turning a routine, recoverable staleness into a hard failure on the exact connection
+      // that is already failing. The envelope is rehydrated from jsonb, so the shape is checked.
+      const body = await reasonOf(staleWorld(undefined as never));
+
+      expect(body.stale_reason).toBe("other");
+    });
+  });
+
   it("404s — never 403 — on another worker's session", async () => {
     // A 403 would confirm the id exists and turn this route into an existence oracle.
     const { service, chatService } = makeWorld();

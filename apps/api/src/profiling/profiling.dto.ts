@@ -267,6 +267,56 @@ export const ProfilingStepResponseSchema = z.object({ step: ProfilingStepSchema 
 export type ProfilingStepResponse = z.infer<typeof ProfilingStepResponseSchema>;
 
 /**
+ * WHY A STALE 409 SAYS WHICH KIND OF STALE IT IS (#779, the honest half of #775).
+ *
+ * `POST /profiling/answer` 409s whenever the question the client answered is no longer the one
+ * on screen. TWO very different things produce that, and the client cannot tell them apart:
+ *
+ *   answer_already_landed  the worker's FIRST submit landed, the engine took the answer and
+ *                          moved on, and only the RESPONSE was lost — the timeout-then-retry
+ *                          case. The answer exists; the client just never saw it acknowledged.
+ *   other                  the world moved for some other reason (a correction reopened a
+ *                          question, the interview closed, nothing was on screen). The client's
+ *                          answer was NOT taken.
+ *
+ * WHAT THE AMBIGUITY COSTS, AND WHO PAYS IT. `profiling_answer_spoken` is an accessibility
+ * ranking input (#639/#707). Under the "only count an answer the engine actually took" guard the
+ * client must bank NOTHING on an indistinguishable 409, so the signal is under-counted — and
+ * because the trigger is a lost response, it is under-counted ONLY on the worst connections,
+ * i.e. disproportionately on the voice-first, low-literacy workers the signal exists to
+ * represent. A biased under-count of an accessibility signal is worse than a random one.
+ *
+ * WHY IT BELONGS ON THIS RESPONSE AND NOT IN A FOLLOW-UP CALL. #782 already recovers the signal
+ * client-side by re-reading server truth (`GET /profiling/session` → answered `question_key`s),
+ * which is correct and stays. But it spends an EXTRA round trip on the exact link that just
+ * failed, and it fails soft to an empty set — so on the worst connections, the ones this is
+ * about, the recovery can be lost the same way the original response was. This field carries the
+ * same fact in a response the client is ALREADY receiving, so the recovery cannot fail
+ * independently of the request that triggered it.
+ *
+ * ADDITIVE AND BACK-COMPATIBLE. It is a new key on an existing error body; every field a client
+ * reads today is still there, and a client that ignores this one behaves exactly as before.
+ */
+export const ProfilingStaleReasonSchema = z.enum(["answer_already_landed", "other"]);
+export type ProfilingStaleReason = z.infer<typeof ProfilingStaleReasonSchema>;
+
+/**
+ * The body of the stale-answer 409, pinned so the wire keys are a contract rather than an
+ * accident of how Nest happens to serialise `ConflictException`.
+ *
+ * `statusCode` / `message` / `error` are RESTATED rather than left to Nest's default string
+ * form: passing an object to `ConflictException` REPLACES that default wholesale, so omitting
+ * them here would silently drop three keys existing clients may read.
+ */
+export const ProfilingStaleAnswerErrorSchema = z.object({
+  statusCode: z.literal(409),
+  message: z.string(),
+  error: z.literal("Conflict"),
+  stale_reason: ProfilingStaleReasonSchema,
+});
+export type ProfilingStaleAnswerError = z.infer<typeof ProfilingStaleAnswerErrorSchema>;
+
+/**
  * One row of the review screen — the worker's own answer, read back to them.
  *
  * `display_value` is the NORMALIZED value rendered for a human, not the raw utterance: the point
