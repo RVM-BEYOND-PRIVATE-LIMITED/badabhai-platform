@@ -156,23 +156,43 @@ services:
       # Fail loud at compose time instead.
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?required in staging — empty means deny-all for browsers (TD72a)}
 
-      # ---- Resume PDF render: explicitly OFF on this box (R27 owner queue). The base
-      # file enables it for the local render runbook, but its SUPABASE_URL /
-      # SUPABASE_SERVICE_ROLE_KEY default to EMPTY — with render left on, the resume
-      # PDF (a Phase-1 exit criterion) would boot fine and then fail at the FIRST
-      # render at runtime ("Supabase Storage is not configured"). Off-until-configured
-      # is the honest state. When the box gets storage creds, flip this to "true" AND
-      # add SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY here as `${VAR:?}` fail-loud
-      # entries (deliberately NOT added today — keeping the required-secret set equal
-      # to the owner's STAGING-SECRETS-1 list).
+      # ---- Resume PDF render: OFF BY DEFAULT, and now SETTABLE FROM THE BOX (#793).
       #
-      # KEPT "false" (PR #405 review): that PR flipped this to "true" WITHOUT adding the
-      # two storage entries the precondition above requires, which would have armed the
-      # render against unconfigured storage — a green boot followed by a runtime throw at
-      # the first render, exactly what this flag exists to prevent. Verified at the time:
-      # this compose file declares no SUPABASE_* entry and no env_file, and no workflow
-      # injects them. Flip it in the SAME change that adds the creds, not before.
-      RESUME_RENDER_ENABLED: "false"
+      # OFF IS STILL THE HONEST DEFAULT, for the reason this block has always given: the
+      # base file enables render for the local runbook, but SUPABASE_URL /
+      # SUPABASE_SERVICE_ROLE_KEY default to EMPTY, and render armed against unconfigured
+      # storage boots green and then fails at the FIRST render ("Supabase Storage is not
+      # configured"). Off-until-configured is the truthful state and it does not change here.
+      #
+      # WHAT CHANGED IS THE FORM, AND IT IS THE WHOLE OF #793's ASK 2. This was the hard
+      # literal `"false"`, and a compose `environment:` entry with a literal value BEATS the
+      # box's shell/.env — so `export RESUME_RENDER_ENABLED=true` on Lightsail had NO path
+      # into the container. That is the same defect as `AI_ENABLE_REAL_CALLS` (#798),
+      # `WORKER_PHOTOS_BUCKET` (#794) and `VOICE_NOTES_BUCKET`: the flip everything in the
+      # repo told the operator to perform was inert, silently, with nothing naming the cause.
+      # #793 is the bug report for it — resume download failing on the deployed box while
+      # working against localhost.
+      #
+      # THE PRECONDITION THIS BLOCK SET HAS SINCE BEEN MET, WHICH IS WHY THE OLD TEXT IS
+      # GONE. It required "add SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY here" before arming,
+      # and recorded "verified at the time: this compose file declares no SUPABASE_* entry".
+      # Both are now declared — 20-odd lines below, as `:-` pass-throughs added with V8 voice
+      # storage — so the sentence had quietly become false, which is exactly the kind of
+      # comment-versus-file divergence that produced #798.
+      #
+      # `:-` NOT `:?`: the required-secret set stays equal to the owner's STAGING-SECRETS-1
+      # list, so this cannot newly fail a deploy. Arming is one export in the SAME act that
+      # supplies the creds — `export RESUME_RENDER_ENABLED=true SUPABASE_URL=…
+      # SUPABASE_SERVICE_ROLE_KEY=…`, then re-run the deploy. `RESUMES_BUCKET` needs nothing
+      # here: the base file's `${RESUMES_BUCKET:-worker-resumes}` is inherited by the merge
+      # and is already box-overridable.
+      #
+      # ARMING WITHOUT THE CREDS IS DIAGNOSABLE, NOT SILENT — the failure mode the old text
+      # feared is now visible from outside. `StorageService.requireStorage` throws a 503 that
+      # NAMES the missing variables (never their values), and since #796 `GET /health`
+      # reports storage config presence, so an operator can see the half-armed state without
+      # reading a container log.
+      RESUME_RENDER_ENABLED: ${RESUME_RENDER_ENABLED:-false}
 
       # ---- V8 VOICE STORAGE: PASS-THROUGH, NEVER REQUIRED.
       #
