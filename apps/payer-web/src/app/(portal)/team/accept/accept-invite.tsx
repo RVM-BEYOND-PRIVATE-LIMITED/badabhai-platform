@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Button, Card } from "../../../../components/ds";
+import { Button } from "../../../../components/ds";
 import { acceptInviteAction } from "../actions";
 
 /**
@@ -11,6 +11,10 @@ import { acceptInviteAction } from "../actions";
  * server-held session identity. The single-use token is passed straight through from the URL — it
  * is never rendered, logged, or echoed in a result message. A bad/expired/mismatched token yields a
  * NEUTRAL failure (no-oracle).
+ *
+ * UI-1: the three outcomes now speak the shared language — a missing code is an error `state` with
+ * a way out, and the accepted / rejected results are `alert` bands. The failure copy is still the
+ * server's neutral message, rendered verbatim.
  */
 export function AcceptInvite({ token }: { token: string }) {
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -26,39 +30,57 @@ export function AcceptInvite({ token }: { token: string }) {
 
   if (!hasToken) {
     return (
-      <Card variant="outline" className="team-note" style={{ marginTop: "var(--space-4)" }}>
-        <p className="team-note__msg">
-          This invite link is missing its code. Ask your team owner to resend the invite.
-        </p>
-      </Card>
+      <div className="state state--error">
+        <span className="state__icon">
+          <i className="ph ph-link-break" aria-hidden="true" />
+        </span>
+        <h2 className="state__title">This invite link is missing its code</h2>
+        <p className="state__body">Ask your team owner to resend the invite.</p>
+        <div className="state__actions">
+          <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/dashboard">
+            Go to your dashboard
+          </Link>
+        </div>
+      </div>
     );
   }
 
   if (result?.ok) {
     return (
-      <Card variant="outline" className="team-note" style={{ marginTop: "var(--space-4)" }}>
-        <p className="team-note__msg">{result.message}</p>
-        <p className="chrome-actions" style={{ marginTop: "var(--space-3)" }}>
-          <Link href="/dashboard">Go to your dashboard →</Link>
-        </p>
-      </Card>
+      <div className="alert alert--success">
+        <i className="ph ph-check-circle alert__icon" aria-hidden="true" />
+        <div className="alert__text">
+          <p className="alert__title">Invite accepted</p>
+          <p className="alert__body">{result.message}</p>
+        </div>
+        <div className="alert__actions">
+          <Link className="bb-btn bb-btn--primary bb-btn--sm" href="/dashboard">
+            <span>Go to your dashboard</span>
+            <i className="ph ph-arrow-right" aria-hidden="true" />
+          </Link>
+        </div>
+      </div>
     );
   }
 
   return (
-    <section className="team-section">
-      <div className="chrome-actions">
+    <>
+      <div className="form-actions">
         <Button variant="primary" loading={pending} aria-busy={pending} onClick={onAccept}>
           {pending ? "Joining…" : "Accept invite"}
         </Button>
       </div>
-      <div aria-live="polite">
+      <div aria-live="polite" className="form-status">
         {result && !result.ok ? (
-          <Card variant="outline" className="team-note" style={{ marginTop: "var(--space-3)" }}>
-            <p className="team-note__msg">{result.message}</p>
-          </Card>
+          <div className="alert alert--danger">
+            <i className="ph ph-warning-circle alert__icon" aria-hidden="true" />
+            <div className="alert__text">
+              {/* The server's NEUTRAL message, verbatim — it never says which check failed. */}
+              <p className="alert__body">{result.message}</p>
+            </div>
+          </div>
         ) : null}
       </div>
-    </section>
+    </>
   );
 }

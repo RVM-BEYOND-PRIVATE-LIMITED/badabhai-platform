@@ -21,8 +21,14 @@ export default async function AcceptInvitePage({
 
   return (
     <>
-      <h1 className="chrome-title">Join a team</h1>
-      <p className="chrome-sub">Accept your invite to join the hiring desk you were added to.</p>
+      <div className="page-head">
+        <div className="page-head__text">
+          <h1 className="page-head__title">Join a team</h1>
+          <p className="page-head__sub">
+            Accept your invite to join the hiring desk you were added to.
+          </p>
+        </div>
+      </div>
       <AcceptInvite token={typeof token === "string" ? token : ""} />
     </>
   );

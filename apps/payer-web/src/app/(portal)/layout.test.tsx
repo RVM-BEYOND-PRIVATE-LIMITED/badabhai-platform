@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import type { PayerSession } from "../../lib/auth/types";
 
 /**
- * PORTAL SHELL (DS0.3) — the chrome is rebuilt onto the design system, but the
+ * PORTAL SHELL (IA-1) — the chrome is now a levelled left rail, but the
  * AUTHORIZATION model is unchanged and SERVER-DRIVEN:
  *  - product LABELING (Employers vs Agencies) comes from `session.role`, not a client flag;
  *  - Owner-only affordances (Credits/Team) are driven by `getOrgRole` but are NOT the authz —
@@ -25,10 +25,60 @@ vi.mock("next/link", () => ({
     props: { href, children },
   }),
 }));
-// PortalNav (client) reads the active route via usePathname — pin it so the nav renders
+// The nav (client) reads the active route via usePathname — pin it so the nav renders
 // deterministically when the test walk expands the component.
 vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
-vi.mock("./logout-button", () => ({ LogoutButton: () => null }));
+
+/**
+ * AppShell is a real client component: it holds the collapse/drawer state, so it calls
+ * useState/useEffect/useId. The walker below expands function components by CALLING them,
+ * which cannot run hooks outside a renderer.
+ *
+ * The stand-in keeps the property this suite actually tests. What is under test here is the
+ * SERVER's decision — which destinations the shell offers this session, and how it labels
+ * them — not the rail's open/closed behaviour (that is presentation, and the rail's own
+ * markup is asserted in sidebar-nav/nav-model tests). So the stand-in renders the same
+ * `sections` the server computed as plain anchors, plus the brand/header/footer slots
+ * verbatim, and the walk sees exactly the hrefs and text the real rail would render.
+ *
+ * A Coming Soon item is rendered as a NON-anchor here, mirroring sidebar-nav.tsx — that is
+ * load-bearing for the assertion that a parked capability is advertised but not navigable.
+ */
+vi.mock("./app-shell", () => ({
+  AppShell: ({
+    sections,
+    brand,
+    header,
+    footer,
+    children,
+  }: {
+    sections: {
+      title?: string;
+      items: { href: string; label: string; comingSoon?: boolean }[];
+    }[];
+    brand: ReactNode;
+    header: ReactNode;
+    footer: ReactNode;
+    children: ReactNode;
+  }) => ({
+    type: "div",
+    props: {
+      children: [
+        brand,
+        ...sections.flatMap((s) =>
+          s.items.map((i) =>
+            i.comingSoon
+              ? { type: "span", key: i.href, props: { children: [i.label, " Soon"] } }
+              : { type: "a", key: i.href, props: { href: i.href, children: i.label } },
+          ),
+        ),
+        header,
+        footer,
+        children,
+      ],
+    },
+  }),
+}));
 // ThemeToggle (client, hooks) — render an inert stand-in so the shell walk doesn't run real
 // React hooks. The theme control's own behaviour is covered by theme-toggle.test.tsx.
 vi.mock("../../components/ds", async (importOriginal) => {

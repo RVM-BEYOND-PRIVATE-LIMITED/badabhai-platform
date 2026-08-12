@@ -596,6 +596,24 @@ function deepGather(node: ReactNode, seen: WeakSet<object> = new WeakSet()): str
   return out;
 }
 
+/** Every STATIC className token in the tree (function components are not invoked). */
+function classTokens(tree: ReactNode): Set<string> {
+  const out = new Set<string>();
+  (function w(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") return;
+    if (Array.isArray(node)) {
+      node.forEach(w);
+      return;
+    }
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    const cls = el.props?.className;
+    if (typeof cls === "string") for (const t of cls.split(/\s+/)) if (t) out.add(t);
+    if (el.props && "children" in el.props) w(el.props.children as ReactNode);
+  })(tree);
+  return out;
+}
+
 describe("ApplicantActions — (b) each stage renders its OWN empty state at zero rows", () => {
   it("New empty copy ≠ Shortlist empty copy (per-stage, never a shared blank)", () => {
     // A is kept (shortlist) ⇒ the New stage is empty; switch active to New to see its copy.
@@ -607,6 +625,27 @@ describe("ApplicantActions — (b) each stage renders its OWN empty state at zer
     const shortlistEmpty = gatherText(render({ applicants: [A], activeStage: "shortlist" }));
     expect(shortlistEmpty).toContain("No shortlisted candidates yet");
     expect(newEmpty).not.toEqual(shortlistEmpty);
+  });
+
+  it("renders the empty stage through the shared UI-1 `.state` block, not a bespoke card", () => {
+    // UI-1: an empty surface says WHAT is empty (title), WHY (body) and WHAT TO DO
+    // (actions — here the LOCAL switch to the other stage). The old `.applicants-empty`
+    // one-liner card is retired.
+    const tokens = classTokens(render({ applicants: [A], activeStage: "shortlist" }));
+    expect(tokens.has("state")).toBe(true);
+    expect(tokens.has("state__title")).toBe(true);
+    expect(tokens.has("state__actions")).toBe(true);
+    expect(tokens.has("applicants-empty")).toBe(false);
+  });
+
+  it("the 0-credit top-up guidance is the shared inline `.alert`, not an ad-hoc card+badge", () => {
+    // Same nudge, same words, one primitive — and it stays guidance about the payer's OWN
+    // balance (never a signal about a candidate), which is why it is a warning, not an error.
+    const tokens = classTokens(render({ balance: 0 }));
+    expect(tokens.has("alert")).toBe(true);
+    expect(tokens.has("alert--warning")).toBe(true);
+    expect(tokens.has("applicants-warn")).toBe(false);
+    expect(gatherText(render({ balance: 0 }))).toContain("not a signal about any candidate");
   });
 });
 

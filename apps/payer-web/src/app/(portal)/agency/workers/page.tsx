@@ -5,7 +5,6 @@ import { agencyFlags } from "../../../../lib/config";
 import { listAgencyWorkers } from "../../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../../lib/assert-no-agency-pii";
 import type { AgencyWorker } from "../../../../lib/contracts";
-import { Badge, Card } from "../../../../components/ds";
 import { RetryButton } from "../../../../components/retry-button";
 import { WorkerActivityList } from "./worker-activity-list";
 
@@ -39,9 +38,10 @@ const MAX_ROWS = 200;
  * honest state, not an error and not a "coming soon" tease.
  *
  * DEGRADE: the read is isolated in a try/catch. A backend failure — including the 429 from the
- * per-payer hourly scrape cap this route rides — renders a neutral retry Card instead of
- * blanking the page or, worse, showing an empty table that would read as "you have no
- * referrals". LOADING is the portal-level `loading.tsx` skeleton (this page is force-dynamic).
+ * per-payer hourly scrape cap this route rides — renders a neutral `.state--error` with a retry
+ * instead of blanking the page or, worse, showing an empty table that would read as "you have no
+ * referrals". The copy stays neutral: the CLASS of failure is never surfaced (no-oracle).
+ * LOADING is the portal-level `loading.tsx` skeleton (this page is force-dynamic).
  */
 export default async function AgencyWorkersPage() {
   // 1) SERVER-enforced role gate — an `employer` session 404s here before any read runs.
@@ -60,47 +60,68 @@ export default async function AgencyWorkersPage() {
     workers = null;
   }
 
+  // The truthful count/truncation line. Computed here (not inline) because it is the panel's
+  // SECOND sub-line, and an empty list must produce NO count line at all rather than "0".
+  const countLine =
+    workers !== null && workers.length > 0
+      ? workers.length >= MAX_ROWS
+        ? `Showing your ${MAX_ROWS} most recently active referrals.`
+        : `Showing ${workers.length} referred ${workers.length === 1 ? "worker" : "workers"}.`
+      : null;
+
   return (
     <>
-      <p className="capacity-back">
+      <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <h1 className="dash-title">Worker activity</h1>
-      <p className="dash-sub">
-        How the workers you referred are getting on — as a funnel, not as a contact list.
-      </p>
+      <div className="page-head">
+        <div className="page-head__text">
+          <h1 className="page-head__title">Worker activity</h1>
+          <p className="page-head__sub">
+            How the workers you referred are getting on — as a funnel, not as a contact list.
+          </p>
+        </div>
+      </div>
 
-      <section className="agency-section agency-workers">
-        <h2 className="agency-section__title">Referred workers</h2>
-        <p className="agency-workers__intro">
-          Every row is a private handle, not a person. BadaBhai never shows an agency a
-          worker&rsquo;s name, phone number or employer, which job they applied to, or who
-          unlocked them. What you get is the funnel: whether they finished their profile, how
-          many times they applied, how many times a company unlocked them, and the last day they
-          were active.
-        </p>
-
-        {workers === null ? (
-          <Card variant="flat" className="agency-jobs__empty">
-            <Badge tone="warning" upper>
-              Service unavailable
-            </Badge>{" "}
-            Worker activity could not load right now. Please retry shortly. <RetryButton />
-          </Card>
-        ) : (
-          <>
-            <WorkerActivityList workers={workers} />
-            {workers.length > 0 ? (
-              <p className="agency-section__sub">
-                {workers.length >= MAX_ROWS
-                  ? `Showing your ${MAX_ROWS} most recently active referrals.`
-                  : `Showing ${workers.length} referred ${workers.length === 1 ? "worker" : "workers"}.`}{" "}
-                Handles are unique to your agency — another agency that referred the same worker
-                sees a different one, so no two agencies can combine their lists.
+      {/* `.panel--table` because the body IS the table (or, when there is nothing to show, the
+          state that stands in for it) — the cell padding is the rhythm, so the body owns none.
+          Both prose lines are panel SUBS, which is why nothing floats below the table. */}
+      <section className="panel panel--table">
+        <div className="panel__head">
+          <h2 className="panel__title">Referred workers</h2>
+          <p className="panel__sub">
+            Every row is a private handle, not a person. BadaBhai never shows an agency a
+            worker&rsquo;s name, phone number or employer, which job they applied to, or who
+            unlocked them. What you get is the funnel: whether they finished their profile, how
+            many times they applied, how many times a company unlocked them, and the last day
+            they were active.
+          </p>
+          {countLine ? (
+            <p className="panel__sub">
+              {countLine} Handles are unique to your agency — another agency that referred the
+              same worker sees a different one, so no two agencies can combine their lists.
+            </p>
+          ) : null}
+        </div>
+        <div className="panel__body">
+          {workers === null ? (
+            <div className="state state--error">
+              <span className="state__icon">
+                <i className="ph ph-warning-circle" aria-hidden="true" />
+              </span>
+              <h3 className="state__title">Worker activity is unavailable</h3>
+              <p className="state__body">
+                This list could not load right now. Nothing has changed — your referrals are
+                safe. Please retry shortly.
               </p>
-            ) : null}
-          </>
-        )}
+              <div className="state__actions">
+                <RetryButton />
+              </div>
+            </div>
+          ) : (
+            <WorkerActivityList workers={workers} />
+          )}
+        </div>
       </section>
     </>
   );

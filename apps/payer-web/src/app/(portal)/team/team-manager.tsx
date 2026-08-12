@@ -3,7 +3,7 @@
 import { useState, useTransition, type FormEvent } from "react";
 import type { OrgMemberView, OrgMemberStatus } from "../../../lib/org-members";
 import type { OrgRole } from "../../../lib/auth/org-roles";
-import { Badge, Button, Card, Input } from "../../../components/ds";
+import { Badge, Button, Input } from "../../../components/ds";
 import { inviteMemberAction, removeMemberAction } from "./actions";
 
 /**
@@ -16,6 +16,11 @@ import { inviteMemberAction, removeMemberAction } from "./actions";
  * raw address. The invite email is typed locally and sent to the action; it is never rendered back
  * into the member list or any result message. A member cannot remove themselves or an owner (the
  * affordance is hidden and the API re-checks).
+ *
+ * UI-1: both blocks are `panel`s — the invite form on the shared `form` spine, the directory as a
+ * `panel--table` whose body is the `table` primitive with an empty `state` that says what to do
+ * next. The action result is the neutral `alert` band (its tone stays UNSET because the component
+ * only holds the message string, never the ok/fail flag — changing that would change behaviour).
  */
 const ROLE_TONE: Record<OrgRole, "brand" | "neutral"> = { owner: "brand", recruiter: "neutral" };
 const STATUS_TONE: Record<OrgMemberStatus, "success" | "warning" | "neutral"> = {
@@ -49,85 +54,121 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
 
   return (
     <>
-      <section className="team-section">
-        <h2 className="team-section__title">Invite a recruiter</h2>
-        <form className="team-form" onSubmit={onInvite}>
-          <Input
-            id="invite-email"
-            label="Email"
-            type="email"
-            iconLeft="envelope"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="recruiter@yourcompany.example"
-            autoComplete="off"
-          />
-          <p className="team-form__hint">
-            Recruiters can post, search, and unlock. Billing &amp; user management stay with owners.
-          </p>
-          <div className="chrome-actions">
-            <Button type="submit" variant="primary" loading={pending} aria-busy={pending}>
-              {pending ? "Working…" : "Send invite"}
-            </Button>
+      <section className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">Invite a recruiter</h2>
+        </div>
+        <div className="panel__body">
+          <form className="form" onSubmit={onInvite}>
+            <Input
+              id="invite-email"
+              label="Email"
+              type="email"
+              iconLeft="envelope"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="recruiter@yourcompany.example"
+              autoComplete="off"
+            />
+            <p className="form__hint">
+              Recruiters can post, search, and unlock. Billing &amp; user management stay with
+              owners.
+            </p>
+            <div className="form-actions">
+              <Button type="submit" variant="primary" loading={pending} aria-busy={pending}>
+                {pending ? "Working…" : "Send invite"}
+              </Button>
+            </div>
+          </form>
+          <div aria-live="polite" className="form-status">
+            {message ? (
+              <div className="alert">
+                <i className="ph ph-info alert__icon" aria-hidden="true" />
+                <div className="alert__text">
+                  <p className="alert__body">{message}</p>
+                </div>
+              </div>
+            ) : null}
           </div>
-        </form>
-        <div aria-live="polite" className="team-form__status">
-          {message ? (
-            <Card variant="outline" className="team-note" style={{ marginTop: "var(--space-3)" }}>
-              <p className="team-note__msg">{message}</p>
-            </Card>
-          ) : null}
         </div>
       </section>
 
-      <section className="team-section">
-        <h2 className="team-section__title">Members</h2>
-        {members.length === 0 ? (
-          <Card variant="flat" className="team-empty">
-            No members yet. Invites you send appear here as “invited” until they accept.
-          </Card>
-        ) : (
-          <table className="team-table">
-            <thead>
-              <tr>
-                <th>Member</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Manage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((m) => (
-                <tr key={m.memberId}>
-                  <td className="bb-mono">
-                    {m.emailMasked}
-                    {m.isSelf ? <Badge tone="info" style={{ marginLeft: "var(--space-2)" }}>You</Badge> : null}
-                  </td>
-                  <td>
-                    <Badge tone={ROLE_TONE[m.orgRole]}>{m.orgRole}</Badge>
-                  </td>
-                  <td>
-                    <Badge tone={STATUS_TONE[m.status]}>{m.status}</Badge>
-                  </td>
-                  <td>
-                    {m.isSelf || m.orgRole === "owner" ? (
-                      <span className="team-table__muted">—</span>
-                    ) : (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={pending}
-                        onClick={() => onRemove(m.memberId)}
-                      >
-                        Remove
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <section className="panel panel--table">
+        <div className="panel__head">
+          <h2 className="panel__title">Members</h2>
+          <p className="panel__sub">
+            Everyone who can sign in to this hiring desk. Emails stay masked.
+          </p>
+        </div>
+        <div className="panel__body">
+          {members.length === 0 ? (
+            <div className="state">
+              <span className="state__icon">
+                <i className="ph ph-users-three" aria-hidden="true" />
+              </span>
+              <h3 className="state__title">No members yet</h3>
+              <p className="state__body">
+                Invites you send appear here as “invited” until they accept.
+              </p>
+              <div className="state__actions">
+                {/* Same-page recovery: the invite field is directly above. */}
+                <a className="bb-btn bb-btn--secondary bb-btn--sm" href="#invite-email">
+                  Invite a recruiter
+                </a>
+              </div>
+            </div>
+          ) : (
+            <div className="tablewrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th scope="col">Member</th>
+                    <th scope="col">Role</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Manage</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map((m) => (
+                    <tr key={m.memberId}>
+                      <td className="mono">
+                        {m.emailMasked}
+                        {m.isSelf ? (
+                          <>
+                            {" "}
+                            <Badge tone="info">You</Badge>
+                          </>
+                        ) : null}
+                      </td>
+                      <td>
+                        <Badge tone={ROLE_TONE[m.orgRole]}>{m.orgRole}</Badge>
+                      </td>
+                      <td>
+                        <Badge tone={STATUS_TONE[m.status]}>{m.status}</Badge>
+                      </td>
+                      <td className="rowactions">
+                        {m.isSelf || m.orgRole === "owner" ? (
+                          // Decorative placeholder: this row has no remove affordance (own row
+                          // or an owner). Hidden from AT so the cell reads as empty, not as "—".
+                          <span aria-hidden="true">—</span>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={pending}
+                            onClick={() => onRemove(m.memberId)}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </section>
     </>
   );

@@ -12,7 +12,7 @@ import {
   tradeLabel,
 } from "../../../../../lib/agency-view";
 import { bandLabel } from "../../../../../lib/masking";
-import { Badge, Card } from "../../../../../components/ds";
+import { Badge } from "../../../../../components/ds";
 
 export const dynamic = "force-dynamic";
 
@@ -39,34 +39,51 @@ export default async function AgencyJobDetailPage({
   const active = isActiveJob(job);
   return (
     <>
-      <p className="postings-back">
+      <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <div className="agency-job__head">
-        <h1 className="postings-title">{job.title}</h1>
-        <Badge tone={active ? "success" : "neutral"} upper>
-          {active ? "open" : "closed"}
-        </Badge>
+      <div className="page-head">
+        <div className="page-head__text">
+          <h1 className="page-head__title">{job.title}</h1>
+          <p className="page-head__sub">
+            One of your agency&rsquo;s own vacancies — what you asked for and how many people
+            have applied. No worker identities are shown here.
+          </p>
+        </div>
+        <div className="page-head__actions">
+          <Badge tone={active ? "success" : "neutral"} upper>
+            {active ? "open" : "closed"}
+          </Badge>
+        </div>
       </div>
 
-      <Card padding="md" className="agency-job">
-        <dl className="reveal-card__dl">
-          <dt>Trade</dt>
-          <dd>{tradeLabel(job.tradeKey)}</dd>
-          <dt>Location</dt>
-          <dd>{bandLabel([job.city, job.area]) || "—"}</dd>
-          <dt>Pay band</dt>
-          <dd className="bb-mono">{payBandLabel(job.payMin, job.payMax)}</dd>
-          <dt>Experience</dt>
-          <dd>{experienceBandLabel(job.minExperienceYears, job.maxExperienceYears)}</dd>
-          <dt>Needed by</dt>
-          <dd>{neededByLabel(job.neededBy)}</dd>
-          <dt>Applicants</dt>
-          <dd className="bb-mono">{job.applicantsReceived}</dd>
-          <dt>Posted</dt>
-          <dd className="bb-mono">{day(job.createdAt)}</dd>
-        </dl>
-      </Card>
+      <section className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">Vacancy details</h2>
+        </div>
+        <div className="panel__body">
+          {/* FACELESS: bands, counts and dates only — every value below is derived from the
+              vacancy itself, never from an applicant. */}
+          <dl className="kv">
+            <dt className="kv__k">Trade</dt>
+            <dd className="kv__v">{tradeLabel(job.tradeKey)}</dd>
+            <dt className="kv__k">Location</dt>
+            <dd className="kv__v">{bandLabel([job.city, job.area]) || "—"}</dd>
+            <dt className="kv__k">Pay band</dt>
+            <dd className="kv__v bb-mono">{payBandLabel(job.payMin, job.payMax)}</dd>
+            <dt className="kv__k">Experience</dt>
+            <dd className="kv__v">
+              {experienceBandLabel(job.minExperienceYears, job.maxExperienceYears)}
+            </dd>
+            <dt className="kv__k">Needed by</dt>
+            <dd className="kv__v">{neededByLabel(job.neededBy)}</dd>
+            <dt className="kv__k">Applicants</dt>
+            <dd className="kv__v ui-num">{job.applicantsReceived}</dd>
+            <dt className="kv__k">Posted</dt>
+            <dd className="kv__v bb-mono">{day(job.createdAt)}</dd>
+          </dl>
+        </div>
+      </section>
     </>
   );
 }

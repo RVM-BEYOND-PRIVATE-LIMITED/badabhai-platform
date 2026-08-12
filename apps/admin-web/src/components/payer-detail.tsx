@@ -40,6 +40,8 @@ export function PayerDetailView({
           </p>
           <h1 className="page__title mono">{shortId(payer.id)}</h1>
           <p className="page__sub">
+            One {kind === "Company" ? "employer" : "agency"} account — what it has posted
+            and spent, not who registered it.{" "}
             {labels.length > 0 ? (
               <>
                 Publishes as <strong>{labels.slice(0, 3).join(", ")}</strong>
@@ -154,9 +156,36 @@ export function PayerDetailView({
         </div>
 
         {postings === null ? (
-          <p className="empty">Their postings are unavailable right now.</p>
+          <div className="state state--error">
+            <h3 className="state__title">Their postings could not be loaded</h3>
+            <p className="state__body">
+              The account record above loaded, but the postings read failed — so this table
+              is missing, not empty. The same read supplies the self-declared labels in the
+              header, which is why this account is described without one.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href={`${backHref}/${payer.id}`}>
+                Reload this account
+              </Link>
+            </div>
+          </div>
         ) : postings.length === 0 ? (
-          <p className="empty">This account has not created a job posting yet.</p>
+          <div className="state">
+            <h3 className="state__title">No job postings yet</h3>
+            <p className="state__body">
+              This account has never created one, so it has published nothing to workers and
+              carries no self-declared label. A registered account that never posts is the
+              normal shape of an abandoned signup — the event timeline shows how far it got.
+            </p>
+            <div className="state__actions">
+              <Link
+                className="btn btn--ghost"
+                href={`/events?subjectType=payer&subjectId=${payer.id}`}
+              >
+                View event timeline
+              </Link>
+            </div>
+          </div>
         ) : (
           <div className="tablewrap">
             <table className="table">

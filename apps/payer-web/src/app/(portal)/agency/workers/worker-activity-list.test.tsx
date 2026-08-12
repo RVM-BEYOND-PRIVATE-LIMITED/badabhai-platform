@@ -129,20 +129,29 @@ describe("WorkerActivityList — a null lastActiveOn is honest, never a fabricat
   });
 
   it("drops the mono-tabular class on the fallback (it is text, not a number)", () => {
-    const tree = WorkerActivityList({ workers: [{ ...WORKER, lastActiveOn: null }] });
-    const cells: ReactElement[] = [];
-    const find = (node: ReactNode): void => {
-      if (node === null || node === undefined || typeof node !== "object") return;
-      if (Array.isArray(node)) return node.forEach(find);
-      const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-      if (String(el.props?.className ?? "").includes("agency-workers__last")) cells.push(el);
-      if (el.props && "children" in el.props) find(el.props.children);
+    // UI-1: the last-active cell is now a DS `.table` cell; the mono treatment is the shared
+    // `mono` class rather than the retired `agency-workers__last bb-mono` pair. The invariant
+    // is unchanged — a real coarse day is mono-tabular, the "Not seen yet" fallback is not —
+    // so this pins BOTH directions rather than only the negative one.
+    type Cell = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    const cellFor = (lastActiveOn: string | null): Cell => {
+      const cells: Cell[] = [];
+      const find = (node: ReactNode): void => {
+        if (node === null || node === undefined || typeof node !== "object") return;
+        if (Array.isArray(node)) return node.forEach(find);
+        const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+        if (el.type === "td" && el.props?.children === (lastActiveOn ?? "Not seen yet")) {
+          cells.push(el);
+        }
+        if (el.props && "children" in el.props) find(el.props.children);
+      };
+      find(WorkerActivityList({ workers: [{ ...WORKER, lastActiveOn }] }));
+      expect(cells.length).toBe(1);
+      return cells[0]!;
     };
-    find(tree);
-    expect(cells.length).toBe(1);
-    expect(String((cells[0]!.props as Record<string, unknown>).className)).not.toContain(
-      "bb-mono",
-    );
+
+    expect(String(cellFor(null).props.className ?? "")).not.toContain("mono");
+    expect(String(cellFor("2026-07-28").props.className ?? "")).toContain("mono");
   });
 });
 

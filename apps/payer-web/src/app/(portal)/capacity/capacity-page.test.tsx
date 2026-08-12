@@ -54,6 +54,8 @@ interface Collected {
   types: string[];
   components: unknown[];
   text: string[];
+  /** Every `className` on the tree — the page-spine primitives are asserted through this. */
+  classes: string[];
 }
 
 function walk(node: ReactNode, acc: Collected): void {
@@ -66,7 +68,8 @@ function walk(node: ReactNode, acc: Collected): void {
     for (const c of node) walk(c, acc);
     return;
   }
-  const el = node as ReactElement<{ children?: ReactNode }>;
+  const el = node as ReactElement<{ children?: ReactNode; className?: unknown }>;
+  if (el.props && typeof el.props.className === "string") acc.classes.push(el.props.className);
   if (typeof el.type === "string") {
     acc.types.push(el.type);
     if (el.props && "children" in el.props) walk(el.props.children, acc);
@@ -89,7 +92,7 @@ function walk(node: ReactNode, acc: Collected): void {
 }
 
 function collect(tree: ReactNode): Collected {
-  const acc: Collected = { types: [], components: [], text: [] };
+  const acc: Collected = { types: [], components: [], text: [], classes: [] };
   walk(tree, acc);
   return acc;
 }
@@ -169,6 +172,63 @@ describe("capacity page — D-6 cached-pricing fallback (live catalog unavailabl
   it("does NOT render the cached-pricing note when the catalog is live", async () => {
     const joined = collect(await CapacityPage()).text.join(" ");
     expect(joined).not.toMatch(/cached pricing/i);
+  });
+});
+
+/**
+ * UI-1 PAGE SPINE — the screen composes onto the shared primitives (page-back / page-head /
+ * stat-row / section / panel--table / alert / state) instead of its own `dash-title` /
+ * `capacity-section` / `capacity-state` / `capacity-empty` names. The neutral-failure and
+ * at-capacity assertions above still hold through the new markup; these pin the markup itself
+ * and the per-posting table's real empty state.
+ */
+describe("capacity page — UI-1 page spine + a real empty state for the per-posting table", () => {
+  it("renders the spine primitives and none of the retired bespoke class names", async () => {
+    const { classes } = collect(await CapacityPage());
+    expect(classes).toContain("page-back");
+    expect(classes).toContain("page-head");
+    expect(classes).toContain("page-head__title");
+    expect(classes).toContain("page-head__sub");
+    expect(classes).toContain("stat-row");
+    expect(classes).toContain("section");
+    expect(classes).toContain("panel panel--table");
+    expect(classes).toContain("alert alert--info");
+    for (const retired of [
+      "dash-title",
+      "dash-sub",
+      "capacity-back",
+      "capacity-section",
+      "capacity-state",
+      "capacity-stats",
+      "capacity-empty",
+      "capacity-table-card",
+      "capacity-nudge",
+    ]) {
+      expect(classes).not.toContain(retired);
+    }
+  });
+
+  it("the at-capacity banner is the DS alert, not an ad-hoc Card + Badge", async () => {
+    getCapacity.mockResolvedValueOnce(capacity({ activeVacancies: 10, activeVacancyAllowance: 10 }));
+    const { classes, text } = collect(await CapacityPage());
+    expect(classes).toContain("alert alert--warning");
+    expect(text.join(" ")).toContain("At capacity"); // intent of the A2 tests preserved
+  });
+
+  it("NO seeded rows renders a real empty state that says what to do next", async () => {
+    const { text, classes } = collect(await CapacityPage()); // default fixture: postings: []
+    const flat = text.join(" ").replace(/\s+/g, " ");
+    expect(flat).toContain("No postings yet");
+    expect(flat).toContain("You haven’t posted a job yet");
+    expect(flat).toContain("Post your first job"); // the recovery action
+    expect(classes).toContain("state");
+  });
+
+  it("the load-failure fallback is the DS error state (still neutral, still retryable)", async () => {
+    getCapacity.mockRejectedValueOnce(new Error("payer_id forbidden: secret backend reason"));
+    const { classes, components } = collect(await CapacityPage());
+    expect(classes).toContain("state state--error");
+    expect(components).toContain(RetryButtonStub);
   });
 });
 

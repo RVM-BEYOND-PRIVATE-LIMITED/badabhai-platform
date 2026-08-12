@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { e164PhoneSchema } from "@badabhai/validators";
-import { Badge, Button, Card, Input, Toast } from "../../../components/ds";
+import { Badge, Button, Input, Toast } from "../../../components/ds";
 import { updateAccountAction } from "./actions";
 import {
   ACCOUNT_SAVE_ERROR,
@@ -32,6 +32,11 @@ import {
  * NO-ORACLE / PRIVACY: the body is built from CHANGED fields only (Save is disabled while
  * pristine, so an empty body is never sent); any failure shows ONE neutral Toast — no
  * field-level oracle. Values are never placed in the URL / storage / analytics, never logged.
+ *
+ * UI-1: the form is the shared `form` spine (form__section / form__legend / form-actions /
+ * form-status) and no longer carries its own card surface — the PAGE wraps it in a `panel`,
+ * so /account and /profile stay one visual system. The read-only values (current phone,
+ * email, role, status) are `kv` rows rather than five bespoke label/value classes.
  */
 
 type Role = "employer" | "agent";
@@ -139,27 +144,33 @@ export function AccountForm({ orgName, email, phoneLast4, role, status }: Accoun
   const saveDisabled = pending || !isDirty;
 
   return (
-    <Card as="form" className="account-form" onSubmit={onSubmit}>
-      <Input
-        id="account-org"
-        label="Organisation name"
-        value={orgValue}
-        error={fieldErrors.orgName}
-        aria-invalid={fieldErrors.orgName ? true : undefined}
-        aria-describedby={orgErrorId}
-        autoComplete="organization"
-        onChange={(e) => {
-          setOrgValue(e.target.value);
-          setSaved(false);
-          if (fieldErrors.orgName) setFieldErrors((p) => ({ ...p, orgName: undefined }));
-        }}
-      />
+    <form className="form" onSubmit={onSubmit}>
+      <div className="form__section">
+        <p className="form__legend">Organisation</p>
+        <Input
+          id="account-org"
+          label="Organisation name"
+          value={orgValue}
+          error={fieldErrors.orgName}
+          aria-invalid={fieldErrors.orgName ? true : undefined}
+          aria-describedby={orgErrorId}
+          autoComplete="organization"
+          onChange={(e) => {
+            setOrgValue(e.target.value);
+            setSaved(false);
+            if (fieldErrors.orgName) setFieldErrors((p) => ({ ...p, orgName: undefined }));
+          }}
+        />
+      </div>
 
-      <div className="account-form__phone">
-        <p className="account-form__current">
-          <span className="account-form__current-label">Current phone</span>
-          <span className="bb-mono account-form__current-value">{currentPhone}</span>
-        </p>
+      <div className="form__section">
+        <p className="form__legend">Contact phone</p>
+        {/* The full number is never sent to the client — only the last 4. So the current
+            value is a READ-ONLY kv row and the input below is a separate, blank NEW value. */}
+        <dl className="kv">
+          <dt className="kv__k">Current phone</dt>
+          <dd className="kv__v bb-mono">{currentPhone}</dd>
+        </dl>
         <Input
           id="account-phone"
           label="New phone"
@@ -181,35 +192,50 @@ export function AccountForm({ orgName, email, phoneLast4, role, status }: Accoun
         />
       </div>
 
-      <div className="account-form__email">
-        <span className="account-form__email-label">Account email</span>
-        <span className="bb-mono account-form__email-value">{email}</span>
-        <span className="account-form__email-help">{EMAIL_SUPPORT_HELPER}</span>
+      <div className="form__section">
+        <p className="form__legend">Account</p>
+        {/* Read-only display only. Role/status are shown back to the payer; they are NEVER an
+            authorization decision (the server gates every write). */}
+        <dl className="kv">
+          <dt className="kv__k">Account email</dt>
+          <dd className="kv__v bb-mono">{email}</dd>
+          <dt className="kv__k">Role</dt>
+          <dd className="kv__v">
+            <Badge tone="brand" upper>
+              {ROLE_LABEL[role]}
+            </Badge>
+          </dd>
+          <dt className="kv__k">Status</dt>
+          <dd className="kv__v">
+            <Badge tone={STATUS_TONE[status]} upper>
+              {STATUS_LABEL[status]}
+            </Badge>
+          </dd>
+        </dl>
+        <p className="form__hint">{EMAIL_SUPPORT_HELPER}</p>
       </div>
 
-      <div className="account-form__meta">
-        <Badge tone="brand" upper>
-          {ROLE_LABEL[role]}
-        </Badge>
-        <Badge tone={STATUS_TONE[status]} upper>
-          {STATUS_LABEL[status]}
-        </Badge>
-      </div>
-
-      <div className="account-form__actions">
+      <div className="form-actions">
         <Button type="submit" iconLeft="floppy-disk" disabled={saveDisabled} loading={pending}>
           {pending ? "Saving…" : "Save changes"}
         </Button>
       </div>
 
-      <div aria-live="polite" className="account-form__status">
-        {saved ? <span className="account-form__saved">{SAVED_CONFIRMATION}</span> : null}
+      <div aria-live="polite" className="form-status">
+        {saved ? (
+          <div className="alert alert--success">
+            <i className="ph ph-check-circle alert__icon" aria-hidden="true" />
+            <div className="alert__text">
+              <p className="alert__body">{SAVED_CONFIRMATION}</p>
+            </div>
+          </div>
+        ) : null}
         {error ? (
           <Toast tone="danger" title="Couldn’t save">
             {ACCOUNT_SAVE_ERROR}
           </Toast>
         ) : null}
       </div>
-    </Card>
+    </form>
   );
 }

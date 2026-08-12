@@ -141,9 +141,16 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
   return (
     <>
       {packs.length === 0 ? (
-        <Card variant="flat" className="credits-empty">
-          No credit packs are currently offered.
-        </Card>
+        <div className="state">
+          <span className="state__icon">
+            <i className="ph ph-wallet" aria-hidden="true" />
+          </span>
+          <h3 className="state__title">No credit packs on offer</h3>
+          <p className="state__body">
+            There is nothing to buy right now — this usually means the price list is being
+            updated. Your existing balance is unaffected; check back shortly.
+          </p>
+        </div>
       ) : (
         <div className="credits-packs">
           {packs.map((p) => (

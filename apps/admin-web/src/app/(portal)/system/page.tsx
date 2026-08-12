@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireSession } from "../../../lib/auth";
 import { can } from "../../../lib/auth/capabilities";
 import { getHealth } from "../../../lib/events";
@@ -82,7 +83,19 @@ export default async function SystemPage() {
         </div>
 
         {health === null ? (
-          <p className="empty">The health probe is unreachable.</p>
+          <div className="state state--error">
+            <h3 className="state__title">The health probe is unreachable</h3>
+            <p className="state__body">
+              No dependency status could be read at all. That is itself a finding: either
+              the API is down, or this portal cannot reach it — and in both cases the
+              platform&apos;s real health is unknown from here rather than fine.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/system">
+                Retry the probe
+              </Link>
+            </div>
+          </div>
         ) : (
           <>
             <ul className="health">
@@ -117,12 +130,35 @@ export default async function SystemPage() {
         </div>
 
         {!maySeeSwitches ? (
-          <p className="empty">
-            Switch state requires the <code>toggle_kill_switch</code> capability (super admin
-            only). Dependency health above is available to every admin.
-          </p>
+          // Not an error: this half of the page is withheld by role, and saying so plainly
+          // is the difference between a permission boundary and a broken screen.
+          <div className="state">
+            <h3 className="state__title">Switch state is not available to your role</h3>
+            <p className="state__body">
+              Reading it requires the <code>toggle_kill_switch</code> capability, which only
+              a super admin holds. Nothing failed, and dependency health above is available
+              to every admin.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/roles">
+                See the capability matrix
+              </Link>
+            </div>
+          </div>
         ) : switches === null ? (
-          <p className="empty">Switch state is unavailable right now.</p>
+          <div className="state state--error">
+            <h3 className="state__title">Switch state could not be loaded</h3>
+            <p className="state__body">
+              You hold the capability, but the read failed — so which providers are live is
+              unknown here, not off. Never treat a missing switch table as proof that real
+              spend is disabled; confirm from the environment before acting on it.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href="/system">
+                Retry
+              </Link>
+            </div>
+          </div>
         ) : (
           <>
             <div className="tablewrap">

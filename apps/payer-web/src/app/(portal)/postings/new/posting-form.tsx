@@ -6,7 +6,7 @@ import { looksLikePii } from "@badabhai/validators";
 import { TRADE_KEYS } from "../../../../lib/contracts";
 import { tradeLabel } from "../../../../lib/agency-view";
 import { bandForVacancies, baseApplicantQuotaForBand } from "../../../../lib/pricing-config";
-import { Badge, Button, Card, Chip, Input, Textarea } from "../../../../components/ds";
+import { Badge, Button, Chip, Input, Textarea } from "../../../../components/ds";
 // Imported from the module path (not the ds barrel) so the form-validation test can mock
 // just this interactive combobox while rendering the other hookless DS primitives for real.
 import { SelectMenu } from "../../../../components/ds/select-menu";
@@ -246,108 +246,119 @@ export function PostingForm({
     derivedBand !== null ? baseApplicantQuotaForBand(derivedBand, quotaStep) : null;
 
   return (
-    <Card as="form" className="posting-form" onSubmit={onSubmit}>
-      <SelectMenu
-        id="tradeKey"
-        label="Trade"
-        value={fields.tradeKey}
-        options={TRADE_KEYS.map((t) => ({ value: t, label: tradeLabel(t) }))}
-        onChange={(v) => set("tradeKey", v)}
-      />
+    // UI-1 `.form`: one field per row at the reading measure, grouped into `.form__section`s.
+    // It replaces the bespoke `.posting-form` column (which declared the same three rules) and
+    // the DS Card that wrapped it — a form is the page's content here, not a card on it.
+    <form className="form" onSubmit={onSubmit}>
+      <div className="form__section">
+        <p className="form__legend">The role</p>
 
-      <Input
-        id="roleTitle"
-        label="Role title"
-        placeholder="CNC Machinist"
-        value={fields.roleTitle}
-        error={fieldErrors.roleTitle}
-        aria-invalid={fieldErrors.roleTitle ? true : undefined}
-        onChange={(e) => set("roleTitle", e.target.value)}
-      />
-
-      <Input
-        id="locationLabel"
-        label="Location"
-        optional
-        placeholder="Pune, MH"
-        value={fields.locationLabel}
-        onChange={(e) => set("locationLabel", e.target.value)}
-      />
-
-      <div className="posting-form__vacancies">
-        <Input
-          id="vacancies"
-          label="Vacancies"
-          inputMode="numeric"
-          placeholder="5"
-          value={fields.vacancies}
-          error={fieldErrors.vacancies}
-          aria-invalid={fieldErrors.vacancies ? true : undefined}
-          hint="How many people you need. We store this as a coarse band, never the exact count."
-          onChange={(e) => set("vacancies", e.target.value)}
+        <SelectMenu
+          id="tradeKey"
+          label="Trade"
+          value={fields.tradeKey}
+          options={TRADE_KEYS.map((t) => ({ value: t, label: tradeLabel(t) }))}
+          onChange={(v) => set("tradeKey", v)}
         />
-        {derivedBand !== null ? (
-          <div className="posting-form__band" aria-live="polite">
-            <Chip icon="users-three" aria-disabled="true" tabIndex={-1}>
-              Band {derivedBand}
-            </Chip>
-            {derivedQuota !== null ? (
-              <Badge tone="brand">
-                <span className="bb-mono">{derivedQuota}</span> applicant slots
-              </Badge>
-            ) : null}
-          </div>
-        ) : null}
+
+        <Input
+          id="roleTitle"
+          label="Role title"
+          placeholder="CNC Machinist"
+          value={fields.roleTitle}
+          error={fieldErrors.roleTitle}
+          aria-invalid={fieldErrors.roleTitle ? true : undefined}
+          onChange={(e) => set("roleTitle", e.target.value)}
+        />
+
+        <Input
+          id="locationLabel"
+          label="Location"
+          optional
+          placeholder="Pune, MH"
+          value={fields.locationLabel}
+          onChange={(e) => set("locationLabel", e.target.value)}
+        />
+
+        <div className="posting-form__vacancies">
+          <Input
+            id="vacancies"
+            label="Vacancies"
+            inputMode="numeric"
+            placeholder="5"
+            value={fields.vacancies}
+            error={fieldErrors.vacancies}
+            aria-invalid={fieldErrors.vacancies ? true : undefined}
+            hint="How many people you need. We store this as a coarse band, never the exact count."
+            onChange={(e) => set("vacancies", e.target.value)}
+          />
+          {derivedBand !== null ? (
+            <div className="posting-form__band" aria-live="polite">
+              <Chip icon="users-three" aria-disabled="true" tabIndex={-1}>
+                Band {derivedBand}
+              </Chip>
+              {derivedQuota !== null ? (
+                <Badge tone="brand">
+                  <span className="bb-mono">{derivedQuota}</span> applicant slots
+                </Badge>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
 
-      <div className="posting-form__pair">
-        <Input
-          id="payMin"
-          label="Pay band — min (₹ / month)"
-          optional
-          inputMode="numeric"
-          placeholder="20000"
-          value={fields.payMin}
-          error={fieldErrors.payMin}
-          aria-invalid={fieldErrors.payMin ? true : undefined}
-          onChange={(e) => set("payMin", e.target.value)}
-        />
-        <Input
-          id="payMax"
-          label="Pay band — max (₹ / month)"
-          optional
-          inputMode="numeric"
-          placeholder="35000"
-          value={fields.payMax}
-          error={fieldErrors.payMax}
-          aria-invalid={fieldErrors.payMax ? true : undefined}
-          onChange={(e) => set("payMax", e.target.value)}
-        />
-      </div>
+      <div className="form__section">
+        <p className="form__legend">Pay and experience</p>
 
-      <div className="posting-form__pair">
-        <Input
-          id="minExperienceYears"
-          label="Experience — min (years)"
-          optional
-          inputMode="numeric"
-          placeholder="1"
-          value={fields.minExperienceYears}
-          error={fieldErrors.minExperienceYears}
-          aria-invalid={fieldErrors.minExperienceYears ? true : undefined}
-          onChange={(e) => set("minExperienceYears", e.target.value)}
-        />
-        <Input
-          id="maxExperienceYears"
-          label="Experience — max (years)"
-          optional
-          inputMode="numeric"
-          placeholder="5"
-          value={fields.maxExperienceYears}
-          error={fieldErrors.maxExperienceYears}
-          aria-invalid={fieldErrors.maxExperienceYears ? true : undefined}
-          onChange={(e) => set("maxExperienceYears", e.target.value)}
-        />
+        <div className="form-grid">
+          <Input
+            id="payMin"
+            label="Pay band — min (₹ / month)"
+            optional
+            inputMode="numeric"
+            placeholder="20000"
+            value={fields.payMin}
+            error={fieldErrors.payMin}
+            aria-invalid={fieldErrors.payMin ? true : undefined}
+            onChange={(e) => set("payMin", e.target.value)}
+          />
+          <Input
+            id="payMax"
+            label="Pay band — max (₹ / month)"
+            optional
+            inputMode="numeric"
+            placeholder="35000"
+            value={fields.payMax}
+            error={fieldErrors.payMax}
+            aria-invalid={fieldErrors.payMax ? true : undefined}
+            onChange={(e) => set("payMax", e.target.value)}
+          />
+        </div>
+
+        <div className="form-grid">
+          <Input
+            id="minExperienceYears"
+            label="Experience — min (years)"
+            optional
+            inputMode="numeric"
+            placeholder="1"
+            value={fields.minExperienceYears}
+            error={fieldErrors.minExperienceYears}
+            aria-invalid={fieldErrors.minExperienceYears ? true : undefined}
+            onChange={(e) => set("minExperienceYears", e.target.value)}
+          />
+          <Input
+            id="maxExperienceYears"
+            label="Experience — max (years)"
+            optional
+            inputMode="numeric"
+            placeholder="5"
+            value={fields.maxExperienceYears}
+            error={fieldErrors.maxExperienceYears}
+            aria-invalid={fieldErrors.maxExperienceYears ? true : undefined}
+            onChange={(e) => set("maxExperienceYears", e.target.value)}
+          />
+        </div>
       </div>
 
       {/*
@@ -356,7 +367,8 @@ export function PostingForm({
         empty picker would read as "there are no skills" rather than "we could not load
         them". The submit button stays disabled in that case (no skill can be picked),
         which is the correct fail-closed outcome for a form whose whole job is to make
-        the posting reachable.
+        the posting reachable. The picker carries its own titled panel, so it is not
+        wrapped in a legend'd section that would title it twice.
       */}
       {matchSkills.length > 0 ? (
         <MatchSkillPicker
@@ -366,25 +378,34 @@ export function PostingForm({
           onPreviewChange={setPreview}
         />
       ) : (
-        <p className="posting-form__error">
-          Could not load the skill list. Reload the page — a job needs at least one skill
-          before workers can find it.
-        </p>
+        <div className="alert alert--danger">
+          <i className="ph ph-warning-circle alert__icon" aria-hidden="true" />
+          <div className="alert__text">
+            <p className="alert__title">Could not load the skill list</p>
+            <p className="alert__body">
+              Reload the page — a job needs at least one skill before workers can find it.
+            </p>
+          </div>
+        </div>
       )}
 
-      <Textarea
-        id="description"
-        label="Description"
-        optional
-        placeholder="Shift timings, machines, location notes…"
-        value={fields.description}
-        error={fieldErrors.description}
-        aria-invalid={fieldErrors.description ? true : undefined}
-        hint="Never include a phone number or email — share contact only after you unlock a candidate."
-        onChange={(e) => set("description", e.target.value)}
-      />
+      <div className="form__section">
+        <p className="form__legend">Details</p>
 
-      <div className="posting-form__actions">
+        <Textarea
+          id="description"
+          label="Description"
+          optional
+          placeholder="Shift timings, machines, location notes…"
+          value={fields.description}
+          error={fieldErrors.description}
+          aria-invalid={fieldErrors.description ? true : undefined}
+          hint="Never include a phone number or email — share contact only after you unlock a candidate."
+          onChange={(e) => set("description", e.target.value)}
+        />
+      </div>
+
+      <div className="form-actions">
         <Button
           type="submit"
           size="lg"
@@ -400,9 +421,9 @@ export function PostingForm({
               : "Post job"}
         </Button>
       </div>
-      <div aria-live="polite" className="posting-form__status">
+      <div aria-live="polite" className="form-status">
         {error ? <p className="posting-form__error">{error}</p> : null}
       </div>
-    </Card>
+    </form>
   );
 }

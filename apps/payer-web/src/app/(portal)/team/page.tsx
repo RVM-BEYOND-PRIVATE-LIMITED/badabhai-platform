@@ -19,14 +19,18 @@ export default async function TeamPage() {
 
   return (
     <>
-      <p className="chrome-sub" style={{ marginBottom: "var(--space-2)" }}>
+      <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <h1 className="chrome-title">Team</h1>
-      <p className="chrome-sub">
-        Invite recruiters to your hiring desk and manage who can post, search, and unlock.
-        Billing &amp; wallet stay with owners.
-      </p>
+      <div className="page-head">
+        <div className="page-head__text">
+          <h1 className="page-head__title">Team</h1>
+          <p className="page-head__sub">
+            Invite recruiters to your hiring desk and manage who can post, search, and unlock.
+            Billing &amp; wallet stay with owners.
+          </p>
+        </div>
+      </div>
 
       <TeamManager members={members} />
     </>

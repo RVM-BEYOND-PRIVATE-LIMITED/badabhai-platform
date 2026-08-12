@@ -204,15 +204,16 @@ export function ApplicantActions({
   return (
     <>
       {balance === 0 ? (
-        <Card variant="outline" className="applicants-warn">
-          <Badge tone="warning" upper>
-            0 credits
-          </Badge>
-          <p className="applicants-warn__msg">
-            <Link href="/credits">Top up</Link> to unlock a candidate&rsquo;s routed contact. This
-            is your own balance — not a signal about any candidate.
-          </p>
-        </Card>
+        <div className="alert alert--warning">
+          <i className="ph ph-coins alert__icon" aria-hidden="true" />
+          <div className="alert__text">
+            <p className="alert__title">0 credits</p>
+            <p className="alert__body">
+              <Link href="/credits">Top up</Link> to unlock a candidate&rsquo;s routed contact.
+              This is your own balance — not a signal about any candidate.
+            </p>
+          </div>
+        </div>
       ) : null}
 
       {/* Two-stage pipeline tabs. Keep moves New→Shortlist; Pass dismisses (both LOCAL). */}
@@ -235,10 +236,46 @@ export function ApplicantActions({
       {visible.length === 0 ? (
         // Per-stage empty copy: New and Shortlist each show their OWN neutral message (the
         // page-level "no applicants on this posting yet" lives in page.tsx). Faceless — no PII.
-        <Card variant="flat" className="applicants-empty">
-          {activeStage === "new"
-            ? "No candidates in New. Anything you Kept is under Shortlist; anything you Passed is hidden."
-            : "No shortlisted candidates yet. Use Keep on a New candidate to move them here."}
+        // The recovery action is the OTHER stage: it is a LOCAL tab switch (the same state the
+        // segmented control above writes) — no network, no event, nothing persisted.
+        <Card>
+          <div className="state">
+            <span className="state__icon">
+              <i
+                className={activeStage === "new" ? "ph ph-tray" : "ph ph-bookmark-simple"}
+                aria-hidden="true"
+              />
+            </span>
+            {activeStage === "new" ? (
+              <>
+                <h3 className="state__title">No candidates in New</h3>
+                <p className="state__body">
+                  Anything you Kept is under Shortlist; anything you Passed is hidden.
+                </p>
+                <div className="state__actions">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setActiveStage("shortlist")}
+                  >
+                    View Shortlist
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="state__title">No shortlisted candidates yet</h3>
+                <p className="state__body">
+                  Use Keep on a New candidate to move them here.
+                </p>
+                <div className="state__actions">
+                  <Button variant="secondary" size="sm" onClick={() => setActiveStage("new")}>
+                    View New
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
         </Card>
       ) : (
         <div className="applicants-list">

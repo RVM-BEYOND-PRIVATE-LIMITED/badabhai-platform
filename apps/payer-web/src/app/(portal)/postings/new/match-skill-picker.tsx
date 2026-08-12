@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Badge, Card, Chip } from "../../../../components/ds";
+import { Badge, Chip } from "../../../../components/ds";
 import type { MatchSkillWire, ReachPreview } from "../../../../lib/contracts";
 import { previewReachAction } from "./match-actions";
 
@@ -129,92 +129,111 @@ export function MatchSkillPicker({
   }
 
   return (
-    <Card className="match-picker">
-      <div className="match-picker__head">
-        <h3 className="match-picker__title">Which skill are you hiring for?</h3>
-        <p className="match-picker__hint">
+    // A titled bordered block = the UI-1 `.panel`. `.match-picker` moves onto the body as the
+    // column that spaces the chip rows, the reach strip and the zero-reach alert.
+    <section className="panel">
+      <div className="panel__head">
+        <h2 className="panel__title">Which skill are you hiring for?</h2>
+        <p className="panel__sub">
           Pick up to {maxSkills}. Only workers who have one of these — or a closely
           related skill you keep ticked — will see this job.
         </p>
       </div>
 
-      <div className="match-picker__vocab" role="group" aria-label="Match skills">
-        {vocabulary.map((v) => {
-          const selected = selection.matchSkillIds.includes(v.skill_id);
-          return (
-            <Chip
-              key={v.skill_id}
-              selected={selected}
-              disabled={!selected && atCap}
-              onClick={() => togglePosted(v.skill_id)}
-            >
-              {v.label}
-            </Chip>
-          );
-        })}
-      </div>
-
-      {selection.matchSkillIds.length === 0 ? (
-        <p className="match-picker__empty">
-          Pick a skill to see how many workers this job would reach.
-        </p>
-      ) : null}
-
-      {preview?.skills.map((s) =>
-        s.related.length === 0 ? null : (
-          <div key={s.skill_id} className="match-picker__related">
-            <p className="match-picker__related-label">
-              Also show to workers with these, near <strong>{s.label}</strong>:
-            </p>
-            <div role="group" aria-label={`Related to ${s.label}`}>
-              {s.related.map((r) => (
+      <div className="panel__body">
+        <div className="match-picker">
+          <div className="match-picker__vocab" role="group" aria-label="Match skills">
+            {vocabulary.map((v) => {
+              const selected = selection.matchSkillIds.includes(v.skill_id);
+              return (
                 <Chip
-                  key={r.skill_id}
-                  selected={r.ticked}
-                  onClick={() => toggleRelated(r.skill_id)}
+                  key={v.skill_id}
+                  selected={selected}
+                  disabled={!selected && atCap}
+                  onClick={() => togglePosted(v.skill_id)}
                 >
-                  {r.label} · +{r.reach_count}
+                  {v.label}
                 </Chip>
-              ))}
-            </div>
+              );
+            })}
           </div>
-        ),
-      )}
 
-      <div className="match-picker__reach" aria-live="polite">
-        {preview ? (
-          <>
-            <Badge tone={preview.zero_reach ? "warning" : "brand"}>
-              Reaches <span className="bb-mono">{preview.reach_total}</span>{" "}
-              {preview.reach_total === 1 ? "worker" : "workers"}
-            </Badge>
-            <span className="match-picker__tier1">
-              <span className="bb-mono">{preview.reach_tier1}</span> have the exact skill
-            </span>
-          </>
-        ) : null}
-        {loading ? <span className="match-picker__loading">Checking reach…</span> : null}
-        {error ? <p className="match-picker__error">{error}</p> : null}
-      </div>
+          {selection.matchSkillIds.length === 0 ? (
+            // Nothing picked ⇒ there is no reach to report yet. Say that, rather than
+            // leaving the counter strip blank and letting it read as "reaches nobody".
+            <div className="state">
+              <span className="state__icon">
+                <i className="ph ph-crosshair" aria-hidden="true" />
+              </span>
+              <h3 className="state__title">No skill picked yet</h3>
+              <p className="state__body">
+                Pick a skill to see how many workers this job would reach.
+              </p>
+            </div>
+          ) : null}
 
-      {/*
-        E13 — the zero-reach interstitial. It does NOT block the payer: they may know
-        supply is coming, and refusing outright would be us overriding their judgement.
-        It blocks the SURPRISE. The submit control reads the same preview and downgrades
-        its label, so nobody pays for a posting into a void without having been told.
-      */}
-      {preview?.zero_reach ? (
-        <div className="match-picker__zero" role="alert">
-          <p>
-            <strong>No worker matches this yet.</strong> Nobody on BadaBhai currently has
-            these skills, so this posting will not appear in anyone&apos;s feed.
-          </p>
-          <p>
-            Try ticking more related skills above, or pick a broader skill. You can still
-            post — we will show it as soon as a matching worker joins.
-          </p>
+          {preview?.skills.map((s) =>
+            s.related.length === 0 ? null : (
+              <div key={s.skill_id} className="match-picker__related">
+                <p className="match-picker__related-label">
+                  Also show to workers with these, near <strong>{s.label}</strong>:
+                </p>
+                <div role="group" aria-label={`Related to ${s.label}`}>
+                  {s.related.map((r) => (
+                    <Chip
+                      key={r.skill_id}
+                      selected={r.ticked}
+                      onClick={() => toggleRelated(r.skill_id)}
+                    >
+                      {r.label} · +{r.reach_count}
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+            ),
+          )}
+
+          <div className="match-picker__reach" aria-live="polite">
+            {preview ? (
+              <>
+                <Badge tone={preview.zero_reach ? "warning" : "brand"}>
+                  Reaches <span className="bb-mono">{preview.reach_total}</span>{" "}
+                  {preview.reach_total === 1 ? "worker" : "workers"}
+                </Badge>
+                <span className="match-picker__tier1">
+                  <span className="bb-mono">{preview.reach_tier1}</span> have the exact skill
+                </span>
+              </>
+            ) : null}
+            {loading ? <span className="match-picker__loading">Checking reach…</span> : null}
+            {/* A transient preview failure keeps the LAST good count on screen (see the
+                effect above), so this stays an inline line beside it — promoting it to a
+                full error state would imply the number above had gone away. */}
+            {error ? <p className="match-picker__error">{error}</p> : null}
+          </div>
+
+          {/*
+            E13 — the zero-reach interstitial. It does NOT block the payer: they may know
+            supply is coming, and refusing outright would be us overriding their judgement.
+            It blocks the SURPRISE. The submit control reads the same preview and downgrades
+            its label, so nobody pays for a posting into a void without having been told.
+          */}
+          {preview?.zero_reach ? (
+            <div className="alert alert--warning" role="alert">
+              <i className="ph ph-warning alert__icon" aria-hidden="true" />
+              <div className="alert__text">
+                <p className="alert__title">No worker matches this yet</p>
+                <p className="alert__body">
+                  Nobody on BadaBhai currently has these skills, so this posting will not
+                  appear in anyone&apos;s feed. Try ticking more related skills above, or pick
+                  a broader skill. You can still post — we will show it as soon as a matching
+                  worker joins.
+                </p>
+              </div>
+            </div>
+          ) : null}
         </div>
-      ) : null}
-    </Card>
+      </div>
+    </section>
   );
 }

@@ -42,14 +42,19 @@ export default async function EventDetailPage({
     <div className="page">
       <header className="page__head">
         <div>
-          <p className="crumb">
+          {/* `.page__eyebrow`, not `.crumb`: `.crumb` is the TOPBAR breadcrumb primitive
+              (nowrap + ellipsis, sized for the sticky bar), and this is the section
+              backlink every other detail screen in the portal renders. */}
+          <p className="page__eyebrow">
             <Link className="link" href="/events">
               Events
             </Link>
           </p>
           <h1 className="page__title">{humanizeEventName(event.event_name)}</h1>
           <p className="page__sub">
-            <time dateTime={event.occurred_at}>{formatTimestamp(event.occurred_at)}</time>
+            One audit record in full — its envelope, its verbatim payload, and the causal
+            chain it belongs to. Recorded{" "}
+            <time dateTime={event.occurred_at}>{formatTimestamp(event.occurred_at)}</time>.
           </p>
         </div>
       </header>
@@ -103,12 +108,41 @@ export default async function EventDetailPage({
             Everything sharing this correlation id — what led here, and what followed.
           </p>
         </div>
-        {siblings.length === 0 ? (
-          <p className="empty">
-            {trace === null
-              ? "The chain could not be loaded."
-              : "This event is alone in its correlation chain."}
-          </p>
+        {/* A failed trace read and a genuinely solitary event used to share one sentence.
+            They are opposite facts — "we do not know" versus "we know there is nothing" —
+            and an operator reconstructing an incident has to be able to tell them apart. */}
+        {trace === null ? (
+          <div className="state state--error">
+            <h3 className="state__title">The chain could not be loaded</h3>
+            <p className="state__body">
+              The trace read failed, so it is unknown whether this event has siblings. Do
+              not read this as an isolated event. The envelope and payload above came from a
+              separate read and are unaffected.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href={`/events/${event.id}`}>
+                Reload this event
+              </Link>
+            </div>
+          </div>
+        ) : siblings.length === 0 ? (
+          <div className="state">
+            <h3 className="state__title">Alone in its correlation chain</h3>
+            <p className="state__body">
+              Nothing else was recorded under this correlation id — this action neither
+              followed from nor caused another event on the spine. For a self-contained
+              action that is expected; for one that should have triggered a downstream
+              effect, it is the evidence that the effect never happened.
+            </p>
+            <div className="state__actions">
+              <Link
+                className="btn btn--ghost"
+                href={`/events?eventName=${encodeURIComponent(event.event_name)}`}
+              >
+                Other {humanizeEventName(event.event_name)} events
+              </Link>
+            </div>
+          </div>
         ) : (
           <ol className="chain">
             {siblings.map((e) => (

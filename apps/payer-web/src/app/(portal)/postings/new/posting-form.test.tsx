@@ -295,6 +295,28 @@ function collect(tree: ReactNode): Collected {
   return acc;
 }
 
+/**
+ * Every STATIC className token in the form's own markup. Deliberately does NOT render the DS
+ * function components (unlike `walk`): this asserts the SCREEN's structure — the UI-1 form
+ * spine and the shared alert — not the internal classes a DS primitive happens to emit.
+ */
+function classTokens(tree: ReactNode): Set<string> {
+  const out = new Set<string>();
+  (function w(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") return;
+    if (Array.isArray(node)) {
+      node.forEach(w);
+      return;
+    }
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    const cls = el.props?.className;
+    if (typeof cls === "string") for (const t of cls.split(/\s+/)) if (t) out.add(t);
+    if (el.props && "children" in el.props) w(el.props.children as ReactNode);
+  })(tree);
+  return out;
+}
+
 const BLANK_FIELDS = {
   tradeKey: "cnc_operator",
   roleTitle: "",
@@ -330,6 +352,21 @@ describe("PostingForm render — every demand field is present with the right co
     ]) {
       expect(tagById[id]).toBe("input");
     }
+  });
+});
+
+describe("PostingForm render — UI-1 form spine (the fields are grouped, not a flat stack)", () => {
+  it("composes onto .form / .form__section / .form-grid / .form-actions / .form-status", () => {
+    const tree = render({ fields: BLANK_FIELDS, fieldErrors: {} });
+    // The root is the form primitive itself — the DS Card wrapper and the bespoke
+    // `.posting-form` column it duplicated are retired.
+    expect((tree.props as { className?: string }).className).toBe("form");
+    const tokens = classTokens(tree);
+    for (const c of ["form__section", "form__legend", "form-grid", "form-actions", "form-status"]) {
+      expect(tokens.has(c), `missing ${c}`).toBe(true);
+    }
+    expect(tokens.has("posting-form")).toBe(false);
+    expect(tokens.has("posting-form__pair")).toBe(false);
   });
 });
 
@@ -441,6 +478,11 @@ describe("PostingForm render — ADR-0036 match surface", () => {
     };
     expect(joined(seed)).toContain("Could not load the skill list");
     expect(collect(render(seed)).buttons.find((b) => b.type === "submit")!.disabled).toBe(true);
+    // UI-1: that failure is the shared inline `.alert` (danger tone + a recovery line),
+    // not the bespoke `.posting-form__error` paragraph it used to be.
+    const tokens = classTokens(render(seed));
+    expect(tokens.has("alert")).toBe(true);
+    expect(tokens.has("alert--danger")).toBe(true);
   });
 
   it("E13: a zero-reach preview relabels the submit button so nobody posts into a void unknowingly", () => {

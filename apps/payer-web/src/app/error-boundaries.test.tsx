@@ -26,6 +26,12 @@ vi.mock("react", async () => {
  *
  * `global-error.tsx` imports `./globals.css`; alias it to a no-op so the node test can import
  * the module (vitest does not process CSS).
+ *
+ * UI-1 adds a SECOND fence below: all three boundaries must render the shared DS `.state
+ * state--error` block (they used to each carry a private chrome-title/chrome-sub/chrome-actions
+ * copy of the pattern), and `global-error.tsx` must render NO `ph ph-*` glyph — it replaces the
+ * root layout, which is the only thing that loads the Phosphor sheet, so an icon there would
+ * paint as tofu.
  */
 
 vi.mock("./globals.css", () => ({}));
@@ -38,6 +44,7 @@ interface Collected {
   types: string[];
   text: string[];
   onClicks: Array<() => void>;
+  classNames: string[];
 }
 
 function walk(node: ReactNode, acc: Collected): void {
@@ -50,14 +57,19 @@ function walk(node: ReactNode, acc: Collected): void {
     for (const c of node) walk(c, acc);
     return;
   }
-  const el = node as ReactElement<{ children?: ReactNode; onClick?: () => void }>;
+  const el = node as ReactElement<{
+    children?: ReactNode;
+    onClick?: () => void;
+    className?: string;
+  }>;
   if (typeof el.type === "string") acc.types.push(el.type);
+  if (el.props && typeof el.props.className === "string") acc.classNames.push(el.props.className);
   if (el.props && typeof el.props.onClick === "function") acc.onClicks.push(el.props.onClick);
   if (el.props && "children" in el.props) walk(el.props.children, acc);
 }
 
 function collect(tree: ReactNode): Collected {
-  const acc: Collected = { types: [], text: [], onClicks: [] };
+  const acc: Collected = { types: [], text: [], onClicks: [], classNames: [] };
   walk(tree, acc);
   return acc;
 }
@@ -101,5 +113,40 @@ describe.each(BOUNDARIES)("%s — CAUSE-FREE neutral boundary (B5)", (_name, Bou
     expect(onClicks.length).toBeGreaterThan(0);
     onClicks.forEach((fn) => fn());
     expect(reset).toHaveBeenCalled();
+  });
+
+  it("renders the shared DS error STATE block (not a private chrome-* copy of it)", () => {
+    const { classNames } = collect(Boundary({ error: secretError(), reset: vi.fn() }));
+    const tokens = new Set(classNames.flatMap((c) => c.split(/\s+/)).filter(Boolean));
+
+    // The one error language every payer surface uses, plus a real recovery slot.
+    expect(tokens).toContain("state");
+    expect(tokens).toContain("state--error");
+    expect(tokens).toContain("state__title");
+    expect(tokens).toContain("state__body");
+    expect(tokens).toContain("state__actions");
+
+    // The retired per-boundary chrome classes must not come back.
+    expect(tokens).not.toContain("chrome-title");
+    expect(tokens).not.toContain("chrome-sub");
+    expect(tokens).not.toContain("chrome-actions");
+  });
+});
+
+describe("global-error.tsx — no icon font is loaded on that surface", () => {
+  it("renders NO `ph ph-*` glyph (the root layout that loads Phosphor is exactly what failed)", () => {
+    const { classNames } = collect(
+      GlobalError({ error: secretError(), reset: vi.fn() }),
+    );
+    const tokens = classNames.flatMap((c) => c.split(/\s+/)).filter(Boolean);
+    expect(tokens.filter((t) => t === "ph" || t.startsWith("ph-"))).toEqual([]);
+  });
+
+  it("the in-layout boundaries DO carry the icon (the sheet is loaded there)", () => {
+    for (const Boundary of [RootError, PortalError]) {
+      const { classNames } = collect(Boundary({ error: secretError(), reset: vi.fn() }));
+      const tokens = classNames.flatMap((c) => c.split(/\s+/)).filter(Boolean);
+      expect(tokens).toContain("ph");
+    }
   });
 });

@@ -14,6 +14,10 @@ import { Badge, Button, Input, Toast } from "../../../components/ds";
  * CHANGED fields only with NO `payer_id`; client validation parity (a non-E.164 phone / a
  * 1-char org are rejected BEFORE the action runs); a pristine form keeps Save disabled; and
  * the no-oracle error path renders ONE neutral Toast.
+ *
+ * UI-1: the root is now the shared `<form className="form">` spine (the page owns the panel
+ * surface around it) instead of a `Card as="form"` — the submit handler still hangs off the
+ * root element, so the walk below is unchanged.
  */
 
 const updateAccountAction = vi.fn();
@@ -104,7 +108,7 @@ function findAll(node: ReactNode, type: unknown, acc: ReactElement[] = []): Reac
 
 const p = (el: ReactElement): Record<string, unknown> => el.props as Record<string, unknown>;
 
-/** The form's onSubmit handler lives on the root `Card as="form"`. */
+/** The form's onSubmit handler lives on the root element — the `<form className="form">`. */
 function submitHandler(tree: ReactElement): (e: { preventDefault: () => void }) => void {
   return p(tree).onSubmit as (e: { preventDefault: () => void }) => void;
 }
@@ -123,6 +127,12 @@ beforeEach(() => {
 });
 
 describe("AccountForm — edit affordances", () => {
+  it("renders on the shared `form` spine (the page owns the panel surface around it)", () => {
+    const tree = render({});
+    expect(tree.type).toBe("form");
+    expect(String(p(tree).className).split(/\s+/)).toContain("form");
+  });
+
   it("pre-fills the org Input with the current org name and offers a blank NEW-phone Input", () => {
     const tree = render({});
     const inputs = findAll(tree, Input);

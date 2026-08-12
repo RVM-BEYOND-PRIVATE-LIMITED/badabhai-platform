@@ -1,0 +1,21 @@
+<!--
+  BadaBhai favicon (INTERNAL admin console). admin-web shipped with no icon at all, so
+  the tab fell back to the browser's generic globe.
+
+  Same mark and geometry as the payer portal, inverted onto the structural deep blue so
+  an operator with both portals open can tell the two tabs apart at 16px. Literals are
+  the RESOLVED values of the tokens the mark is built from (src/styles/tokens.css):
+
+    ground   --blue-500  = #123d8c   (structure — the internal console)
+    bubble   --brand     = #ffc400   (haldi)
+    chevron  --blue-500  = #123d8c   (knocked out of the bubble)
+
+  Deep blue on haldi is the design system's own rule ("text on haldi is ALWAYS deep
+  blue", --text-on-brand), so the inversion stays on-brand rather than inventing a
+  second identity. Keep in step whenever --brand / --blue-500 move.
+-->
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BadaBhai Admin">
+  <rect width="512" height="512" rx="128" fill="#123d8c"></rect>
+  <path d="M150 124h212a40 40 0 0 1 40 40v132a40 40 0 0 1-40 40H252l-78 62a12 12 0 0 1-19.4-9.4V336h-4.6a40 40 0 0 1-40-40V164a40 40 0 0 1 40-40Z" fill="#ffc400"></path>
+  <path d="M196 268l60-58 60 58" stroke="#123d8c" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>

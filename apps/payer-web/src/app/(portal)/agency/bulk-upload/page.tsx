@@ -2,7 +2,6 @@ import Link from "next/link";
 import { requireAgent } from "../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../lib/config";
 import { notFound } from "next/navigation";
-import { Card, Badge } from "../../../../components/ds";
 
 export const dynamic = "force-dynamic";
 
@@ -25,36 +24,55 @@ export default async function BulkUploadPage() {
 
   return (
     <>
-      <p className="capacity-back">
+      <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <h1 className="dash-title">Bulk Upload</h1>
-      <p className="dash-sub">Bulk invite upload is not available.</p>
-
-      <Card variant="flat" className="agency-parked__card" aria-disabled="true">
-        <div className="agency-parked__head">
-          <h3 className="agency-parked__title">Bulk invite upload</h3>
-          <Badge tone="warning" upper>Not available</Badge>
+      <div className="page-head">
+        <div className="page-head__text">
+          <h1 className="page-head__title">Bulk Upload</h1>
+          <p className="page-head__sub">Bulk invite upload is not available.</p>
         </div>
-        <p className="agency-parked__note">
-          Not available: consent violation. Uploading a list of workers&rsquo; names or phone
-          numbers would mean BadaBhai holds contact details for people who have not consented.
-          This is not pending a release — it will not be built.
-        </p>
-      </Card>
+      </div>
 
-      <Card variant="flat" className="agency-parked__card">
-        <div className="agency-parked__head">
-          <h3 className="agency-parked__title">Inviting many workers at once</h3>
-          <Badge tone="success" upper>Live</Badge>
+      {/*
+        Both blocks are the UI-1 `alert` primitive, which is the DS replacement for the
+        "flat Card + uppercase Badge + paragraph" this page used to build by hand. The
+        uppercase status Badge is now the alert's TONE SPINE (warning = will not be built,
+        success = shipped and live); the wording that carries the meaning is unchanged, and
+        "Not available: consent violation" still leads the copy verbatim so the reason — not
+        a release date — is the first thing read.
+      */}
+      <div className="alert alert--warning">
+        <i className="ph ph-prohibit alert__icon" aria-hidden="true" />
+        <div className="alert__text">
+          <p className="alert__title">Bulk invite upload</p>
+          <p className="alert__body">
+            Not available: consent violation. Uploading a list of workers&rsquo; names or phone
+            numbers would mean BadaBhai holds contact details for people who have not
+            consented. This is not pending a release — it will not be built.
+          </p>
         </div>
-        <p className="agency-parked__note">
-          Create <strong>batch invite links</strong> instead: BadaBhai generates several
-          anonymous links that identify nobody, and each worker joins and gives their own
-          consent. You upload nothing.{" "}
-          <Link href="/agency/referrals#batch-invites">Create batch invite links</Link>
-        </p>
-      </Card>
+      </div>
+
+      <div className="alert alert--success">
+        <i className="ph ph-link alert__icon" aria-hidden="true" />
+        <div className="alert__text">
+          <p className="alert__title">Inviting many workers at once</p>
+          <p className="alert__body">
+            Create <strong>batch invite links</strong> instead: BadaBhai generates several
+            anonymous links that identify nobody, and each worker joins and gives their own
+            consent. You upload nothing.
+          </p>
+        </div>
+        <div className="alert__actions">
+          <Link
+            className="bb-btn bb-btn--secondary bb-btn--sm"
+            href="/agency/referrals#batch-invites"
+          >
+            Create batch invite links
+          </Link>
+        </div>
+      </div>
     </>
   );
 }

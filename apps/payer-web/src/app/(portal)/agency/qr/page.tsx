@@ -26,14 +26,30 @@ export default async function QrPage() {
 
   return (
     <>
-      <p className="capacity-back">
+      <p className="page-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <h1 className="dash-title">QR invite</h1>
-      <p className="dash-sub">
-        Create an invite link as a QR code, then print it and put it up where workers already
-        are — a gate, a canteen, a chai stall. Workers scan it and join themselves.
-      </p>
+      {/*
+        PRINT COUPLING (do not "clean up" the second class). The poster's print block in
+        globals.css strips the on-screen furniture BY NAME once a sheet exists
+        (`body:has(.agency-qr__sheet) .page-back, … .dash-title, .dash-sub { display:none }`).
+        The heading and its one-line purpose are on the UI-1 page-head primitives; the legacy
+        `dash-sub` token rides along on the WRAPPER purely as that print hook, so the whole
+        head (title, sub AND its section-gap margin) leaves the paper exactly as it did
+        before. It changes nothing on screen: every property `.dash-sub` sets (colour,
+        font-size, margin-bottom) is re-declared later in the sheet by `.page-head` /
+        `.page-head__title` / `.page-head__sub`, which win the cascade. Dropping it would
+        print "QR invite" and this paragraph across the top of the wall poster.
+      */}
+      <div className="page-head dash-sub">
+        <div className="page-head__text">
+          <h1 className="page-head__title">QR invite</h1>
+          <p className="page-head__sub">
+            Create an invite link as a QR code, then print it and put it up where workers
+            already are — a gate, a canteen, a chai stall. Workers scan it and join themselves.
+          </p>
+        </div>
+      </div>
 
       <AgencyQrInvite />
     </>

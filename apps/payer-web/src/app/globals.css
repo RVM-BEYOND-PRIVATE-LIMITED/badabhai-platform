@@ -8,6 +8,13 @@
  * value resolves. Source of truth: docs/design/BadaBhai Design System/components/. */
 @import "../styles/ds-components.css";
 
+/* UI-1 — `.form`, `.section` and `.req` USED to be defined in this legacy block. They are
+ * now design-system primitives (see the UI-1 PAGE FURNITURE / FORM LAYOUT sections at the
+ * foot of this file), so the legacy definitions were removed rather than left to collide:
+ * with both present a `.form` inherited the legacy panel background, border and 480px cap
+ * on top of the new flex layout, which is a silent visual bug rather than a duplicate rule.
+ * The remaining legacy classes below are untouched and are still being migrated away. */
+
 /* ------------------------------------------------------------------
  * LEGACY portal COMPONENT palette (pre-design-system). These vars back the older
  * component classes (.btn / .card / .badge / .note / .input / …); JUL31 re-points
@@ -36,7 +43,7 @@
 
 /* Sticky footer — the body is a viewport-tall flex column so `.chrome-footer` always sits at
    the page END (only scrolling below the fold when content overflows). The page wrappers
-   (.portal-shell / .login-wrap) flex to fill the space above it; the footer's margin-top:auto
+   (.pshell / .login-wrap) flex to fill the space above it; the footer's margin-top:auto
    pins it to the bottom on any page that doesn't use a flexing wrapper (e.g. 404 / error). */
 body {
   min-height: 100vh;
@@ -45,218 +52,531 @@ body {
 }
 
 /* ------------------------------------------------------------------
- * PORTAL SHELL (DS0.3) — token-styled chrome for the authenticated portal.
- * The topbar lockup (BadaBhaiLogo + role wordmark), nav, balance chip, and the
- * page scaffold (--content-max / --gutter-web / --surface-page) all resolve from
- * design-system tokens — no legacy palette vars, no raw literals. Pages inside
- * still use their existing classes until DS1.x ports each screen.
+ * PORTAL SHELL (IA-1) — a levelled left rail + sticky header + content column.
+ *
+ * REPLACES the DS0.3 top-nav chrome (.portal-top / .portal-nav / .portal-main). That row
+ * held up to eight links for an agency session and wrapped onto a second full-width line
+ * below ~1100px, pushing the page down and flattening every destination to one weight. A
+ * rail carries a grouped IA at any width and hands the content column the full viewport
+ * height, which is what a table-heavy console needs.
+ *
+ * Every value resolves from a token. The three responsive states are deliberate, not a
+ * continuum — see app-shell.tsx.
  * ------------------------------------------------------------------ */
-.portal-shell {
+.pshell {
   flex: 1 0 auto;
+  display: grid;
+  grid-template-columns: var(--shell-nav-w) minmax(0, 1fr);
+  background: var(--surface-page);
+  min-height: 0;
+}
+.pshell--collapsed {
+  grid-template-columns: var(--shell-nav-w-collapsed) minmax(0, 1fr);
+}
+
+/* ---- the rail ---- */
+.pshell__rail {
+  grid-column: 1;
   display: flex;
   flex-direction: column;
-  background: var(--surface-page);
-}
-.portal-top {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3) var(--space-5);
-  flex-wrap: wrap;
-  padding: var(--space-3) var(--gutter-web);
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-3);
   background: var(--surface-card);
-  border-bottom: var(--border-hairline) solid var(--border-subtle);
-  /* Sticky chrome with a hairline of elevation so content scrolls cleanly underneath. */
+  border-right: var(--border-hairline) solid var(--border-subtle);
   position: sticky;
   top: 0;
-  z-index: var(--z-nav);
-  box-shadow: var(--shadow-xs);
+  height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* The rail width is the grid track; this keeps its own box honest when it becomes a
+     fixed drawer below 1024px. */
+  width: 100%;
 }
-/* COMPACT-1 — narrow widths (≤768px): the brand + actions cluster stays on the top line and
-   the role-aware nav WRAPS to its own full-width line below them (order:3, flex-basis:100%) so
-   NO nav item is ever dropped or hidden — it just reflows. The right cluster keeps its place
-   next to the brand. The gutter also trims to the mobile rail (matches .portal-main). */
-@media (max-width: 768px) {
-  .portal-top {
-    padding: var(--space-3) var(--gutter);
-    row-gap: var(--space-2);
-  }
-  .portal-top__brand {
-    margin-right: auto;
-  }
-  .portal-nav {
-    order: 3;
-    flex-basis: 100%;
-    flex: 1 1 100%;
-  }
-}
-/* Brand lockup is a LINK to /dashboard — reset anchor chrome, add a restrained hover
-   hit-area + focus ring. Negative margin keeps the visual position identical to before. */
-.portal-top__brand {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  color: inherit;
-  text-decoration: none;
+
+.pshell__brand {
   padding: var(--space-1) var(--space-2);
-  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2));
-  border-radius: var(--radius-md);
-  transition: var(--transition-control);
 }
-.portal-top__brand:hover {
-  text-decoration: none;
-  background: var(--surface-sunken);
-}
-.portal-top__brand:active {
-  transform: scale(0.98);
-}
-.portal-top__brand:focus-visible {
-  outline: none;
-  box-shadow: var(--ring-focus);
-}
-.portal-top__role {
-  font-family: var(--font-display);
-  font-weight: var(--weight-semibold);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-.portal-nav {
-  display: flex;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-  flex: 1;
-}
-.portal-nav__link {
-  color: var(--text-secondary);
-  font-family: var(--font-sans);
-  font-weight: var(--weight-semibold);
-  font-size: var(--text-sm);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  text-decoration: none;
-  transition: var(--transition-control);
-}
-.portal-nav__link:hover {
-  background: var(--surface-sunken);
-  color: var(--text-primary);
-  text-decoration: none;
-}
-/* Active route (set client-side via aria-current) — brand-tinted pill so the payer always
-   knows where they are. The SERVER gate, not this class, is the authorization. */
-.portal-nav__link--active,
-.portal-nav__link--active:hover {
-  background: var(--brand-tint);
-  color: var(--brand-press);
-}
-.portal-top__right {
+.pshell__brandlink {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  flex-wrap: wrap;
-}
-/* Tighten the action cluster on small phones so the brand + (badge · theme · account · sign-out)
-   all fit the top line at ≈360px without forcing a page-wide horizontal scrollbar. The theme
-   toggle's "System" pill is the most space-hungry; the cluster wraps before it ever clips. */
-@media (max-width: 768px) {
-  .portal-top__right {
-    gap: var(--space-2);
-  }
-}
-/* Sign-out — icon-only, danger-tinted. ≥44px square tap target; the red comes from the DS
-   danger token (paper + ink both resolve --danger), never a literal. */
-.portal-logout {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--control-md);
-  height: var(--control-md);
-  min-width: var(--control-md);
-  min-height: var(--control-md);
-  padding: 0;
-  background: transparent;
-  border: var(--border-medium) solid transparent;
+  color: inherit;
+  text-decoration: none;
+  padding: var(--space-2);
+  margin: calc(-1 * var(--space-2));
   border-radius: var(--radius-md);
-  color: var(--danger);
-  cursor: pointer;
   transition: var(--transition-control);
 }
-.portal-logout .ph {
-  font-size: var(--text-lg);
-  line-height: 1;
+.pshell__brandlink:hover {
+  text-decoration: none;
+  background: var(--surface-hover);
 }
-.portal-logout:hover {
-  background: var(--danger-tint);
-  border-color: var(--danger);
-}
-.portal-logout:active {
-  transform: scale(0.96);
-}
-.portal-logout:focus-visible {
+.pshell__brandlink:focus-visible {
   outline: none;
   box-shadow: var(--ring-focus);
 }
-.portal-logout:disabled {
-  opacity: 0.55;
+.pshell__brandtext {
+  display: grid;
+  min-width: 0;
+}
+.pshell__brandname {
+  font-family: var(--font-display);
+  font-size: var(--ui-h3-size);
+  font-weight: var(--weight-extrabold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+}
+.pshell__brandrole {
+  font-size: var(--ui-caption-size);
+  color: var(--text-muted);
+  line-height: var(--leading-snug);
+  white-space: nowrap;
+}
+
+/* ---- nav ---- */
+.pnav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  flex: 1;
+}
+.pnav__group {
+  display: flex;
+  flex-direction: column;
+}
+.pnav__grouptitle {
+  font-family: var(--font-sans);
+  font-size: var(--ui-eyebrow-size);
+  line-height: var(--ui-eyebrow-leading);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2) var(--space-3);
+}
+.pnav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pnav__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-sm);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: var(--ui-nav-size);
+  line-height: var(--ui-nav-leading);
+  font-weight: var(--ui-nav-weight);
+  transition: var(--transition-control);
+  /* The rail can be narrow; a long label truncates rather than wrapping a nav row to two
+     lines and breaking the vertical rhythm. The full text stays in the title tooltip. */
+  white-space: nowrap;
+  overflow: hidden;
+}
+.pnav__link:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.pnav__icon {
+  flex: none;
+  font-size: var(--text-md);
+  line-height: 1;
+  color: var(--text-muted);
+  transition: color var(--duration-fast) var(--ease-out);
+}
+.pnav__link:hover .pnav__icon {
+  color: var(--text-primary);
+}
+.pnav__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ACTIVE — the rail's one strong signal. A tinted plate plus a brand spine on the leading
+   edge: the plate alone reads as "hovered" on a light surface, and colour alone would be
+   the only cue for a user who cannot separate haldi from the card. */
+.pnav__link--active,
+.pnav__link--active:hover {
+  background: var(--brand-tint);
+  color: var(--text-primary);
+  font-weight: var(--ui-nav-weight-active);
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+.pnav__link--active .pnav__icon,
+.pnav__link--active:hover .pnav__icon {
+  color: var(--brand-press);
+}
+[data-theme="ink"] .pnav__link--active .pnav__icon,
+[data-theme="ink"] .pnav__link--active:hover .pnav__icon {
+  color: var(--brand);
+}
+
+/* COMING SOON — a <span>, never a link (see sidebar-nav.tsx). Deliberately colourless:
+   any tint would read as a status the user should act on. */
+.pnav__link--soon {
+  color: var(--soon-fg);
   cursor: not-allowed;
 }
-.portal-logout__spin {
-  animation: portal-logout-spin var(--duration-slower) linear infinite;
+.pnav__link--soon .pnav__icon {
+  color: var(--soon-fg);
 }
-@keyframes portal-logout-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.pnav__link--soon:hover {
+  background: transparent;
+  color: var(--soon-fg);
 }
-@media (prefers-reduced-motion: reduce) {
-  .portal-logout__spin {
-    animation: none;
-  }
+.pnav__soon {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--ui-eyebrow-size);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--soon-fg);
+  background: var(--soon-bg);
+  border: var(--border-hairline) solid var(--soon-border);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-2);
+  line-height: 1.45;
 }
-/* INK: lift the icon to the light crimson ramp on the dark header (mirrors the menu item +
-   badge danger ink treatment) so the glyph reads clearly against the dark card. */
-[data-theme="ink"] .portal-logout {
-  color: var(--red-300);
+
+/* ---- rail foot ---- */
+.pshell__railfoot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: var(--border-hairline) solid var(--border-subtle);
 }
-.portal-acct {
+.pshell__whoami {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  flex-wrap: wrap;
+}
+.pshell__collapse {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-sm);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--ui-nav-size);
+  font-weight: var(--ui-nav-weight);
+  cursor: pointer;
+  transition: var(--transition-control);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.pshell__collapse:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.pshell__collapse:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+.pshell__collapse .ph {
+  flex: none;
+  font-size: var(--text-md);
+  line-height: 1;
+}
+
+/* ---- main column ---- */
+.pshell__main {
+  grid-column: 2;
+  min-width: 0; /* lets wide tables scroll inside instead of stretching the layout */
+  display: flex;
+  flex-direction: column;
+}
+
+.pshell__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--shell-header-h);
+  padding: var(--space-2) var(--gutter-web);
+  background: var(--surface-card);
+  border-bottom: var(--border-hairline) solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  /* Content has to visibly pass UNDER the header; a hairline alone vanishes the moment a
+     card's own border lines up with it. */
+  box-shadow: var(--shadow-sticky);
+}
+.pshell__menu {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  flex: none;
+  border: var(--border-hairline) solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.pshell__menu:hover {
+  background: var(--surface-hover);
+}
+.pshell__headeractions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex: none;
+}
+
+/* Wallet position — the number a payer checks most, and the one that blocks the core loop
+   at zero. Money is green in this system. */
+.pshell__balance {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  height: var(--control-sm);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--success-tint);
+  color: var(--success);
+  border: var(--border-hairline) solid transparent;
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: var(--transition-control);
+}
+.pshell__balance:hover {
+  text-decoration: none;
+  border-color: var(--success);
+}
+.pshell__balance--static {
+  cursor: default;
+}
+.pshell__balance--static:hover {
+  border-color: transparent;
+}
+.pshell__balance:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+.pshell__balancenum {
+  font-weight: var(--weight-bold);
+}
+[data-theme="ink"] .pshell__balance {
+  color: var(--green-300);
+}
+
+/* ---- breadcrumb ---- */
+.pcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  flex-wrap: wrap;
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--leading-snug);
+}
+.pcrumb__step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.pcrumb__group {
   color: var(--text-muted);
-  font-size: var(--text-sm);
+  white-space: nowrap;
 }
-.portal-acct__label {
+.pcrumb__link {
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  border-radius: var(--radius-xs);
+  transition: color var(--duration-fast) var(--ease-out);
+}
+.pcrumb__link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.pcrumb__sep {
+  color: var(--text-disabled);
+  font-size: var(--ui-caption-size);
+  flex: none;
+}
+.pcrumb__here {
   font-family: var(--font-display);
-  font-weight: var(--weight-extrabold);
-  font-size: var(--text-lg);
-  letter-spacing: var(--tracking-tight);
-  color: var(--brand);
-  line-height: 1;
+  font-size: var(--ui-h3-size);
+  font-weight: var(--ui-h3-weight);
+  letter-spacing: var(--ui-h3-tracking);
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.portal-main {
+
+/* ---- content ---- */
+.pshell__content {
   width: 100%;
   max-width: var(--content-max);
-  margin: 0 auto;
-  /* COMPACT-1 — one content rail at a deliberately tighter, consistent rhythm. The vertical
-     pad is trimmed (space-6, was space-7) and the horizontal gutter reuses --gutter-web; both
-     condense on small phones (the @media below) so nothing is cramped yet wide screens never
-     sprawl past --content-max. */
-  padding: var(--space-6) var(--gutter-web);
+  margin-inline: auto;
+  padding: var(--space-6) var(--gutter-web) var(--space-10);
   flex: 1;
-  min-width: 0; /* lets inner scroll regions / long tables size against the rail, not overflow it */
+  min-width: 0;
   /* Restrained entrance — a short, low-travel fade so route changes feel composed, not
      jumpy. Collapses to nothing under prefers-reduced-motion (token durations → 0ms). */
   animation: portal-fade var(--duration-base) var(--ease-out);
-}
-/* Narrow phones: trim the web gutter to the mobile gutter so a 360px viewport never forces a
-   page-wide horizontal scrollbar and content keeps its breathing room without crowding edges. */
-@media (max-width: 768px) {
-  .portal-main {
-    padding: var(--space-5) var(--gutter);
-  }
 }
 @keyframes portal-fade {
   from {
     opacity: 0;
     transform: translateY(4px);
+  }
+}
+
+/* ---- scrim (drawer only) ---- */
+.pshell__scrim {
+  display: none;
+  border: 0;
+  padding: 0;
+}
+
+/* ============================================================
+   RESPONSIVE — three deliberate states.
+   ============================================================ */
+
+/* 1024–1280px: the rail stays permanent but drops to the icon rail. At this width labels
+   and a data table cannot both breathe, and losing the table is the worse trade. Labels
+   remain reachable via each row's title tooltip. */
+@media (max-width: 1279px) and (min-width: 1024px) {
+  .pshell,
+  .pshell--collapsed {
+    grid-template-columns: var(--shell-nav-w-collapsed) minmax(0, 1fr);
+  }
+}
+
+/* The icon-rail presentation, shared by the explicit collapse and the 1024–1280px band. */
+@media (min-width: 1024px) {
+  .pshell--collapsed .pnav__label,
+  .pshell--collapsed .pnav__soon,
+  .pshell--collapsed .pshell__brandtext,
+  .pshell--collapsed .pshell__whoami {
+    display: none;
+  }
+  .pshell--collapsed .pnav__link,
+  .pshell--collapsed .pshell__collapse {
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .pshell--collapsed .pnav__grouptitle {
+    /* A group heading with no items to head is noise; the rule below keeps the grouping
+       legible as spacing instead. */
+    height: var(--border-hairline);
+    margin: var(--space-2) var(--space-3);
+    overflow: hidden;
+    text-indent: -9999px;
+    background: var(--border-subtle);
+  }
+}
+@media (max-width: 1279px) and (min-width: 1024px) {
+  .pnav__label,
+  .pnav__soon,
+  .pshell__brandtext,
+  .pshell__whoami {
+    display: none;
+  }
+  .pnav__link,
+  .pshell__collapse {
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .pnav__grouptitle {
+    height: var(--border-hairline);
+    margin: var(--space-2) var(--space-3);
+    overflow: hidden;
+    text-indent: -9999px;
+    background: var(--border-subtle);
+  }
+  /* The collapse toggle is meaningless when the width already forces the icon rail. */
+  .pshell__collapse {
+    display: none;
+  }
+}
+
+/* 3. <1024px: the rail becomes an overlay drawer, closed by default. */
+@media (max-width: 1023px) {
+  .pshell,
+  .pshell--collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pshell__rail {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--shell-nav-w);
+    /* ABOVE its own scrim. admin-web shipped the inverse (drawer under the scrim), which
+       made every nav tap close the drawer instead of navigating. */
+    z-index: var(--z-modal);
+    transform: translateX(-100%);
+    transition: transform var(--duration-base) var(--ease-out);
+  }
+  .pshell--drawer-open .pshell__rail {
+    transform: translateX(0);
+  }
+  .pshell--drawer-open .pshell__scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-overlay);
+    background: var(--scrim);
+    cursor: pointer;
+  }
+  .pshell__main {
+    grid-column: 1;
+  }
+  .pshell__menu {
+    display: inline-flex;
+  }
+  .pshell__collapse {
+    display: none;
+  }
+  .pshell__content {
+    padding: var(--space-5) var(--gutter) var(--space-9);
+  }
+  .pshell__header {
+    padding-inline: var(--gutter);
+  }
+}
+
+/* Very narrow phones: the balance chip's word is the first thing that can go. */
+@media (max-width: 420px) {
+  .pshell__balancelabel {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pshell__rail {
+    transition: none;
+  }
+  .pshell__content {
+    animation: none;
   }
 }
 
@@ -441,13 +761,6 @@ tr:last-child td {
   font-size: 13px;
 }
 
-.form {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px;
-  max-width: 480px;
-}
 .field {
   margin-bottom: 14px;
 }
@@ -456,9 +769,6 @@ tr:last-child td {
   font-size: 13px;
   margin-bottom: 6px;
   font-weight: 600;
-}
-.req {
-  color: var(--danger);
 }
 .input,
 select.input,
@@ -537,13 +847,6 @@ textarea.input {
   text-align: center;
 }
 
-.section {
-  margin: 28px 0;
-}
-.section h2 {
-  font-size: 16px;
-  margin: 0 0 6px;
-}
 
 .login-wrap {
   flex: 1 0 auto;
@@ -2962,8 +3265,9 @@ img.agency-qr__code,
   /* Portal chrome, nav, back-links, page headings and toasts are screen furniture — off the
      paper. Everything inside the section except the sheet goes too (the explainer card, the
      mint form, the Print button), so the poster carries the code and nothing else. */
-  body:has(.agency-qr__sheet) .portal-top,
-  body:has(.agency-qr__sheet) .portal-nav,
+  body:has(.agency-qr__sheet) .pshell__header,
+  body:has(.agency-qr__sheet) .pshell__rail,
+  body:has(.agency-qr__sheet) .pshell__scrim,
   body:has(.agency-qr__sheet) .chrome-footer,
   body:has(.agency-qr__sheet) .unlock-toast-region,
   body:has(.agency-qr__sheet) .capacity-back,
@@ -2977,8 +3281,13 @@ img.agency-qr__code,
   }
   /* Neutralise the shell so the sheet owns the page. */
   body:has(.agency-qr__sheet),
-  body:has(.agency-qr__sheet) .portal-shell,
-  body:has(.agency-qr__sheet) .portal-main {
+  body:has(.agency-qr__sheet) .pshell,
+  body:has(.agency-qr__sheet) .pshell__main,
+  body:has(.agency-qr__sheet) .pshell__content {
+    /* The shell is a two-track grid; with the rail hidden the track itself must go
+       too, or the poster prints inset by an empty 264px column. */
+    display: block !important;
+    grid-template-columns: none !important;
     background: var(--paper-0) !important;
     max-width: none !important;
     margin: 0 !important;
@@ -3104,30 +3413,6 @@ img.agency-qr__code,
     transform: translateX(100%);
   }
 }
-.skeleton-title {
-  height: 24px;
-  width: 220px;
-  margin: 0 0 16px;
-}
-.skeleton-line {
-  height: 14px;
-  width: 100%;
-  margin: 0 0 10px;
-}
-.skeleton-line.short {
-  width: 40%;
-}
-.skeleton-cards {
-  display: grid;
-  /* COMPACT-1 — match the loaded stat-grid density so the loading skeleton reflows at the same
-     breakpoint as the real .dash-stats (no jump from skeleton → content). */
-  grid-template-columns: repeat(auto-fill, minmax(var(--stat-min), 1fr));
-  gap: 16px;
-  margin-top: 20px;
-}
-.skeleton-card {
-  height: 120px;
-}
 @media (prefers-reduced-motion: reduce) {
   .skeleton::after {
     animation: none;
@@ -3238,23 +3523,6 @@ img.agency-qr__code,
  * [data-theme="ink"]. Values match the existing paper appearance (no visual change in
  * the default theme); the only behaviour added is dark-theme parity. Tokens only.
  * ------------------------------------------------------------------ */
-.chrome-title {
-  font-family: var(--font-display);
-  font-size: var(--text-2xl);
-  color: var(--text-primary);
-  margin: 0 0 var(--space-1);
-}
-.chrome-sub {
-  color: var(--text-muted);
-  font-size: var(--text-base);
-  line-height: var(--leading-normal);
-  margin: 0 0 var(--space-5);
-}
-.chrome-actions {
-  display: flex;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
 /* Token-driven "← back" breadcrumb link (replaces the legacy .page-sub use). */
 .page-back {
   color: var(--text-muted);
@@ -3273,16 +3541,6 @@ img.agency-qr__code,
 }
 
 /* Neutral centered card (404 / unauthenticated states) — DS Card surface tokens. */
-.chrome-card {
-  width: 100%;
-  max-width: var(--app-max);
-  background: var(--surface-card);
-  border: var(--border-hairline) solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  padding: var(--space-7);
-  text-align: center;
-}
 
 /* TEAM scaffold (Owner-only user management) — re-skinned onto the token layer so it
    flips under ink. The invite form is DS Inputs/Select/Button; this covers the section
@@ -3749,8 +4007,9 @@ img.agency-qr__code,
 @media (prefers-reduced-motion: no-preference) {
   html.theme-anim,
   html.theme-anim body,
-  html.theme-anim .portal-top,
-  html.theme-anim .portal-shell,
+  html.theme-anim .pshell,
+  html.theme-anim .pshell__rail,
+  html.theme-anim .pshell__header,
   html.theme-anim .bb-card,
   html.theme-anim .login-card {
     transition: var(--theme-fade);
@@ -4096,4 +4355,881 @@ img.agency-qr__code,
    degrades to "the footer stays visible" on an old browser, which is purely cosmetic. */
 body:has(.invite-landing) .chrome-footer {
   display: none;
+}
+
+/* ==================================================================
+ * UI-1 · PAGE FURNITURE — the reusable spine every portal screen composes from.
+ * ------------------------------------------------------------------
+ * Before this block each screen invented its own header, tile row and section heading:
+ * .dash-title / .applicants-title / .account-section__title / .credits-section__title are
+ * four names for two ideas. That is why the portal read as a set of pages rather than one
+ * product — a heading was 30px on one screen and 20px on the next, and the gap under it
+ * changed with whoever wrote the page.
+ *
+ * These are the shared primitives. Pages compose them; they do not restyle them. The old
+ * per-page classes still resolve (nothing is deleted out from under a screen) — screens are
+ * migrated onto this spine one at a time.
+ * ================================================================== */
+
+/* ---- page header: title + one-line purpose + the page primary actions ---- */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--section-gap);
+}
+.page-head__text {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.page-head__title {
+  font-family: var(--font-display);
+  font-size: var(--ui-h1-size);
+  line-height: var(--ui-h1-leading);
+  font-weight: var(--ui-h1-weight);
+  letter-spacing: var(--ui-h1-tracking);
+  color: var(--text-primary);
+  margin: 0;
+}
+/* PHASE 14 — the one-line description that stops a screen needing to be explained. Capped
+   at the reading measure so it never runs the full width of a 1440px rail. */
+.page-head__sub {
+  font-size: var(--ui-body-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: var(--reading-max);
+}
+.page-head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  flex: none;
+}
+/* A back-link above the title, for detail screens one level down. */
+.page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--ui-body-sm-size);
+  color: var(--text-muted);
+  text-decoration: none;
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-xs);
+}
+.page-back:hover {
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+/* ---- tile row: ONE fluid grid every KPI/stat/pack/tier row composes onto ----
+   Auto-fit against a token floor, so tiles pack tightly on a wide monitor and reflow at the
+   SAME breakpoint on every screen instead of each page picking its own minmax. */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--stat-min), 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--section-gap);
+}
+/* KPI numerals retuned onto the UI-1 role. The tile value was --text-3xl (38px), a marketing
+   figure rather than a console one: four in a row shouted louder than the page title.
+   Tabular + slashed-zero so a column of figures aligns and 0/O never blur inside an id. */
+.stat-row .bb-stat__value,
+.panel .bb-stat__value {
+  font-size: var(--ui-kpi-size);
+  line-height: var(--ui-kpi-leading);
+  letter-spacing: var(--ui-kpi-tracking);
+  font-variant-numeric: tabular-nums slashed-zero;
+  margin-top: var(--space-2);
+}
+.stat-row .bb-stat__label,
+.panel .bb-stat__label {
+  font-size: var(--ui-label-size);
+  line-height: var(--ui-label-leading);
+  font-weight: var(--ui-label-weight);
+}
+.stat-row .bb-stat__delta,
+.panel .bb-stat__delta {
+  font-size: var(--ui-caption-size);
+  line-height: var(--ui-caption-leading);
+  font-weight: var(--weight-medium);
+  margin-top: var(--space-1);
+}
+
+/* ---- panel: a titled section on the page ---- */
+.panel {
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--section-gap);
+  overflow: hidden;
+}
+.panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  padding: var(--panel-pad-sm) var(--panel-pad);
+  border-bottom: var(--border-hairline) solid var(--border-subtle);
+}
+.panel__title {
+  font-family: var(--font-display);
+  font-size: var(--ui-h2-size);
+  line-height: var(--ui-h2-leading);
+  font-weight: var(--ui-h2-weight);
+  letter-spacing: var(--ui-h2-tracking);
+  color: var(--text-primary);
+  margin: 0;
+}
+.panel__sub {
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-muted);
+  margin: var(--space-1) 0 0;
+  max-width: var(--reading-max);
+  flex-basis: 100%;
+}
+.panel__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  flex: none;
+}
+.panel__body {
+  padding: var(--panel-pad);
+}
+/* A panel whose whole body is a table owns no padding — the cell padding is the rhythm, and
+   a double inset makes a dense table look like it is floating. */
+.panel--table .panel__body {
+  padding: 0;
+}
+
+/* ==================================================================
+ * UI-1 · TABLE — the console data surface.
+ * The portal previously styled the bare `table` element globally, so every table (a 3-row
+ * summary and a 200-row ledger) got identical treatment and none could opt out. This is a
+ * class, so a screen chooses it.
+ * ================================================================== */
+.tablewrap {
+  /* Wide tables scroll INSIDE their container; the page body never scrolls sideways. The
+     block cap also makes this the VERTICAL scroller, which is what makes the sticky header
+     below actually stick — an uncapped `overflow-x: auto` box never scrolls, so a sticky
+     `top: 0` inside it pins to a rail that is always fully visible and never moves. */
+  overflow: auto;
+  max-block-size: calc(100dvh - 18rem);
+  overscroll-behavior: contain;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--ui-td-size);
+  line-height: var(--ui-td-leading);
+}
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-hairline) solid var(--border-subtle);
+  vertical-align: middle;
+}
+/* Header = LABEL (small, heavy, tracked, quiet). Cell = DATA (larger, calm, high contrast).
+   Inverting that pair is the usual reason a dense table reads as noise. */
+.table th {
+  font-size: var(--ui-th-size);
+  line-height: var(--ui-th-leading);
+  font-weight: var(--ui-th-weight);
+  letter-spacing: var(--ui-th-tracking);
+  text-transform: uppercase;
+  /* --text-muted measured 4.35:1 on the sunken fill a header sits on — under the 4.5:1
+     floor. A header is small, tracked-out, uppercase text, i.e. the hardest kind to read,
+     so it takes the secondary step (7.0:1) rather than the muted one. */
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* A sticky cell leaves the collapsed border grid, so its own border-bottom stops painting
+     the moment it pins and rows scroll flush into the header. An inset shadow survives. */
+  box-shadow: inset 0 -1px 0 var(--border-default);
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.table tbody tr {
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.table tbody tr:hover {
+  background: var(--surface-hover);
+}
+.table tbody tr[aria-selected="true"] {
+  background: var(--brand-tint);
+}
+/* Numeric columns right-align and go tabular so magnitudes line up and can be compared by
+   eye without reading every digit. */
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums slashed-zero;
+  white-space: nowrap;
+}
+.table .mono {
+  font-family: var(--font-mono);
+  font-size: var(--ui-caption-size);
+  font-variant-numeric: slashed-zero;
+  color: var(--text-secondary);
+}
+/* The row actions column: quiet until the row is hovered or something in it is focused, so
+   a long table is not a wall of buttons. Always reachable by keyboard. */
+.table .rowactions {
+  text-align: right;
+  white-space: nowrap;
+}
+.table .rowactions > * {
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.table tr:hover .rowactions > *,
+.table .rowactions:focus-within > * {
+  opacity: 1;
+}
+@media (hover: none) {
+  /* No hover on touch — the actions must simply be visible. */
+  .table .rowactions > * {
+    opacity: 1;
+  }
+}
+
+/* ==================================================================
+ * UI-1 · STATES — loading / empty / error, one language for all three.
+ * Phase 16: every major surface says what is happening and what to do next.
+ * ================================================================== */
+.state {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: center;
+  text-align: center;
+  padding: var(--space-9) var(--space-5);
+  max-width: 46ch;
+  margin-inline: auto;
+}
+.state__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-9);
+  height: var(--space-9);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--text-xl);
+}
+.state--error .state__icon {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+[data-theme="ink"] .state--error .state__icon {
+  color: var(--red-300);
+}
+.state__title {
+  font-family: var(--font-display);
+  font-size: var(--ui-h3-size);
+  line-height: var(--ui-h3-leading);
+  font-weight: var(--ui-h3-weight);
+  color: var(--text-primary);
+  margin: 0;
+}
+.state__body {
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-secondary);
+  margin: 0;
+}
+.state__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: var(--space-1);
+}
+
+/* ---- skeletons: a shape-of-the-answer placeholder, never a blank screen ---- */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-sunken) 25%,
+    var(--surface-inset) 37%,
+    var(--surface-sunken) 63%
+  );
+  background-size: 400% 100%;
+  border-radius: var(--radius-sm);
+  animation: skeleton-sheen 1.4s ease-in-out infinite;
+}
+.skeleton--title {
+  height: 1.25rem;
+  width: 40%;
+  margin-bottom: var(--space-3);
+}
+.skeleton--row {
+  height: var(--row-h-compact);
+  margin-bottom: var(--space-2);
+}
+.skeleton--tile {
+  height: 7rem;
+}
+@keyframes skeleton-sheen {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* ==================================================================
+ * UI-1 · COMING SOON — one visual language for "real on the server, not open yet".
+ * Deliberately colourless. Any tint reads as a status the user should act on; grey reads as
+ * "not yet", which is the truth. Used by the nav rail, tiles and inline cards.
+ * ================================================================== */
+.soon-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--ui-eyebrow-size);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--soon-fg);
+  background: var(--soon-bg);
+  border: var(--border-hairline) solid var(--soon-border);
+  border-radius: var(--radius-pill);
+  padding: 2px var(--space-2);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+/* A parked surface rendered in place of a working one. Not interactive, and says so. */
+.soon-card {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--panel-pad);
+  background: var(--soon-bg);
+  border: var(--border-hairline) dashed var(--soon-border);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+}
+.soon-card__title {
+  font-family: var(--font-display);
+  font-size: var(--ui-h3-size);
+  font-weight: var(--ui-h3-weight);
+  color: var(--text-secondary);
+  margin: 0;
+}
+.soon-card__body {
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  margin: 0;
+  max-width: var(--reading-max);
+}
+
+/* ==================================================================
+ * UI-1 · DASHBOARD COMMAND CENTRE — the "needs you" band + quick actions.
+ * See dashboard/page.tsx for the five-band reading order these two belong to.
+ * ================================================================== */
+
+/* ---- 1 · NEEDS YOU ----
+   Rendered only when something genuinely does, so its mere presence is information. Tone is
+   carried by a leading spine + the icon, never by a full-bleed colour wash: four saturated
+   banners stacked would out-shout the page they are trying to direct attention within. */
+.attention {
+  margin-bottom: var(--section-gap);
+}
+.attention__heading {
+  font-family: var(--font-sans);
+  font-size: var(--ui-eyebrow-size);
+  line-height: var(--ui-eyebrow-leading);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+}
+.attention__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.attention__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  /* The spine is the tone. It reads at a glance and survives greyscale/colour-blindness
+     because the icon carries the same meaning independently. */
+  box-shadow: inset 3px 0 0 var(--attention-tone, var(--border-strong));
+}
+.attention__item--critical {
+  --attention-tone: var(--danger);
+}
+.attention__item--warning {
+  --attention-tone: var(--vermilion-600);
+}
+.attention__item--info {
+  --attention-tone: var(--info);
+}
+.attention__icon {
+  flex: none;
+  font-size: var(--text-lg);
+  line-height: 1.35;
+  color: var(--attention-tone, var(--text-muted));
+}
+[data-theme="ink"] .attention__item--critical {
+  --attention-tone: var(--red-300);
+}
+[data-theme="ink"] .attention__item--info {
+  --attention-tone: var(--blue-300);
+}
+.attention__text {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+.attention__title {
+  font-size: var(--ui-body-size);
+  line-height: var(--ui-label-leading);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin: 0;
+}
+.attention__body {
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: var(--reading-max);
+}
+.attention__action {
+  flex: none;
+  align-self: center;
+}
+@media (max-width: 600px) {
+  .attention__item {
+    flex-wrap: wrap;
+  }
+  .attention__action {
+    margin-left: calc(var(--text-lg) + var(--space-3));
+  }
+}
+
+/* ---- 3 · QUICK ACTIONS ----
+   The three-to-five things done over and over. Previously these existed only as small text
+   links tucked into section headers, which put the most frequent tasks at the LOWEST visual
+   weight on the screen. */
+.quick {
+  margin-bottom: var(--section-gap);
+}
+.quick__heading {
+  font-family: var(--font-sans);
+  font-size: var(--ui-eyebrow-size);
+  line-height: var(--ui-eyebrow-leading);
+  font-weight: var(--ui-eyebrow-weight);
+  letter-spacing: var(--ui-eyebrow-tracking);
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+}
+.quick__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-3);
+}
+.quick__card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "icon label"
+    "icon desc";
+  align-items: start;
+  gap: 2px var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  color: inherit;
+  text-decoration: none;
+  transition: var(--transition-control);
+}
+.quick__card:hover {
+  text-decoration: none;
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.quick__card:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-color: var(--brand);
+}
+.quick__icon {
+  grid-area: icon;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-md);
+  background: var(--brand-tint);
+  color: var(--brand-press);
+  font-size: var(--text-lg);
+  flex: none;
+  transition: var(--transition-control);
+}
+[data-theme="ink"] .quick__icon {
+  color: var(--brand);
+}
+.quick__card:hover .quick__icon {
+  background: var(--brand-tint-2);
+}
+.quick__label {
+  grid-area: label;
+  font-size: var(--ui-body-size);
+  line-height: var(--ui-label-leading);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.quick__desc {
+  grid-area: desc;
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-muted);
+}
+
+/* ---- 4 · the posting rows, retuned onto the UI-1 roles ---- */
+.dash-posting__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--ui-body-sm-size);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+.dash-posting:hover .dash-posting__cta {
+  color: var(--brand-press);
+}
+[data-theme="ink"] .dash-posting:hover .dash-posting__cta {
+  color: var(--brand);
+}
+.dash-posting__title {
+  font-size: var(--ui-body-lg-size);
+  line-height: var(--ui-h3-leading);
+  font-weight: var(--weight-semibold);
+}
+.dash-posting__meta {
+  font-size: var(--ui-body-sm-size);
+}
+@media (max-width: 560px) {
+  /* The CTA words are the first thing to go; the arrow still reads as "go". */
+  .dash-posting__cta {
+    font-size: 0;
+    gap: 0;
+  }
+  .dash-posting__cta .dash-view__arrow {
+    font-size: var(--text-lg);
+  }
+}
+
+/* ==================================================================
+ * UI-1 · ALERT — the inline "read this before you act" band.
+ * ------------------------------------------------------------------
+ * Screens previously built this ad hoc: a flat DS Card + an uppercase Badge + a paragraph,
+ * repeated with different class names on credits, capacity, postings, applicants and the
+ * agency surfaces. Same idea five times, five spacings. One primitive, four tones.
+ *
+ * Tone is a leading spine plus the icon — not a full-bleed wash. A saturated banner reads
+ * as an emergency; most of these are context, and context that shouts gets skipped.
+ * ================================================================== */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--block-gap);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: inset 3px 0 0 var(--alert-tone, var(--border-strong));
+}
+.alert--info {
+  --alert-tone: var(--info);
+}
+.alert--success {
+  --alert-tone: var(--success);
+}
+.alert--warning {
+  --alert-tone: var(--vermilion-600);
+}
+.alert--danger {
+  --alert-tone: var(--danger);
+}
+[data-theme="ink"] .alert--danger {
+  --alert-tone: var(--red-300);
+}
+[data-theme="ink"] .alert--info {
+  --alert-tone: var(--blue-300);
+}
+.alert__icon {
+  flex: none;
+  font-size: var(--text-lg);
+  line-height: 1.35;
+  color: var(--alert-tone, var(--text-muted));
+}
+.alert__text {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+.alert__title {
+  font-size: var(--ui-body-size);
+  line-height: var(--ui-label-leading);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  margin: 0;
+}
+.alert__body {
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: var(--reading-max);
+}
+.alert__actions {
+  flex: none;
+  align-self: center;
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .alert {
+    flex-wrap: wrap;
+  }
+  .alert__actions {
+    margin-left: calc(var(--text-lg) + var(--space-3));
+  }
+}
+
+/* ==================================================================
+ * UI-1 · FORM LAYOUT — Phase 13.
+ * A form is a column of labelled fields at a readable measure, NOT a grid of inputs
+ * stretched across a 1440px rail. `.form-grid` opts a pair of genuinely-related short
+ * fields onto one row and collapses them the moment there is not room for both.
+ * ================================================================== */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  /* A form field wider than the reading measure is harder to scan, not easier to fill. */
+  max-width: var(--reading-max);
+}
+.form--wide {
+  max-width: none;
+}
+.form__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: var(--border-hairline) solid var(--border-subtle);
+}
+.form__section:last-of-type {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.form__legend {
+  font-family: var(--font-display);
+  font-size: var(--ui-h3-size);
+  line-height: var(--ui-h3-leading);
+  font-weight: var(--ui-h3-weight);
+  letter-spacing: var(--ui-h3-tracking);
+  color: var(--text-primary);
+  margin: 0;
+}
+.form__hint {
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-muted);
+  margin: calc(-1 * var(--space-2)) 0 0;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-4);
+}
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-top: var(--space-2);
+}
+.form-actions--end {
+  justify-content: flex-end;
+}
+/* The required marker is a real character, not a colour: red alone is not a cue. */
+.req {
+  color: var(--danger);
+  margin-left: 2px;
+}
+[data-theme="ink"] .req {
+  color: var(--red-300);
+}
+.form-status {
+  display: grid;
+  gap: var(--space-3);
+}
+.form-status:empty {
+  display: none;
+}
+
+/* ==================================================================
+ * UI-1 · KEY/VALUE — the detail-page description list.
+ * ================================================================== */
+.kv {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+}
+.kv__k {
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-muted);
+  margin: 0;
+}
+.kv__v {
+  font-size: var(--ui-body-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-primary);
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 520px) {
+  .kv {
+    grid-template-columns: 1fr;
+    gap: var(--space-1) 0;
+  }
+  .kv__k {
+    margin-top: var(--space-3);
+  }
+}
+
+/* ==================================================================
+ * UI-1 · SECTION — a titled block that is NOT a bordered panel.
+ * For runs of cards/tiles that carry their own surfaces; a panel around them would be a
+ * box inside a box.
+ * ================================================================== */
+.section {
+  margin-bottom: var(--section-gap);
+}
+.section__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+.section__title {
+  font-family: var(--font-display);
+  font-size: var(--ui-h2-size);
+  line-height: var(--ui-h2-leading);
+  font-weight: var(--ui-h2-weight);
+  letter-spacing: var(--ui-h2-tracking);
+  color: var(--text-primary);
+  margin: 0;
+}
+.section__sub {
+  font-size: var(--ui-body-sm-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-muted);
+  margin: var(--space-1) 0 0;
+  max-width: var(--reading-max);
+  flex-basis: 100%;
+}
+.section__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  flex: none;
+}
+
+/* ==================================================================
+ * UI-1 · ORPHANED CLASS SWEEP
+ * ------------------------------------------------------------------
+ * Each rule below backs a class a component was already rendering with NOTHING behind it.
+ * Nothing in the toolchain connects a className string to a stylesheet, so these passed
+ * typecheck, lint, tests and the build while rendering as unstyled text. Found by walking
+ * every static className token in src and checking it against the defined selectors.
+ * ================================================================== */
+
+/* The text column of a dashboard posting row. Without this it had no min-width:0, so a long
+   role title pushed the status badge and the CTA off the end of the card instead of
+   ellipsing. */
+.dash-posting__main {
+  min-width: 0;
+  flex: 1;
+}
+
+/* The agency funnel's "no data yet" card — same tile as a populated one, quieted. */
+.agency-funnel__card--state {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+/* The conversation column of the AI posting chat. */
+.ai-chat__convo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* The text beside a checkbox / radio / switch. These three were rendering at the browser
+   default, so a control's label was the one piece of form text in the product that did not
+   follow the type roles — and it sat directly next to inputs that did. */
+.bb-choice__label,
+.bb-switch__label {
+  font-size: var(--ui-body-size);
+  line-height: var(--ui-body-leading);
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+/* The label inside a SelectMenu option row; the check icon is its sibling. */
+.bb-selectmenu__option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

@@ -13,8 +13,8 @@ import { createCreditOrder, topUp, verifyCreditPayment } from "../../../lib/paye
  * is ever required, that is a HARD human gate (ADR-0019 Decision D / §7) — STOP.
  *
  * ORG-RBAC (#463 / TD79): billing/wallet is an OWNER-only surface — the SAME claim the
- * Credits page makes (`page.tsx` → `requireOwner()`) and the nav advertises (`portal-nav.tsx`
- * only renders /credits when `isOwner`). This action RE-ASSERTS that gate itself, exactly like
+ * Credits page makes (`page.tsx` → `requireOwner()`) and the nav advertises (`nav-model.ts`
+ * only lists /credits when `isOwner`). This action RE-ASSERTS that gate itself, exactly like
  * the team write actions (`team/actions.ts`), because a page gate is not an action gate.
  */
 export type TopUpActionResult =

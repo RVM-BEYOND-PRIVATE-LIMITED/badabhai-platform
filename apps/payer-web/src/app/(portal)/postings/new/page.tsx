@@ -7,7 +7,6 @@ import {
 } from "../../../../lib/pricing-config";
 import { getCapacity, listMatchSkills } from "../../../../lib/payer-api";
 import { formatInr } from "../../../../lib/format";
-import { Badge, Card } from "../../../../components/ds";
 import { CachedPricingNote } from "../../../../components/cached-pricing-note";
 import type { MatchSkillWire } from "../../../../lib/contracts";
 import { PostingForm } from "./posting-form";
@@ -62,72 +61,77 @@ export default async function NewPostingPage() {
       <p className="page-back">
         <Link href="/postings">← Manage postings</Link>
       </p>
-      <h1 className="dash-title">Post a job</h1>
-      <p className="dash-sub">Describe the role. Applicants appear faceless until you unlock them.</p>
+      <div className="page-head">
+        <div className="page-head__text">
+          <h1 className="page-head__title">Post a job</h1>
+          <p className="page-head__sub">
+            Describe the role. Applicants appear faceless until you unlock them.
+          </p>
+        </div>
+      </div>
 
       {/* ADR-0035 entry point: the AI chat is an ALTERNATIVE INPUT SURFACE onto this same
-          create path — the manual form below is unchanged and remains the default. */}
-      <Card variant="outline" className="posting-mode">
-        <div className="posting-mode__opt">
-          <Badge tone="brand" upper>
-            AI-assisted
-          </Badge>
-          <p className="posting-mode__msg">
-            Answer a few questions in plain language and we&rsquo;ll build the posting for you —
-            resumable on any device you sign in on.
+          create path — the manual form below is unchanged and remains the default. Both
+          options are stated in one band so neither reads as the "real" way in. */}
+      <div className="alert alert--info">
+        <i className="ph ph-sparkle alert__icon" aria-hidden="true" />
+        <div className="alert__text">
+          <p className="alert__title">Answer a few questions instead of filling this form</p>
+          <p className="alert__body">
+            Tell us about the role in plain language and we&rsquo;ll build the posting for you —
+            resumable on any device you sign in on. Prefer to type the fields yourself? The full
+            manual form is right below — nothing changes.
           </p>
-          <Link className="posting-mode__cta" href="/postings/ai/new">
-            Post with AI →
+        </div>
+        <div className="alert__actions">
+          <Link className="bb-btn bb-btn--secondary bb-btn--sm" href="/postings/ai/new">
+            <span>Post with AI</span>
+            <i className="ph ph-arrow-right" aria-hidden="true" />
           </Link>
         </div>
-        <div className="posting-mode__opt">
-          <Badge tone="neutral" upper>
-            Manual form
-          </Badge>
-          <p className="posting-mode__msg">
-            Prefer to type the fields yourself? The full form is right below — nothing changes.
-          </p>
-        </div>
-      </Card>
+      </div>
 
       {atCapacity ? (
-        <Card variant="outline" className="posting-note">
-          <Badge tone="warning" upper>
-            At capacity
-          </Badge>
-          <p className="posting-note__msg">
-            You are at capacity; this posting may be paused until you{" "}
-            <Link href="/capacity">add capacity</Link>.
-          </p>
-        </Card>
+        <div className="alert alert--warning">
+          <i className="ph ph-gauge alert__icon" aria-hidden="true" />
+          <div className="alert__text">
+            <p className="alert__title">At capacity</p>
+            <p className="alert__body">
+              You are at capacity; this posting may be paused until you{" "}
+              <Link href="/capacity">add capacity</Link>.
+            </p>
+          </div>
+        </div>
       ) : null}
 
       {free ? (
-        <Card variant="outline" className="posting-note">
-          <Badge tone="success" upper>
-            Free through launch
-          </Badge>
-          <p className="posting-note__msg">
-            Posting a job is free during the launch phase. (We show this from a launch-phase config
-            flag — the pricing catalog cannot represent a ₹0 price, so &ldquo;free&rdquo; is not a
-            catalog amount.)
-          </p>
-        </Card>
+        <div className="alert alert--success">
+          <i className="ph ph-gift alert__icon" aria-hidden="true" />
+          <div className="alert__text">
+            <p className="alert__title">Free through launch</p>
+            <p className="alert__body">
+              Posting a job is free during the launch phase. (We show this from a launch-phase
+              config flag — the pricing catalog cannot represent a ₹0 price, so &ldquo;free&rdquo;
+              is not a catalog amount.)
+            </p>
+          </div>
+        </div>
       ) : (
-        <Card variant="outline" className="posting-note">
-          <Badge tone="warning" upper>
-            Paid plans
-          </Badge>
-          <p className="posting-note__msg">
-            Paid posting plans (config-driven):{" "}
-            {paidTiers.length === 0
-              ? "unavailable"
-              : paidTiers
-                  .map((t) => `${t.code} ${formatInr(t.priceInr)} / ${t.validityDays}d`)
-                  .join(" · ")}
-            .
-          </p>
-        </Card>
+        <div className="alert alert--warning">
+          <i className="ph ph-tag alert__icon" aria-hidden="true" />
+          <div className="alert__text">
+            <p className="alert__title">Paid plans</p>
+            <p className="alert__body">
+              Paid posting plans (config-driven):{" "}
+              {paidTiers.length === 0
+                ? "unavailable"
+                : paidTiers
+                    .map((t) => `${t.code} ${formatInr(t.priceInr)} / ${t.validityDays}d`)
+                    .join(" · ")}
+              .
+            </p>
+          </div>
+        </div>
       )}
 
       {!live ? <CachedPricingNote /> : null}

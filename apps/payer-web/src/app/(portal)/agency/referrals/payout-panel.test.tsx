@@ -138,7 +138,12 @@ describe("PayoutPanel — history", () => {
   });
 
   it("shows an empty state when there are no requests", () => {
-    const { text } = collect(render(BASE, []));
-    expect(text.join(" ")).toContain("No payout requests yet.");
+    // UI-1: the bare "No payout requests yet." sentence is now the shared `.state` primitive.
+    // Same intent (an empty history is a first-class state, never a blank surface), plus the
+    // Phase-16 requirement that an empty state also says what to do next.
+    const joined = collect(render(BASE, [])).text.join(" ");
+    expect(joined).toContain("No payout requests yet");
+    expect(joined).toMatch(/clears the threshold/);
+    expect(joined).toMatch(/listed here with its status/);
   });
 });

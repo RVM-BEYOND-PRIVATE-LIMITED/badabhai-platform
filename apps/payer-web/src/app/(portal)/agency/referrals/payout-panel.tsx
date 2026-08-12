@@ -10,7 +10,7 @@ import {
 } from "../../../../lib/contracts";
 import { formatInr } from "../../../../lib/format";
 import { day, payoutBlockedLabel } from "../../../../lib/agency-view";
-import { Badge, Button, Card } from "../../../../components/ds";
+import { Badge, Button } from "../../../../components/ds";
 import { requestPayoutAction } from "./supply-actions";
 
 /**
@@ -58,79 +58,134 @@ export function PayoutPanel({
   }
 
   return (
-    <section className="agency-section">
-      <h2 className="agency-section__title">Payouts</h2>
+    <>
+      {/* The REQUEST control. A bordered `.panel` — the primary action lives in the panel head,
+          where the screen's other panels put theirs. */}
+      <section className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">Payouts</h2>
+          <p className="panel__sub">
+            Request a payout of your requestable balance. Mock money — nothing is actually
+            disbursed.
+          </p>
+          <div className="panel__actions">
+            <Button
+              variant="success"
+              onClick={handleRequest}
+              disabled={!canRequest || pending}
+              loading={pending}
+            >
+              {pending ? "Requesting…" : "Request payout"}
+            </Button>
+          </div>
+        </div>
+        <div className="panel__body">
+          {canRequest ? (
+            <p className="section__sub">
+              Requestable now:{" "}
+              <span className="bb-mono">{formatInr(earnings.requestableInr)}</span>
+            </p>
+          ) : null}
 
-      <div className="agency-payout__actions">
-        <Button
-          variant="success"
-          onClick={handleRequest}
-          disabled={!canRequest || pending}
-          loading={pending}
-        >
-          {pending ? "Requesting…" : "Request payout"}
-        </Button>
-        {canRequest ? (
-          <span className="agency-stat__hint">
-            Requestable now: <span className="bb-mono">{formatInr(earnings.requestableInr)}</span>
-          </span>
-        ) : null}
-      </div>
+          {disabledReason ? <p className="section__sub">{disabledReason}</p> : null}
 
-      {disabledReason ? <p className="agency-payout__reason">{disabledReason}</p> : null}
-
-      <div aria-live="polite" className="agency-invite__status">
-        {outcome?.kind === "created" ? (
-          <Card variant="flat" className="agency-invite__note">
-            <Badge tone="success" upper icon="check-circle">
-              Requested
-            </Badge>{" "}
-            Payout of <span className="bb-mono">{formatInr(outcome.amountInr)}</span> requested
-            across <span className="bb-mono">{outcome.accrualCount}</span>{" "}
-            {outcome.accrualCount === 1 ? "accrual" : "accruals"}. It will show below once
-            processed (mock — no real money moves).
-          </Card>
-        ) : null}
-        {outcome?.kind === "blocked" ? (
-          <p className="agency-payout__reason">{outcome.message}</p>
-        ) : null}
-        {outcome?.kind === "error" ? (
-          <p className="agency-invite__error">{outcome.message}</p>
-        ) : null}
-      </div>
+          {/* `.form-status:empty` collapses, so an idle panel carries no stray gap. */}
+          <div aria-live="polite" className="form-status">
+            {outcome?.kind === "created" ? (
+              <div className="alert alert--success">
+                <i className="ph ph-check-circle alert__icon" aria-hidden="true" />
+                <div className="alert__text">
+                  <p className="alert__title">Payout requested</p>
+                  <p className="alert__body">
+                    Payout of <span className="bb-mono">{formatInr(outcome.amountInr)}</span>{" "}
+                    requested across <span className="bb-mono">{outcome.accrualCount}</span>{" "}
+                    {outcome.accrualCount === 1 ? "accrual" : "accruals"}. It will show below
+                    once processed (mock — no real money moves).
+                  </p>
+                </div>
+              </div>
+            ) : null}
+            {outcome?.kind === "blocked" ? (
+              <p className="section__sub">{outcome.message}</p>
+            ) : null}
+            {outcome?.kind === "error" ? (
+              <div className="alert alert--danger">
+                <i className="ph ph-warning-circle alert__icon" aria-hidden="true" />
+                <div className="alert__text">
+                  <p className="alert__title">We couldn&rsquo;t request that payout</p>
+                  <p className="alert__body">{outcome.message}</p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
 
       {payoutHistory(payouts)}
-    </section>
+    </>
   );
 }
 
 /**
- * The payout request history — PII-free rows (opaque id / ₹ / status / day). A plain
+ * The payout request history — PII-free rows (₹ / accrual count / status / day). A plain
  * function (called inline, not a nested component) so it renders as part of the tree.
+ *
+ * The ad-hoc Card list is now the DS `.table` inside a `.panel--table` (whose body owns no
+ * padding — the cell padding is the rhythm). The opaque request id is deliberately NOT a
+ * column: it is not actionable and adds nothing a payer can use.
  */
 function payoutHistory(payouts: AgencyPayout[]) {
-  if (payouts.length === 0) {
-    return <p className="agency-payout__empty">No payout requests yet.</p>;
-  }
   return (
-    <ul className="agency-payout__list">
-      {payouts.map((p) => (
-        <li key={p.id}>
-          <Card className="agency-payout__row">
-            <span>
-              <span className="agency-payout__amount bb-mono">{formatInr(p.amountInr)}</span>{" "}
-              <span className="agency-payout__meta">
-                · <span className="bb-mono">{p.accrualCount}</span>{" "}
-                {p.accrualCount === 1 ? "accrual" : "accruals"} · {day(p.createdAt)}
-              </span>
+    <section className="panel panel--table">
+      <div className="panel__head">
+        <h2 className="panel__title">Request history</h2>
+      </div>
+      <div className="panel__body">
+        {payouts.length === 0 ? (
+          <div className="state">
+            <span className="state__icon">
+              <i className="ph ph-receipt" aria-hidden="true" />
             </span>
-            <Badge tone={statusTone(p.status)} upper>
-              {p.status}
-            </Badge>
-          </Card>
-        </li>
-      ))}
-    </ul>
+            <h3 className="state__title">No payout requests yet</h3>
+            <p className="state__body">
+              Once your requestable balance clears the threshold, use &ldquo;Request
+              payout&rdquo; above — every request you make will be listed here with its status.
+            </p>
+          </div>
+        ) : (
+          <div className="tablewrap">
+            <table className="table">
+              <caption className="sr-only">
+                Your payout requests: the amount, how many accruals it covers, the day it was
+                requested, and its current status.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Accruals</th>
+                  <th scope="col">Requested</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payouts.map((p) => (
+                  <tr key={p.id}>
+                    <td className="num">{formatInr(p.amountInr)}</td>
+                    <td className="num">{p.accrualCount}</td>
+                    <td className="mono">{day(p.createdAt)}</td>
+                    <td>
+                      <Badge tone={statusTone(p.status)} upper>
+                        {p.status}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

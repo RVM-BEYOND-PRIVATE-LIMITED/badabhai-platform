@@ -9,7 +9,11 @@ import type { PayerSession } from "../../../lib/auth/types";
  * which is MOCKED here to a marker that echoes the props it received — so this suite asserts
  * the page WIRES the session's OWN fields into the form (org/email/phoneLast4/role/status) and
  * passes NO worker PII / full phone. A session missing its account fields renders the neutral
- * retry Card (the form is NOT rendered).
+ * retry state (the form is NOT rendered).
+ *
+ * UI-1: the page composes the shared spine, so the structural assertions below name the
+ * primitives (`page-head__title`, `state--error`, `state__actions`) rather than the retired
+ * per-page classes (`dash-title`, `dash-state`).
  */
 
 const requirePayer = vi.fn<() => Promise<PayerSession>>();
@@ -99,6 +103,14 @@ describe("AccountPage — identity header + edit form wiring", () => {
     expect(monos.map((m) => textOf(m)).join(" ")).toContain("ops@acme.example");
   });
 
+  it("titles the screen with the shared page-head primitive + a one-line purpose", async () => {
+    const tree = await render();
+    const titles = findByClass(tree, "page-head__title");
+    expect(titles.length).toBe(1);
+    expect(textOf(titles[0]!)).toBe("Account");
+    expect(findByClass(tree, "page-head__sub").length).toBe(1);
+  });
+
   it("forwards the session's OWN fields into the AccountForm (org/email/phoneLast4/role/status)", async () => {
     const props = accountFormProps(await render());
     expect(props).toBeDefined();
@@ -132,10 +144,13 @@ describe("AccountPage — no worker PII", () => {
 });
 
 describe("AccountPage — resilient state when account fields are unavailable", () => {
-  it("renders the neutral retry Card and NOT the form when the session has no email yet", async () => {
+  it("renders the neutral retry state and NOT the form when the session has no email yet", async () => {
     const tree = await render({ email: undefined });
     const text = textOf(tree);
     expect(text).toContain("Service unavailable");
+    // The failure renders as the shared ERROR state, with a recovery action (RetryButton).
+    expect(findByClass(tree, "state--error").length).toBe(1);
+    expect(findByClass(tree, "state__actions").length).toBe(1);
     // The edit form is NOT rendered on the failure path.
     expect(findAll(tree, MockedAccountForm).length).toBe(0);
   });

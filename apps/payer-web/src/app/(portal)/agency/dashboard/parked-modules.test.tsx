@@ -4,11 +4,12 @@ import { AgencyParkedModules } from "./parked-modules";
 import type { AgencyFlags } from "../../../../lib/config";
 
 /**
- * PARKED / DEAD / DEFERRED module cards — informational, NON-interactive (DS3.1 re-skin).
- * Each card is a MUTED DS `Card` + status `Badge`; the assertions are UNCHANGED by the
- * re-skin (DS Card/Badge are hookless function components — the walk records only native
- * string element types and the rendered text in `children`, so the no-interactive-control
- * + no-commercial-term + re-label guards all still hold). Asserts:
+ * PARKED / DEAD / DEFERRED module cards — informational, NON-interactive.
+ * Each card is the UI-1 `soon-card` primitive + a status `Badge` (the Badge, not the
+ * `soon-badge`: "Soon" is the one promise these cards must never make). The assertions are
+ * UNCHANGED by the re-skin — the walk records only native string element types and the
+ * rendered text in `children`, and a `soon-card` is a plain <div>, so the
+ * no-interactive-control + no-commercial-term + re-label guards all still hold. Asserts:
  *  - all four modules render with their gate note,
  *  - NO interactive control exists (no button/input/form/select/textarea/anchor —
  *    they are not clickable fake flows),

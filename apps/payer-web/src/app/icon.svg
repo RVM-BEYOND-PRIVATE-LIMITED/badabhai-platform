@@ -1,5 +1,20 @@
+<!--
+  BadaBhai favicon (payer portal) — the SAME mark the in-app lockup renders.
+
+  An SVG served as a static file cannot resolve CSS custom properties, so the three
+  literals below are the RESOLVED values of the tokens BadaBhaiLogo styles its mark
+  with (src/components/ds/logo.tsx → src/styles/tokens.css):
+
+    ground   --brand    = var(--vermilion-500) = #ffc400   (haldi)
+    bubble   --paper-0                         = #ffffff
+    chevron  --success  = var(--green-500)     = #1e7a3c
+
+  These were #e0371c / #ffffff / #0e7a4f — the pre-JUL31 vermilion-RED dial. The dial
+  moved to haldi and the file was never re-derived, so the browser tab carried the old
+  brand. Keep this file in step whenever --brand / --success move.
+-->
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BadaBhai">
-  <rect width="512" height="512" rx="128" fill="#E0371C"></rect>
-  <path d="M150 124h212a40 40 0 0 1 40 40v132a40 40 0 0 1-40 40H252l-78 62a12 12 0 0 1-19.4-9.4V336h-4.6a40 40 0 0 1-40-40V164a40 40 0 0 1 40-40Z" fill="#FFFFFF"></path>
-  <path d="M196 268l60-58 60 58" stroke="#0E7A4F" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"></path>
+  <rect width="512" height="512" rx="128" fill="#ffc400"></rect>
+  <path d="M150 124h212a40 40 0 0 1 40 40v132a40 40 0 0 1-40 40H252l-78 62a12 12 0 0 1-19.4-9.4V336h-4.6a40 40 0 0 1-40-40V164a40 40 0 0 1 40-40Z" fill="#ffffff"></path>
+  <path d="M196 268l60-58 60 58" stroke="#1e7a3c" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"></path>
 </svg>

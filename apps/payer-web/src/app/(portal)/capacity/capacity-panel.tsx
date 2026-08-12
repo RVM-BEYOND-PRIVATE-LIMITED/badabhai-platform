@@ -61,9 +61,16 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
   return (
     <>
       {tiers.length === 0 ? (
-        <Card variant="flat" className="capacity-empty">
-          No capacity tiers are currently offered.
-        </Card>
+        <div className="state">
+          <span className="state__icon">
+            <i className="ph ph-stack" aria-hidden="true" />
+          </span>
+          <h3 className="state__title">No capacity tiers on offer</h3>
+          <p className="state__body">
+            There is nothing to buy right now — this usually means the price list is being
+            updated. Your current allowance is unaffected; check back shortly.
+          </p>
+        </div>
       ) : (
         <div className="capacity-tiers">
           {tiers.map((t) => (

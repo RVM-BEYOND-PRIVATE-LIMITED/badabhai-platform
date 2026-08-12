@@ -52,17 +52,26 @@ export default async function LoginPage() {
       </div>
 
       <div className="login-shell">
-        {/* LEFT — brand / value panel (≥1024px only; aria-hidden so SR users on the form
-            aren't read a decorative marketing column twice). Truthful copy only. */}
-        <aside className="login-aside" aria-hidden="true">
+        {/* LEFT — brand / value panel (≥1024px only). Truthful copy only.
+
+            It was `aria-hidden="true"`, on the reasoning that a screen-reader user should
+            not be read "a decorative marketing column twice". Nothing here is duplicated
+            anywhere, though: this panel is the ONLY place the product says what it is, so
+            hiding it did not spare a repeat — it removed the entire product context for
+            anyone using assistive tech, leaving them an unexplained email field. It is
+            announced now, as the complementary content it actually is. Below 1024px the
+            panel is `display: none`, which keeps it out of the a11y tree there anyway. */}
+        <aside className="login-aside" aria-label="Why BadaBhai">
           <div className="login-aside__inner">
             <div className="login-aside__brand">
               <BadaBhaiLogo size={40} theme="ink" />
             </div>
             <p className="login-aside__eyebrow">For employers &amp; agencies</p>
-            <h2 className="login-aside__headline">
+            {/* A tagline, not a document section — and it renders BEFORE the card's <h1>,
+                so marking it up as <h2> put an h2 ahead of the page's only h1. */}
+            <p className="login-aside__headline">
               Hire verified manufacturing talent — applicants you can trust.
-            </h2>
+            </p>
             <ul className="login-aside__points">
               {VALUE_PROPS.map((vp) => (
                 <li key={vp.title} className="login-aside__point">

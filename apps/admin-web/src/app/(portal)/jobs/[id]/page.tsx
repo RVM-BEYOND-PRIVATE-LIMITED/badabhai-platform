@@ -51,9 +51,10 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
           </p>
           <h1 className="page__title">{job.role_title}</h1>
           <p className="page__sub">
+            One posting exactly as workers see it, with its reach and its trust review.
             Published as <strong>{job.org_label}</strong>
             {job.city || job.location_label ? ` · ${job.city ?? job.location_label}` : ""} ·
-            created {formatRelative(job.created_at)}
+            created {formatRelative(job.created_at)}.
           </p>
         </div>
         <div className="page__actions">
@@ -114,7 +115,15 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               // reviewed, and collapsing them changes how the ad reads.
               <p className="prose__body">{job.description}</p>
             ) : (
-              <p className="empty">No description was provided.</p>
+              // h4, not h3: this sits UNDER the "Description" h3 inside the panel's h2.
+              <div className="state">
+                <h4 className="state__title">No description</h4>
+                <p className="state__body">
+                  The poster published this job without one, so workers judge it on the role
+                  title, pay band and location alone. There is nothing here to review for a
+                  misleading claim — an empty description is a quality signal, not a fault.
+                </p>
+              </div>
             )}
           </div>
         </section>
@@ -205,9 +214,37 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
         </div>
 
         {decisions === null ? (
-          <p className="empty">Worker decisions are unavailable right now.</p>
+          <div className="state state--error">
+            <h3 className="state__title">Worker decisions could not be loaded</h3>
+            <p className="state__body">
+              The posting above loaded, but the applications read failed — so this table is
+              missing, not empty. The Applied and Skipped tiles come from the posting record
+              and are still the true totals.
+            </p>
+            <div className="state__actions">
+              <Link className="btn btn--ghost" href={`/jobs/${job.id}`}>
+                Reload this posting
+              </Link>
+            </div>
+          </div>
         ) : decisions.items.length === 0 ? (
-          <p className="empty">No worker has applied to or skipped this posting yet.</p>
+          <div className="state">
+            <h3 className="state__title">No worker decisions yet</h3>
+            <p className="state__body">
+              No worker has applied to this posting or skipped it.{" "}
+              {job.status === "open"
+                ? "It is open, so it is in the feed and waiting on matching to surface it to somebody."
+                : `It is ${job.status}, so it is out of the worker feed and cannot collect decisions in this state.`}
+            </p>
+            <div className="state__actions">
+              <Link
+                className="btn btn--ghost"
+                href={`/events?subjectType=job_posting&subjectId=${job.id}`}
+              >
+                Event timeline
+              </Link>
+            </div>
+          </div>
         ) : (
           <div className="tablewrap">
             <table className="table">

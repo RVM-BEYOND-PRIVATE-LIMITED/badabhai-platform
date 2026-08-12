@@ -59,6 +59,20 @@ export default async function TransactionsPage({
 
   const filtered = Boolean(status || payerId);
 
+  /**
+   * The CURRENT query, rebuilt — so a "Retry" repeats what failed instead of resetting it.
+   * `cursor` is deliberately included: an operator three pages into a ledger who hits a
+   * transient read failure should land back on the page they were reading, not on page one.
+   */
+  const retryHref = (() => {
+    const qs = new URLSearchParams();
+    if (status) qs.set("status", status);
+    if (payerId) qs.set("payerId", payerId);
+    if (cursor) qs.set("cursor", cursor);
+    const q = qs.toString();
+    return q ? `/transactions?${q}` : "/transactions";
+  })();
+
   return (
     <div className="page">
       <header className="page__head">
@@ -166,28 +180,74 @@ export default async function TransactionsPage({
         </div>
 
         {orders === null ? (
-          <p className="empty">Payment orders are unavailable right now.</p>
+          <div className="state state--error">
+            <h3 className="state__title">Payment orders are unavailable</h3>
+            <p className="state__body">
+              The order list did not load. The figures above are a separate read and are
+              unaffected. Reload to try again.
+            </p>
+            <div className="state__actions">
+              {/* Repeat the SAME query. Pointing this at the bare route (which is what
+                  "Clear filters" does) silently dropped status / payerId / cursor, so a
+                  transient failure quietly returned the operator to an unfiltered page one
+                  while claiming to have retried. */}
+              <Link className="btn btn--ghost" href={retryHref}>
+                Retry
+              </Link>
+            </div>
+          </div>
         ) : orders.items.length === 0 ? (
           filtered ? (
-            <p className="empty">No orders match these filters.</p>
+            <div className="state">
+              <h3 className="state__title">No orders match these filters</h3>
+              <p className="state__body">
+                Nothing matches the filters currently applied. Clear them to see every
+                order, newest first.
+              </p>
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/transactions">
+                  Clear filters
+                </Link>
+              </div>
+            </div>
           ) : posture?.mode === "mock" ? (
             // The honest empty state. "No payment orders recorded yet" is TRUE and
             // MISLEADING: it reads as "no sales" when packs are being bought through the
-            // mock path, which writes the ledger and creates no order row.
-            <p className="empty">
-              No payment orders exist — and none can, while real payments are switched off.
-              Order rows are created only by the payment provider&apos;s checkout. Pack
-              purchases made through the mock path are recorded in the{" "}
-              <Link className="link" href="/credits?reason=pack_purchase">
-                credit ledger
-              </Link>{" "}
-              instead
-              {mockPurchases && mockPurchases.movements > 0
-                ? ` — ${formatCount(mockPurchases.movements)} of them in the last ${summary?.window_days ?? 30} days.`
-                : "."}
-            </p>
+            // mock path, which writes the ledger and creates no order row. The recovery
+            // action is therefore the ledger, not a retry — there is nothing to retry.
+            <div className="state">
+              <h3 className="state__title">
+                No payment orders exist — and none can, while real payments are switched off
+              </h3>
+              <p className="state__body">
+                Order rows are created only by the payment provider&apos;s checkout. Pack
+                purchases made through the mock path are recorded in the credit ledger
+                instead
+                {mockPurchases && mockPurchases.movements > 0
+                  ? ` — ${formatCount(mockPurchases.movements)} of them in the last ${summary?.window_days ?? 30} days.`
+                  : "."}
+              </p>
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/credits?reason=pack_purchase">
+                  Open the credit ledger
+                </Link>
+              </div>
+            </div>
           ) : (
-            <p className="empty">No payment orders recorded yet.</p>
+            <div className="state">
+              <h3 className="state__title">No payment orders recorded yet</h3>
+              {/* Deliberately not "real payments are on": this branch is also reached when
+                  the posture itself is unknown, and asserting the mode would be a guess. */}
+              <p className="state__body">
+                No checkout has been started. An order row appears the moment a payer opens
+                the pack checkout with the payment provider.
+              </p>
+              <div className="state__actions">
+                <Link className="btn btn--ghost" href="/credits">
+                  Open the credit ledger
+                </Link>
+              </div>
+            </div>
           )
         ) : (
           <div className="tablewrap">
@@ -218,8 +278,8 @@ export default async function TransactionsPage({
                       </Link>
                     </td>
                     <td>{o.pack_code}</td>
-                    <td className="mono">{formatRupees(o.amount_inr)}</td>
-                    <td className="mono">{formatCount(o.credits_granted)}</td>
+                    <td className="mono ui-num">{formatRupees(o.amount_inr)}</td>
+                    <td className="mono ui-num">{formatCount(o.credits_granted)}</td>
                     <td>
                       {/* The pill shows the REAL order status. `created` is toned warn, not
                           neutral: an order stuck in checkout is a thing to look at, not a

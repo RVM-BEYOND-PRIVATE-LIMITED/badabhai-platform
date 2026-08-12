@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import type { EventListItem } from "../lib/events";
 import { formatRelative, formatTimestamp, humanizeEventName, shortId } from "../lib/format";
 
@@ -12,12 +13,35 @@ import { formatRelative, formatTimestamp, humanizeEventName, shortId } from "../
 export function EventTable({
   events,
   emptyMessage = "No events match these filters.",
+  emptyBody,
+  emptyAction,
 }: {
   events: EventListItem[];
   emptyMessage?: string;
+  /** WHY this surface can legitimately be empty. Caller-supplied — see the note below. */
+  emptyBody?: ReactNode;
+  /** What to do next, if there is anything useful to do. Omit when there is not. */
+  emptyAction?: ReactNode;
 }) {
   if (events.length === 0) {
-    return <p className="empty">{emptyMessage}</p>;
+    /**
+     * An empty state says WHAT is empty, WHY, and what to do next — but only the caller
+     * knows the last two, so they are props rather than a fixed sentence.
+     *
+     * This used to hardcode "a narrow filter can hide a busy day… widen the filters" plus a
+     * "View all events" link, which was wrong at two of the three call sites: the dashboard
+     * widget has no filters to widen and already renders that exact link in its panel head
+     * (so the empty state emitted a duplicate link with the same name and target inside one
+     * panel), and on an unfiltered /events the link pointed at the page you were already on.
+     * The file's own comment claimed the reason "stays theirs" while appending a shared one.
+     */
+    return (
+      <div className="state">
+        <h3 className="state__title">{emptyMessage}</h3>
+        {emptyBody ? <p className="state__body">{emptyBody}</p> : null}
+        {emptyAction ? <div className="state__actions">{emptyAction}</div> : null}
+      </div>
+    );
   }
 
   return (
