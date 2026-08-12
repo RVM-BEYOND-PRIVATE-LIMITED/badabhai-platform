@@ -39,8 +39,16 @@ param(
   [string]$TestLoginToken  = $(if ($env:TEST_LOGIN_TOKEN) { $env:TEST_LOGIN_TOKEN } else { 'local-test-login-token-not-a-secret-32ch' }),
   [string]$InternalToken   = $(if ($env:INTERNAL_SERVICE_TOKEN) { $env:INTERNAL_SERVICE_TOKEN } else { 'local-internal-service-token' }),
   [string]$ConsentVersion  = '2026-06-01',
-  # Extraction is queued on BullMQ, so the profile lands AFTER the interview closes.
-  [int]$WaitSeconds        = 20
+  # Extraction is queued on BullMQ, so the profile lands AFTER the interview closes -- and it
+  # RETRIES on the queue's backoff, so a job whose first attempt fails lands minutes later, not
+  # seconds. Measured on this box: 5m04s from enqueue to completion, with the provider calls
+  # five minutes in. The old 20 s was a wall clock tuned for the happy path, so every retried
+  # job reported "no profile extracted" on a run that was working perfectly.
+  #
+  # 0 = NO CEILING: poll until the job reaches a terminal state, Ctrl-C to give up. The wait is
+  # bounded by the JOB's own state either way -- `failed` breaks out immediately rather than
+  # burning the rest of the clock on a job that will never produce a draft.
+  [int]$WaitSeconds        = 300
 )
 
 $ErrorActionPreference = 'Stop'
@@ -228,15 +236,33 @@ if (-not $opsReady) {
 
 # ---- 7. wait for the queue, then diff the AI jobs ---------------------------
 # Extraction is enqueued on BullMQ at completion, so polling is not optional here.
-$deadline = (Get-Date).AddSeconds($WaitSeconds)
-$newJobs  = @()
-while ((Get-Date) -lt $deadline) {
+#
+# WAITING ON STATE, NOT ON A CLOCK. The exit condition is "every new job has left queued/running",
+# which is true the moment the work is actually done -- so the common case still returns in
+# seconds and only a retrying job costs the extra minutes. A silent multi-minute pause reads as a
+# hang, so the heartbeat says what is being waited on and for how long.
+$unlimited = ($WaitSeconds -le 0)
+$startedAt = Get-Date
+$deadline  = $startedAt.AddSeconds([Math]::Max($WaitSeconds, 0))
+$newJobs   = @()
+$beat      = 0
+while ($unlimited -or (Get-Date) -lt $deadline) {
   try {
     $all = (Invoke-RestMethod -Uri "$ApiUrl/ai-jobs?limit=100" -Headers $internal).ai_jobs
   } catch { break }
   $newJobs = @($all | Where-Object { -not $jobsBefore.ContainsKey($_.id) })
   $pending = @($newJobs | Where-Object { $_.status -eq 'queued' -or $_.status -eq 'running' })
   if ($newJobs.Count -gt 0 -and $pending.Count -eq 0) { break }
+  # Every 10 s, and only once there is something to report -- before the job row exists there is
+  # nothing to say beyond "still nothing", which is what the interview's own output already said.
+  $beat++
+  if ($beat % 20 -eq 0 -and $pending.Count -gt 0) {
+    $elapsed = [int]((Get-Date) - $startedAt).TotalSeconds
+    $ceiling = if ($unlimited) { 'no ceiling' } else { "${WaitSeconds}s ceiling" }
+    Write-Host ("  waiting on {0} job(s) [{1}] -- {2}s elapsed, {3}" -f `
+      $pending.Count, (($pending | ForEach-Object { $_.status }) -join ','), $elapsed, $ceiling) `
+      -ForegroundColor DarkGray
+  }
   Start-Sleep -Milliseconds 500
 }
 
@@ -323,8 +349,14 @@ if ($newJobIds.Count -eq 0) {
   Write-Host "  skipped: no extraction ran for this session, so there is no draft to show." -ForegroundColor DarkYellow
   Write-Host "  printing this worker's previous profile here would misattribute it." -ForegroundColor DarkGray
 } else {
-  $deadline = (Get-Date).AddSeconds($WaitSeconds)
-  while ((Get-Date) -lt $deadline) {
+  # THE SECOND WAIT IS NOT REDUNDANT. Loop 7 waits for the JOB to leave running; the profile row
+  # is written by that job and can lag it by a beat. It gets its own clock rather than the
+  # remainder of the first one, because a job that took four minutes to succeed has not earned a
+  # zero-second budget to land its row.
+  $startedAt = Get-Date
+  $deadline  = $startedAt.AddSeconds([Math]::Max($WaitSeconds, 0))
+  $beat      = 0
+  while ($unlimited -or (Get-Date) -lt $deadline) {
     try {
       $bundle = Invoke-RestMethod -Uri "$ApiUrl/workers/$workerId/profile" -Headers $internal
     } catch { break }
@@ -332,13 +364,41 @@ if ($newJobIds.Count -eq 0) {
     # Match on aiJobId: `latestProfile` is ordered by recency and knows nothing about which
     # session asked for it, so identity has to come from the job THIS run watched get created.
     if ($p -and $p.richProfileDraft -and $newJobIds.ContainsKey($p.aiJobId)) { $profile = $p; break }
+    # A job that has already FAILED will never write the row -- waiting out the ceiling on it
+    # teaches nothing and hides the reason. Re-read status rather than trusting the snapshot
+    # loop 7 took, since a retry can fail after that loop returned.
+    try {
+      $still = (Invoke-RestMethod -Uri "$ApiUrl/ai-jobs?limit=100" -Headers $internal).ai_jobs |
+               Where-Object { $newJobIds.ContainsKey($_.id) }
+      if (@($still | Where-Object { $_.status -eq 'queued' -or $_.status -eq 'running' }).Count -eq 0 -and
+          @($still | Where-Object { $_.status -eq 'completed' }).Count -eq 0) {
+        Write-Host ("  extraction ended without a draft: {0}" -f (($still | ForEach-Object { $_.status }) -join ',')) -ForegroundColor DarkYellow
+        break
+      }
+    } catch {}
+    $beat++
+    if ($beat % 20 -eq 0) {
+      $elapsed = [int]((Get-Date) - $startedAt).TotalSeconds
+      Write-Host ("  waiting for the profile row -- {0}s elapsed" -f $elapsed) -ForegroundColor DarkGray
+    }
     Start-Sleep -Milliseconds 500
   }
 }
 
 if ($newJobIds.Count -gt 0 -and -not $profile) {
-  Write-Host "  no profile extracted within ${WaitSeconds}s." -ForegroundColor DarkYellow
-  Write-Host "  the queue may still be running -- re-run with -WaitSeconds 60." -ForegroundColor DarkGray
+  # NAME THE JOB'S ACTUAL STATE. "no profile within Ns" describes the clock, not the system, and
+  # sent the last reader looking for a config problem when the job was simply on its second
+  # attempt. The status is the one fact that separates "still working" from "gave up".
+  $last = $null
+  try {
+    $last = (Invoke-RestMethod -Uri "$ApiUrl/ai-jobs?limit=100" -Headers $internal).ai_jobs |
+            Where-Object { $newJobIds.ContainsKey($_.id) }
+  } catch {}
+  $states = if ($last) { (($last | ForEach-Object { "$($_.job_type)=$($_.status)" }) -join ', ') } else { 'unknown (ops route unreachable)' }
+  Write-Host ("  no draft yet. job state: {0}" -f $states) -ForegroundColor DarkYellow
+  Write-Host "  extraction retries on the queue's backoff, so a job whose first attempt fails" -ForegroundColor DarkGray
+  Write-Host "  lands minutes later. Wait indefinitely with -WaitSeconds 0, or read it after:" -ForegroundColor DarkGray
+  Write-Host ("      curl -s -H 'x-internal-token: <token>' {0}/workers/{1}/profile" -f $ApiUrl, $workerId) -ForegroundColor DarkGray
 } elseif ($profile) {
   Write-Host ("  profile_id  {0}" -f $profile.id) -ForegroundColor DarkGray
   Write-Host ("  status      {0}" -f $profile.profileStatus) -ForegroundColor DarkGray

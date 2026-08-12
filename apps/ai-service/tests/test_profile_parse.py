@@ -204,8 +204,28 @@ def test_the_deadline_degrades_to_the_deterministic_overlay(monkeypatch):
     assert "parse_deadline_exceeded" in body["notes"]
 
 
-def test_the_deadline_is_configurable_and_defaults_under_the_budget():
-    assert Settings().profile_parse_deadline_seconds <= 6.0
+def test_the_deadline_stays_below_the_callers_transport_abort():
+    """The bound that actually matters, now that nobody is waiting on this call.
+
+    THIS USED TO ASSERT ``<= 6.0`` — the Phase 7 acceptance criterion, whose stated reason was
+    "the worker is waiting on this call to see their finished profile". That has not been true
+    since the cutover: the only caller is the BullMQ extraction job in ``apps/api``, which runs
+    minutes after the interview closed. The 6 s bought no responsiveness and cost real profiles
+    once the LLM-led interview started producing 25-turn transcripts — every run returned
+    ``parse_deadline_exceeded``.
+
+    What still has to hold is the ORDERING against the caller's transport abort
+    (``PROFILE_JOB_TIMEOUT_MS`` = 25 s in ``apps/api/src/ai/ai.service.ts``). Whichever bound
+    fires first decides what the caller learns: this deadline degrades to a healthy 200 carrying
+    a named ``parse_deadline_exceeded`` note, while the abort produces a bare null the processor
+    can only read as "the service is down". The informative failure must be the reachable one, so
+    this stays strictly under 25 s — with margin, since a deadline that merely ties is a race.
+    """
+    deadline = Settings().profile_parse_deadline_seconds
+    assert deadline <= 20.0, "a parse that can outlive its caller's abort reports the wrong cause"
+    # And still bounded well inside the queue's own in-flight window (30 min), so a slow parse
+    # can never be what makes a job look stranded.
+    assert deadline > 0.0
 
 
 # ---------------------------------------------------------------------------

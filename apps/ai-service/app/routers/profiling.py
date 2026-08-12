@@ -209,10 +209,13 @@ async def profiling_extract(body: InterviewExtractInput) -> InterviewExtractOutp
                 real_call_allowed=True,
                 user_ref=body.worker_ref,
             ),
-            timeout=settings.profile_extract_deadline_seconds,
+            timeout=settings.profiling_extract_deadline_seconds,
         )
     except TimeoutError:
-        logger.warning("interview extract deadline exceeded")
+        logger.warning(
+            "interview extract deadline exceeded",
+            extra={"extra": {"deadline_s": settings.profiling_extract_deadline_seconds}},
+        )
         return InterviewExtractOutput(is_mock=True)
 
     if not meta.real_call:
