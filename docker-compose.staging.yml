@@ -154,6 +154,31 @@ services:
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
 
+      # ---- ADR-0032 WORKER PROFILE PHOTOS: PASS-THROUGH, NEVER REQUIRED — same shape
+      # as VOICE_NOTES_BUCKET immediately above, for the same reason. `WORKER_PHOTOS_BUCKET`
+      # defaults to "" in packages/config/src/server.ts, and empty is DORMANT: the photo
+      # upload/download routes (apps/api/src/workers) 503 fail-closed rather than mint a
+      # signed URL against a bucket that may not exist. This is api-only — profile-photo
+      # handling never touches the ai-service (unlike voice notes, which it reads to
+      # transcribe), so this name is deliberately NOT added to the ai-service block below.
+      #
+      # THIS LINE WAS MISSING, AND THAT WAS A REAL GAP, NOT A DORMANT-BY-DESIGN STATE LIKE
+      # THE ONE ABOVE. Compose only forwards env vars a service's `environment:` block
+      # explicitly names — it does not pass the host shell through — so before this line
+      # existed, exporting WORKER_PHOTOS_BUCKET on the box (or via the CI secrets bridge)
+      # had NO path into the api container: the value would sit in the box's shell/.env,
+      # never reach the process, and every upload/download would 503 exactly as if nothing
+      # had been configured at all, with no error naming the actual cause.
+      #
+      # ARMING STILL NEEDS TWO THINGS, NOT ONE. This compose entry alone arms nothing — the
+      # value still defaults to empty. Setting it for real also requires the
+      # `worker-profile-photos` Storage bucket to exist and be provisioned PRIVATE in the
+      # actual Supabase project (infra/supabase/storage-buckets.sql; see
+      # infra/supabase/storage-buckets.md) — a face photo is high-sensitivity PII and must
+      # never be payer-readable. `:-` keeps the required-secret set unchanged, same as
+      # VOICE_NOTES_BUCKET: unset expands to empty and compose still starts clean.
+      WORKER_PHOTOS_BUCKET: ${WORKER_PHOTOS_BUCKET:-}
+
       # ---- KNOWN-SURVIVING DEV VALUE (deliberate for now — R27 owner queue). The base
       # file's `PAYER_LOGIN_METHOD: whatsapp` survives this merge, and the WhatsApp
       # channel is the MOCK provider (ADR-0020) — so payer/agency login is functionally
