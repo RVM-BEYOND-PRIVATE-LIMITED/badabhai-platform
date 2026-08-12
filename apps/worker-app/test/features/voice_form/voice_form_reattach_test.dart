@@ -12,6 +12,7 @@ import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointe
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_correction_outcome.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_review_row.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/cubit/voice_form_cubit.dart';
 import 'voice_form_doubles.dart';
 
@@ -54,6 +55,9 @@ class ScriptedGateway implements VoiceFormGateway {
   /// Unused here — this fake exists for the 409 re-attach path, which never corrects.
   /// Present because `VoiceFormGateway` declares it (#700): Dart requires every member of
   /// an implemented interface, so omitting it is a COMPILE error, not an unused stub.
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
+
   @override
   Future<VoiceCorrectionOutcome> correct(
     VoiceAnswer answer, {

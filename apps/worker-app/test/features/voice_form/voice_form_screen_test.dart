@@ -9,6 +9,7 @@ import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointe
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_correction_outcome.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_review_row.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/cubit/voice_form_cubit.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/voice_form_screen.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/widgets/voice_dot_rail.dart';
@@ -51,12 +52,60 @@ class OneQuestionGateway implements VoiceFormGateway {
   @override
   Future<void> finalize() async {}
 
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
 
   @override
   Future<VoiceCorrectionOutcome> correct(
     VoiceAnswer answer, {
     required String questionKey,
   }) => throw UnimplementedError();
+}
+
+/// Reaches review with configurable [rows] and records what corrections the host
+/// routes through the cubit (#700).
+class ReviewHostGateway implements VoiceFormGateway {
+  ReviewHostGateway(this.rows);
+
+  final List<VoiceReviewRow> rows;
+  final List<VoiceAnswer> corrected = <VoiceAnswer>[];
+  final List<String> correctedKeys = <String>[];
+
+  @override
+  String? get sessionId => 'sess-test';
+
+  @override
+  Future<VoiceFormStep> start() async => const NextQuestion(
+        VoiceQuestion(id: 'q1', prompt: 'Q1'),
+        index: 1,
+        total: 1,
+      );
+
+  @override
+  Future<VoiceFormStep> submit(VoiceAnswer answer, {String? questionKey}) async =>
+      const VoiceFormDone();
+
+  @override
+  Future<void> finalize() async {}
+
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async => rows;
+
+  @override
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) async {
+    corrected.add(answer);
+    correctedKeys.add(questionKey);
+    return const VoiceCorrectionOutcome(
+      questionId: 'q_trade',
+      displayValue: 'Fitter',
+      declined: false,
+      correctionCount: 1,
+      profileRebuildRequired: false,
+    );
+  }
 }
 
 void main() {
@@ -155,6 +204,103 @@ void main() {
       expect(levelFraction(-5), greaterThan(levelFraction(-55)));
       expect(levelFraction(-60), 0.0);
       expect(levelFraction(0), 1.0);
+    });
+  });
+
+  group('review-screen correction is finally wired to the cubit (#700)', () {
+    const List<VoiceReviewRow> reviewRows = <VoiceReviewRow>[
+      VoiceReviewRow(
+        questionId: 'q_trade',
+        fieldLabel: 'Kaam',
+        displayValue: 'Welder',
+        kind: VoiceQuestionKind.singleSelect,
+        hasChoices: true,
+        options: <VoiceChoice>[
+          VoiceChoice(key: 'fitter', label: 'Fitter'),
+          VoiceChoice(key: 'welder', label: 'Welder'),
+        ],
+      ),
+    ];
+
+    VoiceFormCubit makeReviewCubit(ReviewHostGateway gateway) => VoiceFormCubit(
+          gateway: gateway,
+          recorder: SessionVoiceRecorder(recorder: plugin),
+          endpointer: SilenceEndpointer(),
+          tts: FakeTts(),
+          registrar: FakeRegistrar(),
+          session: testSession(),
+          sleep: (_) async {},
+        );
+
+    // Drive the cubit to review (real recorder IO / timers → runAsync), then
+    // mount the screen so VoiceReviewScreen renders the rows.
+    Future<void> toReview(WidgetTester t, VoiceFormCubit cubit) async {
+      await t.runAsync(() async {
+        await cubit.start();
+        await cubit.answerByChips(<String>['x']); // → done → review
+      });
+      await t.pumpWidget(MaterialApp(home: VoiceFormScreen(cubit: cubit)));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('⟲ → chips → the host corrects with VoiceAnswer.chips',
+        (WidgetTester t) async {
+      final ReviewHostGateway gateway = ReviewHostGateway(reviewRows);
+      final VoiceFormCubit cubit = makeReviewCubit(gateway);
+      await toReview(t, cubit);
+
+      await t.tap(find.byIcon(Icons.replay).first);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Chip se chunein'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Fitter'));
+      await t.pumpAndSettle();
+
+      expect(gateway.correctedKeys, <String>['q_trade']);
+      expect(gateway.corrected.single.kind, VoiceAnswerKind.chips);
+      expect(gateway.corrected.single.optionKeys, <String>['fitter']);
+
+      await t.runAsync(() => cubit.close());
+    });
+
+    testWidgets('⟲ → typing → the host corrects with VoiceAnswer.text (trimmed)',
+        (WidgetTester t) async {
+      final ReviewHostGateway gateway = ReviewHostGateway(reviewRows);
+      final VoiceFormCubit cubit = makeReviewCubit(gateway);
+      await toReview(t, cubit);
+
+      await t.tap(find.byIcon(Icons.replay).first);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Type karke likhein'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byType(TextField), '  Fitter  ');
+      await t.tap(find.text('Theek hai'));
+      await t.pumpAndSettle();
+
+      expect(gateway.correctedKeys, <String>['q_trade']);
+      expect(gateway.corrected.single.kind, VoiceAnswerKind.text);
+      expect(gateway.corrected.single.text, 'Fitter');
+
+      await t.runAsync(() => cubit.close());
+    });
+
+    testWidgets('a blank typed correction is NOT sent', (WidgetTester t) async {
+      final ReviewHostGateway gateway = ReviewHostGateway(reviewRows);
+      final VoiceFormCubit cubit = makeReviewCubit(gateway);
+      await toReview(t, cubit);
+
+      await t.tap(find.byIcon(Icons.replay).first);
+      await t.pumpAndSettle();
+      await t.tap(find.text('Type karke likhein'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byType(TextField), '   ');
+      await t.tap(find.text('Theek hai'));
+      await t.pumpAndSettle();
+
+      expect(gateway.corrected, isEmpty,
+          reason: 'a whitespace-only entry is not a correction');
+
+      await t.runAsync(() => cubit.close());
     });
   });
 }

@@ -5,6 +5,7 @@ import '../../../core/session/session_repository.dart';
 import '../domain/voice_correction_outcome.dart';
 import '../domain/voice_form_gateway.dart';
 import '../domain/voice_form_models.dart';
+import '../domain/voice_review_row.dart';
 
 /// The real HTTP implementation of [VoiceFormGateway] (#699), against the frozen
 /// deterministic-interview routes (backend #697/#698).
@@ -148,7 +149,57 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
     }
   }
 
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async {
+    final String? id = _sessionId;
+    if (id == null) throw const UnauthorizedFailure();
+    try {
+      final Map<String, dynamic> json =
+          await _api.profilingSession(authToken: _token, sessionId: id);
+      return _parseRows(json['rows']);
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      throw mapError(error); // fail-closed
+    }
+  }
+
   // ---- wire → domain --------------------------------------------------------
+
+  /// `GET /profiling/session/:id` `rows` → review rows. Defensive like
+  /// `_parseStep`/`_parseQuestion`: a non-list is empty, and a row that is not a
+  /// map or carries no addressable `question_key` is DROPPED — one bad row must
+  /// never throw the whole review out from under a worker who can still submit.
+  List<VoiceReviewRow> _parseRows(Object? raw) {
+    if (raw is! List) return const <VoiceReviewRow>[];
+    return raw
+        .whereType<Map<dynamic, dynamic>>()
+        .map(_parseRow)
+        .whereType<VoiceReviewRow>()
+        .toList();
+  }
+
+  VoiceReviewRow? _parseRow(Map<dynamic, dynamic> raw) {
+    final Map<String, dynamic> row = raw.cast<String, dynamic>();
+    final String questionId = row['question_key'] as String? ?? '';
+    if (questionId.isEmpty) return null; // unaddressable — a correction has no target
+    final String? answerType = row['answer_type'] as String?;
+    final VoiceQuestionKind kind = _kind(answerType);
+    final List<VoiceChoice> options = _options(row['options']);
+    return VoiceReviewRow(
+      questionId: questionId,
+      fieldLabel: row['field_label'] as String? ?? '',
+      displayValue: row['display_value'] as String? ?? '',
+      declined: row['status'] == 'declined',
+      // answer_type=='number' is the numeric heuristic — line the digits up.
+      numeric: answerType == 'number',
+      kind: kind,
+      options: options,
+      hasChoices: options.isNotEmpty || kind == VoiceQuestionKind.boolean,
+      // Server truth has no local device path; only a locally-recorded clip does.
+      clipPath: null,
+    );
+  }
 
   /// `POST /profiling/correct` response → the redrawn row + rebuild signal.
   VoiceCorrectionOutcome _parseCorrection(Map<String, dynamic> json) {

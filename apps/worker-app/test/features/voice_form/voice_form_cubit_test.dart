@@ -12,12 +12,14 @@ import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointe
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_correction_outcome.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_review_row.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/cubit/voice_form_cubit.dart';
 import 'voice_form_doubles.dart';
 
 class MockAudioRecorder extends Mock implements AudioRecorder {}
 
-/// A scripted gateway over [total] questions — counts submits + finalizes.
+/// A scripted gateway over [total] questions — counts submits + finalizes, and
+/// serves review rows + corrections for the #700 client-half tests.
 class FakeGateway implements VoiceFormGateway {
   @override
   String? get sessionId => 'sess-test';
@@ -30,6 +32,17 @@ class FakeGateway implements VoiceFormGateway {
   final List<VoiceAnswer> received = <VoiceAnswer>[];
   /// The stale-answer guard the CUBIT asserted for each submit (#717).
   final List<String?> questionKeys = <String?>[];
+
+  // --- #700 correction surface ---------------------------------------------
+  /// Rows served on entering review; a null [reviewRowsFailure] means success.
+  List<VoiceReviewRow> reviewRowsResult = const <VoiceReviewRow>[];
+  Failure? reviewRowsFailure;
+
+  /// What `correct()` records + returns (or throws).
+  final List<VoiceAnswer> corrected = <VoiceAnswer>[];
+  final List<String> correctedKeys = <String>[];
+  VoiceCorrectionOutcome? correctResult;
+  Failure? correctFailure;
 
   VoiceQuestion _q(int i) => VoiceQuestion(id: 'q$i', prompt: 'Question $i');
 
@@ -52,12 +65,31 @@ class FakeGateway implements VoiceFormGateway {
   @override
   Future<void> finalize() async => finalizes++;
 
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async {
+    final Failure? failure = reviewRowsFailure;
+    if (failure != null) throw failure;
+    return reviewRowsResult;
+  }
 
   @override
   Future<VoiceCorrectionOutcome> correct(
     VoiceAnswer answer, {
     required String questionKey,
-  }) => throw UnimplementedError();
+  }) async {
+    corrected.add(answer);
+    correctedKeys.add(questionKey);
+    final Failure? failure = correctFailure;
+    if (failure != null) throw failure;
+    return correctResult ??
+        const VoiceCorrectionOutcome(
+          questionId: 'q1',
+          displayValue: 'x',
+          declined: false,
+          correctionCount: 1,
+          profileRebuildRequired: false,
+        );
+  }
 }
 
 class FakeTts implements QuestionAudioPlayer {
@@ -729,6 +761,149 @@ void main() {
       await c2.close();
     });
   });
+  group('review rows come from server truth (#700)', () {
+    test('entering review fetches reviewRows() and populates the rows', () async {
+      final FakeGateway gateway = FakeGateway(1);
+      gateway.reviewRowsResult = const <VoiceReviewRow>[
+        VoiceReviewRow(
+            questionId: 'q1', fieldLabel: 'Kaam', displayValue: 'Welder'),
+      ];
+      final VoiceFormCubit cubit = build(gateway: gateway);
+      addTearDown(cubit.close);
+      await cubit.start();
+      await cubit.answerBySpeaking(); // → done → review
+
+      expect(cubit.state, isA<VoiceFormReview>());
+      final VoiceFormReview review = cubit.state as VoiceFormReview;
+      expect(review.rows.map((VoiceReviewRow r) => r.displayValue),
+          <String>['Welder']);
+    });
+
+    test('a reviewRows() failure still enters review with empty rows', () async {
+      final FakeGateway gateway = FakeGateway(1);
+      gateway.reviewRowsFailure = const VoiceUnavailableFailure();
+      final VoiceFormCubit cubit = build(gateway: gateway);
+      addTearDown(cubit.close);
+      await cubit.start();
+      await cubit.answerBySpeaking();
+
+      expect(cubit.state, isA<VoiceFormReview>(),
+          reason: 'a rows fetch failure must NOT dead-end into VoiceFormError');
+      expect((cubit.state as VoiceFormReview).rows, isEmpty,
+          reason: 'the worker can still submit on a degraded review');
+    });
+  });
+
+  group('a review correction routes through the gateway (#700)', () {
+    Future<VoiceFormCubit> toReview(FakeGateway gateway) async {
+      final VoiceFormCubit cubit = build(gateway: gateway);
+      await cubit.start();
+      await cubit.answerBySpeaking(); // → done → review
+      expect(cubit.state, isA<VoiceFormReview>());
+      return cubit;
+    }
+
+    test('correctAnswer posts the questionKey + answer and redraws ONE row',
+        () async {
+      final FakeGateway gateway = FakeGateway(1);
+      gateway.reviewRowsResult = const <VoiceReviewRow>[
+        VoiceReviewRow(
+            questionId: 'q_city', fieldLabel: 'Sheher', displayValue: 'Puna'),
+        VoiceReviewRow(
+            questionId: 'q_trade', fieldLabel: 'Kaam', displayValue: 'Welder'),
+      ];
+      gateway.correctResult = const VoiceCorrectionOutcome(
+        questionId: 'q_city',
+        displayValue: 'Pune',
+        declined: false,
+        correctionCount: 1,
+        profileRebuildRequired: false,
+      );
+      final VoiceFormCubit cubit = await toReview(gateway);
+      addTearDown(cubit.close);
+
+      await cubit.correctAnswer(const VoiceAnswer.text('Pune'),
+          questionKey: 'q_city');
+
+      expect(gateway.correctedKeys, <String>['q_city']);
+      expect(gateway.corrected.single.text, 'Pune');
+      final VoiceFormReview review = cubit.state as VoiceFormReview;
+      expect(
+          review.rows
+              .firstWhere((VoiceReviewRow r) => r.questionId == 'q_city')
+              .displayValue,
+          'Pune');
+      expect(
+          review.rows
+              .firstWhere((VoiceReviewRow r) => r.questionId == 'q_trade')
+              .displayValue,
+          'Welder',
+          reason: 'an unaddressed row is untouched');
+      expect(review.correctionError, isNull);
+    });
+
+    test('a 409/422/cap sets correctionError and STAYS on review, never Error',
+        () async {
+      final FakeGateway gateway = FakeGateway(1);
+      gateway.reviewRowsResult = const <VoiceReviewRow>[
+        VoiceReviewRow(
+            questionId: 'q_city', fieldLabel: 'Sheher', displayValue: 'Pune'),
+      ];
+      gateway.correctFailure = const VoiceUnavailableFailure();
+      final VoiceFormCubit cubit = await toReview(gateway);
+      addTearDown(cubit.close);
+
+      await cubit.correctAnswer(const VoiceAnswer.text('x'),
+          questionKey: 'q_city');
+
+      expect(cubit.state, isA<VoiceFormReview>(),
+          reason: 'a correction failure keeps the worker on review');
+      final VoiceFormReview review = cubit.state as VoiceFormReview;
+      expect(review.correctionError, isNotNull);
+      expect(review.rows.single.displayValue, 'Pune',
+          reason: 'nothing banked on a failed correction');
+    });
+
+    test('a spoken correction reuses the first-answer upload path', () async {
+      final FakeGateway gateway = FakeGateway(1);
+      gateway.reviewRowsResult = const <VoiceReviewRow>[
+        VoiceReviewRow(
+            questionId: 'q_city', fieldLabel: 'Sheher', displayValue: 'Pune'),
+      ];
+      final VoiceFormCubit cubit = await toReview(gateway);
+      addTearDown(cubit.close);
+      registrar.nextId = 'vn-corr-1';
+
+      final String id = await cubit.registerCorrectionClip(
+          const RecordedClip(path: 'corr.m4a', durationSeconds: 3));
+      await cubit.correctAnswer(VoiceAnswer.spoken(id), questionKey: 'q_city');
+
+      expect(id, 'vn-corr-1');
+      expect(registrar.sessionIds, contains(gateway.sessionId));
+      final VoiceAnswer sent = gateway.corrected.single;
+      expect(sent.isSpoken, isTrue);
+      expect(sent.voiceNoteId, 'vn-corr-1');
+    });
+
+    test('startCorrectionCapture/stopCorrectionCapture wrap the shared recorder',
+        () async {
+      final FakeGateway gateway = FakeGateway(1);
+      gateway.reviewRowsResult = const <VoiceReviewRow>[
+        VoiceReviewRow(
+            questionId: 'q_city', fieldLabel: 'Sheher', displayValue: 'Pune'),
+      ];
+      final VoiceFormCubit cubit = await toReview(gateway);
+      addTearDown(cubit.close);
+      clearInteractions(plugin);
+
+      await cubit.startCorrectionCapture();
+      final RecordedClip? clip = await cubit.stopCorrectionCapture();
+
+      verify(() => plugin.start(any(), path: any(named: 'path'))).called(1);
+      verify(() => plugin.stop()).called(1);
+      expect(clip, isNotNull, reason: 'the one-shot capture yields a clip to upload');
+    });
+  });
 }
 
 /// Serves Q1, answers the FIRST submit with the retryable step, then behaves normally.
@@ -772,6 +947,9 @@ class _RetryOnceGateway implements VoiceFormGateway {
     VoiceAnswer answer, {
     required String questionKey,
   }) => throw UnimplementedError();
+
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
 }
 
 /// A gateway whose [submit] always throws — for proving the retain/release
@@ -804,6 +982,9 @@ class _ThrowingSubmitGateway implements VoiceFormGateway {
     VoiceAnswer answer, {
     required String questionKey,
   }) => throw UnimplementedError();
+
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
 }
 
 /// Throws on the FIRST start() (a transient failure), then serves one question.
@@ -834,6 +1015,9 @@ class _FailFirstGateway implements VoiceFormGateway {
     VoiceAnswer answer, {
     required String questionKey,
   }) => throw UnimplementedError();
+
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
 }
 
 /// Parks inside `submit` until its completer fires — lets a test observe the retain while
@@ -869,6 +1053,9 @@ class _HoldingGateway implements VoiceFormGateway {
     VoiceAnswer answer, {
     required String questionKey,
   }) => throw UnimplementedError();
+
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
 }
 
 /// Serves a single-select Q1 whose `lookahead` predicts a next question under
@@ -916,6 +1103,12 @@ class _LookaheadGateway implements VoiceFormGateway {
 
   @override
   Future<void> finalize() async {}
+
+  /// This fake serves the lookahead path and never reaches the review screen.
+  /// Present because `VoiceFormGateway` declares it (#700) and Dart requires every
+  /// member of an implemented interface — omitting it is a COMPILE error.
+  @override
+  Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
 
   @override
   Future<VoiceCorrectionOutcome> correct(

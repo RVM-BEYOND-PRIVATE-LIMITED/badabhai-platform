@@ -9,6 +9,7 @@ import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/voice_form/data/http_voice_form_gateway.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_review_row.dart';
 
 SessionRepository _session() => SessionRepository()
   ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
@@ -405,5 +406,119 @@ void main() {
 
     final VoiceFormStep step = await gw.start();
     expect((step as NextQuestion).lookahead, isEmpty);
+  });
+  group('reviewRows() maps GET /profiling/session rows to review rows (#700)', () {
+    test('parses rows; a malformed row is dropped, never thrown', () async {
+      late String reviewPath;
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          if (req.url.path == '/profiling/session') {
+            return http.Response(
+                jsonEncode(<String, dynamic>{
+                  'session_id': 's1',
+                  'step': <String, dynamic>{'kind': 'done'},
+                }),
+                201);
+          }
+          reviewPath = req.url.path; // GET /profiling/session/s1
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'session_id': 's1',
+              'complete': true,
+              'rows': <dynamic>[
+                <String, dynamic>{
+                  'question_key': 'q_trade',
+                  'field_label': 'Kaam',
+                  'display_value': 'Welder',
+                  'answer_type': 'single_select',
+                  'status': 'answered',
+                  'options': <dynamic>[
+                    <String, dynamic>{'option_key': 'welder', 'label_text': 'Welder'},
+                    <String, dynamic>{'option_key': 'fitter', 'label_text': 'Fitter'},
+                  ],
+                },
+                <String, dynamic>{
+                  'question_key': 'q_salary',
+                  'field_label': 'Salary',
+                  'display_value': '18000',
+                  'answer_type': 'number',
+                  'status': 'answered',
+                },
+                <String, dynamic>{
+                  'question_key': 'q_extra',
+                  'field_label': 'Extra',
+                  'display_value': '',
+                  'answer_type': 'boolean',
+                  'status': 'declined',
+                },
+                'not-a-map', // malformed → dropped
+                <String, dynamic>{'field_label': 'No key'}, // no question_key → dropped
+              ],
+            }),
+            200,
+          );
+        }),
+      );
+      final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+      await gw.start();
+
+      final List<VoiceReviewRow> rows = await gw.reviewRows();
+
+      expect(reviewPath, '/profiling/session/s1');
+      expect(rows.map((VoiceReviewRow r) => r.questionId),
+          <String>['q_trade', 'q_salary', 'q_extra'],
+          reason: 'two malformed rows dropped, the three valid ones kept');
+
+      final VoiceReviewRow trade = rows[0];
+      expect(trade.fieldLabel, 'Kaam');
+      expect(trade.kind, VoiceQuestionKind.singleSelect);
+      expect(trade.options.map((VoiceChoice c) => c.key),
+          <String>['welder', 'fitter']);
+      expect(trade.hasChoices, isTrue);
+      expect(trade.numeric, isFalse);
+      expect(trade.clipPath, isNull, reason: 'server truth carries no device path');
+
+      final VoiceReviewRow salary = rows[1];
+      expect(salary.numeric, isTrue, reason: 'answer_type number lines the digits up');
+      expect(salary.hasChoices, isFalse);
+
+      final VoiceReviewRow extra = rows[2];
+      expect(extra.declined, isTrue);
+      expect(extra.kind, VoiceQuestionKind.boolean);
+      expect(extra.hasChoices, isTrue,
+          reason: 'a boolean is correctable by chip (Haan/Nahi)');
+    });
+
+    test('a non-list rows payload is empty, not a throw', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          if (req.url.path == '/profiling/session') {
+            return http.Response(
+                jsonEncode(<String, dynamic>{
+                  'session_id': 's1',
+                  'step': <String, dynamic>{'kind': 'done'},
+                }),
+                201);
+          }
+          return http.Response(
+              jsonEncode(<String, dynamic>{'session_id': 's1', 'rows': null}), 200);
+        }),
+      );
+      final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+      await gw.start();
+      expect(await gw.reviewRows(), isEmpty);
+    });
+
+    test('reviewRows() before start() is Unauthorized — no session to read',
+        () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((_) async => http.Response('{}', 200)),
+      );
+      final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+      await expectLater(gw.reviewRows(), throwsA(isA<UnauthorizedFailure>()));
+    });
   });
 }
