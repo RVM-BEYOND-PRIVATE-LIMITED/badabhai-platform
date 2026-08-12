@@ -805,16 +805,42 @@ jobs:
   # ---- AWS Lightsail Deployment ----
   deploy-lightsail:
     name: Deploy to AWS Lightsail
-    # This job's plain `if:` (no `always()`) is CORRECT as-is, unlike the old
-    # `build-and-push-image` above: its only dependency is `build-and-push-image`
-    # itself, which is no longer a path-filtered job — it now either (a) actually runs
-    # and finishes `success`/`failure`, or (b) is `skipped` only when ITS OWN gate above
-    # legitimately said no (not a push to main; `changes` itself failing; or `node`/
-    # `ai-service`/`e2e` genuinely failed/was cancelled). Case (b) is exactly when this
-    # job SHOULD also skip, so the implicit `success()` here does the right thing
-    # without needing the same idiom.
+    # BUG FIXED HERE (follow-up to #797): the comment this replaced argued the plain
+    # `if:` was CORRECT because this job's only dependency, `build-and-push-image`, is
+    # no longer path-filtered. That reasoning was wrong, and #797 shipped it anyway —
+    # confirmed on the very next real merge (#797's own merge commit, run 31573045370):
+    # `build-and-push-image` succeeded, yet this job STILL reported `skipped`, twice
+    # (the original run and a manual single-job rerun of just this job).
+    #
+    # The actual mechanism: GitHub's IMPLICIT `success()` — applied to any job whose
+    # `if:` omits always()/success()/failure()/cancelled() — is NOT scoped to that
+    # job's DIRECT `needs:` only. It evaluates over the job's ENTIRE TRANSITIVE
+    # ancestor chain. `ai-service` (path-filtered, reports `skipped` on most pushes)
+    # is a transitive ancestor of THIS job via `build-and-push-image`. `build-and-
+    # push-image` absorbs that skip for ITSELF via its own always()-idiom and reports
+    # `success` — but that absorption does not "cleanse" the ancestry for jobs
+    # further downstream: each hop needs its OWN explicit override, or the transitive
+    # skip keeps propagating past a hop that locally reports `success`.
+    #
+    # Reproduced live on a throwaway branch/workflow before this fix (mirroring this
+    # exact 3-hop topology: a legitimately-skipped job -> an always()-idiom absorber
+    # that reports success -> a plain-`if:` consumer of ONLY that absorber): the
+    # consumer skipped despite its sole direct dependency succeeding. Re-tested with
+    # this exact fix applied: the consumer then reported `success`, as expected.
+    #
+    # The fix: the same always() + explicit needs.*.result idiom as build-and-push-
+    # image and ci-required. Unlike build-and-push-image's tolerance of ai-service/
+    # e2e being `skipped` (a LEGITIMATE path-filtered outcome for those jobs),
+    # deploy-lightsail requires build-and-push-image.result == 'success' ONLY —
+    # build-and-push-image carries no path filter of its own, so FROM THIS JOB'S
+    # point of view a `skipped` build-and-push-image is never a legitimate "nothing
+    # relevant changed" outcome; it means the push-to-main/branch condition was false
+    # or something upstream genuinely failed — either way this job should also skip.
     needs: [build-and-push-image]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      always() &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.build-and-push-image.result == 'success'
     runs-on: ubuntu-latest
     # CD-1: the job token needs packages:read so the BOX can docker-login with the
     # ephemeral GITHUB_TOKEN below (only one permissions: block existed in this file
