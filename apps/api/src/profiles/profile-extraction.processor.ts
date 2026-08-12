@@ -127,6 +127,38 @@ function outageCodeOf(code: string | null | undefined): string | null {
 }
 
 /**
+ * Does this Phase C overlay actually carry model-derived values?
+ *
+ * WHY PRESENCE IS NOT ENOUGH: the ai-service answers three of its own degrades with a healthy
+ * 200 carrying an EMPTY `InterviewExtractOutput` whose `blocked` is FALSE — its own deadline
+ * breach, mock mode (`not meta.real_call`), and a model response that failed the contract. An
+ * `!== null` test reads all three as "the interview landed", which is the opposite of true.
+ *
+ * EVERY FIELD COUNTS, not just `experiences[]`. That one is the irreplaceable one — nothing
+ * else on this path produces it — but a short interview yielding only a domain label or two
+ * skills is still model-derived work that a retry cannot improve on, and re-running it costs
+ * another capable call for the same answer.
+ *
+ * `blocked` and `is_mock` are deliberately NOT consulted: `blocked` is already handled by
+ * `interviewOverlay` (returns null), and `is_mock` is orthogonal — a mock overlay is empty, so
+ * the content test catches it without a second rule that could disagree.
+ */
+function overlayCarriesValues(overlay: InterviewExtractOutput | null): boolean {
+  if (overlay === null) return false;
+  return (
+    overlay.experiences.length > 0 ||
+    overlay.skills.length > 0 ||
+    overlay.preferred_locations.length > 0 ||
+    overlay.domain_label !== null ||
+    overlay.role_label !== null ||
+    overlay.shift !== null ||
+    overlay.current_city !== null ||
+    overlay.availability !== null ||
+    overlay.expected_salary !== null
+  );
+}
+
+/**
  * Runs profile extraction off the request path. The AI service pseudonymizes
  * before any LLM call (and falls back to a safe mock if it is down), so this
  * never sends raw PII anywhere. Emits profile.extraction_completed on success
@@ -832,10 +864,29 @@ export class ProfileExtractionProcessor extends WorkerHost {
           ? "parse_service_unreachable"
           : (parsed.notes.find((note) => PARSE_OUTAGE_NOTES.has(note)) ??
             outageCodeOf(parsed.ai_metadata?.error_code)),
-      // Taken from the OVERLAY ITSELF, not from a second health check: `interviewOverlay`
-      // already collapses unreachable / blocked / malformed to null, so a non-null value is
-      // the only evidence that matters — the model produced values we are about to persist.
-      interviewLanded: interview !== null,
+      // Taken from the OVERLAY'S CONTENT, not merely from its presence.
+      //
+      // A NON-NULL OVERLAY IS NOT EVIDENCE THAT ANYTHING LANDED. `interviewOverlay` returns
+      // null for unreachable and for `blocked`, but the ai-service converts THREE of its own
+      // degrades into a healthy 200 carrying an EMPTY object — `InterviewExtractOutput(
+      // is_mock=True)`, whose `blocked` defaults to FALSE (`routers/profiling.py`):
+      //
+      //   - the Phase C deadline breach — the case this change raises the deadline for, so
+      //     precisely the one in play;
+      //   - `not meta.real_call`, i.e. every mocked environment (TD81: staging runs mocked);
+      //   - "interview extract output failed the contract", i.e. the model returned garbage.
+      //
+      // Read as presence, all three say "landed" while holding nothing, and the veto below
+      // would then suppress the retry in exactly the situation the retry exists for: no
+      // overlay, no parse, nothing to write but the answer map. That is this bug's mirror
+      // image — the first version of this fix traded discarding a good overlay for keeping a
+      // worthless one.
+      //
+      // The premise is "we are holding model-derived values", so the test is whether we hold
+      // any. `experiences[]` is the one nothing else on this path can produce, but a short
+      // interview that yields only a domain label or a couple of skills is still worth more
+      // than a re-run — hence "any field", not "experiences".
+      interviewLanded: overlayCarriesValues(interview),
     };
   }
 

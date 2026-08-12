@@ -1654,6 +1654,86 @@ describe("an LLM outage retries instead of completing", () => {
     expect(profiles.create).not.toHaveBeenCalled();
   });
 
+  it("still retries when Phase C answered with an EMPTY overlay (its own degrade shape)", async () => {
+    // THE MIRROR OF THE BUG ABOVE, and the reason the veto tests CONTENT rather than presence.
+    //
+    // `interview: null` (the test above) is only the UNREACHABLE case. The ai-service answers
+    // three of its own degrades with a healthy 200 carrying `InterviewExtractOutput(is_mock=
+    // True)` — every field empty and `blocked` FALSE by default:
+    //
+    //   - its own Phase C deadline breach, which is exactly the case this PR raises the
+    //     deadline for, so precisely the one in play;
+    //   - mock mode (`not meta.real_call`) — TD81: staging runs mocked AI;
+    //   - "interview extract output failed the contract", i.e. the model returned garbage.
+    //
+    // Read as presence, all three say "the interview landed" while holding nothing, and the
+    // veto then suppresses the retry in the one situation the retry exists for: no overlay, no
+    // parse, nothing to write but the answer map. This is the exact object those paths return.
+    const { proc, profiles } = make({
+      ...withMap(),
+      parsed: OUTAGE_PARSE,
+      llmInterview: true,
+      messages: [
+        { direction: "outbound", bodyText: "Aap kaunsa kaam karte hain?" },
+        { direction: "inbound", bodyText: "cnc operator hu" },
+      ],
+      interview: {
+        domain_label: null,
+        role_label: null,
+        skills: [],
+        experiences: [],
+        shift: null,
+        current_city: null,
+        preferred_locations: [],
+        availability: null,
+        expected_salary: null,
+        blocked: false,
+        is_mock: true,
+        ai_metadata: null,
+      },
+    });
+
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow(
+      "llm unavailable",
+    );
+    expect(profiles.create).not.toHaveBeenCalled();
+  });
+
+  it("vetoes the retry for a THIN overlay — one field is still model work a retry cannot beat", async () => {
+    // The bar is "carries values", not "carries experiences[]". A short interview that yielded
+    // only a domain label is still a capable call whose answer a re-run would just re-buy, and
+    // the deterministic projection underneath it is unaffected either way.
+    const { proc, profiles, aiJobs } = make({
+      ...withMap(),
+      parsed: OUTAGE_PARSE,
+      llmInterview: true,
+      messages: [
+        { direction: "outbound", bodyText: "Aap kaunsa kaam karte hain?" },
+        { direction: "inbound", bodyText: "cnc operator hu" },
+      ],
+      interview: {
+        domain_label: "CNC machining",
+        role_label: null,
+        skills: [],
+        experiences: [],
+        shift: null,
+        current_city: null,
+        preferred_locations: [],
+        availability: null,
+        expected_salary: null,
+        blocked: false,
+        is_mock: false,
+        ai_metadata: null,
+      },
+    });
+
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).resolves.toEqual({
+      profile_id: PROFILE,
+    });
+    expect(aiJobs.markCompleted).toHaveBeenCalled();
+    expect(profiles.create).toHaveBeenCalled();
+  });
+
   it("on the FINAL attempt it writes the profile from the answer map rather than nothing", async () => {
     // The posture `ProfilesService.extract` already documents: "being wrong in that
     // direction leaves a worker with no profile at all — strictly worse". The deterministic
