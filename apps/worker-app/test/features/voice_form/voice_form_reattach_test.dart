@@ -9,6 +9,7 @@ import 'package:badabhai_worker_app/features/voice/data/session_voice_recorder.d
 import 'package:badabhai_worker_app/features/voice_form/data/voice_form_action_log.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/question_audio_player.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/silence_endpointer.dart';
+import 'package:badabhai_worker_app/features/voice_form/domain/voice_correction_outcome.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_gateway.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 import 'package:badabhai_worker_app/features/voice_form/presentation/cubit/voice_form_cubit.dart';
@@ -49,6 +50,15 @@ class ScriptedGateway implements VoiceFormGateway {
 
   @override
   Future<void> finalize() async {}
+
+  /// Unused here — this fake exists for the 409 re-attach path, which never corrects.
+  /// Present because `VoiceFormGateway` declares it (#700): Dart requires every member of
+  /// an implemented interface, so omitting it is a COMPILE error, not an unused stub.
+  @override
+  Future<VoiceCorrectionOutcome> correct(
+    VoiceAnswer answer, {
+    required String questionKey,
+  }) => throw UnimplementedError();
 }
 
 /// #727 — a 409 on submit re-attaches as a [ReattachedTo]; the cubit must NOT
