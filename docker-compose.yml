@@ -217,13 +217,25 @@ services:
       # the box-local deploy health-gate curls it on 127.0.0.1.
       - "127.0.0.1:8000:8000"
     environment:
-      # ---- CLAUDE.md §2 INVARIANT 5: real LLM calls are GATED AND OFF BY DEFAULT.
-      # This literal "false" is committed and must STAY "false" in every committed
-      # file. Flipping it is an owner/§7 action taken in the STAGING ENVIRONMENT's
-      # secrets, never in git, and it requires GEMINI_FLASH_API_KEY as well (the
-      # config fails closed on either being absent). The keys below are declared so
-      # that arming real mode later is an ENV action with NO code change — declared
-      # is not armed.
+      # ---- THIS IS THE DEV-LAPTOP FILE, AND REAL CALLS STAY OFF IN IT. A literal is
+      # correct here: there is no box to arm and no operator procedure to honour, so
+      # the value's whole job is to be unconditional. Arming it would spend real money
+      # on every `docker compose up` and send worker text to a provider from a laptop.
+      #
+      # THE SHAPE OF THIS RULE CHANGED ON 2026-08-12 (#798) AND THE COMMENT MUST SAY SO.
+      # It used to read "must STAY 'false' in every committed file", which conflated two
+      # different things and is why #798 happened: the staging overlay now ships
+      # `${AI_ENABLE_REAL_CALLS:-false}` — still OFF, but a SUBSTITUTION, so the box can arm
+      # it with an export instead of a code change. A literal there defeated the documented
+      # arming procedure; a literal HERE is correct, because there is no box to arm.
+      #
+      # So the surviving rule is two rules, both pinned by
+      # apps/api/src/config/real-call-posture-compose.guard.test.ts: the overlay must never
+      # be a bare literal, and THIS file must never be anything else.
+      #
+      # Real calls need GEMINI_FLASH_API_KEY as well — the config fails closed on either
+      # being absent. The keys below are declared so arming is an ENV action with NO code
+      # change: declared is not armed.
       AI_ENABLE_REAL_CALLS: "false"
       # Optional provider credentials — pass-through, EMPTY BY DEFAULT, never a
       # committed value. `:-` is safe for these two (unlike AI_INTERNAL_TOKEN
