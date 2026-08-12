@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { STAGING_COMPOSE_PATH, environmentOfFile } from "../common/testing/compose-env";
 
 /**
  * THE STAGING BOX MUST NEVER SEE VOICE STORAGE FROM ONLY ONE SIDE (V8).
@@ -23,8 +22,6 @@ import { describe, expect, it } from "vitest";
  * would fail on `main` forever and be deleted. Testing what the rule PERMITS is the point —
  * an unset bucket must pass, an asymmetric declaration must not.
  */
-const COMPOSE_PATH = join(__dirname, "../../../../docker-compose.staging.yml");
-
 /** Read by both services; a name here that is declared for only one of them is the bug. */
 const SHARED_STORAGE_VARS = [
   "VOICE_NOTES_BUCKET",
@@ -32,47 +29,22 @@ const SHARED_STORAGE_VARS = [
   "SUPABASE_SERVICE_ROLE_KEY",
 ] as const;
 
-/**
- * The `environment:` entries of one service, as `NAME: value` pairs.
- *
- * Hand-rolled rather than a YAML dependency: this repo has no yaml parser in any package.json
- * and adding one to assert three names would cost more than it proves. The file's shape is
- * fixed and machine-checked by compose itself — 2-space service keys, 6-space environment
- * entries — so anchoring on that indentation is stable, and a shape change loud enough to
- * break this parser would also break the deploy.
- */
-function environmentOf(compose: string, service: string): Map<string, string> {
-  const lines = compose.split(/\r?\n/);
-  const start = lines.findIndex((l) => l === `  ${service}:`);
-  if (start < 0) throw new Error(`service ${service} not found in ${COMPOSE_PATH}`);
-
-  const env = new Map<string, string>();
-  let inEnvironment = false;
-  for (const line of lines.slice(start + 1)) {
-    if (/^ {2}\S/.test(line)) break; // the next service — stop.
-    if (/^ {4}environment:\s*$/.test(line)) {
-      inEnvironment = true;
-      continue;
-    }
-    if (inEnvironment && /^ {4}\S/.test(line)) inEnvironment = false; // a sibling of environment.
-    if (!inEnvironment) continue;
-
-    const entry = /^ {6}([A-Z_][A-Z0-9_]*):\s*(.*)$/.exec(line);
-    if (entry) env.set(entry[1]!, entry[2]!.trim());
-  }
-  return env;
-}
-
 describe("docker-compose.staging.yml — voice storage is declared symmetrically", () => {
-  const compose = readFileSync(COMPOSE_PATH, "utf8");
-  const api = environmentOf(compose, "api");
-  const aiService = environmentOf(compose, "ai-service");
+  const api = environmentOfFile(STAGING_COMPOSE_PATH, "api");
+  const aiService = environmentOfFile(STAGING_COMPOSE_PATH, "ai-service");
 
   it("parses both service environments (guards the parser itself, not the rule)", () => {
     // If the parser silently found nothing, every assertion below would pass vacuously.
-    // These two are unrelated to voice and have been in the file since CD-1.
+    // BOTH canaries are unrelated to voice and have been in the file since CD-1 — one per
+    // service, so a parse that finds only one block still fails here.
+    //
+    // NOT `AI_ENABLE_REAL_CALLS` any more: #798 armed it, so its value is now a MOVING
+    // target owned by the real-call posture guard. A canary must be something stable that
+    // this file does not care about, or it turns every posture change into a spurious
+    // failure in the voice suite. `AI_SERVICE_URL` and `NODE_ENV` are both literals fixed
+    // by the deploy's own topology.
     expect(api.get("AI_SERVICE_URL")).toBe("http://ai-service:8000");
-    expect(aiService.get("AI_ENABLE_REAL_CALLS")).toBe('"false"');
+    expect(aiService.get("GEMINI_FLASH_API_KEY")).toBe("${GEMINI_FLASH_API_KEY:-}");
   });
 
   it.each(SHARED_STORAGE_VARS)("%s is declared for BOTH services", (name) => {
@@ -99,9 +71,23 @@ describe("docker-compose.staging.yml — voice storage is declared symmetrically
     expect(aiService.get("SARVAM_TTS_SPEAKER")).toBe('"${SARVAM_TTS_SPEAKER:-anushka}"');
   });
 
-  it("the arming credential and the task allowlist stay empty-by-default", () => {
+  it("the arming credential stays empty-by-default", () => {
     expect(aiService.get("SARVAM_API_KEY")).toBe("${SARVAM_API_KEY:-}");
-    // Empty means NO task may go real — fail-closed, not a wildcard.
-    expect(aiService.get("AI_REAL_CALL_TASKS")).toBe("${AI_REAL_CALL_TASKS:-}");
+  });
+
+  it("NEITHER Sarvam leg is on the default real-call allowlist", () => {
+    // THE ASSERTION HERE CHANGED SHAPE WITH #798, AND THE INVARIANT DID NOT. This used to
+    // read `AI_REAL_CALL_TASKS === "${AI_REAL_CALL_TASKS:-}"` — an EMPTY allowlist, which
+    // blocked every task and so blocked these two for free. #798 armed exactly one task
+    // (`profiling_chat_turn`), so "empty" is no longer the thing that protects the voice
+    // legs and asserting it would only re-assert the chat decision from the wrong file.
+    //
+    // What voice actually needs is unchanged and is now stated DIRECTLY: STT sends real
+    // worker AUDIO, which cannot be pseudonymized before the provider hears it, and TTS
+    // spends per-utterance — both are separate owner decisions (the #701 listening gate),
+    // not something a chat rollout may switch on in passing.
+    const allowlist = aiService.get("AI_REAL_CALL_TASKS") ?? "";
+    expect(allowlist).not.toContain("stt_transcription");
+    expect(allowlist).not.toContain("tts_synthesis");
   });
 });

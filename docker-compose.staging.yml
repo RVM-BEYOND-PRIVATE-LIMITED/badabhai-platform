@@ -108,6 +108,40 @@ services:
       # neither localhost nor the loopback-published host port would work from
       # inside the api container.
       AI_SERVICE_URL: http://ai-service:8000
+
+      # ---- #798: THE API-SIDE HALF OF THE LLM-LED INTERVIEW. Arming the ai-service alone
+      # does NOT produce the interview Divyanshu gets from the CLI, and that is the part
+      # #798's diagnosis (`ai_posture: mock`) does not reach. Two INDEPENDENT gates stand
+      # between a worker and that experience, in different containers:
+      #
+      #   ai-service   AI_ENABLE_REAL_CALLS + key + allowlist  → may a call be REAL?
+      #   api          CHAT_LLM_INTERVIEW_ENABLED              → does the LLM LEAD the interview?
+      #
+      # With this flag off, LlmTurnService.enabled() returns false, the orchestrator never
+      # offers the model a turn, and POST /chat/message answers from the DETERMINISTIC
+      # question-bank engine — the "flat, canned" chat in the report — no matter how real
+      # the ai-service posture is. `ai_posture: real` would have looked like a fix and
+      # changed nothing the worker sees.
+      #
+      # THIS LINE WAS MISSING ENTIRELY, WHICH IS THE SAME BUG #794 FIXED FOR
+      # WORKER_PHOTOS_BUCKET, not a dormant-by-design state. Compose forwards ONLY the names
+      # a service's `environment:` block declares — it does not pass the host shell through —
+      # so before this line existed the flag had no path into the api container at all:
+      # exporting it on the box (or via the CI secrets bridge) left the value sitting in the
+      # box's shell while `loadServerConfig` read the schema default `false`, and every turn
+      # stayed deterministic with nothing naming the cause.
+      #
+      # DEFAULT `true` PER THE SAME OWNER RULING (2026-08-12, #798) that armed the
+      # ai-service block below; `:-` keeps the box authoritative, so `export
+      # CHAT_LLM_INTERVIEW_ENABLED=false` + re-deploy reverts to the deterministic engine
+      # WITHOUT a code change — the per-surface kill switch for this feature.
+      #
+      # DEGRADES SAFELY, INDEPENDENTLY OF THE AI-SERVICE. If the ai-service is unreachable,
+      # mocked, or out of budget, `LlmTurnService.take` returns null, the envelope is marked
+      # `llmFallback`, and the deterministic engine finishes the interview — the worker gets
+      # a complete profile either way. Turning this on cannot strand anyone mid-interview.
+      CHAT_LLM_INTERVIEW_ENABLED: ${CHAT_LLM_INTERVIEW_ENABLED:-true}
+
       # TD72(a): outside dev an EMPTY CORS list resolves to deny-all (origin:false)
       # with no boot assert — the first otherwise-green deploy would silently block
       # every payer-web/ops browser call while /health (no CORS) reports healthy.
@@ -214,20 +248,37 @@ services:
     # `${VAR:?}` fails at COMPOSE time, before any container starts.
     image: ${AI_SERVICE_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-ai-service:sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
     environment:
-      # ---- CLAUDE.md §2 INVARIANT 5, RESTATED ON THE DEPLOYED SURFACE: real LLM
-      # calls are GATED AND OFF BY DEFAULT. "false" is stated EXPLICITLY here — not
-      # merely inherited from the base file and not merely left to config.py's
-      # default — for the same reason NODE_ENV is restated on the api above: the
-      # deployed value must not depend on merge or default order, and the one flag
-      # that spends real money and sends real (pseudonymized) text to a provider is
-      # the last place to rely on an implicit default.
+      # ---- REAL LLM CALLS ARE ARMED ON THIS BOX (owner ruling, 2026-08-12, #798).
       #
-      # Flipping this is an OWNER / §7 decision, made in the box's environment (or
-      # the staging environment secrets), NEVER in a committed file — and it takes
-      # BOTH this flag and GEMINI_FLASH_API_KEY, plus the runbook's staged rollout
-      # (docs/ai/enable-real-llm-extraction.md: AI_REAL_CALL_TASKS=profile_extraction
-      # first). Until then every route answers from the mock path.
-      AI_ENABLE_REAL_CALLS: "false"
+      # WHAT CHANGED AND WHY. This was the hard literal `"false"`, whose own comment said
+      # the flip is "made in the box's environment … NEVER in a committed file". Those two
+      # statements could not both be true: a compose `environment:` entry with a LITERAL
+      # value always beats the box's shell/.env, so `export AI_ENABLE_REAL_CALLS=true` on
+      # Lightsail — the flip that apps/ai-service/.env.staging.example and
+      # docs/ai/enable-real-llm-extraction.md both instruct the operator to perform — had
+      # NO path into the container. The documented arming procedure was inert, and #798 is
+      # the bug report: `/health` kept reporting `ai_posture: "mock"` on a box someone had
+      # already tried to arm, and the worker app kept serving the canned interview.
+      #
+      # THE SUBSTITUTION FORM IS LOAD-BEARING, not cosmetic. `${VAR:-true}` keeps the box
+      # authoritative in BOTH directions: it is the emergency OFF switch (`export
+      # AI_ENABLE_REAL_CALLS=false` and re-run the deploy) that a literal `"true"` would
+      # have taken away, and it is what makes the setting recoverable without a code change
+      # and a rebuild — the same property the `:-` credentials below rely on. `:-` (not `-`)
+      # is deliberate: an EMPTY export must fall back to the committed default rather than
+      # hand pydantic an empty string.
+      #
+      # THIS ARMS ONLY THIS OVERLAY. The base docker-compose.yml keeps `"false"` — it is the
+      # dev-laptop file, and arming it there would spend real money on every `compose up`.
+      #
+      # STILL NOT SUFFICIENT ON ITS OWN, BY DESIGN — three independent gates remain, and
+      # every one of them fails CLOSED to the mock path:
+      #   1. GEMINI_FLASH_API_KEY must be non-empty (below, box-supplied — never committed).
+      #      Without it real_calls_blocked_reason() still returns "GEMINI_FLASH_API_KEY is
+      #      not set" and `ai_posture` stays "mock" no matter what this flag says.
+      #   2. AI_REAL_CALL_TASKS must LIST the task (below). Empty = no task may go real.
+      #   3. AI_REAL_CALLS_KILL_SWITCH, checked FIRST, overrides this flag outright.
+      AI_ENABLE_REAL_CALLS: ${AI_ENABLE_REAL_CALLS:-true}
 
       # ---- Provider credentials: PASS-THROUGH, never committed, never required.
       # Declared so the owner can supply them from the box env / environment
@@ -268,14 +319,31 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
 
       # ---- V8 SARVAM. The key is the arming credential and is empty until the owner sets it;
-      # `AI_ENABLE_REAL_CALLS` above ("false") and the per-task allowlist below BOTH still gate
-      # it, so supplying the key alone changes nothing.
+      # the per-task allowlist below still gates it (`tts_synthesis` / `stt_transcription` are
+      # NOT in the default list), so supplying the key alone changes nothing.
       SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+
+      # ---- THE ALLOWLIST IS THE REAL SCOPE CONTROL, and #798 needs exactly ONE entry on it.
+      #
       # AI_REAL_CALL_TASKS IS FAIL-CLOSED WHEN EMPTY — empty means NO task may go real, not
       # "all" (the root .env.example used to say the opposite; corrected under the 2026-08-01
-      # ruling). So the `:-` form is the safe default, and the staged rollout in
-      # docs/ai/enable-real-llm-extraction.md is an env action from here.
-      AI_REAL_CALL_TASKS: ${AI_REAL_CALL_TASKS:-}
+      # ruling). That is why arming AI_ENABLE_REAL_CALLS above WITHOUT touching this line
+      # would have changed nothing observable: `real_call_enabled_for()` requires the master
+      # flag AND the key AND membership here, so the interview would have gone on answering
+      # from the mock path and #798 would have reproduced exactly as filed.
+      #
+      # `profiling_chat_turn` IS THE TASK #798 IS ABOUT — the name the LLM-led interview turn
+      # routes under (apps/ai-service/app/routers/profiling.py: TURN_TASK_TYPE). It is the
+      # ONLY task armed by default here, which keeps the staged rollout the runbook asks for
+      # rather than replacing it: `profile_extraction` and `resume_generation` stay on the
+      # mock path, and the two Sarvam legs (`tts_synthesis`, `stt_transcription`) stay off —
+      # STT in particular sends real worker AUDIO, which cannot be pseudonymized before the
+      # provider hears it, and remains a separate owner decision.
+      #
+      # Widening is an env action, not a code change — `export
+      # AI_REAL_CALL_TASKS=profiling_chat_turn,profile_extraction` on the box and re-run the
+      # deploy. Narrowing works the same way, which is why this keeps the `:-` form.
+      AI_REAL_CALL_TASKS: ${AI_REAL_CALL_TASKS:-profiling_chat_turn}
 
       # ---- The two TTS values are RESTATED, not passed through empty, and that difference
       # matters. `sarvam_tts_model` / `sarvam_tts_speaker` are non-optional `str` with real
