@@ -7,7 +7,8 @@ import 'package:flutter/services.dart'
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/api/api_models.dart' show ChatProgress, ChatQuestionKind;
+import '../../../core/api/api_models.dart'
+    show ChatInputMode, ChatProgress, ChatQuestionKind;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
@@ -69,6 +70,12 @@ const String kChatDoneNotReadyLabel = 'Thodi aur baat karein';
 /// fallback reply read as "understood". PII-free constant copy.
 const String kChatBlockedNotice =
     'Aapki baat theek se nahi pahunch payi — thoda saaf karke dobara likhein.';
+
+/// Shown in place of the composer on an `options_only` turn (#770): the chips
+/// above are the only answer path this turn, so tell the worker to pick one
+/// rather than leave a dead, greyed-out field with no explanation. Aap-form,
+/// PII-free constant copy.
+const String kChatOptionsOnlyHint = 'Upar diye gaye vikalp mein se chunein';
 
 /// Nudge-sheet heading.
 ///
@@ -793,7 +800,17 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
                           color: AppColors.textMuted,
                           text: maintenance,
                         ),
-                      _inputBar(showVoice),
+                      // #770 — on an options_only turn the chips above are the
+                      // ONLY answer path, so suppress the composer (and its mic,
+                      // since voice resolves to typed text). GUARDED on non-empty
+                      // followups: a malformed options_only turn with no chips
+                      // must never trap the worker with no way to answer, so the
+                      // composer stays in that case.
+                      if (state.inputMode == ChatInputMode.optionsOnly &&
+                          state.followups.isNotEmpty)
+                        _optionsOnlyHint()
+                      else
+                        _inputBar(showVoice),
                       _doneCta(state),
                     ],
                   ),
@@ -870,6 +887,43 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
               Icons.send_rounded,
               color: AppColors.blue,
               size: 24,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Replaces the composer on an `options_only` turn (#770): a locked-look bar
+  /// that keeps the same paper-bar frame as [_inputBar] (no layout jump) and
+  /// tells the worker, in aap-form, to answer from the chips above. No text
+  /// field, no send, no mic — the chips are the only way to answer this turn.
+  Widget _optionsOnlyHint() {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceCard,
+        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+      ),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s3,
+        AppSpacing.s3,
+        AppSpacing.s3,
+        AppSpacing.s3,
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(
+            Icons.touch_app_outlined,
+            color: AppColors.textMuted,
+            size: 20,
+          ),
+          const SizedBox(width: AppSpacing.s2),
+          Expanded(
+            child: Text(
+              kChatOptionsOnlyHint,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+              ).copyWith(color: AppColors.textMuted),
             ),
           ),
         ],

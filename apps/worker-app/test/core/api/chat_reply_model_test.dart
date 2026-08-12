@@ -141,4 +141,50 @@ void main() {
       expect(reply.occupationLabel, isNull);
     });
   });
+
+  group('input_mode parsing (#770)', () {
+    test('"options_only" parses to optionsOnly', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Aur koi experience jodna hai?',
+        'input_mode': 'options_only',
+        'suggested_followups': <String>['Haan', 'Nahi'],
+      });
+      expect(reply.inputMode, ChatInputMode.optionsOnly);
+    });
+
+    test('"text" parses to text', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Aap kya kaam karte hain?',
+        'input_mode': 'text',
+      });
+      expect(reply.inputMode, ChatInputMode.text);
+    });
+
+    test('an absent input_mode defaults to text (older/deterministic turn)', () {
+      final ChatReply reply =
+          ChatReply.fromJson(<String, dynamic>{'reply': 'ok'});
+      expect(reply.inputMode, ChatInputMode.text);
+    });
+
+    test('an unknown/non-string input_mode falls back to text, reply survives',
+        () {
+      for (final Object? bad in <Object?>[
+        'freeform_from_the_future',
+        42,
+        <String, dynamic>{'mode': 'options_only'},
+        true,
+      ]) {
+        final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+          'reply': 'Bada bhai ka jawaab',
+          'input_mode': bad,
+        });
+        expect(reply.reply, 'Bada bhai ka jawaab', reason: 'reply survives');
+        expect(
+          reply.inputMode,
+          ChatInputMode.text,
+          reason: 'bad input_mode never hides the composer: $bad',
+        );
+      }
+    });
+  });
 }

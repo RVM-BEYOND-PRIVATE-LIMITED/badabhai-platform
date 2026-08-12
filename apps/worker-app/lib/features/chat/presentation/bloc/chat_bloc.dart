@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/api/api_models.dart' show ChatProgress, ChatQuestionKind;
+import '../../../../core/api/api_models.dart'
+    show ChatInputMode, ChatProgress, ChatQuestionKind;
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
 import '../../domain/chat_message.dart';
@@ -83,6 +84,7 @@ class ChatState extends Equatable {
     this.lastReplyMock = false,
     this.progress,
     this.questionKind = ChatQuestionKind.ask,
+    this.inputMode = ChatInputMode.text,
     this.occupationLabel,
   });
 
@@ -142,6 +144,13 @@ class ChatState extends Equatable {
   /// how the followups render.
   final ChatQuestionKind questionKind;
 
+  /// The latest turn's input mode (#770). TURN-SCOPED exactly like [questionKind]
+  /// — reset to [ChatInputMode.text] on send, set from the reply. When
+  /// [ChatInputMode.optionsOnly] the composer is suppressed and the chips are the
+  /// only answer path. Never latched: the composer returns on the next turn
+  /// unless the server re-imposes options-only.
+  final ChatInputMode inputMode;
+
   /// The worker's pinned trade in their own vernacular (#649). STICKY: latches on
   /// the first non-null and stays (the trust moment, shown for the rest of the
   /// interview). A fresh chat rebuilds the bloc, so it clears there.
@@ -159,6 +168,7 @@ class ChatState extends Equatable {
     bool? lastReplyMock,
     ChatProgress? progress,
     ChatQuestionKind? questionKind,
+    ChatInputMode? inputMode,
     String? occupationLabel,
   }) {
     return ChatState(
@@ -175,6 +185,7 @@ class ChatState extends Equatable {
       // Sticky-forward / sticky: a null keeps the last known (see field docs).
       progress: progress ?? this.progress,
       questionKind: questionKind ?? this.questionKind,
+      inputMode: inputMode ?? this.inputMode,
       occupationLabel: occupationLabel ?? this.occupationLabel,
     );
   }
@@ -192,6 +203,7 @@ class ChatState extends Equatable {
         lastReplyMock,
         progress,
         questionKind,
+        inputMode,
         occupationLabel,
       ];
 }
@@ -394,6 +406,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // The previous turn's kind belongs to a question already answered — reset
       // so a stale disambiguate layout can't outlive its chips (#649).
       questionKind: ChatQuestionKind.ask,
+      // Same reason (#770): bring the composer back the moment the worker answers
+      // so an options-only turn can never outlive the question that imposed it.
+      inputMode: ChatInputMode.text,
     ));
 
     await _deliver(text, index, emit);
@@ -444,6 +459,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // layout for THIS turn (disambiguate → vertical single-select).
         progress: turn.progress,
         questionKind: turn.questionKind,
+        // #770 — this turn's composer decision; text on a blocked/older turn, so
+        // the worker is never left without a way to answer.
+        inputMode: turn.inputMode,
         occupationLabel: turn.occupationLabel,
       ));
       _logWrapUpOnce(ready: turn.extractionReady);
@@ -491,6 +509,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       sending: true,
       followups: const <String>[],
       questionKind: ChatQuestionKind.ask, // #649 — drop a stale disambiguate
+      inputMode: ChatInputMode.text, // #770 — bring the composer back on retry
     ));
 
     await _deliver(message.text, index, emit);
@@ -513,6 +532,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       followups: const <String>[],
       // A voice answer is never a disambiguation turn — reset the layout (#649).
       questionKind: ChatQuestionKind.ask,
+      // A voice merge returns no chips, so the worker must be able to type the
+      // next turn — never leave them on an options-only lock (#770).
+      inputMode: ChatInputMode.text,
       // The voice turn went through the SAME chat endpoint, so it carries the
       // same readiness decision (#421).
       extractionReady: event.extractionReady,

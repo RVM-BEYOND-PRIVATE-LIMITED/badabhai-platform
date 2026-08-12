@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
-import '../../../core/api/api_models.dart' show ChatProgress, ChatQuestionKind;
+import '../../../core/api/api_models.dart'
+    show ChatInputMode, ChatProgress, ChatQuestionKind;
 
 /// One assistant turn from the profiling chat: bada bhai's [reply] plus any
 /// [followups].
@@ -18,6 +19,7 @@ class ChatTurn extends Equatable {
     this.isMock = false,
     this.progress,
     this.questionKind = ChatQuestionKind.ask,
+    this.inputMode = ChatInputMode.text,
     this.occupationLabel,
   });
 
@@ -31,6 +33,10 @@ class ChatTurn extends Equatable {
   /// The kind of turn — only [ChatQuestionKind.disambiguate] changes the UI, to
   /// a vertical single-select (#649).
   final ChatQuestionKind questionKind;
+
+  /// Whether the composer is offered this turn (#770). [ChatInputMode.optionsOnly]
+  /// hides it and leaves [followups] as the only answer path.
+  final ChatInputMode inputMode;
 
   /// The worker's trade in their own vernacular once retrieval pins it (#649),
   /// or null before it pins. The interview's trust moment.
@@ -69,6 +75,7 @@ class ChatTurn extends Equatable {
         isMock,
         progress,
         questionKind,
+        inputMode,
         occupationLabel,
       ];
 }

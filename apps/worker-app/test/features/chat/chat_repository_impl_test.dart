@@ -176,6 +176,7 @@ void main() {
                 'reply': 'Aap darzi hain?',
                 'progress': <String, dynamic>{'answered': 2, 'total': 9},
                 'question_kind': 'disambiguate',
+                'input_mode': 'options_only',
                 'occupation_label': 'darzi',
               }),
               201,
@@ -188,6 +189,8 @@ void main() {
     expect(turn.progress?.answered, 2);
     expect(turn.progress?.total, 9);
     expect(turn.questionKind, ChatQuestionKind.disambiguate);
+    // #770 — input_mode rides the same ChatReply->ChatTurn map.
+    expect(turn.inputMode, ChatInputMode.optionsOnly);
     expect(turn.occupationLabel, 'darzi');
   });
 

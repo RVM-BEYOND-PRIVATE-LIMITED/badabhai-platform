@@ -397,6 +397,27 @@ enum ChatQuestionKind {
   }
 }
 
+/// Whether the worker may TYPE this turn, or must answer from the offered
+/// options (`input_mode`, default [ChatInputMode.text]).
+///
+/// [optionsOnly] turns — the LLM interview's experience Yes/No gate and the
+/// closed-set model turns, both behind `CHAT_LLM_INTERVIEW_ENABLED` — mean the
+/// chips are the ONLY answer path, so the composer is suppressed: a two-tap loop
+/// should not be a free-text answer a parser has to interpret (#770).
+///
+/// Unknown/absent -> [text], and that is the safe direction. A parse miss can
+/// only RESTORE the keyboard, never hide it — the worker is never trapped behind
+/// a composer that a garbled field turned off. The server also still ACCEPTS
+/// typed text on an `options_only` turn, so an un-updated build that ignores this
+/// field keeps working; the field is a client instruction, not a wire contract.
+enum ChatInputMode {
+  text,
+  optionsOnly;
+
+  static ChatInputMode parse(Object? raw) =>
+      raw == 'options_only' ? ChatInputMode.optionsOnly : ChatInputMode.text;
+}
+
 /// Result of POST /chat/message.
 class ChatReply extends Equatable {
   const ChatReply({
@@ -410,6 +431,7 @@ class ChatReply extends Equatable {
     this.sessionEnded = false,
     this.progress,
     this.questionKind = ChatQuestionKind.ask,
+    this.inputMode = ChatInputMode.text,
     this.occupationLabel,
   });
 
@@ -476,6 +498,11 @@ class ChatReply extends Equatable {
   /// Only [ChatQuestionKind.disambiguate] changes the UI (#649).
   final ChatQuestionKind questionKind;
 
+  /// Whether the composer is offered this turn (`input_mode`, default
+  /// [ChatInputMode.text]). [ChatInputMode.optionsOnly] hides it and leaves the
+  /// chips as the only answer path (#770).
+  final ChatInputMode inputMode;
+
   /// The worker's trade in THEIR OWN vernacular once retrieval pins it
   /// (`occupation_label`, e.g. "darzi", never the English catalogue title), or
   /// null before it pins. The trust moment of the interview (#649).
@@ -515,6 +542,8 @@ class ChatReply extends Equatable {
         progress: ChatProgress.fromJson(json['progress']),
         // Absent / unknown -> ask (today's behaviour).
         questionKind: ChatQuestionKind.parse(json['question_kind']),
+        // Absent / unknown -> text (composer stays; never trap the worker).
+        inputMode: ChatInputMode.parse(json['input_mode']),
         // Absent / null / non-string -> null (not yet pinned).
         occupationLabel: json['occupation_label'] is String
             ? json['occupation_label'] as String
@@ -533,6 +562,7 @@ class ChatReply extends Equatable {
         sessionEnded,
         progress,
         questionKind,
+        inputMode,
         occupationLabel,
       ];
 }
