@@ -1,0 +1,103 @@
+name: SAST
+
+# Semgrep OSS, extracted from security-scan.yml into a `workflow_call` reusable (#773).
+#
+# WHY IT MOVED. `ci-required` in ci.yml is the ONLY required status check on `main`, and
+# `needs:` cannot name a job in another workflow file. While `sast` lived in
+# security-scan.yml it could go red while `ci-required` went green — and it did, twice in
+# one day: #763 (a `new RegExp` in a contract test) and #768 (a dynamic RegExp in the
+# migration parser). Both were caught because a human was reading the checks, not because
+# CI required it. This is the same structural gap #718 measured on PR #711 for the Flutter
+# jobs, and the fix is the same one that repo already chose: make the job a reusable and
+# call it from ci.yml so `ci-required` can `needs:` it.
+#
+# TWO CALLERS, TWO DIFFERENT GUARANTEES — this is deliberate, see #774:
+#
+#   ci.yml (per PR)            passes `baseline-ref`, so semgrep reports ONLY findings the
+#                              PR introduced. Blocking, on the critical path (~1m30s).
+#   security-scan.yml (weekly) passes nothing, so it scans the WHOLE TREE. Advisory.
+#
+# The split exists because the two failure modes are different. The `p/*` rulesets are
+# fetched from semgrep's registry at scan time and the OSS CLI cannot version them, so rule
+# content changes under a pinned engine (#774). With a whole-tree scan on the PR gate, the
+# first PR to run after such a change goes red on a finding it did not introduce — which is
+# precisely the state #737 spent 39 findings undoing, and the fastest way to teach people
+# that a red security check is noise.
+#
+# `--baseline-commit` alone would be a straight WEAKENING ("the diff is clean" instead of
+# "the tree is clean"), which is why #774 declined to reach for it on its own. Keeping the
+# weekly run at full-tree buys the strong guarantee back: drift and accumulation still get
+# caught, just on a schedule instead of on somebody's unrelated PR.
+
+on:
+  workflow_call:
+    inputs:
+      baseline-ref:
+        description: >-
+          Git ref to diff against. When set, semgrep reports only findings introduced
+          relative to it (PR gate). When empty, the whole tree is scanned (weekly).
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  sast:
+    name: SAST (semgrep OSS)
+    runs-on: ubuntu-latest
+    # Official semgrep OSS image — the `semgrep` CLI with no Cloud account. Registry
+    # `p/*` rulesets are fetched anonymously at scan time.
+    #
+    # PINNED BY DIGEST because this job blocks. `:latest` moved under us on semgrep's
+    # release schedule, so an engine bump could turn the job red on a PR that changed
+    # nothing. Same convention as every action in this repo (digest + version comment).
+    # NOTE: this pins the ENGINE only — the rulesets are the residue #774 records, and
+    # the baseline split above is what contains it.
+    container:
+      image: semgrep/semgrep@sha256:bdf7013b2c3634a487671158da77c554f531742326b543a9464d2adf6c433ac8 # 1.171.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history: `--baseline-commit` needs the baseline object present in the
+          # checkout. A shallow clone does not have it, and semgrep fails rather than
+          # silently scanning everything — so this is load-bearing for the PR path.
+          fetch-depth: 0
+
+      # `semgrep scan` (the OSS subcommand) with open-source rulesets. `--error` makes
+      # findings exit non-zero, which is the gate. Explicitly NO SEMGREP_APP_TOKEN and no
+      # `semgrep ci` — that path requires Semgrep Cloud.
+      #
+      # The baseline is passed as an env var rather than interpolated into the script, so
+      # a ref containing shell metacharacters cannot break out of the command.
+      - name: Run semgrep (OSS rulesets)
+        env:
+          BASELINE_REF: ${{ inputs.baseline-ref }}
+        run: |
+          set -euo pipefail
+
+          # The merge-base, not the base branch tip. `github.event.pull_request.base.sha`
+          # is main's tip when the PR was last synced, so diffing against it would also
+          # surface findings from commits that landed on main in the meantime — someone
+          # else's finding, failing your PR.
+          if [ -n "${BASELINE_REF}" ]; then
+            git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+            BASE="$(git merge-base "${BASELINE_REF}" HEAD)"
+            echo "Scanning findings introduced since ${BASE} (merge-base with ${BASELINE_REF})"
+            semgrep scan \
+              --config p/default \
+              --config p/typescript \
+              --config p/python \
+              --config p/secrets \
+              --baseline-commit "${BASE}" \
+              --error
+          else
+            echo "Scanning the whole tree (no baseline)"
+            semgrep scan \
+              --config p/default \
+              --config p/typescript \
+              --config p/python \
+              --config p/secrets \
+              --error
+          fi

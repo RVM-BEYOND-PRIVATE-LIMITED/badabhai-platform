@@ -8,7 +8,10 @@ name: Security scan
 #
 # Three jobs, all license-free (no paid GitHub-Org action, no SaaS token):
 #   (a) secret-scan      — gitleaks (official Docker image), full git history.
-#   (b) sast             — semgrep OSS (`semgrep scan`, OSS rulesets, no token).
+#   (b) sast             — semgrep OSS. BLOCKING and REQUIRED as of #773: the job now
+#                          lives in sast.yml as a reusable, is called per-PR from ci.yml
+#                          (so `ci-required` reaches it), and is called here weekly for
+#                          the whole-tree scan.
 #   (c) dependency-audit — `pnpm audit --audit-level high`.
 #
 # WHY non-blocking first: these are unsuppressed scanners run against a repo that
@@ -69,7 +72,6 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      code: ${{ steps.filter.outputs.code }}
       deps: ${{ steps.filter.outputs.deps }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -80,10 +82,6 @@ jobs:
         id: filter
         with:
           filters: |
-            code:
-              - 'apps/**'
-              - 'packages/**'
-              - 'tests/**'
             deps:
               - 'pnpm-lock.yaml'
 
@@ -122,65 +120,25 @@ jobs:
               --exit-code 1
 
   # ---- (b) SAST: semgrep OSS ----
-  # BLOCKING as of #737 — OSS rulesets only, NO SEMGREP_APP_TOKEN.
-  # CI-3: path-gated — runs on schedule (full scan) OR when app/packages code changes.
   #
-  # `continue-on-error: true` was REMOVED here, and the baseline it was waiting for is
-  # what made that safe. This job failed on every single PR for its whole life — 39
-  # findings, none of them introduced by the PR being tested — so the red X carried no
-  # information and the only thing it trained anybody to do was ignore a security check.
-  # #737 took the count to 0 (2 real config fixes, 3 pnpm supply-chain policies enabled,
-  # 34 false positives suppressed inline with a written reason each), so a finding here
-  # now means the PR under test introduced one.
+  # MOVED to .github/workflows/sast.yml as a `workflow_call` reusable (#773), and this is
+  # now the SCHEDULE-ONLY caller. The PR path is invoked from ci.yml so that `ci-required`
+  # — the only required context on `main` — can `needs:` it. While the job lived here it
+  # could go red beside a green `ci-required`, and did: #763 and #768, both caught by a
+  # human rather than by the gate.
   #
-  # STILL NOT A *REQUIRED* CONTEXT, and that is the remaining half. `ci-required` in
-  # ci.yml is the only required check on `main`, and it cannot `needs:` a job in another
-  # workflow file — the exact trap #718 measured on PR #711, where the Flutter gate went
-  # red while `ci-required` went green. Closing that needs one of two owner decisions:
-  # convert this job to a `workflow_call` reusable under ci.yml (the #718 pattern, which
-  # also puts semgrep on every PR's critical path), or add "SAST (semgrep OSS)" to branch
-  # protection directly. Until then this job goes red and stays visible, which is a
-  # strictly better state than green-and-meaningless.
+  # NO `baseline-ref` here on purpose. ci.yml passes one, so the PR gate reports only what
+  # the PR introduced; this weekly run passes none and scans the WHOLE TREE. That is what
+  # keeps #774's residue contained: the `p/*` rulesets are fetched at scan time and cannot
+  # be versioned by the OSS CLI, so rule content drifts under a pinned engine. Drift and
+  # accumulation still get caught — here, weekly, where a surprise finding costs a triage
+  # instead of blocking somebody's unrelated PR.
+  #
+  # `continue-on-error` is NOT set: on the schedule there is no merge to block, so a red
+  # run is a signal to act on rather than a gate to route around.
   sast:
-    name: SAST (semgrep OSS)
-    if: github.event_name == 'schedule' || needs.changes.outputs.code == 'true'
-    needs: [changes]
-    runs-on: ubuntu-latest
-    # Official semgrep OSS image — pulls the `semgrep` CLI without any Cloud
-    # account. Registry `p/*` rulesets are fetched anonymously at scan time.
-    # Image is `semgrep/semgrep` (the current org; `returntocorp/*` is the legacy
-    # name and is no longer the canonical push target).
-    #
-    # PINNED BY DIGEST, now that the job blocks. `:latest` moved under us on
-    # semgrep's release schedule, so an engine bump could turn this job red on a
-    # PR that changed nothing — which is the failure #737 just spent 39 findings
-    # undoing, and it would arrive on a day nobody connected it to a deploy. Same
-    # convention as every action above (digest + a version comment).
-    #
-    # WHAT THIS DOES NOT PIN, stated plainly: the `p/*` rulesets are fetched from
-    # semgrep's registry AT SCAN TIME and are not versionable in the OSS CLI, so
-    # rule content can still change under a fixed engine. If that starts costing
-    # red PRs, the fix is `--baseline-commit` (report only findings the PR
-    # introduced) rather than reverting to advisory — not done here because it
-    # needs full history in this job's checkout and would change what the green
-    # baseline measured.
-    container:
-      image: semgrep/semgrep@sha256:bdf7013b2c3634a487671158da77c554f531742326b543a9464d2adf6c433ac8 # 1.171.0
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      # `semgrep scan` (the OSS subcommand) with open-source rulesets. `--error`
-      # makes findings exit non-zero, and with the job's `continue-on-error` gone
-      # (#737) that exit code is now the gate rather than a suggestion.
-      # Explicitly NO SEMGREP_APP_TOKEN / no `semgrep ci` (that path needs Cloud).
-      - name: Run semgrep (OSS rulesets)
-        run: |
-          semgrep scan \
-            --config p/default \
-            --config p/typescript \
-            --config p/python \
-            --config p/secrets \
-            --error
+    if: github.event_name == 'schedule'
+    uses: ./.github/workflows/sast.yml
 
   # ---- (c) Dependency audit: pnpm audit ----
   # NON-BLOCKING (continue-on-error) — surfaces high/critical advisories.

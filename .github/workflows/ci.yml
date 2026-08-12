@@ -19,6 +19,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       worker-app: ${{ steps.filter.outputs.worker-app }}
       payer-app: ${{ steps.filter.outputs.payer-app }}
+      sast: ${{ steps.filter.outputs.sast }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -65,6 +66,16 @@ jobs:
               - 'apps/payer-app/**'
               - '.github/workflows/payer-app.yml'
               - '.github/workflows/ci.yml'
+            # SAST (#773). Mirrors the filter security-scan.yml used while the job lived
+            # there, plus the two workflow files that now decide whether it runs at all —
+            # same reasoning as the e2e and Flutter entries above: a change to the gate
+            # must be able to trigger the gate.
+            sast:
+              - 'apps/**'
+              - 'packages/**'
+              - 'tests/**'
+              - '.github/workflows/sast.yml'
+              - '.github/workflows/ci.yml'
 
   # ---- Flutter gates, INSIDE the aggregator (#718) ----
   #
@@ -92,6 +103,23 @@ jobs:
     needs: changes
     if: needs.changes.outputs.payer-app == 'true'
     uses: ./.github/workflows/payer-app.yml
+
+  # ---- SAST, INSIDE the aggregator (#773) ----
+  #
+  # Same structural fix as the two Flutter jobs above, for the same reason. semgrep lived in
+  # security-scan.yml, so `ci-required` could not `needs:` it and a red SAST sat beside a
+  # green required check. That fired twice in one day — #763 and #768 — and both were caught
+  # by a human reading the checks rather than by the gate.
+  #
+  # `baseline-ref` makes this the DIFF gate: only findings the PR introduces fail it. The
+  # whole-tree scan still happens weekly from security-scan.yml, so the strong guarantee is
+  # kept, just off the critical path (#774). Cost of this edge: ~1m30s on every code PR.
+  sast:
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.sast == 'true'
+    uses: ./.github/workflows/sast.yml
+    with:
+      baseline-ref: ${{ github.event.pull_request.base.sha }}
 
   # ---- TypeScript monorepo: lint, typecheck, test, build ----
   node:
@@ -602,9 +630,9 @@ jobs:
   # owner must flip branch protection to require only `ci-required` for this to work.
   ci-required:
     if: always()
-    # worker-app / payer-app added in #718. A path-filtered job that does not run reports
+    # worker-app / payer-app added in #718, sast in #773. A path-filtered job that does not run reports
     # `skipped`, which this check treats as fine — only `failure`/`cancelled` fail it.
-    needs: [changes, node, ai-service, ai-service-image, e2e, worker-app, payer-app]
+    needs: [changes, node, ai-service, ai-service-image, e2e, worker-app, payer-app, sast]
     runs-on: ubuntu-latest
     steps:
       - name: Check for CI failures
