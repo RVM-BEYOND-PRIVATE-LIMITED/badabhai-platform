@@ -1,4 +1,3 @@
-import { notFound } from "next/navigation";
 import { requireAgent } from "../../../lib/auth/roles";
 import { agencyFlags } from "../../../lib/config";
 import {
@@ -30,7 +29,8 @@ import { AgencyParkedModules } from "../agency/dashboard/parked-modules";
  * which reads the SERVER-HELD signed session and returns a NEUTRAL 404 for any non-`agent`.
  * This re-asserts the role server-side independently of the page's own `isAgency` label, so
  * the agency reads CANNOT run for a non-agent even if a future caller composed it wrong. The
- * agency-portal public flag additionally fail-closes (off → notFound()).
+ * agency-portal public flag additionally fail-closes (off → these sections render NOTHING;
+ * the rest of the shared dashboard is unaffected — see the note at the flag check).
  *
  * FACELESS (CLAUDE.md §2 #2 + #6 / B-R2): the agency sees ONLY opaque ids, COUNTS, status
  * enums, coarse bands, timestamps, and its OWN org label — NEVER a worker name/phone/raw
@@ -56,9 +56,24 @@ export async function AgentSections() {
   // 1) SERVER-enforced role gate — employer → neutral 404, before any agency read runs.
   const session = await requireAgent();
 
-  // 2) Public flag fail-close: agency portal off → the section (and the route) does not exist.
+  // 2) Public flag fail-close: agency portal off → these sections do not render.
+  //
+  // RENDERS NOTHING, RATHER THAN 404-ing THE PAGE — and the difference only became visible
+  // once MERGE-1 moved these modules INLINE. `notFound()` was right when this code guarded a
+  // standalone `/agency/dashboard`: a surface that is switched off should not exist. Inline on
+  // the SHARED `/dashboard`, the same call takes the whole page down for an agent, including
+  // the shared top (credits, attention items, quick actions) that has nothing to do with
+  // agency demand. And since `/agency/dashboard` is now a `redirect()` to here, an agent whose
+  // flag was off had NO reachable home screen at all: every nav target, the brand lockup and
+  // any old bookmark landed on the same 404. README called this flag the way to "roll back"
+  // the agency surface; it bricked the portal instead.
+  //
+  // THE FAIL-CLOSED PROPERTY IS UNCHANGED, which is what makes this safe: authorization is
+  // `requireAgent()` above, not this flag, and returning here still runs ZERO agency reads —
+  // no account, jobs or referral fetch, nothing rendered, no PII surface. The flag gates a
+  // SHELL, and a shell that is off should be absent, not fatal.
   const flags = agencyFlags();
-  if (!flags.agencyPortalEnabled) notFound();
+  if (!flags.agencyPortalEnabled) return null;
 
   // 3) LIVE reads, each isolated so a single failing source degrades to "—"/empty rather
   //    than blanking the page. Credits + unlocks are intentionally NOT re-read here — the

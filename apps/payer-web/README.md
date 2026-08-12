@@ -49,7 +49,7 @@ ops console's privileged data access.
 | -------------------------------------------- | ------ | ----------------------- | ----------------------------------------------------------------------------- |
 | `NEXT_PUBLIC_API_URL`                        | client | `http://localhost:3001` | public, safe to ship                                                          |
 | `NEXT_PUBLIC_ENVIRONMENT`                    | client | `development`           | public                                                                        |
-| `NEXT_PUBLIC_ENABLE_AGENCY_PORTAL`           | client | `true`                  | public flag; gates the agency DEMAND surface (set `false` to roll back)       |
+| `NEXT_PUBLIC_ENABLE_AGENCY_PORTAL`           | client | `true`                  | public flag; gates the agency DEMAND sections on `/dashboard`. `false` hides them (the rest of the dashboard still renders). NOTE: **unset** = on; set-but-not-`true` (incl. empty) = off |
 | `NEXT_PUBLIC_ENABLE_AGENCY_SUPPLY`           | client | `false`                 | public flag; parked supply-side shell (off)                                   |
 | `NEXT_PUBLIC_ENABLE_AGENCY_KYC`              | client | `false`                 | public flag; parked (off)                                                     |
 | `NEXT_PUBLIC_ENABLE_AGENCY_PAYOUTS`          | client | `false`                 | public flag; parked (off)                                                     |
