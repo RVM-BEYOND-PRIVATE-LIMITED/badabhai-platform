@@ -227,6 +227,10 @@ export class ResumeDisclosureService {
       maskedName,
       source.templateId,
       null,
+      // The payer-facing audience. Alongside the masked name and the structurally-null photo
+      // above, this is what keeps `expected_salary` off the disclosure — the worker's asking
+      // price is theirs to reveal in a conversation, not ours to print before one.
+      "employer",
     );
 
     let pdf: Buffer | null;

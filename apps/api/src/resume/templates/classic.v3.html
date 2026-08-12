@@ -1,0 +1,187 @@
+<!doctype html>
+<!--
+  Resume template — id: "classic", version: 3
+
+  v2 + WORK HISTORY. The LLM-led interview now yields real jobs, so the `experiences`
+  region (role / duration / work) becomes the anchor of the page and sits directly under
+  the summary, above skills. Also new: the `trade` and `expected_salary` slots and the
+  `preferred_locations` region. Same visual identity as v2 — single column, serif,
+  print-first A4, traditional resume feel.
+
+  PII: the `full_name` slot + the `photo` region only (TD21 / ADR-0032). No phone /
+  address / email / employer name exists in the data model; none may ever be added here.
+
+  NOTE FOR EDITORS: never write mustache syntax in this comment or in the CSS. The
+  renderer substitutes over raw text and does not skip comments — a lone opening region
+  tag in prose would pair with the real closing tag far below and repeat half the page,
+  and a scalar token would interpolate real data into the served HTML source.
+
+  HOW SECTIONS COLLAPSE (sparse profiles are the common case)
+  ----------------------------------------------------------
+  THE RENDERER REPEATS A REGION'S ENTIRE INNER BLOCK ONCE PER ITEM. Everything written
+  between a region's opening and closing tag is per-ITEM markup. So a section heading, a
+  list wrapper, or any other once-per-SECTION element must never be written inside a
+  region: a worker with seventeen skills would get seventeen "Skills" headings and
+  seventeen list wrappers.
+
+  1. Region-backed sections: the heading is GENERATED CONTENT on the section container
+     (a `.sec-*` class supplies the text via ::before), emitted exactly once because the
+     container is outside the repeat. When the region yields nothing the container has no
+     child nodes, `.sec:empty` sets display:none, and the heading and its rule leave with
+     it — a display:none element renders no ::before. (`:empty` tests child NODES, so the
+     container's own generated content never defeats it.)
+  2. Scalar-backed blocks (summary, expected salary): the element holds ONLY the token,
+     its label/heading is generated content, and `:empty` hides the element — generated
+     content dies with it, so no orphan heading and no stray ₹ symbol on payer
+     disclosures, where the expected-salary slot is blank.
+  3. All vertical rhythm hangs off the generated headings and the items themselves, never
+     off a wrapper that survives, so a section with no data occupies exactly zero height.
+
+  Consequence: A COLLAPSIBLE CONTAINER MUST CONTAIN NO WHITESPACE. `:empty` does not match
+  an element holding a single space or a newline, so each container and the region inside
+  it are written on ONE line, flush against the tags. Whitespace INSIDE a region is safe —
+  it is removed along with the region.
+
+  Plain string lists render as list items inside a single list container, so the markup is
+  a real list and the bullets/pills are styled per container rather than per item.
+
+  Rendering is WeasyPrint, offline: inline <style> only, no JS, no external fonts /
+  images / stylesheets / network references of any kind.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{full_name}} — Resume</title>
+    <style>
+      :root { --ink: #1a1a1a; --muted: #555; --rule: #d0d0d0; --accent: #0b5; }
+      * { box-sizing: border-box; }
+      body { font-family: Georgia, "Times New Roman", "DejaVu Serif", serif; color: var(--ink);
+             margin: 0; line-height: 1.45; font-size: 14px; orphans: 2; widows: 2; }
+      .page { max-width: 800px; margin: 0 auto; padding: 40px 48px; }
+
+      /* ---- header ------------------------------------------------------- */
+      header { border-bottom: 2px solid var(--ink); padding-bottom: 12px; margin-bottom: 4px;
+               display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+      .identity { min-width: 0; flex: 1 1 auto; }
+      .photo { width: 86px; height: 86px; object-fit: cover; border-radius: 6px;
+               border: 1px solid var(--rule); flex: 0 0 auto; }
+      h1 { font-size: 28px; margin: 0; letter-spacing: 0.5px; }
+      h1:empty { display: none; }
+      .headline { font-size: 16px; color: var(--accent); margin-top: 4px; font-weight: bold; }
+      .headline:empty { display: none; }
+      .trade { font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px;
+               color: var(--muted); margin-top: 3px; }
+      .trade:empty { display: none; }
+      .meta { color: var(--muted); font-size: 13px; }
+      /* each fact carries its own spacing so an empty one leaves no gap and no stray "·" */
+      .m { display: inline-block; margin: 6px 14px 0 0; }
+      .m:empty { display: none; }
+      .yrs::after { content: " yrs experience"; }
+
+      /* ---- section containers + headings ---------------------------------
+         `.sec` is the container that sits OUTSIDE the repeat region: one per
+         section, holding nothing but the region. Its heading is generated
+         content, so it is emitted once no matter how many items the region
+         yields, and `.sec:empty` takes container, heading and rule away
+         together when there are none. Never put a heading element inside a
+         region — the renderer would print one copy per item. */
+      .sec { margin: 0; padding: 0; list-style: none; }
+      .sec:empty { display: none; }
+      .sec::before, .summary::before {
+        display: block; font-size: 13px; font-weight: bold; text-transform: uppercase;
+        letter-spacing: 1.2px; border-bottom: 1px solid var(--rule); padding-bottom: 4px;
+        margin: 20px 0 8px; page-break-after: avoid; break-after: avoid;
+      }
+      .summary::before { content: "Summary"; }
+      .sec-work::before { content: "Work History"; }
+      .sec-duties::before { content: "Key Responsibilities"; }
+      .sec-machines::before { content: "Machines"; }
+      .sec-skills::before { content: "Skills"; }
+      .sec-controllers::before { content: "Controllers"; }
+      /* One heading for three regions: it belongs to the shared container, so it
+         survives if ANY of the three has data and disappears when none do. */
+      .sec-education::before { content: "Education & Certifications"; }
+      .sec-cities::before { content: "Preferred Work Locations"; }
+
+      /* ---- summary ------------------------------------------------------- */
+      .summary:empty { display: none; }
+
+      /* ---- work history (the v3 headline feature) ------------------------ */
+      .job { border-left: 2px solid var(--rule); padding-left: 10px; margin: 0 0 11px;
+             page-break-inside: avoid; break-inside: avoid; }
+      .job-line { overflow: hidden; } /* contains the floated duration */
+      .role { font-size: 15px; font-weight: bold; }
+      .role:empty { display: none; }
+      /* duration is the worker's own phrasing ("3.5 saal") — framed as a field so it
+         reads as deliberate data, not as a formatting error */
+      .dur { float: right; margin-left: 12px; max-width: 45%; font-size: 12px;
+             color: var(--muted); border: 1px solid var(--rule); border-radius: 3px;
+             padding: 1px 8px; }
+      .dur:empty { display: none; }
+      .work { font-size: 13.5px; margin-top: 2px; }
+      .work:empty { display: none; }
+
+      /* ---- bullets & tags -------------------------------------------------
+         Items are bare list items; the look is chosen by the CONTAINER, which is
+         where the section identity already lives. Markers are drawn on ::before
+         so the hanging indent matches v2 exactly. */
+      .sec li:empty { display: none; }
+      .sec-duties li, .sec-education li {
+        font-size: 13.5px; margin-top: 3px; padding-left: 14px; text-indent: -14px;
+      }
+      .sec-duties li::before, .sec-education li::before {
+        content: "\2022"; display: inline-block; width: 14px; text-indent: 0;
+      }
+      .sec-education li.lead { font-weight: bold; }
+      .sec-machines li, .sec-skills li, .sec-controllers li, .sec-cities li {
+        display: inline-block; border: 1px solid var(--rule); border-radius: 3px;
+        padding: 2px 8px; font-size: 13px; margin: 0 6px 6px 0;
+      }
+
+      /* ---- expected salary ----------------------------------------------- */
+      .salary { font-size: 13.5px; font-weight: bold; margin-top: 14px; }
+      .salary::before { content: "Expected salary \20B9"; color: var(--muted); font-weight: normal; }
+      .salary::after { content: " per month"; color: var(--muted); font-weight: normal; }
+      .salary:empty { display: none; } /* blank on payer disclosures — symbol goes with it */
+
+      @media print { body { -webkit-print-color-adjust: exact; } .page { padding: 0; } }
+      @page { size: A4; margin: 12mm 14mm; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <div class="identity">
+          <h1>{{full_name}}</h1>
+          <div class="headline">{{headline}}</div>
+          <div class="trade">{{trade}}</div>
+          <div class="meta"><span class="m">{{location}}</span><span class="m yrs">{{experience_years}}</span><span class="m">{{availability}}</span></div>
+        </div>
+        {{#photo}}<img class="photo" src="{{.}}" alt="" />{{/photo}}
+      </header>
+
+      <div class="summary">{{summary}}</div>
+
+      <!-- Every collapsible container below is written on ONE line with its region
+           flush against the tags: one stray space or newline and ":empty" stops
+           matching, so the section would survive its own missing data and print a
+           bare heading. Only per-ITEM markup belongs between a region's tags. -->
+      <section class="sec sec-work">{{#experiences}}<article class="job"><div class="job-line"><span class="dur">{{duration}}</span><span class="role">{{role}}</span></div><div class="work">{{work}}</div></article>{{/experiences}}</section>
+
+      <ul class="sec sec-duties">{{#responsibilities}}<li>{{.}}</li>{{/responsibilities}}</ul>
+
+      <ul class="sec sec-machines">{{#machines}}<li>{{.}}</li>{{/machines}}</ul>
+
+      <ul class="sec sec-skills">{{#skills}}<li>{{.}}</li>{{/skills}}</ul>
+
+      <ul class="sec sec-controllers">{{#controllers}}<li>{{.}}</li>{{/controllers}}</ul>
+
+      <ul class="sec sec-education">{{#education_headline}}<li class="lead">{{.}}</li>{{/education_headline}}{{#education}}<li>{{.}}</li>{{/education}}{{#certifications}}<li>{{.}}</li>{{/certifications}}</ul>
+
+      <ul class="sec sec-cities">{{#preferred_locations}}<li>{{.}}</li>{{/preferred_locations}}</ul>
+
+      <div class="salary">{{expected_salary}}</div>
+    </main>
+  </body>
+</html>

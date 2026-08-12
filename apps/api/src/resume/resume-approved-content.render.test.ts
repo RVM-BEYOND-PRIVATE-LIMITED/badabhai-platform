@@ -51,6 +51,12 @@ function inputFor(content: TradeContent): ResumeRenderInput {
     education: [],
     certifications: [],
     responsibilities: [...content.responsibilities], // approved trade-level copy
+    // The legacy/taxonomy path carries none of these — they exist only on the LLM-led
+    // container, which this suite deliberately does not exercise.
+    trade: null,
+    experiences: [],
+    preferredLocations: [],
+    expectedSalary: null,
   };
 }
 

@@ -113,6 +113,9 @@ export class ResumeRenderProcessor extends WorkerHost {
       displayName,
       resume.templateId,
       photoDataUri,
+      // The worker's OWN copy — real name, their photo, and their expected salary. The
+      // payer-facing disclosure passes "employer" and gets none of the three.
+      "worker",
     );
 
     let pdf: Buffer | null = null;

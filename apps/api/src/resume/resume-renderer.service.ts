@@ -11,6 +11,19 @@ import { getResumeTemplate } from "./templates/registry";
  * the PDF only — it must NEVER be logged or echoed into an error here. Fields map
  * 1:1 to the template slot contract (templates/README.md).
  */
+/**
+ * One job on the résumé, already humanised for print.
+ *
+ * `duration` is the worker's OWN words ("3.5 saal") rather than a computed month count —
+ * `duration_months` is nullable precisely because "kuch saal" is a real answer, and printing a
+ * number the worker never said is the fabrication the parse gates exist to stop.
+ */
+export interface ResumeExperienceLine {
+  role: string;
+  duration: string;
+  work: string;
+}
+
 export interface ResumeRenderInput {
   /** Which layout (templates/registry.ts). Unknown/empty → the generic fallback. */
   templateId: string | null;
@@ -47,6 +60,46 @@ export interface ResumeRenderInput {
    * never a fabricated personal claim. Empty when the trade is unknown.
    */
   responsibilities: string[];
+  /**
+   * The worker's trade in plain language (`{{trade}}`), e.g. "CNC Machining".
+   *
+   * Distinct from {@link canonicalRole}, which is the job title. The LLM-led interview names
+   * both and they answer different questions — "VMC Operator" is what they do, "CNC Machining"
+   * is the industry it sits in. Null on every deterministic-only profile, where no such label
+   * exists and nothing may invent one.
+   */
+  trade: string | null;
+  /**
+   * THE WORK HISTORY — the one thing no pack question can produce.
+   *
+   * A pack asks its fixed question once, so a worker with three jobs has three answers to
+   * "what did you do" and the answer map has room for one. This list exists only because the
+   * LLM-led interview reads the whole conversation.
+   *
+   * STRUCTURED, NOT PRE-JOINED PROSE. The renderer's slot engine grew object regions for this
+   * — `{{#experiences}}…{{role}}…{{duration}}…{{work}}…{{/experiences}}` — so a layout decides
+   * how a job entry looks. Flattening to one string here would hard-code that choice into the
+   * mapper and put presentation in the wrong layer.
+   *
+   * NEVER AN EMPLOYER NAME. `ExperienceEntrySchema.strict()` refuses one at the contract
+   * boundary (§2), so there is no field here to render even if a model tried.
+   */
+  experiences: ResumeExperienceLine[];
+  /**
+   * Where the worker WANTS to work (`{{#preferred_locations}}`), as distinct from
+   * {@link location}, which is where they are. #423 split these because conflating them turned
+   * "I live in Pune" into "I want to work in Pune"; printing them as one line would undo that.
+   */
+  preferredLocations: string[];
+  /**
+   * `{{expected_salary}}` — rupees per month, or null to omit the line.
+   *
+   * NULL ON THE EMPLOYER DISCLOSURE, STRUCTURALLY, exactly as {@link photoDataUri} is. This is
+   * the worker's asking price: showing it on their own résumé is useful, and showing it to a
+   * payer before any conversation hands away their negotiating position. The caller's
+   * `audience` decides, so the restriction cannot be forgotten at a call site.
+   */
+  expectedSalary: number | null;
   /**
    * ADR-0032 — the worker's profile photo as a self-contained `data:` URI, or
    * null/absent → render photo-less (the `{{#photo}}` region collapses).
@@ -117,6 +170,25 @@ export class ResumeRenderer {
       experience_years: input.experienceYears != null ? String(input.experienceYears) : "",
       availability: input.availability ?? "",
       summary: input.summary ?? "",
+      trade: input.trade ?? "",
+      // Grouped with the rupee sign in the template, not here — a bare number is what a layout
+      // wants to format. Empty string collapses the line, which is what null must mean.
+      expected_salary: input.expectedSalary != null ? String(input.expectedSalary) : "",
+    };
+    // OBJECT REGIONS — `{{#name}}…{{field}}…{{/name}}`, one repeat per item, each inner token
+    // resolved from THAT item. The engine only had string regions (`{{.}}`), which is why
+    // `experiences[]` could not be rendered at all: a job entry is four fields, and flattening
+    // it to one string would have put the layout decision in the mapper.
+    //
+    // A MISSING KEY RESOLVES TO EMPTY, never to the scalar of the same name — the per-item
+    // lookup below is total, so an inner `{{location}}` inside `{{#experiences}}` yields "" and
+    // cannot silently pick up the worker's city from the outer scope.
+    const objectLists: Record<string, ReadonlyArray<Record<string, string>>> = {
+      experiences: input.experiences.map((e) => ({
+        role: e.role,
+        duration: e.duration,
+        work: e.work,
+      })),
     };
     // Level + field as ONE leading line ("12th — Electronics"), rendered as a
     // 0-or-1-item region so it collapses cleanly when both are null and never
@@ -133,6 +205,7 @@ export class ResumeRenderer {
       education: input.education,
       certifications: input.certifications,
       responsibilities: input.responsibilities,
+      preferred_locations: input.preferredLocations,
       // ADR-0032: 0-or-1-item region — the documented conditional mechanism. A
       // data: URI survives escapeHtml intact (base64 + the mime prefix contain no
       // escapable characters), and templates without {{#photo}} are unaffected.
@@ -140,6 +213,21 @@ export class ResumeRenderer {
     };
 
     let out = skeleton;
+    // 0) OBJECT REGIONS FIRST, before anything else touches a `{{token}}`. The inner tokens are
+    //    resolved and escaped here; if step 3 ran first it would consume them as scalars and
+    //    every job entry would render the same worker-level value.
+    for (const [name, items] of Object.entries(objectLists)) {
+      const region = new RegExp(`{{#${name}}}([\\s\\S]*?){{/${name}}}`, "g");
+      out = out.replace(region, (_m, inner: string) =>
+        items
+          .map((item) =>
+            inner.replace(/{{\s*([a-z_]+)\s*}}/g, (_t, key: string) =>
+              ResumeRenderer.escapeHtml(item[key] ?? ""),
+            ),
+          )
+          .join(""),
+      );
+    }
     // 1) Known repeat regions: repeat the inner block per item, escaping `{{.}}`.
     for (const [name, items] of Object.entries(lists)) {
       const region = new RegExp(`{{#${name}}}([\\s\\S]*?){{/${name}}}`, "g");

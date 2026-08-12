@@ -52,6 +52,59 @@ export const AvailabilitySchema = z.object({
   notice_period_days: z.number().int().nonnegative().nullable().default(null),
 });
 
+/**
+ * ── THE RÉSUMÉ CONTAINER ──────────────────────────────────────────────────────────────
+ *
+ * The LLM-led interview's Phase C object, stored as the model produced it. This is the
+ * résumé's ONLY input; `DraftProfile` below is no longer read on that path.
+ *
+ * WHY A SECOND SHAPE EXISTS AT ALL. `DraftProfile` is a storage shape inherited from the
+ * deterministic pack era: flat model values arrive and get scattered into `salary_expectation
+ * {}`, `location_preference{}`, `availability{}` alongside eight taxonomy fields the LLM path
+ * never fills. Rendering a résumé from it meant reassembling, per field, a thing the model had
+ * already handed us whole — and every reassembly step was a place a value could be dropped,
+ * outvoted or reshaped. Four of nine keys were being discarded that way before #812.
+ *
+ * SO THE RULE HERE IS: NO MERGE, NO PRECEDENCE, NO DERIVATION. These keys are the Phase C
+ * response, one-for-one, in its own order. A reader can diff this against the Langfuse
+ * assistant message and expect equality. That property is the entire point of the container
+ * and it is what makes the résumé debuggable; anything that "improves" a value on the way in
+ * destroys it.
+ *
+ * DELIBERATELY NARROWER THAN THE ANSWER MAP. `FIELD_CROSSWALK` types fifteen fields; this
+ * holds the nine the model produces. Education, certifications, languages, tools and
+ * relocation are captured by the template tail and live on `DraftProfile` — they are NOT
+ * rendered from here, and that is an accepted, temporary loss (owner decision 2026-08-12):
+ * the pipeline is being proven end-to-end on a narrow field set first, and Phase A plus the
+ * tail widen afterwards. When they do, the fields land HERE rather than being merged in.
+ *
+ * NOT USED FOR MATCHING OR RANKING, ever. Those read `DraftProfile`'s canonical ids and
+ * `worker_attributes`, which are taxonomy-validated. This container is free text the model
+ * wrote (§3: AI never owns business decisions), so it may describe a worker but must never
+ * rank one.
+ *
+ * PII: every string here already passed the ai-service's pseudonymize certification —
+ * `_certified()` drops a whole experience whose composed prose trips the gateway, and skills
+ * are filtered element-wise (`routers/profiling.py`). `ExperienceEntrySchema.strict()` is what
+ * keeps an employer name out of a column rather than a prompt rule (§2).
+ */
+export const ResumeProfileSchema = z.object({
+  domain_label: z.string().max(120).nullable().default(null),
+  role_label: z.string().max(120).nullable().default(null),
+  skills: z.array(z.string().max(120)).default([]),
+  experiences: z.array(ExperienceEntrySchema).default([]),
+  shift: z.string().max(40).nullable().default(null),
+  current_city: z.string().max(120).nullable().default(null),
+  preferred_locations: z.array(z.string().max(120)).default([]),
+  // THE MODEL'S OWN VOCABULARY, KEPT. `AvailabilitySchema.status` uses a different closed set
+  // ("notice_period"), and translating on the way in would break the diff-against-the-trace
+  // property this container exists for. The renderer humanises it at the edge instead, which
+  // is where a presentation concern belongs.
+  availability: z.string().max(40).nullable().default(null),
+  expected_salary: z.number().nonnegative().nullable().default(null),
+});
+export type ResumeProfile = z.infer<typeof ResumeProfileSchema>;
+
 export const DraftProfileSchema = z.object({
   canonical_trade_id: z.string().nullable().default(null),
   canonical_role_id: z.string().nullable().default(null),
@@ -126,6 +179,27 @@ export const DraftProfileSchema = z.object({
   location_preference: LocationPreferenceSchema.default({}),
   availability: AvailabilitySchema.default({}),
   confidence: z.number().min(0).max(1).nullable().default(null),
+  /**
+   * THE RÉSUMÉ CONTAINER, CARRIED INSIDE THIS ONE.
+   *
+   * NESTED RATHER THAN GIVEN ITS OWN COLUMN, deliberately. `raw_profile` is `jsonb`, so this
+   * costs no migration and no production column (§10 prefers additive; §3 forbids removing
+   * one). It also means it rides to the résumé for free: `resumes.source_profile_snapshot`
+   * already snapshots the whole `DraftProfile`, so the renderer receives the container without
+   * a second read, a second write, or a join that could disagree.
+   *
+   * `null` IS THE HONEST VALUE FOR EVERY PROFILE WRITTEN BEFORE THIS, and for every profile
+   * the LLM-led interview did not produce — a deterministic-only extraction has no Phase C
+   * object and must not have one invented. The renderer treats null as "fall back to the old
+   * path", which is what keeps existing résumés rendering exactly as they do today
+   * (invariant #8).
+   *
+   * THE TWO SHAPES CAN DRIFT, and the rule that stops it mattering: this is authoritative for
+   * the RÉSUMÉ and nothing else; the fields above stay authoritative for matching, ranking and
+   * `worker_attributes`. Neither is derived from the other, so neither can silently corrupt
+   * the other — they are two records of the same interview written for two different readers.
+   */
+  resume_profile: ResumeProfileSchema.nullable().default(null),
 });
 export type DraftProfile = z.infer<typeof DraftProfileSchema>;
 

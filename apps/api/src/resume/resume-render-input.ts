@@ -23,15 +23,55 @@ import { resolveTradeContent, type TradeContent } from "./trade-content";
  * the photo INSIDE this function is the one shape that would leak it into the
  * disclosure automatically (shared mapper, shared templates) — never do that.
  */
+/**
+ * Who is going to read this résumé.
+ *
+ * `"worker"` is their own copy; `"employer"` is the payer-facing masked disclosure. The two
+ * already differed by `displayName` (real vs `maskInitials`) and `photoDataUri` (present vs
+ * structurally null) — both enforced by convention at the call site. Naming the audience makes
+ * that a parameter the compiler requires rather than a rule a future call site can forget, and
+ * gives every later "workers see this, payers do not" field one place to key off.
+ */
+export type ResumeAudience = "worker" | "employer";
+
 export function buildResumeRenderInput(
   snapshot: unknown,
   displayName: string | null,
   templateId: string | null,
   photoDataUri: string | null,
+  audience: ResumeAudience,
 ): ResumeRenderInput {
   const draft = DraftProfileSchema.parse(snapshot ?? {});
+
+  // ── THE RÉSUMÉ CONTAINER WINS OUTRIGHT WHEN IT EXISTS ────────────────────────────────
+  //
+  // Not a merge and not a fallback chain: when the LLM-led interview produced a Phase C
+  // object, the résumé is built from THAT and the legacy shape below is not consulted at all.
+  // Mixing them is what this change exists to stop — every reassembly step between the model's
+  // nine keys and the old container was a place a value got dropped, outvoted or reshaped.
+  //
+  // THE OLD PATH IS STILL REACHED, and must be: `resume_profile` is null for every profile
+  // written before this shipped and for every deterministic-only extraction, and those résumés
+  // have to keep rendering exactly as they do today (invariant #8). Null means "there was no
+  // interview", never "the interview was empty".
+  //
+  // BOTH CALLERS GET THIS AUTOMATICALLY — the worker's own render and the employer-facing
+  // masked disclosure share this function, differing only by the `displayName` they pass. The
+  // branch is inside, so masking cannot be forgotten on the new path.
+  if (draft.resume_profile) {
+    return fromResumeProfile(draft.resume_profile, displayName, templateId, photoDataUri, audience);
+  }
+
   const trade = resolveTradeContent(draft.canonical_role_id, draft.canonical_trade_id);
   return {
+    // UNCHANGED ON THE LEGACY PATH. These three are new render-input fields, and the old
+    // container has nothing to put in them: no work history exists outside Phase C, and the
+    // deterministic résumé never printed a trade line or a salary. Empty/null keeps every
+    // pre-existing résumé byte-identical to what it renders today (invariant #8).
+    trade: null,
+    experiences: [],
+    preferredLocations: [],
+    expectedSalary: null,
     templateId,
     displayName,
     photoDataUri,
@@ -88,6 +128,142 @@ export function buildResumeRenderInput(
     certifications: draft.certifications.map(labelForTaxonomyId),
     responsibilities: trade ? [...trade.responsibilities] : [],
   };
+}
+
+/**
+ * ── THE LLM-LED RÉSUMÉ ────────────────────────────────────────────────────────────────
+ *
+ * Nine fields in, a résumé out. No taxonomy lookup, no answer map, no merge — the container
+ * was written to be renderable, so this reads it and humanises at the edge.
+ *
+ * WHAT IS DELIBERATELY ABSENT, and it is a real cost the owner accepted (2026-08-12):
+ * `machines`, `controllers`, `education`, `educationLevel`, `educationField`, `certifications`
+ * and `responsibilities` are all empty here. Those come from the answer map's fifteen
+ * crosswalk fields, and Phase C returns nine. The interview still captures several of them and
+ * they still persist on `DraftProfile` — they are simply not rendered on this path yet. The
+ * plan is to widen Phase A and the template tail so the fields arrive HERE, rather than to
+ * merge two sources back together and reintroduce the bug this replaced.
+ *
+ * `responsibilities` is the one that cannot be recovered that way: it is trade-level copy
+ * keyed by a canonical id, and this path has none by construction. It stays empty until the
+ * taxonomy can resolve an LLM-led profile.
+ */
+function fromResumeProfile(
+  rp: NonNullable<ReturnType<typeof DraftProfileSchema.parse>["resume_profile"]>,
+  displayName: string | null,
+  templateId: string | null,
+  photoDataUri: string | null,
+  audience: ResumeAudience,
+): ResumeRenderInput {
+  return {
+    templateId,
+    displayName,
+    photoDataUri,
+    // The model's job title, printed as written. Nothing resolves it against the taxonomy —
+    // there is no canonical id on this path and inventing one would put an unvalidated value
+    // where the match engine trusts absolutely.
+    canonicalRole: rp.role_label,
+    trade: rp.domain_label,
+    // WHERE THEY ARE, not where they want to work. #423 split these for exactly this reason;
+    // `preferred_locations` gets its own line rather than being conflated into this one.
+    location: rp.current_city,
+    // DERIVED FROM THE WORK HISTORY, because Phase C has no `experience_years` field and the
+    // answer map is not consulted here. The months the model recorded per job are the only
+    // statement about tenure that exists on this path — without this the résumé printed no
+    // years at all while the worker had plainly said "3.5 saal".
+    experienceYears: totalYearsFrom(rp.experiences),
+    availability: humanizeAvailability(rp.availability, rp.shift),
+    summary: summaryFor(rp),
+    // VERBATIM APART FROM BLANKS. These are the labels the model produced; no taxonomy
+    // resolution, because nothing here is a `skill_*` id — `toExtractionOutput` never writes
+    // canonical ids on this path, and running `labelForTaxonomyId` over free text would be a
+    // no-op at best.
+    //
+    // THE BLANK FILTER IS NOT COSMETIC. `ResumeProfileSchema` accepts `z.string()` without a
+    // min length, so `""` is a valid entry the model can emit, and the templates render each
+    // item as a bordered chip or a bulleted line. An empty item therefore prints an empty chip
+    // — visible, unexplained, and on the worker's résumé. Dropping it HERE rather than adding a
+    // `:empty` rule per list in four templates keeps the fix in one place and out of the
+    // presentation layer.
+    skills: cleanList(rp.skills),
+    experiences: rp.experiences.map((e) => ({
+      role: e.role_label,
+      // The worker's OWN words first. `duration_months` is a normalization of it, and printing
+      // "42 months" when they said "3.5 saal" trades their voice for a number they never used.
+      duration: e.duration_text.trim() || monthsAsText(e.duration_months),
+      work: e.work_done,
+    })),
+    preferredLocations: cleanList(rp.preferred_locations),
+    // THE WORKER'S OWN COPY ONLY. Their asking price is useful on the résumé they carry and is
+    // a negotiating position handed away if a payer reads it before any conversation. Same
+    // treatment, and the same reasoning, as ADR-0032 gives the photo.
+    expectedSalary: audience === "worker" ? rp.expected_salary : null,
+    // See the note above: not available on this path yet.
+    machines: [],
+    controllers: [],
+    education: [],
+    certifications: [],
+    educationLevel: null,
+    educationField: null,
+    responsibilities: [],
+  };
+}
+
+/** Trimmed entries with the blanks removed — see the note at the `skills` call site. */
+function cleanList(items: readonly string[]): string[] {
+  return items.map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/**
+ * Total years across the work history, or null.
+ *
+ * SUMS ONLY WHAT THE MODEL CONVERTED. An entry whose `duration_months` is null contributed a
+ * duration the model could not turn into a number ("kuch saal"), and guessing one would be the
+ * fabrication `ExperienceEntrySchema` keeps it nullable to avoid. Null months are skipped, so
+ * the total under-reports rather than invents; if NO entry carries months, the answer is null
+ * and the résumé prints no years line at all.
+ *
+ * Rounded to one decimal so 42 months reads as "3.5", not "3.4999999999999996".
+ */
+function totalYearsFrom(experiences: readonly { duration_months: number | null }[]): number | null {
+  const months = experiences
+    .map((e) => e.duration_months)
+    .filter((m): m is number => typeof m === "number" && m > 0);
+  if (months.length === 0) return null;
+  return Math.round((months.reduce((a, b) => a + b, 0) / 12) * 10) / 10;
+}
+
+/** A month count as printable text, for the rare entry with months but no words of its own. */
+function monthsAsText(months: number | null): string {
+  if (months === null || months <= 0) return "";
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"}`;
+  const years = Math.round((months / 12) * 10) / 10;
+  return `${years} year${years === 1 ? "" : "s"}`;
+}
+
+/**
+ * The summary for an LLM-led profile: role, tenure, trade — each clause only when its value
+ * exists, and null when none do.
+ *
+ * NOT FABRICATION (§11). Every clause restates something the worker said and the model
+ * recorded; nothing is inferred or filled with a plausible default. A profile with neither a
+ * role nor a trade gets no summary rather than a sentence about a worker we know nothing of.
+ */
+function summaryFor(rp: {
+  role_label: string | null;
+  domain_label: string | null;
+  experiences: readonly { duration_months: number | null }[];
+}): string | null {
+  const role = rp.role_label?.trim();
+  const domain = rp.domain_label?.trim();
+  if (!role && !domain) return null;
+  const head = role ?? domain!;
+  const years = totalYearsFrom(rp.experiences);
+  const tenure = years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
+  // The trade only earns its own clause when it says something the role does not already —
+  // "Cook with 3 years of experience in cooking" is worse than saying it once.
+  const context = domain && role && domain.toLowerCase() !== role.toLowerCase() ? ` in ${domain}` : "";
+  return `${head}${tenure}${context}.`;
 }
 
 /**
@@ -187,17 +363,35 @@ function mergeSkillsWithLabels(names: string[], labels: string[]): string[] {
  * phrase, but a worker who told us they work nights has said something worth showing — before
  * this, the whole line collapsed and that answer was lost with it.
  */
-function humanizeAvailability(status: string, shift: string | null): string | null {
-  const phrase =
-    status === "immediate"
-      ? "Available immediately"
-      : status === "notice_period"
-        ? "On notice period"
-        : null; // not_looking / unknown → omit
+function humanizeAvailability(status: string | null, shift: string | null): string | null {
+  const phrase = AVAILABILITY_PHRASES[status?.trim().toLowerCase() ?? ""] ?? null;
   const shiftPhrase = humanizeShift(shift);
   if (!phrase) return shiftPhrase;
   return shiftPhrase ? `${phrase} · ${shiftPhrase}` : phrase;
 }
+
+/**
+ * BOTH VOCABULARIES, because two paths reach this with different ones.
+ *
+ * The legacy container stores `AvailabilitySchema.status` — `immediate | notice_period |
+ * not_looking | unknown`. The résumé container keeps the MODEL's words verbatim, which
+ * `extract_system_prompt` defines as `immediate | 15_days | 1_month | unknown`. Translating
+ * either into the other on the way in would break the container's diff-against-the-trace
+ * property, so the humanising happens here, at the presentation edge, and knows both sets.
+ *
+ * `15_days` / `1_month` are the two that used to have no home at all: nothing rendered them,
+ * and the availability line silently collapsed for every worker who gave a notice period.
+ *
+ * Anything absent — `not_looking`, `unknown`, null, or a word the model invented — yields no
+ * phrase. "Not looking" is deliberately unprintable: a résumé exists to be shown to employers,
+ * and stamping it with a line that discourages them serves nobody.
+ */
+const AVAILABILITY_PHRASES: Readonly<Record<string, string>> = {
+  immediate: "Available immediately",
+  notice_period: "On notice period",
+  "15_days": "Available in 15 days",
+  "1_month": "Available in 1 month",
+};
 
 /**
  * The model's `shift` as a printable phrase, or null.
