@@ -1,0 +1,75 @@
+name: Dependency audit
+
+# `pnpm audit --audit-level high`, extracted from security-scan.yml into a `workflow_call`
+# reusable and flipped to BLOCKING (#788, #792).
+#
+# WHY IT MOVED, AND WHY MOVING IT IS HALF THE FIX. Removing `continue-on-error` makes a job
+# go RED; it does NOT make it REQUIRED. `ci-required` in ci.yml is the only required status
+# check on `main`, and `needs:` cannot name a job in another workflow file — so while this
+# job lived in security-scan.yml a red audit could sit beside a green required check and a
+# merge would go through anyway. That is not hypothetical: #718 measured exactly it on PR
+# #711 (`Worker app (analyze / test)` FAILED, `ci-required` PASSED), and #773 hit it twice
+# in one day for SAST. #788 named the trap and left it to an owner decision; the repo has
+# since chosen its answer twice — reusable + `needs:` — so this follows the same road rather
+# than inventing a third.
+#
+# WHY IT COULD FLIP AT ALL. The tree is clean. Before #788 this reported 18 high advisories
+# on every lockfile-touching PR, which is the #737 shape: a scanner that has never been
+# green teaches everyone that its red X is noise, and then the one time it goes red for a
+# NEW reason nobody looks. It was worse than SAST's version of the same problem, because
+# path-gating on `pnpm-lock.yaml` means it runs *only* on the PRs that change dependencies —
+# precisely the ones where a new advisory matters most.
+#
+# The seven packages were cleared with `overrides` in pnpm-workspace.yaml (all transitive,
+# none a direct dependency, no intermediate had shipped a bump), NOT with a registered
+# exception. That alternative was considered and rejected on 2026-08-12: every one had a
+# published fix and the count was small enough to clear.
+#
+# TWO CALLERS, MIRRORING THE SAST SPLIT (#773/#774):
+#
+#   ci.yml (per PR)            path-gated on the lockfile and the override file. BLOCKING,
+#                              reachable by `ci-required`.
+#   security-scan.yml (weekly) the coverage net for DIRECT pushes to main, which this repo
+#                              takes and which get no PR run. Bounded ≤7-day gap.
+#
+# NOTE ON `minimumReleaseAge` (pnpm-workspace.yaml): the 7-day cooling-off window does not
+# affect this job. `--frozen-lockfile` resolves nothing, so the audit reads exactly the tree
+# CI and prod install.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency audit (pnpm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install pnpm
+        # No `version:` — `packageManager: pnpm@11.5.2` in package.json is the
+        # single source of truth (same convention as ci.yml's node job).
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Frozen lockfile so the audit reflects exactly what CI/prod resolves.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # BLOCKING as of #788. A new high/critical advisory fails the build.
+      #
+      # WHEN THIS GOES RED, the fix is an override pinning the patched floor in
+      # pnpm-workspace.yaml (see the DEP-3 block there for the shape, including why each
+      # entry is `^`-pinned to its own major line rather than given a bare `>=` floor).
+      # Registering an exception instead is the documented alternative and should stay the
+      # LAST resort — it is how a gate goes back to meaning nothing.
+      - name: Audit dependencies (high+)
+        run: pnpm audit --audit-level high

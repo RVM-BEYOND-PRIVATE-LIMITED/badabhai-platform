@@ -1,10 +1,22 @@
 name: Security scan
 
-# Advisory security scanners (Phase 4 hardening). Every job here is NON-BLOCKING
-# today (continue-on-error: true) so it surfaces findings on the PR without ever
-# red-X'ing the merge. It is deliberately ADDITIVE to .github/workflows/ci.yml —
-# it does NOT duplicate or weaken the existing blocking gates (node lint/typecheck/
-# test/build, ai-service ruff/pytest, e2e onboarding flow, worker-app analyze/test).
+# The WEEKLY whole-tree security scan (Phase 4 hardening).
+#
+# THIS FILE STARTED AS THE ADVISORY HOME FOR THREE SCANNERS AND IS NOW THE OPPOSITE:
+# two of the three graduated into ci.yml as blocking, required gates (sast #773,
+# dependency-audit #788), and what stays here is their weekly whole-tree counterpart plus
+# the one scan that was never per-PR. The old header claimed "every job here is
+# NON-BLOCKING (continue-on-error: true)"; that is true of exactly one job now, and only
+# secret-scan still carries the flag.
+#
+# It remains deliberately ADDITIVE to .github/workflows/ci.yml — it does NOT duplicate or
+# weaken the blocking gates there (node lint/typecheck/test/build, ai-service ruff/pytest,
+# e2e onboarding flow, the Flutter analyzers, sast, deps-audit).
+#
+# THE `if: github.event_name == 'schedule'` GUARDS ARE KEPT even though `schedule` is now
+# the only trigger. They are redundant today and load-bearing tomorrow: adding a
+# `pull_request` or `push` trigger back for one job would otherwise silently arm all three,
+# putting a full-history gitleaks run and two whole-tree scans on every PR.
 #
 # Three jobs, all license-free (no paid GitHub-Org action, no SaaS token):
 #   (a) secret-scan      — gitleaks (official Docker image), full git history.
@@ -12,12 +24,19 @@ name: Security scan
 #                          lives in sast.yml as a reusable, is called per-PR from ci.yml
 #                          (so `ci-required` reaches it), and is called here weekly for
 #                          the whole-tree scan.
-#   (c) dependency-audit — `pnpm audit --audit-level high`.
+#   (c) dependency-audit — `pnpm audit --audit-level high`. BLOCKING and REQUIRED as of
+#                          #788: the job now lives in dependency-audit.yml as a reusable,
+#                          is called per-PR from ci.yml (so `ci-required` reaches it), and
+#                          is called here weekly as the coverage net for direct pushes and
+#                          for advisories published against untouched dependencies.
 #
-# WHY non-blocking first: these are unsuppressed scanners run against a repo that
-# has never been gated by them. Until each has a clean baseline (or an explicit,
-# reviewed ignore set), a fresh false-positive must not block the 2026-06-25 alpha
-# cut or any unrelated PR.
+# WHY NON-BLOCKING FIRST, AND WHY THAT WAS A PHASE RATHER THAN A POSITION: these were
+# unsuppressed scanners pointed at a repo that had never been gated by them, so until each
+# had a clean baseline a fresh false-positive must not block the alpha cut or an unrelated
+# PR. The cost of staying there is the thing #737 named — a check that is always red is a
+# check nobody reads — so each one flips the moment its baseline is clean. Two of three
+# have; the criteria below are what "clean" means for each, kept so the last one has a bar
+# to clear rather than a habit to inherit.
 #
 # FLIP-TO-BLOCKING criteria (remove `continue-on-error` per job once met):
 #   - secret-scan: zero findings on a full-history run, OR a committed .gitleaks.toml
@@ -28,8 +47,10 @@ name: Security scan
 #     committed .semgrepignore / inline `# nosem` with justification). Owners:
 #     @prakashkantumutchu (apps/api, apps/web, apps/worker-app, packages/config),
 #     @divyuuu (apps/ai-service, reach/job-postings/unlocks).
-#   - dependency-audit: zero `high`/`critical` advisories, OR a tracked exception in
-#     docs/registers/ with a remediation date.
+#   - dependency-audit: MET AND FLIPPED (#788, 2026-08-12). 18 high advisories across 7
+#     transitive packages were cleared with `overrides` in pnpm-workspace.yaml (see the
+#     DEP-3 block there), not with a tracked exception — every one had a published fix.
+#     `pnpm audit --audit-level high` now exits 0 and the job blocks.
 #
 # Tooling choices (license-free, intentional):
 #   - gitleaks via its official Docker image `zricethezav/gitleaks` — NOT
@@ -39,17 +60,22 @@ name: Security scan
 #   - pnpm audit — built into the pinned pnpm@11.5.2 (package.json packageManager).
 # No GitHub Enterprise-only features (no required-reviewer environment gates).
 #
-# TRIGGERS (CI-4a, 2026-07-16): pull_request→main is the primary surface — every
-# PR is scanned before merge. The post-merge `push: main` run was DROPPED: for
-# PR-delivered changes it was pure duplication (every job here is advisory /
-# continue-on-error, so it could never surface anything the PR run hadn't).
-# Caveat: DIRECT pushes to main (this repo takes them) get no immediate scan —
-# they are covered by the weekly schedule below (bounded ≤7-day gap, full-history
-# gitleaks re-scan), which is the coverage net, not an optional extra.
-
+# TRIGGERS. THIS WORKFLOW IS NOW SCHEDULE-ONLY, and that is a consequence of every
+# job in it graduating rather than of anything being dropped. Each of the three moved
+# to a reusable called from ci.yml, where `ci-required` can actually reach it: sast
+# (#773), dependency-audit (#788), and secret-scan was already schedule-only because a
+# full-history gitleaks run is redundant per-PR.
+#
+# The `pull_request` trigger is REMOVED with them. With no PR-active job left it would
+# have started a run on every PR to do nothing but compute a paths-filter nobody reads
+# — a check that always reports green while asserting nothing, which is the exact
+# failure mode this file's own flip-to-blocking criteria exist to prevent.
+#
+# WHAT THE WEEKLY RUN IS FOR, and why it is not duplication: the PR calls are path-gated
+# and diff-scoped, so they cannot see a DIRECT push to main (this repo takes them), an
+# advisory published against dependencies nobody touched, or a ruleset improvement.
+# Bounded ≤7-day gap. That is the coverage net, not an optional extra.
 on:
-  pull_request:
-    branches: [main]
   # Weekly full-history re-scan of main (Sunday 02:30 UTC — a quiet hour, offset
   # from :00 to avoid GitHub's on-the-hour cron congestion/deferral). WHY a
   # schedule at all: gitleaks scans the ENTIRE git history, and a PR-only scanner
@@ -68,23 +94,6 @@ permissions:
   contents: read
 
 jobs:
-  # ---- CI-3: Detect changed paths ----
-  changes:
-    runs-on: ubuntu-latest
-    outputs:
-      deps: ${{ steps.filter.outputs.deps }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          # Need fetch-depth for dorny/paths-filter to compare against base.
-          fetch-depth: 0
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
-        id: filter
-        with:
-          filters: |
-            deps:
-              - 'pnpm-lock.yaml'
-
   # ---- (a) Secret scan: gitleaks, full git history ----
   # CI-3: moved to schedule-only (full-history scan is expensive; PR coverage
   # kept by the pre-merge secret scan in ci.yml's node job + .gitleaks.toml
@@ -140,34 +149,17 @@ jobs:
     if: github.event_name == 'schedule'
     uses: ./.github/workflows/sast.yml
 
-  # ---- (c) Dependency audit: pnpm audit ----
-  # NON-BLOCKING (continue-on-error) — surfaces high/critical advisories.
-  # CI-3: path-gated — runs on schedule (full scan) OR when pnpm-lock.yaml changes.
+  # ---- (c) Dependency audit: the WEEKLY whole-tree run ----
+  #
+  # The job itself moved to dependency-audit.yml as a `workflow_call` reusable and is now
+  # BLOCKING, called per-PR from ci.yml so `ci-required` can reach it (#788, #792) — the
+  # same structural fix, for the same reason, as sast above.
+  #
+  # WHAT REMAINS HERE IS THE COVERAGE NET, NOT A DUPLICATE. The PR call is path-gated on
+  # the lockfile, so it cannot see either of the two ways the tree goes bad without one:
+  # a DIRECT push to main (this repo takes them, and they get no PR run at all), and a
+  # NEWLY PUBLISHED advisory against dependencies nobody has touched — which is how most
+  # of them arrive. Bounded ≤7-day gap, same as the gitleaks re-scan above.
   dependency-audit:
-    name: Dependency audit (pnpm)
-    if: github.event_name == 'schedule' || needs.changes.outputs.deps == 'true'
-    needs: [changes]
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Install pnpm
-        # No `version:` — `packageManager: pnpm@11.5.2` in package.json is the
-        # single source of truth (same convention as ci.yml's node job).
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      # Frozen lockfile so the audit reflects exactly what CI/prod resolves.
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # Reports `high` (and `critical`) advisories. Advisory now; flips to blocking
-      # once the tree is clean or exceptions are tracked in docs/registers/.
-      - name: Audit dependencies (high+)
-        run: pnpm audit --audit-level high
+    if: github.event_name == 'schedule'
+    uses: ./.github/workflows/dependency-audit.yml
