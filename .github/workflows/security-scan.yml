@@ -1,10 +1,22 @@
 name: Security scan
 
-# Advisory security scanners (Phase 4 hardening). Every job here is NON-BLOCKING
-# today (continue-on-error: true) so it surfaces findings on the PR without ever
-# red-X'ing the merge. It is deliberately ADDITIVE to .github/workflows/ci.yml —
-# it does NOT duplicate or weaken the existing blocking gates (node lint/typecheck/
-# test/build, ai-service ruff/pytest, e2e onboarding flow, worker-app analyze/test).
+# The WEEKLY whole-tree security scan (Phase 4 hardening).
+#
+# THIS FILE STARTED AS THE ADVISORY HOME FOR THREE SCANNERS AND IS NOW THE OPPOSITE:
+# two of the three graduated into ci.yml as blocking, required gates (sast #773,
+# dependency-audit #788), and what stays here is their weekly whole-tree counterpart plus
+# the one scan that was never per-PR. The old header claimed "every job here is
+# NON-BLOCKING (continue-on-error: true)"; that is true of exactly one job now, and only
+# secret-scan still carries the flag.
+#
+# It remains deliberately ADDITIVE to .github/workflows/ci.yml — it does NOT duplicate or
+# weaken the blocking gates there (node lint/typecheck/test/build, ai-service ruff/pytest,
+# e2e onboarding flow, the Flutter analyzers, sast, deps-audit).
+#
+# THE `if: github.event_name == 'schedule'` GUARDS ARE KEPT even though `schedule` is now
+# the only trigger. They are redundant today and load-bearing tomorrow: adding a
+# `pull_request` or `push` trigger back for one job would otherwise silently arm all three,
+# putting a full-history gitleaks run and two whole-tree scans on every PR.
 #
 # Three jobs, all license-free (no paid GitHub-Org action, no SaaS token):
 #   (a) secret-scan      — gitleaks (official Docker image), full git history.
@@ -18,10 +30,13 @@ name: Security scan
 #                          is called here weekly as the coverage net for direct pushes and
 #                          for advisories published against untouched dependencies.
 #
-# WHY non-blocking first: these are unsuppressed scanners run against a repo that
-# has never been gated by them. Until each has a clean baseline (or an explicit,
-# reviewed ignore set), a fresh false-positive must not block the 2026-06-25 alpha
-# cut or any unrelated PR.
+# WHY NON-BLOCKING FIRST, AND WHY THAT WAS A PHASE RATHER THAN A POSITION: these were
+# unsuppressed scanners pointed at a repo that had never been gated by them, so until each
+# had a clean baseline a fresh false-positive must not block the alpha cut or an unrelated
+# PR. The cost of staying there is the thing #737 named — a check that is always red is a
+# check nobody reads — so each one flips the moment its baseline is clean. Two of three
+# have; the criteria below are what "clean" means for each, kept so the last one has a bar
+# to clear rather than a habit to inherit.
 #
 # FLIP-TO-BLOCKING criteria (remove `continue-on-error` per job once met):
 #   - secret-scan: zero findings on a full-history run, OR a committed .gitleaks.toml
