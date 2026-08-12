@@ -1588,6 +1588,72 @@ describe("an LLM outage retries instead of completing", () => {
     expect(profiles.create).not.toHaveBeenCalled();
   });
 
+  it("does NOT retry when the parse failed but Phase C's overlay landed", async () => {
+    // THE LIVE DEFECT, session `38f9fde8`. `/profile/parse` blew its deadline while
+    // `/profiling/extract` returned a complete nine-key object with two `experiences[]` entries
+    // — and the retry read only the parse, threw before the write, and discarded the successful
+    // overlay. Three attempts, two of them billed at Rs 0.226, and the worker ended with no
+    // `worker_profiles` row at all.
+    //
+    // ATTEMPT 0 OF 3 on purpose: attempts remain, so the ONLY thing that can stop the throw is
+    // the landed overlay. Written as a positive assertion on `experiences[]` rather than just
+    // "did not throw", because a retry that silently dropped the entries would still resolve.
+    const { proc, profiles, aiJobs } = make({
+      ...withMap(),
+      parsed: { fields: {}, unparsed_field_ids: [], notes: ["parse_deadline_exceeded"], ai_metadata: null },
+      llmInterview: true,
+      messages: [
+        { direction: "outbound", bodyText: "Aap kaunsa kaam karte hain?" },
+        { direction: "inbound", bodyText: "cnc operator hu, 3 saal" },
+      ],
+      interview: {
+        domain_label: "CNC machining",
+        role_label: "CNC operator",
+        skills: ["CNC turning"],
+        experiences: [
+          { role_label: "CNC operator", duration_text: "3 saal", duration_months: 36, work_done: "parts banaye" },
+        ],
+        shift: null,
+        current_city: null,
+        preferred_locations: [],
+        availability: null,
+        expected_salary: null,
+        blocked: false,
+        is_mock: false,
+        ai_metadata: null,
+      },
+    });
+
+    const res = await proc.process(makeJob({ attemptsMade: 0, attempts: 3 }));
+
+    expect(res).toEqual({ profile_id: PROFILE });
+    expect(aiJobs.markCompleted).toHaveBeenCalled();
+    const raw = (profiles.create.mock.calls[0]![0] as { rawProfile: DraftProfile }).rawProfile;
+    expect(raw.experiences).toHaveLength(1);
+    expect(raw.experiences?.[0]?.role_label).toBe("CNC operator");
+  });
+
+  it("still retries when the parse failed and Phase C produced nothing either", async () => {
+    // The veto is about HOLDING model output, not about the flag being on. With both legs down
+    // there is nothing to preserve and the original retry is exactly right — otherwise this
+    // change would quietly disable the retry for every LLM-led interview.
+    const { proc, profiles } = make({
+      ...withMap(),
+      parsed: OUTAGE_PARSE,
+      llmInterview: true,
+      messages: [
+        { direction: "outbound", bodyText: "Aap kaunsa kaam karte hain?" },
+        { direction: "inbound", bodyText: "cnc operator hu" },
+      ],
+      interview: null,
+    });
+
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow(
+      "llm unavailable",
+    );
+    expect(profiles.create).not.toHaveBeenCalled();
+  });
+
   it("on the FINAL attempt it writes the profile from the answer map rather than nothing", async () => {
     // The posture `ProfilesService.extract` already documents: "being wrong in that
     // direction leaves a worker with no profile at all — strictly worse". The deterministic

@@ -200,12 +200,23 @@ class Settings(BaseSettings):
     ai_extraction_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     ai_extraction_max_retries: int = Field(default=2, ge=0, le=5)
 
-    # OIE Phase 7 acceptance criterion: parse p95 < 6 s. A HARD DEADLINE is how that becomes a
-    # property of the route instead of a hope about the provider — `gemini_timeout_seconds` (30 s)
-    # times the retry chain is an order of magnitude past the budget, and the worker is waiting on
-    # this call to see their finished profile. On expiry the parse degrades to the deterministic
+    # A HARD DEADLINE is how "parse cannot run away" becomes a property of the route instead of a
+    # hope about the provider — `gemini_timeout_seconds` (30 s) times the retry chain is an order
+    # of magnitude past any sane budget. On expiry the parse degrades to the deterministic
     # projection, which is a real profile; the overlay is the only thing lost.
-    profile_parse_deadline_seconds: float = Field(default=6.0, gt=0.0, le=60.0)
+    #
+    # RAISED 6 -> 20. The 6 was the Phase 7 acceptance criterion (parse p95 < 6 s) and its stated
+    # reason was "the worker is waiting on this call to see their finished profile". That reason
+    # is no longer true and has not been since the cutover: the only caller is the BullMQ
+    # extraction job in `apps/api`, which runs minutes after the interview closed and answers
+    # nobody. A latency budget defended on a wait that does not happen is just a smaller ceiling.
+    #
+    # What made it bite was the LLM-led interview. Phase A produces a long, discursive transcript
+    # BY DESIGN — 25 turns in the live repro — and parse reads the whole thing. Every run against
+    # that path returned `parse_deadline_exceeded`, which `apps/api` reads as an outage and
+    # retries at 5 and 10 minutes, so the worker's profile was ~15 minutes late at best. The
+    # deadline was tuned for chip answers and met a conversation.
+    profile_parse_deadline_seconds: float = Field(default=20.0, gt=0.0, le=60.0)
 
     # The same hard bound for the LEGACY `/profile/extract` route, which shipped without one.
     # `apps/api` aborts that request at 8 s and Starlette does not cancel a running handler on
@@ -226,6 +237,16 @@ class Settings(BaseSettings):
     # overlay on a profile the worker never sees being built, while this one is the question in
     # front of them — and a fallback question mid-conversation is more jarring than a slow one.
     profiling_turn_deadline_seconds: float = Field(default=10.0, gt=0.0, le=60.0)
+
+    # Phase C's own deadline. It USED to borrow `profile_extract_deadline_seconds` (7.0), which
+    # is the legacy `/profile/extract` bound and was chosen to sit just inside that caller's 8 s
+    # abort — a number about a different route's caller, silently governing this one.
+    #
+    # The two calls are not comparable work. Legacy extract reads a transcript for a handful of
+    # flat fields; Phase C reads a whole conducted conversation and SYNTHESISES `experiences[]`
+    # across it, which is the one value nothing else on the path can produce. Losing it to a
+    # deadline set for another route costs the worker their work history.
+    profiling_extract_deadline_seconds: float = Field(default=20.0, gt=0.0, le=60.0)
 
     ai_resume_max_output_tokens: int = Field(default=512, ge=16, le=8192)
     ai_resume_temperature: float = Field(default=0.4, ge=0.0, le=2.0)

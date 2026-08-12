@@ -35,6 +35,22 @@ import {
 import { SERVER_CONFIG } from "../config/config.module";
 
 /**
+ * The transport budget for the two calls made by the profile-extraction QUEUE JOB — the parse
+ * and Phase C's interview extract.
+ *
+ * WHY IT IS NOT THE 8 s DEFAULT. That default is a chat-shaped number: it exists because a
+ * worker is holding a phone waiting for a reply, and it is right for every synchronous path
+ * here. These two are not synchronous. They run inside a BullMQ job minutes after the interview
+ * closed, and nothing anywhere is blocked on them — so the 8 s bought no responsiveness and only
+ * decided which of two bounds fired first.
+ *
+ * ABOVE the ai-service's own 20 s deadlines on both routes, so the SEMANTIC bound wins the race:
+ * the far side degrades to a healthy 200 that says `parse_deadline_exceeded`, where this abort
+ * would hand the processor a bare null indistinguishable from the service being down.
+ */
+const PROFILE_JOB_TIMEOUT_MS = 25_000;
+
+/**
  * TD81 — what the api can learn about the ai-service from ITS `GET /health`.
  *
  * Deliberately ONE field. The ai-service's health payload is rich (spend, caps,
@@ -294,7 +310,16 @@ export class AiService {
    * every later read, and `deterministic_only` is a strictly more honest answer.
    */
   async parseProfile(input: ProfileParseInput): Promise<ProfileParseOutput | null> {
-    return this.post("/profile/parse", input, ProfileParseOutputSchema);
+    // ABOVE THE FAR SIDE'S OWN DEADLINE (20 s), deliberately. Whichever bound fires first decides
+    // what the caller learns: the ai-service's deadline degrades to a healthy 200 carrying
+    // `parse_deadline_exceeded` — named, logged, attributable — while this abort produces a bare
+    // null the processor can only read as `parse_service_unreachable`. The informative failure
+    // has to be the reachable one, so the transport budget sits ABOVE the semantic one.
+    //
+    // Safe to be this long because NOBODY IS WAITING: the only caller is the BullMQ extraction
+    // job, minutes after the interview closed. The default 8 s was a chat-shaped budget applied
+    // to a queue-shaped call.
+    return this.post("/profile/parse", input, ProfileParseOutputSchema, PROFILE_JOB_TIMEOUT_MS);
   }
 
   /**
@@ -329,7 +354,15 @@ export class AiService {
    * usable profile. This is an overlay, never the profile itself.
    */
   async extractInterview(input: InterviewExtractInput): Promise<InterviewExtractOutput | null> {
-    return this.post("/profiling/extract", input, InterviewExtractOutputSchema);
+    // Same budget and the same reason as `parseProfile`: a queue-side call reading a whole
+    // conversation, above the far side's 20 s deadline. Under the old 8 s a long interview —
+    // the ones with the most work history to recover — was the likeliest to lose it.
+    return this.post(
+      "/profiling/extract",
+      input,
+      InterviewExtractOutputSchema,
+      PROFILE_JOB_TIMEOUT_MS,
+    );
   }
 
   /**

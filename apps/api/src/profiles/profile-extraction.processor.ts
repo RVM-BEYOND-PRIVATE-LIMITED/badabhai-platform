@@ -210,11 +210,12 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // never fail an extraction.
       const fullName = await this.workerFullName(workerId);
       const redacted = messages.map((m) => ({ ...m, text: redactKnownName(m.text, fullName) }));
-      const { result, pin, attributes, pack, parseMeta, outageCode } = await this.extractOrParse(
-        { workerId, sessionId, aiJobId, correlationId, requestId },
-        redacted,
-        redactKnownName(transcript, fullName),
-      );
+      const { result, pin, attributes, pack, parseMeta, outageCode, interviewLanded } =
+        await this.extractOrParse(
+          { workerId, sessionId, aiJobId, correlationId, requestId },
+          redacted,
+          redactKnownName(transcript, fullName),
+        );
 
       // ── THE RETRY, AND WHY IT THROWS HERE RATHER THAN COMPLETING ──────────────────
       //
@@ -240,15 +241,31 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // The backoff that makes this bounded and slow lives on the JOB (see
       // `EXTRACTION_JOB_OPTS` in `ProfilesService`): 5 min, then 10. A 1 s exponential —
       // the queue-wide default — would simply be the same storm at a different cadence.
+      //
+      // AND WHY A LANDED PHASE C OVERLAY VETOES THE RETRY. Everything above reasons about ONE
+      // model leg. Phase C added a second with an independent fate, and `outageCode` still only
+      // describes the parse — so the live combination was: parse blows its deadline, the
+      // interview extract succeeds, and the whole attempt is thrown away WITH the successful
+      // overlay. Three times, at 5 and 10 minutes, each re-running and re-billing Phase C, for a
+      // worker who ended up with no profile at all.
+      //
+      // The premise of the retry is "we have nothing worth writing, and waiting might fix that".
+      // A landed overlay falsifies it: we are holding the model-derived values — `experiences[]`
+      // among them, which NOTHING else on this path can produce — and a retry cannot improve on
+      // having them. Writing now costs the parse overlay on the deterministic fields, which the
+      // answer-map projection already covers; retrying costs the interview entirely.
+      const retryWouldDiscardTheOverlay = interviewLanded;
       if (outageCode !== null) {
         const maxAttempts = job.opts.attempts ?? 1;
-        const attemptsRemain = job.attemptsMade + 1 < maxAttempts;
+        const attemptsRemain = job.attemptsMade + 1 < maxAttempts && !retryWouldDiscardTheOverlay;
         this.logger.warn(
           `extraction job ${aiJobId} hit an LLM outage (${outageCode}) on attempt ` +
             `${job.attemptsMade + 1}/${maxAttempts}; ` +
             (attemptsRemain
               ? `retrying on the queue's backoff`
-              : `final attempt — writing the profile from the answer map without the model overlay`),
+              : retryWouldDiscardTheOverlay
+                ? `writing anyway — the interview overlay landed and a retry would discard it`
+                : `final attempt — writing the profile from the answer map without the model overlay`),
         );
         if (attemptsRemain) throw new LlmUnavailableError(outageCode);
       }
@@ -620,6 +637,21 @@ export class ProfileExtractionProcessor extends WorkerHost {
      * overlay, and only one of them is worth retrying.
      */
     outageCode: string | null;
+    /**
+     * Did Phase C's `/profiling/extract` return usable values on this attempt?
+     *
+     * THE RETRY'S PREMISE, MADE CHECKABLE. `outageCode` was the whole test for "should this
+     * job be thrown away and tried again", and it only ever describes the PARSE leg. With
+     * Phase C there are two model calls with independent fates, and the live failure was the
+     * combination nobody had: parse blew its deadline, the interview extract SUCCEEDED — and
+     * the successful, already-billed overlay was discarded along with the failed parse,
+     * three times, at 5- and 10-minute intervals, for a worker who never got a profile.
+     *
+     * Measured on session `38f9fde8`: two `profile_extraction` calls at Rs 0.226 each,
+     * `real_call=true`, both producing a complete nine-key object with two `experiences[]`
+     * entries — and no `worker_profiles` row, because every attempt threw before the write.
+     */
+    interviewLanded: boolean;
   }> {
     // NO SESSION, NO ANSWER MAP. An extraction can be triggered without one (the app's
     // "make the profile anyway" escape hatch); there is no interview record to read.
@@ -647,6 +679,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // unreachable model is the difference between a profile and nothing at all — which
         // makes the retry matter more here than on the OIE path, not less.
         outageCode: outageCodeOf(legacy.error_code),
+        // Phase C never runs on this branch — there is no interview to read. `false` keeps the
+        // retry exactly as it is here, which is what the note above argues for.
+        interviewLanded: false,
       };
     }
 
@@ -797,6 +832,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
           ? "parse_service_unreachable"
           : (parsed.notes.find((note) => PARSE_OUTAGE_NOTES.has(note)) ??
             outageCodeOf(parsed.ai_metadata?.error_code)),
+      // Taken from the OVERLAY ITSELF, not from a second health check: `interviewOverlay`
+      // already collapses unreachable / blocked / malformed to null, so a non-null value is
+      // the only evidence that matters — the model produced values we are about to persist.
+      interviewLanded: interview !== null,
     };
   }
 
