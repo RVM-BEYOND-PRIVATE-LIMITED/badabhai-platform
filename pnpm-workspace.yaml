@@ -95,8 +95,49 @@ overrides:
   #     @esbuild-kit loader). The advisory is a DEV-SERVER issue; drizzle-kit only
   #     bundles config files and never serves — but the override clears it anyway and
   #     is proven by `db:generate` + the full build below.
-  postcss@<8.5.10: ">=8.5.10"
   esbuild@<0.28.1: ">=0.28.1"
+  # ---------------------------------------------------------------------------
+  # DEP-3 (#788/#792, 2026-08-12). Taking `pnpm audit --audit-level high` to ZERO so
+  # the job can stop being `continue-on-error` — the #737 sequence, which did exactly
+  # this for SAST. A scanner that has never been clean fails on every PR, so the red X
+  # carries no information and the only habit it builds is ignoring a security check.
+  #
+  # ALL SEVEN ARE TRANSITIVE; none is a direct dependency of ours, and no intermediate
+  # has shipped a bump — so a range-keyed override is the only lever, exactly as for the
+  # two entries above. Each is pinned with `^` to its OWN major line rather than a bare
+  # `>=`, because a bare floor lets pnpm resolve the newest matching version across
+  # majors and hand a parent a version it cannot use. `brace-expansion` is the case that
+  # makes this concrete: three independent lines (1.1.15, 2.1.2, 5.0.6) are in the tree
+  # at once, each with its own patched floor.
+  #
+  # WHAT THEY ARE. Every one is a DoS / quadratic-complexity / path-traversal class
+  # finding in BUILD AND TEST tooling rather than a live request path, with two that
+  # deserve a real look rather than an assumption:
+  #
+  #   shell-quote  reaches us through `drizzle-orm`, a PRODUCTION dependency of both
+  #                apps/api and packages/db. Checked rather than assumed: the vulnerable
+  #                code is in the CLI/shell-escaping path, which no runtime query
+  #                touches. Overridden regardless — it is one patch version.
+  #   sharp        libvips image-decode CVEs, reached via `next` in all three web apps.
+  #                This is the one with a plausible live path: `next/image` optimization
+  #                decodes images, and worker photos are served from Supabase. Bumped to
+  #                the patched line rather than accepted for that reason.
+  #
+  # ONE AT A TIME, NOT IN A BATCH: an override that forces an incompatible version of a
+  # transitive of `@nestjs/cli`, `vitest` or `next` is green in the lockfile and broken
+  # at runtime, and attributing that is far easier one package at a time. Verified after
+  # all seven with `pnpm audit` (0 high), `pnpm -r build`, and the full suites.
+  brace-expansion@<1.1.18: "^1.1.18"
+  brace-expansion@>=2.0.0 <2.1.4: "^2.1.4"
+  brace-expansion@>=5.0.0 <5.0.9: "^5.0.9"
+  fast-uri@<3.1.5: "^3.1.5"
+  js-yaml@<4.3.1: "^4.3.1"
+  nanoid@<3.3.17: "^3.3.17"
+  # SUPERSEDES the DEP-2 floor above (was `<8.5.10: >=8.5.10`): GHSA on <8.5.18 is newer
+  # than that entry, and leaving both would be two rules for one package.
+  postcss@<8.5.18: "^8.5.18"
+  sharp@<0.35.0: "^0.35.0"
+  shell-quote@<1.8.5: "^1.8.5"
 # Dependency-audit (`pnpm audit --audit-level high`) tracked exceptions. Each entry
 # is a HIGH/CRITICAL advisory that does NOT apply to this codebase, rationale logged
 # in the tech-debt register. Scoped to specific GHSA ids so the audit STILL fails on

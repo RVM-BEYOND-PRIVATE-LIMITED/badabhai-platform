@@ -20,6 +20,7 @@ jobs:
       worker-app: ${{ steps.filter.outputs.worker-app }}
       payer-app: ${{ steps.filter.outputs.payer-app }}
       sast: ${{ steps.filter.outputs.sast }}
+      deps: ${{ steps.filter.outputs.deps }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -76,6 +77,18 @@ jobs:
               - 'tests/**'
               - '.github/workflows/sast.yml'
               - '.github/workflows/ci.yml'
+            # Dependency audit (#788). `pnpm-lock.yaml` is what the job actually reads, but
+            # it is NOT the only file that can change what resolves: `pnpm-workspace.yaml`
+            # holds the `overrides` and the supply-chain policy, and a change there is
+            # exactly the kind that must re-run the audit. Both are listed rather than one,
+            # even though today an override edit also rewrites the lockfile — a filter that
+            # is right only because of a coincidence elsewhere is one refactor from being
+            # silently wrong, and a gate that does not run reports green.
+            deps:
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/dependency-audit.yml'
+              - '.github/workflows/ci.yml'
 
   # ---- Flutter gates, INSIDE the aggregator (#718) ----
   #
@@ -120,6 +133,26 @@ jobs:
     uses: ./.github/workflows/sast.yml
     with:
       baseline-ref: ${{ github.event.pull_request.base.sha }}
+
+  # ---- Dependency audit, INSIDE the aggregator (#788, #792) ----
+  #
+  # Third instance of the same structural fix, for the third time for the same reason. This
+  # job lived in security-scan.yml as `continue-on-error: true`, quietly reporting 18 high
+  # advisories on every lockfile-touching PR. #788 flipped it to blocking; blocking is only
+  # half a gate, because `ci-required` cannot `needs:` a job in another workflow file — the
+  # gap #718 MEASURED on PR #711 and #773 hit twice in one day.
+  #
+  # The audit reads the whole workspace at once, so unlike sast there is no per-PR baseline
+  # to pass and nothing to split: this call and the weekly one in security-scan.yml run the
+  # identical scan. The weekly is not redundant — it is what catches direct pushes to main
+  # and advisories published against dependencies nobody touched.
+  #
+  # Path-gated because it installs the full tree (~1m). A PR that changes no dependency
+  # cannot change the audit's answer.
+  deps-audit:
+    needs: changes
+    if: needs.changes.outputs.deps == 'true'
+    uses: ./.github/workflows/dependency-audit.yml
 
   # ---- TypeScript monorepo: lint, typecheck, test, build ----
   node:
@@ -630,9 +663,11 @@ jobs:
   # owner must flip branch protection to require only `ci-required` for this to work.
   ci-required:
     if: always()
-    # worker-app / payer-app added in #718, sast in #773. A path-filtered job that does not run reports
-    # `skipped`, which this check treats as fine — only `failure`/`cancelled` fail it.
-    needs: [changes, node, ai-service, ai-service-image, e2e, worker-app, payer-app, sast]
+    # worker-app / payer-app added in #718, sast in #773, deps-audit in #788. A path-filtered
+    # job that does not run reports `skipped`, which this check treats as fine — only
+    # `failure`/`cancelled` fail it.
+    needs:
+      [changes, node, ai-service, ai-service-image, e2e, worker-app, payer-app, sast, deps-audit]
     runs-on: ubuntu-latest
     steps:
       - name: Check for CI failures
@@ -705,7 +740,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      
+
       - name: Set up Docker Buildx
         # REQUIRED for CD-5: the runner's stock `docker` driver CANNOT export a
         # `type=gha` cache — buildx hard-errors before the build starts. This
@@ -718,7 +753,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
@@ -739,7 +774,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=sha
-          
+
       - name: Build and push Docker image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
