@@ -8,7 +8,7 @@ import {
   UnprocessableEntityException,
   forwardRef,
 } from "@nestjs/common";
-import type { AnswerType, QuestionPackOption } from "@badabhai/ai-contracts";
+import type { AnswerRecord, AnswerType, QuestionPackOption } from "@badabhai/ai-contracts";
 
 import { ChatRepository } from "../chat/chat.repository";
 import { ChatService, type ChatTurnOutcome } from "../chat/chat.service";
@@ -33,6 +33,8 @@ import type {
   ProfilingCorrectionResponse,
   ProfilingReviewResponse,
   ProfilingSessionResponse,
+  ProfilingStaleAnswerError,
+  ProfilingStaleReason,
   ProfilingStep,
   ProfilingStepResponse,
 } from "./profiling.dto";
@@ -137,10 +139,14 @@ export class ProfilingSessionService {
     // already moved on to. 409 rather than 400 — nothing about the request is malformed, the
     // world simply moved — and the client's correct response is to redraw from `GET /session`.
     if ((served?.questionKey ?? null) !== dto.question_key) {
-      throw new ConflictException(
-        `Question ${dto.question_key ?? "(none)"} is no longer on screen for session ` +
+      throw new ConflictException({
+        statusCode: 409,
+        message:
+          `Question ${dto.question_key ?? "(none)"} is no longer on screen for session ` +
           `${dto.session_id}; re-read the session before answering`,
-      );
+        error: "Conflict",
+        stale_reason: this.staleReason(view, dto.question_key),
+      } satisfies ProfilingStaleAnswerError);
     }
 
     // A SPOKEN ANSWER IS TRANSCRIBED BEFORE THE TURN, synchronously, because the engine cannot
@@ -152,6 +158,37 @@ export class ProfilingSessionService {
     const text = this.textFor(dto.answer, served?.options ?? [], served?.answerType ?? null);
     const outcome = await this.chatService.runTurn(workerId, dto.session_id, text, ctx);
     return { step: this.stepOfOutcome(outcome) };
+  }
+
+  /**
+   * WHICH KIND OF STALE THIS 409 IS (#779). See `ProfilingStaleReasonSchema` for why the caller
+   * needs to know and what the ambiguity costs.
+   *
+   * `answer_already_landed` is asserted ONLY on `status === "answered"`, which is the literal
+   * claim the name makes: the engine took an answer for this question. It is deliberately NOT
+   * `isSettled`, which also admits `declined` — a declined question is settled and the engine did
+   * move on, but the worker's ANSWER was not taken, and reporting that as "landed" would let the
+   * client bank engagement for an answer that does not exist. `declined` therefore falls to
+   * `other`, which costs only a missed signal.
+   *
+   * FAIL-SOFT TO `other`, NEVER TO `answer_already_landed`. A null view (a closed or unresolvable
+   * session) and a null `question_key` both land here, and both mean "we cannot show the answer
+   * exists". The asymmetry is the safety property: `other` under-counts, `answer_already_landed`
+   * over-counts, and only one of those corrupts the ranking input.
+   *
+   * IT MUST NOT BE ABLE TO THROW, AND THAT IS WHY THE SHAPE IS CHECKED RATHER THAN TRUSTED.
+   * This runs INSIDE the construction of a 409. A throw here would replace that 409 with a 500 —
+   * turning a routine, recoverable staleness into a hard failure, on precisely the connection
+   * that is already failing, for precisely the workers this signal exists to represent. The
+   * envelope is rehydrated from a jsonb column, so "it is always an array" is a claim about
+   * upstream validation rather than about this value; `Array.isArray` costs nothing and makes the
+   * degraded case a missed signal instead of a broken interview.
+   */
+  private staleReason(view: SessionView | null, questionKey: string | null): ProfilingStaleReason {
+    const records: readonly AnswerRecord[] | undefined = view?.envelope.answerMap;
+    if (questionKey === null || !Array.isArray(records)) return "other";
+    const landed = records.find((record) => record.question_key === questionKey);
+    return landed?.status === "answered" ? "answer_already_landed" : "other";
   }
 
   /**
@@ -626,10 +663,7 @@ export class ProfilingSessionService {
                     is_none_of_above: option.is_none_of_above,
                   })),
                   tts_clip_id: clipId(entry.promptText),
-                  index: Math.min(
-                    entry.progress.answered + 1,
-                    Math.max(entry.progress.total, 1),
-                  ),
+                  index: Math.min(entry.progress.answered + 1, Math.max(entry.progress.total, 1)),
                   total: entry.progress.total,
                   // #766 item 4. Load-bearing on THIS surface specifically: `tts_clip_id` above
                   // means a stale prediction is spoken, not repainted.
