@@ -300,4 +300,91 @@ void main() {
       expect(reply.lookahead, isEmpty);
     });
   });
+
+  // #761 — `suggested_options` is served ALONGSIDE `suggested_followups` and
+  // carries the STABLE option_key the `lookahead` map is keyed by, so a chip
+  // whose display label differs from that key can still be indexed. Parsed with
+  // the same #371 discipline: a garbage entry is dropped, the reply survives.
+  group('suggested_options parsing (#761)', () {
+    test('a well-formed list parses to ChatOptions with key/label/flag', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Kaunsa kaam?',
+        'suggested_followups': <dynamic>['Salad bar attendant', 'Kuch aur'],
+        'suggested_options': <dynamic>[
+          <String, dynamic>{
+            'option_key': 'role_salad_bar',
+            'label_text': 'Salad bar attendant',
+            'is_none_of_above': false,
+          },
+          <String, dynamic>{
+            'option_key': '__none',
+            'label_text': 'Kuch aur',
+            'is_none_of_above': true,
+          },
+        ],
+      });
+
+      expect(reply.suggestedOptions, hasLength(2));
+      final ChatOption first = reply.suggestedOptions.first;
+      expect(first.optionKey, 'role_salad_bar');
+      expect(first.labelText, 'Salad bar attendant',
+          reason: 'the label is what the chip shows AND submits');
+      expect(first.optionKey, isNot(first.labelText),
+          reason: 'the whole point: the key is NOT the display label');
+      expect(first.isNoneOfAbove, isFalse);
+      expect(reply.suggestedOptions.last.isNoneOfAbove, isTrue);
+      // Served ALONGSIDE — the followups stay authoritative for display/submit.
+      expect(reply.suggestedFollowups,
+          <String>['Salad bar attendant', 'Kuch aur']);
+    });
+
+    test('a garbage entry is dropped and the reply survives (#371)', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Bada bhai ka jawaab',
+        'suggested_options': <dynamic>[
+          <String, dynamic>{'option_key': 'a', 'label_text': 'Alpha'},
+          42, // not a map
+          <String, dynamic>{'option_key': 'b'}, // no label_text
+          <String, dynamic>{'label_text': 'Gamma'}, // no option_key
+          <String, dynamic>{'option_key': '', 'label_text': 'Blank key'},
+          null,
+        ],
+      });
+
+      expect(reply.reply, 'Bada bhai ka jawaab',
+          reason: 'a bad option must never lose the reply');
+      expect(reply.suggestedOptions, hasLength(1));
+      expect(reply.suggestedOptions.single.optionKey, 'a');
+      expect(reply.suggestedOptions.single.labelText, 'Alpha');
+    });
+
+    test('a non-bool is_none_of_above reads as false, option survives', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'ok',
+        'suggested_options': <dynamic>[
+          <String, dynamic>{
+            'option_key': 'k',
+            'label_text': 'L',
+            'is_none_of_above': 'yes', // not a bool
+          },
+        ],
+      });
+      expect(reply.suggestedOptions.single.isNoneOfAbove, isFalse);
+    });
+
+    test('an absent key yields an empty list (older/deterministic turn)', () {
+      final ChatReply reply =
+          ChatReply.fromJson(<String, dynamic>{'reply': 'Theek hai'});
+      expect(reply.suggestedOptions, isEmpty);
+    });
+
+    test('a non-list suggested_options degrades to empty, reply survives', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Theek hai',
+        'suggested_options': 'nonsense',
+      });
+      expect(reply.reply, 'Theek hai');
+      expect(reply.suggestedOptions, isEmpty);
+    });
+  });
 }

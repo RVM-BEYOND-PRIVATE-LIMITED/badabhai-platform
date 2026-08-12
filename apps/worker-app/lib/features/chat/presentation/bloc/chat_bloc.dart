@@ -4,7 +4,12 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_models.dart'
-    show ChatInputMode, ChatProgress, ChatQuestionKind, PredictedQuestion;
+    show
+        ChatInputMode,
+        ChatOption,
+        ChatProgress,
+        ChatQuestionKind,
+        PredictedQuestion;
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
 import '../../domain/chat_message.dart';
@@ -84,6 +89,7 @@ class ChatState extends Equatable {
     this.initializing = true,
     this.sending = false,
     this.followups = const <String>[],
+    this.suggestedOptions = const <ChatOption>[],
     this.sessionFailed = false,
     this.extractionReady = false,
     this.unansweredEssentials = const <String>[],
@@ -110,6 +116,12 @@ class ChatState extends Equatable {
   /// Tap-to-answer suggestions for the LATEST reply (backend
   /// `suggested_followups`). Cleared the moment the worker sends again.
   final List<String> followups;
+
+  /// The LATEST reply's `suggested_options` (#761), served ALONGSIDE [followups].
+  /// When non-empty the screen renders chips from THIS list so each carries its
+  /// stable `option_key` (indexed against [lookahead] on tap); empty falls back
+  /// to the label-keyed [followups]. Cleared on send exactly like [followups].
+  final List<ChatOption> suggestedOptions;
 
   /// True when opening the chat session failed and no send has healed it yet
   /// (#343) — drives a banner, so the worker is TOLD rather than typing into a
@@ -184,6 +196,7 @@ class ChatState extends Equatable {
     bool? initializing,
     bool? sending,
     List<String>? followups,
+    List<ChatOption>? suggestedOptions,
     bool? sessionFailed,
     bool? extractionReady,
     List<String>? unansweredEssentials,
@@ -205,6 +218,7 @@ class ChatState extends Equatable {
       initializing: initializing ?? this.initializing,
       sending: sending ?? this.sending,
       followups: followups ?? this.followups,
+      suggestedOptions: suggestedOptions ?? this.suggestedOptions,
       sessionFailed: sessionFailed ?? this.sessionFailed,
       // Latch: once ready, always ready (see the field doc).
       extractionReady: this.extractionReady || (extractionReady ?? false),
@@ -229,6 +243,7 @@ class ChatState extends Equatable {
         initializing,
         sending,
         followups,
+        suggestedOptions,
         sessionFailed,
         extractionReady,
         unansweredEssentials,
@@ -451,6 +466,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         ],
         sending: true,
         followups: predicted.options,
+        // The prediction carries LABELS only (no option objects), so clear the
+        // option list and let the predicted chips render from [followups] — the
+        // label-keyed path, which is correct until the real turn brings its own
+        // `suggested_options`.
+        suggestedOptions: const <ChatOption>[],
         // Sticky-forward: a null predicted progress keeps the last known bar.
         progress: predicted.progress,
         questionKind: predicted.questionKind,
@@ -471,6 +491,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         ],
         sending: true,
         followups: const <String>[],
+        // The previous turn's options belong to a question already answered —
+        // drop them alongside the followups (#761).
+        suggestedOptions: const <ChatOption>[],
         // The previous turn's kind belongs to a question already answered — reset
         // so a stale disambiguate layout can't outlive its chips (#649).
         questionKind: ChatQuestionKind.ask,
@@ -528,6 +551,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         messages: nextMessages,
         sending: _inFlightSends > 0,
         followups: turn.followups,
+        // #761 — the option objects for THIS turn (with their stable keys); the
+        // screen renders chips from these when present, else from [followups].
+        suggestedOptions: turn.suggestedOptions,
         // A delivered message proves the session is open again.
         sessionFailed: false,
         // The engine's interview-completeness decision for this turn (#421).
@@ -573,6 +599,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         messages: _withStatus(reverted, index, ChatSendStatus.failed),
         sending: _inFlightSends > 0,
         followups: reconciling ? const <String>[] : state.followups,
+        // Mirror [followups]: a retracted optimistic turn drops its options too;
+        // a plain failure keeps the current turn's options so the chips remain.
+        suggestedOptions:
+            reconciling ? const <ChatOption>[] : state.suggestedOptions,
         questionKind: reconciling ? ChatQuestionKind.ask : state.questionKind,
         clearPredictedQuestionKey: true,
       ));
@@ -627,6 +657,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       messages: _withStatus(state.messages, index, ChatSendStatus.sent),
       sending: true,
       followups: const <String>[],
+      suggestedOptions: const <ChatOption>[], // #761 — drop with the followups
       questionKind: ChatQuestionKind.ask, // #649 — drop a stale disambiguate
       inputMode: ChatInputMode.text, // #770 — bring the composer back on retry
     ));
@@ -649,6 +680,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // awaiting its reply (#344) — only report idle when nothing is in flight.
       sending: _inFlightSends > 0,
       followups: const <String>[],
+      // The voice pipeline returns no options — clear with the followups (#761).
+      suggestedOptions: const <ChatOption>[],
       // A voice answer is never a disambiguation turn — reset the layout (#649).
       questionKind: ChatQuestionKind.ask,
       // A voice merge returns no chips, so the worker must be able to type the

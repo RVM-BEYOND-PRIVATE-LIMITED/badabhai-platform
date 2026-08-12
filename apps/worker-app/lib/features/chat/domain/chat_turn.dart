@@ -1,7 +1,12 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../core/api/api_models.dart'
-    show ChatInputMode, ChatProgress, ChatQuestionKind, PredictedQuestion;
+    show
+        ChatInputMode,
+        ChatOption,
+        ChatProgress,
+        ChatQuestionKind,
+        PredictedQuestion;
 
 /// One assistant turn from the profiling chat: bada bhai's [reply] plus any
 /// [followups].
@@ -13,6 +18,7 @@ class ChatTurn extends Equatable {
   const ChatTurn({
     required this.reply,
     this.followups = const <String>[],
+    this.suggestedOptions = const <ChatOption>[],
     this.extractionReady = false,
     this.unansweredEssentials = const <String>[],
     this.blocked = false,
@@ -27,6 +33,13 @@ class ChatTurn extends Equatable {
 
   final String reply;
   final List<String> followups;
+
+  /// The backend's `suggested_options` for THIS turn (#761), served ALONGSIDE
+  /// [followups]. Each carries the stable `option_key` the [lookahead] map is
+  /// keyed by, so a tapped chip indexes its prediction even when the display
+  /// label differs from that key (the LLM chat). Empty on a deterministic/older
+  /// turn — the UI then falls back to the label-keyed [followups] path.
+  final List<ChatOption> suggestedOptions;
 
   /// The Resume Field Set id THIS turn asked about (`asked_question_id`), or null
   /// on the wrap-up turn. NOT carried before #761 — added to reconcile the
@@ -84,6 +97,7 @@ class ChatTurn extends Equatable {
   List<Object?> get props => <Object?>[
         reply,
         followups,
+        suggestedOptions,
         extractionReady,
         unansweredEssentials,
         blocked,
