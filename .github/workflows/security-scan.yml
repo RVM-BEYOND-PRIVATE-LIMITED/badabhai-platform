@@ -122,11 +122,13 @@ jobs:
       # but `continue-on-error` on the job keeps it advisory for now.
       # The committed `.gitleaks.toml` (TD76) allowlists known-safe placeholders
       # (.env.example, google-services.json test Firebase keys).
+      # Pinned to the `:latest` digest as of 2026-08-13 (BL-25) — matches every other
+      # action/image in this repo's workflows being pinned rather than floating.
       - name: Run gitleaks (full history)
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/repo" \
-            zricethezav/gitleaks:latest \
+            zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
             detect \
               --source="/repo" \
               --redact \
