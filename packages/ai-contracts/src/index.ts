@@ -62,6 +62,11 @@ export {
   LocationPreferenceSchema,
   AvailabilitySchema,
   DraftProfileSchema,
+  ResumeProfileSchema,
+  // Guards the container against the ai-service's empty-but-healthy 200s. Exported because BOTH
+  // sides of storage ask it: the extraction processor before writing the container, and the
+  // résumé mapper before reading one. See the doc comment on the function.
+  resumeProfileCarriesValues,
   WorkerProfileDraftSchema,
   ProfileExtractionInputSchema,
   ProfileExtractionOutputSchema,
@@ -70,6 +75,8 @@ export {
 } from "./profile";
 export type {
   DraftProfile,
+  ResumeProfile,
+  ResumeProfileValues,
   WorkerProfileDraft,
   ProfileExtractionInput,
   ProfileExtractionOutput,

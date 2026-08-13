@@ -6,6 +6,7 @@ import {
   OccupationPinSchema,
   ProfileExtractionOutputSchema,
   WorkerProfileDraftSchema,
+  resumeProfileCarriesValues,
   type DraftProfile,
   type AICallMetadata,
   type ConversationMessage,
@@ -142,20 +143,16 @@ function outageCodeOf(code: string | null | undefined): string | null {
  * `blocked` and `is_mock` are deliberately NOT consulted: `blocked` is already handled by
  * `interviewOverlay` (returns null), and `is_mock` is orthogonal — a mock overlay is empty, so
  * the content test catches it without a second rule that could disagree.
+ *
+ * THE RULE ITSELF LIVES IN `@badabhai/ai-contracts`, BESIDE THE CONTAINER IT ALSO GUARDS. The
+ * résumé asks the identical question of the identical nine keys after they are stored
+ * (`resume-render-input.ts`), and a second copy here is precisely the kind of duplicate that
+ * drifts: the two would have to be fixed together forever, and the blank-résumé bug was one
+ * call site testing presence while this one tested content. This stays as the local name the
+ * `interviewLanded` reasoning above refers to.
  */
-function overlayCarriesValues(overlay: InterviewExtractOutput | null): boolean {
-  if (overlay === null) return false;
-  return (
-    overlay.experiences.length > 0 ||
-    overlay.skills.length > 0 ||
-    overlay.preferred_locations.length > 0 ||
-    overlay.domain_label !== null ||
-    overlay.role_label !== null ||
-    overlay.shift !== null ||
-    overlay.current_city !== null ||
-    overlay.availability !== null ||
-    overlay.expected_salary !== null
-  );
+function overlayCarriesValues(overlay: InterviewExtractOutput | null): overlay is InterviewExtractOutput {
+  return resumeProfileCarriesValues(overlay);
 }
 
 /**
@@ -1636,7 +1633,21 @@ function toExtractionOutput(
     // nothing" indistinguishable from "the model was never asked" — the renderer reads null as
     // "fall back to the old path", which is what keeps pre-existing profiles rendering exactly
     // as they do today.
-    resume_profile: interview
+    //
+    // WHICH IS WHY THE TEST IS CONTENT, NOT PRESENCE — `interview !== null` was exactly the
+    // hollow container this comment forbids. `interviewOverlay` returns null for unreachable
+    // and for `blocked`, but the ai-service converts four more of its own degrades into a
+    // healthy 200 carrying an EMPTY `InterviewExtractOutput` whose `blocked` is FALSE, and
+    // `not meta.real_call` — every mocked environment, staging included (TD81) — is one of
+    // them. Stored, that container is truthy, so the résumé took this path, discarded the
+    // answer-map profile it is supposed to fall back to, and rendered nothing but the worker's
+    // name. `overlayCarriesValues` is the same predicate `interviewLanded` already uses one
+    // layer up, for the same reason: a non-null overlay is not evidence that anything landed.
+    //
+    // THE FIELDS ABOVE ARE UNAFFECTED and deliberately still read `interview?.` — `preferModel`,
+    // `preferModelList` and `availabilityOf` all treat undefined exactly as null, so an empty
+    // overlay yields to the deterministic value there whether it is nulled here or not.
+    resume_profile: overlayCarriesValues(interview)
       ? {
           domain_label: interview.domain_label,
           role_label: interview.role_label,

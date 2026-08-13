@@ -1876,6 +1876,91 @@ describe("the interview overlay (Phase C)", () => {
     expect(rawOf(profiles).experiences).toEqual([]);
   });
 
+  /**
+   * ── THE RÉSUMÉ CONTAINER IS WRITTEN FROM CONTENT, NOT FROM PRESENCE ───────────────────
+   *
+   * `resume_profile` is the résumé's ONLY input once it exists, so storing a hollow one does
+   * not degrade the résumé — it BLANKS it. The renderer reads the container instead of the
+   * answer-map profile, and an empty container renders a PDF carrying nothing but the worker's
+   * name: generated successfully, and blank.
+   *
+   * The hollow object is the ai-service's own degrade shape, not a hypothetical: four paths in
+   * `routers/profiling.py` return `InterviewExtractOutput(is_mock=True)` with `blocked` false,
+   * and `not meta.real_call` is one of them — i.e. EVERY mocked environment, staging included
+   * (TD81). So this is the ordinary case there, not the rare one.
+   */
+  it("writes NO container when the overlay came back empty", async () => {
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({
+        domain_label: null,
+        role_label: null,
+        experiences: [],
+        is_mock: true,
+      }),
+    });
+    await proc.process(makeJob());
+    // Null, NOT an empty object: null is what the renderer reads as "there was no interview,
+    // use the answer-map profile", and it is the only value that keeps the worker's résumé.
+    expect(rawOf(profiles).resume_profile).toBeNull();
+  });
+
+  it("leaves the legacy fields exactly as an unreachable overlay would", async () => {
+    // The guard nulls the CONTAINER and must touch nothing else. `preferModel`,
+    // `preferModelList` and `availabilityOf` already treat an empty overlay as no overlay, so
+    // an empty response and an absent one have to produce byte-identical deterministic fields.
+    const empty = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ domain_label: null, role_label: null, experiences: [], is_mock: true }),
+    });
+    const absent = make({ ...withMap(), messages: CHAT, llmInterview: true, interview: null });
+    await empty.proc.process(makeJob());
+    await absent.proc.process(makeJob());
+    expect(rawOf(empty.profiles)).toEqual(rawOf(absent.profiles));
+  });
+
+  it("writes the container the moment the overlay carries ANY value", async () => {
+    // The bar is the same one `interviewLanded` uses — "carries values", not "carries
+    // experiences[]". A short interview that yielded only a domain label is still a real record
+    // of a real interview, and the résumé is still built from it one-for-one.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ role_label: null, experiences: [] }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).resume_profile).toMatchObject({ domain_label: "cooking" });
+  });
+
+  it("stores the container as the Phase C object, one-for-one", async () => {
+    // The property the container exists for: a reader can diff it against the Langfuse
+    // assistant message and expect equality. The guard above decides WHETHER to store it and
+    // must never change WHAT is stored.
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: EXTRACT({ current_city: "Mumbai", skills: ["tandoor"], expected_salary: 22000 }),
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).resume_profile).toEqual({
+      domain_label: "cooking",
+      role_label: "tandoor cook",
+      skills: ["tandoor"],
+      experiences: [ENTRY],
+      shift: null,
+      current_city: "Mumbai",
+      preferred_locations: [],
+      availability: null,
+      expected_salary: 22000,
+    });
+  });
+
   it("lets the model's value win over the one the worker answered", async () => {
     // THIS ASSERTED THE OPPOSITE UNTIL 2026-08-12, and the reversal is an explicit owner
     // decision (Divyanshu), not a drift: the stored profile must equal the Phase C object as

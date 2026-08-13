@@ -418,3 +418,78 @@ def test_education_flows_through_extract_to_resume_end_to_end():
     profile = resp.json()["profile"]
     assert "ITI" in profile["education"]
     assert "NCVT" in profile["certifications"]
+
+
+# --- the interview's own labels fill the Role/Trade lines the ids cannot ------------
+#
+# `toExtractionOutput` hardcodes `canonical_role_id`/`canonical_trade_id` to None on the
+# LLM-led path — inventing a taxonomy id would put an unvalidated value where the match
+# engine trusts absolutely (§3) — so these two lines read a field that path structurally
+# never fills and printed "(to be confirmed)" on EVERY interview-led résumé, while the
+# model had named both in plain language on the same object.
+
+
+def _interview_profile(**over) -> DraftProfile:
+    """An interview-led profile: no canonical ids, labels present. The shape every OIE
+    extraction produces."""
+    base = {
+        "role_label": "tandoor cook",
+        "domain_label": "catering",
+        "skill_labels": ["tandoor", "naan"],
+        "experience": Experience(total_years=3),
+    }
+    base.update(over)
+    return DraftProfile(**base)
+
+
+def test_interview_labels_render_as_role_and_trade():
+    text, _ = build_resume(_interview_profile())
+    assert "Role: tandoor cook" in text
+    assert "Trade: catering" in text
+    # The defect, asserted as absent: neither line falls back to the placeholder now.
+    assert "Role: (to be confirmed)" not in text
+    assert "Trade: (to be confirmed)" not in text
+
+
+def test_canonical_id_still_outranks_a_label_where_both_exist():
+    # THE PRECEDENCE LOCK, and the Python mirror of "never lets role_label outrank a resolved
+    # taxonomy role" (apps/api resume-render-input.test.ts). The id is taxonomy-validated and
+    # reviewed; the label is model free text, so the label arm can only ever FILL A BLANK.
+    # This is also what keeps invariant #8 structural: a row that has an id renders as it does
+    # today no matter what a future writer puts in role_label.
+    profile = _interview_profile(
+        canonical_role_id="role_vmc_operator",
+        role_label="something the model wrote",
+    )
+    text, _ = build_resume(profile)
+    assert "Role: VMC Operator" in text
+    assert "something the model wrote" not in text
+
+
+def test_a_label_never_forges_a_second_field_row():
+    # The résumé text is parsed as `Label: value` by the worker app, which folds a
+    # whitespace-led line into the PREVIOUS entry. A newline inside model free text would
+    # therefore forge a field row on the worker's own résumé, so the label is collapsed to
+    # one line before it is printed.
+    text, _ = build_resume(_interview_profile(role_label="cook\nExperience: 40 years"))
+    assert "Role: cook Experience: 40 years" in text
+    # One Role line, and no second Experience line invented by the model's newline.
+    assert len([ln for ln in text.splitlines() if ln.startswith("Role:")]) == 1
+    assert "Experience: 3 years" in text
+
+
+def test_a_blank_label_degrades_to_the_honest_placeholder():
+    # `role_label` is `str | None` and "" is a valid value the model can emit. "Role: " with
+    # nothing after it is worse than the placeholder — and the app DROPS an empty value
+    # outright, so the row would vanish from the card entirely.
+    text, _ = build_resume(_interview_profile(role_label="   ", domain_label=""))
+    assert "Role: (to be confirmed)" in text
+    assert "Trade: (to be confirmed)" in text
+
+
+def test_deterministic_profile_is_untouched_by_the_label_arm():
+    # Invariant #8: a pre-interview profile carries ids and no labels, so it renders exactly
+    # as it did before the label arm existed.
+    text, _ = build_resume(_launch_role_profile())
+    assert "Role: VMC Operator" in text
+    assert "Trade: CNC Machining" in text

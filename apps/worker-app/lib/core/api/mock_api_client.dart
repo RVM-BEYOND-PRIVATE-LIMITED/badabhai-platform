@@ -1,3 +1,4 @@
+import '../../features/job_search/domain/job_search_item.dart';
 import '../../features/swipe/domain/job_detail.dart';
 import 'api_client.dart';
 
@@ -356,6 +357,53 @@ class MockApiClient extends ApiClient {
     // tradeKey/city today — because the deck's client-side match (applyJobFilters)
     // is what visibly narrows the loaded queue in mock mode.
     return _cannedFeed.take(limit).toList();
+  }
+
+  @override
+  Future<JobSearchPage> searchJobs({
+    required String authToken,
+    String? q,
+    String? city,
+    String? state,
+    int limit = 20,
+    int page = 1,
+  }) async {
+    await _delay();
+    // Real, deterministic in-memory filtering so MOCK mode + any test that runs
+    // through it exercises the true behaviour: q is a case-insensitive PARTIAL
+    // over title + matched skill, city is a case-insensitive PARTIAL, state is a
+    // case-insensitive WHOLE match (mirrors the contract's "city partial / state
+    // exact"). An empty dimension does not narrow.
+    final String qLower = (q ?? '').trim().toLowerCase();
+    final String cityLower = (city ?? '').trim().toLowerCase();
+    final String stateLower = (state ?? '').trim().toLowerCase();
+
+    final List<JobSearchItem> matches = _searchCatalog.where((JobSearchItem job) {
+      final bool qOk = qLower.isEmpty ||
+          job.title.toLowerCase().contains(qLower) ||
+          (job.matchedSkillLabel ?? '').toLowerCase().contains(qLower);
+      final bool cityOk =
+          cityLower.isEmpty || job.city.toLowerCase().contains(cityLower);
+      final bool stateOk =
+          stateLower.isEmpty || job.state.toLowerCase() == stateLower;
+      return qOk && cityOk && stateOk;
+    }).toList();
+
+    final int cappedLimit = limit.clamp(1, 50);
+    final int safePage = page < 1 ? 1 : page;
+    final int start = (safePage - 1) * cappedLimit;
+    final int end =
+        start + cappedLimit > matches.length ? matches.length : start + cappedLimit;
+    final List<JobSearchItem> pageItems =
+        start >= matches.length ? <JobSearchItem>[] : matches.sublist(start, end);
+    final bool hasMore = start + pageItems.length < matches.length;
+
+    return JobSearchPage(
+      items: pageItems,
+      page: safePage,
+      limit: cappedLimit,
+      hasMore: hasMore,
+    );
   }
 
   @override
@@ -823,6 +871,115 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     city: 'Aurangabad',
     area: 'Waluj',
     rank: 4,
+  ),
+];
+
+/// Canned OPEN jobs for the mock `GET /jobs/search`. Spans a few titles across
+/// Rajasthan (Kota / Jaipur) and Maharashtra (Pune / Nashik) so the product
+/// examples ("CNC operator" in "Kota, Rajasthan") return real, deterministic
+/// hits and the title/city/state filters are all visibly exercised in MOCK mode.
+///
+/// PII-FREE BY CONTRACT: obviously-fake `mock-search-*` ids, generic titles, and
+/// NOTHING employer-shaped — coarse place, pay band, year-count window and the
+/// coarse shift enum only, exactly like the real search response.
+final List<JobSearchItem> _searchCatalog = <JobSearchItem>[
+  JobSearchItem(
+    jobId: 'mock-search-0001',
+    title: 'CNC Operator',
+    city: 'Kota',
+    state: 'Rajasthan',
+    area: 'Industrial Area',
+    payMin: 18000,
+    payMax: 28000,
+    shift: 'day',
+    minExperienceYears: 1,
+    maxExperienceYears: 4,
+    matchedSkillLabel: 'CNC Operator',
+    publishedAt: DateTime.utc(2026, 8, 10),
+  ),
+  JobSearchItem(
+    jobId: 'mock-search-0002',
+    title: 'CNC Machinist',
+    city: 'Jaipur',
+    state: 'Rajasthan',
+    area: 'Sitapura',
+    payMin: 20000,
+    payMax: 32000,
+    shift: 'rotational',
+    minExperienceYears: 2,
+    maxExperienceYears: 6,
+    matchedSkillLabel: 'CNC Operator',
+    publishedAt: DateTime.utc(2026, 8, 9),
+  ),
+  JobSearchItem(
+    jobId: 'mock-search-0003',
+    title: 'Welder',
+    city: 'Kota',
+    state: 'Rajasthan',
+    area: null,
+    payMin: 16000,
+    payMax: null,
+    shift: 'night',
+    minExperienceYears: 3,
+    maxExperienceYears: null,
+    matchedSkillLabel: 'Welder',
+    publishedAt: DateTime.utc(2026, 8, 8),
+  ),
+  JobSearchItem(
+    jobId: 'mock-search-0004',
+    title: 'VMC Setter',
+    city: 'Jaipur',
+    state: 'Rajasthan',
+    area: 'Vishwakarma',
+    payMin: 24000,
+    payMax: 36000,
+    shift: 'day',
+    minExperienceYears: 4,
+    maxExperienceYears: 8,
+    matchedSkillLabel: 'VMC Setter',
+    publishedAt: DateTime.utc(2026, 8, 7),
+  ),
+  JobSearchItem(
+    jobId: 'mock-search-0005',
+    title: 'CNC Operator',
+    city: 'Pune',
+    state: 'Maharashtra',
+    area: 'Chakan',
+    payMin: 19000,
+    payMax: 30000,
+    shift: 'day',
+    minExperienceYears: 1,
+    maxExperienceYears: 5,
+    matchedSkillLabel: 'CNC Operator',
+    publishedAt: DateTime.utc(2026, 8, 6),
+  ),
+  JobSearchItem(
+    jobId: 'mock-search-0006',
+    title: 'Welder',
+    city: 'Nashik',
+    state: 'Maharashtra',
+    area: null,
+    payMin: 17000,
+    payMax: 27000,
+    shift: 'rotational',
+    minExperienceYears: 2,
+    maxExperienceYears: null,
+    matchedSkillLabel: 'Welder',
+    publishedAt: DateTime.utc(2026, 8, 5),
+  ),
+  JobSearchItem(
+    jobId: 'mock-search-0007',
+    title: 'Fitter',
+    city: 'Pune',
+    state: 'Maharashtra',
+    area: 'Hinjewadi',
+    payMin: 15000,
+    payMax: 22000,
+    shift: 'day',
+    minExperienceYears: 0,
+    maxExperienceYears: 3,
+    matchedSkillLabel: 'Fitter',
+    publishedAt: DateTime.utc(2026, 8, 4),
   ),
 ];
 

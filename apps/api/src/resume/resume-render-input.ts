@@ -1,4 +1,4 @@
-import { DraftProfileSchema } from "@badabhai/ai-contracts";
+import { DraftProfileSchema, resumeProfileCarriesValues } from "@badabhai/ai-contracts";
 import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
@@ -55,10 +55,26 @@ export function buildResumeRenderInput(
   // have to keep rendering exactly as they do today (invariant #8). Null means "there was no
   // interview", never "the interview was empty".
   //
+  // AND "EMPTY" IS A THIRD STATE THAT PRESENCE ALONE CANNOT SEE — the bug this guard exists
+  // for. `/profiling/extract` answers four of its own degrades with a healthy 200 carrying an
+  // EMPTY object, `is_mock` is one of them, and TD81 records that staging runs mocked. Every
+  // key on `ResumeProfileSchema` is `.default()`ed, so that response parses into a container
+  // that is fully-defaulted and TRUTHY. Taken as "the interview landed", this branch then
+  // discarded a perfectly good answer-map profile and rendered a résumé carrying nothing but
+  // the worker's name — a PDF that generates successfully and is blank.
+  //
+  // NOT A MERGE, AND THE DISTINCTION IS THE WHOLE POINT. The container's rule — no merge, no
+  // precedence, no derivation — governs the VALUES INSIDE it, and it is untouched: when the
+  // container carries anything it still wins outright and is still rendered one-for-one, so it
+  // can still be diffed against the Langfuse trace. This asks the question one level up, and
+  // it is a question about the container rather than about any value in it: is this a record of
+  // an interview at all? An object holding nine empty fields is not, so it selects a SOURCE —
+  // all of one or all of the other — and never blends the two.
+  //
   // BOTH CALLERS GET THIS AUTOMATICALLY — the worker's own render and the employer-facing
   // masked disclosure share this function, differing only by the `displayName` they pass. The
   // branch is inside, so masking cannot be forgotten on the new path.
-  if (draft.resume_profile) {
+  if (resumeProfileCarriesValues(draft.resume_profile)) {
     return fromResumeProfile(draft.resume_profile, displayName, templateId, photoDataUri, audience);
   }
 
@@ -68,7 +84,14 @@ export function buildResumeRenderInput(
     // container has nothing to put in them: no work history exists outside Phase C, and the
     // deterministic résumé never printed a trade line or a salary. Empty/null keeps every
     // pre-existing résumé byte-identical to what it renders today (invariant #8).
-    trade: null,
+    //
+    // `trade` IS THE ONE THAT NOW HAS A SOURCE. It was null because the deterministic résumé
+    // never printed a trade line and nothing on the old container could fill one — but
+    // `domain_label` is on this shape too, and it is exactly "the worker's trade in plain
+    // language". It is null on every deterministic-pack profile, so those résumés are
+    // unchanged; it fires for a profile whose interview ran but whose container came back
+    // empty, which is the case that reaches this branch with labels in hand.
+    trade: draft.domain_label,
     experiences: [],
     preferredLocations: [],
     expectedSalary: null,
@@ -85,6 +108,12 @@ export function buildResumeRenderInput(
     // absolutely — so `trade` is undefined and `resolveId` returns null for EVERY OIE-path
     // profile. `{{headline}}` therefore rendered EMPTY on every resume the LLM-led interview
     // produced: the model named the role, the column held it, and the PDF had no job title.
+    //
+    // LAST RESORT IS THE ORDER THE 2026-08-13 CANONICAL-ID RETIREMENT KEPT, not one it missed.
+    // The labels became the source wherever an id is absent — which is every interview-led
+    // profile — but a reviewed taxonomy value still outranks model free text where both exist
+    // (§3), and that is what keeps invariant #8 a property of this expression rather than an
+    // accident of who currently writes which field.
     //
     // A free-text label, never a taxonomy id, so it can only ever reach the printed headline —
     // matching and ranking still read the canonical ids, which stay null.
