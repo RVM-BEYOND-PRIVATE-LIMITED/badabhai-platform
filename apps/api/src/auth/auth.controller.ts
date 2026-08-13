@@ -96,10 +96,17 @@ export class AuthController {
   ): Promise<OtpRequestResponse> {
     // Per-IP hourly cap BEFORE issuing — a network-level abuse backstop on top of
     // the per-phone cooldown/cap. Fails closed (429) if Redis is down.
+    //
+    // OTP_MAX_SENDS_PER_IP_PER_HOUR, *not* OTP_MAX_SENDS_PER_HOUR. This used to pass the
+    // latter, which is the per-PHONE SMS budget (5) — a different question wearing a
+    // similar name, and passing it here made one shared network worth five sign-ins an
+    // hour in total. With no reverse proxy in the shipped topology `req.ip` is the NAT
+    // egress address, so under carrier CGNAT that bucket is shared by thousands of
+    // workers. See the config comment for why the two must not be the same number.
     await this.ipRateLimit.assertWithinHourlyIpCap(
       "otp_request",
       req.ip ?? "unknown",
-      this.config.OTP_MAX_SENDS_PER_HOUR,
+      this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
     );
     return this.auth.requestOtp(dto.phone, ctx);
   }
@@ -143,10 +150,14 @@ export class AuthController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
+    // Same knob as /auth/otp/request above, and for the same reason: this is a per-IP
+    // question, not a per-phone SMS budget. Its own bucket (`test_login` scope), so it
+    // never competes with real sign-ins — and the GLOBAL daily ceiling below, not this,
+    // is what actually bounds the seam.
     await this.ipRateLimit.assertWithinHourlyIpCap(
       "test_login",
       req.ip ?? "unknown",
-      this.config.OTP_MAX_SENDS_PER_HOUR,
+      this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
     );
     await this.ipRateLimit.assertWithinGlobalDailyCap(
       "test_login",
