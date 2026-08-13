@@ -81,10 +81,16 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
       // and the cubit would bank the stale answer (and emit `profiling_answer_spoken`)
       // against a question it was not an answer to. The variant carries that fact.
       if (e.statusCode == 409) {
+        // #806 — read `stale_reason` off THIS 409 body (the client already has it)
+        // to decide whether the earlier attempt landed, instead of a second
+        // `GET /profiling/session` that a 2G link can lose the same way. Only
+        // `answer_already_landed` means the engine took the first answer and moved
+        // on (response lost); anything else/absent/undecodable → false → no emit.
+        final bool landed = e.body?['stale_reason'] == 'answer_already_landed';
         final Map<String, dynamic> json =
             await _api.profilingStart(authToken: _token);
         _sessionId = json['session_id'] as String? ?? _sessionId;
-        return ReattachedTo(_parseStep(json['step']));
+        return ReattachedTo(_parseStep(json['step']), answerAlreadyLanded: landed);
       }
       throw mapError(e);
     } on Failure {
@@ -161,28 +167,6 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
       rethrow;
     } catch (error) {
       throw mapError(error); // fail-closed
-    }
-  }
-
-  @override
-  Future<Set<String>> answeredQuestionKeys() async {
-    final String? id = _sessionId;
-    if (id == null) return const <String>{};
-    try {
-      final Map<String, dynamic> json =
-          await _api.profilingSession(authToken: _token, sessionId: id);
-      final Object? rows = json['rows'];
-      if (rows is! List) return const <String>{};
-      return rows
-          .whereType<Map<dynamic, dynamic>>()
-          .map((Map<dynamic, dynamic> r) => r['question_key'] as String? ?? '')
-          .where((String k) => k.isNotEmpty)
-          .toSet();
-    } catch (_) {
-      // Fail-soft (#775): a failed confirmation read leaves the spoken signal
-      // uncounted rather than throwing into the re-attach flow. The caller treats
-      // an empty set as "not confirmed", which is the safe (under-count) direction.
-      return const <String>{};
     }
   }
 

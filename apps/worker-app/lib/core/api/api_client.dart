@@ -1126,7 +1126,14 @@ class ApiClient {
       onSessionTokenRefreshed?.call(fresh);
     }
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw ApiException(res.statusCode, _messageFrom(res.body));
+      // Attach the decoded body so a typed error caller can read structured
+      // detail (e.g. the profiling stale-answer 409's `stale_reason`, #806)
+      // without a second round trip. Null when the body is not a JSON object.
+      throw ApiException(
+        res.statusCode,
+        _messageFrom(res.body),
+        body: _tryDecodeMap(res.body),
+      );
     }
     if (res.body.isEmpty) return <String, dynamic>{};
     final dynamic decoded = jsonDecode(res.body);
@@ -1143,5 +1150,18 @@ class ApiClient {
       // fall through to raw body
     }
     return body.isEmpty ? 'request failed' : body;
+  }
+
+  /// Best-effort decode of a response body to a `Map<String,dynamic>`, or null
+  /// when it is empty, not JSON, or not a JSON object. NEVER throws — a garbage
+  /// error body must not become a second failure over the top of the first.
+  Map<String, dynamic>? _tryDecodeMap(String body) {
+    if (body.isEmpty) return null;
+    try {
+      final dynamic decoded = jsonDecode(body);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
   }
 }

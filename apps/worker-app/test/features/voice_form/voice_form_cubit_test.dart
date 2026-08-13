@@ -90,9 +90,6 @@ class FakeGateway implements VoiceFormGateway {
           profileRebuildRequired: false,
         );
   }
-
-  @override
-  Future<Set<String>> answeredQuestionKeys() async => const <String>{};
 }
 
 class FakeTts implements QuestionAudioPlayer {
@@ -953,8 +950,6 @@ class _RetryOnceGateway implements VoiceFormGateway {
 
   @override
   Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
-  @override
-  Future<Set<String>> answeredQuestionKeys() async => const <String>{};
 }
 
 /// A gateway whose [submit] always throws — for proving the retain/release
@@ -990,8 +985,6 @@ class _ThrowingSubmitGateway implements VoiceFormGateway {
 
   @override
   Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
-  @override
-  Future<Set<String>> answeredQuestionKeys() async => const <String>{};
 }
 
 /// Throws on the FIRST start() (a transient failure), then serves one question.
@@ -1025,8 +1018,6 @@ class _FailFirstGateway implements VoiceFormGateway {
 
   @override
   Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
-  @override
-  Future<Set<String>> answeredQuestionKeys() async => const <String>{};
 }
 
 /// Parks inside `submit` until its completer fires — lets a test observe the retain while
@@ -1065,12 +1056,6 @@ class _HoldingGateway implements VoiceFormGateway {
 
   @override
   Future<List<VoiceReviewRow>> reviewRows() async => const <VoiceReviewRow>[];
-
-  /// Present because `VoiceFormGateway` declares it (#775). This fake does not
-  /// exercise the landed-409 confirmation, and an empty set is the "not confirmed"
-  /// answer — the safe, under-count direction.
-  @override
-  Future<Set<String>> answeredQuestionKeys() async => const <String>{};
 }
 
 /// Serves a single-select Q1 whose `lookahead` predicts a next question under
@@ -1131,6 +1116,4 @@ class _LookaheadGateway implements VoiceFormGateway {
     required String questionKey,
   }) =>
       throw UnimplementedError();
-  @override
-  Future<Set<String>> answeredQuestionKeys() async => const <String>{};
 }

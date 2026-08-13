@@ -521,63 +521,133 @@ void main() {
       await expectLater(gw.reviewRows(), throwsA(isA<UnauthorizedFailure>()));
     });
   });
-  test('#775 answeredQuestionKeys() maps rows to the answered-key set', () async {
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      client: MockClient((http.Request req) async {
-        if (req.method == 'POST' && req.url.path == '/profiling/session') {
-          return http.Response(
-              jsonEncode(<String, dynamic>{'session_id': 's1', 'step': _questionStep()}),
-              201);
-        }
-        if (req.method == 'GET' && req.url.path == '/profiling/session/s1') {
-          return http.Response(
-            jsonEncode(<String, dynamic>{
-              'session_id': 's1',
-              'complete': false,
-              'rows': <dynamic>[
-                <String, dynamic>{'question_key': 'q1', 'display_value': 'Welder'},
-                <String, dynamic>{'question_key': 'q2', 'display_value': 'CNC'},
-                <String, dynamic>{'display_value': 'no key'}, // dropped
-                'garbage', // dropped
-              ],
-            }),
-            200,
-          );
-        }
-        return http.Response('{}', 404);
-      }),
-    );
+  // #806 — the landed fact rides ON the 409 body the client already receives
+  // (`stale_reason`), read straight into `ReattachedTo.answerAlreadyLanded`. No
+  // second `GET /profiling/session` (which a lost-response 2G link could drop the
+  // same way). A `HttpVoiceFormGateway` whose submit gets a 409 carrying the
+  // reason must set the flag from it, fail-soft to false on anything else.
+  ApiClient apiWith409({required String answerBody}) => ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          // start() + the re-attach after the 409 both POST /profiling/session.
+          if (req.url.path == '/profiling/session') {
+            return http.Response(
+                jsonEncode(<String, dynamic>{
+                  'session_id': 's1',
+                  'step': _questionStep(key: 'q_now'),
+                }),
+                201);
+          }
+          // /profiling/answer → the stale-answer 409.
+          return http.Response(answerBody, 409);
+        }),
+      );
+
+  Future<ReattachedTo> submitInto409(ApiClient api) async {
     final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
     await gw.start();
-    expect(await gw.answeredQuestionKeys(), <String>{'q1', 'q2'});
-  });
+    final VoiceFormStep step = await gw.submit(
+      const VoiceAnswer.spoken('vn-1'),
+      questionKey: 'q_material',
+    );
+    return step as ReattachedTo;
+  }
 
-  test('#775 answeredQuestionKeys() fails soft to an empty set (never throws)',
-      () async {
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      client: MockClient((http.Request req) async {
-        if (req.method == 'POST' && req.url.path == '/profiling/session') {
-          return http.Response(
-              jsonEncode(<String, dynamic>{'session_id': 's1', 'step': _questionStep()}),
-              201);
-        }
-        return http.Response('{}', 500); // the confirmation GET blows up
+  test('#806 a 409 whose stale_reason is answer_already_landed sets '
+      'ReattachedTo.answerAlreadyLanded = true', () async {
+    final ApiClient api = apiWith409(
+      answerBody: jsonEncode(<String, dynamic>{
+        'statusCode': 409,
+        'message': 'Question q_material is no longer on screen',
+        'error': 'Conflict',
+        'stale_reason': 'answer_already_landed',
       }),
     );
-    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
-    await gw.start();
-    expect(await gw.answeredQuestionKeys(), isEmpty);
+    final ReattachedTo step = await submitInto409(api);
+    expect(step.answerAlreadyLanded, isTrue);
+    // Still the current step, re-read via /profiling/session.
+    expect((step.step as NextQuestion).question.id, 'q_now');
   });
 
-  test('#775 answeredQuestionKeys() is empty before start() (no session)',
-      () async {
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      client: MockClient((_) async => http.Response('{}', 200)),
+  test('#806 a 409 whose stale_reason is "other" fails soft to '
+      'answerAlreadyLanded = false', () async {
+    final ApiClient api = apiWith409(
+      answerBody: jsonEncode(<String, dynamic>{
+        'statusCode': 409,
+        'message': 'Question was reopened',
+        'error': 'Conflict',
+        'stale_reason': 'other',
+      }),
     );
-    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
-    expect(await gw.answeredQuestionKeys(), isEmpty);
+    final ReattachedTo step = await submitInto409(api);
+    expect(step.answerAlreadyLanded, isFalse);
   });
+
+  test('#806 a 409 with NO stale_reason key fails soft to '
+      'answerAlreadyLanded = false (under-count, never over-count)', () async {
+    final ApiClient api = apiWith409(
+      answerBody: jsonEncode(<String, dynamic>{'message': 'stale'}),
+    );
+    final ReattachedTo step = await submitInto409(api);
+    expect(step.answerAlreadyLanded, isFalse);
+  });
+
+  test('#806 a 409 with a NON-JSON body fails soft to false (body undecodable)',
+      () async {
+    final ApiClient api = apiWith409(answerBody: 'gateway timeout, not json');
+    final ReattachedTo step = await submitInto409(api);
+    expect(step.answerAlreadyLanded, isFalse);
+  });
+
+  group('#806 ApiException carries the decoded response body', () {
+    test('a non-2xx JSON object response → ApiException.body is the decoded map',
+        () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((_) async => http.Response(
+              jsonEncode(<String, dynamic>{
+                'statusCode': 409,
+                'message': 'stale',
+                'stale_reason': 'answer_already_landed',
+              }),
+              409,
+            )),
+      );
+      final ApiException e = await _captureApiException(
+        () => api.profilingAnswer(
+          authToken: 'tok',
+          body: const <String, dynamic>{'session_id': 's1'},
+        ),
+      );
+      expect(e.statusCode, 409);
+      expect(e.body, isNotNull);
+      expect(e.body!['stale_reason'], 'answer_already_landed');
+    });
+
+    test('a non-JSON (or non-object) body → ApiException.body is null', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((_) async => http.Response('502 Bad Gateway', 502)),
+      );
+      final ApiException e = await _captureApiException(
+        () => api.profilingAnswer(
+          authToken: 'tok',
+          body: const <String, dynamic>{'session_id': 's1'},
+        ),
+      );
+      expect(e.statusCode, 502);
+      expect(e.body, isNull);
+    });
+  });
+}
+
+/// Runs [action], asserts it threw an [ApiException], and returns it.
+Future<ApiException> _captureApiException(
+    Future<void> Function() action) async {
+  try {
+    await action();
+  } on ApiException catch (e) {
+    return e;
+  }
+  fail('expected an ApiException');
 }

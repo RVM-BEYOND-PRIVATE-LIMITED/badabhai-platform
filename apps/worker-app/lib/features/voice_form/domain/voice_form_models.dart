@@ -234,13 +234,25 @@ class RetryCurrentQuestion extends VoiceFormStep {
 /// bank it or emit `profiling_answer_spoken`. The wrapped [step] is what to
 /// present — a [NextQuestion] (a different question) or, rarely, [VoiceFormDone].
 class ReattachedTo extends VoiceFormStep {
-  const ReattachedTo(this.step);
+  const ReattachedTo(this.step, {this.answerAlreadyLanded = false});
 
   /// The re-read current step to present. Never itself a [ReattachedTo].
   final VoiceFormStep step;
 
+  /// Whether the 409's `stale_reason` was `answer_already_landed` (#806): the
+  /// worker's FIRST submit landed, the engine took the answer and moved on, and
+  /// only the response was lost (the timeout-then-retry case). This is the ONLY
+  /// condition under which the cubit recovers the `profiling_answer_spoken`
+  /// signal for a spoken re-attach.
+  ///
+  /// DEFAULT false — the safe, under-count direction. A 409 whose `stale_reason`
+  /// is `other` (the answer was NOT taken: a correction reopened the question,
+  /// the interview closed, nothing on screen), is absent, is non-string, or whose
+  /// body could not be decoded all land here as false → no emit. NEVER over-count.
+  final bool answerAlreadyLanded;
+
   @override
-  List<Object?> get props => <Object?>[step];
+  List<Object?> get props => <Object?>[step, answerAlreadyLanded];
 }
 
 /// Where the mic is in the answer cycle for the current question. Nested inside
