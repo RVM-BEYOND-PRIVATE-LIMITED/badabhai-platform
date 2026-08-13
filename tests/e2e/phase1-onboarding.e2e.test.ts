@@ -239,11 +239,15 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     const sentTexts: string[] = [];
     const askedIds: (string | null)[] = [];
     let ready = false;
-    // 17, not 12: the engine's blind-run worst case is 16 asks (4 essentials x 2
-    // re-asks + 8 ask-once topics) since `certifications` joined the bank, and the
-    // wrap-up turn is the 17th. A bound below that would time the loop out before
-    // readiness and read as a product failure rather than a too-small budget.
-    for (let i = 0; i < 17 && !ready; i++) {
+    // BL-18: the old "17, not 12" bound was measured against a stale reading of the
+    // engine's own worst case. next-question.ts's CURRENT MAX_ENGINE_ASKS is 24, not
+    // 16 — that constant is the engine's own derived, test-pinned backstop
+    // (next-question.ts's own comment: "the test suite pins that arithmetic against
+    // the constant rather than restating the number"), so restating a smaller number
+    // here is exactly the staleness that constant exists to prevent. 30 turns gives
+    // headroom above 24 asks for the rare clarify/silence turn that consumes a turn
+    // without consuming an ask, without approaching MAX_ENGINE_TURNS' blind-run ceiling.
+    for (let i = 0; i < 30 && !ready; i++) {
       const text = scriptedMessages[i] ?? "haan bhai, theek hai";
       const msg = await call(
         "POST",
@@ -260,9 +264,19 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
       sentTexts.push(text);
       askedIds.push(msg.body.asked_question_id ?? null);
       ready = msg.body.extraction_ready === true;
+      // Diagnostic only (no assertion) — if this loop ever exhausts again, the CI log
+      // shows exactly which question got stuck instead of a bare "expected true, got
+      // false" with nothing to diagnose from.
+      console.log(
+        `[phase1-onboarding e2e] turn ${i + 1}: asked=${msg.body.asked_question_id ?? "(none)"} ` +
+          `kind=${msg.body.question_kind ?? "?"} ready=${ready}`,
+      );
     }
     const turns = sentTexts.length;
-    expect(ready).toBe(true); // interview reached extraction-ready
+    expect(
+      ready,
+      `interview never reached extraction-ready in ${turns} turns; asked ids: ${JSON.stringify(askedIds)}`,
+    ).toBe(true);
 
     // Interview advanced and never repeated Q1.
     expect(askedIds[0]).toBe("role"); // both engines open with the role question
