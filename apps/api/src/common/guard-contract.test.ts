@@ -48,6 +48,26 @@ import { NotificationPrefsController } from "../notifications/notification-prefs
 import { SkillsController } from "../skills/skills.controller";
 import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
 import { ReferralBonusController } from "../referrals/referral-bonus.controller";
+// BL-3 — 17 controllers independently found missing from this contract (11 platform-wide
+// beyond PAY-SEC-06's 6 payer/agency ones, incl. 4 admin controllers). Every guard below was
+// read directly from each controller's current @UseGuards, not assumed from the audit.
+import { AdminDirectoryController } from "../admin/admin-directory.controller";
+import { AdminEntitiesController } from "../admin/admin-entities.controller";
+import { AdminFinanceController } from "../admin/admin-finance.controller";
+import { AdminKillSwitchController } from "../admin/admin-kill-switch.controller";
+import { DevicesController } from "../auth/devices.controller";
+import { PinController } from "../auth/pin.controller";
+import { ProfilingController } from "../profiling/profiling.controller";
+import { ResumeDisclosureController } from "../disclosures/resume-disclosure.controller";
+import { OccupationController } from "../occupation/occupation.controller";
+import { InterviewKitsController } from "../interview-kit/interview-kits.controller";
+import { ReferralResolverController } from "../referrals/referral-resolver.controller";
+import { JobPostingChatController } from "../payer-portal/job-posting-chat/job-posting-chat.controller";
+import { PayerDisclosureController } from "../payer-portal/payer-disclosure.controller";
+import { PayerJobPostingsController } from "../payer-portal/payer-job-postings.controller";
+import { PayerOrgInvitesController } from "../payer-portal/payer-org-invites.controller";
+import { PayerOrgMembersController } from "../payer-portal/payer-org-members.controller";
+import { PayerAccountController } from "../payers/payer-account.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -97,6 +117,7 @@ const TL = "TestLoginGuard";
 const PTL = "PayerTestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
 const RZ = "RazorpayWebhookGuard";
+const POR = "PayerOrgRoleGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [I], recordBatch: [I] } },
@@ -391,7 +412,14 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "AdminAuth",
     ctor: AdminAuthController,
-    routes: { requestLogin: [], verifyLogin: [], verifyMfa: [], refresh: [A], logout: [A], me: [A] },
+    routes: {
+      requestLogin: [],
+      verifyLogin: [],
+      verifyMfa: [],
+      refresh: [A],
+      logout: [A],
+      me: [A],
+    },
   },
   // Admin Ops Portal READ-ONLY event-spine API (ADR-0025 ADMIN-2). EVERY route is behind the
   // admin session (AdminAuthGuard) + vertical RBAC (AdminRolesGuard, one @RequireAdminRole each):
@@ -464,6 +492,128 @@ const CONTRACT: ControllerContract[] = [
     ctor: ReferralBonusController,
     routes: { evaluate: [I], summary: [I] },
   },
+  // BL-3 — the 17 controllers this contract omitted, closing the F1 finding
+  // (docs/audit/15_SECURITY_AUDIT.md). Every one of the 17 was individually verified correct
+  // in code before being added here; none of this is a fix, only a regression net.
+  {
+    name: "AdminDirectory",
+    ctor: AdminDirectoryController,
+    routes: { directory: [A, AR], capabilities: [A, AR] },
+  },
+  {
+    name: "AdminEntities",
+    ctor: AdminEntitiesController,
+    routes: {
+      listWorkers: [A, AR],
+      getWorker: [A, AR],
+      listPayers: [A, AR],
+      getPayer: [A, AR],
+      getPayerCredits: [A, AR],
+      listJobPostings: [A, AR],
+      getJobPosting: [A, AR],
+      listApplications: [A, AR],
+    },
+  },
+  {
+    name: "AdminFinance",
+    ctor: AdminFinanceController,
+    routes: { summary: [A, AR], ledger: [A, AR], orders: [A, AR] },
+  },
+  // super_admin-only via @RequireAdminRole (role scoping isn't this contract's concern — it
+  // asserts guard CLASSES, the same [A, AR] every admin controller carries).
+  {
+    name: "AdminKillSwitch",
+    ctor: AdminKillSwitchController,
+    routes: { status: [A, AR], requestPause: [A, AR] },
+  },
+  {
+    name: "Devices",
+    ctor: DevicesController,
+    routes: { list: [W], updatePushToken: [W], revoke: [W] },
+  },
+  // R25: verify/reset/* are DELIBERATELY guard-less -- the PIN itself is the credential in the
+  // body, so a session guard would be redundant with (and weaker than) the PIN check.
+  {
+    name: "Pin",
+    ctor: PinController,
+    routes: { set: [W], verify: [], resetRequest: [], resetConfirm: [] },
+  },
+  {
+    name: "Profiling",
+    ctor: ProfilingController,
+    routes: {
+      start: [C, W],
+      answer: [C, W],
+      review: [C, W],
+      correct: [C, W],
+      finalize: [C, W],
+    },
+  },
+  {
+    name: "ResumeDisclosure",
+    ctor: ResumeDisclosureController,
+    routes: { requestDisclosure: [I], listDisclosures: [I] },
+  },
+  {
+    name: "Occupation",
+    ctor: OccupationController,
+    routes: { resolve: [SI], questionPack: [SI], recordUnresolved: [SI], domain: [SI] },
+  },
+  // Deliberate, PII-free static content, per-IP rate-limited (TD24 precedent) -- open by design.
+  {
+    name: "InterviewKits",
+    ctor: InterviewKitsController,
+    routes: { list: [], detail: [] },
+  },
+  // Deliberate public no-oracle redirect, per-IP rate-limited -- open by design.
+  {
+    name: "ReferralResolver",
+    ctor: ReferralResolverController,
+    routes: { resolve: [] },
+  },
+  {
+    name: "JobPostingChat",
+    ctor: JobPostingChatController,
+    routes: {
+      startSession: [P],
+      postMessage: [P],
+      listSessions: [P],
+      listMessages: [P],
+      publish: [P],
+    },
+  },
+  {
+    name: "PayerDisclosure",
+    ctor: PayerDisclosureController,
+    routes: { request: [P], listOwn: [P] },
+  },
+  {
+    name: "PayerJobPostings",
+    ctor: PayerJobPostingsController,
+    routes: {
+      create: [P],
+      list: [P],
+      getOne: [P],
+      update: [P],
+      close: [P],
+      pause: [P],
+      resume: [P],
+      buyPlan: [P],
+      buyBoost: [P],
+      topUpQuota: [P],
+    },
+  },
+  { name: "PayerOrgInvites", ctor: PayerOrgInvitesController, routes: { accept: [P] } },
+  {
+    name: "PayerOrgMembers",
+    ctor: PayerOrgMembersController,
+    routes: { list: [P, POR], invite: [P, POR], remove: [P, POR] },
+  },
+  {
+    name: "PayerAccount",
+    ctor: PayerAccountController,
+    routes: { me: [P], updateMe: [P] },
+  },
 ];
 
 describe("API authz contract — guards on every controller route", () => {
@@ -506,8 +656,7 @@ describe("API authz contract — guards on every controller route", () => {
     // WorkersController.setMyName applies the guards at the METHOD level (the
     // controller also has open ops routes), so assert the order on the handler.
     it("WorkersController.setMyName runs [WorkerAuthGuard, ConsentGuard] in order", () => {
-      const handler = (WorkersController.prototype as unknown as Record<string, object>)
-        .setMyName;
+      const handler = (WorkersController.prototype as unknown as Record<string, object>).setMyName;
       expect(guardNames(handler)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
     });
 
@@ -529,8 +678,7 @@ describe("API authz contract — guards on every controller route", () => {
     // NEGATIVE: this controller must never acquire InternalServiceGuard, because the
     // union with a worker guard is what would break the prod-canary contract.
     it("WorkerAiJobsController.get runs [WorkerAuthGuard, ConsentGuard] in order", () => {
-      const handler = (WorkerAiJobsController.prototype as unknown as Record<string, object>)
-        .get;
+      const handler = (WorkerAiJobsController.prototype as unknown as Record<string, object>).get;
       expect(guardNames(handler)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
     });
 
