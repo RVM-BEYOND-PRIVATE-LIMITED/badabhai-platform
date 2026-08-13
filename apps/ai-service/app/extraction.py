@@ -12,6 +12,7 @@ import re
 
 from .contracts import DraftProfile
 from .profiling.signals import label_for_id
+from .pseudonymize import pseudonymize
 
 _NORM_RE = re.compile(r"[^a-z0-9]+")
 
@@ -258,7 +259,14 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     # useful on their own document and is a negotiating position handed away if a payer reads
     # it before any conversation (ADR-0032's reasoning for the photo).
     if profile.resume_profile is not None and profile.resume_profile.expected_salary is not None:
-        lines.append(f"Expected salary: {profile.resume_profile.expected_salary:g} per month")
+        # `:g` switches to scientific notation once the value reaches ~1e6
+        # ("1200000" -> "1.2e+06") — a printed artifact the worker personally carries, and
+        # a plausible LLM extraction failure mode (e.g. an annual CTC figure mistaken for a
+        # monthly one). `:.0f` is fixed-point ALWAYS, at any magnitude, matching the plain
+        # no-thousands-separator convention this file already uses (`Experience: {…:g}
+        # years`, `Machines: …`) and the v3 PDF templates' `String(expectedSalary)`
+        # (apps/api resume-renderer.service.ts) — a bare rupee integer, never "e+NN".
+        lines.append(f"Expected salary: {profile.resume_profile.expected_salary:.0f} per month")
     return "\n".join(lines), profile.model_dump()
 
 
@@ -295,10 +303,17 @@ def _availability_line(profile: DraftProfile) -> str | None:
     shift = None
     if shift_raw and shift_raw.strip():
         cleaned = " ".join(shift_raw.split())
-        # The wire type is a bare `str | None`, so an unrecognised value is passed through
-        # title-cased rather than dropped — it is worker-derived occupational text the
-        # pseudonymizer already certified.
-        shift = _SHIFTS.get(cleaned.lower(), cleaned[:1].upper() + cleaned[1:])
+        # The wire type is a bare `str | None`. `/profiling/extract` (routers/profiling.py)
+        # re-certifies `experiences[]` and `skills` against the pseudonymizer before they can
+        # reach `resume_profile`, but NOTHING re-certifies `shift` or any other scalar field —
+        # it passes from the model's raw JSON straight onto the container untouched. This is
+        # the one place that raw fallback text (an unrecognised value, printed title-cased
+        # rather than mapped to a known shift) would otherwise reach the worker's résumé
+        # verbatim, so it is certified HERE, at the point of print, the same way a blank role
+        # is dropped rather than printed as an empty bullet: a value the pseudonymizer would
+        # block on a normal LLM turn is silently omitted, never printed raw.
+        if not pseudonymize(cleaned).blocked:
+            shift = _SHIFTS.get(cleaned.lower(), cleaned[:1].upper() + cleaned[1:])
 
     if phrase and shift:
         return f"{phrase} · {shift}"
