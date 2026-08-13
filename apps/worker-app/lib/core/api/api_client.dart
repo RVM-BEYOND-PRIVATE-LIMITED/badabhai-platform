@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 
+import '../../features/job_search/domain/job_search_item.dart';
 import '../../features/swipe/domain/job_detail.dart';
 import '../config/app_config.dart' show resolveApiBaseUrl;
 import 'api_models.dart';
@@ -603,6 +604,45 @@ class ApiClient {
         .whereType<Map<String, dynamic>>()
         .map(FeedItem.fromJson)
         .toList();
+  }
+
+  /// Searches OPEN jobs by title/skill + location — the Indeed-style
+  /// `GET /jobs/search` (worker types "CNC operator" + "Kota, Rajasthan").
+  /// Worker-scoped: requires [authToken]; the API guards this with
+  /// WorkerAuthGuard + ConsentGuard (a 401 means re-login, a 403 means consent),
+  /// and the worker is derived from the bearer, never a param.
+  ///
+  /// Ranking is deterministic BACKEND-SIDE — the client never ranks. The
+  /// response is PII-free by contract: coarse title/place, pay band, year-count
+  /// experience window and coarse shift only, NEVER an employer name (same rule
+  /// as `/feed`).
+  ///
+  /// Each of [q] / [city] / [state] is appended ONLY when non-empty, so the call
+  /// mirrors how [getFeed] builds its Uri: an empty dimension is simply not sent.
+  /// [limit] (server caps at 50) and [page] (1-based) are always sent. Returns
+  /// one [JobSearchPage] — the items plus the `page`/`limit`/`has_more` envelope
+  /// the caller pages on.
+  Future<JobSearchPage> searchJobs({
+    required String authToken,
+    String? q,
+    String? city,
+    String? state,
+    int limit = 20,
+    int page = 1,
+  }) async {
+    final Map<String, String> queryParams = <String, String>{
+      'limit': limit.toString(),
+      'page': page.toString(),
+    };
+    if (q != null && q.isNotEmpty) queryParams['q'] = q;
+    if (city != null && city.isNotEmpty) queryParams['city'] = city;
+    if (state != null && state.isNotEmpty) queryParams['state'] = state;
+
+    final Uri uri = Uri(path: '/jobs/search', queryParameters: queryParams);
+
+    final Map<String, dynamic> json =
+        await _get(uri.toString(), authToken: authToken);
+    return JobSearchPage.fromJson(json);
   }
 
   /// Fetches the FULL worker-visible posting for one job (GET /jobs/:jobId —

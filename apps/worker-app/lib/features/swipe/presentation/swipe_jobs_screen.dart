@@ -285,8 +285,56 @@ class _FeedViewState extends State<_FeedView> {
             ],
           ),
           const SizedBox(height: AppSpacing.s2),
+          _searchBar(context),
+          const SizedBox(height: AppSpacing.s2),
           _chipRow(context),
         ],
+      ),
+    );
+  }
+
+  /// A tappable search pill on the blue band — opens the Indeed-style job search
+  /// (title/skill + city). ADDITIVE to the existing filter affordance: the
+  /// filter icon narrows the ALREADY-loaded feed, whereas this searches OPEN
+  /// jobs by title + location server-side. A white paper pill so it reads as a
+  /// real search box; a ≥48px hit target for a gloved thumb.
+  Widget _searchBar(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Job search kholein',
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          key: const Key('feedSearchBar'),
+          onTap: () => context.push(Routes.jobSearch),
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          child: Container(
+            height: AppSpacing.tap,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s3),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceCard,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.search,
+                    size: 20, color: AppColors.textMuted),
+                const SizedBox(width: AppSpacing.s2),
+                Expanded(
+                  child: Text(
+                    'Job title ya city se dhoondein',
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.body(
+                      size: AppTypography.sizeSm,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
