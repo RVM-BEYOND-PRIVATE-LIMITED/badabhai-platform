@@ -35,7 +35,7 @@ MAIN STATUS                   NOT TOUCHED.
 (P0) — `staging-demand-verify.yml` shares the production `DATABASE_URL` secret and has already
 run once; the guard that's supposed to prevent a re-run against live data doesn't actually check
 for a disposable database. See [12_CICD_AUDIT.md](12_CICD_AUDIT.md) F4 and
-[24_RISK_REGISTER.md](24_RISK_REGISTER.md) R41.
+[24_RISK_REGISTER.md](24_RISK_REGISTER.md) R42.
 
 ## Application status
 
@@ -52,29 +52,29 @@ Test status:             TypeScript: pnpm typecheck 28/28 PASS. apps/api: 46/62 
                          ai-service: 13/15 routes (87%) tested — 2 production routes have a
                          coverage gap (BL-2). Flutter: NOT VERIFIED locally (Dart version
                          mismatch); CI-gated only. **The Phase-1 worker journey — this
-                         platform's core flow — does not execute in CI at all** (BL-18/R43).
+                         platform's core flow — does not execute in CI at all** (BL-18/R44).
 Deployment status:       apps/api/apps/ai-service reproducible; migrations require manual
                          human application (deliberate CD-2 hold). Rollback runbook cited by
-                         a live deploy job does not exist in the repo (BL-20/R45).
+                         a live deploy job does not exist in the repo (BL-20/R46).
 Database status:         65/65 tables RLS-ENABLE'd; 0/65 have CREATE POLICY (known, accepted
                          architecture — R1 — Data-API lockout, not per-tenant filtering).
                          4 legacy tables confirmed dead in application code (self-documented,
                          deliberately retained, not a cleanup target without an ADR).
 CI/CD status:            10 workflows, all classified KEEP — but one (supabase-checks.yml) is
-                         silently disabled at the platform level for a month (BL-17/R42), and
-                         one (staging-demand-verify.yml) is the P0 finding above (BL-16/R41).
+                         silently disabled at the platform level for a month (BL-17/R43), and
+                         one (staging-demand-verify.yml) is the P0 finding above (BL-16/R42).
 Security status:         0 Critical, 0 High findings across both batches. 4 new Medium/Low
-                         process-coverage gaps from Batch 1 (R37-R40); Batch 2 added the P0
-                         (R41) plus 4 more Medium items (R42-R45, mostly CI/observability
+                         process-coverage gaps from Batch 1 (R38-R41); Batch 2 added the P0
+                         (R42) plus 4 more Medium items (R43-R46, mostly CI/observability
                          process gaps, not new attack-surface findings).
 Observability status:    The single HTTP client between apps/api and apps/ai-service forwards
                          no correlation id and produces no event on transport failure — the
-                         root cause of most "why did this request fail" gaps (BL-19/R44). No
+                         root cause of most "why did this request fail" gaps (BL-19/R45). No
                          alerting mechanism exists anywhere in the pipeline.
 Documentation status:    Weak historically (444 files including all 38 ADRs deleted
                          2026-08-05), improving — this audit adds 24 net-new platform-wide
                          documents. 9 operational runbooks are still cited by live code/CI but
-                         don't exist (BL-20/R45).
+                         don't exist (BL-20/R46).
 ```
 
 ## Codebase

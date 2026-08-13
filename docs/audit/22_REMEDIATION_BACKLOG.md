@@ -11,7 +11,7 @@ tier.
 
 ## P0 — production / security / data integrity risk
 
-### BL-16 — `staging-demand-verify.yml` can run migrations and a synthetic fixture against the production database secret (R41)
+### BL-16 — `staging-demand-verify.yml` can run migrations and a synthetic fixture against the production database secret (R42)
 - **Category**: CI/CD — production data safety
 - **Problem**: this `workflow_dispatch`-only workflow's guard checks only that four secrets are
   non-empty and aren't literally the compose-internal placeholder host — it never checks that
@@ -22,7 +22,7 @@ tier.
   never the compose-internal one"). The workflow already ran to completion successfully once
   (2026-06-24), applying migrations and writing a synthetic fixture, against credentials still
   live today.
-- **Evidence**: [12_CICD_AUDIT.md](12_CICD_AUDIT.md) F4, [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R41
+- **Evidence**: [12_CICD_AUDIT.md](12_CICD_AUDIT.md) F4, [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R42
 - **Current behavior**: any repository collaborator with `workflow_dispatch` rights can re-run
   this workflow today, and the guard will not stop them
 - **Proposed change**: none authored by this audit — this is a secrets/environment
@@ -84,13 +84,13 @@ tier.
 - **Verification**: `pytest apps/ai-service/tests/test_profiling_turn.py test_profiling_extract.py`
 - **Priority**: P1 — **Dependency**: none — **Complexity**: small
 
-### BL-3 — `guard-contract.test.ts` coverage gap (R37)
+### BL-3 — `guard-contract.test.ts` coverage gap (R38)
 - **Category**: Security regression-net gap
 - **Problem**: 17 of 62 apps/api controllers aren't imported into the single-source-of-truth
   guard test, including 4 admin controllers. Every guard was individually verified correct in
   code today — this is about catching a *future* regression, not a current vulnerability.
 - **Evidence**: [15_SECURITY_AUDIT.md](15_SECURITY_AUDIT.md) §2 F1,
-  [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R37
+  [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R38
 - **Proposed change**: add the 17 controllers' guard expectations to `guard-contract.test.ts`,
   matching the existing pattern
 - **Files affected**: `apps/api/src/common/guard-contract.test.ts`
@@ -113,13 +113,13 @@ tier.
 - **Priority**: P1 (documentation actively misleads about a privacy-adjacent feature's
   readiness) — **Dependency**: none — **Complexity**: trivial
 
-### BL-17 — Re-enable `supabase-checks.yml` at the GitHub platform level (R42)
+### BL-17 — Re-enable `supabase-checks.yml` at the GitHub platform level (R43)
 - **Category**: CI/CD — silently disabled gate
 - **Problem**: this workflow's YAML looks live but is `disabled_manually` at the platform level,
   confirmed via `gh api` — not visible from reading the file. It hasn't run in a month; 31
   migration-touching commits have landed unchecked by either of its two jobs (drift-vs-schema,
   journal-sequence consistency) in that window.
-- **Evidence**: [12_CICD_AUDIT.md](12_CICD_AUDIT.md) F2, [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R42
+- **Evidence**: [12_CICD_AUDIT.md](12_CICD_AUDIT.md) F2, [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R43
 - **Proposed change**: re-enable the workflow (Settings → Actions → Workflows → Enable) — no
   code change
 - **Files/APIs/DB affected**: none — **CI/CD affected**: this workflow only
@@ -129,12 +129,12 @@ tier.
   PR
 - **Priority**: P1 — **Dependency**: repo-admin access — **Complexity**: trivial
 
-### BL-18 — Rewire the Phase-1 worker-journey e2e suite to the test-login seam (R43)
+### BL-18 — Rewire the Phase-1 worker-journey e2e suite to the test-login seam (R44)
 - **Category**: Test coverage gap — core product flow
 - **Problem**: the login→consent→chat→extract→confirm→resume journey has no live execution in
   CI. 5 of 12 `tests/e2e/*.e2e.test.ts` files never run under any committed configuration; the
   one file meant to prove the full journey has its only meaningful test `it.skip`ped.
-- **Evidence**: [14_TEST_AUDIT.md](14_TEST_AUDIT.md) §3, [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R43
+- **Evidence**: [14_TEST_AUDIT.md](14_TEST_AUDIT.md) §3, [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R44
 - **Proposed change**: swap each suite's OTP-login helper for a `POST /auth/test-login` call,
   per the pattern `referral-round-trip.e2e.test.ts` already uses successfully — this is the fix
   `tests/e2e/README.md`'s own TODO already names, not a new design
@@ -148,14 +148,14 @@ tier.
 - **Priority**: P1 — **Dependency**: QA sign-off; TD129 resolution for `contact-unlock`
   specifically — **Complexity**: medium (5 files, one of which needs a diagnosis first)
 
-### BL-19 — Thread request/correlation ids through the apps/api → apps/ai-service seam (R44)
+### BL-19 — Thread request/correlation ids through the apps/api → apps/ai-service seam (R45)
 - **Category**: Observability gap
 - **Problem**: `AiService`'s single HTTP client to ai-service forwards no `x-request-id`/
   `x-correlation-id`, and its failure path (timeout, 401, non-200, network error) produces no
   event — only an untagged log line. This is the root cause of most "why did this ai-service
   call fail" gaps.
 - **Evidence**: [16_OBSERVABILITY_AUDIT.md](16_OBSERVABILITY_AUDIT.md) §4, §10,
-  [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R44
+  [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R45
 - **Proposed change**: add the two headers to `AiService`'s `post()` helper (mirrors the
   existing `x-ai-internal-token` pattern) and add ai-service-side middleware to read and log
   them
@@ -166,7 +166,7 @@ tier.
 - **Priority**: P1 — **Dependency**: AI Systems Engineer (owns the ai-service side) —
   **Complexity**: small
 
-### BL-20 — Recreate the missing operational runbooks, starting with `docs/rollback-guide.md` (R45)
+### BL-20 — Recreate the missing operational runbooks, starting with `docs/rollback-guide.md` (R46)
 - **Category**: Documentation — operational readiness
 - **Problem**: 9 runbooks are cited by path (some with section numbers) from live code and CI —
   `docs/rollback-guide.md` alone is cited 4 times in `ci.yml`'s currently-executing
@@ -174,7 +174,7 @@ tier.
   purge (`eb151468`) and never recreated.
 - **Evidence**: [11_COMMAND_REFERENCE.md](11_COMMAND_REFERENCE.md),
   [12_CICD_AUDIT.md](12_CICD_AUDIT.md), [16_OBSERVABILITY_AUDIT.md](16_OBSERVABILITY_AUDIT.md) §9,
-  [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R45
+  [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R46
 - **Proposed change**: recreate at minimum `docs/rollback-guide.md` (the rollback mechanic is
   reconstructable from `docker-compose.staging.yml`'s inline comments); prioritize the others by
   how recently/actively they're cited
@@ -239,8 +239,8 @@ tier.
   status; PR #214 design-iteration confirmation; Architect sign-off on the contract removal)
 - **Priority**: P2 — **Dependency**: as named per item — **Complexity**: small once unblocked
 
-### BL-14 — Resolve the `docs/legal-later` dead reference (R38)
-- **Evidence**: [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R38
+### BL-14 — Resolve the `docs/legal-later` dead reference (R39)
+- **Evidence**: [24_RISK_REGISTER.md](24_RISK_REGISTER.md) R39
 - **Proposed change**: restore the file or repoint R4/the citing agent doc
 - **Priority**: P2 — **Dependency**: Product/Security — **Complexity**: trivial
 
