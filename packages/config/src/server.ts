@@ -501,7 +501,9 @@ export const serverEnvSchema = z.object({
   // a true default would coerce wrong, so this is its own coerced boolean defaulting true.
   ADMIN_MFA_REQUIRED: z
     .union([z.boolean(), z.string()])
-    .transform((v) => (typeof v === "boolean" ? v : !["false", "0", "no", "off", ""].includes(v.toLowerCase())))
+    .transform((v) =>
+      typeof v === "boolean" ? v : !["false", "0", "no", "off", ""].includes(v.toLowerCase()),
+    )
     .default(true),
   // TOTP issuer label shown in the authenticator app (the `issuer` in the otpauth URI).
   // Non-secret, but REQUIRED when ADMIN_MFA_REQUIRED is true (a half-set MFA config —
@@ -540,9 +542,17 @@ export const serverEnvSchema = z.object({
   // ZeptoMail (HTTPS send API). The API_URL is a non-secret endpoint; the TOKEN +
   // MAIL_AGENT are secrets supplied only in staging-first. SANDBOX_MODE uses
   // booleanFromString (NOT z.coerce.boolean) so a falsey string stays OFF.
-  ZEPTOMAIL_API_URL: z.string().url().optional(),
-  ZEPTOMAIL_API_TOKEN: z.string().min(1).optional(),
-  ZEPTOMAIL_MAIL_AGENT: z.string().min(1).optional(),
+  //
+  // #819 — all three are `optionalSecret()`, not a bare `.optional()`, because
+  // docker-compose.staging.yml declares each as a `${VAR:-}` pass-through: unset
+  // arrives as `""`, not `undefined`, and a bare `z.string().url().optional()` /
+  // `z.string().min(1).optional()` REJECTS `""` — the whole config parse throws
+  // before assertPayerAuthConfig (or any other boot guard) ever runs, so a box
+  // with these merely unconfigured refuses to boot entirely rather than degrading
+  // to "email sending unavailable". Same reasoning as SUPABASE_URL below.
+  ZEPTOMAIL_API_URL: optionalSecret(z.string().url()),
+  ZEPTOMAIL_API_TOKEN: optionalSecret(z.string().min(1)),
+  ZEPTOMAIL_MAIL_AGENT: optionalSecret(z.string().min(1)),
   ZEPTOMAIL_SANDBOX_MODE: booleanFromString,
   // Generic SMTP relay (alternative to ZeptoMail). HOST/USER/PASS are secrets; PORT
   // reuses the shared portSchema. FROM is the envelope sender for the SMTP transport.
@@ -555,7 +565,10 @@ export const serverEnvSchema = z.object({
   // a required cred for every REAL provider (the guard enforces it); NAME + REPLY_TO are
   // presentation-only.
   EMAIL_FROM_NAME: z.string().min(1).optional(),
-  EMAIL_FROM_ADDRESS: z.string().email().optional(),
+  // #819 — same `optionalSecret()` reasoning as the ZEPTOMAIL_* block above: this is
+  // ALSO a `${EMAIL_FROM_ADDRESS:-}` compose pass-through, so unset is `""`, and a
+  // bare `.email().optional()` would reject it and crash boot instead of degrading.
+  EMAIL_FROM_ADDRESS: optionalSecret(z.string().email()),
   EMAIL_REPLY_TO: z.string().email().optional(),
 
   // Payer org teammate INVITES — real accept-link email (ADR-0027 / B5.4). The invite
@@ -1014,10 +1027,14 @@ export function piiKeyringConfigProblems(config: ServerConfig): string[] {
 
   const problems: string[] = [];
   if (rawKeys === "") {
-    problems.push("PII_ENCRYPTION_KEYS must not be an empty string (unset it to disable the keyring)");
+    problems.push(
+      "PII_ENCRYPTION_KEYS must not be an empty string (unset it to disable the keyring)",
+    );
   }
   if (rawKid === "") {
-    problems.push("PII_ENCRYPTION_ACTIVE_KID must not be an empty string (unset it to disable the keyring)");
+    problems.push(
+      "PII_ENCRYPTION_ACTIVE_KID must not be an empty string (unset it to disable the keyring)",
+    );
   }
   if (rawKeys === undefined) {
     problems.push("PII_ENCRYPTION_ACTIVE_KID is set but PII_ENCRYPTION_KEYS is not set");
