@@ -57,6 +57,16 @@ class ResumeCubit extends Cubit<ResumeState> {
     try {
       final String text = await _repo.generateResume(force: force);
       if (isClosed) return; // screen popped before generation resolved
+      // #820 — a generate that "succeeds" with no text is NOT a resume (an empty
+      // body, or a render that produced nothing). Emitting `ready` here painted
+      // the celebratory "Resume taiyaar ✓" banner over a blank card and stuck
+      // there (refresh/tab-focus keep re-reading the same empty text). Fail closed
+      // to the standard retry view instead — and do not log the B7 milestone or
+      // fetch the night-shift pref for a resume that does not exist.
+      if (_isBlank(text)) {
+        emit(const ResumeState(status: ResumeStatus.failed));
+        return;
+      }
       // Emit `ready` with the text IMMEDIATELY — do NOT block the first paint on
       // the night-shift pref. The resume text is the product; the night-shift flag
       // is garnish (like the photo). Gating `ready` on this extra fetch delayed the
@@ -112,6 +122,16 @@ class ResumeCubit extends Cubit<ResumeState> {
     try {
       final String text = await _repo.generateResume(); // force: false → reuse
       if (isClosed) return;
+      // #820 — an empty reused resume must neither fake a `ready` nor overwrite a
+      // readable one. Mirror the failure guard below: only surface `failed` when
+      // there was nothing good on screen to begin with (a stale resume beats a
+      // blank one).
+      if (_isBlank(text)) {
+        if (state.status != ResumeStatus.ready) {
+          emit(const ResumeState(status: ResumeStatus.failed));
+        }
+        return;
+      }
       // Same as generate(): surface the (reused) text immediately, then refresh the
       // night-shift pref in the background so the first paint isn't gated on it.
       emit(ResumeState(
@@ -146,6 +166,12 @@ class ResumeCubit extends Cubit<ResumeState> {
   /// Display an already-generated resume (generated upstream by the Building
   /// screen) without re-running generation.
   Future<void> showGenerated(String text) async {
+    // #820 — the Building screen can hand off an empty body; never present it as a
+    // ready resume. Fail closed to the retry view.
+    if (_isBlank(text)) {
+      emit(const ResumeState(status: ResumeStatus.failed));
+      return;
+    }
     // Show the text immediately; load the night-shift pref in the background.
     emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
     final bool nightShiftReady = await _loadNightShiftReady();
@@ -160,6 +186,10 @@ class ResumeCubit extends Cubit<ResumeState> {
   /// Reload only the night-shift pref from the server — lightweight, no
   /// resume-text refetch. Used after the edit screen saves a prefs-only change.
   Future<void> refreshNightShift() async {
+    // #820 — this re-emits `ready` reusing the current text; guard so it can never
+    // manufacture a `ready` out of an empty resume (it is only meaningful over one
+    // already on screen).
+    if (_isBlank(state.resumeText)) return;
     final bool nightShiftReady = await _loadNightShiftReady();
     if (isClosed) return;
     emit(ResumeState(
@@ -168,6 +198,10 @@ class ResumeCubit extends Cubit<ResumeState> {
       nightShiftReady: nightShiftReady,
     ));
   }
+
+  /// A resume body that is empty or only whitespace is not a resume — the screen
+  /// must never paint the "Resume taiyaar ✓" success over it (#820).
+  static bool _isBlank(String text) => text.trim().isEmpty;
 
   Future<bool> _loadNightShiftReady() async {
     try {

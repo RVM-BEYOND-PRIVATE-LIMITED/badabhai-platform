@@ -60,6 +60,76 @@ void main() {
     ],
   );
 
+  // #820 — a generate that returns 200 with no resume text must NOT paint the
+  // "Resume taiyaar ✓" banner over a blank card and stick there. An empty body is
+  // a generation failure; fail closed to the retry view.
+  blocTest<ResumeCubit, ResumeState>(
+    'generate with an EMPTY resume -> failed, never a blank ready (#820)',
+    build: () {
+      when(() => repo.generateResume()).thenAnswer((_) async => '');
+      return ResumeCubit(repo, editRepo);
+    },
+    act: (ResumeCubit c) => c.generate(),
+    expect: () => const <ResumeState>[
+      ResumeState(status: ResumeStatus.loading),
+      ResumeState(status: ResumeStatus.failed),
+    ],
+    verify: (_) {
+      // The night-shift pref is never fetched for a resume that does not exist.
+      verifyNever(() => editRepo.load());
+    },
+  );
+
+  blocTest<ResumeCubit, ResumeState>(
+    'generate with a WHITESPACE-only resume -> failed (#820)',
+    build: () {
+      when(() => repo.generateResume()).thenAnswer((_) async => '   \n\t  ');
+      return ResumeCubit(repo, editRepo);
+    },
+    act: (ResumeCubit c) => c.generate(),
+    expect: () => const <ResumeState>[
+      ResumeState(status: ResumeStatus.loading),
+      ResumeState(status: ResumeStatus.failed),
+    ],
+  );
+
+  test('showGenerated("") -> failed, not a fake ready (#820)', () async {
+    final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+    addTearDown(cubit.close);
+
+    await cubit.showGenerated('');
+
+    expect(cubit.state.status, ResumeStatus.failed);
+    expect(cubit.state.resumeText, isEmpty);
+  });
+
+  test('a refresh that returns EMPTY keeps the resume already on screen (#820)',
+      () async {
+    when(() => repo.generateResume(force: any(named: 'force')))
+        .thenAnswer((_) async => '');
+    final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+    addTearDown(cubit.close);
+
+    await cubit.showGenerated('good resume');
+    await cubit.refresh();
+
+    // A blank reused resume must not overwrite a readable one (stale beats blank).
+    expect(cubit.state.status, ResumeStatus.ready);
+    expect(cubit.state.resumeText, 'good resume');
+  });
+
+  test('a refresh that returns EMPTY with nothing good on screen -> failed (#820)',
+      () async {
+    when(() => repo.generateResume(force: any(named: 'force')))
+        .thenAnswer((_) async => '');
+    final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+    addTearDown(cubit.close);
+
+    await cubit.refresh();
+
+    expect(cubit.state.status, ResumeStatus.failed);
+  });
+
   test('resolveDownloadUrl returns the signed url on success', () async {
     when(() => repo.resumeDownloadUrl())
         .thenAnswer((_) async => 'https://signed/u?token=x');
