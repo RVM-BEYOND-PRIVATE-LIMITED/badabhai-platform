@@ -512,13 +512,18 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
       // is the accessibility ranking input (#639/#707), and under-counting it only
       // on the timeout-then-retry path skews it against the voice-first, low-literacy
       // workers on the worst connections. Recover it — but EXACTLY, never by
-      // over-counting: emit only for a SPOKEN answer whose question SERVER TRUTH
-      // confirms is now answered (the earlier attempt landed). A 409 from any other
-      // cause (e.g. a reopen mid-offer) leaves that question un-answered server-side,
-      // so the gate fails and nothing is counted. Confirmed BEFORE `_route`, so the
-      // signal is buffered ahead of any done-flush the route may trigger.
-      if (step is ReattachedTo && answer.isSpoken) {
-        await _emitSpokenIfLanded(current.question.id, current.index);
+      // over-counting: emit only for a SPOKEN answer whose 409 the SERVER marked
+      // `stale_reason: answer_already_landed` (the first attempt landed and the
+      // engine moved on; only the response was lost).
+      //
+      // #806 — the landed fact is now read off the 409 body the client ALREADY
+      // received (`ReattachedTo.answerAlreadyLanded`), NOT a second
+      // `GET /profiling/session` the same lost-response 2G link can drop again.
+      // Any other `stale_reason` (`other` — a reopen, a close, nothing on screen),
+      // an absent/undecodable body, or a chip answer → `false` → nothing counted.
+      // Read BEFORE `_route`, so the signal is buffered ahead of any done-flush.
+      if (step is ReattachedTo && answer.isSpoken && step.answerAlreadyLanded) {
+        _actions.recordAnswerSpoken(current.index); // #806 — confirmed, exact
       }
       await _route(step, gen);
     } on Failure catch (failure) {
@@ -589,30 +594,6 @@ class VoiceFormCubit extends Cubit<VoiceFormState> {
     final String? sessionId = _gateway.sessionId;
     if (token == null || sessionId == null) throw const UnauthorizedFailure();
     return _registrar.register(clip, authToken: token, sessionId: sessionId);
-  }
-
-  /// Recover the `profiling_answer_spoken` signal for a spoken answer that a 409
-  /// re-attach rejected as stale BUT that server truth confirms actually landed
-  /// (#775). Reads the session's answered-question keys and emits the signal for
-  /// [questionId] at [index] ONLY when the server records that question answered —
-  /// so a 409 from any other cause (where the question is not yet answered) can
-  /// never over-count. The client already knows its own answer was spoken and
-  /// already holds the 1-based [index], so no server spoken-flag or re-key is
-  /// needed; the read is a pure landed/not-landed confirmation.
-  ///
-  /// Fail-soft: an empty [questionId] (the disambiguation turn belongs to no pack)
-  /// or a failed read leaves the count as-is. Under-counting on a failed
-  /// confirmation is the safe direction; an unconfirmed re-attach is NEVER counted.
-  Future<void> _emitSpokenIfLanded(String questionId, int index) async {
-    if (questionId.isEmpty) return;
-    try {
-      final Set<String> answered = await _gateway.answeredQuestionKeys();
-      if (!_torndown && answered.contains(questionId)) {
-        _actions.recordAnswerSpoken(index); // #775 — confirmed, exact
-      }
-    } catch (_) {
-      // A failed confirmation read leaves the signal uncounted — never guessed.
-    }
   }
 
   Future<void> _route(VoiceFormStep step, int gen) async {

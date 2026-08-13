@@ -13,10 +13,20 @@ import 'package:equatable/equatable.dart';
 
 /// Thrown when the API returns a non-2xx response.
 class ApiException implements Exception {
-  ApiException(this.statusCode, this.message);
+  ApiException(this.statusCode, this.message, {this.body});
 
   final int statusCode;
   final String message;
+
+  /// The DECODED JSON body of the error response, or null when the body was
+  /// empty / not a JSON object. ADDITIVE and optional — every existing
+  /// `ApiException(status, message)` call keeps compiling and reads `null` here.
+  ///
+  /// Carries structured error detail the [message] alone would flatten — e.g.
+  /// the profiling stale-answer 409's `stale_reason` (#806), read to decide
+  /// whether a re-attach's spoken signal actually landed, without a second GET.
+  /// Never log it: an error body may echo request fields.
+  final Map<String, dynamic>? body;
 
   @override
   String toString() => 'ApiException($statusCode): $message';
