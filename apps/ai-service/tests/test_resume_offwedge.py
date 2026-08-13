@@ -620,3 +620,122 @@ def test_a_deterministic_profile_gains_nothing_and_loses_nothing():
     assert "Availability:" not in text
     assert "Expected salary:" not in text
     assert "Role: VMC Operator" in text and "Experience: 5 years" in text
+
+
+# --- the container is the SOURCE OF TRUTH for the nine keys it carries ---------------
+#
+# Reading the legacy field first LOOKED correct because `toExtractionOutput` writes both,
+# but a profile whose record is the container alone printed "(to be confirmed)" for its
+# role, its trade and every one of its skills — while the PDF, which reads the container,
+# printed all of them. One profile, two surfaces, two different résumés.
+
+
+def _container_only(**over) -> DraftProfile:
+    """A profile whose ONLY record is the container — no legacy labels, no canonical ids."""
+    rp = {
+        "role_label": "VMC Operator",
+        "domain_label": "CNC Machining",
+        "skills": ["VMC operation", "G-code reading"],
+        "experiences": [_job("VMC Operator", "3.5 saal", 42, "read drawings")],
+        "current_city": "Delhi",
+        "preferred_locations": ["Pune"],
+        "availability": "immediate",
+        "expected_salary": 40000,
+        "shift": "any",
+    }
+    rp.update(over)
+    return DraftProfile.model_validate({"resume_profile": rp})
+
+
+def test_a_container_only_profile_renders_all_nine_keys():
+    text, _ = build_resume(_container_only())
+    assert "Role: VMC Operator" in text
+    assert "Trade: CNC Machining" in text
+    assert "Skills: VMC operation, G-code reading" in text
+    assert "Work history: VMC Operator" in text
+    assert "Current location: Delhi" in text
+    assert "Preferred locations: Pune" in text
+    assert "Availability: Available immediately" in text
+    assert "Expected salary: 40000 per month" in text
+    assert "(to be confirmed)" not in text.replace("Machines: (to be confirmed)", "")
+
+
+def test_the_container_outranks_a_stale_legacy_label():
+    # Both are written today, but they are two records of one interview and the container is
+    # the one that equals the trace. Where they disagree, the container is the résumé's answer.
+    profile = DraftProfile.model_validate(
+        {
+            "role_label": "stale legacy role",
+            "domain_label": "stale legacy trade",
+            "location_preference": {"current_city": "Stale City", "preferred_cities": ["Stale"]},
+            "resume_profile": {
+                "role_label": "VMC Operator",
+                "domain_label": "CNC Machining",
+                "current_city": "Delhi",
+                "preferred_locations": ["Pune"],
+            },
+        }
+    )
+    text, _ = build_resume(profile)
+    assert "Role: VMC Operator" in text and "stale legacy role" not in text
+    assert "Trade: CNC Machining" in text and "stale legacy trade" not in text
+    assert "Current location: Delhi" in text and "Stale City" not in text
+    assert "Preferred locations: Pune" in text and "Stale" not in text
+
+
+def test_a_blank_container_value_yields_to_the_legacy_field():
+    # `ResumeProfileSchema` accepts "", and letting a blank win would print an empty line
+    # where the legacy field held the real answer.
+    profile = DraftProfile.model_validate(
+        {
+            "role_label": "Fitter",
+            "location_preference": {"current_city": "Pune"},
+            "resume_profile": {"role_label": "  ", "current_city": ""},
+        }
+    )
+    text, _ = build_resume(profile)
+    assert "Role: Fitter" in text
+    assert "Current location: Pune" in text
+
+
+def test_an_empty_container_list_yields_rather_than_wiping_the_skills():
+    # An empty list is the shape of a degraded response, not an assertion that the worker has
+    # no skills — the same bound `preferModelList` applies on the storage side.
+    profile = DraftProfile.model_validate(
+        {"skill_labels": ["MIG welding"], "resume_profile": {"skills": []}}
+    )
+    text, _ = build_resume(profile)
+    assert "Skills: MIG welding" in text
+
+
+def test_container_skills_are_not_merged_with_the_id_derived_names():
+    # No merge, no precedence, no derivation: where the container speaks it speaks alone, so
+    # the printed list can still be diffed against the Langfuse trace.
+    profile = DraftProfile.model_validate(
+        {
+            "skills": ["skill_milling"],
+            "skill_labels": ["Legacy Label"],
+            "resume_profile": {"skills": ["VMC operation"]},
+        }
+    )
+    text, _ = build_resume(profile)
+    assert "Skills: VMC operation" in text
+    assert "Milling" not in text and "Legacy Label" not in text
+
+
+def test_a_deterministic_profile_is_untouched_by_container_precedence():
+    # INVARIANT #8 — no container, so every arm falls through to exactly what it read before.
+    profile = DraftProfile.model_validate(
+        {
+            "canonical_role_id": "role_vmc_operator",
+            "canonical_trade_id": "trade_cnc_machining",
+            "skills": ["skill_milling"],
+            "location_preference": {"current_city": "Pune", "preferred_cities": ["Mumbai"]},
+        }
+    )
+    text, _ = build_resume(profile)
+    assert "Role: VMC Operator" in text
+    assert "Trade: CNC Machining" in text
+    assert "Skills: Milling" in text
+    assert "Current location: Pune" in text
+    assert "Preferred locations: Mumbai" in text
