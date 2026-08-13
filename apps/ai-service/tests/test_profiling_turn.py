@@ -121,3 +121,99 @@ def test_the_extract_prompt_names_every_field_the_contract_expects() -> None:
         if name in ours:
             continue
         assert f'"{name}"' in prompt, f"the extract prompt never names `{name}`"
+
+
+# ===========================================================================
+# BL-2: HTTP-level coverage for POST /profiling/turn. Everything above tests
+# only `_parse_turn` in isolation; this is the route itself — pseudonymize
+# order, the mock/timeout/real-call branches, and the response shape.
+# ===========================================================================
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+import app.main as _main_module  # noqa: E402
+from app.contracts import AICallMetadata  # noqa: E402
+
+client = TestClient(_main_module.app)
+
+
+def _meta(real_call: bool) -> AICallMetadata:
+    return AICallMetadata(
+        ai_call_id="call-1",
+        task_type="profiling_chat_turn",
+        model_name="test-model",
+        provider="test-provider",
+        real_call=real_call,
+        created_at="2026-08-13T00:00:00Z",
+    )
+
+
+def _no_router_call(monkeypatch) -> None:
+    async def _boom(*_a, **_k):  # pragma: no cover - assertion is that it never runs
+        raise AssertionError("the turn route must not call the AI router")
+
+    monkeypatch.setattr(_main_module.router, "run", _boom)
+
+
+def test_turn_route_blocks_before_the_router_on_pii(monkeypatch) -> None:
+    # A clean 10-digit phone number is MASKED, not blocked (pseudonymize replaces it
+    # with [PHONE_1] and proceeds). A residual digit run the masker cannot place --
+    # the fail-closed case -- is what actually returns blocked=True.
+    _no_router_call(monkeypatch)
+    resp = client.post(
+        "/profiling/turn",
+        json={"worker_ref": "w1", "message_text": "reference number 12345678"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["blocked"] is True
+    assert body["reply_text"] == ""
+    assert body["is_mock"] is True
+
+
+def test_turn_route_mock_posture_returns_the_silent_fallback(monkeypatch) -> None:
+    async def _mock_run(*_a, **_k):
+        return "{}", _meta(real_call=False)
+
+    monkeypatch.setattr(_main_module.router, "run", _mock_run)
+    resp = client.post("/profiling/turn", json={"worker_ref": "w1", "message_text": "cook hu"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["is_mock"] is True
+    assert body["reply_text"] == ""
+
+
+def test_turn_route_real_call_returns_the_parsed_turn(monkeypatch) -> None:
+    async def _mock_run(*_a, **_k):
+        return json.dumps(TURN), _meta(real_call=True)
+
+    monkeypatch.setattr(_main_module.router, "run", _mock_run)
+    resp = client.post("/profiling/turn", json={"worker_ref": "w1", "message_text": "cook hu"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["is_mock"] is False
+    assert body["reply_text"] == TURN["reply_text"]
+    assert body["ai_metadata"]["ai_call_id"] == "call-1"
+
+
+def test_turn_route_unparseable_real_response_falls_back_silently(monkeypatch) -> None:
+    async def _mock_run(*_a, **_k):
+        return "not json at all", _meta(real_call=True)
+
+    monkeypatch.setattr(_main_module.router, "run", _mock_run)
+    resp = client.post("/profiling/turn", json={"worker_ref": "w1", "message_text": "cook hu"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reply_text"] == ""
+
+
+def test_turn_route_timeout_returns_the_silent_fallback(monkeypatch) -> None:
+    async def _mock_run(*_a, **_k):
+        raise TimeoutError
+
+    monkeypatch.setattr(_main_module.router, "run", _mock_run)
+    resp = client.post("/profiling/turn", json={"worker_ref": "w1", "message_text": "cook hu"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reply_text"] == ""
+    assert body["is_mock"] is True
