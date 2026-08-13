@@ -5,7 +5,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
-    show ChatInputMode, ChatProgress, ChatQuestionKind, PredictedQuestion;
+    show
+        ChatInputMode,
+        ChatOption,
+        ChatProgress,
+        ChatQuestionKind,
+        PredictedQuestion;
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
@@ -686,6 +691,86 @@ void main() {
       expect(last.text, 'Fanuc');
       expect(last.status, ChatSendStatus.failed);
       expect(bloc.state.predictedQuestionKey, isNull);
+    });
+
+    // #761 THE FIX — on the LLM chat the chip LABEL differs from the stable
+    // `option_key` that `lookahead` is keyed by. Indexing the prediction by the
+    // label missed and the optimistic render silently never fired. The bloc
+    // indexes by the option_key it is handed WHILE submitting the label verbatim.
+    test('a chip whose option_key differs from its label renders the prediction '
+        'and STILL submits the label', () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      // Turn 1 leaves a lookahead keyed by the STABLE option_key, not the label.
+      when(() => repo.sendMessage('kaam')).thenAnswer((_) async => const ChatTurn(
+            reply: 'Kaunsa kaam?',
+            followups: <String>['Salad bar attendant', 'Kuch aur'],
+            suggestedOptions: <ChatOption>[
+              ChatOption(
+                optionKey: 'role_salad_bar',
+                labelText: 'Salad bar attendant',
+              ),
+            ],
+            askedQuestionId: 'role',
+            lookahead: <String, PredictedQuestion?>{'role_salad_bar': predSkills},
+          ));
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      when(() => repo.sendMessage('Salad bar attendant'))
+          .thenAnswer((_) => pending.future);
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+      bloc.add(const ChatMessageSent('kaam'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      // The prediction is keyed by the option_key, NOT the label.
+      expect(bloc.state.lookahead.containsKey('role_salad_bar'), isTrue);
+      expect(bloc.state.lookahead.containsKey('Salad bar attendant'), isFalse);
+
+      // The screen submits the LABEL as the answer but indexes by the option_key.
+      bloc.add(const ChatMessageSent('Salad bar attendant',
+          optionKey: 'role_salad_bar'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // The optimistic prediction FIRED (this is exactly what missed before).
+      expect(pending.isCompleted, isFalse, reason: 'render is pre-reply');
+      expect(bloc.state.messages.last.text, predSkills.promptText,
+          reason: 'the predicted next question is on screen before the reply');
+      expect(bloc.state.predictedQuestionKey, 'skills');
+      // And the wire submit is the LABEL, byte-identical — never the option_key.
+      verify(() => repo.sendMessage('Salad bar attendant')).called(1);
+      verifyNever(() => repo.sendMessage('role_salad_bar'));
+    });
+
+    // The none-of-above option must map to the '__declined' lookahead key even
+    // though its label_text is an ordinary phrase.
+    test('an is_none_of_above option indexes the __declined prediction', () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.sendMessage('kaam')).thenAnswer((_) async => const ChatTurn(
+            reply: 'Kaunsa kaam?',
+            followups: <String>['Kuch aur'],
+            suggestedOptions: <ChatOption>[
+              ChatOption(
+                optionKey: '__none',
+                labelText: 'Kuch aur',
+                isNoneOfAbove: true,
+              ),
+            ],
+            lookahead: <String, PredictedQuestion?>{'__declined': predSkills},
+          ));
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      when(() => repo.sendMessage('Kuch aur')).thenAnswer((_) => pending.future);
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+      bloc.add(const ChatMessageSent('kaam'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // The escape option submits its label but indexes '__declined'.
+      bloc.add(const ChatMessageSent('Kuch aur', optionKey: '__declined'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(bloc.state.messages.last.text, predSkills.promptText,
+          reason: 'the __declined prediction rendered optimistically');
+      verify(() => repo.sendMessage('Kuch aur')).called(1);
     });
   });
 }

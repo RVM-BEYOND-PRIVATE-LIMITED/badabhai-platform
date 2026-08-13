@@ -6,7 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
-    show ChatInputMode, ChatProgress, PredictedQuestion;
+    show ChatInputMode, ChatOption, ChatProgress, PredictedQuestion;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chat_bubble.dart';
@@ -580,6 +580,133 @@ void main() {
       await tester.tap(find.text('Welding'));
       await tester.pump();
       verifyNever(() => repo.sendMessage('Welding'));
+      verify(() => repo.sendMessage('Fanuc')).called(1);
+    });
+
+    // #761 THE FIX (end-to-end) — on the LLM chat the chip LABEL differs from
+    // the stable `option_key` that `lookahead` is keyed by. The screen used to
+    // render chips from the label list and index `lookahead` by the label, so
+    // the lookup missed and the optimistic render silently never fired. It now
+    // renders chips from `suggested_options` and indexes by the option_key.
+    testWidgets(
+        'a chip whose option_key differs from its label fires the prediction on '
+        'tap AND submits the label (byte-identical)',
+        (WidgetTester tester) async {
+      // Turn 1 serves options whose key != label, with a lookahead keyed by the
+      // KEY. `suggested_followups` is served alongside (and stays the same list).
+      when(() => repo.sendMessage('kaam')).thenAnswer((_) async => const ChatTurn(
+            reply: 'Kaunsa kaam karte hain?',
+            followups: <String>['Salad bar attendant', 'Cook'],
+            suggestedOptions: <ChatOption>[
+              ChatOption(
+                optionKey: 'role_salad_bar',
+                labelText: 'Salad bar attendant',
+              ),
+              ChatOption(optionKey: 'role_cook', labelText: 'Cook'),
+            ],
+            askedQuestionId: 'role',
+            lookahead: <String, PredictedQuestion?>{'role_salad_bar': predSkills},
+          ));
+      // The chip tap (submitted as the LABEL) is HELD open — the render must not
+      // depend on the network.
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      when(() => repo.sendMessage('Salad bar attendant'))
+          .thenAnswer((_) => pending.future);
+
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'kaam');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
+      // The chip DISPLAYS the label_text (never the option_key).
+      expect(find.text('Salad bar attendant'), findsOneWidget);
+      expect(find.text('role_salad_bar'), findsNothing);
+
+      // Tap the option chip. Only PUMP — no network settle — so the render is
+      // provably optimistic.
+      await tester.tap(find.text('Salad bar attendant'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350)); // finish auto-scroll
+
+      expect(pending.isCompleted, isFalse,
+          reason: 'the repo has not replied — this render is optimistic');
+      // THE FIX: the predicted next question is on screen with no round trip.
+      expect(find.text(predSkills.promptText), findsOneWidget,
+          reason: 'indexing lookahead by the option_key made the prediction fire');
+      expect(find.text('Welding'), findsOneWidget);
+      expect(find.text('Fitting'), findsOneWidget);
+      expect(find.text('Bada Bhai type kar raha hai…'), findsNothing);
+
+      // And the wire submit is the LABEL, verbatim — the option_key never leaves
+      // the client.
+      verify(() => repo.sendMessage('Salad bar attendant')).called(1);
+      verifyNever(() => repo.sendMessage('role_salad_bar'));
+    });
+
+    // A `suggested_options` turn where the option is flagged none-of-above maps
+    // to the '__declined' lookahead key, even though its label is a phrase.
+    testWidgets(
+        'a none-of-above option chip fires the __declined prediction and submits '
+        'its label', (WidgetTester tester) async {
+      when(() => repo.sendMessage('kaam')).thenAnswer((_) async => const ChatTurn(
+            reply: 'Kaunsa kaam?',
+            followups: <String>['Cook', 'Kuch aur'],
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'role_cook', labelText: 'Cook'),
+              ChatOption(
+                optionKey: '__none',
+                labelText: 'Kuch aur',
+                isNoneOfAbove: true,
+              ),
+            ],
+            lookahead: <String, PredictedQuestion?>{'__declined': predSkills},
+          ));
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      when(() => repo.sendMessage('Kuch aur')).thenAnswer((_) => pending.future);
+
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'kaam');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Kuch aur'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(pending.isCompleted, isFalse);
+      expect(find.text(predSkills.promptText), findsOneWidget,
+          reason: 'the __declined prediction rendered on the escape tap');
+      verify(() => repo.sendMessage('Kuch aur')).called(1);
+      verifyNever(() => repo.sendMessage('__declined'));
+    });
+
+    // Back-compat: a turn with NO `suggested_options` (deterministic/older API)
+    // still renders from `suggested_followups` and the label-keyed path works.
+    testWidgets(
+        'with no suggested_options the label-keyed fallback still fires the '
+        'prediction (label == key)', (WidgetTester tester) async {
+      when(() => repo.sendMessage('cnc')).thenAnswer((_) async => const ChatTurn(
+            reply: 'Kaunsa control?',
+            followups: <String>['Fanuc', 'Siemens'],
+            askedQuestionId: 'controller',
+            lookahead: <String, PredictedQuestion?>{'Fanuc': predSkills},
+          ));
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      when(() => repo.sendMessage('Fanuc')).thenAnswer((_) => pending.future);
+
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'cnc');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+      expect(find.text('Fanuc'), findsOneWidget);
+
+      await tester.tap(find.text('Fanuc'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(pending.isCompleted, isFalse);
+      expect(find.text(predSkills.promptText), findsOneWidget,
+          reason: 'the fallback path still indexes by the label (label == key)');
       verify(() => repo.sendMessage('Fanuc')).called(1);
     });
   });

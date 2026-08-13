@@ -8,7 +8,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart'
-    show ChatInputMode, ChatProgress, ChatQuestionKind;
+    show ChatInputMode, ChatOption, ChatProgress, ChatQuestionKind;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
@@ -251,6 +251,27 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
         label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase();
     context.read<ChatBloc>().add(
           ChatMessageSent(label, optionKey: escape ? '__declined' : label),
+        );
+  }
+
+  /// Send an answer chosen from a `suggested_options` chip/row (#761).
+  ///
+  /// THE FIX. SUBMITS [ChatOption.labelText] as the answer of record — BYTE-
+  /// IDENTICAL to typing it, exactly as [_sendOption] does — while passing the
+  /// stable [ChatOption.optionKey] (or `'__declined'` for the none-of-above chip)
+  /// as the lookahead index. On the LLM chat the display label differs from that
+  /// key, so keying the prediction by the label (the [_sendOption] path) missed
+  /// and the optimistic render silently never fired; the option_key hits it.
+  /// One tap per turn — see [_optionTapPending].
+  void _sendChoice(ChatOption option) {
+    if (_optionTapPending) return;
+    if (option.labelText.trim().isEmpty) return;
+    setState(() => _optionTapPending = true);
+    context.read<ChatBloc>().add(
+          ChatMessageSent(
+            option.labelText,
+            optionKey: option.isNoneOfAbove ? '__declined' : option.optionKey,
+          ),
         );
   }
 
@@ -790,6 +811,18 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
                       // predicted question during the round trip.
                       if (state.sending && state.predictedQuestionKey == null)
                         _typingIndicator()
+                      // #761 — when the turn serves `suggested_options` (the LLM
+                      // chat), render chips from IT so each carries its stable
+                      // option_key: the tapped label is submitted byte-identically
+                      // while the bloc indexes `lookahead` by the key, and the
+                      // optimistic prediction finally fires. Served ALONGSIDE
+                      // `suggested_followups`, so a deterministic/older turn with
+                      // no options falls through to the label-keyed path below,
+                      // unchanged (label == key there).
+                      else if (state.suggestedOptions.isNotEmpty)
+                        state.questionKind == ChatQuestionKind.disambiguate
+                            ? _disambiguateOptions(state.suggestedOptions)
+                            : _followupOptions(state.suggestedOptions)
                       else if (state.followups.isNotEmpty)
                         // A disambiguation turn is mutually-exclusive occupations
                         // where the tapped label BECOMES the answer of record and
@@ -1124,7 +1157,38 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
   /// every turn, and one tap recorded two controllers the worker never named.
   /// Nothing here rewrites or filters a chip — if a question ever appears in this
   /// row again, the fix belongs in `question_bank.py`, not in this widget.
-  Widget _followups(List<String> followups) {
+  Widget _followups(List<String> followups) => _chipScroller(<Widget>[
+        for (final String f in followups) ...<Widget>[
+          // Answer chips read like a chat message: same size (sizeSm) and a
+          // normal weight (owner request 2026-07-23).
+          BbChip(
+            label: f,
+            labelWeight: FontWeight.w400,
+            onTap: () => _sendOption(f),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+        ],
+      ]);
+
+  /// The horizontal chip row rendered from `suggested_options` (#761). Same look
+  /// as [_followups] — each chip DISPLAYS [ChatOption.labelText] — but a tap
+  /// routes through [_sendChoice], which submits that label byte-identically
+  /// while indexing `lookahead` by the stable [ChatOption.optionKey].
+  Widget _followupOptions(List<ChatOption> options) => _chipScroller(<Widget>[
+        for (final ChatOption o in options) ...<Widget>[
+          BbChip(
+            label: o.labelText,
+            labelWeight: FontWeight.w400,
+            onTap: () => _sendChoice(o),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+        ],
+      ]);
+
+  /// The horizontal, scrollable wrapper shared by the label-keyed fallback
+  /// ([_followups]) and the `suggested_options` path ([_followupOptions]) — just
+  /// the frame; the caller builds the chips so each carries its own tap handler.
+  Widget _chipScroller(List<Widget> chips) {
     return Container(
       alignment: Alignment.centerLeft,
       padding: const EdgeInsets.fromLTRB(
@@ -1135,20 +1199,7 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
       ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: Row(
-          children: <Widget>[
-            for (final String f in followups) ...<Widget>[
-              // Answer chips read like a chat message: same size (sizeSm) and a
-              // normal weight (owner request 2026-07-23).
-              BbChip(
-                label: f,
-                labelWeight: FontWeight.w400,
-                onTap: () => _sendOption(f),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-            ],
-          ],
-        ),
+        child: Row(children: chips),
       ),
     );
   }
@@ -1233,9 +1284,49 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
     );
   }
 
-  Widget _disambiguateOption(String label) {
-    final bool escape =
-        label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase();
+  /// A disambiguation turn rendered from `suggested_options` (#761): same vertical
+  /// single-select as [_disambiguate], but each row submits [ChatOption.labelText]
+  /// while [_sendChoice] indexes `lookahead` by [ChatOption.optionKey] (and the
+  /// escape uses the option's own `is_none_of_above`, not the hardcoded label).
+  Widget _disambiguateOptions(List<ChatOption> options) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s4,
+        AppSpacing.s1,
+        AppSpacing.s4,
+        AppSpacing.s2,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (final ChatOption o in options)
+            _disambiguateRow(
+              label: o.labelText,
+              escape: o.isNoneOfAbove,
+              onTap: () => _sendChoice(o),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Fallback label path: the escape is recognised by the hardcoded
+  /// [_kDisambiguateEscape] phrase and the tapped label is both submit and key.
+  Widget _disambiguateOption(String label) => _disambiguateRow(
+        label: label,
+        escape: label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase(),
+        onTap: () => _sendOption(label),
+      );
+
+  /// One vertical single-select row, shared by the fallback ([_disambiguateOption])
+  /// and the `suggested_options` path ([_disambiguateOptions]). [escape] renders
+  /// the "none of these" style (borderless, muted); [onTap] submits.
+  Widget _disambiguateRow({
+    required String label,
+    required bool escape,
+    required VoidCallback onTap,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.s2),
       child: Material(
@@ -1243,7 +1334,7 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
         borderRadius: BorderRadius.circular(AppRadii.md),
         child: InkWell(
           borderRadius: BorderRadius.circular(AppRadii.md),
-          onTap: () => _sendOption(label),
+          onTap: onTap,
           child: Container(
             constraints: const BoxConstraints(minHeight: AppSpacing.tap),
             padding: const EdgeInsets.symmetric(

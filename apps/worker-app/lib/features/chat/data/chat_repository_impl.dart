@@ -105,6 +105,9 @@ class ChatRepositoryImpl implements ChatRepository {
       return ChatTurn(
         reply: reply.reply,
         followups: reply.suggestedFollowups,
+        // #761 — the option objects carry the stable option_key the client keys
+        // `lookahead` by; served alongside the followups (the display labels).
+        suggestedOptions: reply.suggestedOptions,
         extractionReady: reply.extractionReady,
         unansweredEssentials: reply.unansweredEssentials,
         blocked: reply.blocked,

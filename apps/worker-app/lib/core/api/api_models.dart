@@ -514,6 +514,64 @@ class PredictedQuestion extends Equatable {
       ];
 }
 
+/// One tap-to-answer option for a chat turn (`suggested_options` entry, #761's
+/// lookahead-key companion).
+///
+/// Served ALONGSIDE — never instead of — `suggested_followups`: the followups
+/// (label strings) stay authoritative for what a chip DISPLAYS and SUBMITS, and
+/// this object only adds the STABLE [optionKey] the reply's `lookahead` map is
+/// keyed by. On the LLM chat the display [labelText] is NOT the lookahead key
+/// (e.g. "Salad bar attendant" vs a stable id), so a chip tapped by label missed
+/// its prediction and the optimistic render silently never fired; carrying the
+/// key lets the client index `lookahead` correctly WHILE still submitting the
+/// label byte-identically.
+///
+/// PII-FREE by contract: a closed-set key + a display label + a flag. Parsed
+/// DEFENSIVELY (#371): [fromJson] returns null on a non-map or a garbage entry —
+/// a bad option is dropped by the caller, never thrown out of the whole reply.
+class ChatOption extends Equatable {
+  const ChatOption({
+    required this.optionKey,
+    required this.labelText,
+    this.isNoneOfAbove = false,
+  });
+
+  /// The stable key the turn's `lookahead` map is keyed by. Used ONLY to index
+  /// the optimistic prediction — it is NEVER submitted (the submit stays
+  /// [labelText]).
+  final String optionKey;
+
+  /// What the chip DISPLAYS and what the worker SUBMITS as the answer of record
+  /// — byte-identical to a `suggested_followups` entry.
+  final String labelText;
+
+  /// The disambiguation/decline "none of these" escape. Its prediction is keyed
+  /// `'__declined'` in the `lookahead` map, not by [optionKey].
+  final bool isNoneOfAbove;
+
+  /// Parses one `{option_key, label_text, is_none_of_above}` object. Returns null
+  /// on a non-map, or when either string field is missing/blank — a malformed
+  /// option is dropped (the caller keeps the usable ones), never thrown (#371).
+  static ChatOption? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? key = raw['option_key'];
+    final Object? label = raw['label_text'];
+    if (key is! String || key.isEmpty) return null;
+    if (label is! String || label.isEmpty) return null;
+    return ChatOption(
+      optionKey: key,
+      labelText: label,
+      // `is bool` not a cast (#371): a 0/1 or a string from a future contract
+      // change must not throw the option — it just reads as "not the escape".
+      isNoneOfAbove:
+          raw['is_none_of_above'] is bool ? raw['is_none_of_above'] as bool : false,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[optionKey, labelText, isNoneOfAbove];
+}
+
 /// Result of POST /chat/message.
 class ChatReply extends Equatable {
   const ChatReply({
@@ -521,6 +579,7 @@ class ChatReply extends Equatable {
     required this.blocked,
     required this.isMock,
     required this.suggestedFollowups,
+    this.suggestedOptions = const <ChatOption>[],
     this.extractionReady = false,
     this.askedQuestionId,
     this.unansweredEssentials = const <String>[],
@@ -536,6 +595,16 @@ class ChatReply extends Equatable {
   final bool blocked;
   final bool isMock;
   final List<String> suggestedFollowups;
+
+  /// The tap-to-answer options for THIS turn (`suggested_options`, #761), served
+  /// ALONGSIDE [suggestedFollowups]. Each carries the stable `option_key` the
+  /// [lookahead] map is keyed by, so a tapped chip can be indexed against its
+  /// prediction even when the display label differs from that key (the LLM chat).
+  ///
+  /// ADDITIVE and defaulted `[]`: a deterministic turn or an older API build sends
+  /// none, and the client falls back to the label-keyed [suggestedFollowups] path
+  /// (where label == key), so nothing changes for those turns.
+  final List<ChatOption> suggestedOptions;
 
   /// The interview engine's completeness decision for THIS turn (#421): true
   /// once it has enough answers to extract a profile.
@@ -651,6 +720,15 @@ class ChatReply extends Equatable {
         suggestedFollowups:
             (json['suggested_followups'] as List<dynamic>?)?.whereType<String>().toList() ??
                 <String>[],
+        // #761 — served ALONGSIDE the followups above, not instead of them. Same
+        // #371 discipline: a non-list, or a garbage entry, is dropped and the
+        // reply survives — a bad option must never lose bada bhai's message.
+        suggestedOptions: json['suggested_options'] is List
+            ? (json['suggested_options'] as List<dynamic>)
+                .map<ChatOption?>(ChatOption.fromJson)
+                .whereType<ChatOption>()
+                .toList(growable: false)
+            : const <ChatOption>[],
         // Same defensive parse as the chips: a malformed entry is dropped, never
         // thrown out of the whole reply. Absent -> [] ("unknown"; only meaningful
         // when `blocked` is false — see the field doc).
@@ -680,6 +758,7 @@ class ChatReply extends Equatable {
         blocked,
         isMock,
         suggestedFollowups,
+        suggestedOptions,
         extractionReady,
         askedQuestionId,
         unansweredEssentials,
