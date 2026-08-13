@@ -13,6 +13,7 @@
     "clean": "rimraf --glob .next .turbo *.tsbuildinfo"
   },
   "dependencies": {
+    "@badabhai/config": "workspace:*",
     "@badabhai/pricing": "workspace:*",
     "next": "^15.5.21",
     "qrcode.react": "^4.2.0",
