@@ -63,6 +63,9 @@ importers:
 
   apps/admin-web:
     dependencies:
+      '@badabhai/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@badabhai/pricing':
         specifier: workspace:*
         version: link:../../packages/pricing
