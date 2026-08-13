@@ -20,6 +20,7 @@ be defined here so every ``from app.main import ...`` specifier keeps working.
 from __future__ import annotations
 
 import hmac
+import re
 import uuid
 from contextlib import asynccontextmanager
 
@@ -124,31 +125,22 @@ app = FastAPI(title="BadaBhai AI Service", version="0.1.0", lifespan=_lifespan)
 # stays token-only (via the gated /ai/spend or the full /health when auth is off).
 _AUTH_EXEMPT_PATHS = frozenset({"/health"})
 
+# BL-19: a caller-supplied x-request-id/x-correlation-id is logged VERBATIM into every
+# line for that request (see request_id_tracing below) -- it must never be free text.
+# UUID-shape-or-regenerate, not merely length-capped: this codebase's own invariant
+# ("no PII in logs, ever") means a permissive cap (e.g. request-id.middleware.ts's
+# apps/api-side 128-char bound on requestId alone) is not safe to mirror here, since a
+# short string can still carry a name/phone/address. Reject anything that isn't exactly
+# UUID-shaped and mint a fresh one instead of trusting the caller's text.
+_TRACE_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
 
-@app.middleware("http")
-async def request_id_tracing(request, call_next):  # type: ignore[no-untyped-def]
-    """BL-19: bind the caller's request/correlation id for every log line this
-    request emits, and echo both back as response headers.
 
-    apps/api's AiService generates a fresh id per outbound call and sends it here
-    (mirrors the x-ai-internal-token pattern) -- this is the ai-service half of the
-    fix that closes "a failing ai-service call produces no queryable trace tying
-    the failure to the originating call" (16_OBSERVABILITY_AUDIT.md Section 4).
-    Falls back to generating an id if the caller sent none, so every request is
-    traceable even from a caller that predates this change (curl, a future client).
-    """
-    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
-    correlation_id = request.headers.get("x-correlation-id") or request_id
-    request_id_token = request_id_var.set(request_id)
-    correlation_id_token = correlation_id_var.set(correlation_id)
-    try:
-        response = await call_next(request)
-    finally:
-        request_id_var.reset(request_id_token)
-        correlation_id_var.reset(correlation_id_token)
-    response.headers["x-request-id"] = request_id
-    response.headers["x-correlation-id"] = correlation_id
-    return response
+def _safe_trace_id(supplied: str | None) -> str:
+    if supplied and _TRACE_ID_RE.match(supplied):
+        return supplied
+    return str(uuid.uuid4())
 
 
 @app.middleware("http")
@@ -167,6 +159,40 @@ async def service_auth(request, call_next):  # type: ignore[no-untyped-def]
         if not hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8")):
             return JSONResponse(status_code=401, content={"detail": "unauthorized"})
     return await call_next(request)
+
+
+@app.middleware("http")
+async def request_id_tracing(request, call_next):  # type: ignore[no-untyped-def]
+    """BL-19: bind the caller's request/correlation id for every log line this
+    request emits, and echo both back as response headers.
+
+    apps/api's AiService generates a fresh id per outbound call and sends it here
+    (mirrors the x-ai-internal-token pattern) -- this is the ai-service half of the
+    fix that closes "a failing ai-service call produces no queryable trace tying
+    the failure to the originating call" (16_OBSERVABILITY_AUDIT.md Section 4).
+    Falls back to generating an id if the caller sent none (or something not
+    UUID-shaped), so every request is traceable even from a caller that predates
+    this change (curl, a future client) -- and so a caller can never get its own
+    free text logged verbatim under the guise of a trace id.
+
+    Registered SECOND so it becomes the OUTERMOST middleware (Starlette runs the
+    last-registered middleware first) -- it must wrap service_auth, not sit inside
+    it, so a request rejected by the 401 path still gets tagged and echoes the
+    headers, rather than silently skipping tracing on exactly the failure class
+    apps/api's AiService already logs a request id for.
+    """
+    request_id = _safe_trace_id(request.headers.get("x-request-id"))
+    correlation_id = _safe_trace_id(request.headers.get("x-correlation-id"))
+    request_id_token = request_id_var.set(request_id)
+    correlation_id_token = correlation_id_var.set(correlation_id)
+    try:
+        response = await call_next(request)
+    finally:
+        request_id_var.reset(request_id_token)
+        correlation_id_var.reset(correlation_id_token)
+    response.headers["x-request-id"] = request_id
+    response.headers["x-correlation-id"] = correlation_id
+    return response
 
 
 # Registration order reproduces the pre-split route table. The one unavoidable

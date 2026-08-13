@@ -224,19 +224,22 @@ export class VoiceTranscriptionService {
     try {
       await this.aiJobs.markRunning(aiJobId);
 
-      const result = await this.ai.transcribe({
-        voice_note_id: voiceNoteId,
-        storage_path: storagePath,
-        duration_seconds: durationSeconds,
-        language_code: languageCode ?? undefined,
-        // Opaque UUID (PII-free) — attributes real STT chunk spend (D-2: a 120s
-        // note is up to 5 provider calls) to this worker's TD27 per-user daily
-        // budget, same as chat/extraction/resume already do.
-        worker_ref: ownerId,
-        // Omitted (rather than `true`) for every existing caller, so the ai-service default
-        // governs exactly as it did before this parameter existed.
-        ...(translateToEnglish === undefined ? {} : { translate_to_english: translateToEnglish }),
-      });
+      const result = await this.ai.transcribe(
+        {
+          voice_note_id: voiceNoteId,
+          storage_path: storagePath,
+          duration_seconds: durationSeconds,
+          language_code: languageCode ?? undefined,
+          // Opaque UUID (PII-free) — attributes real STT chunk spend (D-2: a 120s
+          // note is up to 5 provider calls) to this worker's TD27 per-user daily
+          // budget, same as chat/extraction/resume already do.
+          worker_ref: ownerId,
+          // Omitted (rather than `true`) for every existing caller, so the ai-service default
+          // governs exactly as it did before this parameter existed.
+          ...(translateToEnglish === undefined ? {} : { translate_to_english: translateToEnglish }),
+        },
+        { correlationId, requestId },
+      );
 
       // THE COST RECORD, EMITTED BEFORE THE DEGRADED-RESULT THROW BELOW — deliberately (#738).
       //

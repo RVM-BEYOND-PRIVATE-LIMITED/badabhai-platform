@@ -26,16 +26,20 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+        # Attach any structured extras passed via logger.info(..., extra={"extra": {...}})
+        extra = getattr(record, "extra", None)
+        if isinstance(extra, dict):
+            entry.update(extra)
+        # BL-19: bound AFTER extra, and deliberately so -- these are the one trace id this
+        # log line must always report correctly, so a caller's own extra dict can never
+        # silently clobber them (it happened once: privacy.py used to log an unrelated
+        # per-call body id under this exact key before it was renamed to body_request_id).
         request_id = request_id_var.get()
         if request_id is not None:
             entry["request_id"] = request_id
         correlation_id = correlation_id_var.get()
         if correlation_id is not None:
             entry["correlation_id"] = correlation_id
-        # Attach any structured extras passed via logger.info(..., extra={"extra": {...}})
-        extra = getattr(record, "extra", None)
-        if isinstance(extra, dict):
-            entry.update(extra)
         return json.dumps(entry)
 
 

@@ -151,7 +151,9 @@ function outageCodeOf(code: string | null | undefined): string | null {
  * call site testing presence while this one tested content. This stays as the local name the
  * `interviewLanded` reasoning above refers to.
  */
-function overlayCarriesValues(overlay: InterviewExtractOutput | null): overlay is InterviewExtractOutput {
+function overlayCarriesValues(
+  overlay: InterviewExtractOutput | null,
+): overlay is InterviewExtractOutput {
   return resumeProfileCarriesValues(overlay);
 }
 
@@ -689,11 +691,14 @@ export class ProfileExtractionProcessor extends WorkerHost {
     if (answerMap.length === 0) {
       // No deterministic record: a pre-cutover session, or an interview that collected nothing.
       // The legacy route is unchanged and still live.
-      const legacy = await this.ai.extractProfile({
-        worker_ref: job.workerId,
-        transcript,
-        messages: [...messages],
-      });
+      const legacy = await this.ai.extractProfile(
+        {
+          worker_ref: job.workerId,
+          transcript,
+          messages: [...messages],
+        },
+        { requestId: job.requestId, correlationId: job.correlationId },
+      );
       return {
         result: legacy,
         pin: null,
@@ -736,16 +741,19 @@ export class ProfileExtractionProcessor extends WorkerHost {
     });
 
     const occupation = OccupationPinSchema.safeParse(state?.occupation);
-    const parsed = await this.ai.parseProfile({
-      schema_version: "oie.v1",
-      // PSEUDONYMOUS. The worker's real id is the correlation key on our side of the wire and
-      // never crosses it — the same discipline `/profile/extract` already used.
-      worker_ref: job.workerId,
-      occupation: occupation.success ? occupation.data : null,
-      answer_map: answerMap,
-      transcript: lines,
-      target_fields: targets,
-    });
+    const parsed = await this.ai.parseProfile(
+      {
+        schema_version: "oie.v1",
+        // PSEUDONYMOUS. The worker's real id is the correlation key on our side of the wire and
+        // never crosses it — the same discipline `/profile/extract` already used.
+        worker_ref: job.workerId,
+        occupation: occupation.success ? occupation.data : null,
+        answer_map: answerMap,
+        transcript: lines,
+        target_fields: targets,
+      },
+      { requestId: job.requestId, correlationId: job.correlationId },
+    );
 
     // THE INTERVIEW'S ENTIRE MODEL SPEND, LEDGERED — for the first time.
     //
@@ -818,7 +826,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // the profile. Null is the whole degraded set — down, 429, deadline, mock posture, blocked,
     // malformed — and the profile that comes out is exactly the one the answer map alone
     // produces, which is already a usable profile.
-    const interview = await this.interviewOverlay(job, lines, occupation.success ? occupation.data : null);
+    const interview = await this.interviewOverlay(
+      job,
+      lines,
+      occupation.success ? occupation.data : null,
+    );
 
     const projection = projectProfile(answerMap, gated.accepted, { split: splitToolsEquipment });
     this.logger.log(
@@ -1177,7 +1189,12 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * spine rather than folded into the parse it sits beside.
    */
   private async interviewOverlay(
-    job: { workerId: string; aiJobId: string; correlationId?: string | null; requestId?: string | null },
+    job: {
+      workerId: string;
+      aiJobId: string;
+      correlationId?: string | null;
+      requestId?: string | null;
+    },
     transcript: readonly TranscriptLine[],
     occupation: OccupationPin | null,
   ): Promise<InterviewExtractOutput | null> {
@@ -1186,13 +1203,16 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // anyway" escape hatch) would spend a capable call to be told the conversation was empty.
     if (transcript.length === 0) return null;
 
-    const out = await this.ai.extractInterview({
-      schema_version: "oie.v1",
-      // PSEUDONYMOUS on the far side; the id is our correlation key and carries no identity.
-      worker_ref: job.workerId,
-      transcript: [...transcript],
-      occupation,
-    });
+    const out = await this.ai.extractInterview(
+      {
+        schema_version: "oie.v1",
+        // PSEUDONYMOUS on the far side; the id is our correlation key and carries no identity.
+        worker_ref: job.workerId,
+        transcript: [...transcript],
+        occupation,
+      },
+      { requestId: job.requestId, correlationId: job.correlationId },
+    );
 
     // ATTRIBUTED TO `profile_extraction`, WHICH IS WHAT THE AI-SERVICE ITSELF STAMPS on this
     // route's metadata. Passing anything else here would make our event disagree with the
@@ -1473,7 +1493,10 @@ function splitToolsEquipment(value: unknown): Record<string, unknown> {
  * conversation, normalizer and negation veto bypassed. `null`/absent still yields to the
  * deterministic value, so the model can only ever REPLACE, never ERASE.
  */
-function preferModel<T>(model: T | null | undefined, deterministic: T | null | undefined): T | null {
+function preferModel<T>(
+  model: T | null | undefined,
+  deterministic: T | null | undefined,
+): T | null {
   return model ?? deterministic ?? null;
 }
 
@@ -1490,7 +1513,10 @@ function preferModel<T>(model: T | null | undefined, deterministic: T | null | u
  * case-insensitively, which is the one way the result can still differ from the trace: a model
  * that emits "Welding" and "welding" gets one of them.
  */
-function preferModelList(model: readonly string[] | undefined, deterministic: readonly string[]): string[] {
+function preferModelList(
+  model: readonly string[] | undefined,
+  deterministic: readonly string[],
+): string[] {
   const source = model && model.length > 0 ? model : deterministic;
   const out: string[] = [];
   for (const candidate of source) {
@@ -1598,9 +1624,10 @@ function toExtractionOutput(
     domain_label: interview?.domain_label ?? null,
     role_label: interview?.role_label ?? null,
     shift: interview?.shift ?? null,
-    salary_expectation: preferModel(interview?.expected_salary, draft.expected_salary) === null
-      ? {}
-      : { amount_min: preferModel(interview?.expected_salary, draft.expected_salary) },
+    salary_expectation:
+      preferModel(interview?.expected_salary, draft.expected_salary) === null
+        ? {}
+        : { amount_min: preferModel(interview?.expected_salary, draft.expected_salary) },
     location_preference: {
       // THE MODEL WINS WHEREVER IT SPOKE (owner decision — see `preferModel`). This was
       // deterministic-wins, so a city the model read out of the conversation was discarded

@@ -20,7 +20,13 @@ def pseudonymize_endpoint(body: PseudonymizationInput) -> PseudonymizationOutput
             "extra": {
                 "blocked": result.blocked,
                 "replaced_entities": result.replaced_entities,
-                "request_id": body.request_id,
+                # BL-19: named body_request_id, NOT request_id -- that key now belongs to the
+                # HTTP-level trace id JsonFormatter binds from request_id_tracing's contextvar
+                # (logging_config.py). This is a DIFFERENT, pre-existing concept: a per-call id
+                # apps/api mints into the request BODY (ai.service.ts's pseudonymize()), unrelated
+                # to the header-level trace id. Reusing the same key would have silently clobbered
+                # one or the other in the log line.
+                "body_request_id": body.request_id,
             }
         },
     )

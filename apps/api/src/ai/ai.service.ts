@@ -60,6 +60,18 @@ const PROFILE_JOB_TIMEOUT_MS = 25_000;
  * thing an operator genuinely cannot get elsewhere is "am I looking at real AI or
  * mocked AI", so that is the only thing this carries.
  */
+/**
+ * BL-19: the id an AiService call should carry to the far side, when the caller already
+ * has one. Deliberately looser than `common/request-context.ts`'s `RequestContext`
+ * (both fields optional/nullable): every BullMQ job payload that carries these stamps
+ * them as `string | null` (a pre-cutover job or one enqueued before this landed may have
+ * neither), and `post()` falls back to minting a fresh id for whichever field is absent.
+ */
+export interface AiRequestContext {
+  requestId?: string | null;
+  correlationId?: string | null;
+}
+
 export interface AiServiceHealthSnapshot {
   /**
    * The ai-service's own `real_calls_enabled`, or `null` when it did not disclose it.
@@ -199,8 +211,17 @@ export class AiService {
     return this.post("/job-posting-chat/respond", input, JobPostingChatTurnOutputSchema);
   }
 
-  async extractProfile(input: ProfileExtractionInput): Promise<ProfileExtractionOutput> {
-    const remote = await this.post("/profile/extract", input, ProfileExtractionOutputSchema);
+  async extractProfile(
+    input: ProfileExtractionInput,
+    ctx?: AiRequestContext,
+  ): Promise<ProfileExtractionOutput> {
+    const remote = await this.post(
+      "/profile/extract",
+      input,
+      ProfileExtractionOutputSchema,
+      undefined,
+      ctx,
+    );
     if (remote) return remote;
     // THE FALLBACK HAS TO CONFESS — the same fix `transcribe` got, for the same reason.
     //
@@ -233,8 +254,17 @@ export class AiService {
     });
   }
 
-  async generateResume(input: ResumeGenerationInput): Promise<ResumeGenerationOutput> {
-    const remote = await this.post("/resume/generate", input, ResumeGenerationOutputSchema);
+  async generateResume(
+    input: ResumeGenerationInput,
+    ctx?: AiRequestContext,
+  ): Promise<ResumeGenerationOutput> {
+    const remote = await this.post(
+      "/resume/generate",
+      input,
+      ResumeGenerationOutputSchema,
+      undefined,
+      ctx,
+    );
     if (remote) return remote;
     const { profile } = input;
     // Q14: local mock fallback (AI service unreachable — NO LLM involved) renders the
@@ -324,8 +354,17 @@ export class AiService {
    * BullMQ auto-extends the job lock while the handler runs), so holding the
    * fetch is safe. Mock mode still answers in milliseconds.
    */
-  async transcribe(input: TranscriptionInput): Promise<TranscriptionOutput> {
-    const remote = await this.post("/voice/transcribe", input, TranscriptionOutputSchema, 270_000);
+  async transcribe(
+    input: TranscriptionInput,
+    ctx?: AiRequestContext,
+  ): Promise<TranscriptionOutput> {
+    const remote = await this.post(
+      "/voice/transcribe",
+      input,
+      TranscriptionOutputSchema,
+      270_000,
+      ctx,
+    );
     if (remote) return remote;
     // THE FALLBACK HAS TO CONFESS. Returning an empty transcript is right — never fabricate the
     // worker's words — but the object above this line was otherwise INDISTINGUISHABLE from a
@@ -360,7 +399,10 @@ export class AiService {
    * NO MOCK FALLBACK. A fabricated parse result would be indistinguishable from a real one at
    * every later read, and `deterministic_only` is a strictly more honest answer.
    */
-  async parseProfile(input: ProfileParseInput): Promise<ProfileParseOutput | null> {
+  async parseProfile(
+    input: ProfileParseInput,
+    ctx?: AiRequestContext,
+  ): Promise<ProfileParseOutput | null> {
     // ABOVE THE FAR SIDE'S OWN DEADLINE (20 s), deliberately. Whichever bound fires first decides
     // what the caller learns: the ai-service's deadline degrades to a healthy 200 carrying
     // `parse_deadline_exceeded` — named, logged, attributable — while this abort produces a bare
@@ -370,7 +412,13 @@ export class AiService {
     // Safe to be this long because NOBODY IS WAITING: the only caller is the BullMQ extraction
     // job, minutes after the interview closed. The default 8 s was a chat-shaped budget applied
     // to a queue-shaped call.
-    return this.post("/profile/parse", input, ProfileParseOutputSchema, PROFILE_JOB_TIMEOUT_MS);
+    return this.post(
+      "/profile/parse",
+      input,
+      ProfileParseOutputSchema,
+      PROFILE_JOB_TIMEOUT_MS,
+      ctx,
+    );
   }
 
   /**
@@ -404,7 +452,10 @@ export class AiService {
    * `null` on failure, and the caller keeps the deterministic projection — which is already a
    * usable profile. This is an overlay, never the profile itself.
    */
-  async extractInterview(input: InterviewExtractInput): Promise<InterviewExtractOutput | null> {
+  async extractInterview(
+    input: InterviewExtractInput,
+    ctx?: AiRequestContext,
+  ): Promise<InterviewExtractOutput | null> {
     // Same budget and the same reason as `parseProfile`: a queue-side call reading a whole
     // conversation, above the far side's 20 s deadline. Under the old 8 s a long interview —
     // the ones with the most work history to recover — was the likeliest to lose it.
@@ -413,6 +464,7 @@ export class AiService {
       input,
       InterviewExtractOutputSchema,
       PROFILE_JOB_TIMEOUT_MS,
+      ctx,
     );
   }
 
@@ -511,25 +563,28 @@ export class AiService {
     body: unknown,
     schema: { parse: (v: unknown) => TOut },
     timeoutMs = 8000,
+    ctx?: AiRequestContext,
   ): Promise<TOut | null> {
     const url = `${this.config.AI_SERVICE_URL}${path}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    // BL-19: one id per outbound call, sent to ai-service and logged on every failure
-    // path here — the same id then appears on every log line ai-service emits while
-    // handling this request (its request-id middleware binds it via contextvars), so
-    // a failed call's two sides of the log can be joined by this value. Freshly minted
-    // per call rather than threaded from the originating HTTP request: several callers
-    // (BullMQ queue processors — profile extraction, resume generation, voice
-    // transcription) run with no live request in scope by the time they call this.
-    const requestId = randomUUID();
+    // BL-19: prefer the id the ORIGINATING call already carries (every BullMQ queue job
+    // this service enqueues stamps correlationId/requestId into job.data at enqueue time —
+    // profile-extraction.processor.ts, resume-generate.processor.ts and
+    // voice-transcription.service.ts all thread it down to here), so ai-service's log
+    // line can be joined not just to THIS call but back to the request that started it.
+    // Only mints a fresh, disconnected id when no ctx is available (health probes and a
+    // couple of synchronous chat paths that don't carry one yet) — still better than
+    // nothing: it lets this call's two sides of the log be joined to each other.
+    const requestId = ctx?.requestId || randomUUID();
+    const correlationId = ctx?.correlationId || requestId;
     try {
       // TD67: attach the service-level bearer when configured (the ai-service enforces
       // it on every route except /health once ITS side sets the same env var).
       const headers: Record<string, string> = {
         "content-type": "application/json",
         "x-request-id": requestId,
-        "x-correlation-id": requestId,
+        "x-correlation-id": correlationId,
       };
       if (this.config.AI_INTERNAL_TOKEN) {
         headers["x-ai-internal-token"] = this.config.AI_INTERNAL_TOKEN;

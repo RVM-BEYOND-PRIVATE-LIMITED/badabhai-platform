@@ -121,13 +121,17 @@ describe("VoiceTranscriptionProcessor", () => {
     // — the same id already sent for chat/extraction), never a name or phone.
     const { proc, ai } = make();
     await proc.process(makeJob());
-    expect(ai.transcribe).toHaveBeenCalledWith({
-      voice_note_id: JOB.voiceNoteId,
-      storage_path: JOB.storagePath,
-      duration_seconds: JOB.durationSeconds,
-      language_code: undefined,
-      worker_ref: JOB.workerId,
-    });
+    expect(ai.transcribe).toHaveBeenCalledWith(
+      {
+        voice_note_id: JOB.voiceNoteId,
+        storage_path: JOB.storagePath,
+        duration_seconds: JOB.durationSeconds,
+        language_code: undefined,
+        worker_ref: JOB.workerId,
+      },
+      // BL-19: the job's own correlation/request id, threaded to the ai-service call.
+      { correlationId: JOB.correlationId, requestId: JOB.requestId },
+    );
     // The transcription request carries refs + duration only — no PII.
     expect(JSON.stringify(ai.transcribe.mock.calls)).not.toContain("transcript");
   });
@@ -397,6 +401,8 @@ describe("VoiceTranscriptionService — the ROW owns the audio, not the payload 
         duration_seconds: 7,
         worker_ref: JOB.workerId,
       }),
+      // BL-19: the job's own correlation/request id, threaded to the ai-service call.
+      { correlationId: JOB.correlationId, requestId: JOB.requestId },
     );
   });
 
@@ -437,6 +443,7 @@ describe("transcribeNow — the voice form's synchronous leg", () => {
 
     expect(ai.transcribe).toHaveBeenCalledWith(
       expect.objectContaining({ translate_to_english: false }),
+      CTX,
     );
   });
 
@@ -449,6 +456,7 @@ describe("transcribeNow — the voice form's synchronous leg", () => {
 
     expect(ai.transcribe).toHaveBeenCalledWith(
       expect.not.objectContaining({ translate_to_english: expect.anything() }),
+      { correlationId: JOB.correlationId, requestId: JOB.requestId },
     );
   });
 
@@ -589,7 +597,12 @@ describe("STT cost recording", () => {
     // PURPOSE — putting the record after it would drop exactly this spend.
     const { proc, events } = make({
       errorCode: "stt_call_failed",
-      aiMetadata: { ...REAL_META, success: false, error_code: "stt_call_failed", estimated_cost_inr: 0.5 },
+      aiMetadata: {
+        ...REAL_META,
+        success: false,
+        error_code: "stt_call_failed",
+        estimated_cost_inr: 0.5,
+      },
     });
     await expect(proc.process(makeJob({ attemptsMade: 2, attempts: 3 }))).rejects.toThrow();
 

@@ -80,7 +80,7 @@ export class ResumeService {
     const draft = DraftProfileSchema.parse(profile.rawProfile);
 
     // The AI service receives ONLY the structured profile (no name/phone).
-    const result = await this.ai.generateResume({ profile: draft });
+    const result = await this.ai.generateResume({ profile: draft }, ctx);
 
     // THE COST RECORD, EMITTED BEFORE ANY OF THE WRITES BELOW (#745) — the same ordering
     // #738 chose for STT, for the same reason: the rupees are already spent by this line, so
@@ -254,11 +254,9 @@ export class ResumeService {
   async regenerate(resumeId: string, ctx: RequestContext) {
     const existing = await this.resumes.findById(resumeId);
     if (!existing) throw new NotFoundException(`Resume ${resumeId} not found`);
-    return this.generate(
-      { worker_id: existing.workerId, profile_id: existing.profileId },
-      ctx,
-      { forceNewVersion: true },
-    );
+    return this.generate({ worker_id: existing.workerId, profile_id: existing.profileId }, ctx, {
+      forceNewVersion: true,
+    });
   }
 
   /**

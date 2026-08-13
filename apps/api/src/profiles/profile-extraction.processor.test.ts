@@ -105,11 +105,13 @@ function make(
     // session with no OIE state, which must take the legacy transcript re-parse.
     findSession: opts.sessionThrows
       ? vi.fn().mockRejectedValue(new Error("db down"))
-      : vi.fn().mockResolvedValue(
-          "conversationState" in opts
-            ? { id: JOB.sessionId, conversationState: opts.conversationState }
-            : { id: JOB.sessionId, conversationState: null },
-        ),
+      : vi
+          .fn()
+          .mockResolvedValue(
+            "conversationState" in opts
+              ? { id: JOB.sessionId, conversationState: opts.conversationState }
+              : { id: JOB.sessionId, conversationState: null },
+          ),
   };
   // The in-flight transcript, for the early-finish path. `undefined` = no buffer (the
   // normal post-flush case, where Postgres is authoritative).
@@ -156,28 +158,26 @@ function make(
     extractInterview: vi.fn().mockResolvedValue("interview" in opts ? opts.interview : null),
     extractProfile: opts.extractThrows
       ? vi.fn().mockRejectedValue(new Error("boom"))
-      : vi
-          .fn()
-          .mockResolvedValue({
-            profile: draft,
-            blocked: opts.blocked ?? false,
-            // The ai-service sets `is_mock = not meta.real_call`, so this is TRUE for a
-            // perfectly healthy extraction whenever AI_ENABLE_REAL_CALLS=false (the
-            // committed default). Left true across the T3 cases on purpose — it is the
-            // signal profile_status must NOT be derived from.
-            is_mock: true,
-            ai_metadata: opts.aiMetadata ?? null,
-            // #745 — the canonicalization pass's embeds. `[]` (the default) reproduces a
-            // pass that never reached a provider; a populated list is N billable embeds.
-            skill_embedding_metadata: opts.skillEmbedMetadata ?? [],
-            // Issue #419 — the response has always carried the rich draft; `undefined`
-            // here reproduces an AI service that omits it entirely.
-            worker_profile_draft: opts.richDraft,
-            // `undefined` reproduces an ai-service with DOMAIN_MATCH_ENABLED off:
-            // the key is absent, which the processor must read as "did not run".
-            job_domain_match: opts.domainMatch,
-            error_code: opts.errorCode ?? null,
-          }),
+      : vi.fn().mockResolvedValue({
+          profile: draft,
+          blocked: opts.blocked ?? false,
+          // The ai-service sets `is_mock = not meta.real_call`, so this is TRUE for a
+          // perfectly healthy extraction whenever AI_ENABLE_REAL_CALLS=false (the
+          // committed default). Left true across the T3 cases on purpose — it is the
+          // signal profile_status must NOT be derived from.
+          is_mock: true,
+          ai_metadata: opts.aiMetadata ?? null,
+          // #745 — the canonicalization pass's embeds. `[]` (the default) reproduces a
+          // pass that never reached a provider; a populated list is N billable embeds.
+          skill_embedding_metadata: opts.skillEmbedMetadata ?? [],
+          // Issue #419 — the response has always carried the rich draft; `undefined`
+          // here reproduces an AI service that omits it entirely.
+          worker_profile_draft: opts.richDraft,
+          // `undefined` reproduces an ai-service with DOMAIN_MATCH_ENABLED off:
+          // the key is absent, which the processor must read as "did not run".
+          job_domain_match: opts.domainMatch,
+          error_code: opts.errorCode ?? null,
+        }),
   };
   ai.parseProfile = vi
     .fn()
@@ -220,7 +220,17 @@ function make(
     { CHAT_LLM_INTERVIEW_ENABLED: opts.llmInterview ?? false } as never,
   );
   return {
-    proc, profiles, aiJobs, chat, buffer, events, ai, workers, pii, matchSkills, skills,
+    proc,
+    profiles,
+    aiJobs,
+    chat,
+    buffer,
+    events,
+    ai,
+    workers,
+    pii,
+    matchSkills,
+    skills,
     workerAttributes,
   };
 }
@@ -242,7 +252,11 @@ describe("ProfileExtractionProcessor", () => {
     );
     // No AI metadata on the mock/AI-down path → usage columns left untouched (undefined),
     // and no ai.cost_recorded event (nothing real to record).
-    expect(aiJobs.markCompleted).toHaveBeenCalledWith(JOB.aiJobId, { profile_id: PROFILE }, undefined);
+    expect(aiJobs.markCompleted).toHaveBeenCalledWith(
+      JOB.aiJobId,
+      { profile_id: PROFILE },
+      undefined,
+    );
     expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.extraction_completed");
     const names = events.emit.mock.calls.map((c) => c[0].event_name);
     expect(names).not.toContain("ai.cost_recorded");
@@ -315,11 +329,20 @@ describe("ProfileExtractionProcessor", () => {
     expect(aiJobs.markCompleted).toHaveBeenCalledWith(
       JOB.aiJobId,
       { profile_id: PROFILE },
-      { modelName: "gpt-4o-mini", realCall: true, inputTokens: 1200, outputTokens: 300, totalTokens: 1500, costInr: 0.42 },
+      {
+        modelName: "gpt-4o-mini",
+        realCall: true,
+        inputTokens: 1200,
+        outputTokens: 300,
+        totalTokens: 1500,
+        costInr: 0.42,
+      },
     );
 
     // (2) ai.cost_recorded emitted with the same metadata (after extraction_completed).
-    const costEvent = events.emit.mock.calls.map((c) => c[0]).find((e) => e.event_name === "ai.cost_recorded");
+    const costEvent = events.emit.mock.calls
+      .map((c) => c[0])
+      .find((e) => e.event_name === "ai.cost_recorded");
     expect(costEvent).toBeDefined();
     expect(costEvent!.payload).toMatchObject({
       ai_job_id: JOB.aiJobId,
@@ -363,7 +386,9 @@ describe("ProfileExtractionProcessor", () => {
     // cost_recorded is still emitted (unchanged), AND the cap event in addition.
     const names = events.emit.mock.calls.map((c) => c[0].event_name);
     expect(names).toContain("ai.cost_recorded");
-    const capEvent = events.emit.mock.calls.map((c) => c[0]).find((e) => e.event_name === "ai.spend_cap_exceeded");
+    const capEvent = events.emit.mock.calls
+      .map((c) => c[0])
+      .find((e) => e.event_name === "ai.spend_cap_exceeded");
     expect(capEvent).toBeDefined();
     expect(capEvent!.payload).toMatchObject({
       ai_job_id: JOB.aiJobId,
@@ -418,21 +443,25 @@ describe("ProfileExtractionProcessor", () => {
     // …and every turn of the conversation reached the extraction call, in BOTH
     // shapes: the flat transcript the model reads, and the role-tagged messages
     // the AI service's deterministic detector reads.
-    expect(ai.extractProfile).toHaveBeenCalledWith({
-      worker_ref: JOB.workerId,
-      transcript: [
-        "Bada Bhai: Kaunsa kaam karte ho?",
-        "Worker: VMC operator, 5 saal",
-        "Bada Bhai: Kaunsi city me ho?",
-        "Worker: Pune me hoon",
-      ].join("\n"),
-      messages: [
-        { role: "assistant", text: "Kaunsa kaam karte ho?" },
-        { role: "worker", text: "VMC operator, 5 saal" },
-        { role: "assistant", text: "Kaunsi city me ho?" },
-        { role: "worker", text: "Pune me hoon" },
-      ],
-    });
+    expect(ai.extractProfile).toHaveBeenCalledWith(
+      {
+        worker_ref: JOB.workerId,
+        transcript: [
+          "Bada Bhai: Kaunsa kaam karte ho?",
+          "Worker: VMC operator, 5 saal",
+          "Bada Bhai: Kaunsi city me ho?",
+          "Worker: Pune me hoon",
+        ].join("\n"),
+        messages: [
+          { role: "assistant", text: "Kaunsa kaam karte ho?" },
+          { role: "worker", text: "VMC operator, 5 saal" },
+          { role: "assistant", text: "Kaunsi city me ho?" },
+          { role: "worker", text: "Pune me hoon" },
+        ],
+      },
+      // BL-19: the job's own correlation/request id, threaded to the ai-service call.
+      { requestId: JOB.requestId, correlationId: JOB.correlationId },
+    );
   });
 
   it("always sends BOTH conversation fields — never messages without transcript", async () => {
@@ -454,12 +483,15 @@ describe("ProfileExtractionProcessor", () => {
     chat.listMessages.mockResolvedValue([]);
     await proc.process(makeJob());
 
-    expect(ai.extractProfile).toHaveBeenCalledWith({
-      worker_ref: JOB.workerId,
-      // The placeholder the AI service has always received for an empty session.
-      transcript: "(no conversation captured)",
-      messages: [],
-    });
+    expect(ai.extractProfile).toHaveBeenCalledWith(
+      {
+        worker_ref: JOB.workerId,
+        // The placeholder the AI service has always received for an empty session.
+        transcript: "(no conversation captured)",
+        messages: [],
+      },
+      { requestId: JOB.requestId, correlationId: JOB.correlationId },
+    );
   });
 
   it("drops empty-bodied messages from BOTH shapes identically", async () => {
@@ -585,13 +617,17 @@ describe("ProfileExtractionProcessor — T3 profile_status follows CONTENT, not 
     try {
       const outage = make({ errorCode: "extract_service_unreachable" });
       await outage.proc.process(makeJob());
-      const outageLine = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes("NO extracted content"));
+      const outageLine = warn.mock.calls
+        .map((c) => String(c[0]))
+        .find((m) => m.includes("NO extracted content"));
       expect(outageLine).toContain("cause=extract_service_unreachable");
 
       warn.mockClear();
       const quiet = make(); // reachable, healthy, and the worker said nothing usable
       await quiet.proc.process(makeJob());
-      const quietLine = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes("NO extracted content"));
+      const quietLine = warn.mock.calls
+        .map((c) => String(c[0]))
+        .find((m) => m.includes("NO extracted content"));
       expect(quietLine).toContain("the interview itself produced nothing");
       expect(quietLine).not.toContain("cause=");
     } finally {
@@ -681,7 +717,11 @@ describe("ProfileExtractionProcessor — T3 profile_status follows CONTENT, not 
 
     expect(res).toEqual({ profile_id: PROFILE });
     expect(profiles.create).toHaveBeenCalledOnce();
-    expect(aiJobs.markCompleted).toHaveBeenCalledWith(JOB.aiJobId, { profile_id: PROFILE }, undefined);
+    expect(aiJobs.markCompleted).toHaveBeenCalledWith(
+      JOB.aiJobId,
+      { profile_id: PROFILE },
+      undefined,
+    );
     expect(aiJobs.markFailed).not.toHaveBeenCalled();
     const names = events.emit.mock.calls.map((c) => c[0].event_name);
     expect(names).toContain("profile.extraction_completed");
@@ -807,7 +847,12 @@ describe("ProfileExtractionProcessor — the job-domain match", () => {
 
   it("persists a validated match with its retrieval score", async () => {
     const { proc, profiles, skills } = make({
-      domainMatch: { status: "matched_llm", job_domain_id: "isco_7223", score: 0.82, considered: [] },
+      domainMatch: {
+        status: "matched_llm",
+        job_domain_id: "isco_7223",
+        score: 0.82,
+        considered: [],
+      },
       domainSelectable: true,
     });
     await proc.process(makeJob());
@@ -824,7 +869,12 @@ describe("ProfileExtractionProcessor — the job-domain match", () => {
     // The status is kept and the id stays NULL, so "nothing close in the catalog" is
     // distinguishable from "the AI seam was down" — different operational facts.
     const { proc, profiles, skills } = make({
-      domainMatch: { status: "unmatched_below_floor", job_domain_id: null, score: null, considered: [] },
+      domainMatch: {
+        status: "unmatched_below_floor",
+        job_domain_id: null,
+        score: null,
+        considered: [],
+      },
     });
     await proc.process(makeJob());
     expect(domainCols(profiles)).toEqual({
@@ -842,7 +892,12 @@ describe("ProfileExtractionProcessor — the job-domain match", () => {
     // and take the worker's entire extracted profile with it. A cheap SELECT means a bad
     // label costs the label.
     const { proc, profiles } = make({
-      domainMatch: { status: "matched_llm", job_domain_id: "isco_invented", score: 0.9, considered: [] },
+      domainMatch: {
+        status: "matched_llm",
+        job_domain_id: "isco_invented",
+        score: 0.9,
+        considered: [],
+      },
       domainSelectable: false,
     });
     await proc.process(makeJob());
@@ -854,7 +909,12 @@ describe("ProfileExtractionProcessor — the job-domain match", () => {
 
   it("a FAILING validation query degrades to unmatched, never throws", async () => {
     const { proc, profiles } = make({
-      domainMatch: { status: "matched_auto", job_domain_id: "isco_7223", score: 0.95, considered: [] },
+      domainMatch: {
+        status: "matched_auto",
+        job_domain_id: "isco_7223",
+        score: 0.95,
+        considered: [],
+      },
       domainCheckThrows: true,
     });
     await expect(proc.process(makeJob())).resolves.toEqual({ profile_id: PROFILE });
@@ -866,7 +926,12 @@ describe("ProfileExtractionProcessor — the job-domain match", () => {
 
   it("the match never changes profile_status — a label is not extracted content", async () => {
     const { proc, profiles } = make({
-      domainMatch: { status: "matched_llm", job_domain_id: "isco_7223", score: 0.82, considered: [] },
+      domainMatch: {
+        status: "matched_llm",
+        job_domain_id: "isco_7223",
+        score: 0.82,
+        considered: [],
+      },
     });
     await proc.process(makeJob());
     const row = profiles.create.mock.calls[0]![0] as { profileStatus: string };
@@ -991,7 +1056,11 @@ const withMap = (over: Record<string, unknown> = {}) => ({
   conversationState: {
     answer_map: [
       record(),
-      record({ question_key: "current_city", target_field: "current_city", value_normalized: "Pune" }),
+      record({
+        question_key: "current_city",
+        target_field: "current_city",
+        value_normalized: "Pune",
+      }),
       record({
         question_key: "experience_years",
         target_field: "experience_years",
@@ -1057,7 +1126,9 @@ describe("the 77% reaches worker_attributes", () => {
     await proc.process(makeJob());
 
     expect(workerAttributes.upsertMany).toHaveBeenCalledOnce();
-    const keys = rowsWritten(workerAttributes).map((r) => r.attributeKey).sort();
+    const keys = rowsWritten(workerAttributes)
+      .map((r) => r.attributeKey)
+      .sort();
     expect(keys).toEqual(["material_worked", "safety_gear", "workplace_type"]);
     // `current_city` is RFS — it goes on the profile, never here.
     expect(keys).not.toContain("current_city");
@@ -1073,13 +1144,23 @@ describe("the 77% reaches worker_attributes", () => {
     const by = (k: string) => rows.find((r) => r.attributeKey === k)!;
 
     expect(by("safety_gear")).toMatchObject({
-      valueKind: "boolean", valueBool: true, valueNumber: null, valueText: null, valueTextList: null,
+      valueKind: "boolean",
+      valueBool: true,
+      valueNumber: null,
+      valueText: null,
+      valueTextList: null,
     });
     expect(by("workplace_type")).toMatchObject({
-      valueKind: "text", valueText: "factory", valueBool: null, valueNumber: null, valueTextList: null,
+      valueKind: "text",
+      valueText: "factory",
+      valueBool: null,
+      valueNumber: null,
+      valueTextList: null,
     });
     expect(by("material_worked")).toMatchObject({
-      valueKind: "text_list", valueTextList: ["mild_steel", "stainless"], valueBool: null,
+      valueKind: "text_list",
+      valueTextList: ["mild_steel", "stainless"],
+      valueBool: null,
     });
   });
 
@@ -1102,8 +1183,13 @@ describe("the 77% reaches worker_attributes", () => {
     // unwritten with the job recorded as a success. There is no backfill runner for this table.
     const calls: string[] = [];
     const { proc, workerAttributes, aiJobs } = make(attributeMap());
-    workerAttributes.upsertMany.mockImplementation(async () => { calls.push("attributes"); return 3; });
-    aiJobs.markCompleted.mockImplementation(async () => { calls.push("markCompleted"); });
+    workerAttributes.upsertMany.mockImplementation(async () => {
+      calls.push("attributes");
+      return 3;
+    });
+    aiJobs.markCompleted.mockImplementation(async () => {
+      calls.push("markCompleted");
+    });
 
     await proc.process(makeJob());
 
@@ -1600,7 +1686,12 @@ describe("an LLM outage retries instead of completing", () => {
     // "did not throw", because a retry that silently dropped the entries would still resolve.
     const { proc, profiles, aiJobs } = make({
       ...withMap(),
-      parsed: { fields: {}, unparsed_field_ids: [], notes: ["parse_deadline_exceeded"], ai_metadata: null },
+      parsed: {
+        fields: {},
+        unparsed_field_ids: [],
+        notes: ["parse_deadline_exceeded"],
+        ai_metadata: null,
+      },
       llmInterview: true,
       messages: [
         { direction: "outbound", bodyText: "Aap kaunsa kaam karte hain?" },
@@ -1611,7 +1702,12 @@ describe("an LLM outage retries instead of completing", () => {
         role_label: "CNC operator",
         skills: ["CNC turning"],
         experiences: [
-          { role_label: "CNC operator", duration_text: "3 saal", duration_months: 36, work_done: "parts banaye" },
+          {
+            role_label: "CNC operator",
+            duration_text: "3 saal",
+            duration_months: 36,
+            work_done: "parts banaye",
+          },
         ],
         shift: null,
         current_city: null,
@@ -1855,7 +1951,12 @@ describe("the interview overlay (Phase C)", () => {
   it("still writes a profile when the interview call is unreachable", async () => {
     // FAIL CLOSED (§3): the answer map alone is already a usable profile, and an overlay that
     // could not be fetched must cost the overlay and nothing else.
-    const { proc, profiles } = make({ ...withMap(), messages: CHAT, llmInterview: true, interview: null });
+    const { proc, profiles } = make({
+      ...withMap(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: null,
+    });
     await proc.process(makeJob());
     expect(profiles.create).toHaveBeenCalledOnce();
     expect(rawOf(profiles).experiences).toEqual([]);
@@ -2030,7 +2131,10 @@ describe("the interview overlay (Phase C)", () => {
     });
     await proc.process(makeJob());
     expect(profiles.create).toHaveBeenCalledOnce();
-    expect(rawOf(profiles).availability).toEqual({ status: "notice_period", notice_period_days: 30 });
+    expect(rawOf(profiles).availability).toEqual({
+      status: "notice_period",
+      notice_period_days: 30,
+    });
   });
 
   it("yields to the deterministic status on an availability value it does not know", async () => {
