@@ -109,7 +109,7 @@ export const profilingFamilies = pgTable(
     check("profiling_family_version_chk", sql`${t.version} >= 1`),
     index("profiling_family_status_idx").on(t.status),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ===========================================================================
 // profiling_family_binding — how a family claims part of the occupation tree
@@ -202,7 +202,7 @@ export const profilingFamilyBindings = pgTable(
     // orchestrator performs on every pinned occupation.
     index("pfb_specificity_idx").on(t.specificity),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ===========================================================================
 // question_pack — the versioned container
@@ -255,7 +255,7 @@ export const questionPacks = pgTable(
       .where(sql`${t.status} = 'active'`),
     index("question_pack_family_idx").on(t.familyId),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ===========================================================================
 // question_pack_item — the question
@@ -350,7 +350,7 @@ export const questionPackItems = pgTable(
       sql`${t.minTurn} IS NULL OR ${t.maxTurn} IS NULL OR ${t.minTurn} <= ${t.maxTurn}`,
     ),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ===========================================================================
 // question_pack_option — the chips
@@ -395,4 +395,4 @@ export const questionPackOptions = pgTable(
     check("qpo_option_key_chk", sql`${t.optionKey} ~ '^[a-z0-9_]+$'`),
     check("qpo_display_order_chk", sql`${t.displayOrder} >= 0`),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)

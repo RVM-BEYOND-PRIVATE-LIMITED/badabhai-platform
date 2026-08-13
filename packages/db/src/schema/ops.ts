@@ -107,7 +107,7 @@ export const events = pgTable(
     // (NULLS DISTINCT — Postgres default). See `idempotencyKey` above.
     uniqueIndex("events_idempotency_key_uq").on(t.idempotencyKey),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ---------------------------------------------------------------------------
 // ai_jobs — async AI work tracking (refs only, never raw PII)
@@ -183,7 +183,7 @@ export const aiJobs = pgTable(
       )
       .where(sql`${t.jobType} = 'profile_extraction'`),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ---------------------------------------------------------------------------
 // audit_logs — who did what (no raw PII; reference ids only)
@@ -201,7 +201,7 @@ export const auditLogs = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("audit_logs_entity_idx").on(t.entityType, t.entityId)],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ---------------------------------------------------------------------------
 // pace_states — per-job PACE supply-widening run state (ADR-0021). PII-FREE.

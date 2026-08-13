@@ -72,7 +72,7 @@ export const chatSessions = pgTable(
       sql`(${t.packId} IS NULL AND ${t.packVersion} IS NULL) OR (${t.packId} IS NOT NULL AND ${t.packVersion} IS NOT NULL AND ${t.packVersion} >= 1)`,
     ),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ---------------------------------------------------------------------------
 // voice_notes — declared before chat_messages (FK target)
@@ -114,7 +114,7 @@ export const voiceNotes = pgTable(
     // cannot run inside one, so this is the cheapest this index will ever be.
     index("voice_notes_created_at_idx").on(t.createdAt),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ---------------------------------------------------------------------------
 // chat_messages
@@ -154,5 +154,5 @@ export const chatMessages = pgTable(
     // 0.17 ms. The column is NOT NULL, so this changes no result — only the plan.
     index("chat_messages_session_created_idx").on(t.sessionId, t.createdAt.desc().nullsFirst()),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
