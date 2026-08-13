@@ -728,7 +728,11 @@ class ResumeProfile(BaseModel):
     # set and translating here would break the diff-against-the-trace property. The renderer
     # humanises it at the edge, which is where a presentation concern belongs.
     availability: str | None = None
-    expected_salary: float | None = None
+    # `ge=0` matches the TypeScript mirror's `z.number().nonnegative()`
+    # (packages/ai-contracts/src/profile.ts ResumeProfileSchema.expected_salary) — a
+    # negative value fails closed at validation, before it can ever reach the résumé's
+    # ":.0f" print statement. No upper bound: the TS side has none either.
+    expected_salary: float | None = Field(default=None, ge=0)
 
 
 class DraftProfile(BaseModel):

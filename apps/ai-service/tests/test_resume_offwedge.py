@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import hashlib
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.contracts import DraftProfile, Experience
 from app.extraction import build_resume
@@ -620,3 +622,73 @@ def test_a_deterministic_profile_gains_nothing_and_loses_nothing():
     assert "Availability:" not in text
     assert "Expected salary:" not in text
     assert "Role: VMC Operator" in text and "Experience: 5 years" in text
+
+
+# --- review finding (code-reviewer, MEDIUM): `expected_salary:g` scientific notation ---
+#
+# `:g` switches to scientific notation at ~1e6 ("1200000" -> "1.2e+06") on a document the
+# worker personally carries — a plausible failure mode if extraction confuses an annual CTC
+# figure for a monthly one. `:.0f` is fixed-point at ANY magnitude and never goes exponential.
+
+
+def test_seven_figure_salary_never_prints_scientific_notation():
+    text, _ = build_resume(_container_profile(expected_salary=1_000_000))
+    assert "e+" not in text
+    assert "Expected salary: 1000000 per month" in text
+
+
+def test_a_larger_seven_figure_salary_also_stays_plain():
+    text, _ = build_resume(_container_profile(expected_salary=1_200_000))
+    assert "e+" not in text
+    assert "Expected salary: 1200000 per month" in text
+
+
+def test_the_existing_five_figure_salary_case_still_passes():
+    text, _ = build_resume(_container_profile(expected_salary=22000))
+    assert "Expected salary: 22000 per month" in text
+
+
+def test_negative_expected_salary_fails_closed_at_the_contract():
+    # The Pydantic ge=0 constraint mirrors the Zod `z.number().nonnegative()`
+    # (packages/ai-contracts/src/profile.ts ResumeProfileSchema.expected_salary) — a
+    # negative value must never reach the print statement at all.
+    with pytest.raises(ValidationError):
+        _container_profile(expected_salary=-500)
+
+
+# --- review finding (security-engineer, MEDIUM): `shift` was never pseudonymize-gated ---
+#
+# `/profiling/extract` (routers/profiling.py) re-certifies `experiences[]` and `skills`
+# against the pseudonymizer before they can reach `resume_profile`; `shift` (and every other
+# scalar field on the container) passed through with no such gate, so a model's raw fallback
+# text for an unrecognised shift value could reach the worker's résumé verbatim.
+
+
+def test_a_blocked_shift_value_never_appears_verbatim_on_the_resume():
+    # An 8-digit out-of-range run trips the fail-closed residual-digit block, same shape
+    # used elsewhere in this file (e.g. "welding grade 12345678").
+    from app.pseudonymize import pseudonymize
+
+    bad_shift = "night shift 12345678"
+    assert pseudonymize(bad_shift).blocked is True  # honest precondition
+
+    text, _ = build_resume(_container_profile(shift=bad_shift, availability=None))
+    assert bad_shift not in text
+    assert "12345678" not in text
+    # Shift alone would normally be enough to print the line (see
+    # test_shift_alone_still_prints_the_availability_line) — a blocked shift with no
+    # availability phrase means NO line at all, not a crash and not raw fallback text.
+    assert "Availability:" not in text
+
+
+def test_a_blocked_shift_is_dropped_but_the_availability_phrase_still_prints():
+    from app.pseudonymize import pseudonymize
+
+    bad_shift = "night shift 12345678"
+    assert pseudonymize(bad_shift).blocked is True  # honest precondition
+
+    # _container_profile's default availability is "15_days".
+    text, _ = build_resume(_container_profile(shift=bad_shift))
+    assert "12345678" not in text
+    assert bad_shift not in text
+    assert "Availability: Available in 15 days" in text
