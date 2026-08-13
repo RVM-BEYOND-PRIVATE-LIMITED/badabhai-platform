@@ -22,7 +22,7 @@ R32). Nothing in either batch's findings suggests any of these need touching.
 Substantially executed by this audit itself (24 of 24 planned documents now shipped across both
 batches). Remaining items:
 - BL-4 (`infra/monitoring/README.md` stale re: Langfuse)
-- BL-14 (`docs/legal-later` dead reference, R38)
+- BL-14 (`docs/legal-later` dead reference, R39)
 - BL-15 (`db:score:wedge` script alias)
 - BL-20 (recreate `docs/rollback-guide.md` + 8 sibling runbooks — P1, an active deploy job cites
   the rollback guide today)

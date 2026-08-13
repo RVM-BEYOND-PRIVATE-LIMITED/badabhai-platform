@@ -55,11 +55,11 @@ confirmed dead in application code but deliberately retained pending an ADR
 **One item needs attention before anything else**: a CI workflow (`staging-demand-verify.yml`)
 shares the production database secret and its guard doesn't actually stop a re-run against it —
 already ran once, could run again today ([12_CICD_AUDIT.md](12_CICD_AUDIT.md) F4,
-[24_RISK_REGISTER.md](24_RISK_REGISTER.md) R41). Everything else found is Medium or lower: a
-CI gate silently disabled at the platform level for a month (R42), the platform's core user
-journey not executing in CI (R43), an unforwarded correlation id across the AI service boundary
-that makes incident response harder than it needs to be (R44), and 9 operational runbooks cited
-by live code that don't exist (R45). No Critical or High security finding across either batch —
+[24_RISK_REGISTER.md](24_RISK_REGISTER.md) R42). Everything else found is Medium or lower: a
+CI gate silently disabled at the platform level for a month (R43), the platform's core user
+journey not executing in CI (R44), an unforwarded correlation id across the AI service boundary
+that makes incident response harder than it needs to be (R45), and 9 operational runbooks cited
+by live code that don't exist (R46). No Critical or High security finding across either batch —
 full detail: [15_SECURITY_AUDIT.md](15_SECURITY_AUDIT.md), [24_RISK_REGISTER.md](24_RISK_REGISTER.md).
 
 ## What is broken?
