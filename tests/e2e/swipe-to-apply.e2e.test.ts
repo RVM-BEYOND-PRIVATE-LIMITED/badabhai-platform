@@ -145,10 +145,13 @@ describe.skipIf(!RUN)("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
     expect(items.length).toBeLessThanOrEqual(5);
 
     // Coarse shape only: job_id/trade_key/title/city/area/rank + the job's
-    // experience window — and rank is 1-based. The window is year counts, which
-    // the schema classes PII-FREE alongside pay bands (never an employer, never
-    // a worker identity); it backs the Jobs-tab Experience filter (ADR-0024
-    // addendum 2026-07-15). Still NO employer and NO pay on this path.
+    // experience window, pay band and shift — and rank is 1-based. BL-18: this
+    // list was stale (pay_min/pay_max/shift are current match-feed.service.ts
+    // fields, MatchFeedItem, added after this test was last updated and never
+    // caught because the test never ran). Still PII-FREE: pay_min/pay_max are
+    // a RANGE (never an exact figure a worker gave), never an employer name,
+    // never a worker identity — the schema classes them alongside the
+    // experience window (ADR-0024 addendum 2026-07-15).
     items.forEach((item, i) => {
       expect(Object.keys(item).sort()).toEqual(
         [
@@ -157,7 +160,10 @@ describe.skipIf(!RUN)("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
           "job_id",
           "max_experience_years",
           "min_experience_years",
+          "pay_max",
+          "pay_min",
           "rank",
+          "shift",
           "title",
           "trade_key",
         ].sort(),
