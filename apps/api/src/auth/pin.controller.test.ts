@@ -25,7 +25,12 @@ function make() {
     resetConfirm: vi.fn(async () => undefined),
   };
   const ipRateLimit = { assertWithinHourlyIpCap: vi.fn(async () => undefined) };
-  const config = { OTP_MAX_SENDS_PER_HOUR: 5 } as ServerConfig;
+  // Distinct values: the per-IP limiter must read the per-IP knob, never the per-phone
+  // SMS budget. Equal numbers would hide that regression (see auth.controller.test.ts).
+  const config = {
+    OTP_MAX_SENDS_PER_HOUR: 5,
+    OTP_MAX_SENDS_PER_IP_PER_HOUR: 20,
+  } as ServerConfig;
   const controller = new PinController(
     pin as unknown as PinService,
     ipRateLimit as unknown as IpRateLimit,
@@ -41,7 +46,7 @@ describe("PinController.resetRequest — per-IP cap (security Finding 2)", () =>
   it("applies the per-IP hourly cap FIRST (shared otp_request scope + config cap), then sends", async () => {
     const { controller, pin, ipRateLimit } = make();
     const res = await controller.resetRequest({ phone: PHONE } as never, reqWith(), CTX);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "1.2.3.4", 5);
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "1.2.3.4", 20);
     expect(pin.resetRequest).toHaveBeenCalledWith(PHONE, CTX);
     expect(res).toEqual({ success: true });
   });
@@ -61,6 +66,6 @@ describe("PinController.resetRequest — per-IP cap (security Finding 2)", () =>
   it('a missing req.ip falls back to "unknown" (still capped, fails closed)', async () => {
     const { controller, ipRateLimit } = make();
     await controller.resetRequest({ phone: PHONE } as never, reqWith({ ip: undefined }), CTX);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "unknown", 5);
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "unknown", 20);
   });
 });

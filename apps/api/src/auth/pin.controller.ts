@@ -83,10 +83,15 @@ export class PinController {
     // Per-IP hourly cap BEFORE the send — the SAME backstop auth.controller requestOtp uses,
     // sharing the "otp_request" scope so PIN-reset + login draw from ONE per-IP SMS budget.
     // Fails closed (429) if Redis is down. (Finding 2: this path bypassed the per-IP cap.)
+    //
+    // MUST stay the same knob as auth.controller's requestOtp. The cap is an ARGUMENT, not a
+    // property of the bucket, so two call sites on one scope passing different numbers means
+    // the effective limit depends on which route you happen to hit — a limiter whose ceiling
+    // moves under you. They share a bucket, so they share OTP_MAX_SENDS_PER_IP_PER_HOUR.
     await this.ipRateLimit.assertWithinHourlyIpCap(
       "otp_request",
       req.ip ?? "unknown",
-      this.config.OTP_MAX_SENDS_PER_HOUR,
+      this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
     );
     await this.pin.resetRequest(dto.phone, ctx);
     return { success: true };

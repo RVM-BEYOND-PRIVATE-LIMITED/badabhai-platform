@@ -79,7 +79,15 @@ function make() {
     cancel: vi.fn(async () => ({ cancelled: true })),
   };
   const consents = { findLatestByWorker: vi.fn(async () => undefined) };
-  const config = { OTP_MAX_SENDS_PER_HOUR: 5, TEST_LOGIN_MAX_PER_DAY: 200 } as ServerConfig;
+  // The two caps carry DIFFERENT values here on purpose. They are different questions —
+  // a per-phone SMS budget vs a per-network abuse backstop — and the controller passing
+  // the per-phone one to the per-IP limiter is the defect these values expose. Equal
+  // numbers would let that regression pass unnoticed.
+  const config = {
+    OTP_MAX_SENDS_PER_HOUR: 5,
+    OTP_MAX_SENDS_PER_IP_PER_HOUR: 20,
+    TEST_LOGIN_MAX_PER_DAY: 200,
+  } as ServerConfig;
   const controller = new AuthController(
     auth as unknown as AuthService,
     sessions as unknown as SessionService,
@@ -91,7 +99,18 @@ function make() {
     consents as unknown as ConsentRepository,
     config,
   );
-  return { controller, auth, sessions, workers, ipRateLimit, otp, pii, accountDeletion, consents };
+  return {
+    controller,
+    auth,
+    sessions,
+    workers,
+    ipRateLimit,
+    otp,
+    pii,
+    accountDeletion,
+    consents,
+    config,
+  };
 }
 
 const reqWith = (overrides: Partial<Request> = {}): Request =>
@@ -141,8 +160,23 @@ describe("AuthController", () => {
   it("requestOtp applies the per-IP cap FIRST, then delegates the phone", async () => {
     const { controller, auth, ipRateLimit } = make();
     await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "1.2.3.4", 5);
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "1.2.3.4", 20);
     expect(auth.requestOtp).toHaveBeenCalledWith("+91999", CTX);
+  });
+
+  it("the per-IP cap is the per-IP knob — NEVER the per-phone SMS budget", async () => {
+    // THE REGRESSION THIS LOCKS. The controller passed OTP_MAX_SENDS_PER_HOUR (5) here: a
+    // per-PHONE budget sized against paid SMS spend, silently reused as a per-NETWORK one.
+    // With no reverse proxy in the shipped topology `req.ip` is the NAT egress address, so
+    // that made one office wifi — or one carrier CGNAT pool fronting thousands of Jio /
+    // Airtel subscribers — worth five sign-ins an hour IN TOTAL, and the 429 a locked-out
+    // worker saw was indistinguishable from the platform being down.
+    const { controller, ipRateLimit, config } = make();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
+    const cap = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock
+      .calls[0]![2];
+    expect(cap).toBe(config.OTP_MAX_SENDS_PER_IP_PER_HOUR);
+    expect(cap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
   });
 
   it("requestOtp cap rejection blocks the send", async () => {
@@ -210,7 +244,7 @@ describe("AuthController", () => {
   it("testLogin applies BOTH caps (per-IP hour + global day) BEFORE delegating to the mint seam", async () => {
     const { controller, auth, ipRateLimit } = make();
     await controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("test_login", "1.2.3.4", 5);
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("test_login", "1.2.3.4", 20);
     // Review L1 — the IP-INDEPENDENT backstop: a token holder rotating IPs is still bounded.
     expect(ipRateLimit.assertWithinGlobalDailyCap).toHaveBeenCalledWith("test_login", 200);
     expect(auth.testLogin).toHaveBeenCalledWith(SYNTHETIC_PHONE, CTX);
