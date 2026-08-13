@@ -11,6 +11,7 @@
 export * from "./types";
 export { safeParseCatalog, parseCatalog, type CatalogLoadResult } from "./catalog";
 export { DEFAULT_CATALOG } from "./defaults";
+export { formatInr } from "./format";
 export {
   resolvePrice,
   type Quote,

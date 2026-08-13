@@ -63,6 +63,9 @@ importers:
 
   apps/admin-web:
     dependencies:
+      '@badabhai/pricing':
+        specifier: workspace:*
+        version: link:../../packages/pricing
       next:
         specifier: ^15.5.21
         version: 15.5.22(@types/node@22.19.20)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -222,6 +225,9 @@ importers:
       '@badabhai/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@badabhai/pricing':
+        specifier: workspace:*
+        version: link:../../packages/pricing
       '@badabhai/types':
         specifier: workspace:*
         version: link:../../packages/types
