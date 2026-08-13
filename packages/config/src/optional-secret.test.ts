@@ -56,4 +56,41 @@ describe("optional secrets: empty string means unset, and only that", () => {
   it("STILL REJECTS whitespace, which is a typo rather than an unset variable", () => {
     expect(() => loadServerConfig({ SUPABASE_URL: " " })).toThrow();
   });
+
+  /**
+   * #813/#814/#819 — the second-order shape of the same bug. `ZEPTOMAIL_API_URL` was
+   * declared NOWHERE in the compose/CI deploy pipeline (a different bug, fixed
+   * separately), so this exact crash was latent, not yet triggered, on the deployed
+   * box — but wiring it through as the same `${VAR:-}` pass-through its siblings
+   * already use would have handed the parse an empty string the moment any single
+   * one of the four was unset, taking the ENTIRE API down before any request-level
+   * boot guard (`assertPayerAuthConfig`) ever got a chance to degrade gracefully
+   * instead. `ZEPTOMAIL_API_TOKEN`/`ZEPTOMAIL_MAIL_AGENT`/`EMAIL_FROM_ADDRESS` had
+   * carried the identical un-guarded shape since before this file existed.
+   */
+  it("ZEPTOMAIL_API_URL='' parses and reads as not-configured", () => {
+    const config = loadServerConfig({ ZEPTOMAIL_API_URL: "" });
+    expect(config.ZEPTOMAIL_API_URL).toBeUndefined();
+  });
+
+  it("all four ZeptoMail/email fields empty together still boot — the compose pass-through shape", () => {
+    const config = loadServerConfig({
+      ZEPTOMAIL_API_URL: "",
+      ZEPTOMAIL_API_TOKEN: "",
+      ZEPTOMAIL_MAIL_AGENT: "",
+      EMAIL_FROM_ADDRESS: "",
+    });
+    expect(config.ZEPTOMAIL_API_URL).toBeUndefined();
+    expect(config.ZEPTOMAIL_API_TOKEN).toBeUndefined();
+    expect(config.ZEPTOMAIL_MAIL_AGENT).toBeUndefined();
+    expect(config.EMAIL_FROM_ADDRESS).toBeUndefined();
+  });
+
+  it("a real ZEPTOMAIL_API_URL still parses, and a malformed one is still rejected", () => {
+    expect(
+      loadServerConfig({ ZEPTOMAIL_API_URL: "https://api.zeptomail.in/v1.1/email" })
+        .ZEPTOMAIL_API_URL,
+    ).toBe("https://api.zeptomail.in/v1.1/email");
+    expect(() => loadServerConfig({ ZEPTOMAIL_API_URL: "not-a-url" })).toThrow();
+  });
 });

@@ -106,6 +106,17 @@ services:
       # required-secret set even for a box that intentionally runs SMTP instead. Passing
       # through and letting the app enforce it keeps one source of truth.
       EMAIL_PROVIDER: ${EMAIL_PROVIDER:-zeptomail}
+      # #813 — THIS LINE WAS MISSING ENTIRELY, the same defect as WORKER_PHOTOS_BUCKET
+      # (#794) and CHAT_LLM_INTERVIEW_ENABLED (#798): compose forwards ONLY the names a
+      # service's `environment:` block declares, so exporting ZEPTOMAIL_API_URL on the box
+      # (or via the CI secrets bridge) had NO path into the container — `sendViaZeptoMail`
+      # requires it (`if (!apiUrl || ...) throw new EmailRejectedError(...)`), so it threw on
+      # every single real send, was caught, and `payer-otp.service`'s anti-enumeration
+      # neutralization turned it into a `code_sent` 200 with nothing ever delivered. The
+      # #815 sandbox-override fix alone could not have closed this: it makes the box ATTEMPT
+      # real delivery instead of silently sandboxing, but the attempt was failing closed on
+      # this line the entire time, on every box, sandbox or not.
+      ZEPTOMAIL_API_URL: ${ZEPTOMAIL_API_URL:-}
       ZEPTOMAIL_API_TOKEN: ${ZEPTOMAIL_API_TOKEN:-}
       ZEPTOMAIL_MAIL_AGENT: ${ZEPTOMAIL_MAIL_AGENT:-}
       ZEPTOMAIL_SANDBOX_MODE: ${ZEPTOMAIL_SANDBOX_MODE:-false}
