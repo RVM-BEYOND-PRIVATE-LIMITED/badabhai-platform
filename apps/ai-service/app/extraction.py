@@ -97,6 +97,33 @@ def _role_line(canonical_id: str | None, label: str | None) -> str | None:
     return collapsed or None
 
 
+def _first(*candidates: str | None) -> str | None:
+    """The first candidate that carries text, or None.
+
+    The container leads and the legacy field follows. A blank/whitespace string counts as
+    ABSENT, not as an answer: `ResumeProfileSchema` accepts `""`, and letting one win would
+    print an empty line where the legacy field had the real value.
+    """
+    for candidate in candidates:
+        if candidate and candidate.strip():
+            return candidate
+    return None
+
+
+def _clean_list(items: list[str]) -> list[str]:
+    """Trimmed entries with the blanks dropped, each collapsed to one line.
+
+    The schema accepts `""` and the app parses this text as `Label: value`, so an untrimmed
+    entry prints an empty item and an embedded newline forges a field row.
+    """
+    out: list[str] = []
+    for item in items:
+        cleaned = " ".join(item.split()) if item else ""
+        if cleaned:
+            out.append(cleaned)
+    return out
+
+
 def _work_history_lines(profile: DraftProfile) -> list[str]:
     """The interview's work history, one printable line per job.
 
@@ -155,8 +182,18 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     this builder renders whatever filtered profile it is handed, and still
     degrades to "(to be confirmed)" when both ids and labels are empty.
     """
-    role = _role_line(profile.canonical_role_id, profile.role_label)
-    trade = _role_line(profile.canonical_trade_id, profile.domain_label)
+    container = profile.resume_profile
+    # THE CONTAINER IS THE SOURCE OF TRUTH FOR THE NINE KEYS IT CARRIES, and the legacy field
+    # behind each one is the fallback for a profile that has no container — every
+    # deterministic-pack row, and everything written before the interview shipped
+    # (invariant #8). Reading the legacy field FIRST was the bug: `toExtractionOutput` happens
+    # to write both today, so it looked correct, but a profile whose record is the container
+    # alone printed "(to be confirmed)" for its role, its trade and all seventeen of its
+    # skills while the PDF — which reads the container — printed every one of them.
+    role_label = _first(container and container.role_label, profile.role_label)
+    domain_label = _first(container and container.domain_label, profile.domain_label)
+    role = _role_line(profile.canonical_role_id, role_label)
+    trade = _role_line(profile.canonical_trade_id, domain_label)
     lines = ["WORKER PROFILE (DRAFT)", ""]
     lines.append(f"Role: {role or '(to be confirmed)'}")
     lines.append(f"Trade: {trade or '(to be confirmed)'}")
@@ -164,7 +201,13 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
         lines.append(f"Experience: {profile.experience.total_years:g} years")
     machines = [label_for_id(m) for m in profile.machines]
     lines.append("Machines: " + (", ".join(machines) if machines else "(to be confirmed)"))
-    skills = _skills_entries(profile)
+    # The model's own list when it produced one. NOT merged with the id-derived names: the
+    # container's rule is no merge, no precedence, no derivation, so where it speaks it speaks
+    # alone and the résumé can still be diffed against the trace.
+    if container and container.skills:
+        skills = _clean_list(container.skills)
+    else:
+        skills = _skills_entries(profile)
     lines.append("Skills: " + (", ".join(skills) if skills else "(to be confirmed)"))
     # THE WORK HISTORY, directly under the headline facts and above the qualifications —
     # for an industrial or skilled-trade résumé it is the most important thing on the page
@@ -189,11 +232,19 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     # worker's CURRENT city was rendered under "Preferred locations:" — a claim they
     # never made. Emitted only when present, so a worker who stated no preference
     # produces no "Preferred locations" line at all rather than an invented one.
-    if profile.location_preference.current_city:
-        lines.append(f"Current location: {profile.location_preference.current_city}")
-    if profile.location_preference.preferred_cities:
-        cities = ", ".join(profile.location_preference.preferred_cities)
-        lines.append(f"Preferred locations: {cities}")
+    # Container first, for the same reason as the role and the trade above.
+    current_city = _first(
+        container and container.current_city, profile.location_preference.current_city
+    )
+    if current_city:
+        lines.append(f"Current location: {' '.join(current_city.split())}")
+    preferred = (
+        _clean_list(container.preferred_locations)
+        if container and container.preferred_locations
+        else list(profile.location_preference.preferred_cities)
+    )
+    if preferred:
+        lines.append("Preferred locations: " + ", ".join(preferred))
     # AVAILABILITY, which the v3 PDF prints and this text never did. The two vocabularies do
     # not overlap on two of five values — `extract_system_prompt` asks the model for
     # `15_days`/`1_month`, `AvailabilitySchema.status` accepts neither — so the humanising
