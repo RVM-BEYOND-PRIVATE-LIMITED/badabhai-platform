@@ -493,3 +493,130 @@ def test_deterministic_profile_is_untouched_by_the_label_arm():
     text, _ = build_resume(_launch_role_profile())
     assert "Role: VMC Operator" in text
     assert "Trade: CNC Machining" in text
+
+
+# --- the résumé container reaches the TEXT résumé, not just the PDF ----------------
+#
+# `experiences[]` is the one thing no pack question can produce, and it reached this résumé
+# by NO ROUTE AT ALL: the TypeScript DraftProfileSchema carries a top-level `experiences`,
+# this Pydantic model does not, so that array is dropped at the wire — and `build_resume`
+# never read `resume_profile`. The v3 PDF templates have rendered work history since they
+# shipped, so one worker's two surfaces disagreed about whether they had ever worked.
+
+
+def _job(role: str, duration: str = "", months: int | None = None, work: str = "") -> dict:
+    """One `ExperienceEntry` payload, so the cases below read as the case they test."""
+    return {
+        "role_label": role,
+        "duration_text": duration,
+        "duration_months": months,
+        "work_done": work,
+    }
+
+
+def _container_profile(**over) -> DraftProfile:
+    rp = {
+        "role_label": "tandoor cook",
+        "domain_label": "catering",
+        "skills": ["tandoor", "naan"],
+        "experiences": [
+            {
+                "role_label": "Tandoor Cook",
+                "duration_text": "3 saal",
+                "duration_months": 36,
+                "work_done": "naan, roti",
+            }
+        ],
+        "current_city": "Delhi",
+        "preferred_locations": ["Pune"],
+        "availability": "15_days",
+        "expected_salary": 22000,
+        "shift": "night",
+    }
+    rp.update(over)
+    return DraftProfile.model_validate(
+        {"role_label": "tandoor cook", "domain_label": "catering", "resume_profile": rp}
+    )
+
+
+def test_work_history_reaches_the_text_resume():
+    text, _ = build_resume(_container_profile())
+    assert "Work history: Tandoor Cook — 3 saal — naan, roti" in text
+
+
+def test_every_job_gets_its_own_line():
+    profile = _container_profile(
+        experiences=[
+            _job("Cook", "3 saal", 36, "naan"),
+            _job("Helper", "1 saal", 12, "prep"),
+        ]
+    )
+    text, _ = build_resume(profile)
+    assert len([ln for ln in text.splitlines() if ln.startswith("Work history:")]) == 2
+
+
+def test_the_workers_own_words_are_kept_for_the_duration():
+    # "42 months" is a normalization of "3.5 saal"; printing it trades their voice for a
+    # number they never used.
+    text, _ = build_resume(
+        _container_profile(
+            experiences=[
+                _job("Cook", "3.5 saal", 42)
+            ]
+        )
+    )
+    assert "3.5 saal" in text and "42" not in text
+
+
+def test_a_job_with_a_blank_role_is_skipped_never_printed_as_an_empty_bullet():
+    # `ExperienceEntrySchema.role_label` is `min_length=1`, so "" cannot cross the contract —
+    # but a single space CAN, and it would print "Work history:  — 3 saal", a job entry with
+    # no job in it. Collapsing to "" and skipping is the honest outcome (§11).
+    text, _ = build_resume(
+        _container_profile(
+            experiences=[_job(" ", "3 saal", 36, "x")]
+        )
+    )
+    assert "Work history:" not in text
+
+
+def test_a_newline_in_model_text_cannot_forge_a_field_row():
+    # The worker app parses this as `Label: value` and folds a whitespace-led line into the
+    # PREVIOUS entry, so an unclamped newline would invent a row on the worker's résumé.
+    text, _ = build_resume(
+        _container_profile(
+            experiences=[_job("Cook\nSkills: everything", "3 saal", 36)]
+        )
+    )
+    assert "Work history: Cook Skills: everything — 3 saal" in text
+    assert len([ln for ln in text.splitlines() if ln.startswith("Skills:")]) == 1
+
+
+def test_availability_and_salary_reach_the_text_resume():
+    # Both print on the v3 PDF and neither ever printed here. The model's vocabulary
+    # (`15_days`) is not the schema enum's, so the humanising has to know both sets.
+    text, _ = build_resume(_container_profile())
+    assert "Availability: Available in 15 days · Night shift" in text
+    assert "Expected salary: 22000 per month" in text
+
+
+def test_shift_alone_still_prints_the_availability_line():
+    text, _ = build_resume(_container_profile(availability=None, shift="night"))
+    assert "Availability: Night shift" in text
+
+
+def test_not_looking_is_deliberately_unprintable():
+    # A résumé exists to be shown to employers; stamping it with a line that discourages
+    # them serves nobody.
+    text, _ = build_resume(_container_profile(availability="not_looking", shift=None))
+    assert "Availability:" not in text
+
+
+def test_a_deterministic_profile_gains_nothing_and_loses_nothing():
+    # INVARIANT #8. No container → no work-history, availability or salary line, and the
+    # rest renders byte-identically to what it did before the container was read here.
+    text, _ = build_resume(_launch_role_profile())
+    assert "Work history:" not in text
+    assert "Availability:" not in text
+    assert "Expected salary:" not in text
+    assert "Role: VMC Operator" in text and "Experience: 5 years" in text

@@ -96,6 +96,55 @@ def _role_line(canonical_id: str | None, label: str | None) -> str | None:
     return collapsed or None
 
 
+def _work_history_lines(profile: DraftProfile) -> list[str]:
+    """The interview's work history, one printable line per job.
+
+    THE ONE THING NO PACK QUESTION CAN PRODUCE, and until now it reached this résumé by NO
+    ROUTE AT ALL. A pack asks its fixed question once, so a worker with three jobs has three
+    answers to "what did you do" and the answer map has room for one — the list exists only
+    because the LLM-led interview reads the whole conversation.
+
+    IT ARRIVES ONLY INSIDE ``resume_profile``. The TypeScript ``DraftProfileSchema`` also
+    carries a top-level ``experiences``, but this Pydantic model does not, so that array is
+    dropped on validation at the wire (a §7 parity gap, recorded here rather than papered over
+    with a duplicate field the two shapes could then disagree on). The container is the
+    interview's own record and is the right carrier; this reads THAT.
+
+    The PDF has rendered this since the v3 templates shipped. The in-app card never has — so
+    one worker, one interview, and the two surfaces disagreed about whether they had ever
+    worked. This closes that.
+
+    ONE LINE PER JOB, and each collapsed to a single line: the worker app parses this text as
+    ``Label: value`` and folds a whitespace-led line into the PREVIOUS entry, so a newline in
+    model free text would forge a field row. A repeated ``Work history`` label is fine — the
+    app keeps every entry carrying a label rather than the last one.
+
+    NEVER FABRICATED: a job with no role name is skipped rather than printed as a blank bullet,
+    and the duration/description clauses appear only when the model actually recorded them.
+    """
+    container = profile.resume_profile
+    if container is None:
+        return []
+    lines: list[str] = []
+    for entry in container.experiences:
+        role = " ".join(entry.role_label.split()) if entry.role_label else ""
+        if not role:
+            continue
+        # The worker's OWN words for the duration ("3.5 saal"); the month count is a
+        # normalization of it and printing "42 months" trades their voice for a number they
+        # never used. `duration_months` is nullable precisely because "kuch saal" is a real
+        # answer, so nothing is derived when the text is absent.
+        parts = [role]
+        duration = " ".join(entry.duration_text.split()) if entry.duration_text else ""
+        if duration:
+            parts.append(duration)
+        work = " ".join(entry.work_done.split()) if entry.work_done else ""
+        if work:
+            parts.append(work)
+        lines.append("Work history: " + " — ".join(parts))
+    return lines
+
+
 def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     """Build a simple, name-less text resume from a structured profile.
 
@@ -116,6 +165,12 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     lines.append("Machines: " + (", ".join(machines) if machines else "(to be confirmed)"))
     skills = _skills_entries(profile)
     lines.append("Skills: " + (", ".join(skills) if skills else "(to be confirmed)"))
+    # THE WORK HISTORY, directly under the headline facts and above the qualifications —
+    # for an industrial or skilled-trade résumé it is the most important thing on the page
+    # after the name and the role, which is the order the v3 PDF templates already use.
+    # Emitted only when the interview recorded jobs, so a deterministic-only profile prints
+    # no heading for a section it has nothing to put in.
+    lines.extend(_work_history_lines(profile))
     # #499 — education + certifications (closed-set canonical tokens from the
     # signal detector: ITI/Diploma/Degree, NCVT/NSQF/SCVT/Apprenticeship/…). Emitted
     # ONLY when present, so a worker who stated none produces no empty line rather
@@ -138,4 +193,62 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     if profile.location_preference.preferred_cities:
         cities = ", ".join(profile.location_preference.preferred_cities)
         lines.append(f"Preferred locations: {cities}")
+    # AVAILABILITY, which the v3 PDF prints and this text never did. The two vocabularies do
+    # not overlap on two of five values — `extract_system_prompt` asks the model for
+    # `15_days`/`1_month`, `AvailabilitySchema.status` accepts neither — so the humanising
+    # happens here, at the presentation edge, and knows both sets. Same treatment, same
+    # reasoning as `humanizeAvailability` on the render side.
+    availability = _availability_line(profile)
+    if availability:
+        lines.append(f"Availability: {availability}")
+    # THE WORKER'S OWN COPY ONLY. `/resume/generate` builds the résumé the WORKER carries;
+    # the payer-facing masked disclosure is a different surface built by
+    # `resume-disclosure.service.ts`, which never calls this route. Their asking price is
+    # useful on their own document and is a negotiating position handed away if a payer reads
+    # it before any conversation (ADR-0032's reasoning for the photo).
+    if profile.resume_profile is not None and profile.resume_profile.expected_salary is not None:
+        lines.append(f"Expected salary: {profile.resume_profile.expected_salary:g} per month")
     return "\n".join(lines), profile.model_dump()
+
+
+_MODEL_AVAILABILITY = {
+    "immediate": "Available immediately",
+    "notice_period": "On notice period",
+    "15_days": "Available in 15 days",
+    "1_month": "Available in 1 month",
+}
+
+_SHIFTS = {"day": "Day shift", "night": "Night shift", "any": "Any shift"}
+
+
+def _availability_line(profile: DraftProfile) -> str | None:
+    """When they can start, and which shift — or None.
+
+    THE CONTAINER'S VOCABULARY FIRST, because it is the model's own words as traced; the
+    legacy `availability.status` enum is the mapped copy and is the fallback for every
+    deterministic profile. `not_looking`/`unknown` deliberately yield nothing: a résumé exists
+    to be shown to employers, and stamping it with a line that discourages them serves nobody.
+
+    SHIFT ALONE IS ENOUGH TO PRINT THE LINE — a worker who told us they work nights has said
+    something worth showing even when they gave no notice period.
+    """
+    container = profile.resume_profile
+    raw = None
+    if container is not None and container.availability:
+        raw = container.availability
+    elif profile.availability.status:
+        raw = profile.availability.status
+    phrase = _MODEL_AVAILABILITY.get(raw.strip().lower()) if raw else None
+
+    shift_raw = container.shift if container is not None and container.shift else profile.shift
+    shift = None
+    if shift_raw and shift_raw.strip():
+        cleaned = " ".join(shift_raw.split())
+        # The wire type is a bare `str | None`, so an unrecognised value is passed through
+        # title-cased rather than dropped — it is worker-derived occupational text the
+        # pseudonymizer already certified.
+        shift = _SHIFTS.get(cleaned.lower(), cleaned[:1].upper() + cleaned[1:])
+
+    if phrase and shift:
+        return f"{phrase} · {shift}"
+    return phrase or shift
