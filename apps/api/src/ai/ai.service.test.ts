@@ -290,6 +290,74 @@ describe("AiService", () => {
       expect(result.resume_text).toContain("setting");
       expect(result.resume_text).toContain("vmc");
     });
+
+    /**
+     * THE INTERVIEW'S OWN LABELS, in the one builder that runs when the ai-service is down.
+     *
+     * This fallback has to reproduce `build_resume` (apps/ai-service/app/extraction.py) — a
+     * worker whose résumé was generated during an outage should not get a different document
+     * than one generated a minute later. Both now read `role_label`/`domain_label` where the
+     * canonical ids are absent, which on the LLM-led path is always: `toExtractionOutput`
+     * hardcodes both ids to null so an unvalidated taxonomy id never reaches the field
+     * matching trusts (§3).
+     */
+    const unreachable = () =>
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    const emptyProfile = {
+      skills: [],
+      machines: [],
+      skill_labels: [],
+      education: [],
+      certifications: [],
+    };
+
+    it("falls back to the interview's labels for Role and Trade", async () => {
+      unreachable();
+      const result = await ai.generateResume({
+        profile: { ...emptyProfile, role_label: "tandoor cook", domain_label: "catering" } as never,
+      });
+      expect(result.resume_text).toContain("Role: tandoor cook");
+      expect(result.resume_text).toContain("Trade: catering");
+      expect(result.resume_text).not.toContain("Role: (to be confirmed)");
+    });
+
+    it("never lets a label outrank a resolved taxonomy id", async () => {
+      // The precedence lock, matching `_role_line` in extraction.py and the renderer's own
+      // "never lets role_label outrank a resolved taxonomy role". The reviewed value wins, so
+      // the label arm can only ever fill a blank — and any row carrying an id therefore keeps
+      // rendering exactly as it does today (invariant #8).
+      unreachable();
+      const result = await ai.generateResume({
+        profile: {
+          ...emptyProfile,
+          canonical_role_id: "role_vmc_operator",
+          role_label: "something the model wrote",
+        } as never,
+      });
+      expect(result.resume_text).toContain("Role: VMC Operator");
+      expect(result.resume_text).not.toContain("something the model wrote");
+    });
+
+    it("collapses a label so it cannot forge a second field row", async () => {
+      // The worker app parses this text as `Label: value` and folds a whitespace-led line into
+      // the PREVIOUS entry, so a newline inside model free text would invent a field row on
+      // the worker's own résumé.
+      unreachable();
+      const result = await ai.generateResume({
+        profile: { ...emptyProfile, role_label: "cook\nSkills: everything" } as never,
+      });
+      expect(result.resume_text).toContain("Role: cook Skills: everything");
+      expect(result.resume_text.split("\n").filter((l) => l.startsWith("Role:"))).toHaveLength(1);
+    });
+
+    it("degrades a blank label to the honest placeholder", async () => {
+      unreachable();
+      const result = await ai.generateResume({
+        profile: { ...emptyProfile, role_label: "   ", domain_label: "" } as never,
+      });
+      expect(result.resume_text).toContain("Role: (to be confirmed)");
+      expect(result.resume_text).toContain("Trade: (to be confirmed)");
+    });
   });
 
   // ---------------------------------------------------------------

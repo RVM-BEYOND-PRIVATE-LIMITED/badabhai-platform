@@ -105,6 +105,66 @@ export const ResumeProfileSchema = z.object({
 });
 export type ResumeProfile = z.infer<typeof ResumeProfileSchema>;
 
+/**
+ * ── PRESENCE IS NOT CONTENT ────────────────────────────────────────────────────────────
+ *
+ * Does this container actually hold something the interview produced?
+ *
+ * THE HAZARD THIS EXISTS FOR. `/profiling/extract` answers FOUR of its own degrades with a
+ * healthy 200 carrying an EMPTY `InterviewExtractOutput` whose `blocked` is FALSE
+ * (`routers/profiling.py`): an empty masked transcript, its own deadline breach, `not
+ * meta.real_call` — i.e. EVERY mocked environment, and TD81 records that staging runs mocked
+ * — and a model response that failed the contract. Every field on this schema carries a
+ * `.default()`, so parsing that response yields a fully-defaulted object which is TRUTHY.
+ *
+ * A `!== null` test therefore reads all four as "the interview landed", which is the exact
+ * opposite of true. Null must keep meaning "the model was never asked"; this predicate is how
+ * a caller asks the other question — "was it asked and did it come back with nothing?".
+ *
+ * EVERY FIELD COUNTS, not just `experiences[]`. That one is irreplaceable — nothing else on
+ * the path produces it — but a short interview yielding only a domain label or two skills is
+ * still model-derived work, and a container holding it is a real record of a real interview.
+ *
+ * `blocked` and `is_mock` are deliberately NOT consulted (and are not on this shape): `blocked`
+ * is handled by the caller, and `is_mock` is orthogonal — a mock overlay is empty, so the
+ * content test catches it without a second rule that could disagree with this one.
+ *
+ * STRUCTURAL, so the one predicate serves both shapes that carry these nine keys —
+ * `ResumeProfile` here and `InterviewExtractOutput` on the wire. They are the same nine values
+ * before and after storage, and two copies of this rule could drift apart.
+ */
+export interface ResumeProfileValues {
+  readonly domain_label: string | null;
+  readonly role_label: string | null;
+  readonly skills: readonly string[];
+  readonly experiences: readonly unknown[];
+  readonly shift: string | null;
+  readonly current_city: string | null;
+  readonly preferred_locations: readonly string[];
+  readonly availability: string | null;
+  readonly expected_salary: number | null;
+}
+
+export function resumeProfileCarriesValues<T extends ResumeProfileValues>(
+  // A TYPE GUARD, so a caller that branches on it does not then need a `!` to convince the
+  // compiler the container is there — and generic, so the narrowed type is the caller's own
+  // (`ResumeProfile`, `InterviewExtractOutput`) rather than this structural minimum.
+  profile: T | null | undefined,
+): profile is T {
+  if (!profile) return false;
+  return (
+    profile.experiences.length > 0 ||
+    profile.skills.length > 0 ||
+    profile.preferred_locations.length > 0 ||
+    profile.domain_label !== null ||
+    profile.role_label !== null ||
+    profile.shift !== null ||
+    profile.current_city !== null ||
+    profile.availability !== null ||
+    profile.expected_salary !== null
+  );
+}
+
 export const DraftProfileSchema = z.object({
   canonical_trade_id: z.string().nullable().default(null),
   canonical_role_id: z.string().nullable().default(null),

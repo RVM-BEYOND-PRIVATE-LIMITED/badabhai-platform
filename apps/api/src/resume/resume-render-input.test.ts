@@ -173,6 +173,15 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("never lets role_label outrank a resolved taxonomy role", () => {
     // The canonical id is the reviewed, matchable value; the label is free text the model wrote.
     // Where both exist the taxonomy wins, so this leg can only ever FILL A BLANK.
+    //
+    // THE ORDER SURVIVED THE 2026-08-13 CANONICAL-ID RETIREMENT DELIBERATELY. That change made
+    // the labels the résumé's source wherever an id is ABSENT — which is every interview-led
+    // profile, and the whole of the defect it fixed. It did NOT invert this: preferring model
+    // free text over a reviewed value where both exist would be the AI outvoting a
+    // deterministic one on a worker-facing claim (§3), and it is what keeps invariant #8
+    // structural rather than coincidental — nothing in either schema stops a row from carrying
+    // an id AND a label, and canonicalization exists precisely to add an id to a row lacking
+    // one. With the id first, any row that has one renders as it does today, forever.
     const input = buildResumeRenderInput(
       { canonical_role_id: "role_welder", role_label: "something the model wrote" },
       null,
@@ -181,6 +190,28 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
       "worker",
     );
     expect(input.canonicalRole).not.toBe("something the model wrote");
+  });
+
+  it("still resolves the taxonomy role when no label was captured", () => {
+    // Every deterministic-pack profile is this shape — an id and no label — so the id arms
+    // carry all of them and their résumés stay byte-identical (invariant #8).
+    const input = buildResumeRenderInput({ canonical_role_id: "role_welder" }, null, null, null, "worker");
+    expect(input.canonicalRole).toBe("Welder");
+  });
+
+  it("prints the trade in plain language when the interview named one", () => {
+    // `trade` was hardcoded null on this branch because the deterministic résumé never printed
+    // a trade line and the old container had nothing to fill one with. `domain_label` is that
+    // source, and it reaches the `{{trade}}` slot every shipped template already carries.
+    const input = buildResumeRenderInput({ domain_label: "Fabrication" }, null, null, null, "worker");
+    expect(input.trade).toBe("Fabrication");
+  });
+
+  it("leaves the trade null when no interview named one", () => {
+    // Deterministic-pack profiles have no `domain_label`, so their trade line stays absent
+    // exactly as it is today — no invented industry (§11), no changed output (invariant #8).
+    const input = buildResumeRenderInput({ canonical_role_id: "role_welder" }, null, null, null, "worker");
+    expect(input.trade).toBeNull();
   });
 
   it("builds a summary from the labels when the trade is unknown", () => {
@@ -372,5 +403,94 @@ describe("buildResumeRenderInput — the résumé container", () => {
     expect(input.trade).toBeNull();
     expect(input.expectedSalary).toBeNull();
     expect(input.canonicalRole).not.toBeNull();
+  });
+
+  /**
+   * ── THE BLANK RÉSUMÉ ──────────────────────────────────────────────────────────────────
+   *
+   * A container can be PRESENT AND EMPTY, and reading that as "the interview landed" produced a
+   * PDF carrying nothing but the worker's name — generated successfully, and blank.
+   *
+   * It is not a hypothetical shape. `/profiling/extract` answers four of its own degrades with a
+   * healthy 200 carrying an empty `InterviewExtractOutput` whose `blocked` is false: an empty
+   * masked transcript, its own deadline breach, a model response that failed the contract, and
+   * `not meta.real_call` — every mocked environment, which per TD81 includes staging. Every key
+   * on `ResumeProfileSchema` is defaulted, so that response parses into a truthy container.
+   */
+  describe("a present but EMPTY container", () => {
+    // Exactly what `ResumeProfileSchema` yields for the ai-service's empty 200.
+    const HOLLOW = {
+      domain_label: null,
+      role_label: null,
+      skills: [],
+      experiences: [],
+      shift: null,
+      current_city: null,
+      preferred_locations: [],
+      availability: null,
+      expected_salary: null,
+    };
+    // A perfectly good answer-map profile, of the kind the worker actually answered for.
+    const LEGACY = {
+      canonical_role_id: "role_welder",
+      skill_labels: ["MIG Welding", "Fitting"],
+      experience: { total_years: 5 },
+      location_preference: { current_city: "Pune", preferred_cities: ["Pune"] },
+      availability: { status: "immediate" },
+      education_level: "10th",
+    };
+    const build = (snapshot: Record<string, unknown>) =>
+      buildResumeRenderInput(snapshot, "Asha Kumari", "classic", null, "worker");
+
+    it("does not blank a résumé the answer map could fill", () => {
+      // THE REGRESSION. The container is truthy, so the early return fired and discarded every
+      // field below — the worker got a PDF with their name and nothing else.
+      const input = build({ ...LEGACY, resume_profile: HOLLOW });
+      expect(input.canonicalRole).toBe("Welder");
+      expect(input.skills).toEqual(["MIG Welding", "Fitting"]);
+      expect(input.experienceYears).toBe(5);
+      expect(input.location).toBe("Pune");
+      expect(input.availability).toBe("Available immediately");
+      expect(input.educationLevel).toBe("10th");
+    });
+
+    it("renders identically to the same profile with no container at all", () => {
+      // An empty container carries no information, so it must not change a single slot. This is
+      // the property that makes the guard safe: the degraded response becomes a no-op rather
+      // than a decision.
+      expect(build({ ...LEGACY, resume_profile: HOLLOW })).toEqual(build({ ...LEGACY }));
+    });
+
+    it("is not defeated by zod defaults filling an absent key", () => {
+      // The ai-service sends `InterviewExtractOutput(is_mock=True)` — a body with NO nine keys
+      // at all. `{}` is what reaches the schema, and every key is `.default()`ed, so the parsed
+      // container is fully-formed and truthy. Asserting on `{}` rather than on HOLLOW is what
+      // pins the defaulting behaviour itself.
+      expect(build({ ...LEGACY, resume_profile: {} })).toEqual(build({ ...LEGACY }));
+    });
+
+    it("still wins outright the moment it carries ANY value", () => {
+      // The guard asks whether this is a record of an interview, NOT which source is richer.
+      // A container holding one field is still the model's object and still wins whole — no
+      // merge, no precedence, no field-by-field rescue from the legacy shape. `machines` here
+      // is the proof: the legacy container has content the container path leaves empty, and it
+      // stays empty.
+      const input = build({ ...LEGACY, machines: ["mach_vmc"], resume_profile: { ...HOLLOW, role_label: "Fitter" } });
+      expect(input.canonicalRole).toBe("Fitter");
+      expect(input.skills).toEqual([]);
+      expect(input.experienceYears).toBeNull();
+      expect(input.educationLevel).toBeNull();
+      expect(input.machines).toEqual([]);
+    });
+
+    it("renders a name-only résumé when there is genuinely nothing else", () => {
+      // A worker whose answer map is ALSO empty has no résumé to render, and the honest output
+      // is an empty one. The guard must not invent content to avoid a blank page — it only
+      // stops a blank page that had data available all along.
+      const input = build({ resume_profile: HOLLOW });
+      expect(input.canonicalRole).toBeNull();
+      expect(input.skills).toEqual([]);
+      expect(input.displayName).toBe("Asha Kumari");
+    });
   });
 });

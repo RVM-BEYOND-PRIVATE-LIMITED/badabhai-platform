@@ -56,6 +56,46 @@ def _skills_entries(profile: DraftProfile) -> list[str]:
     return entries
 
 
+def _role_line(canonical_id: str | None, label: str | None) -> str | None:
+    """The worker's role/trade for the résumé: the canonical id, else the interview's label.
+
+    WHY THE LABEL ARM EXISTS. The LLM-led interview structurally CANNOT write a canonical id —
+    ``toExtractionOutput`` hardcodes both to ``None`` on that path, deliberately, because
+    inventing an unvalidated taxonomy id would poison the one field the match engine trusts
+    absolutely (CLAUDE.md §3). So this line read a field the interview never fills and printed
+    "(to be confirmed)" for the role AND the trade on EVERY interview-led profile, while the
+    model had named both in plain language and stored them on this same object.
+
+    THE ID STILL LEADS, AND THAT IS A DELIBERATE ORDER, NOT AN OVERSIGHT. The id is
+    taxonomy-validated and human-reviewed; the label is unvalidated model free text. Where both
+    exist the reviewed value wins, so this arm can only ever FILL A BLANK — the same rule the
+    TypeScript renderer states and pins ("never lets role_label outrank a resolved taxonomy
+    role", resume-render-input.test.ts). Preferring model text over a reviewed value would be
+    the AI outvoting a deterministic one on a worker-facing claim (§3).
+
+    It also makes invariant #8 STRUCTURAL rather than coincidental. The two sources are disjoint
+    today — deterministic packs write ids and no labels, the interview writes labels and no ids
+    — but nothing in either schema enforces that, and canonicalization exists precisely to
+    assign an id to a profile that lacks one. With the id first, any row that has one renders
+    exactly as it does today no matter what a future writer puts in ``role_label``.
+
+    NEVER FABRICATED — neither source yields None, and the caller prints "(to be confirmed)"
+    rather than a guess. A blank/whitespace label counts as absent: the schema accepts ``""``,
+    and "Role: " with nothing after it is worse than the honest placeholder.
+    """
+    if canonical_id:
+        # Resolved to its display name — the résumé must never show a raw id like
+        # role_hmc_operator / mach_vmc / skill_mig_welding.
+        return label_for_id(canonical_id)
+    # ONE LINE, ALWAYS. The Flutter card parses this text as `Label: value` and folds a
+    # whitespace-led line into the previous entry, so a newline inside model free text would
+    # forge a second field row on the worker's résumé. Collapsing here is the only place that
+    # can be prevented for both readers of this string. `split()` with no argument splits on
+    # ANY whitespace run, so this also trims — a blank label collapses to "" and yields None.
+    collapsed = " ".join(label.split()) if label else ""
+    return collapsed or None
+
+
 def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     """Build a simple, name-less text resume from a structured profile.
 
@@ -65,10 +105,8 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     this builder renders whatever filtered profile it is handed, and still
     degrades to "(to be confirmed)" when both ids and labels are empty.
     """
-    # Every taxonomy id is resolved to its display name — the résumé must never show
-    # a raw id like role_hmc_operator / mach_vmc / skill_mig_welding.
-    role = label_for_id(profile.canonical_role_id) if profile.canonical_role_id else None
-    trade = label_for_id(profile.canonical_trade_id) if profile.canonical_trade_id else None
+    role = _role_line(profile.canonical_role_id, profile.role_label)
+    trade = _role_line(profile.canonical_trade_id, profile.domain_label)
     lines = ["WORKER PROFILE (DRAFT)", ""]
     lines.append(f"Role: {role or '(to be confirmed)'}")
     lines.append(f"Trade: {trade or '(to be confirmed)'}")

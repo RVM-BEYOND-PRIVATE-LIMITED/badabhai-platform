@@ -74,6 +74,37 @@ export interface AiServiceHealthSnapshot {
 }
 
 /**
+ * The worker's role/trade for a résumé line: the canonical id, else the interview's label.
+ *
+ * THE TYPESCRIPT HALF OF `_role_line` in apps/ai-service/app/extraction.py, and it exists only
+ * because `generateResume` below has to reproduce `build_resume` when the ai-service is
+ * unreachable. The two must agree line for line — a worker whose résumé was generated during an
+ * outage should not get a different document than one generated a minute later (§7 parity).
+ *
+ * WHY THE LABEL ARM EXISTS. The LLM-led interview cannot produce a canonical id:
+ * `toExtractionOutput` hardcodes `canonical_role_id`/`canonical_trade_id` to null on that path
+ * so an unvalidated taxonomy id can never reach the field matching and ranking trust (§3).
+ * Reading the id alone therefore printed "(to be confirmed)" for the role and the trade on
+ * every interview-led résumé, while the model had named both in plain language.
+ *
+ * THE ID STILL LEADS. It is taxonomy-validated and reviewed; the label is model free text, so
+ * where both exist the reviewed value wins and this arm only ever FILLS A BLANK — the rule
+ * `resume-render-input.test.ts` pins as "never lets role_label outrank a resolved taxonomy
+ * role". It also makes invariant #8 structural: any row carrying an id renders exactly as it
+ * does today regardless of what a future writer puts in `role_label`, which matters because
+ * nothing in either schema stops a row from carrying both.
+ *
+ * Blank/whitespace counts as absent, and internal whitespace is collapsed: the worker app parses
+ * this text as `Label: value` and folds a whitespace-led line into the previous entry, so a
+ * newline inside model free text would forge a second field row on the résumé.
+ */
+function resumeLabel(canonicalId: string | null, label: string | null | undefined): string | null {
+  // Resolved to a display name — a raw `role_*` id must never reach a worker's résumé.
+  if (canonicalId) return labelForTaxonomyId(canonicalId);
+  return label?.split(/\s+/).filter(Boolean).join(" ") || null;
+}
+
+/**
  * Client for the FastAPI AI service.
  *
  * IMPORTANT: pseudonymization happens INSIDE the AI service before any LLM call.
@@ -226,11 +257,25 @@ export class AiService {
         skills.push(label);
       }
     }
+    // THE LABEL FIRST, THE CANONICAL ID AFTER IT — mirrors `_role_line` in
+    // apps/ai-service/app/extraction.py, which this fallback is required to match (see the
+    // #499 note below). The id is being retired from the résumé path: the LLM-led interview
+    // structurally cannot write one (`toExtractionOutput` hardcodes both to null so an
+    // unvalidated id never reaches the field the match engine trusts), so reading the id
+    // alone printed "(to be confirmed)" on every interview-led résumé while the model had
+    // named the role in plain language on the same object. The id fallback stays because
+    // every deterministic-pack profile has ONLY the id (invariant #8).
+    const roleLine = resumeLabel(profile.canonical_role_id, profile.role_label);
+    // TRADE WAS MISSING HERE ENTIRELY. `build_resume` has emitted a `Trade:` line since it
+    // was written, and this fallback never did — so a worker who generated their résumé
+    // while the AI service was unreachable silently lost a line the app's "General Info"
+    // section reads by name. Added rather than dropped from the Python side: the line is
+    // real content, and the two builders are supposed to agree.
+    const tradeLine = resumeLabel(profile.canonical_trade_id, profile.domain_label);
     const lines = [
       "PROFESSIONAL SUMMARY (draft)",
-      profile.canonical_role_id
-        ? `Role: ${labelForTaxonomyId(profile.canonical_role_id)}`
-        : "Role: (to be confirmed)",
+      `Role: ${roleLine ?? "(to be confirmed)"}`,
+      `Trade: ${tradeLine ?? "(to be confirmed)"}`,
       skills.length ? `Skills: ${skills.join(", ")}` : "Skills: (to be confirmed)",
       profile.machines.length
         ? `Machines: ${profile.machines.map(labelForTaxonomyId).join(", ")}`
