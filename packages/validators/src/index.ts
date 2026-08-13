@@ -27,6 +27,8 @@ export function isE164Phone(value: string): boolean {
 /** Lowercased, trimmed email — shared by every login/admin-invite surface. */
 export const emailSchema = z.string().trim().toLowerCase().email().max(254);
 
+const DIGITS_ONLY = /^\d+$/;
+
 /**
  * A numeric one-time-code string, digits only.
  *
@@ -34,11 +36,19 @@ export const emailSchema = z.string().trim().toLowerCase().email().max(254);
  * range (`otpDigitsSchema({ min: 4, max: 8 })`, e.g. a provider-flexible OTP) —
  * both payer-web's login OTP and admin-web's email code use the 4-8 range;
  * admin-web's MFA step is the fixed-6 TOTP shape.
+ *
+ * Checks digit-shape with the one fixed, hardcoded regex above and the length
+ * bound separately, rather than building a length-parameterized `RegExp` at
+ * call time -- a dynamic `new RegExp(...)` pattern is exactly the shape
+ * semgrep's ReDoS rule (detect-non-literal-regexp) blocks on, even though
+ * every call site here passes a hardcoded literal.
  */
 export function otpDigitsSchema(spec: number | { min: number; max: number }) {
-  const pattern =
-    typeof spec === "number" ? `^\\d{${spec}}$` : `^\\d{${spec.min},${spec.max}}$`;
-  return z.string().trim().regex(new RegExp(pattern));
+  const [min, max] = typeof spec === "number" ? [spec, spec] : [spec.min, spec.max];
+  return z.string().trim().refine((v) => DIGITS_ONLY.test(v) && v.length >= min && v.length <= max, {
+    message:
+      min === max ? `Must be exactly ${min} digits` : `Must be ${min}-${max} digits`,
+  });
 }
 
 /** RFC 4122 UUID. */
