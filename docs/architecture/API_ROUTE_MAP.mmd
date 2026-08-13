@@ -1,0 +1,52 @@
+flowchart TD
+    subgraph Frontends
+        WEB["apps/web<br/>(internal ops console)"]
+        PAYERWEB["apps/payer-web<br/>(external payer/agency portal)"]
+        ADMINWEB["apps/admin-web<br/>(internal admin portal)"]
+        WORKERAPP["apps/worker-app<br/>(Flutter, worker mobile)"]
+        PAYERAPP["apps/payer-app<br/>(Flutter, payer/agent mobile)"]
+    end
+
+    API["apps/api (NestJS)<br/>HTTP + BullMQ processors, in-process"]
+
+    subgraph "apps/api business modules"
+        MATCH["match / reach services<br/>(match-engine, reach-engine, taxonomy — pure)"]
+        PRICING["pricing service<br/>(packages/pricing — pure)"]
+        QUEUE["BullMQ processors<br/>(resume, voice, extraction, push, referral, pace)"]
+    end
+
+    AI["apps/ai-service (FastAPI)<br/>pseudonymize then LLM/STT/TTS"]
+
+    DB[("Postgres<br/>(Supabase-managed)")]
+    REDIS[("Redis<br/>(box-local, cache + BullMQ)")]
+
+    GEMINI["Gemini Flash / Anthropic<br/>(LLM)"]
+    SARVAM["Sarvam AI<br/>(STT/TTS/translate)"]
+    FAST2SMS["Fast2SMS<br/>(worker OTP SMS)"]
+    ZEPTOMAIL["ZeptoMail<br/>(payer OTP / email)"]
+    RAZORPAY["Razorpay<br/>(payment webhook, MOCK in alpha)"]
+    LANGFUSE["Langfuse<br/>(LLM tracing, key-gated)"]
+
+    WEB -->|sync REST, JSON| API
+    PAYERWEB -->|sync REST, JSON| API
+    ADMINWEB -->|sync REST, JSON| API
+    WORKERAPP -->|sync REST, JSON + OTP/session| API
+    PAYERAPP -->|sync REST, JSON + OTP/session| API
+
+    API --> MATCH
+    API --> PRICING
+    API --> QUEUE
+
+    API -->|sync REST, service-token auth AI_INTERNAL_TOKEN| AI
+    AI -->|sync HTTPS| GEMINI
+    AI -->|sync HTTPS| SARVAM
+    AI -.->|optional, key-gated| LANGFUSE
+
+    API -->|sync SQL, Drizzle| DB
+    API -->|sync, cache reads/writes| REDIS
+    QUEUE -->|async, BullMQ jobs over Redis| REDIS
+    QUEUE -->|sync, per-job DB writes on completion| DB
+
+    API -->|sync HTTPS, always real| FAST2SMS
+    API -->|sync HTTPS| ZEPTOMAIL
+    API -->|sync HTTPS webhook, MOCK unless PAYMENTS_ENABLE_REAL| RAZORPAY
