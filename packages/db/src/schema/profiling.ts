@@ -159,7 +159,7 @@ export const workerAttributes = pgTable(
       sql`(${t.packId} IS NULL AND ${t.packVersion} IS NULL) OR (${t.packId} IS NOT NULL AND ${t.packVersion} IS NOT NULL AND ${t.packVersion} >= 1)`,
     ),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ===========================================================================
 // profiling_voice_answer — one row per recorded clip
@@ -295,4 +295,4 @@ export const profilingVoiceAnswers = pgTable(
       sql`${t.transcriptErrorCode} IS NULL OR ${t.transcriptStatus} = 'failed'`,
     ),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)

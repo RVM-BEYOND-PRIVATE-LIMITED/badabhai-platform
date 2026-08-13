@@ -118,7 +118,7 @@ export const workerConsents = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (t) => [index("worker_consents_worker_id_idx").on(t.workerId)],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ---------------------------------------------------------------------------
 // worker_devices — durable trusted-device registry (ADR-0026 Phase 2, device

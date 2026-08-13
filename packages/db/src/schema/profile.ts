@@ -212,7 +212,7 @@ export const generatedResumes = pgTable(
       .on(t.profileId)
       .where(sql`${t.version} = 1`),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ---------------------------------------------------------------------------
 // Profiling questionnaire (ADR-0005, first slice) — metadata-driven profiles.
@@ -236,7 +236,7 @@ export const profiles = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("profiles_slug_uq").on(t.slug)],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // questions — reusable question catalog, shared across profiles.
 export const questions = pgTable(
@@ -257,7 +257,7 @@ export const questions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("questions_question_key_uq").on(t.questionKey)],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // profile_questions — which questions belong to a profile, and in what order.
 // (No profile_version_id yet — versioning is a later slice; maps the profile directly.)
@@ -282,7 +282,7 @@ export const profileQuestions = pgTable(
     // Load a profile's questions in order.
     index("profile_questions_profile_id_idx").on(t.profileId),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // worker_answers — a worker's answers (PII-minimized; typed columns).
 //
@@ -328,5 +328,5 @@ export const workerAnswers = pgTable(
       ) = 1`,
     ),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 

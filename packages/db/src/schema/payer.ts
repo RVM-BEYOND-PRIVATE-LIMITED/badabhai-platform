@@ -259,7 +259,7 @@ export const unlocks = pgTable(
     // deny_reason is only valid on a deny (NULL otherwise).
     check("unlocks_deny_reason_chk", sql`${t.denyReason} IS NULL OR ${t.status} = 'denied'`),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // payer_credits — mock credit balance, one row per payer. Amounts + ids ONLY.
 // NO real money in alpha (§D5). balance is a materialization of `credit_ledger`.
@@ -279,7 +279,7 @@ export const payerCredits = pgTable(
     // F-6: balance is never negative (a debit below zero must fail closed).
     check("payer_credits_balance_nonneg_chk", sql`${t.balance} >= 0`),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // credit_ledger — APPEND-ONLY credit movements (the source of truth; balance is a
 // materialization of it). Amounts + ids ONLY. NO currency/PAN/UPI — `payment_ref`
@@ -336,7 +336,7 @@ export const creditLedger = pgTable(
     // what the by-reason aggregate ranges over.
     index("credit_ledger_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // unlock_routing — SERVER-SIDE-ONLY routing mapping (ADR-0010 §D2 / Phase-0 F-4/F-5).
 // PII-FREE BY CONSTRUCTION: it maps an opaque routing token → a channel + an
@@ -367,7 +367,7 @@ export const unlockRouting = pgTable(
     uniqueIndex("unlock_routing_routing_token_uq").on(t.routingToken),
     index("unlock_routing_unlock_id_idx").on(t.unlockId),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ---------------------------------------------------------------------------
 // Monetization + Pricing Engine (ADR-0013) — additive, PII-FREE. The pricing
@@ -427,7 +427,7 @@ export const pricingCatalog = pgTable(
       .on(t.isActive)
       .where(sql`${t.isActive}`),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // posting_plans — a paid plan attached to a job_posting (ADR-0013 B.2). Price/quota/
 // window are STAMPED from the catalog at purchase (the row is the receipt). PII-FREE.
@@ -466,7 +466,7 @@ export const postingPlans = pgTable(
     check("posting_plans_viewed_nonneg_chk", sql`${t.applicantsViewedCount} >= 0`),
     check("posting_plans_topup_nonneg_chk", sql`${t.quotaTopupCount} >= 0`),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // posting_boosts — a booster on a job_posting (ADR-0013 B.2). PII-FREE.
 export const postingBoosts = pgTable(
@@ -495,7 +495,7 @@ export const postingBoosts = pgTable(
     ),
     check("posting_boosts_status_chk", sql`${t.status} IN ('active', 'expired')`),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // resume_disclosures — one resume-download GRANT (ADR-0013 C.3). Resume download is
 // FREE but is a PII DISCLOSURE — it rides the ADR-0010 consent+caps spine. PII-FREE
@@ -543,7 +543,7 @@ export const resumeDisclosures = pgTable(
       sql`${t.denyReason} IS NULL OR ${t.status} = 'denied'`,
     ),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // payer_capacity — the per-payer ALLOWANCE of concurrently-active vacancies (ADR-0016
 // D4, signed PHASE-0 2026-06-17). FACELESS & PII-FREE by construction: `payer_id` is
@@ -575,7 +575,7 @@ export const payerCapacity = pgTable(
     uniqueIndex("payer_capacity_payer_id_uq").on(t.payerId),
     check("payer_capacity_max_nonneg_chk", sql`${t.maxActiveVacancies} >= 0`),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // ===========================================================================
 // Matching V1 — Workstream 3 spine (migration 0058): payment_orders +

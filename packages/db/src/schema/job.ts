@@ -214,7 +214,7 @@ export const jobPostings = pgTable(
       sql`${t.neededBy} IS NULL OR ${t.neededBy} IN ('immediate', 'soon', 'flexible')`,
     ),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // Alpha swipe-to-apply (ADR-0009) — seeded jobs + apply/skip records.
 //
@@ -391,7 +391,7 @@ export const jobs = pgTable(
       sql`${t.shift} IS NULL OR ${t.shift} IN ('day', 'night', 'rotational')`,
     ),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
 // applications — the apply/skip record, PII-free. One decision per (worker, job).
 //
@@ -521,5 +521,5 @@ export const applications = pgTable(
       sql`(${t.skillMonths} IS NULL OR ${t.skillMonths} >= 0) AND (${t.industryMonths} IS NULL OR ${t.industryMonths} >= 0)`,
     ),
   ],
-);
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 

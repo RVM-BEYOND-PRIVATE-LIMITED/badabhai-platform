@@ -519,6 +519,13 @@
       "when": 1786103096243,
       "tag": "0073_pack_answers_and_occupation_match",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1786626283988,
+      "tag": "0074_youthful_zaran",
+      "breakpoints": true
     }
   ]
 }
