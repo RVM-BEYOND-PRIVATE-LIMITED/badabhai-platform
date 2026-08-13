@@ -199,6 +199,24 @@ export class PackRegistryService implements OnModuleInit {
       // Caching it would take a millisecond-wide gap in an operator's `db:seed:packs --apply` and
       // turn it into a fleet-wide `no_pack` outage lasting a full resolution TTL, for every worker
       // on the platform. Re-running the query is cheap; the alternative is an incident.
+      //
+      // AND IT SAYS SO OUT LOUD, which it did not. This branch is the single point every
+      // unseeded-database interview passes through, and it used to return null in silence: the
+      // engine then served the universal tail (`nextQuestion` falls through to it whenever
+      // `packs.occupation` is null), the worker answered eight generic questions instead of their
+      // trade's, and the only visible symptom was a thin profile — with nothing in any log,
+      // event or metric naming the cause. It cost a screenshot-driven investigation to find, on a
+      // condition the process can state exactly.
+      //
+      // WARN, NOT ERROR, and never a throw: an interview on the universal pack alone is degraded,
+      // not broken, and the worker still reaches a profile. The point is that an operator can
+      // now grep for it instead of inferring it from question text.
+      this.logger.warn(
+        `no family bindings for job_domain=${jobDomainId ?? "-"} isco=${iscoUnitCode ?? "-"} ` +
+          `locale=${locale}; this interview gets the UNIVERSAL pack only (no trade questions). ` +
+          `A healthy database always has the is_universal binding, so this is almost always an ` +
+          `unseeded database — run 'pnpm db:seed:packs --apply' and verify with 'db:verify:packs'`,
+      );
       return null;
     }
 
