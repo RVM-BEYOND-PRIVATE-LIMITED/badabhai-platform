@@ -2,10 +2,15 @@
 #
 # Stands up the PERSISTENT staging API end-to-end: build -> migrate -> trigger the
 # host's deploy -> smoke the PUBLIC URL (/health). Companion runbook:
-# docs/ops/staging-service-deploy-runbook.md (the SERVICE runbook; the EPHEMERAL
-# demand-loop proof is staging-demand-verify.yml + bug2-staging-demand-deploy-runbook.md).
+# docs/ops/staging-service-deploy-runbook.md.
 #
-# IT IS INERT UNTIL A HUMAN WIRES STAGING (mirrors staging-demand-verify.yml):
+# NOTE: the EPHEMERAL demand-loop proof workflow (staging-demand-verify.yml) was
+# retired (BL-16/R41) — its guard never verified DATABASE_URL was a disposable,
+# non-production database, and it shared the `staging` Environment's DATABASE_URL
+# secret with this workflow's own deploy target. If that demand-loop proof is needed
+# again, rebuild it with a positive-match guard or a fully separate GH Environment.
+#
+# IT IS INERT UNTIL A HUMAN WIRES STAGING:
 #   - manual trigger ONLY (workflow_dispatch); no push/PR triggers.
 #   - it reads its secrets from the GitHub `staging` ENVIRONMENT secrets.
 #   - the FIRST "guard" step checks the required secrets are present. If ANY is empty
