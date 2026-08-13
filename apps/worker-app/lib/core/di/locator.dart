@@ -36,6 +36,9 @@ import '../../features/consent/presentation/cubit/consent_cubit.dart';
 import '../../features/invite/data/invite_repository_impl.dart';
 import '../../features/invite/domain/invite_repository.dart';
 import '../../features/invite/presentation/cubit/invite_cubit.dart';
+import '../../features/job_search/data/job_search_repository_impl.dart';
+import '../../features/job_search/domain/job_search_repository.dart';
+import '../../features/job_search/presentation/cubit/job_search_cubit.dart';
 import '../../features/settings/data/notification_prefs_repository_impl.dart';
 import '../../features/settings/domain/notification_prefs_repository.dart';
 import '../../features/settings/presentation/cubit/account_delete_cubit.dart';
@@ -229,6 +232,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<JobsRepository>(
     () => JobsRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerLazySingleton<JobSearchRepository>(
+    () => JobSearchRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
   );
   locator.registerLazySingleton<ResumeEditRepository>(
     () => ResumeEditRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
@@ -426,6 +433,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerFactory<SwipeBloc>(
     () => SwipeBloc(locator<SwipeRepository>()),
+  );
+  locator.registerFactory<JobSearchCubit>(
+    () => JobSearchCubit(locator<JobSearchRepository>()),
   );
   // JobDetailCubit is constructed by JobDetailScreen with the light JobDetail
   // handed over from the tapped row (instant header render) plus the

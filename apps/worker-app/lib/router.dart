@@ -26,6 +26,7 @@ import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
 import 'features/invite/presentation/invite_screen.dart';
+import 'features/job_search/presentation/job_search_screen.dart';
 import 'features/applications/presentation/applied_jobs_screen.dart';
 import 'features/profile_tab/presentation/profile_tab_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
@@ -89,6 +90,9 @@ class Routes {
   static const String alerts = '/alerts';
 
   // --- Shell sub-routes (append the id where noted) ---
+  /// Indeed-style job search (title/skill + city, state) — pushed full-screen
+  /// from the Jobs feed header (no bottom bar).
+  static const String jobSearch = '/jobs/search';
   static const String jobDetail = '/jobs/detail'; // + '/<jobId>'  (no bar)
   static const String resumeEdit = '/resume/edit'; // (no bar)
 
@@ -424,6 +428,14 @@ GoRouter _buildRouter() {
                 // TODO(stage-3): SwipeJobsScreen evolves into the rich Feed/deck.
                 builder: (_, __) => const SwipeJobsScreen(),
                 routes: <RouteBase>[
+                  // Indeed-style title + city search, pushed from the feed
+                  // header. Full-screen on the ROOT navigator (no bottom bar),
+                  // like the job detail below it.
+                  GoRoute(
+                    path: 'search',
+                    parentNavigatorKey: _rootNavKey,
+                    builder: (_, __) => const JobSearchScreen(),
+                  ),
                   GoRoute(
                     path: 'detail/:jobId',
                     parentNavigatorKey: _rootNavKey, // full-screen, no bar
