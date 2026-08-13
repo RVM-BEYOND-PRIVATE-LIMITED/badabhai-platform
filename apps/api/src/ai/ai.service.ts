@@ -246,7 +246,11 @@ export class AiService {
     // persists in profiles.raw_profile), so this no-LLM path only ever echoes
     // already-certified labels. No TS-side pseudonymize equivalent is needed here.
     const resolvedSkills = profile.skills.map(labelForTaxonomyId);
-    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const norm = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
     const seenSkills = new Set(resolvedSkills.map(norm));
     const skills = [...resolvedSkills];
     for (const l of profile.skill_labels) {
@@ -287,7 +291,9 @@ export class AiService {
       ...(profile.education_level ? [`Education Level: ${profile.education_level}`] : []),
       ...(profile.education_field ? [`Field of Study: ${profile.education_field}`] : []),
       ...(profile.education.length ? [`Education: ${profile.education.join(", ")}`] : []),
-      ...(profile.certifications.length ? [`Certifications: ${profile.certifications.join(", ")}`] : []),
+      ...(profile.certifications.length
+        ? [`Certifications: ${profile.certifications.join(", ")}`]
+        : []),
     ];
     return ResumeGenerationOutputSchema.parse({
       resume_text: lines.join("\n"),
@@ -509,10 +515,22 @@ export class AiService {
     const url = `${this.config.AI_SERVICE_URL}${path}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    // BL-19: one id per outbound call, sent to ai-service and logged on every failure
+    // path here — the same id then appears on every log line ai-service emits while
+    // handling this request (its request-id middleware binds it via contextvars), so
+    // a failed call's two sides of the log can be joined by this value. Freshly minted
+    // per call rather than threaded from the originating HTTP request: several callers
+    // (BullMQ queue processors — profile extraction, resume generation, voice
+    // transcription) run with no live request in scope by the time they call this.
+    const requestId = randomUUID();
     try {
       // TD67: attach the service-level bearer when configured (the ai-service enforces
       // it on every route except /health once ITS side sets the same env var).
-      const headers: Record<string, string> = { "content-type": "application/json" };
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        "x-request-id": requestId,
+        "x-correlation-id": requestId,
+      };
       if (this.config.AI_INTERNAL_TOKEN) {
         headers["x-ai-internal-token"] = this.config.AI_INTERNAL_TOKEN;
       }
@@ -530,16 +548,20 @@ export class AiService {
           // degradation as any other non-OK (canonicalization/profiling never block).
           this.logger.error(
             `AI service ${path} rejected service auth (401) — AI_INTERNAL_TOKEN mismatch ` +
-              `between api and ai-service; using mock fallback`,
+              `between api and ai-service; using mock fallback [requestId=${requestId}]`,
           );
         } else {
-          this.logger.warn(`AI service ${path} returned ${res.status}; using mock fallback`);
+          this.logger.warn(
+            `AI service ${path} returned ${res.status}; using mock fallback [requestId=${requestId}]`,
+          );
         }
         return null;
       }
       return schema.parse(await res.json());
     } catch (err) {
-      this.logger.warn(`AI service ${path} unreachable (${String(err)}); using mock fallback`);
+      this.logger.warn(
+        `AI service ${path} unreachable (${String(err)}); using mock fallback [requestId=${requestId}]`,
+      );
       return null;
     } finally {
       clearTimeout(timeout);

@@ -20,6 +20,7 @@ be defined here so every ``from app.main import ...`` specifier keeps working.
 from __future__ import annotations
 
 import hmac
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -29,7 +30,7 @@ from .ai import cost_tracker
 from .ai.langfuse_tracing import get_tracer
 from .config import get_settings
 from .job_posting_chat import interview_engine as job_posting_engine
-from .logging_config import configure_logging, get_logger
+from .logging_config import configure_logging, correlation_id_var, get_logger, request_id_var
 from .routers import (
     embeddings,
     growth,
@@ -122,6 +123,32 @@ app = FastAPI(title="BadaBhai AI Service", version="0.1.0", lifespan=_lifespan)
 # posture — the full spend/posture telemetry is recon data on a shared network and
 # stays token-only (via the gated /ai/spend or the full /health when auth is off).
 _AUTH_EXEMPT_PATHS = frozenset({"/health"})
+
+
+@app.middleware("http")
+async def request_id_tracing(request, call_next):  # type: ignore[no-untyped-def]
+    """BL-19: bind the caller's request/correlation id for every log line this
+    request emits, and echo both back as response headers.
+
+    apps/api's AiService generates a fresh id per outbound call and sends it here
+    (mirrors the x-ai-internal-token pattern) -- this is the ai-service half of the
+    fix that closes "a failing ai-service call produces no queryable trace tying
+    the failure to the originating call" (16_OBSERVABILITY_AUDIT.md Section 4).
+    Falls back to generating an id if the caller sent none, so every request is
+    traceable even from a caller that predates this change (curl, a future client).
+    """
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    correlation_id = request.headers.get("x-correlation-id") or request_id
+    request_id_token = request_id_var.set(request_id)
+    correlation_id_token = correlation_id_var.set(correlation_id)
+    try:
+        response = await call_next(request)
+    finally:
+        request_id_var.reset(request_id_token)
+        correlation_id_var.reset(correlation_id_token)
+    response.headers["x-request-id"] = request_id
+    response.headers["x-correlation-id"] = correlation_id
+    return response
 
 
 @app.middleware("http")

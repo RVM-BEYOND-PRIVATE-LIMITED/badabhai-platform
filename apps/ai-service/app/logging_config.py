@@ -5,7 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from contextvars import ContextVar
 from datetime import UTC, datetime
+
+# BL-19: set by the request-id middleware (main.py) for the lifetime of one request,
+# so every log line emitted while handling it -- not just one line at the top --
+# carries the SAME id the caller (apps/api's AiService) logged on its own side of a
+# failed call. This is the root cause fix for "why did this ai-service call fail":
+# before this, only an untagged log line existed on this side.
+request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
+correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
 
 class JsonFormatter(logging.Formatter):
@@ -17,6 +26,12 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+        request_id = request_id_var.get()
+        if request_id is not None:
+            entry["request_id"] = request_id
+        correlation_id = correlation_id_var.get()
+        if correlation_id is not None:
+            entry["correlation_id"] = correlation_id
         # Attach any structured extras passed via logger.info(..., extra={"extra": {...}})
         extra = getattr(record, "extra", None)
         if isinstance(extra, dict):

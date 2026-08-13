@@ -151,6 +151,40 @@ describe("AiService", () => {
       expect(init.headers["x-ai-internal-token"]).toBeUndefined();
     });
 
+    it("BL-19: attaches a request id, same value on both headers", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(masked());
+      vi.stubGlobal("fetch", fetchMock);
+      await ai.pseudonymize("x");
+      const init = fetchMock.mock.calls[0]![1] as { headers: Record<string, string> };
+      expect(init.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+      expect(init.headers["x-correlation-id"]).toBe(init.headers["x-request-id"]);
+    });
+
+    it("BL-19: a different request id is minted per call", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(masked());
+      vi.stubGlobal("fetch", fetchMock);
+      await ai.pseudonymize("x");
+      await ai.pseudonymize("y");
+      const first = (fetchMock.mock.calls[0]![1] as { headers: Record<string, string> }).headers[
+        "x-request-id"
+      ];
+      const second = (fetchMock.mock.calls[1]![1] as { headers: Record<string, string> }).headers[
+        "x-request-id"
+      ];
+      expect(first).not.toBe(second);
+    });
+
+    it("BL-19: a failure's log line names the same request id that was sent", async () => {
+      const spy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ ok: false, status: 503 }));
+      vi.stubGlobal("fetch", fetchMock);
+      expect(await ai.pseudonymize("x")).toBeNull();
+      const sentRequestId = (fetchMock.mock.calls[0]![1] as { headers: Record<string, string> })
+        .headers["x-request-id"];
+      expect(sentRequestId).toBeDefined();
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining(sentRequestId as string));
+    });
+
     it("a BLOCKED result is NOT null — it is a definitive 'do not store this'", async () => {
       // Collapsing `blocked` into `null` would make "the gateway refused to mask this" look
       // identical to "the gateway was down", and the caller treats those differently: one is
@@ -165,7 +199,6 @@ describe("AiService", () => {
     });
   });
 
-
   describe("extractProfile", () => {
     beforeEach(() => {
       config = mockConfig();
@@ -173,15 +206,18 @@ describe("AiService", () => {
     });
 
     it("returns remote extraction when reachable", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => ({
-            profile: {},
-            blocked: false,
-            is_mock: false,
-            ai_metadata: mockMeta({ real_call: true }),
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            json: async () => ({
+              profile: {},
+              blocked: false,
+              is_mock: false,
+              ai_metadata: mockMeta({ real_call: true }),
+            }),
           }),
-        })),
+        ),
       );
 
       const result = await ai.extractProfile({ transcript: "some text" });
@@ -213,15 +249,18 @@ describe("AiService", () => {
     it("a healthy MOCK-posture extraction is not mistaken for an outage", async () => {
       // The other half of the same claim: `error_code` must stay null when the service is
       // reachable, or the new field would just relabel every mock environment as broken.
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => ({
-            profile: {},
-            blocked: false,
-            is_mock: true,
-            ai_metadata: mockMeta({ real_call: false }),
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            json: async () => ({
+              profile: {},
+              blocked: false,
+              is_mock: true,
+              ai_metadata: mockMeta({ real_call: false }),
+            }),
           }),
-        })),
+        ),
       );
 
       const result = await ai.extractProfile({ transcript: "some text" });
@@ -241,15 +280,18 @@ describe("AiService", () => {
     });
 
     it("returns remote resume when reachable", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => ({
-            resume_text: "remote resume",
-            resume_json: { profile: {} },
-            format: "text",
-            is_mock: false,
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            json: async () => ({
+              resume_text: "remote resume",
+              resume_json: { profile: {} },
+              format: "text",
+              is_mock: false,
+            }),
           }),
-        })),
+        ),
       );
 
       const result = await ai.generateResume({ profile: {} as never });
@@ -370,15 +412,18 @@ describe("AiService", () => {
     });
 
     it("returns remote transcription when reachable", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => ({
-            transcript_text: "Hello world",
-            confidence: 0.95,
-            english_text: "Hello world",
-            is_mock: false,
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            json: async () => ({
+              transcript_text: "Hello world",
+              confidence: 0.95,
+              english_text: "Hello world",
+              is_mock: false,
+            }),
           }),
-        })),
+        ),
       );
 
       const result = await ai.transcribe({ storage_path: "voice-notes/note.webm" });
@@ -405,13 +450,20 @@ describe("AiService", () => {
     });
 
     it("returns canonical skill when reachable", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => ({ status: "matched", skill_id: "sk_001", score: 0.9 }),
-        })),
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            json: async () => ({ status: "matched", skill_id: "sk_001", score: 0.9 }),
+          }),
+        ),
       );
 
-      const result = await ai.canonicalizeSkill({ phrase: "CNC setting", domain_id: "cnc_vmc", lang: "en" });
+      const result = await ai.canonicalizeSkill({
+        phrase: "CNC setting",
+        domain_id: "cnc_vmc",
+        lang: "en",
+      });
       // The stubbed body above carries NO `ai_metadata` — i.e. it is exactly what an
       // ai-service deployed BEFORE #745 returns. It still parses, and the field defaults
       // to null, which is what "additive and back-compatible" has to mean in practice:
@@ -427,7 +479,11 @@ describe("AiService", () => {
     it("returns null when remote unreachable", async () => {
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
 
-      const result = await ai.canonicalizeSkill({ phrase: "CNC setting", domain_id: "cnc_vmc", lang: "en" });
+      const result = await ai.canonicalizeSkill({
+        phrase: "CNC setting",
+        domain_id: "cnc_vmc",
+        lang: "en",
+      });
       expect(result).toBeNull();
     });
   });
@@ -442,10 +498,13 @@ describe("AiService", () => {
     });
 
     it("returns realCallsEnabled=true when flag is true", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => ({ real_calls_enabled: true }),
-        })),
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            json: async () => ({ real_calls_enabled: true }),
+          }),
+        ),
       );
 
       const result = await ai.probeHealth();
@@ -453,10 +512,13 @@ describe("AiService", () => {
     });
 
     it("returns realCallsEnabled=false when flag is false", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => ({ real_calls_enabled: false }),
-        })),
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            json: async () => ({ real_calls_enabled: false }),
+          }),
+        ),
       );
 
       const result = await ai.probeHealth();
@@ -464,10 +526,13 @@ describe("AiService", () => {
     });
 
     it("returns realCallsEnabled=null when flag is not boolean", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => ({ real_calls_enabled: "yes" }),
-        })),
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            json: async () => ({ real_calls_enabled: "yes" }),
+          }),
+        ),
       );
 
       const result = await ai.probeHealth();
@@ -475,10 +540,13 @@ describe("AiService", () => {
     });
 
     it("returns realCallsEnabled=null when flag is absent", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({
-          json: async () => ({ uptime: 12345 }),
-        })),
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          fakeResponse({
+            json: async () => ({ uptime: 12345 }),
+          }),
+        ),
       );
 
       const result = await ai.probeHealth();
@@ -486,9 +554,7 @@ describe("AiService", () => {
     });
 
     it("throws AiServiceUnhealthyError on non-ok response", async () => {
-      vi.stubGlobal("fetch",
-        vi.fn().mockResolvedValue(fakeResponse({ ok: false, status: 503 })),
-      );
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({ ok: false, status: 503 })));
 
       await expect(ai.probeHealth()).rejects.toThrow("ai-service /health returned 503");
     });
@@ -590,9 +656,7 @@ describe("AiService", () => {
       // the job-posting interview engine in TS to fall back to, so the honest answer
       // is "no turn happened" and the caller fails the request loudly.
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
-      expect(
-        await ai.jobPostingChatRespond({ session_id: "s-1", message_text: "hi" }),
-      ).toBeNull();
+      expect(await ai.jobPostingChatRespond({ session_id: "s-1", message_text: "hi" })).toBeNull();
     });
   });
 });
