@@ -31,10 +31,11 @@ export interface ProfileSummarySource {
   locationPreference: unknown;
   availability: unknown;
   /**
-   * The legacy DraftProfile snapshot JSONB (`raw_profile`). Read ONLY for
-   * `education_level`/`education_field` (not projected columns), each pulled out
-   * with the same defensive narrowing as every other JSONB here — never spread,
-   * so no other key can leak onto the wire.
+   * The legacy DraftProfile snapshot JSONB (`raw_profile`). Read ONLY for the four keys
+   * `RawProfileStringKey` names — `education_level`/`education_field` and the interview's
+   * `role_label`/`domain_label` — none of which are projected columns. Each is pulled out with
+   * the same defensive narrowing as every other JSONB here, and the blob is never spread, so
+   * no other key can leak onto the wire.
    */
   rawProfile: unknown;
   confirmedAt: Date | string | null;
@@ -126,16 +127,43 @@ function readExperienceYears(experience: unknown): number | null {
 /**
  * Human display name for the trade block: taxonomy first
  * (`getRole(canonicalRoleId).name`), then the authored trade-content fallback
- * (`resolveTradeContent(...).display_name`), else `null`. Null ids never reach
- * the resolvers.
+ * (`resolveTradeContent(...).display_name`), then the interview's own labels,
+ * else `null`. Null ids never reach the resolvers.
+ *
+ * THE LABEL ARM IS WHY THE WORKER'S OWN PROFILE TAB SAID "Aapki profile". Both resolvers key
+ * off the canonical ids, and `toExtractionOutput` hardcodes both to null on the LLM-led path —
+ * inventing a taxonomy id would put an unvalidated value where the match engine trusts
+ * absolutely (§3). So this returned null for every interview-led worker, and the app's header
+ * (`profile_tab_screen.dart` `_identity`) falls back to the generic "Aapki profile" when the
+ * trade label is empty. The worker had named their trade in the interview and their own
+ * profile would not say it back to them.
+ *
+ * ID-FIRST, exactly as the résumé builders resolve the same two values: the taxonomy value is
+ * reviewed and the label is model free text, so the label can only ever FILL A BLANK and any
+ * profile carrying an id keeps rendering as it does today (invariant #8). `role_label` leads
+ * `domain_label` because this slot is the specific job title, and the industry is the coarser
+ * answer to fall back to.
+ *
+ * PRESENTATION ONLY. `computeStrength` and `computeMissingFields` deliberately do NOT consult
+ * these labels — see the note on `computeStrength`.
  */
-function readDisplayName(roleId: string | null, tradeId: string | null): string | null {
+function readDisplayName(
+  roleId: string | null,
+  tradeId: string | null,
+  rawProfile: unknown,
+): string | null {
   if (roleId) {
     const role = getRole(roleId);
     if (role) return role.name;
   }
-  if (!roleId && !tradeId) return null;
-  return resolveTradeContent(roleId, tradeId)?.display_name ?? null;
+  if (roleId || tradeId) {
+    const resolved = resolveTradeContent(roleId, tradeId)?.display_name;
+    if (resolved) return resolved;
+  }
+  return (
+    readRawProfileString(rawProfile, "role_label") ??
+    readRawProfileString(rawProfile, "domain_label")
+  );
 }
 
 /**
@@ -147,6 +175,17 @@ function readDisplayName(roleId: string | null, tradeId: string | null): string 
  * +1 preferred_cities non-empty, +1 availability.status !== "unknown",
  * +1 has_photo (TD77b — photo-in-strength).
  * Deliberately NOT stored (no new column, no drift with the processor's value).
+ *
+ * THE INTERVIEW'S LABELS ARE DELIBERATELY NOT COUNTED HERE, and `computeMissingFields` below
+ * does not consult them either. `readDisplayName` reads them, but that is PRESENTATION — what
+ * the worker's header says. Strength is a BUSINESS signal count that must stay identical to
+ * `countFields` in profile-extraction.processor.ts, and the two dimensions it scores are
+ * "canonicalized role" and "canonicalized trade": a free-text label is precisely the state
+ * canonicalization has not yet resolved. Counting it would tell a worker their profile is
+ * stronger than the match engine can actually use it, and would silently move a number the
+ * product hangs behaviour off (§3 — AI never owns business decisions).
+ *
+ * Same rule for `missing_fields`: "role"/"trade" mean "no canonical id", which stays true.
  */
 const STRENGTH_MAX = 9;
 
@@ -168,12 +207,25 @@ function computeStrength(p: ProfileSummarySource): number {
 }
 
 /**
- * `raw_profile` JSONB → the two closed education labels. Each read with the SAME
- * defensive narrowing as the rest of the file (asObject + nonBlankStringOrNull): a
- * missing key, non-object blob, or non-string value maps to `null`, never a throw.
- * ONLY these two keys are read — the blob is never spread, so no other field leaks.
+ * `raw_profile` JSONB → one named string key. Read with the SAME defensive narrowing as the
+ * rest of the file (asObject + nonBlankStringOrNull): a missing key, non-object blob, or
+ * non-string value maps to `null`, never a throw.
+ *
+ * THE KEY UNION IS THE ALLOW-LIST, and it is the whole privacy contract of this function. Only
+ * these four keys can ever be read; the blob is NEVER spread, so no other field it happens to
+ * carry — `experience.summary`, the résumé container, anything a future writer adds — can leak
+ * onto the wire by accident. Widening this union is a deliberate act, not a refactor.
+ *
+ * All four are PII-free by class: closed education tokens, and the occupational labels the
+ * model wrote, which the ai-service's pseudonymize gate already certified on the way in.
  */
-function readEducationField(rawProfile: unknown, key: "education_level" | "education_field"): string | null {
+type RawProfileStringKey =
+  | "education_level"
+  | "education_field"
+  | "role_label"
+  | "domain_label";
+
+function readRawProfileString(rawProfile: unknown, key: RawProfileStringKey): string | null {
   return nonBlankStringOrNull(asObject(rawProfile)?.[key]);
 }
 
@@ -230,7 +282,7 @@ export function toProfileSummary(
     trade: {
       canonical_trade_id: canonicalTradeId,
       canonical_role_id: canonicalRoleId,
-      display_name: readDisplayName(canonicalRoleId, canonicalTradeId),
+      display_name: readDisplayName(canonicalRoleId, canonicalTradeId, profile.rawProfile),
     },
     city: readCity(profile.locationPreference),
     strength: computeStrength(profile),
@@ -241,8 +293,8 @@ export function toProfileSummary(
     skills: readStringArray(profile.skills).map(labelForTaxonomyId),
     machines: readStringArray(profile.machines).map(labelForTaxonomyId),
     experience_years: readExperienceYears(profile.experience),
-    education_level: readEducationField(profile.rawProfile, "education_level"),
-    education_field: readEducationField(profile.rawProfile, "education_field"),
+    education_level: readRawProfileString(profile.rawProfile, "education_level"),
+    education_field: readRawProfileString(profile.rawProfile, "education_field"),
     has_photo: profile.hasPhoto,
   };
 }
