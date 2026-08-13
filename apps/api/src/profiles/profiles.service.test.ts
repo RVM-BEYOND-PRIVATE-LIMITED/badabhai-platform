@@ -117,6 +117,13 @@ function setup() {
       async (id: string) =>
         ({ id, workerId: WORKER }) as { id: string; workerId: string } | undefined,
     ),
+    // #828 — the session `extract` falls back to when the body carries none. Defaults to
+    // UNDEFINED ("this worker has never chatted"), which is the one case that still takes
+    // the create-always path, so every pre-existing session-less test keeps its old
+    // meaning verbatim. The #828 tests override it.
+    findLatestSessionByWorker: vi.fn(
+      async (_workerId: string) => undefined as { id: string; workerId: string } | undefined,
+    ),
   };
   const events = {
     emit: vi.fn(async (p: { event_name: string; payload: Record<string, unknown> }) => p),
@@ -605,6 +612,128 @@ describe("ProfilesService.extract — session-scoped idempotency (#420)", () => 
       svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(aiJobs.findExtractionDedupeCandidate).not.toHaveBeenCalled();
+  });
+
+  // --- #828: a body with no session must not mean a session-LESS extraction ----
+  //
+  // THE PRODUCTION BUG THESE LOCK. The chat reply that flushes the transcript does two
+  // things at once: it enqueues the real extraction (`autoTriggerExtraction`) and it
+  // tells the app `session_ended: true`, which the app answers by calling
+  // `clearChatSession()`. The profile-preview screen then fires `POST /profile/extract`
+  // with the session id already gone. That reached
+  // `ProfileExtractionProcessor.buildMessages`, whose first line is
+  // `if (!sessionId) return []` — so the app's own job extracted "(no conversation
+  // captured)" and wrote a fully-null profile NEWER than the real one. Because the app
+  // polls its OWN job and confirms the id it reports, the empty profile is what the
+  // résumé was rendered from: a blank PDF for a worker who had just said "Welder".
+
+  it("resolves the worker's latest chat session when the body carries none, and DEDUPES against the auto-trigger's job", async () => {
+    // The exact production sequence, in order.
+    const { svc, aiJobs, chat, extractionQueue, events } = setupWithStore();
+    chat.findLatestSessionByWorker.mockResolvedValue({ id: SESSION, workerId: WORKER });
+
+    // 1. the transcript flush → ChatService.autoTriggerExtraction (session known).
+    const auto = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+    // 2. the app cleared its session id on `session_ended`, then hit the preview screen.
+    const client = await svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+
+    // ONE job. The app polls the job that is actually reading the interview.
+    expect(client.ai_job_id).toBe(auto.ai_job_id);
+    expect(aiJobs.create).toHaveBeenCalledOnce();
+    expect(extractionQueue.add).toHaveBeenCalledOnce();
+    expect(requestedEvents(events)).toHaveLength(1);
+  });
+
+  it("NEVER enqueues a job whose sessionId is null once the worker has a session — that job cannot extract anything", async () => {
+    // The structural claim, asserted directly on the queue payload rather than through
+    // the dedupe: `buildMessages` returns [] for a null session, so such a job is
+    // guaranteed to persist an empty profile. It must not be creatable.
+    const { svc, chat, aiJobs, extractionQueue } = setupWithStore();
+    chat.findLatestSessionByWorker.mockResolvedValue({ id: SESSION, workerId: WORKER });
+
+    await svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+
+    expect(extractionQueue.add).toHaveBeenCalledWith(
+      "extract",
+      expect.objectContaining({ workerId: WORKER, sessionId: SESSION }),
+      expect.anything(),
+    );
+    // The audit trail names the session the job will actually read, not the body's null.
+    expect(aiJobs.create).toHaveBeenCalledWith(
+      expect.objectContaining({ inputRef: { worker_id: WORKER, session_id: SESSION } }),
+    );
+  });
+
+  it("the resolved session reaches the extraction_requested event too", async () => {
+    const { svc, chat, events } = setupWithStore();
+    chat.findLatestSessionByWorker.mockResolvedValue({ id: SESSION, workerId: WORKER });
+
+    await svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+
+    expect(requestedEvents(events)[0]?.[0].payload).toMatchObject({ session_id: SESSION });
+  });
+
+  it("a body-supplied session still WINS over the worker's latest — the fallback is a fallback", async () => {
+    // A caller naming SESSION_B must be extracting SESSION_B, even if the worker has
+    // since chatted elsewhere. Resolution must never override an explicit id.
+    const { svc, chat, extractionQueue } = setupWithStore();
+    chat.findSession.mockResolvedValueOnce({ id: SESSION_B, workerId: WORKER });
+    chat.findLatestSessionByWorker.mockResolvedValue({ id: SESSION, workerId: WORKER });
+
+    await svc.extract({ worker_id: WORKER, session_id: SESSION_B }, CTX);
+
+    expect(chat.findLatestSessionByWorker).not.toHaveBeenCalled();
+    expect(extractionQueue.add).toHaveBeenCalledWith(
+      "extract",
+      expect.objectContaining({ sessionId: SESSION_B }),
+      expect.anything(),
+    );
+  });
+
+  it("the resolved session is NEVER ownership-checked against the body — it cannot name another worker's session", async () => {
+    // `findLatestSessionByWorker` is queried BY the worker id, so ownership is a property
+    // of the query. Re-checking would be a wasted round trip; more importantly, a caller
+    // has no way to influence which session comes back, so there is nothing to check.
+    const { svc, chat } = setupWithStore();
+    chat.findLatestSessionByWorker.mockResolvedValue({ id: SESSION, workerId: WORKER });
+
+    await svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+
+    expect(chat.findLatestSessionByWorker).toHaveBeenCalledWith(WORKER);
+    expect(chat.findSession).not.toHaveBeenCalled();
+  });
+
+  it("a worker who has NEVER chatted still takes the create-always path (voice-form route untouched)", async () => {
+    // The one case that legitimately has no session. `findLatestSessionByWorker` is the
+    // default `undefined` here, i.e. exactly the pre-#828 behaviour.
+    const { svc, aiJobs, extractionQueue } = setupWithStore();
+
+    const first = await svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+    const second = await svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+
+    expect(aiJobs.findExtractionDedupeCandidate).not.toHaveBeenCalled();
+    expect(second.ai_job_id).not.toBe(first.ai_job_id);
+    expect(extractionQueue.add).toHaveBeenCalledTimes(2);
+    expect(extractionQueue.add).toHaveBeenLastCalledWith(
+      "extract",
+      expect.objectContaining({ sessionId: null }),
+      expect.anything(),
+    );
+  });
+
+  it("the self-heal survives: a resolved session whose only job produced NOTHING still re-runs", async () => {
+    // The direction this must not break. #420's dedupe is deliberately one-way — an empty
+    // profile never pins a session — and routing the app's call through resolution must
+    // not turn a placeholder into a permanent answer.
+    const { svc, chat, aiJobs, complete } = setupWithStore();
+    chat.findLatestSessionByWorker.mockResolvedValue({ id: SESSION, workerId: WORKER });
+
+    const auto = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+    complete(auto.ai_job_id, EMPTY_PROFILE);
+    const client = await svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+
+    expect(client.ai_job_id).not.toBe(auto.ai_job_id);
+    expect(aiJobs.create).toHaveBeenCalledTimes(2);
   });
 });
 

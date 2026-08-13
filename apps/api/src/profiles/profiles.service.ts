@@ -165,15 +165,16 @@ export class ProfilesService {
    *    never dedupes; treated as a zombie, since nothing reaps stuck ai_jobs.
    *  - `completed` but with an EMPTY profile (the AI-down fallback persists one
    *    with status "extracted") → never dedupes; see `hasExtractedContent`.
-   *  - null `session_id` → create-always. There is no session to scope to, and
-   *    deduping null-against-null would collapse genuinely unrelated calls.
+   *  - a worker with NO chat session at all → create-always. There is genuinely
+   *    no session to scope to (the voice-form path), so this degrades to exactly
+   *    the pre-#828 behaviour.
    */
   async extract(input: ExtractProfileInput, ctx: RequestContext) {
     const worker = await this.workers.findById(input.worker_id);
     if (!worker) throw new NotFoundException(`Worker ${input.worker_id} not found`);
 
-    const sessionId = input.session_id ?? null;
-    if (sessionId) {
+    const suppliedSessionId = input.session_id ?? null;
+    if (suppliedSessionId) {
       // OWNERSHIP (issue #435). `session_id` arrives from the REQUEST BODY, so without
       // this a worker could pass someone else's session id: the job is created with
       // `input_ref = { worker_id: caller, session_id: victim's }`, and
@@ -189,9 +190,53 @@ export class ProfilesService {
       //
       // Checked BEFORE the dedupe lookup below so a foreign id cannot be probed
       // through dedupe behaviour either.
-      const session = await this.chat.findSession(sessionId);
+      const session = await this.chat.findSession(suppliedSessionId);
       if (!session || session.workerId !== input.worker_id) {
-        throw new NotFoundException(`Session ${sessionId} not found`);
+        throw new NotFoundException(`Session ${suppliedSessionId} not found`);
+      }
+    }
+
+    // ── #828: A BODY WITH NO SESSION IS NOT A REQUEST FOR A SESSION-LESS EXTRACTION ──
+    //
+    // It was treated as one, and that produced blank résumés in production. The chain,
+    // start to finish:
+    //
+    //   1. the worker's last chat turn flushes the transcript, and the flush ends with
+    //      `ChatService.autoTriggerExtraction` → a job scoped to that session (job A);
+    //   2. the SAME response carries `session_ended: true`, and the app answers it by
+    //      calling `clearChatSession()` (chat_repository_impl.dart) — by design, so the
+    //      next visit to chat opens a fresh thread rather than posting into a dead one;
+    //   3. the app then opens the profile-preview screen, which unconditionally calls
+    //      `POST /profile/extract` — and the session id it would have sent is now gone,
+    //      so the body carries none (job B);
+    //   4. `session_id: null` reached `ProfileExtractionProcessor.buildMessages`, whose
+    //      FIRST line is `if (!sessionId) return []`. Job B therefore extracted
+    //      "(no conversation captured)" and persisted a fully-null `draft` profile —
+    //      NEWER than job A's real one;
+    //   5. the app polls ITS OWN job (`awaitProfileId`) and confirms the id job B
+    //      reported, so the empty profile is what the résumé is rendered from.
+    //
+    // A session-less extraction is STRUCTURALLY INCAPABLE of producing content — step 4
+    // is not a degraded path, it is the only path — so honouring the omission could
+    // never do anything but overwrite a good profile with an empty one. Resolving the
+    // worker's own latest session is what makes the call mean what the app intends:
+    // "extract the interview this worker just finished".
+    //
+    // SAFE BY CONSTRUCTION, and strictly safer than the body id above: this is queried
+    // BY the authenticated worker, so it cannot name another worker's session and needs
+    // no ownership check. `findLatestSessionByWorker` orders by `last_message_at DESC
+    // NULLS LAST`, so it picks the session the worker actually conversed in and parks
+    // the empties — the same session job A was scoped to.
+    //
+    // A worker with no chat session at all still resolves to null and still takes the
+    // create-always path, so the voice-form route is untouched.
+    const sessionId = suppliedSessionId ?? (await this.resolveLatestSession(input.worker_id));
+    if (sessionId) {
+      if (!suppliedSessionId) {
+        this.logger.log(
+          `extract resolved session=${sessionId} worker=${input.worker_id} from the worker's ` +
+            `latest chat session (the request carried none)`,
+        );
       }
 
       const existing = await this.aiJobs.findExtractionDedupeCandidate({
@@ -246,10 +291,15 @@ export class ProfilesService {
       }
     }
 
+    // `sessionId`, NOT `input.session_id`, from here down — the RESOLVED session is the
+    // one this job will actually read, so it is the one `input_ref`, the event payload
+    // and the queue payload must all name. Recording the body's null instead would make
+    // the audit trail describe a different job than the one that ran, and would hand the
+    // processor the very null that makes extraction impossible.
     const job = await this.aiJobs.create({
       jobType: "profile_extraction",
       status: "queued",
-      inputRef: { worker_id: input.worker_id, session_id: input.session_id ?? null },
+      inputRef: { worker_id: input.worker_id, session_id: sessionId },
     });
 
     await this.events.emit({
@@ -258,7 +308,7 @@ export class ProfilesService {
       subject: { subject_type: "ai_job", subject_id: job.id },
       payload: {
         worker_id: input.worker_id,
-        session_id: input.session_id ?? null,
+        session_id: sessionId,
         ai_job_id: job.id,
       },
       idempotencyKey: `profile.extraction_requested:${job.id}`,
@@ -273,7 +323,7 @@ export class ProfilesService {
         "extract",
         {
           workerId: input.worker_id,
-          sessionId: input.session_id ?? null,
+          sessionId,
           aiJobId: job.id,
           correlationId: ctx.correlationId,
           requestId: ctx.requestId,
@@ -292,7 +342,7 @@ export class ProfilesService {
         subject: { subject_type: "ai_job", subject_id: job.id },
         payload: {
           worker_id: input.worker_id,
-          session_id: input.session_id ?? null,
+          session_id: sessionId,
           ai_job_id: job.id,
           reason,
         },
@@ -307,6 +357,27 @@ export class ProfilesService {
     }
 
     return { ai_job_id: job.id, status: "queued" as const };
+  }
+
+  /**
+   * The worker's own latest chat session, or null when they have never started one.
+   *
+   * The ONLY caller is the `session_id`-less branch of {@link extract}, and it exists so
+   * that branch scopes to a real interview instead of extracting nothing — see the long
+   * note there for why a session-less extraction cannot produce content.
+   *
+   * NO OWNERSHIP CHECK, deliberately, and that is not an omission: the session is looked
+   * up BY `workerId`, so ownership is a property of the query rather than something to
+   * verify afterwards. The body-supplied path keeps its 404 check precisely because it
+   * has no such guarantee.
+   *
+   * NOT WRAPPED IN A try/catch. If this read fails the database is unreachable, and the
+   * very next statement (`aiJobs.create`) would fail too — swallowing it here would only
+   * convert a clean 500 into a job that is guaranteed to extract nothing.
+   */
+  private async resolveLatestSession(workerId: string): Promise<string | null> {
+    const session = await this.chat.findLatestSessionByWorker(workerId);
+    return session?.id ?? null;
   }
 
   /**
