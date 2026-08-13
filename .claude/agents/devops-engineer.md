@@ -24,7 +24,7 @@ incident response · production reliability and observability.
 ## Repository ownership
 
 - `.github/**` — workflows (`ci.yml`, `staging-cd.yml`, `security-scan.yml`, `worker-app.yml`,
-  `payer-app.yml`, `supabase-checks.yml`, `staging-demand-verify.yml`, `cleanup-issues-prs.yml`),
+  `payer-app.yml`, `supabase-checks.yml`, `cleanup-issues-prs.yml`),
   `CODEOWNERS`, PR template, dependabot.
 - `infra/docker/**`, `infra/monitoring/**`, `infra/redis/**`.
 - `docker-compose.yml` + `.override` / `.staging` / `.e2e`, `start-dev.sh`, `scripts/**`
