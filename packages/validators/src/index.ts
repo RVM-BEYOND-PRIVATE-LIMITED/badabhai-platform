@@ -24,6 +24,23 @@ export function isE164Phone(value: string): boolean {
   return e164PhoneSchema.safeParse(value).success;
 }
 
+/** Lowercased, trimmed email — shared by every login/admin-invite surface. */
+export const emailSchema = z.string().trim().toLowerCase().email().max(254);
+
+/**
+ * A numeric one-time-code string, digits only.
+ *
+ * Pass a fixed length (`otpDigitsSchema(6)`, e.g. a TOTP code) or a `{ min, max }`
+ * range (`otpDigitsSchema({ min: 4, max: 8 })`, e.g. a provider-flexible OTP) —
+ * both payer-web's login OTP and admin-web's email code use the 4-8 range;
+ * admin-web's MFA step is the fixed-6 TOTP shape.
+ */
+export function otpDigitsSchema(spec: number | { min: number; max: number }) {
+  const pattern =
+    typeof spec === "number" ? `^\\d{${spec}}$` : `^\\d{${spec.min},${spec.max}}$`;
+  return z.string().trim().regex(new RegExp(pattern));
+}
+
 /** RFC 4122 UUID. */
 export const uuidSchema = z.string().uuid();
 
