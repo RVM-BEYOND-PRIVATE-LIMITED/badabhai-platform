@@ -222,7 +222,11 @@ describe("the model's turn reaches the worker", () => {
     expect(again.replayed).toBe(true);
     expect(again.inputMode).toBe("options_only");
     expect(again.options.map((o) => o.label_text)).toEqual(["Haan", "Nahi"]);
-    expect(store.get(SESSION)?.profiling?.rev).toBe(1);
+    // A REV BUMP, DELIBERATELY (see `LastTurn.replays` on the orchestrator's reply-cache batch):
+    // consuming one unit of the replay budget is a real write, so a further identical submission
+    // cannot match this same stamp forever.
+    expect(store.get(SESSION)?.profiling?.rev).toBe(2);
+    expect(store.get(SESSION)?.profiling?.lastTurn?.replays).toBe(1);
   });
 
   it("names no question key anywhere in `answerMap` — the gate is not a question", async () => {
@@ -269,8 +273,18 @@ describe("Phase A ends and the template tail takes over", () => {
             role_label: "tandoor cook",
             skills: [],
             experiences: [
-              { role_label: "tandoor cook", duration_text: "3 saal", duration_months: 36, work_done: "naan" },
-              { role_label: "helper", duration_text: "1 saal", duration_months: 12, work_done: "prep" },
+              {
+                role_label: "tandoor cook",
+                duration_text: "3 saal",
+                duration_months: 36,
+                work_done: "naan",
+              },
+              {
+                role_label: "helper",
+                duration_text: "1 saal",
+                duration_months: 12,
+                work_done: "prep",
+              },
             ],
           },
         },
@@ -301,7 +315,12 @@ describe("Phase A ends and the template tail takes over", () => {
             role_label: null,
             skills: [],
             experiences: [
-              { role_label: "cook", duration_text: "kaafi saal", duration_months: null, work_done: "" },
+              {
+                role_label: "cook",
+                duration_text: "kaafi saal",
+                duration_months: null,
+                work_done: "",
+              },
             ],
           },
         },
