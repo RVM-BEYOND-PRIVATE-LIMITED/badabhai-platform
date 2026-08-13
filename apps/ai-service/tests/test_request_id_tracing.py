@@ -97,6 +97,20 @@ def test_an_oversized_request_id_is_rejected():
     assert len(res.headers["x-request-id"]) < 100
 
 
+def test_a_uuid_with_a_trailing_newline_is_rejected():
+    """THE FULLMATCH-VS-MATCH CASE. Python's `$` in a `match()`-style check is
+    satisfied at end-of-string OR immediately before a single trailing "\\n" --
+    so "<uuid>\\n" would pass a naive `^...$` + .match() check and get written,
+    newline and all, straight into a response header. fullmatch() has no such
+    exception: the entire string must be exactly the 36-char shape."""
+    from app.main import _safe_trace_id
+
+    tampered = f"{_A_UUID}\n"
+    result = _safe_trace_id(tampered)
+    assert result != tampered
+    assert result == _A_UUID or "\n" not in result
+
+
 def _record(msg: str = "test message") -> logging.LogRecord:
     return logging.LogRecord(
         name="ai-service",

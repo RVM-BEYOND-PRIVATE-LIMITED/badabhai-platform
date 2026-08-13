@@ -133,12 +133,16 @@ _AUTH_EXEMPT_PATHS = frozenset({"/health"})
 # short string can still carry a name/phone/address. Reject anything that isn't exactly
 # UUID-shaped and mint a fresh one instead of trusting the caller's text.
 _TRACE_ID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
 )
 
 
 def _safe_trace_id(supplied: str | None) -> str:
-    if supplied and _TRACE_ID_RE.match(supplied):
+    # fullmatch, NOT match with a ^...$ pattern: Python's `$` matches at end-of-string
+    # OR immediately before a single trailing "\n", so "<valid-uuid>\n" would otherwise
+    # pass this check and get written straight into a response header. fullmatch has no
+    # such exception -- the ENTIRE string must be the 36-char shape, nothing trailing.
+    if supplied and _TRACE_ID_RE.fullmatch(supplied):
         return supplied
     return str(uuid.uuid4())
 
