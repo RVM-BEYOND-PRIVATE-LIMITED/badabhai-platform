@@ -1,0 +1,190 @@
+flowchart TD
+    subgraph WORKER["Worker Identity, Profile & Resume"]
+        workers[("workers<br/>PII root")]
+        worker_consents["worker_consents"]
+        worker_devices["worker_devices"]
+        worker_credentials["worker_credentials"]
+        worker_profiles["worker_profiles"]
+        generated_resumes["generated_resumes"]
+        worker_flags["worker_flags"]
+        worker_skill["worker_skill"]
+        worker_industry_tenure["worker_industry_tenure"]
+        push_deliveries["push_deliveries"]
+    end
+
+    subgraph CHAT["Worker Profiling / Chat / Interview"]
+        chat_sessions["chat_sessions"]
+        chat_messages["chat_messages"]
+        voice_notes["voice_notes"]
+        worker_attributes["worker_attributes"]
+        profiling_voice_answer["profiling_voice_answer"]
+        worker_pack_answer["worker_pack_answer"]
+        subgraph LEGACY["legacy — DEAD, seed-only"]
+            profiles["profiles"]
+            questions["questions"]
+            profile_questions["profile_questions"]
+            worker_answers["worker_answers"]
+        end
+    end
+
+    subgraph PACKS["Question-Pack Corpus (current)"]
+        profiling_family["profiling_family"]
+        profiling_family_binding["profiling_family_binding"]
+        question_pack["question_pack"]
+        question_pack_item["question_pack_item"]
+        question_pack_option["question_pack_option"]
+    end
+
+    subgraph TAXONOMY["Taxonomy & Occupation Reference (PII-free)"]
+        skill["skill"]
+        skill_alias["skill_alias"]
+        skill_related["skill_related"]
+        unresolved_phrase["unresolved_phrase"]
+        job_domain["job_domain"]
+        job_domain_alias["job_domain_alias"]
+    end
+
+    subgraph JOBMATCH["Job, Application & Match"]
+        jobs["jobs<br/>legacy feed"]
+        job_postings[("job_postings<br/>served entity")]
+        applications["applications"]
+        job_reach["job_reach"]
+        match_config["match_config"]
+        pace_states["pace_states"]
+    end
+
+    subgraph PAYER["Payer, Agency & Credits"]
+        payers[("payers<br/>B2B PII root")]
+        payer_orgs["payer_orgs"]
+        payer_members["payer_members"]
+        unlocks["unlocks"]
+        unlock_routing["unlock_routing"]
+        payer_credits["payer_credits"]
+        credit_ledger["credit_ledger"]
+        pricing_catalog["pricing_catalog"]
+        posting_plans["posting_plans"]
+        posting_boosts["posting_boosts"]
+        resume_disclosures["resume_disclosures"]
+        payer_capacity["payer_capacity"]
+        payment_orders["payment_orders"]
+        payer_job_posting_chat_sessions["payer_job_posting_chat_sessions"]
+        payer_job_posting_chat_messages["payer_job_posting_chat_messages"]
+        payer_form_drafts["payer_form_drafts<br/>(0 consumers)"]
+        agency_kyc["agency_kyc"]
+        agency_payout_requests["agency_payout_requests"]
+        agency_payout_accruals["agency_payout_accruals"]
+    end
+
+    subgraph REFERRAL["Referral & Growth"]
+        invites["invites"]
+        agency_invites["agency_invites"]
+        referral_links["referral_links"]
+        referral_clicks["referral_clicks"]
+        referral_bonus_accruals["referral_bonus_accruals"]
+    end
+
+    subgraph ADMIN["Admin & Events"]
+        events[("events<br/>event-first spine")]
+        ai_jobs["ai_jobs"]
+        audit_logs["audit_logs"]
+        admin_users["admin_users"]
+    end
+
+    %% --- Worker cluster internal FKs ---
+    worker_consents -->|cascade| workers
+    worker_devices -->|cascade| workers
+    worker_credentials -->|cascade| workers
+    worker_profiles -->|cascade| workers
+    generated_resumes -->|cascade| workers
+    generated_resumes -->|cascade| worker_profiles
+    worker_flags -->|cascade| workers
+    worker_skill -->|cascade| workers
+    worker_industry_tenure -->|cascade| workers
+    push_deliveries -->|cascade| worker_devices
+    push_deliveries -.->|set null| events
+
+    %% --- Chat cluster ---
+    chat_sessions -->|cascade| workers
+    chat_messages -->|cascade| chat_sessions
+    chat_messages -->|cascade| workers
+    chat_messages -.->|set null| voice_notes
+    voice_notes -->|cascade| chat_sessions
+    voice_notes -->|cascade| workers
+    worker_attributes -->|cascade| workers
+    worker_attributes -.->|set null| chat_sessions
+    profiling_voice_answer -->|cascade| workers
+    profiling_voice_answer -->|cascade| chat_sessions
+    profiling_voice_answer -.->|set null| voice_notes
+    profiling_voice_answer -.->|self set null| profiling_voice_answer
+    worker_pack_answer -->|cascade| workers
+    worker_pack_answer -.->|set null| chat_sessions
+    profile_questions -->|cascade| profiles
+    profile_questions -->|cascade| questions
+    worker_answers -->|cascade| workers
+    worker_answers -->|cascade| profiles
+    worker_answers -->|cascade| questions
+
+    %% --- Question-pack corpus ---
+    profiling_family_binding -->|cascade| profiling_family
+    question_pack -->|restrict| profiling_family
+    question_pack_item -->|cascade, composite| question_pack
+    question_pack_option -->|cascade| question_pack_item
+    profiling_family -.->|self, no action| profiling_family
+
+    %% --- Taxonomy ---
+    skill_alias -->|cascade| skill
+    skill_related -->|no action x2| skill
+    job_domain_alias -->|cascade| job_domain
+    job_domain -.->|self, no action x2| job_domain
+    skill -.->|self, no action| skill
+
+    %% --- Cross-cluster: worker_skill / worker_profiles into taxonomy ---
+    worker_skill -->|no action| skill
+    worker_profiles -.->|set null| job_domain
+
+    %% --- Job / Match cluster ---
+    job_postings -.->|set null, cutover provenance| jobs
+    applications -->|cascade| jobs
+    applications -->|cascade| job_postings
+    applications -->|cascade| workers
+    job_reach -->|cascade| job_postings
+    job_reach -->|cascade| workers
+    job_reach -->|no action| skill
+    pace_states -->|cascade| jobs
+
+    %% --- Payer cluster ---
+    payer_orgs -->|restrict| payers
+    payer_members -->|cascade| payer_orgs
+    payer_members -.->|set null x2| payers
+    unlocks -.->|set null| workers
+    unlocks -.->|set null| jobs
+    unlock_routing -->|cascade| unlocks
+    credit_ledger -.->|set null| unlocks
+    posting_plans -->|cascade| job_postings
+    posting_boosts -->|cascade| job_postings
+    resume_disclosures -.->|set null| workers
+    resume_disclosures -.->|set null| job_postings
+    resume_disclosures -.->|set null| generated_resumes
+    payer_job_posting_chat_sessions -->|cascade| payers
+    payer_job_posting_chat_sessions -.->|set null| job_postings
+    payer_job_posting_chat_messages -->|cascade| payer_job_posting_chat_sessions
+    payer_job_posting_chat_messages -->|cascade, denorm| payers
+    payer_form_drafts -->|cascade| payers
+    agency_kyc -->|cascade| payers
+    agency_payout_requests -->|cascade| payers
+    agency_payout_accruals -->|cascade| payers
+    agency_payout_accruals -->|cascade| unlocks
+    agency_payout_accruals -.->|set null| agency_payout_requests
+
+    %% --- Referral cluster ---
+    invites -.->|set null x2| workers
+    agency_invites -->|cascade| payers
+    agency_invites -.->|set null| workers
+    referral_links -->|cascade| payers
+    referral_links -.->|set null| workers
+    referral_clicks -->|cascade| referral_links
+    referral_clicks -.->|set null| workers
+    referral_bonus_accruals -->|cascade x2| workers
+
+    classDef dead fill:#4a1a1a,stroke:#a33,color:#eee;
+    class profiles,questions,profile_questions,worker_answers,payer_form_drafts dead;
