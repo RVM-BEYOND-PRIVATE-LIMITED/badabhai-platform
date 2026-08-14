@@ -579,14 +579,18 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     const eventsJson = JSON.stringify(mine);
     expect(eventsJson).not.toContain(PHONE);
     expect(eventsJson).not.toContain(NATIONAL);
-    // ...and the persisted interview state holds topic ids/counts only — never the
-    // raw worker message text, and never the phone.
+    // ...and the persisted interview state never carries the phone -- but NOT "no raw
+    // worker message text": OIE's answer_map deliberately stores each answer's
+    // value_raw ("The worker's words, verbatim" -- packages/ai-contracts/src/oie.ts's
+    // own AnswerRecordSchema comment) as the parse call's evidence store, the same
+    // tier as chat_messages.bodyText (already asserted verbatim above). Pseudonymization
+    // guards the AI-BOUNDARY crossing (the LLM parse-call payload), not this platform's
+    // own Postgres row -- CLAUDE.md's invariant is "no raw PII crosses AI boundaries",
+    // not "no worker content in our own database". This assertion predates answer_map
+    // and asserted a narrower, no-longer-true shape.
     const stateJson = JSON.stringify(sessionRow!.conversationState ?? {});
     expect(stateJson).not.toContain(PHONE);
     expect(stateJson).not.toContain(NATIONAL);
-    for (const text of sentTexts) {
-      expect(stateJson).not.toContain(text);
-    }
     // ...and the async job refs carry ids only, no phone.
     const jobJson = JSON.stringify({ in: jobRow!.inputRef, out: jobRow!.outputRef });
     expect(jobJson).not.toContain(PHONE);
