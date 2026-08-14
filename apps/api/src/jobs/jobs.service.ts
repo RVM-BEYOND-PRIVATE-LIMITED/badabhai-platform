@@ -1,6 +1,37 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { JobNeededBy, JobShift, TradeKey } from "@badabhai/db";
+import type { RequestContext } from "../common/request-context";
+import { EventsService } from "../events/events.service";
 import { JobsRepository } from "./jobs.repository";
+import type { JobSearchQueryDto } from "./jobs.dto";
+
+/**
+ * One row of `GET /jobs/search` (#822). A superset of the feed item — plus `state` and
+ * `published_at` — and a strict subset of what a posting holds: no employer identity, no
+ * `location_label`, no status, no applicant counts.
+ */
+export interface JobSearchItem {
+  job_id: string;
+  title: string;
+  city: string | null;
+  state: string | null;
+  area: string | null;
+  pay_min: number | null;
+  pay_max: number | null;
+  shift: JobShift | null;
+  min_experience_years: number | null;
+  max_experience_years: number | null;
+  matched_skill_label: string | null;
+  published_at: string | null;
+}
+
+/** The paged envelope. `has_more` is a fact (limit+1 fetch), never an estimate. */
+export interface JobSearchResponse {
+  jobs: JobSearchItem[];
+  page: number;
+  limit: number;
+  has_more: boolean;
+}
 
 /**
  * Wire shape of the worker-visible job detail — EXACTLY the ADR-0024
@@ -43,7 +74,14 @@ export interface WorkerVisibleJob {
  */
 @Injectable()
 export class JobsService {
-  constructor(private readonly repo: JobsRepository) {}
+  private readonly logger = new Logger(JobsService.name);
+
+  constructor(
+    private readonly repo: JobsRepository,
+    // #822 only — the detail read above still emits nothing (ADR-0024 §"Event ruling"). Search
+    // is a new worker ACTION, not a re-read of already-served content, so it gets its own event.
+    private readonly events: EventsService,
+  ) {}
 
   /**
    * Fetch the worker-visible projection of ONE open job.
@@ -93,6 +131,96 @@ export class JobsService {
       description: row.description,
       benefits: row.benefits,
       requirements: row.requirements,
+    };
+  }
+
+  /**
+   * #822 — the worker-facing job SEARCH: free text + location, paged, deterministic.
+   *
+   * DETERMINISTIC BY CONSTRUCTION, NEVER AI-RANKED (CLAUDE.md §3). The order is a SQL
+   * expression — title-prefix, then title-substring, then skill-phrase, tie-broken on
+   * `published_at DESC, id ASC`. No model sees this path, and none may: ranking who an
+   * employer sees is a business decision, and §3 puts those outside the LLM's reach.
+   *
+   * THE EVENT CARRIES NO QUERY TEXT. `q` is unbounded worker free text and the events table
+   * is exactly where §2 forbids raw PII, so the payload records the SHAPE of the search
+   * (which filters ran, how long the term was, how many rows came back) and never the term.
+   * Hashing was rejected: a short search term's hash is dictionary-reversible, i.e. PII in a
+   * costume. See `JobSearchPerformedPayload`.
+   *
+   * THE EMIT NEVER FAILS THE SEARCH. Results are already computed and correct by the time it
+   * runs; 500-ing a good page because an analytics row would not write trades a working
+   * feature for a telemetry one. Logged and swallowed, the same posture `ProfilesService`
+   * takes for its résumé and referral enqueues.
+   */
+  async searchJobs(
+    workerId: string,
+    query: JobSearchQueryDto,
+    ctx: RequestContext,
+  ): Promise<JobSearchResponse> {
+    const offset = (query.page - 1) * query.limit;
+    const { rows, hasMore } = await this.repo.searchOpenPostings({
+      workerId,
+      q: query.q ?? null,
+      city: query.city ?? null,
+      state: query.state ?? null,
+      limit: query.limit,
+      offset,
+    });
+
+    try {
+      await this.events.emit({
+        event_name: "job.search_performed",
+        actor: { actor_type: "worker", actor_id: workerId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: {
+          worker_id: workerId,
+          has_query: query.q !== undefined,
+          query_length: query.q?.length ?? 0,
+          city_filtered: query.city !== undefined,
+          state_filtered: query.state !== undefined,
+          result_count: rows.length,
+          page: query.page,
+          limit: query.limit,
+        },
+        // A search is NOT idempotent — two identical searches are two real events — so the key
+        // is the REQUEST, not the query. Same request replayed (a client retry on a dropped
+        // response) collapses; a genuine second search does not.
+        idempotencyKey: `job.search_performed:${ctx.requestId}`,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `job.search_performed could not be emitted (results unaffected): ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    return {
+      jobs: rows.map((row) => ({
+        job_id: row.id,
+        title: row.title,
+        city: row.city,
+        state: row.state,
+        // NOT CARRIED BY `job_postings`, and honestly null rather than invented. `area` and the
+        // experience window live on the legacy `jobs` table only; the same nulls the detail
+        // read already returns for a V1 posting.
+        area: null,
+        pay_min: row.payMin,
+        pay_max: row.payMax,
+        shift: row.shift,
+        min_experience_years: null,
+        max_experience_years: null,
+        // Reserved by the contract for the skill label that matched. Null until the search
+        // reports WHICH phrase hit — surfacing the worker's own query back as a "matched
+        // skill" would be a fabrication, not a match.
+        matched_skill_label: null,
+        published_at: row.publishedAt?.toISOString() ?? null,
+      })),
+      page: query.page,
+      limit: query.limit,
+      has_more: hasMore,
     };
   }
 }

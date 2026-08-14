@@ -38,6 +38,24 @@ export interface WorkerVisibleJobRow {
 }
 
 /**
+ * One search hit — the EXPLICIT worker-visible projection for `GET /jobs/search` (#822).
+ *
+ * A strict subset of what a posting holds. `org_label`, `payer_id`, `created_by`, `status` and
+ * `location_label` are never selected: employer identity stays off the worker path entirely
+ * (ADR-0024), and `location_label` is poster free text that may contain an address.
+ */
+export interface JobSearchRow {
+  id: string;
+  title: string;
+  city: string | null;
+  state: string | null;
+  payMin: number | null;
+  payMax: number | null;
+  shift: JobShift | null;
+  publishedAt: Date | null;
+}
+
+/**
  * Drizzle data access for the worker-scoped job detail read (ADR-0024 final
  * addendum, 2026-07-16). Pure data access only — the neutral 404 and the wire
  * mapping live in the service.
@@ -119,5 +137,94 @@ export class JobsRepository {
       .where(and(eq(jobPostings.id, jobId), eq(jobPostings.status, "open")))
       .limit(1);
     return posting;
+  }
+
+  /**
+   * #822 — the DISCOVERY surface: open postings matching a free-text term and/or a location.
+   *
+   * DELIBERATELY NOT `/feed`, and the distinction is the reason this exists. The feed is a
+   * PERSONALIZED reach list — its candidate set is gated by `job_reach`, capped at 50, and
+   * filtered by exact-`city` equality. Search is the opposite: every open posting is a
+   * candidate, the worker supplies the intent, and `city` matches partially. Bolting `q` onto
+   * the feed would have made one query answer two different product questions.
+   *
+   * ONE MORE ROW THAN ASKED FOR is fetched (`limit + 1`) so `has_more` is a FACT rather than a
+   * guess. The alternative — a second `count(*)` over the same predicate — doubles the query
+   * cost to answer a boolean, and a full count over an unbounded search is the expensive half.
+   * The caller slices back to `limit`.
+   *
+   * DETERMINISTIC ORDER, NO AI (CLAUDE.md §3). Relevance is a computed SQL rank, not a model:
+   * a title prefix match outranks a title substring, which outranks a skill-phrase hit. Ties
+   * break on `published_at DESC, id ASC`, so the same query returns the same page every time
+   * and paging cannot drop or repeat a row between requests.
+   *
+   * PII: the projection is explicit and never selects `org_label`, `payer_id`, `created_by` or
+   * `location_label` — employer identity stays off the worker path entirely (ADR-0024), and
+   * `location_label` is poster free text that could hold an address.
+   */
+  async searchOpenPostings(args: {
+    workerId: string;
+    q: string | null;
+    city: string | null;
+    state: string | null;
+    limit: number;
+    offset: number;
+  }): Promise<{ rows: JobSearchRow[]; hasMore: boolean }> {
+    const conditions = [eq(jobPostings.status, "open")];
+
+    // ILIKE with the term as a PARAMETER, never interpolated — `%` and `_` inside a worker's
+    // search box are then literal characters rather than wildcards they did not ask for.
+    if (args.q) {
+      const like = `%${args.q}%`;
+      conditions.push(
+        sql`(${jobPostings.roleTitle} ILIKE ${like} OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(${jobPostings.skillPhrases}) AS phrase
+          WHERE phrase ILIKE ${like}
+        ))`,
+      );
+    }
+    // PARTIAL and case-insensitive, unlike the feed's exact equality — "pun" finds "Pune",
+    // which is the whole point of a search box.
+    if (args.city) conditions.push(sql`${jobPostings.city} ILIKE ${`%${args.city}%`}`);
+    if (args.state) conditions.push(sql`${jobPostings.state} ILIKE ${`%${args.state}%`}`);
+
+    // ALREADY-DECIDED POSTINGS ARE EXCLUDED, mirroring the feed's anti-join but keyed on
+    // `job_posting_id` (migration 0056 — a V1 decision leaves `job_id` NULL). Both `applied`
+    // and `skipped`: on a search the worker typed the query, so re-serving something they
+    // already dismissed reads as the search being broken.
+    conditions.push(sql`NOT EXISTS (
+      SELECT 1 FROM applications a
+      WHERE a.worker_id = ${args.workerId}
+        AND a.job_posting_id = ${jobPostings.id}
+        AND a.action IN ('applied', 'skipped')
+    )`);
+
+    // The relevance ladder, as a plain integer. Lower sorts first.
+    const relevance = args.q
+      ? sql<number>`CASE
+          WHEN ${jobPostings.roleTitle} ILIKE ${`${args.q}%`} THEN 0
+          WHEN ${jobPostings.roleTitle} ILIKE ${`%${args.q}%`} THEN 1
+          ELSE 2
+        END`
+      : sql<number>`0`;
+
+    const rows = await this.db
+      .select({
+        id: jobPostings.id,
+        title: jobPostings.roleTitle,
+        city: jobPostings.city,
+        state: jobPostings.state,
+        payMin: jobPostings.payMin,
+        payMax: jobPostings.payMax,
+        shift: jobPostings.shift,
+        publishedAt: jobPostings.publishedAt,
+      })
+      .from(jobPostings)
+      .where(and(...conditions))
+      .orderBy(relevance, sql`${jobPostings.publishedAt} DESC NULLS LAST`, jobPostings.id)
+      .limit(args.limit + 1)
+      .offset(args.offset);
+
+    return { rows: rows.slice(0, args.limit), hasMore: rows.length > args.limit };
   }
 }
