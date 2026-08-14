@@ -338,7 +338,14 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     // ──────────── STAGE 4 — Profile extraction (AUTOMATIC, no manual call) ────────────
     // Reaching extraction_ready above auto-triggered extraction from the chat
     // service — there is NO POST /profile/extract. Poll the auto-created job to done.
-    const { aiJobId, profileId } = await pollAutoExtraction(client, workerId);
+    //
+    // 240 attempts (60s), not the 60/15s default: this suite's own test-login rewire is the
+    // FIRST time this exact path (test-login-authenticated worker -> chat -> auto-extraction)
+    // has ever run in CI -- it was `it.skip` before. A cold BullMQ worker + mocked AI-service
+    // round trip on a shared CI runner is a different latency profile from local dev, where
+    // 15s was apparently enough. If 60s is ever insufficient too, that is a real signal
+    // (queue never processes the job at all) rather than a timing margin to keep padding.
+    const { aiJobId, profileId } = await pollAutoExtraction(client, workerId, 240);
     expect(aiJobId).toBeTruthy();
     expect(profileId).toBeTruthy();
 
