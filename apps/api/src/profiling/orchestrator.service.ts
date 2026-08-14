@@ -68,6 +68,7 @@ import {
   narrowAnswerRecords,
   recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
+  STALE_RESPONSE_WINDOW_MS,
   TURN_KINDS,
   toEngineState,
   withAnswers,
@@ -1753,7 +1754,18 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
   // not in `takeTurn`: `age` is only a floor on human turnaround once it is known to be a real,
   // forward-running elapsed time. A skewed clock handing back −60 s satisfies "less than 1.5 s"
   // perfectly, and would turn clock skew into a free way to suppress turns indefinitely.
-  if (!Number.isFinite(age) || age < 0 || age > REPLY_CACHE_WINDOW_MS) return null;
+  if (!Number.isFinite(age) || age < 0 || age > STALE_RESPONSE_WINDOW_MS) return null;
+  // PAST THE FRESH WINDOW BUT INSIDE THE STALE ONE (#869) — still served from the cache, but for a
+  // different reason, so the budget below does not apply to it.
+  //
+  // Inside `REPLY_CACHE_WINDOW_MS` a match is confidently one physical submission arriving twice.
+  // Out here it is genuinely ambiguous: either the shipped client's own 15 s timeout retry (whose
+  // worker never saw the question this would otherwise answer), or the worker's next answer reusing
+  // the same words. The server cannot tell — so it is decided by which mistake is recoverable.
+  // Replaying at a worker who really did repeat themselves costs one visible round trip; running
+  // the turn for a stale retry captures their words against a question they never saw and, on a
+  // `max_asks: 1` item, settles it forever. See STALE_RESPONSE_WINDOW_MS for the full argument.
+  const stale = age > REPLY_CACHE_WINDOW_MS;
   // THE REPLAY BUDGET (see `LastTurn.replays`). `rev` does not distinguish a network retry of
   // THIS reply from the worker's next, genuinely different turn happening to use the same words —
   // a replay writes nothing, so an unbudgeted stamp would match every further identical submission
@@ -1769,7 +1781,14 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
   // still answered from the cache. Past the floor the two cases are genuinely indistinguishable
   // and the budget decides, exactly as it did before.
   const spent = last.replays >= MAX_REPLAYS_PER_TURN;
-  if (spent && age >= RETRY_STORM_FLOOR_MS) return null;
+  // `&& !stale` IS THE FIX (#869), and it is why the budget is scoped rather than removed. The
+  // budget exists to stop ONE stamp trapping an interview while it is being replayed cheaply
+  // inside the fresh window. Out in the stale window there is nothing to trap: a stale replay
+  // consumes no budget, writes nothing, and never refreshes `last.at`, so the window shuts by the
+  // clock on its own. Letting the budget fall through to here would re-open exactly this defect —
+  // the spent stamp would run the turn for real and capture the stale retry against the question
+  // it was never meant for, which is the whole bug.
+  if (spent && age >= RETRY_STORM_FLOOR_MS && !stale) return null;
   // AN OFFER THAT LOST ITS CHIPS IS NOT A REPLAY, IT IS A DEAD END — fail closed (§3).
   //
   // `narrowLastTurn` parses cached options all-or-nothing, so any chip the contract rejects empties
@@ -1785,7 +1804,10 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
     // expires on its own, whether or not this path ever touches Redis. Consuming budget here
     // instead would buy nothing — the budget is already spent — while putting one CAS write per
     // duplicate on exactly the path a storm hammers.
-    consumesBudget: !spent,
+    // `&& !stale`: a stale replay costs no budget. Consuming it would put one CAS write on every
+    // duplicate of a retry storm — the same reason a spent storm replay writes nothing — and would
+    // buy nothing, since out there the budget no longer gates anything (see the check above).
+    consumesBudget: !spent && !stale,
     result: {
       reply: last.reply,
       // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
