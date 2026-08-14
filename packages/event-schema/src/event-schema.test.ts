@@ -2483,9 +2483,59 @@ describe("job_posting_chat.* (ADR-0035)", () => {
   });
 });
 
+describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", () => {
+  const abandoned = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "chat.session_abandoned",
+    event_version: 1,
+    occurred_at: "2026-08-14T10:00:00.000Z",
+    // The SWEEP closed this session, not the worker — the actor is the system.
+    actor: { actor_type: "system" },
+    subject: { subject_type: "chat_session", subject_id: UUID_C },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = {
+    session_id: UUID_C,
+    worker_id: UUID_A,
+    transcript_recovered: true,
+    messages_preserved: 12,
+    answers_preserved: 4,
+    idle_minutes: 380,
+  };
+
+  it("accepts ids, counts and the recovery flag", () => {
+    expect(validateEvent(abandoned(valid)).success).toBe(true);
+  });
+
+  it("carries NO message text — a stray free-text field is rejected, not passed through", () => {
+    // The transcript is raw PII and lives in `chat_messages`. If this ever starts accepting
+    // prose, an abandoned interview's words would land in the events table (§2).
+    const withText = { ...valid, last_message: "mera naam Ramesh hai, 9876543210" };
+    const result = validateEvent(abandoned(withText));
+    if (result.success) {
+      expect(result.event.payload).not.toHaveProperty("last_message");
+    }
+  });
+
+  it("rejects negative counts (a count is evidence; a negative one is a bug)", () => {
+    expect(validateEvent(abandoned({ ...valid, messages_preserved: -1 })).success).toBe(false);
+    expect(validateEvent(abandoned({ ...valid, idle_minutes: -5 })).success).toBe(false);
+  });
+
+  it("requires the recovery flag — 'transcript lost' must never be silently omitted", () => {
+    const { transcript_recovered: _omitted, ...withoutFlag } = valid;
+    expect(validateEvent(abandoned(withoutFlag)).success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 158 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed)", () => {
-    expect(EVENT_NAMES).toHaveLength(158);
+  it("exposes all 159 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned)", () => {
+    expect(EVENT_NAMES).toHaveLength(159);
     // The LLM-led opening handed back to the deterministic engine. Designed to be invisible to
     // the worker, so this event is the only place a degraded ai-service becomes visible at all.
     expect(isEventName("profile.llm_interview_fallback")).toBe(true);

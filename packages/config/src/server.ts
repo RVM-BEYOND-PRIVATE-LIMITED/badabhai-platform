@@ -761,6 +761,23 @@ export const serverEnvSchema = z.object({
   // lapsed buffer loses that interview's messages — accepted, and the reason the key
   // is re-set rather than left to age from creation.
   CHAT_TRANSCRIPT_TTL_SECONDS: z.coerce.number().int().positive().default(86_400),
+  // ── The abandonment sweep ──────────────────────────────────────────────────────
+  // How long a session may sit idle before the sweep closes it as `abandoned` and
+  // PRESERVES whatever the buffer still holds.
+  //
+  // THE ONLY NUMBER THAT MATTERS HERE IS ITS DISTANCE BELOW THE TTL ABOVE. The sweep's
+  // whole value is catching a dead interview while its Redis buffer is STILL ALIVE — that
+  // is the difference between saving the verbatim transcript and saving only the periodic
+  // `conversation_state` checkpoint. At 6h against a 24h TTL there are ~18h of cover, so a
+  // session has to survive the sweep failing for three quarters of a day before anything
+  // is lost. Raising this toward the TTL silently converts recoveries into losses.
+  //
+  // The floor is the worker, not the machine: 6h is long enough that a shop-floor break, a
+  // shift, or a dead battery does not close an interview somebody meant to resume.
+  CHAT_ABANDON_AFTER_SECONDS: z.coerce.number().int().positive().default(21_600),
+  // Sweep cadence (cadence precedent: ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS). Fractional
+  // hours allowed so a test/staging run can tick fast.
+  CHAT_ABANDON_SWEEP_INTERVAL_HOURS: z.coerce.number().positive().default(1),
   // The hard turn cap — the API side of it, and the AUTHORITATIVE one. The ai-service
   // has the same number in PROFILING_MAX_TURNS, but it holds no per-session state,
   // so it can only enforce what it is told: this is the count that actually fires,
