@@ -207,26 +207,23 @@ class _ProfileView extends StatelessWidget {
       final String trade = (summary.tradeLabel?.isNotEmpty ?? false)
           ? summary.tradeLabel!
           : 'Tayyar ho raha hai…';
-      // WA-4: `strengthSignals` is the backend's integer signal count — shown as
-      // an honest count in DS voice ("N cheezein complete"; "N/max" only once
-      // the API ships a real denominator), never a client-fabricated percent.
-      final int? strengthMax = summary.strengthMax;
-      final String strengthValue = (strengthMax != null && strengthMax > 0)
-          ? '${summary.strengthSignals}/$strengthMax cheezein complete'
-          : '${summary.strengthSignals} cheezein complete';
       final String? city =
           (summary.city?.isNotEmpty ?? false) ? summary.city : null;
       // PII-free education labels — shown only when present, never fabricated.
       final String? education = _educationLabel(summary);
 
-      // The data facts (editable via chat) then the informational strength row.
+      // The data facts the worker confirms (each editable via chat). The
+      // "Profile strength" row was removed here (#844): a completeness score is
+      // not an input to "is this correct?", and a low number reads like a failing
+      // grade at the moment we want a simple yes. `strength*` stay on
+      // ProfileSummary — other screens still use them; this screen just no longer
+      // renders the row.
       final List<({String label, String value, bool editable})> specs =
           <({String label, String value, bool editable})>[
         (label: 'Trade', value: trade, editable: true),
         if (city != null) (label: 'City', value: city, editable: true),
         if (education != null)
           (label: 'Education', value: education, editable: true),
-        (label: 'Profile strength', value: strengthValue, editable: false),
       ];
       for (int i = 0; i < specs.length; i++) {
         final ({String label, String value, bool editable}) s = specs[i];
