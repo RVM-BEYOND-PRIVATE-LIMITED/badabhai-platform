@@ -276,7 +276,7 @@ services:
       # VOICE_NOTES_BUCKET: unset expands to empty and compose still starts clean.
       WORKER_PHOTOS_BUCKET: ${WORKER_PHOTOS_BUCKET:-}
 
-      # ---- BL-22: 13 REAL-PROVIDER/FEATURE BOOLEAN GATES, PREVIOUSLY UNREACHABLE FROM THE BOX.
+      # ---- BL-22: 12 REAL-PROVIDER/FEATURE BOOLEAN GATES, PREVIOUSLY UNREACHABLE FROM THE BOX.
       #
       # THE SAME FAILURE CLASS AS EVERY BLOCK ABOVE (WORKER_PHOTOS_BUCKET #794,
       # CHAT_LLM_INTERVIEW_ENABLED #798, RESUME_RENDER_ENABLED #793, ZEPTOMAIL_API_URL #813) —
@@ -289,11 +289,29 @@ services:
       # the next real-provider integration would hit this dead end blind, exactly as
       # #793/#794/#798/#813 each did before they got their own line.
       #
-      # ALL 13 ARE `booleanFromString`-TYPED (packages/config/src/server.ts), which is why they
-      # are safe to pass through as `${VAR:-false}` in one mechanical batch: `booleanFromString`
-      # explicitly treats an EMPTY string as `false` in its transform, so an unset box export
-      # resolves to the exact same `false` these flags already read today — this line changes
-      # REACHABILITY, not behavior, for a box that does not export any of them.
+      # #872 CUT MEMBER_INVITES_ENABLE_REAL BACK OUT OF THIS BLOCK (was 13, now 12). "Undeclared
+      # is always safe" turned out to be false for THIS box specifically: the Lightsail box's
+      # persistent shell/.env already carried `MEMBER_INVITES_ENABLE_REAL=true` — a stale leftover
+      # from ADR-0027 B5.4 manual testing that was silently INERT the whole time, because before
+      # this block existed the name had no path into the container regardless of what the box
+      # exported. The moment this line landed and gave it that path, `assertMemberInvitesConfig`
+      # (packages/config/src/server.ts, called from apps/api/src/main.ts) correctly refused to
+      # boot: the flag was reachable-true but its required `MEMBER_INVITE_ACCEPT_URL` companion
+      # (one of the 14 deferred string secrets below) was not, and that assert fails CLOSED on
+      # purpose. Every deploy since 6896cde5 (#859) crash-looped on this — see #872 for the
+      # incident. Re-wiring this one line is safe ONLY once a human either (a) unsets the stray
+      # `MEMBER_INVITES_ENABLE_REAL` on the box (most likely — ADR-0027 B5.4 invites are still
+      # flag-OFF by design), or (b) deliberately arms it by also setting `MEMBER_INVITE_ACCEPT_URL`
+      # in the same box change. Until then it stays undeclared here — exactly the pre-#859 state —
+      # so the box's already-set `true` stays inert instead of crash-looping every deploy.
+      #
+      # ALL 12 REMAINING ARE `booleanFromString`-TYPED (packages/config/src/server.ts), which is
+      # why they are safe to pass through as `${VAR:-false}` in one mechanical batch:
+      # `booleanFromString` explicitly treats an EMPTY string as `false` in its transform, so an
+      # unset box export resolves to the exact same `false` these flags already read today — this
+      # line changes REACHABILITY, not behavior, for a box that does not export any of them. (That
+      # guarantee holds only for a box exporting nothing for the name — MEMBER_INVITES_ENABLE_REAL
+      # above is the counter-example: a box that already exports `true` gets exactly that.)
       #
       # 14 STRING-SECRET SIBLINGS THE SAME AUDIT FOUND ARE DELIBERATELY NOT HERE:
       # PAYMENTS_PROVIDER_KEY/SECRET, RAZORPAY_WEBHOOK_SECRET, WHATSAPP_API_KEY/PHONE_NUMBER_ID,
@@ -327,7 +345,7 @@ services:
       MESSAGING_ENABLE_REAL: ${MESSAGING_ENABLE_REAL:-false}
       PUSH_ENABLE_REAL: ${PUSH_ENABLE_REAL:-false}
       AGENCY_PAYOUTS_ENABLED: ${AGENCY_PAYOUTS_ENABLED:-false}
-      MEMBER_INVITES_ENABLE_REAL: ${MEMBER_INVITES_ENABLE_REAL:-false}
+      # MEMBER_INVITES_ENABLE_REAL: deliberately NOT declared — see the #872 note above.
       MATCH_V1_ENABLED: ${MATCH_V1_ENABLED:-false}
       CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
       PACE_ENABLED: ${PACE_ENABLED:-false}
