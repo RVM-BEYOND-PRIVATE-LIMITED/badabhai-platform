@@ -181,6 +181,12 @@ export interface LastTurn {
    * instead of matching the same cache entry again. A genuine flaky-link retry still gets the
    * byte-identical response for free; a worker's actual next answer, however plainly it echoes
    * their last one, is never trapped behind it for longer than that.
+   *
+   * THE COUNTER IS NOT THE ONLY GATE, AND IT IS NOT THIS FIELD'S JOB TO BE (#858). Running the
+   * turn for real is right for a worker's echo and wrong for a client firing one submission three
+   * times, and the counter cannot tell them apart. {@link RETRY_STORM_FLOOR_MS} holds the second
+   * gate — an elapsed-time floor below which a spent budget still replays — so this number stays
+   * what it says it is: how many times a stamp may be replayed, not how long.
    */
   readonly replays: number;
 }
@@ -224,6 +230,62 @@ export const REPLY_CACHE_WINDOW_MS = 10_000;
  * interview advances, instead of being stuck for the whole ten-second window.
  */
 export const MAX_REPLAYS_PER_TURN = 1;
+
+/**
+ * How soon after a stamped reply an identical submission is still assumed to be the SAME physical
+ * submission arriving again, rather than a worker's next answer that happens to use the same words.
+ *
+ * THE GAP THIS CLOSES (#858), which is the residue of the budget above. `MAX_REPLAYS_PER_TURN`
+ * caps how many times one stamp may be replayed; past the cap a further identical submission runs
+ * a REAL turn — and a real turn answers whatever question is on screen NOW. For a worker's own
+ * echo that is exactly right: the question moved on because they answered the last one, and their
+ * next words belong to the new question. For a broken client firing the same physical submission
+ * three or more times, it is exactly wrong: the first duplicate's own success is what advanced the
+ * question, so copy three of text meant for question A is captured as the answer to question B —
+ * spending B's ask budget, or settling B outright, with content the worker never gave for it.
+ *
+ * NOTHING IN THE REQUEST DISTINGUISHES THE TWO. Same session, same words, same hash; `rev` counts
+ * turns and carries no information about content. The one discriminator left is the CLOCK: a
+ * worker's next answer requires them to have SEEN the next question — a round trip, a render, and
+ * a read by someone the product exists to serve because reading is hard for them — while a retry
+ * storm is one tap or one client-side loop, and lands in milliseconds. Below this floor the human
+ * reading is not merely unlikely, it is not physically available; above it the two are genuinely
+ * indistinguishable and the turn is run for real, exactly as {@link MAX_REPLAYS_PER_TURN} says.
+ *
+ * 750 ms, AND THE NUMBER IS SIZED TO THE MACHINE, WHICH IS THE ONLY DUPLICATE IT CAN HONESTLY
+ * CLAIM. Duplicates come in two cadences and this separates only one of them:
+ *
+ *   - PROGRAMMATIC — one submission posted repeatedly because nothing debounced it: a submit
+ *     handler without a latch, a double-tap, a client-side loop. These land tens of milliseconds
+ *     apart, orders of magnitude under any human, and they are what this floor catches.
+ *   - HUMAN-PACED — the worker tapping a rendered retry affordance after a failed-looking send.
+ *     These land SECONDS apart, and at that cadence a duplicate and a worker whose next answer
+ *     genuinely echoes their last are the same measurement. This floor does not catch them and no
+ *     larger value could: a floor wide enough to cover a retry tap re-creates #857's trap, which
+ *     is strictly the worse bug. See the note below.
+ *
+ * SO THE FLOOR SITS JUST ABOVE THE MACHINE AND FAR BELOW THE HUMAN, and erring long is not free.
+ * Since #761 the client renders the next question optimistically from the lookahead, so a worker
+ * tapping a repeated chip label ("Haan", then "Haan") CAN return inside a second on a good link;
+ * every millisecond of floor beyond what a programmatic burst needs taxes exactly that worker —
+ * the engaged one §2 counts — for no additional coverage. 750 ms clears an undebounced multi-post
+ * by an order of magnitude while staying under a perceive-render-and-tap cycle.
+ *
+ * MEASURED FROM `LastTurn.at`, WHICH A REPLAY NEVER REFRESHES, and that is what keeps this bounded
+ * rather than a second way to hang an interview. The anchor is the original real turn, so the age
+ * this is compared against only ever GROWS while duplicates arrive: the floor expires on the wall
+ * clock, deterministically, whether or not anything is written. That is the whole difference
+ * between this and the pre-#857 cache, which never went stale because going stale was a WRITE's
+ * job and a replay performed none.
+ *
+ * WHAT THIS DOES NOT CLOSE, STATED RATHER THAN IMPLIED. Past the floor a storm resumes costing one
+ * mis-capture per two posts, and nothing server-side can do better: elapsed time is the only
+ * signal the two cases do not share, and past a second they share that too. The exact fix is an
+ * id minted per PHYSICAL submission by the client, which makes "one action retried" and "two
+ * actions with identical words" distinguishable by construction instead of by inference. That is
+ * Frontend-owned work and is raised separately (§6).
+ */
+export const RETRY_STORM_FLOOR_MS = 750;
 
 /**
  * One chip in an outstanding disambiguation offer, WITH the id it resolves to.
