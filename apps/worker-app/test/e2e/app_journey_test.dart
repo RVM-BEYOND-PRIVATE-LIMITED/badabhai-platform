@@ -96,6 +96,12 @@ int _navIndex(WidgetTester tester) =>
 /// Tap the masked PIN keypad to enter [pin] (digit by digit). The keypad has no
 /// OS keyboard, so we tap the on-screen digit keys.
 Future<void> _enterPin(WidgetTester tester, String pin) async {
+  // Set-PIN pops a "re-enter the same PIN" dialog on the confirm step; dismiss
+  // it so the keypad behind the modal barrier is tappable.
+  if (find.text('Theek hai').evaluate().isNotEmpty) {
+    await tester.tap(find.text('Theek hai'));
+    await tester.pumpAndSettle();
+  }
   for (final String d in pin.split('')) {
     await tester.tap(find.descendant(
       of: find.byType(BbPinKeypad),

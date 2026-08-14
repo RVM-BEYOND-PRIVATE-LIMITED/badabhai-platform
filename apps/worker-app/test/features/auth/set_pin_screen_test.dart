@@ -24,17 +24,20 @@ class FakeSetPinCubit extends SetPinCubit {
       emit(SetPinState(status: SetPinStatus.failure, message: message));
 }
 
-/// The create/reset-PIN screen now drives EVERY error through a centred,
-/// blocking dialog and BLOCKS a guessable PIN on the client — replacing the tiny
-/// inline red text a first-time, low-literacy worker missed. These tests pin
-/// that behaviour: the guessable block, the mismatch dialog, the server-failure
-/// dialog, the happy path, and no overflow on a short screen.
+/// The create/reset-PIN screen drives EVERY error through a centred, blocking
+/// dialog and BLOCKS a guessable PIN on the client. Entering the confirm step
+/// ALSO opens a dialog telling the worker to re-enter the same PIN. These tests
+/// pin that behaviour: the confirm prompt, the guessable block, the mismatch
+/// dialog, the server-failure dialog, the happy path, and no short-screen
+/// overflow.
 void main() {
   // The exact copy the screen ships — asserted verbatim so a wording drift is
   // caught here rather than by a worker.
   const String guessMsg =
       '1234 ya 1111 jaisa PIN koi bhi aasani se guess kar sakta hai. '
       'Aisa 4-digit PIN chunein jo sirf aap jaante hain.';
+  const String confirmMsg =
+      'Wahi PIN dubara daalein jo aapne abhi isse pehle daala tha.';
 
   late FakeSetPinCubit cubit;
 
@@ -61,18 +64,42 @@ void main() {
     }
   }
 
+  Future<void> tapOk(WidgetTester tester) async {
+    await tester.tap(find.text('Theek hai'));
+    await tester.pumpAndSettle();
+  }
+
+  /// Enter a valid first PIN and dismiss the "re-enter the same PIN" dialog,
+  /// landing on the confirm step ready for the second entry.
+  Future<void> advanceToConfirm(WidgetTester tester, String pin) async {
+    await enterPin(tester, pin);
+    await tester.pumpAndSettle();
+    await tapOk(tester); // dismiss the confirm-prompt dialog
+  }
+
+  testWidgets(
+      'entering the confirm step opens a dialog to re-enter the SAME PIN',
+      (WidgetTester tester) async {
+    await pumpScreen(tester);
+    await enterPin(tester, '3927');
+    await tester.pumpAndSettle();
+
+    expect(find.text('PIN confirm karein'), findsOneWidget);
+    expect(find.text(confirmMsg), findsOneWidget);
+  });
+
   testWidgets('a guessable PIN is blocked with a dialog and never advances',
       (WidgetTester tester) async {
     await pumpScreen(tester);
     await enterPin(tester, '1234');
     await tester.pumpAndSettle();
 
-    // The centred block — not a silent advance to confirm.
+    // The centred block — not a silent advance, and NOT the confirm prompt.
     expect(find.text('Yeh PIN aasan hai'), findsOneWidget);
     expect(find.text(guessMsg), findsOneWidget);
+    expect(find.text('PIN confirm karein'), findsNothing);
 
-    await tester.tap(find.text('Theek hai'));
-    await tester.pumpAndSettle();
+    await tapOk(tester);
 
     // Still on the ENTER step: the enter title is present, the confirm one is not.
     expect(find.text('PIN banayein'), findsOneWidget);
@@ -81,29 +108,25 @@ void main() {
     expect(cubit.submitted, isEmpty);
   });
 
-  testWidgets('a strong PIN advances to the confirm step',
+  testWidgets('a strong PIN advances to the confirm step (after the prompt)',
       (WidgetTester tester) async {
     await pumpScreen(tester);
-    await enterPin(tester, '3927');
-    await tester.pumpAndSettle();
+    await advanceToConfirm(tester, '3927');
 
-    expect(find.text('PIN dobara daalein'), findsOneWidget);
+    expect(find.text('PIN dobara daalein'), findsOneWidget); // confirm header
     expect(cubit.submitted, isEmpty);
   });
 
   testWidgets('a mismatched confirm shows the mismatch dialog, back to enter',
       (WidgetTester tester) async {
     await pumpScreen(tester);
-    await enterPin(tester, '3927'); // -> confirm
-    await tester.pumpAndSettle();
-    expect(find.text('PIN dobara daalein'), findsOneWidget);
+    await advanceToConfirm(tester, '3927');
 
     await enterPin(tester, '1122'); // differs from 3927
     await tester.pumpAndSettle();
     expect(find.text('PIN alag hai'), findsOneWidget);
 
-    await tester.tap(find.text('Theek hai'));
-    await tester.pumpAndSettle();
+    await tapOk(tester);
     expect(find.text('PIN banayein'), findsOneWidget); // back to enter
     expect(cubit.submitted, isEmpty);
   });
@@ -111,8 +134,8 @@ void main() {
   testWidgets('a matching confirm submits the PIN exactly once',
       (WidgetTester tester) async {
     await pumpScreen(tester);
-    await enterPin(tester, '3927'); // -> confirm
-    await tester.pumpAndSettle();
+    await advanceToConfirm(tester, '3927');
+
     await enterPin(tester, '3927'); // matches
     await tester.pump();
 
