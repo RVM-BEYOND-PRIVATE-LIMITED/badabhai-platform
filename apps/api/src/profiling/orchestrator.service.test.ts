@@ -15,6 +15,7 @@ import {
   emptyProfilingEnvelope,
   inboundHash,
   narrowProfilingEnvelope,
+  RETRY_STORM_FLOOR_MS,
   type ProfilingEnvelope,
 } from "./conversation-state";
 import { DISAMBIGUATION_PROMPT, toPackOption } from "./identify.service";
@@ -687,6 +688,170 @@ describe("LAYER A — the reply cache", () => {
     expect(store.get(SESSION)?.profiling?.askCounts.q_city).toBe(
       (askCountAfterReplay as number) + 1,
     );
+  });
+
+  /**
+   * THE RESIDUE OF THE BUDGET ABOVE (#858), and the case it gets wrong.
+   *
+   * `MAX_REPLAYS_PER_TURN` makes the submission after the first duplicate a REAL turn — right for
+   * a worker whose own next answer echoes their last one, wrong for a broken client firing ONE
+   * physical submission three or more times. A real turn answers whatever question is on screen
+   * NOW, and by copy three that question has already advanced, because the FIRST copy's own
+   * success is what advanced it. So the worker's words for question A are captured against
+   * question B: B's ask budget spent, or B settled outright, on content never given for it.
+   *
+   * `RETRY_STORM_FLOOR_MS` closes it with the one signal the two cases do not share. A worker's
+   * next answer requires them to have SEEN the next question; a storm lands in milliseconds.
+   */
+  it("absorbs a retry storm instead of spending the NEXT question's budget on it", async () => {
+    // The same `boolean`, `max_asks: 1` shape #857 was measured on: served once, never re-servable
+    // — so the turn that answers it is guaranteed to advance the interview, which is the whole
+    // precondition of this bug.
+    const boolItem = item({
+      question_key: "q_tools",
+      prompt_text: "Kya aapke paas apne auzaar hain?",
+      answer_type: "boolean",
+      max_asks: 1,
+    });
+    const { orchestrator, store } = makeWorld({
+      packs: { occupation: pack("qp_bool", [boolItem]), universal: UNIVERSAL_PACK },
+    });
+    seed(store, {
+      servedQuestionKey: null,
+      engineAsks: 0,
+      askCounts: {},
+      packId: "qp_bool",
+      packVersion: 1,
+    });
+
+    // POST 1 — a real turn. `q_tools` goes on screen.
+    const opened = await orchestrator.takeTurn(say("shuru karte hain"));
+    expect(opened.questionKey).toBe("q_tools");
+
+    // POST 2 — the worker's ONE physical answer to `q_tools`. It lands, and its own success is
+    // what moves the interview on to `q_city`. Everything after this is the SAME submission
+    // arriving again.
+    const answered = await orchestrator.takeTurn(
+      say("haan bhai, theek hai", new Date(T0.getTime() + 1_000)),
+    );
+    expect(answered.replayed).toBe(false);
+    expect(answered.questionKey).toBe("q_city");
+    const stampedReply = answered.reply;
+    const revAfterAnswer = store.get(SESSION)?.profiling?.rev as number;
+    const askCountsAfterAnswer = store.get(SESSION)?.profiling?.askCounts;
+
+    // POST 3 — copy two, 100 ms later. The budget absorbs it, and consuming that unit is a write.
+    const dup1 = await orchestrator.takeTurn(
+      say("haan bhai, theek hai", new Date(T0.getTime() + 1_100)),
+    );
+    expect(dup1.replayed).toBe(true);
+    expect(store.get(SESSION)?.profiling?.rev).toBe(revAfterAnswer + 1);
+
+    // POSTS 4 AND 5 — copies three and four, still far inside the floor. THIS is the fix: with the
+    // budget spent these used to run `decide()` against `q_city` and be captured as its answer.
+    // Now they are still the same physical submission, and are still answered from the cache.
+    for (const offset of [1_200, 1_300]) {
+      const storm = await orchestrator.takeTurn(
+        say("haan bhai, theek hai", new Date(T0.getTime() + offset)),
+      );
+      expect(storm.replayed).toBe(true);
+      expect(storm.reply).toBe(stampedReply);
+      expect(storm.questionKey).toBe("q_city");
+    }
+
+    const saved = store.get(SESSION)?.profiling;
+    // NOTHING THE ENGINE OWNS MOVED — `q_city` was never asked a second time on the strength of
+    // words meant for `q_tools`.
+    expect(saved?.askCounts).toEqual(askCountsAfterAnswer);
+    expect(saved?.servedQuestionKey).toBe("q_city");
+    // AND NOTHING WAS WRITTEN AT ALL beyond POST 3's single budget consume. A storm replay has no
+    // budget left to spend, so it costs the session no Redis write either.
+    expect(saved?.rev).toBe(revAfterAnswer + 1);
+
+    // THE BOUND, asserted rather than argued. The floor is measured from `lastTurn.at`, which no
+    // replay refreshes, so it expires on the wall clock whether or not anything is written: a
+    // further identical submission past it runs a real turn exactly as #857 requires. Without
+    // this the fix would simply be the pre-#857 unbounded replay wearing a timer.
+    const past = await orchestrator.takeTurn(
+      say("haan bhai, theek hai", new Date(T0.getTime() + 1_000 + RETRY_STORM_FLOOR_MS)),
+    );
+    expect(past.replayed).toBe(false);
+    expect(store.get(SESSION)?.profiling?.askCounts.q_city).toBe(
+      (askCountsAfterAnswer?.q_city as number) + 1,
+    );
+  });
+
+  /**
+   * The harm the counters above only stand in for: the worker's WORDS filed against a question
+   * they were never asked, as its answer OF RECORD.
+   *
+   * BOTH QUESTIONS TAKE FREE TEXT, deliberately. A field with a normalizer (`current_city` runs
+   * `canonicalCity`) refuses text that is not a city and absorbs this by luck; a free-text row has
+   * nothing to refuse with, so whatever arrives while it is on screen becomes its answer. Those
+   * are the rows this bug can actually reach, and a profile the platform ranks on (§2) is what it
+   * writes them into.
+   */
+  it("does not file a storm duplicate's words as the next question's answer", async () => {
+    const trade = item({
+      question_key: "q_trade",
+      prompt_text: "Kya kaam karte hain?",
+      max_asks: 1,
+    });
+    const shift = item({ question_key: "q_shift", prompt_text: "Kaunsi shift pasand hai?" });
+    const { orchestrator, store } = makeWorld({
+      packs: { occupation: pack("qp_trade", [trade, shift]), universal: UNIVERSAL_PACK },
+    });
+    seed(store, {
+      servedQuestionKey: null,
+      engineAsks: 0,
+      askCounts: {},
+      packId: "qp_trade",
+      packVersion: 1,
+    });
+
+    await orchestrator.takeTurn(say("shuru karte hain"));
+    // The one physical answer to `q_trade`. `max_asks: 1` means this turn's own success is what
+    // puts `q_shift` on screen — the precondition for everything below.
+    const answered = await orchestrator.takeTurn(
+      say("welding ka kaam", new Date(T0.getTime() + 1_000)),
+    );
+    expect(answered.questionKey).toBe("q_shift");
+
+    // Copies two, three and four of that same submission, all inside the floor.
+    for (const offset of [1_050, 1_100, 1_150]) {
+      await orchestrator.takeTurn(say("welding ka kaam", new Date(T0.getTime() + offset)));
+    }
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(answers.some((a) => a.question_key === "q_trade")).toBe(true);
+    // THE PHANTOM. The worker was never asked about shifts — the question only reached the screen
+    // because this very submission put it there — and "welding ka kaam" is not an answer to it.
+    expect(answers.some((a) => a.question_key === "q_shift")).toBe(false);
+  });
+
+  /**
+   * THE FLOOR IS A FLOOR, NOT A SECOND WINDOW. Between it and `REPLY_CACHE_WINDOW_MS` sits the
+   * band where a worker plausibly HAS read the next question and answered it in the same words —
+   * the case #857 exists for — and there the spent budget must still win. Pinned explicitly
+   * because nothing else in this suite exercises that band at all.
+   */
+  it("still runs a REAL turn for a spent budget once the storm floor has passed", async () => {
+    const { orchestrator, store } = makeWorld();
+    await orchestrator.takeTurn(say("main pune me rehta hu"));
+    // The first duplicate spends the budget.
+    const dup = await orchestrator.takeTurn(
+      say("main pune me rehta hu", new Date(T0.getTime() + 200)),
+    );
+    expect(dup.replayed).toBe(true);
+
+    // Five seconds on: inside the ten-second cache window, well past the floor. A worker has had
+    // every chance to read the new question, so identical words are their answer to it.
+    const later = await orchestrator.takeTurn(
+      say("main pune me rehta hu", new Date(T0.getTime() + 5_000)),
+    );
+    expect(later.replayed).toBe(false);
+    expect(RETRY_STORM_FLOOR_MS).toBeLessThan(5_000);
+    expect(store.get(SESSION)?.profiling?.rev).toBe(3);
   });
 
   it("takes a REAL turn once the window has passed", async () => {
