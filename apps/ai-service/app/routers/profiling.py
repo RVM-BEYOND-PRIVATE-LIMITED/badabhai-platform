@@ -231,8 +231,28 @@ async def profiling_extract(body: InterviewExtractInput) -> InterviewExtractOutp
 
     # Re-certify every surviving string. The model read a masked transcript, but it composes new
     # text (`work_done`, skill phrases) and composed text is not covered by the input gate.
+    #
+    # EVERY STRING FIELD, not just these two (#831). `experiences` and `skills` were certified
+    # here and the other six were not, which read as a complete gate and was not one: every
+    # remaining field is model-composed FREE TEXT (`shift` and `availability` are
+    # `str | None` capped at 40 chars, the rest at 120 — none is an enum), so each can carry
+    # exactly what this step exists to catch.
+    #
+    # THAT WAS NOT THEORETICAL. `shift` is read by `resume-render-input.ts::fromResumeProfile`
+    # with no audience distinction, so an uncertified value reaches the EMPLOYER-facing masked
+    # disclosure PDF — a cross-party surface — as well as the worker's own. Certifying at the
+    # source is what makes the guarantee inheritable: the text résumé, the worker PDF and the
+    # employer PDF each read this container, and one gate here beats three read-sites
+    # re-implementing it and drifting.
     out.experiences = [e for e in out.experiences if _certified(e)]
-    out.skills = [s for s in out.skills if not pseudonymize(s).blocked]
+    out.skills = _certified_list(out.skills)
+    out.preferred_locations = _certified_list(out.preferred_locations)
+    out.domain_label = _certified_scalar(out.domain_label)
+    out.role_label = _certified_scalar(out.role_label)
+    out.shift = _certified_scalar(out.shift)
+    out.current_city = _certified_scalar(out.current_city)
+    out.availability = _certified_scalar(out.availability)
+    # `expected_salary` is a float and carries no free text, so there is nothing to certify.
 
     out.is_mock = False
     out.ai_metadata = meta
@@ -247,3 +267,23 @@ def _certified(entry: ExperienceEntry) -> bool:
         for text in (entry.role_label, entry.duration_text, entry.work_done)
         if text
     )
+
+
+def _certified_list(values: list[str]) -> list[str]:
+    """Keep only the entries the gateway will vouch for. Drops per ITEM rather than emptying the
+    list, so one bad skill never costs a worker the other four."""
+    return [v for v in values if not pseudonymize(v).blocked]
+
+
+def _certified_scalar(value: str | None) -> str | None:
+    """`None` for a value the gateway will not vouch for — fail closed (CLAUDE.md §3).
+
+    NULL RATHER THAN A MASKED STRING, deliberately. `pseudonymize` returns a masked rendering,
+    and writing that back would put "[PHONE]" on a worker's résumé under `Shift` — visible,
+    unexplained, and worse than the field simply being absent. Every consumer already renders
+    these as optional (they are `| None` in the contract and nullable in Zod), so absence is a
+    shape they all handle; a mask token is not.
+    """
+    if value is None:
+        return None
+    return None if pseudonymize(value).blocked else value
