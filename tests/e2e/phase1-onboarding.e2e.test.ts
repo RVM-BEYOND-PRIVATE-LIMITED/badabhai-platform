@@ -75,6 +75,24 @@ const NATIONAL = PHONE.slice(1); // digits only, no leading "+"
 const CONSENT_VERSION = "2026-06-01";
 const PURPOSES = ["profiling", "resume_generation"] as const;
 
+/**
+ * Filler answers for turns beyond the 6 scripted messages below (BL-18/#857). A
+ * SINGLE repeated literal here would collide with the reply-dedup cache's replay
+ * budget: two CONSECUTIVE identical submissions are indistinguishable from a
+ * flaky-link retry of the same turn, which is exactly the shape #857 fixed a
+ * production bug on (a real interview asked a question, got a generic
+ * affirmative back, and never advanced). Cycling through equivalent affirmative
+ * phrases means no two consecutive turns repeat, so this test drives genuinely
+ * distinct turns the way a real worker's answers naturally would, instead of
+ * accidentally depending on -- or fighting -- the replay mechanic.
+ */
+const FILLERS = [
+  "haan bhai, theek hai",
+  "haan ji, sahi hai",
+  "theek hai bhai, chalega",
+  "haan bilkul, thik hai",
+];
+
 interface Resp {
   status: number;
   body: any;
@@ -248,7 +266,7 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     // headroom above 24 asks for the rare clarify/silence turn that consumes a turn
     // without consuming an ask, without approaching MAX_ENGINE_TURNS' blind-run ceiling.
     for (let i = 0; i < 30 && !ready; i++) {
-      const text = scriptedMessages[i] ?? "haan bhai, theek hai";
+      const text = scriptedMessages[i] ?? FILLERS[i % FILLERS.length]!;
       const msg = await call(
         "POST",
         "/chat/message",
@@ -279,7 +297,10 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     ).toBe(true);
 
     // Interview advanced and never repeated Q1.
-    expect(askedIds[0]).toBe("role"); // both engines open with the role question
+    // First real CI run (this suite had never executed) found this stale: no question pack
+    // has ever had a "role" question_key (grepped every packages/db/data/question-packs/
+    // packs/*.json) -- the machining pack's actual first item is `primary_trade`.
+    expect(askedIds[0]).toBe("primary_trade");
     const nonNullAsked = askedIds.filter((a): a is string => a !== null);
     expect(new Set(nonNullAsked).size).toBe(nonNullAsked.length); // no topic re-asked
 
@@ -294,7 +315,7 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
       asked_question_ids?: string[];
     } | null;
     expect(convState?.turn_count).toBe(turns); // one engine turn per message
-    expect(convState?.asked_question_ids?.[0]).toBe("role");
+    expect(convState?.asked_question_ids?.[0]).toBe("primary_trade");
 
     // DB: every turn persisted one inbound + one outbound message, bodies intact.
     const msgRows = (await client.db.select().from(chatMessages))
