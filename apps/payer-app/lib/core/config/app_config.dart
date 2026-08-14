@@ -18,61 +18,62 @@ import '../data/payer_api_client.dart';
 /// live `/payer/*` route. Surfaces without one were REMOVED rather than faked.
 const bool kUseMocks = bool.fromEnvironment('USE_MOCKS', defaultValue: false);
 
-/// The build-time API base URL. A RELEASE build MUST supply it:
+/// The build-time API base URL OVERRIDE. Supply it to point a build at a
+/// specific backend — notably the real PRODUCTION host for a store release:
 ///   flutter build apk --dart-define=API_BASE_URL=https://api.example.com
-/// Empty in debug falls back to [_kDebugFallbackBaseUrl].
+/// When empty, the app uses [_kDefaultBaseUrl].
 const String _kApiBaseUrl = String.fromEnvironment('API_BASE_URL');
 
-/// Debug-ONLY fallback: the loopback host on the API's port (matches the worker
-/// app). It works from BOTH an emulator and a real USB device once the device's
-/// localhost is tunnelled to the host API with `adb reverse tcp:3001 tcp:3001`
-/// (the `.vscode` "payer-app (USB Local API)" launch config runs this for you).
-/// On an emulator without adb-reverse, pass `--dart-define=API_BASE_URL=http://10.0.2.2:3001`.
-/// It must never leak into a release build — [resolvePayerApiBaseUrl] enforces that.
-const String _kDebugFallbackBaseUrl = 'http://localhost:3001';
-
-/// Resolves the payer API base URL, failing LOUDLY in release rather than
-/// silently pointing a shipped app at the loopback fallback.
+/// The backend the payer app uses when NO `API_BASE_URL` override is supplied,
+/// so a plain `flutter run` / `flutter build apk` reaches a LIVE API with no
+/// flags and no local server or `adb reverse`. Currently the shared test/staging
+/// backend (TLS via sslip.io → the Lightsail host) — the SAME origin the worker
+/// app defaults to.
 ///
-///  - RELEASE: `API_BASE_URL` is REQUIRED and must be a well-formed `https://`
-///    origin. A missing/plaintext/malformed value throws [StateError] at
-///    startup (see `setupLocator`) — a hard, obvious boot failure beats an app
-///    on a user's phone quietly failing every request against `localhost`.
-///  - DEBUG / TEST: `API_BASE_URL` wins when supplied; otherwise the loopback
-///    fallback keeps the local loop working (`adb reverse tcp:3001` over USB).
+/// It is an `https://` origin, so it is safe in a release build (the bearer
+/// token never rides in the clear). PRODUCTION: a store build should still
+/// OVERRIDE this with the real production host
+/// (`--dart-define=API_BASE_URL=https://<prod-host>`) so it does not point at the
+/// staging box.
+const String _kDefaultBaseUrl = 'https://43-204-36-199.sslip.io';
+
+/// Resolves the payer API base URL.
+///
+///  - An explicit `API_BASE_URL` always WINS. In a RELEASE build it must be a
+///    well-formed `https://` origin — a plaintext or malformed override throws
+///    [StateError] at startup (see `setupLocator`): a hard boot failure beats a
+///    shipped app that silently fails every request or puts the bearer token on
+///    the wire in the clear.
+///  - With NO override, the app falls back to [_kDefaultBaseUrl] — a live
+///    `https` origin, never localhost — in both debug and release, so a plain
+///    build works out of the box.
 ///
 /// [configuredUrl] and [isRelease] are injectable ONLY so the release rules can
 /// be unit-tested (a test always runs in debug, and `API_BASE_URL` is fixed at
 /// compile time). Production callers pass neither.
-///
-/// Throws [StateError] in a release build with no/invalid `API_BASE_URL`.
 String resolvePayerApiBaseUrl({String? configuredUrl, bool? isRelease}) {
   final String configured = (configuredUrl ?? _kApiBaseUrl).trim();
   final bool release = isRelease ?? kReleaseMode;
 
-  if (!release) {
-    return configured.isEmpty ? _kDebugFallbackBaseUrl : configured;
-  }
+  // No override → the shared default backend (https, never localhost), so a
+  // plain build reaches a live API in both debug and release.
+  if (configured.isEmpty) return _kDefaultBaseUrl;
 
-  if (configured.isEmpty) {
-    throw StateError(
-      'API_BASE_URL is not set. A release build must be built with '
-      '--dart-define=API_BASE_URL=https://<your-api-host> — refusing to fall '
-      'back to the debug loopback ($_kDebugFallbackBaseUrl).',
-    );
-  }
-  final Uri? uri = Uri.tryParse(configured);
-  if (uri == null || !uri.isAbsolute || uri.host.isEmpty) {
-    throw StateError(
-      'API_BASE_URL ("$configured") is not an absolute URL with a host.',
-    );
-  }
-  // Plaintext transport would put the bearer token on the wire in the clear.
-  if (uri.scheme != 'https') {
-    throw StateError(
-      'API_BASE_URL ("$configured") must use https in a release build; '
-      'got scheme "${uri.scheme}".',
-    );
+  // An explicit override in a release build must be a well-formed https origin.
+  if (release) {
+    final Uri? uri = Uri.tryParse(configured);
+    if (uri == null || !uri.isAbsolute || uri.host.isEmpty) {
+      throw StateError(
+        'API_BASE_URL ("$configured") is not an absolute URL with a host.',
+      );
+    }
+    // Plaintext transport would put the bearer token on the wire in the clear.
+    if (uri.scheme != 'https') {
+      throw StateError(
+        'API_BASE_URL ("$configured") must use https in a release build; '
+        'got scheme "${uri.scheme}".',
+      );
+    }
   }
   return configured;
 }
