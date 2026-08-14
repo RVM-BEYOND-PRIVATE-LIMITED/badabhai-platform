@@ -349,6 +349,10 @@ void main() {
     expect(find.textContaining('minute'), findsNothing);
     expect(find.text('PIN daalein'), findsOneWidget); // still on the PIN screen
 
+    // Acknowledge the wrong-PIN dialog so the keypad behind it is tappable again.
+    await tester.tap(find.text('Theek hai'));
+    await tester.pumpAndSettle();
+
     // The keypad is NOT disabled (no lockout) — another digit registers.
     await tester.tap(find.descendant(
       of: find.byType(BbPinKeypad),

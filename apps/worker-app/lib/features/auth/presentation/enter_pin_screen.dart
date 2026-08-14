@@ -6,6 +6,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_blue_header.dart';
 import '../../../router.dart';
 import 'cubit/enter_pin_cubit.dart';
@@ -20,10 +21,12 @@ const int kPinLength = 4;
 ///
 /// The masked keypad assembles the PIN in LOCAL state only; it is forwarded to
 /// the cubit on the last digit and cleared from memory immediately. On a wrong
-/// PIN the dots flash crimson and the NEUTRAL "PIN sahi nahi…" copy shows — the
-/// backend gives one opaque 401 per failure, so there is no attempts/countdown
-/// UI. After a few soft fails the "PIN bhool gaye?" link is emphasized; it starts
-/// the forgot-PIN flow.
+/// PIN the dots flash crimson and the NEUTRAL "PIN sahi nahi…" copy is shown in a
+/// CENTRED, blocking dialog (a "Theek hai" acknowledge) — the same treatment as
+/// the set-PIN errors, so a low-literacy worker cannot miss it. The backend gives
+/// one opaque 401 per failure, so there is no attempts/countdown UI. After a few
+/// soft fails the "PIN bhool gaye?" link is emphasized; it starts the forgot-PIN
+/// flow.
 class EnterPinScreen extends StatelessWidget {
   const EnterPinScreen({super.key});
 
@@ -48,6 +51,10 @@ class _EnterPinViewState extends State<_EnterPinView> {
   /// cleared after each submit.
   String _pin = '';
 
+  /// True while the wrong-PIN dialog is open, so repeated failures can't stack
+  /// a second dialog on top of the first.
+  bool _dialogOpen = false;
+
   void _onDigit(String d) {
     if (_pin.length >= kPinLength) return;
     setState(() => _pin += d);
@@ -64,20 +71,31 @@ class _EnterPinViewState extends State<_EnterPinView> {
     setState(() => _pin = _pin.substring(0, _pin.length - 1));
   }
 
+  /// Surface a wrong-PIN (or unknown-error) failure in a centred dialog with a
+  /// single "Theek hai" button — matching the set-PIN errors. Guarded by
+  /// [_dialogOpen] so a fast retry can't stack dialogs.
+  Future<void> _showError(String? message) async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+    final String text = (message == null || message.isEmpty)
+        ? 'PIN sahi nahi — dobara try karein, ya \'PIN bhool gaye?\''
+        : message;
+    await showBbAlert(context, title: 'PIN sahi nahi', message: text);
+    if (mounted) _dialogOpen = false;
+  }
+
   @override
   Widget build(BuildContext context) {
     // On unlock the ROUTER REDIRECT owns where we land — it fires on the status
     // change via `refreshListenable`, restores the location the re-lock
     // interrupted (#349), falls back to the Resume tab, and applies the TD62
-    // consent gate.
-    //
-    // This screen deliberately does NOT navigate (hence BlocBuilder, not
-    // BlocConsumer). It used to `go(Resume)` on done, which is half of #349: the
-    // redirect would correctly restore the stashed location and clear the stash,
-    // then that listener fired, read a now-empty stash, and clobbered the worker
-    // back to the Resume tab. Two owners of post-unlock routing was the bug —
-    // there is now one.
-    return BlocBuilder<EnterPinCubit, EnterPinState>(
+    // consent gate. The listener here ONLY surfaces the failure dialog; it never
+    // navigates (two owners of post-unlock routing was the #349 bug).
+    return BlocConsumer<EnterPinCubit, EnterPinState>(
+      listenWhen: (EnterPinState p, EnterPinState c) => p.status != c.status,
+      listener: (BuildContext context, EnterPinState state) {
+        if (state.status == EnterPinStatus.failure) _showError(state.message);
+      },
       builder: (BuildContext context, EnterPinState state) {
         final bool error = state.status == EnterPinStatus.failure;
         // Kit auth chrome: blue header carries the title/context; the light body
@@ -104,21 +122,9 @@ class _EnterPinViewState extends State<_EnterPinView> {
                           filled: _pin.length,
                           error: error,
                         ),
-                        const SizedBox(height: AppSpacing.s4),
-                        SizedBox(
-                          height: AppSpacing.s6,
-                          child: state.message != null
-                              ? Text(
-                                  state.message!,
-                                  textAlign: TextAlign.center,
-                                  style: AppTypography.body(
-                                    size: AppTypography.sizeSm,
-                                    color: AppColors.danger,
-                                  ),
-                                )
-                              : null,
-                        ),
-                        const SizedBox(height: AppSpacing.s4),
+                        // The wrong-PIN reason now lives in the centred dialog
+                        // (see [_showError]) — no tiny inline line here.
+                        const SizedBox(height: AppSpacing.s8),
                         BbPinKeypad(
                           // Keypad disables ONLY while submitting — no lockout.
                           enabled: !state.isSubmitting,
