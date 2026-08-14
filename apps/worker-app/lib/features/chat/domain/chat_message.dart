@@ -21,6 +21,7 @@ class ChatMessage extends Equatable {
     required this.text,
     required this.fromWorker,
     this.status = ChatSendStatus.sent,
+    this.submissionId,
   });
 
   final String text;
@@ -30,12 +31,22 @@ class ChatMessage extends Equatable {
   /// bada-bhai bubbles and the optimistic worker bubble read as normal.
   final ChatSendStatus status;
 
+  /// The per-submission id (#870) minted ONCE when this worker bubble was
+  /// created and carried on the bubble so a retry re-sends the SAME id. Lets the
+  /// server tell a retried POST of one answer from a worker genuinely repeating
+  /// the same words. Null on bada-bhai bubbles and any non-submission bubble; it
+  /// is never sent for them.
+  final String? submissionId;
+
   ChatMessage copyWith({ChatSendStatus? status}) => ChatMessage(
         text: text,
         fromWorker: fromWorker,
         status: status ?? this.status,
+        // Preserved, never regenerated: a retry (which flips status) must keep
+        // the ORIGINAL id so the re-POST is recognisable as the same submission.
+        submissionId: submissionId,
       );
 
   @override
-  List<Object?> get props => <Object?>[text, fromWorker, status];
+  List<Object?> get props => <Object?>[text, fromWorker, status, submissionId];
 }

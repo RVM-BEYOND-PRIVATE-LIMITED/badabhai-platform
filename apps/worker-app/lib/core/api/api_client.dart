@@ -213,16 +213,23 @@ class ApiClient {
 
   /// Posts a worker message. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token, never from the body.
+  ///
+  /// [submissionId] (#870) is the per-submission id minted by the caller once per
+  /// physical send and re-sent verbatim on a retry. ADDITIVE and backward-
+  /// compatible: the body stays `{session_id, text}` and the key is added ONLY
+  /// when non-null, so an older server (which strips unknown keys) is unaffected.
   Future<ChatReply> sendMessage({
     required String sessionId,
     required String authToken,
     required String text,
+    String? submissionId,
   }) async {
     final Map<String, dynamic> json = await _post(
       '/chat/message',
       <String, dynamic>{
         'session_id': sessionId,
         'text': text,
+        if (submissionId != null) 'submission_id': submissionId,
       },
       authToken: authToken,
     );

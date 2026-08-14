@@ -70,7 +70,7 @@ void main() {
   // Worker 'hi' + one bot reply → exactly one bot bubble.
   Future<void> seedBotReply(WidgetTester tester, String reply) async {
     when(
-      () => chat.sendMessage(any()),
+      () => chat.sendMessage(any(), submissionId: any(named: 'submissionId')),
     ).thenAnswer((_) async => ChatTurn(reply: reply));
     await tester.enterText(find.byType(TextField), 'hi');
     await tester.testTextInput.receiveAction(TextInputAction.send);
