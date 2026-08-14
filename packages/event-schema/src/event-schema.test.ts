@@ -262,6 +262,54 @@ describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
     }
   });
 
+  // BL-23: additive widen so "spent ₹X successfully" is distinguishable from "spent
+  // ₹X and the call still failed". Defaults preserve the OLD implicit reading of every
+  // historical row (no failure signal existed, so nothing ever looked like a failure).
+  it("ai.cost_recorded defaults success=true/error_code=null/failure_reason=null (old-shape rows stay valid)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_A,
+        task_type: "profile_extraction",
+        model: "m",
+        provider: "p",
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.cost_recorded") {
+      expect(result.event.payload.success).toBe(true);
+      expect(result.event.payload.error_code).toBeNull();
+      expect(result.event.payload.failure_reason).toBeNull();
+    }
+  });
+
+  it("ai.cost_recorded carries a failed call's closed-set error_code/failure_reason", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_A,
+        task_type: "profile_extraction",
+        model: "m",
+        provider: "p",
+        success: false,
+        error_code: "retry_budget_exhausted",
+        failure_reason: "LlmTransportError",
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.cost_recorded") {
+      expect(result.event.payload.success).toBe(false);
+      expect(result.event.payload.error_code).toBe("retry_budget_exhausted");
+      expect(result.event.payload.failure_reason).toBe("LlmTransportError");
+    }
+  });
+
   it("rejects ai.cost_recorded with an unknown task_type", () => {
     const evt = {
       ...workerCreatedEvent(),

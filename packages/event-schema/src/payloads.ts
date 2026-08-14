@@ -790,6 +790,16 @@ export const AiCostRecordedPayload = z.object({
   latency_ms: z.number().int().nonnegative().default(0),
   cost_alert: z.boolean().default(false),
   above_target: z.boolean().default(false),
+  // BL-23: additive widen (docs/audit/22_REMEDIATION_BACKLOG.md) — mirrors
+  // AICallMetadataSchema's own success/error_code/failure_reason (packages/
+  // ai-contracts/src/common.ts) so a "spent ₹X successfully" row is distinguishable
+  // from "spent ₹X and the call still failed". PII-free by construction: router.py's
+  // own invariant is that error_code/failure_reason are EITHER a closed-set
+  // LlmTransportError.reason_code OR a bare exception type name — never a raw
+  // exception body, which might echo pseudonymized content.
+  success: z.boolean().default(true),
+  error_code: z.string().nullable().default(null),
+  failure_reason: z.string().nullable().default(null),
 });
 /** The task a cost record can be attributed to — see {@link aiTaskType}. */
 export type AiCostTaskType = z.infer<typeof aiTaskType>;
