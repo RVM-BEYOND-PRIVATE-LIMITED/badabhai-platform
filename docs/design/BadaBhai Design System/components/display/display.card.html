@@ -1,0 +1,82 @@
+<!-- @dsCard group="Components" viewport="700x540" name="Display" subtitle="Card, badge, chip, avatar, stat tile" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body { margin: 0; padding: 24px; background: var(--surface-page); }
+  .grp { margin-bottom: 18px; }
+  .grp h4 { font-family: var(--font-sans); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+    const { Card, Badge, Chip, Avatar, StatTile } = window.BadaBhaiDesignSystem_01ff85;
+
+    function Demo() {
+      return (
+        <React.Fragment>
+          <div className="grp">
+            <h4>Badges</h4>
+            <div className="row">
+              <Badge tone="success" icon="seal-check">Verified</Badge>
+              <Badge tone="warning" upper>Paused</Badge>
+              <Badge tone="danger" upper>Closed</Badge>
+              <Badge tone="brand" variant="solid">2 left</Badge>
+              <Badge tone="info">Agency</Badge>
+              <Badge tone="neutral" variant="outline">Draft</Badge>
+            </div>
+          </div>
+
+          <div className="grp">
+            <h4>Chips — trade filters</h4>
+            <div className="row">
+              <Chip icon="wrench" selected>CNC Operator</Chip>
+              <Chip icon="wrench">VMC Operator</Chip>
+              <Chip icon="map-pin">Pune</Chip>
+              <Chip onRemove={() => {}}>6+ yrs</Chip>
+            </div>
+          </div>
+
+          <div className="grp">
+            <h4>Avatars</h4>
+            <div className="row">
+              <Avatar name="Ramesh Kumar" size={56} verified />
+              <Avatar name="Sunita Devi" size={56} brand verified />
+              <Avatar name="Ramesh Kumar" size={56} masked />
+              <Avatar name="A B" size={44} />
+            </div>
+          </div>
+
+          <div className="grp">
+            <h4>Cards</h4>
+            <div className="row">
+              <Card style={{ width: 200 }}><b>Default card</b><div style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>Warm white on paper.</div></Card>
+              <Card variant="ink" style={{ width: 200 }}><b>Ink card</b><div className="bb-card__muted" style={{ fontSize: 14, marginTop: 4 }}>For success moments.</div></Card>
+            </div>
+          </div>
+
+          <div className="grp" style={{ marginBottom: 0 }}>
+            <h4>Stat tiles — payer dashboard</h4>
+            <div className="stats">
+              <StatTile label="Paid unlocks / week" value="1,284" icon="lock-key-open" delta="+12%" deltaDir="up" />
+              <StatTile label="Repeat-unlock rate" value="62%" icon="repeat" delta="health metric" deltaDir="flat" />
+              <StatTile label="Avg reply time" value="3.4h" icon="chat-circle-dots" delta="-18%" deltaDir="down" />
+            </div>
+          </div>
+        </React.Fragment>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+  </script>
+</body>
+</html>

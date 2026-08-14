@@ -1,0 +1,37 @@
+/* ============================================================
+   BadaBhai · Spacing & Layout
+   ------------------------------------------------------------
+   4px base grid. Touch targets are sacred: worker-app controls
+   never drop below 48px (gloved hands, low-end screens, the
+   field). --tap is the floor.
+   ============================================================ */
+:root {
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-7:  32px;
+  --space-8:  40px;
+  --space-9:  48px;
+  --space-10: 64px;
+  --space-11: 80px;
+  --space-12: 96px;
+  --space-13: 128px;
+  --space-14: 160px;
+
+  /* touch & control sizing */
+  --tap:           48px;  /* minimum interactive height (worker app) */
+  --control-sm:    36px;
+  --control-md:    44px;
+  --control-lg:    52px;  /* primary worker CTA */
+
+  /* layout rails */
+  --gutter:        20px;  /* mobile screen padding */
+  --gutter-web:    32px;  /* web padding */
+  --content-max:   1200px;
+  --reading-max:   68ch;
+  --app-max:       440px; /* worker mobile canvas */
+}
