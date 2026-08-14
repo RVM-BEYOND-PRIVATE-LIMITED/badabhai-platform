@@ -63,6 +63,7 @@ import {
   answersOf,
   emptyProfilingEnvelope,
   inboundHash,
+  MAX_REPLAYS_PER_TURN,
   narrowAnswerRecords,
   recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
@@ -406,7 +407,51 @@ export class ProfilingOrchestrator {
       // beat us may have been this same worker's duplicate submit, in which case the right answer
       // is their own previous reply rather than a second turn spent on the same words.
       const replay = replayOf(envelope, input);
-      if (replay) return replay;
+      // `replayOf` only ever returns non-null when `envelope.lastTurn` is itself non-null — `last`
+      // here is that guarantee made explicit, not a new fact.
+      if (replay && envelope.lastTurn) {
+        // CONSUME ONE UNIT OF THE REPLAY BUDGET before serving it. A replay itself writes nothing,
+        // so without this the stamp this matched would never go stale and every further identical
+        // submission — including the worker's own next, unrelated turn, if it happens to use the
+        // same words — would match it forever, for the whole of `REPLY_CACHE_WINDOW_MS`.
+        //
+        // THE HASH IS RE-STAMPED, NOT LEFT ALONE, against the rev this write produces — the exact
+        // rule `turn()` stamps a fresh reply by. Bumping `rev` without re-stamping would invalidate
+        // the entry after this ONE serve regardless of `replays`, silently capping the budget at
+        // one no matter what `MAX_REPLAYS_PER_TURN` says: a second genuine retry, arriving after
+        // THIS write landed, would compute a hash against the new rev that no longer matches the
+        // stale one and would incorrectly run a real turn instead of replaying. Re-stamping keeps
+        // the entry matchable at the new rev, so `replays` — not `rev` drift — is what decides when
+        // the budget runs out.
+        //
+        // `at` IS DELIBERATELY LEFT UNTOUCHED. It anchors the window to the ORIGINAL real turn, so
+        // the total time this session may spend replaying one stamp is bounded at
+        // `REPLY_CACHE_WINDOW_MS` regardless of how many retries land inside it — refreshing it
+        // here would let each consume buy the window another `REPLY_CACHE_WINDOW_MS`, which is the
+        // unbounded-loop failure this whole mechanism exists to close.
+        const last = envelope.lastTurn;
+        const consumed: TranscriptBuffer = {
+          ...buffer,
+          profiling: {
+            ...envelope,
+            lastTurn: {
+              ...last,
+              inboundHash: inboundHash(input.sessionId, envelope.rev + 1, input.text),
+              replays: last.replays + 1,
+            },
+          },
+        };
+        const held = await this.buffer.saveWithCas(input.sessionId, consumed, envelope.rev);
+        if (held) return replay;
+        // Lost the race — someone else already wrote (a real turn, or another caller consuming the
+        // same replay slot). Reload and re-evaluate against whatever landed, exactly as a lost CAS
+        // does below.
+        this.logger.log(
+          `replay-consume lost session=${input.sessionId} rev=${envelope.rev} ` +
+            `attempt=${attempt + 1}; reloading and re-evaluating against the winner's state`,
+        );
+        continue;
+      }
 
       const decided = await this.decide(buffer, envelope, input);
       if (!decided) return unavailable();
@@ -1604,6 +1649,9 @@ export class ProfilingOrchestrator {
         // render, on exactly the flaky link that caused the retry.
         lookahead: result.lookahead ?? null,
         inputMode: result.inputMode ?? "text",
+        // A FRESH STAMP. This reply has not been served as a replay yet, so it gets the whole
+        // budget — see `LastTurn.replays`.
+        replays: 0,
       },
     };
     const at = input.now.toISOString();
@@ -1653,6 +1701,12 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
   // A NEGATIVE age is not a hit. Clock skew between instances would otherwise make a stale entry
   // look arbitrarily fresh, and replaying an old reply is worse than spending a turn.
   if (!Number.isFinite(age) || age < 0 || age > REPLY_CACHE_WINDOW_MS) return null;
+  // THE REPLAY BUDGET (see `LastTurn.replays`). `rev` does not distinguish a network retry of
+  // THIS reply from the worker's next, genuinely different turn happening to use the same words —
+  // a replay writes nothing, so an unbudgeted stamp would match every further identical submission
+  // for the whole of `REPLY_CACHE_WINDOW_MS`, however many real turns that is. Past the budget a
+  // matching submission runs the turn for real instead of matching this stamp again.
+  if (last.replays >= MAX_REPLAYS_PER_TURN) return null;
   // AN OFFER THAT LOST ITS CHIPS IS NOT A REPLAY, IT IS A DEAD END — fail closed (§3).
   //
   // `narrowLastTurn` parses cached options all-or-nothing, so any chip the contract rejects empties
@@ -1735,7 +1789,11 @@ function outstandingOffer(
 function outstandingLlmAsk(
   envelope: ProfilingEnvelope,
   leads: boolean,
-): { prompt: string; options: readonly QuestionPackOption[]; answerType: AnswerType | null } | null {
+): {
+  prompt: string;
+  options: readonly QuestionPackOption[];
+  answerType: AnswerType | null;
+} | null {
   if (!leads) return null;
   if (envelope.llmAsks === 0 && !envelope.llmGateOpen) return null;
   const last = envelope.lastTurn;

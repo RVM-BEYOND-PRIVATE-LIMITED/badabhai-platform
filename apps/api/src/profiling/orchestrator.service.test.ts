@@ -586,19 +586,107 @@ describe("pack resolution", () => {
 });
 
 describe("LAYER A — the reply cache", () => {
-  it("replays the previous reply for a duplicate submit, writing NOTHING", async () => {
+  it("replays the previous reply for a duplicate submit, spending NO interview turn", async () => {
     const { orchestrator, store, buffer } = makeWorld();
     const first = await orchestrator.takeTurn(say("main pune me rehta hu"));
     const revAfterFirst = store.get(SESSION)?.profiling?.rev;
+    const askCountsAfterFirst = store.get(SESSION)?.profiling?.askCounts;
+    const servedAfterFirst = store.get(SESSION)?.profiling?.servedQuestionKey;
+    const engineAsksAfterFirst = store.get(SESSION)?.profiling?.engineAsks;
 
     const retry = await orchestrator.takeTurn(
       say("main pune me rehta hu", new Date(T0.getTime() + 3_000)),
     );
     expect(retry.replayed).toBe(true);
     expect(retry.reply).toBe(first.reply);
-    // No second turn, no second answer, no rev bump.
-    expect(store.get(SESSION)?.profiling?.rev).toBe(revAfterFirst);
-    expect(buffer.saveWithCas).toHaveBeenCalledTimes(1);
+    // NO SECOND TURN, NO SECOND ANSWER: nothing the engine owns moved.
+    expect(store.get(SESSION)?.profiling?.askCounts).toEqual(askCountsAfterFirst);
+    expect(store.get(SESSION)?.profiling?.servedQuestionKey).toBe(servedAfterFirst);
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(engineAsksAfterFirst);
+    // A REV BUMP, DELIBERATELY. Consuming one unit of the replay budget is a real write — see
+    // `LastTurn.replays` — so the cache entry cannot match a THIRD identical submission forever.
+    // Without it, a worker whose actual next answer echoes their last one would be stuck re-reading
+    // this same reply for the whole of `REPLY_CACHE_WINDOW_MS`, however many genuine turns that is.
+    expect(store.get(SESSION)?.profiling?.rev).toBe((revAfterFirst as number) + 1);
+    expect(store.get(SESSION)?.profiling?.lastTurn?.replays).toBe(1);
+    expect(buffer.saveWithCas).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * THE BUG THIS FILE'S BATCH FIXES. `inboundHash` is `(sessionId, rev, text)`, and `rev` moves in
+   * lock step with the turn count whatever the text says — so on its own it cannot tell a network
+   * retry of THIS reply from the worker's own next, genuinely different turn happening to answer
+   * with the same short words. Measured: a real interview asked a `max_asks: 1` boolean question,
+   * got a generic affirmative back, and never asked another question for the rest of a bounded run
+   * — the SAME stamp matched every further identical submission, because a replay writes nothing
+   * and so never goes stale.
+   *
+   * `MAX_REPLAYS_PER_TURN` bounds it. The FIRST duplicate is served from the cache for free — a
+   * genuine flaky-link retry costs nothing. The submission AFTER that — genuine retry or not —
+   * runs a real turn instead of matching the same stamp again, which is what lets the worker's
+   * actual next answer (however plainly it echoes the last one) ever be heard.
+   */
+  it("runs a REAL turn once the replay budget is spent, even for the same words", async () => {
+    // A `boolean`, `max_asks: 1` item, exactly the shape of the pack row the real bug was measured
+    // on (`tools_owned`): served once, and — whatever the reply — never re-servable after that.
+    const boolItem = item({
+      question_key: "q_tools",
+      prompt_text: "Kya aapke paas apne auzaar hain?",
+      answer_type: "boolean",
+      max_asks: 1,
+    });
+    const { orchestrator, store } = makeWorld({
+      packs: { occupation: pack("qp_bool", [boolItem]), universal: UNIVERSAL_PACK },
+    });
+    seed(store, {
+      servedQuestionKey: null,
+      engineAsks: 0,
+      askCounts: {},
+      packId: "qp_bool",
+      packVersion: 1,
+    });
+
+    // Turn 1 — REAL: nothing is on screen yet, so the only occupation item is served.
+    const opened = await orchestrator.takeTurn(say("shuru karte hain"));
+    expect(opened.questionKey).toBe("q_tools");
+    expect(store.get(SESSION)?.profiling?.askCounts.q_tools).toBe(1);
+
+    // Turn 2 — REAL, and DIFFERENT text from turn 1, so no replay is even in play here.
+    // `q_tools` is already at its ceiling (max_asks: 1), so the engine advances whatever this
+    // reply says — onto `q_city`, the universal pack's one mandatory item.
+    const answered = await orchestrator.takeTurn(
+      say("haan bhai, theek hai", new Date(T0.getTime() + 1_000)),
+    );
+    expect(answered.replayed).toBe(false);
+    expect(answered.questionKey).toBe("q_city");
+    const stampedReply = answered.reply;
+
+    // Turn 3 — the SAME words again, moments later. THIS is the failure mode: the stamp turn 2
+    // just wrote matches byte-for-byte, so it replays — correctly, this is the cache doing its
+    // job for what looks exactly like a flaky-link retry.
+    const dup1 = await orchestrator.takeTurn(
+      say("haan bhai, theek hai", new Date(T0.getTime() + 2_000)),
+    );
+    expect(dup1.replayed).toBe(true);
+    expect(dup1.questionKey).toBe("q_city");
+    expect(dup1.reply).toBe(stampedReply);
+    const askCountAfterReplay = store.get(SESSION)?.profiling?.askCounts.q_city;
+
+    // Turn 4 — the SAME words a THIRD time. Before this fix, this matched the very same stamp
+    // forever: a replay writes nothing, so the entry never went stale, and the interview would
+    // sit on `q_city` for the rest of the ten-second window however many more of these arrived.
+    // With the budget spent on turn 3, this one runs for real — `q_city` is re-served (its
+    // `max_asks: 2` still has room), but as a GENUINE second ask: the RETRY wording, and the ask
+    // counter actually moving, which a replay never does.
+    const dup2 = await orchestrator.takeTurn(
+      say("haan bhai, theek hai", new Date(T0.getTime() + 3_000)),
+    );
+    expect(dup2.replayed).toBe(false);
+    expect(dup2.reply).toBe(CITY.retry_text);
+    expect(dup2.reply).not.toBe(stampedReply);
+    expect(store.get(SESSION)?.profiling?.askCounts.q_city).toBe(
+      (askCountAfterReplay as number) + 1,
+    );
   });
 
   it("takes a REAL turn once the window has passed", async () => {
@@ -633,6 +721,7 @@ describe("LAYER A — the reply cache", () => {
         answerType: null,
         lookahead: null,
         inputMode: "text" as const,
+        replays: 0,
       },
     });
     const result = await orchestrator.takeTurn(say("main pune me rehta hu"));
@@ -654,8 +743,10 @@ describe("LAYER A — the reply cache", () => {
     expect(first.replayed).toBe(false);
     // Guard against a vacuous assertion below: if the real turn predicted nothing there is
     // nothing for the replay to carry, and the test would pass without proving anything.
-    expect(first.lookahead, "the seeded turn must predict for this test to mean anything").not
-      .toBeNull();
+    expect(
+      first.lookahead,
+      "the seeded turn must predict for this test to mean anything",
+    ).not.toBeNull();
 
     // The SAME words again inside the replay window — a retried submit over 2G.
     const replay = await orchestrator.takeTurn(say("main welder hoon"));
@@ -921,6 +1012,7 @@ describe("the mid-interview checkpoint boundary (Phase 9, risk #10)", () => {
         answerType: null,
         lookahead: null,
         inputMode: "text" as const,
+        replays: 0,
       },
     });
 
