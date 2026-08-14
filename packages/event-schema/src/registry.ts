@@ -273,6 +273,13 @@ export const EVENT_REGISTRY = {
   // Reach foundation (ADR-0005, TD8) — worker-side behavioural record for matching/
   // LEARN. Defined now; emitted when the Phase-2 feed surface ships. PII-free.
   "feed.shown": { version: 1, domain: "feed", payload: p.FeedShownPayload },
+  // #822 — the discovery surface, distinct from the personalized feed above. Carries the
+  // SHAPE of the search only; see the payload's note on why the query text never appears.
+  "job.search_performed": {
+    version: 1,
+    domain: "feed",
+    payload: p.JobSearchPerformedPayload,
+  },
   "application.submitted": {
     version: 1,
     domain: "application",

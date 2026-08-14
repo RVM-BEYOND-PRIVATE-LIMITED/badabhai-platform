@@ -863,6 +863,35 @@ export const FeedShownPayload = z.object({
   hot: z.boolean().default(false),
 });
 
+/**
+ * A worker ran a job search (#822).
+ *
+ * THE QUERY TEXT IS NEVER CARRIED, and that is not caution — it is the only safe rule
+ * available here. `q` is unbounded worker free text typed into a search box, so it can hold a
+ * phone number, a name, or an employer, and this row lands in the events spine that CLAUDE.md
+ * §2 forbids raw PII from reaching. Hashing it was rejected too: a hash of a short search term
+ * is trivially reversible by dictionary, so it would be PII wearing a disguise.
+ *
+ * WHAT IS RECORDED INSTEAD is the SHAPE of the search — which filters were used, how long the
+ * term was, how many results came back. That answers the questions this event exists for
+ * ("are workers searching and finding nothing?", "is the state filter used at all?") without
+ * ever storing what anyone typed.
+ */
+export const JobSearchPerformedPayload = z.object({
+  worker_id: uuidSchema,
+  /** Whether a free-text term was supplied at all — never the term itself. */
+  has_query: z.boolean().default(false),
+  /** Length of the trimmed term, as a coarse volume signal. Zero when absent. */
+  query_length: z.number().int().nonnegative().default(0),
+  /** Which location filters were engaged. Booleans only — never the values. */
+  city_filtered: z.boolean().default(false),
+  state_filtered: z.boolean().default(false),
+  /** How many rows this page returned, and where the worker was in the list. */
+  result_count: z.number().int().nonnegative().default(0),
+  page: z.number().int().positive().default(1),
+  limit: z.number().int().positive().default(20),
+});
+
 /** A worker applied to a job (a tap or a voice note). */
 export const ApplicationSubmittedPayload = z.object({
   worker_id: uuidSchema,

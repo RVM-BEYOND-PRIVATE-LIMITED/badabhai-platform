@@ -111,6 +111,16 @@ export const jobPostings = pgTable(
     // COARSE city bucket (e.g. "Pune") — mirrors `jobs.city`. NEVER an address.
     // `location_label` above stays as-is (free text); `city` is the matchable field.
     city: text("city"),
+    // COARSE state bucket (e.g. "Maharashtra") — the second location filter `GET /jobs/search`
+    // offers (#822). NEVER an address, and deliberately NOT parsed out of `location_label`:
+    // that column is poster free text and could hold anything, so deriving a matchable field
+    // from it would put unvalidated data where a filter trusts it.
+    //
+    // NULLABLE WITH NO BACKFILL, and that is the whole backward-compatibility argument
+    // (§10 additive). Every existing row reads NULL, which the search filter treats as "does
+    // not match a state query" rather than as a hidden default — so no posting silently
+    // changes which searches it answers. A row gains a state only when a poster supplies one.
+    state: text("state"),
     // Monthly pay band offered (INR, whole rupees — never paise). Mirrors `jobs`.
     payMin: integer("pay_min"),
     payMax: integer("pay_max"),
