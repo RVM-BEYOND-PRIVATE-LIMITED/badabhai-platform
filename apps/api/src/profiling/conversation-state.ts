@@ -217,8 +217,76 @@ export function inboundHash(sessionId: string, rev: number, text: string): strin
  * Sized for a double-tap and a 2G round trip, not for a worker's considered second thought: past
  * this a repeated message is a real new turn, and replaying would look like the assistant ignoring
  * them.
+ *
+ * ⚠ THIS IS NO LONGER THE OUTER BOUND OF THE CACHE — see {@link STALE_RESPONSE_WINDOW_MS}. It is
+ * the bound of the FRESH window, inside which a match is confidently a retry and the reply is
+ * served as an ordinary replay. Between here and the stale window the answer is the same but the
+ * REASON is different, and the budget no longer applies.
  */
 export const REPLY_CACHE_WINDOW_MS = 10_000;
+
+/**
+ * How long a matching submission is still served from the cache instead of ANSWERING THE QUESTION
+ * NOW ON SCREEN. The outer bound of the reply cache.
+ *
+ * ── THE DEFECT THIS CLOSES (#869) ──────────────────────────────────────────────────────────────
+ *
+ * {@link REPLY_CACHE_WINDOW_MS} is 10 s. The shipped worker app's own HTTP deadline is 15 s
+ * (`kRequestTimeout`, `apps/worker-app/lib/core/api/api_client.dart`). So the ONE retry that
+ * client is designed to produce — a POST that landed server-side but whose response was lost,
+ * timing out at 15 s and re-sent byte-identically — arrived OUTSIDE the window every single time.
+ * `replayOf` rejected it on the age test, the turn ran for real, and the worker's words for
+ * question A were captured against question B, which A's own success had already put on screen.
+ *
+ * It needed N = 2, not a storm, so neither {@link MAX_REPLAYS_PER_TURN} nor
+ * {@link RETRY_STORM_FLOOR_MS} could see it: both live PAST the age test that rejected it.
+ *
+ * ── WHY WIDENING THE FRESH WINDOW WAS THE WRONG FIX ────────────────────────────────────────────
+ *
+ * Simply raising `REPLY_CACHE_WINDOW_MS` past 15 s would trade this defect for the one its own
+ * comment exists to prevent: a worker who genuinely repeats themselves after twelve seconds would
+ * get a replay instead of a turn, and the assistant would look like it ignored them. The two
+ * windows want different sizes because they answer different questions.
+ *
+ * ── THE RULE THAT SEPARATES THEM: ASYMMETRY OF HARM, NOT CONFIDENCE ────────────────────────────
+ *
+ * A hash match proves the text is identical AND that no turn has intervened (the stamp is written
+ * at `rev + 1`, so any real turn in between changes the key). Past 10 s that leaves exactly two
+ * readings, and the server genuinely cannot tell them apart:
+ *
+ *   (a) a stale client retry — the worker never saw the new question;
+ *   (b) the worker's next answer, which happens to reuse the same words.
+ *
+ * Guessing costs wildly different amounts:
+ *
+ *   guess (b), truth (a) → words captured against a question the worker never saw. On a
+ *                          `max_asks: 1` item `isSettled` makes that PERMANENT and SILENT — the
+ *                          worker cannot see it, so they cannot correct it. Durable corruption.
+ *   guess (a), truth (b) → the worker sees their previous question again and answers it once
+ *                          more. One wasted round trip, immediately visible, self-correcting.
+ *
+ * Fail toward the recoverable outcome (§3, fail closed). That is the whole rule.
+ *
+ * ── SIZING ────────────────────────────────────────────────────────────────────────────────────
+ *
+ * 30 s: double the client's 15 s deadline, so the retry lands well inside it even when the
+ * original response was still in flight over a 2G link. It must EXCEED that deadline or it fixes
+ * nothing; it should not be so long that reading (b) as (a) becomes routine.
+ *
+ * ── IT EXPIRES ON ITS OWN ─────────────────────────────────────────────────────────────────────
+ *
+ * A stale replay writes nothing and never refreshes `last.at`, so `age` only ever grows. The
+ * window closes by the clock whether or not this path touches Redis — the same property
+ * {@link RETRY_STORM_FLOOR_MS} relies on, and the reason no budget is needed out here.
+ *
+ * ── INTERIM ───────────────────────────────────────────────────────────────────────────────────
+ *
+ * The durable fix is a per-submission client id, which removes the ambiguity entirely instead of
+ * ruling on it, and is time-independent. It needs the worker app to send one (see the companion
+ * frontend issue). This window is what protects workers until that ships, and should be revisited
+ * — not silently kept — when it does.
+ */
+export const STALE_RESPONSE_WINDOW_MS = 30_000;
 
 /**
  * How many times ONE stamped reply may be served as a replay before a further identical
