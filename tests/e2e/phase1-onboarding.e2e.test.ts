@@ -543,7 +543,10 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(JSON.stringify(await client.db.select().from(aiJobs))).not.toContain(WORKER_NAME);
 
     expect(count("worker.created")).toBe(1);
-    expect(count("worker.otp_verified")).toBe(1);
+    // NOT worker.otp_verified: STAGE 1 uses the D-3 test-login seam, which emits the
+    // DISTINCT worker.test_login event instead (auth.service.ts's own doc comment: "never
+    // worker.otp_verified" -- so an auditor can always tell a real login from a test one).
+    expect(count("worker.test_login")).toBe(1);
     expect(count("worker.name_recorded")).toBe(1); // emitted once on the name write
     expect(count("consent.accepted")).toBe(1);
     expect(count("chat.session_started")).toBe(1);
