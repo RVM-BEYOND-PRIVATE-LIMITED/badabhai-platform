@@ -32,16 +32,17 @@ import 'widgets/bb_pin_view.dart';
 ///     [AuthSessionManager.confirmPinReset] (POST /auth/pin/reset/confirm) with
 ///     {phone, otp, newPin} in ONE call.
 ///
-/// The backend verifies the OTP only at that final `/confirm` (there is no
-/// standalone reset-OTP verify endpoint), so a wrong/expired code surfaces there
-/// (401 → otpInvalid) and returns the worker to the OTP step to fix it; a
-/// weak/format PIN (400 → pinWeak) re-collects the PIN. On success it routes to
-/// [Routes.pin] — the redirect bounces to /login if the worker is now loggedOut.
+/// EVERY error on every step is a CENTRED, blocking [showBbAlert] with a single
+/// "Theek hai" button — a couldn't-send-OTP, a missing code, a bad/expired code,
+/// a guessable PIN, a confirm mismatch, a server weak-PIN. There is no tiny
+/// inline red text a first-time, low-literacy worker would scroll past.
 ///
-/// A guessable PIN (1111 / 1234) is BLOCKED CLIENT-SIDE ([isWeakPin]) the moment
-/// it is entered, via a centred [showBbAlert] — so it never reaches the confirm
-/// call. The pin-phase errors (weak PIN, confirm mismatch) are dialogs; the
-/// phone/OTP steps keep their field-contextual inline copy.
+/// The backend verifies the OTP only at that final `/confirm` (there is no
+/// standalone reset-OTP verify), so a wrong/expired code surfaces there and
+/// returns the worker to the OTP step; a weak/format PIN re-collects the PIN. On
+/// success it routes to [Routes.pin] — the redirect bounces to /login if the
+/// worker is now loggedOut. A guessable PIN (1111 / 1234) is BLOCKED CLIENT-SIDE
+/// the moment it is entered, so it never reaches the confirm call.
 class ForgotPinScreen extends StatefulWidget {
   const ForgotPinScreen({super.key});
 
@@ -73,7 +74,6 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   String _newPin = ''; // the confirmed PIN, held only until the confirm call
 
   bool _busy = false;
-  String? _error;
 
   /// True while an alert dialog is open, so a rapid tap or a rebuild can't stack
   /// a second dialog on top of the first.
@@ -117,13 +117,19 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     super.dispose();
   }
 
+  /// The one error surface: a centred, blocking dialog with a "Theek hai"
+  /// button. Guarded by [_dialogOpen] so a fast retry can't stack dialogs.
+  Future<void> _showErrorAlert(String title, String message) async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+    await showBbAlert(context, title: title, message: message);
+    if (mounted) _dialogOpen = false;
+  }
+
   // --- phase 1: phone -------------------------------------------------------
 
   Future<void> _sendReset() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
+    setState(() => _busy = true);
     try {
       // Opened BEFORE the request (User Consent only matches an SMS that lands
       // after the window opens) and NOT awaited — a wedged Play Services must
@@ -135,7 +141,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       setState(() => _phase = _Phase.otp);
     } on AuthFailure catch (f) {
       if (!mounted) return;
-      setState(() => _error = authErrorMessage(f, 'hi'));
+      unawaited(_showErrorAlert('OTP nahi bhej paye', authErrorMessage(f, 'hi')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -155,14 +161,9 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   /// is verified with the new PIN at [_confirmReset] (the backend has no
   /// standalone reset-OTP verify), so a wrong code returns here from that step.
   void _otpContinue() {
-    if (_otp.text.trim().isEmpty) {
-      setState(() => _error = 'Pehle OTP daalein.');
-      return;
-    }
-    setState(() {
-      _error = null;
-      _phase = _Phase.pin;
-    });
+    // The CTA is disabled until a code is entered (see [_otpView]), so there is
+    // no empty-OTP error to surface here.
+    setState(() => _phase = _Phase.pin);
   }
 
   // --- phase 3: choose a new PIN (enter + confirm) --------------------------
@@ -170,7 +171,6 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   void _onDigit(String d) {
     if (_buffer.length >= kPinLength) return;
     setState(() {
-      _error = null;
       if (_pinStep == _PinStep.enter) {
         _first += d;
       } else {
@@ -182,7 +182,6 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
 
   void _onBackspace() {
     setState(() {
-      _error = null;
       if (_pinStep == _PinStep.enter && _first.isNotEmpty) {
         _first = _first.substring(0, _first.length - 1);
       } else if (_pinStep == _PinStep.confirm && _confirm.isNotEmpty) {
@@ -224,7 +223,6 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     setState(() {
       _first = '';
       _confirm = '';
-      _error = null;
       _pinStep = _PinStep.enter;
     });
     await showBbAlert(
@@ -243,7 +241,6 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     setState(() {
       _first = '';
       _confirm = '';
-      _error = null;
       _pinStep = _PinStep.enter;
     });
     await showBbAlert(
@@ -255,23 +252,11 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     if (mounted) _dialogOpen = false;
   }
 
-  /// The SERVER rejected the new PIN as weak (a pattern our local [isWeakPin]
-  /// does not catch). Surface its reason in the same centred dialog.
-  Future<void> _showWeakServerAlert(String message) async {
-    if (_dialogOpen) return;
-    _dialogOpen = true;
-    await showBbAlert(context, title: 'Yeh PIN aasan hai', message: message);
-    if (mounted) _dialogOpen = false;
-  }
-
   /// Submit {phone, otp, newPin}. The OTP is verified here (there is no earlier
   /// verify), so a bad/expired code returns to the OTP step; a weak PIN re-opens
-  /// the PIN step behind a dialog.
+  /// the PIN step. Every failure is a dialog.
   Future<void> _confirmReset() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
+    setState(() => _busy = true);
     try {
       await _manager.confirmPinReset(
         // E.164, exactly as the request step sent it. The controller holds only
@@ -288,7 +273,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     } on AuthFailure catch (f) {
       if (!mounted) return;
       if (f.code == AuthErrorCode.pinWeak) {
-        // Server weak-PIN → re-collect the PIN behind the same centred dialog.
+        // Server weak-PIN → re-collect the PIN behind a dialog.
         setState(() {
           _newPin = '';
           _first = '';
@@ -296,19 +281,23 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
           _pinStep = _PinStep.enter;
           _phase = _Phase.pin;
         });
-        unawaited(_showWeakServerAlert(authErrorMessage(f, 'hi')));
+        unawaited(_showErrorAlert('Yeh PIN aasan hai', authErrorMessage(f, 'hi')));
       } else {
         // Bad/expired OTP (401 → otpInvalid) or anything else → back to the OTP
-        // step with the honest reason, so the worker fixes the code (their new
-        // PIN is not lost to a wrong code they already typed).
+        // step with the honest reason in a dialog, so the worker fixes the code
+        // (their new PIN is not lost to a code they already typed).
+        final bool badOtp = f.code == AuthErrorCode.otpInvalid;
         setState(() {
           _newPin = '';
           _first = '';
           _confirm = '';
           _pinStep = _PinStep.enter;
           _phase = _Phase.otp;
-          _error = authErrorMessage(f, 'hi');
         });
+        unawaited(_showErrorAlert(
+          badOtp ? 'OTP sahi nahi' : 'Kuch gadbad ho gayi',
+          authErrorMessage(f, 'hi'),
+        ));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -390,10 +379,6 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
               hintText: 'XXXXXXXXXX',
             ),
           ),
-          if (_error != null) ...<Widget>[
-            const SizedBox(height: AppSpacing.s3),
-            _errorText(_error!),
-          ],
           const SizedBox(height: AppSpacing.s7),
           BbButton(
             label: 'Send OTP',
@@ -436,18 +421,13 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
             ),
             decoration: const InputDecoration(hintText: '— — — —'),
           ),
-          if (_error != null) ...<Widget>[
-            const SizedBox(height: AppSpacing.s3),
-            _errorText(_error!),
-          ],
           const SizedBox(height: AppSpacing.s7),
           BbButton(
             label: 'Aage badhein',
             block: true,
             // Enabled once a code has been entered; the code is verified with the
             // new PIN at the final confirm.
-            onPressed:
-                _otp.text.trim().isEmpty ? null : _otpContinue,
+            onPressed: _otp.text.trim().isEmpty ? null : _otpContinue,
           ),
         ],
       ),
@@ -455,9 +435,9 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   }
 
   Widget _pinView() {
-    // Pin-phase errors are centred dialogs now (weak-PIN block, confirm
-    // mismatch), so the body is just the masked dots + keypad. Scroll-safe:
-    // centred when there is room, scrolls (never overflows) on a short screen.
+    // Pin-phase errors are centred dialogs (weak-PIN block, confirm mismatch),
+    // so the body is just the masked dots + keypad. Scroll-safe: centred when
+    // there is room, scrolls (never overflows) on a short screen.
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         return SingleChildScrollView(
@@ -483,12 +463,4 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       },
     );
   }
-
-  Widget _errorText(String message) => Text(
-        message,
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
-          color: AppColors.danger,
-        ),
-      );
 }
