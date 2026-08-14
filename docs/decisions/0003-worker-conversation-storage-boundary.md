@@ -1,6 +1,9 @@
 # ADR 0003 — Worker-Conversation Archival Storage Boundary
 
-- **Status:** Accepted
+- **Status:** **Withdrawn (2026-08-14)** — never built; the archival tier is retired
+  rather than completed. The decision below is preserved as the record of what was
+  decided on 2026-06-10 and why it was not carried out. See
+  [Withdrawal](#withdrawal-2026-08-14) at the foot of this document.
 - **Date:** 2026-06-10
 - **Phase:** 1 (Worker Profiling)
 - **Relates to:** ADR-0001 (locked stack: Supabase), the `voice_notes.storage_path`
@@ -112,3 +115,89 @@ Additive and reversible. `conversation_storage_path` is nullable with no default
 rolling back is `ALTER TABLE chat_sessions DROP COLUMN conversation_storage_path;`
 (no data migration, no dependents while the wiring is deferred). Config and helper
 additions are inert until the wiring uses them.
+
+---
+
+## Withdrawal (2026-08-14)
+
+**This ADR is withdrawn. The archival bucket is retired, not completed.**
+
+Everything above describes a decision taken on 2026-06-10 whose deferred half was
+never built. It is preserved verbatim because the *reasoning* still explains three
+artifacts that exist in the tree today and would otherwise look unmotivated.
+
+### What was actually built
+
+Only the "foundation/contract" half of the scope split above ever landed, and all of
+it is inert:
+
+| Artifact | State |
+| -------- | ----- |
+| `CONVERSATIONS_BUCKET` server config + `.env.example` | Shipped |
+| `chat_sessions.conversation_storage_path` (migration `0002`) | Shipped, **never written by any code path** |
+| `conversationObjectKey` / `conversationWorkerPrefix` | Shipped + tested |
+| The `worker-conversations` bucket itself | **Never provisioned** — the `insert` in `storage-buckets.sql` has always been commented out |
+| The `put` / signed-read of conversation JSON | **Never written** |
+
+So the bucket described in the Context section as "has been provisioned" was not,
+and has held zero objects for its entire existence.
+
+### Why it is withdrawn rather than finished
+
+**The premise changed underneath it.** This ADR was written when the chat wrote rows
+per turn and the relational tables were not a complete record. The chat-persistence
+work that followed took a different shape: the in-flight interview buffers in Redis
+and flushes **once, transactionally**, at completion — see
+`apps/api/src/chat/chat-transcript.buffer.ts` and `ChatService.finalizeInterview`.
+
+The consequence is that `chat_messages` is now *already* the complete, durable,
+verbatim transcript of every finished interview, in Postgres, on the DSAR cascade,
+RLS + REVOKE-locked. Decision 3 above — "the bucket holds the full conversation JSON
+(complete transcript + final state snapshot)" — now describes **a second copy of data
+Postgres holds in full**.
+
+That copy is all cost and no capability:
+
+- **It doubles the raw-PII surface.** A transcript can carry a phone, a name, an
+  employer. Postgres holds one copy behind RLS and a FK cascade. The bucket would add
+  a second behind an object ACL that can drift — which is precisely the exposure
+  **R10** was raised about. Building it *creates* the risk; retiring it *removes* it.
+- **It buys no query.** Nothing can be asked of the JSON blob that cannot be asked of
+  `chat_messages` + `worker_pack_answers`, and those are indexed for it
+  (`chat_messages_session_created_idx`).
+- **The training-artifact goal is already served.** The relational rows are the
+  extraction corpus today; the flush hands them to extraction directly.
+- **It is a second store to keep consistent** — the ADR's own Consequences section
+  names this ("a best-effort archival mirror, not transactional"). Consistency debt
+  for a duplicate is a bad trade.
+
+### What this changes in the tree
+
+- **Removed:** `conversationObjectKey` + `ConversationObjectKeyParts` — dead code, no
+  caller, and no future caller now.
+- **Kept — deliberately:** `conversationWorkerPrefix` and `CONVERSATIONS_BUCKET`. They
+  back a **live DSAR erasure leg**
+  (`account-deletion.service.ts`, the `conversation_prefix` sweep). Removing an
+  erasure leg to tidy up a retired feature would be a security regression, and the
+  sweep costs one `list` call that 404s to `[]` on a bucket that does not exist. It
+  stays as defence in depth.
+- **Kept — deprecated, not dropped:** `chat_sessions.conversation_storage_path`.
+  CLAUDE.md §3/§10 forbid removing production columns; the column is nullable, unread,
+  and now carries a deprecation note in the schema rather than a `DROP`.
+- **Unchanged:** the bucket stays unprovisioned. `storage-buckets.sql` now says
+  *retired* rather than *provision when closing R10*.
+
+### R10
+
+**R10 is closed by this withdrawal** — see the
+[risks register](../registers/risks-register.md). Its stated exit condition (the
+consent-revoke prefix-delete) was independently met on 2026-07-27 (issue #260), and
+the residual concern — raw conversation JSON at rest in a bucket — cannot occur in a
+tier that will not be built.
+
+### If archival is ever revived
+
+Do not un-withdraw this ADR. Write a new one, because the justification has to be
+rebuilt from a different starting point: Postgres already holds the complete
+transcript, so a new archival tier must argue what it adds *beyond* a duplicate — and
+must budget for the second erasure path and the ACL that R10 was raised about.
