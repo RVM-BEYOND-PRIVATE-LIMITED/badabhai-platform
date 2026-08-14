@@ -579,7 +579,7 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     const jobJson = JSON.stringify({ in: jobRow!.inputRef, out: jobRow!.outputRef });
     expect(jobJson).not.toContain(PHONE);
     expect(jobJson).not.toContain(NATIONAL);
-  });
+  }, 90_000); // suite default is 30s; STAGE 4's own poll budget alone can take up to 60s.
 
   it("RLS: workers is locked to the backend role — anon/authenticated/service_role denied", async () => {
     // The backend connection (postgres / BYPASSRLS) reads fine...
