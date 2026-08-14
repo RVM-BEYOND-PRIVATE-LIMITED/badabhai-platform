@@ -784,7 +784,9 @@ class _ChatViewState extends State<_ChatView> {
         foregroundColor: AppColors.onBlue,
         iconTheme: const IconThemeData(color: AppColors.onBlue),
         systemOverlayStyle: SystemUiOverlayStyle.light,
-        titleSpacing: 0,
+        // Gutter of left space so the BB avatar + title are not flush against
+        // the screen edge — aligns the header with the body's left margin.
+        titleSpacing: AppSpacing.gutter,
         title: Row(
           children: <Widget>[
             Container(
