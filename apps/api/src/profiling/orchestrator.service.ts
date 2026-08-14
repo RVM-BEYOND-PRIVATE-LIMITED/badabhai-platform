@@ -64,6 +64,7 @@ import {
   emptyProfilingEnvelope,
   inboundHash,
   MAX_REPLAYS_PER_TURN,
+  RETRY_STORM_FLOOR_MS,
   narrowAnswerRecords,
   recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
@@ -410,6 +411,32 @@ export class ProfilingOrchestrator {
       // `replayOf` only ever returns non-null when `envelope.lastTurn` is itself non-null — `last`
       // here is that guarantee made explicit, not a new fact.
       if (replay && envelope.lastTurn) {
+        // A RETRY-STORM REPLAY IS SERVED AND NOTHING IS WRITTEN (#858). The budget is already
+        // spent, so there is no unit left to consume; what bounds this is `RETRY_STORM_FLOOR_MS`
+        // expiring against `lastTurn.at`, which no replay refreshes and which therefore runs out
+        // on the wall clock without any write to help it. Writing anyway would put one CAS per
+        // duplicate on the exact path a broken client hammers, and — because a consume re-stamps
+        // against the new rev — would do it to buy nothing at all.
+        //
+        // This is NOT the pre-#857 unbounded replay it resembles. That one never went stale
+        // because going stale was a write's job and a replay performed none; this one is stale by
+        // the clock in at most `RETRY_STORM_FLOOR_MS`, after which `replayOf` declines and the
+        // very next identical submission runs a real turn.
+        //
+        // AND IT IS LOGGED, because this branch is the only evidence that a client is duplicating
+        // submissions at all — everything downstream of it looks like a healthy session precisely
+        // because the damage was absorbed here. Ids and counters only: the worker's words live in
+        // the transcript, which is the one place they belong (§2).
+        if (!replay.consumesBudget) {
+          this.logger.warn(
+            `retry storm absorbed session=${input.sessionId} rev=${envelope.rev} ` +
+              `replays=${envelope.lastTurn.replays} question=${envelope.servedQuestionKey ?? "-"}; ` +
+              `duplicate served from cache and NOT captured — the client is posting one ` +
+              `submission more than once`,
+          );
+          return replay.result;
+        }
+
         // CONSUME ONE UNIT OF THE REPLAY BUDGET before serving it. A replay itself writes nothing,
         // so without this the stamp this matched would never go stale and every further identical
         // submission — including the worker's own next, unrelated turn, if it happens to use the
@@ -442,7 +469,7 @@ export class ProfilingOrchestrator {
           },
         };
         const held = await this.buffer.saveWithCas(input.sessionId, consumed, envelope.rev);
-        if (held) return replay;
+        if (held) return replay.result;
         // Lost the race — someone else already wrote (a real turn, or another caller consuming the
         // same replay slot). Reload and re-evaluate against whatever landed, exactly as a lost CAS
         // does below.
@@ -1692,21 +1719,57 @@ function withTurnLatency(buffer: TranscriptBuffer, elapsedMs: number): Transcrip
   };
 }
 
+/**
+ * A cache hit, and WHAT SERVING IT COSTS.
+ *
+ * The two are returned together because they are one decision made from one set of facts, and the
+ * caller can re-derive neither: `replayOf` owns every rule about the stamp — the hash, the window,
+ * the budget, the storm floor — and a `takeTurn` that re-tested `replays` to decide whether to
+ * write would be a second copy of the budget rule, free to disagree with the first.
+ */
+interface Replay {
+  readonly result: TurnResult;
+  /**
+   * Whether serving this replay must WRITE, spending one unit of the stamp's budget.
+   *
+   * True for a replay served FROM the budget: without the write the stamp would never go stale and
+   * the interview would sit on one reply for the whole window (#857). False for a retry-storm
+   * replay, whose budget is already spent — there is nothing left to consume, and what bounds it
+   * is `RETRY_STORM_FLOOR_MS` running out on the wall clock rather than a counter running down.
+   */
+  readonly consumesBudget: boolean;
+}
+
 /** Layer A: the same message, at the same rev, inside the window. */
-function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | null {
+function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null {
   const last = envelope.lastTurn;
   if (!last) return null;
   if (last.inboundHash !== inboundHash(input.sessionId, envelope.rev, input.text)) return null;
   const age = input.now.getTime() - new Date(last.at).getTime();
   // A NEGATIVE age is not a hit. Clock skew between instances would otherwise make a stale entry
   // look arbitrarily fresh, and replaying an old reply is worse than spending a turn.
+  //
+  // AND THIS TEST GUARDS THE STORM FLOOR BELOW TOO, which is why the floor is expressed here and
+  // not in `takeTurn`: `age` is only a floor on human turnaround once it is known to be a real,
+  // forward-running elapsed time. A skewed clock handing back −60 s satisfies "less than 1.5 s"
+  // perfectly, and would turn clock skew into a free way to suppress turns indefinitely.
   if (!Number.isFinite(age) || age < 0 || age > REPLY_CACHE_WINDOW_MS) return null;
   // THE REPLAY BUDGET (see `LastTurn.replays`). `rev` does not distinguish a network retry of
   // THIS reply from the worker's next, genuinely different turn happening to use the same words —
   // a replay writes nothing, so an unbudgeted stamp would match every further identical submission
   // for the whole of `REPLY_CACHE_WINDOW_MS`, however many real turns that is. Past the budget a
   // matching submission runs the turn for real instead of matching this stamp again.
-  if (last.replays >= MAX_REPLAYS_PER_TURN) return null;
+  //
+  // ...UNLESS IT LANDED TOO FAST TO BE A HUMAN (#858). Running the turn for real answers whatever
+  // question is on screen NOW, and for the third copy of ONE physical submission that is the wrong
+  // question — the FIRST duplicate's own success is what advanced it. The worker never gave those
+  // words for it, and the engine cannot tell, so the words are captured against it anyway: B's ask
+  // budget spent, or B settled outright, on content meant for A. Inside `RETRY_STORM_FLOOR_MS` the
+  // worker cannot have seen B at all, so the submission is still the same physical one and is
+  // still answered from the cache. Past the floor the two cases are genuinely indistinguishable
+  // and the budget decides, exactly as it did before.
+  const spent = last.replays >= MAX_REPLAYS_PER_TURN;
+  if (spent && age >= RETRY_STORM_FLOOR_MS) return null;
   // AN OFFER THAT LOST ITS CHIPS IS NOT A REPLAY, IT IS A DEAD END — fail closed (§3).
   //
   // `narrowLastTurn` parses cached options all-or-nothing, so any chip the contract rejects empties
@@ -1717,37 +1780,45 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
   // per-chip narrowing — a PARTIAL offer would hide the same failure behind a plausible screen.
   if (last.kind === "disambiguate" && last.options.length === 0) return null;
   return {
-    reply: last.reply,
-    // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
-    // link is an ordinary event, and re-deriving `ask` here would turn the second delivery of a
-    // disambiguation offer into an ordinary question with a chip scroller — the byte-identical
-    // replay this cache promises, silently downgraded on exactly the connections that need it.
-    kind: last.kind,
-    questionKey: last.questionKey,
-    // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
-    // replay a strictly WORSE response than the one it claims to repeat: same words, no chips, no
-    // progress. On chat that costs a scroller and a progress bar; on the voice form it strands a
-    // worker who cannot type in front of a question that can only be answered by tapping.
-    options: last.options,
-    progress: last.progress,
-    whyText: last.whyText,
-    answerType: last.answerType,
-    inputMode: last.inputMode,
-    unansweredEssentials: [],
-    complete: false,
-    completionReason: null,
-    replayed: true,
-    excludeFromParse: false,
-    unavailable: false,
-    // FROM THE CACHE, like the four above and for the identical reason (#766 item 2). The
-    // lookahead is part of what the client draws — it renders the next question from it on the
-    // tap — so replaying the words without it is the same silent downgrade `options` and
-    // `progress` used to suffer here. `null` on a record written before the field existed, which
-    // is simply the round trip the client already falls back to.
-    lookahead: last.lookahead,
-    // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
-    // client retrying on a flaky connection drive one Postgres UPDATE per retry.
-    checkpointDue: false,
+    // A STORM REPLAY WRITES NOTHING, and it is the clock that makes that safe. `last.at` is the
+    // ORIGINAL real turn and no replay ever refreshes it, so `age` only grows: the floor above
+    // expires on its own, whether or not this path ever touches Redis. Consuming budget here
+    // instead would buy nothing — the budget is already spent — while putting one CAS write per
+    // duplicate on exactly the path a storm hammers.
+    consumesBudget: !spent,
+    result: {
+      reply: last.reply,
+      // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
+      // link is an ordinary event, and re-deriving `ask` here would turn the second delivery of a
+      // disambiguation offer into an ordinary question with a chip scroller — the byte-identical
+      // replay this cache promises, silently downgraded on exactly the connections that need it.
+      kind: last.kind,
+      questionKey: last.questionKey,
+      // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
+      // replay a strictly WORSE response than the one it claims to repeat: same words, no chips,
+      // no progress. On chat that costs a scroller and a progress bar; on the voice form it
+      // strands a worker who cannot type in front of a question only answerable by tapping.
+      options: last.options,
+      progress: last.progress,
+      whyText: last.whyText,
+      answerType: last.answerType,
+      inputMode: last.inputMode,
+      unansweredEssentials: [],
+      complete: false,
+      completionReason: null,
+      replayed: true,
+      excludeFromParse: false,
+      unavailable: false,
+      // FROM THE CACHE, like the four above and for the identical reason (#766 item 2). The
+      // lookahead is part of what the client draws — it renders the next question from it on the
+      // tap — so replaying the words without it is the same silent downgrade `options` and
+      // `progress` used to suffer here. `null` on a record written before the field existed,
+      // which is simply the round trip the client already falls back to.
+      lookahead: last.lookahead,
+      // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
+      // client retrying on a flaky connection drive one Postgres UPDATE per retry.
+      checkpointDue: false,
+    },
   };
 }
 

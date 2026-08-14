@@ -31,6 +31,22 @@ export const AI_JOBS_RETENTION_QUEUE = "ai-jobs-retention";
  * ACCOUNT_DELETION twin so queue names and scheduler ids stay in one place. */
 export const AI_JOBS_RETENTION_SWEEP_SCHEDULER_ID = "ai-jobs-retention-sweep";
 
+/**
+ * Idle-chat-session abandonment sweep queue. The repeatable tick carries NO payload —
+ * the predicate over `chat_sessions` (still `active`, quiet longer than
+ * CHAT_ABANDON_AFTER_SECONDS) is the authoritative work list, so a lost or duplicated
+ * Redis job is harmless: the next tick re-evaluates it and catches anything missed.
+ */
+export const CHAT_ABANDONMENT_QUEUE = "chat-abandonment";
+
+/**
+ * Stable BullMQ job-scheduler id for the abandonment sweep — the idempotent upsert key
+ * the processor re-asserts at every boot (same-id upserts update the cadence instead of
+ * stacking duplicate schedulers). Lives here beside its ACCOUNT_DELETION and
+ * AI_JOBS_RETENTION twins so queue names and scheduler ids stay in one place.
+ */
+export const CHAT_ABANDONMENT_SWEEP_SCHEDULER_ID = "chat-abandonment-sweep";
+
 /** ADR-0034 worker push-notification queue. */
 export const PUSH_QUEUE = "worker-push";
 

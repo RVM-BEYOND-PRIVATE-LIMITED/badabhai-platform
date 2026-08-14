@@ -176,6 +176,11 @@ export const EVENT_REGISTRY = {
   "chat.session_started": { version: 1, domain: "chat", payload: p.ChatSessionStartedPayload },
   "chat.message_received": { version: 1, domain: "chat", payload: p.ChatMessageReceivedPayload },
   "chat.message_sent": { version: 1, domain: "chat", payload: p.ChatMessageSentPayload },
+  "chat.session_abandoned": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatSessionAbandonedPayload,
+  },
 
   "voice_note.uploaded": { version: 1, domain: "voice_note", payload: p.VoiceNoteUploadedPayload },
   "voice_note.transcription_requested": {

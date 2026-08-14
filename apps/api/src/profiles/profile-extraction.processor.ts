@@ -709,9 +709,15 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // The legacy route's spend rides on `result.ai_metadata` (the extraction call), which
         // `markCompleted` already persists. No parse happened, so there is nothing extra to carry.
         parseMeta: null,
-        // THE PATH WITH NO SAFETY NET. This branch has no answer map to project from, so an
-        // unreachable model is the difference between a profile and nothing at all — which
-        // makes the retry matter more here than on the OIE path, not less.
+        // THE PATH WITH NO SAFETY NET. This branch has no answer map to project from, so a
+        // GENUINE provider incident (`legacy.error_code` is one of `LLM_OUTAGE_CODES` — the
+        // ai-service was reached and its own call failed) is worth the wait: a profile from
+        // nothing is strictly worse than one delayed a few minutes. `outageCodeOf` narrows
+        // away `"extract_service_unreachable"` the same as everywhere else, though: the
+        // ai-service being flatly unreachable is not an incident this branch's 5/10-minute
+        // backoff can do anything about either, and the OIE branch's `outageCode` above
+        // mirrors this narrowing for its own `"parse_service_unreachable"` for the same reason
+        // — see that comment for the measured hang this kept them inconsistent about.
         outageCode: outageCodeOf(legacy.error_code),
         // Phase C never runs on this branch — there is no interview to read. `false` keeps the
         // retry exactly as it is here, which is what the note above argues for.
@@ -863,14 +869,34 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // conflating them would emit the parse's usage a second time under the wrong task type —
       // double-counting the interview's spend in the very ledger this is fixing.
       parseMeta: parsed?.ai_metadata ?? null,
-      // THREE WAYS THE MODEL LEG CAN BE TRANSIENTLY DOWN on this path, and the first is
-      // the one with no `error_code` to read: `parsed === null` means `AiService.post`
-      // gave up (non-OK or its own 8 s abort), so there is no body at all. The other two
-      // come back inside a perfectly healthy 200 — the route degrades rather than
-      // erroring, by design — and have to be read out of `notes` / `ai_metadata`.
+      // TWO WAYS THE MODEL LEG CAN BE TRANSIENTLY DOWN on this path, both read out of a
+      // healthy 200's `notes` / `ai_metadata` — the route degrades rather than erroring, by
+      // design. `parsed === null` is deliberately NOT a third: it means `AiService.post`
+      // never got a body back at all — `/profile/parse` returned non-OK, or our own 25 s
+      // abort fired — which collapses "the ai-service is up but this one call misbehaved"
+      // and "the ai-service process was never reachable in the first place" into one signal
+      // this side cannot tell apart (see `AiService.post`'s catch block).
+      //
+      // THAT IS WHY IT MUST NOT JOIN `LLM_OUTAGE_CODES`, and doing so was the bug: this used
+      // to hand the literal `"parse_service_unreachable"` straight to `outageCode`, which
+      // skips `outageCodeOf`'s set-membership check — `outageCode !== null` below is a loose
+      // gate, not a set test, so ANY non-null string retries. A transport failure isn't the
+      // provider-cooldown/rate-limit incident `EXTRACTION_JOB_OPTS`'s 5 min / 10 min backoff
+      // is sized for ("THIS IS NOT WHAT BOUNDS THE STORM" — its own docstring); waiting on it
+      // when the far side has no listener at all buys nothing. Measured: an ai-service with
+      // literally nothing on the port (CI's e2e job, by design — see its "AI service is
+      // intentionally NOT started" comment) held a `profile_extraction` job in `running` for
+      // the full 5-then-10-minute ladder before the third attempt finally wrote the profile —
+      // for a worker whose interview had completed in under fifteen seconds.
+      //
+      // NULL, matching the legacy `extract_service_unreachable` leg two branches up, which
+      // already narrows the identical "the request never came back" signal to null via
+      // `outageCodeOf` — the two routes now treat the same failure the same way. The `parsed
+      // === null` case is still logged on its own line below ("parse call produced nothing"),
+      // so nothing about WHY the fallback fired is lost — only the pointless 15-minute wait.
       outageCode:
         parsed === null
-          ? "parse_service_unreachable"
+          ? null
           : (parsed.notes.find((note) => PARSE_OUTAGE_NOTES.has(note)) ??
             outageCodeOf(parsed.ai_metadata?.error_code)),
       // Taken from the OVERLAY'S CONTENT, not merely from its presence.

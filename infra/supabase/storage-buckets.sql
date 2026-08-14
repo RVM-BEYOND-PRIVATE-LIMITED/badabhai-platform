@@ -94,9 +94,19 @@ on conflict (id) do update
       file_size_limit    = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
 
--- NOTE: `worker-conversations` (ADR-0003, risk R10) needs the same private treatment,
--- but it is a separate feature's launch gate — provision it the same way when closing
--- R10, e.g.:
---   insert into storage.buckets (id, name, public, allowed_mime_types)
---   values ('worker-conversations', 'worker-conversations', false, array['application/json'])
---   on conflict (id) do update set public = false;
+-- RETIRED: `worker-conversations` — DO NOT PROVISION.
+--
+-- ADR-0003 planned this bucket as an archival mirror of each finished interview. It was
+-- WITHDRAWN on 2026-08-14 without ever being built: this insert was commented out for the
+-- bucket's entire existence, and nothing ever wrote `chat_sessions.conversation_storage_path`.
+--
+-- `chat_messages` holds the complete verbatim transcript already, so provisioning this now
+-- would create a SECOND copy of raw worker PII behind an object ACL that can drift — which
+-- was precisely risk R10. R10 is Closed BY the retirement; un-commenting this would reopen it.
+--
+-- `CONVERSATIONS_BUCKET` still exists in server config and still names this bucket, because
+-- `AccountDeletionService` sweeps `conversationWorkerPrefix(worker_id)` against it on erasure.
+-- That sweep is defence in depth and is correct against a bucket that does not exist: the
+-- Storage `list` 404s and the leg records `nothing_to_delete`.
+--
+-- Reviving archival needs a NEW ADR (see ADR-0003's Withdrawal section), not this comment.

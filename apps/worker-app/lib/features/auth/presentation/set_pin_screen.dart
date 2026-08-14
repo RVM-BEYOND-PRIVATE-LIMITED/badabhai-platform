@@ -3,9 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_blue_header.dart';
 import '../../../router.dart';
 import '../domain/weak_pin.dart';
@@ -15,9 +14,19 @@ import 'widgets/bb_pin_keypad.dart';
 import 'widgets/bb_pin_view.dart';
 
 /// Set / reset PIN. Two steps: enter a PIN, then re-enter to confirm it matches.
-/// A gentle weak-PIN HINT shows for an obvious PIN (1111 / 1234) but never
-/// blocks — the server is the real policy. On success the manager authenticates;
-/// a new user continues onboarding (consent), a reset returns to the shell.
+///
+/// Every error the worker can hit is a CENTRED, blocking [showBbAlert] — not the
+/// old tiny inline red text a first-time, low-literacy worker scrolled past:
+///  - a guessable PIN (1111 / 1234) is a HARD CLIENT BLOCK ([isWeakPin]): the
+///    dialog explains why and the worker stays on the enter step. The server is
+///    still the ultimate policy authority, but we no longer let an obviously
+///    weak PIN sail through to a late server rejection the worker won't
+///    understand.
+///  - a confirm mismatch and a server rejection each raise their own dialog and
+///    return the worker to the enter step.
+///
+/// On success the manager authenticates; a new user continues onboarding
+/// (consent), a reset returns to the shell.
 class SetPinScreen extends StatelessWidget {
   const SetPinScreen({super.key, this.isReset = false});
 
@@ -51,14 +60,16 @@ class _SetPinViewState extends State<_SetPinView> {
   /// Both buffers are LOCAL widget state only — never persisted, never logged.
   String _first = '';
   String _confirm = '';
-  String? _error;
+
+  /// True while an alert dialog is open, so a rapid tap or a rebuild can't stack
+  /// a second dialog on top of the first.
+  bool _dialogOpen = false;
 
   String get _buffer => _step == _Step.enter ? _first : _confirm;
 
   void _onDigit(String d) {
     if (_buffer.length >= kPinLength) return;
     setState(() {
-      _error = null;
       if (_step == _Step.enter) {
         _first += d;
       } else {
@@ -70,7 +81,6 @@ class _SetPinViewState extends State<_SetPinView> {
 
   void _onBackspace() {
     setState(() {
-      _error = null;
       if (_step == _Step.enter && _first.isNotEmpty) {
         _first = _first.substring(0, _first.length - 1);
       } else if (_step == _Step.confirm && _confirm.isNotEmpty) {
@@ -81,23 +91,17 @@ class _SetPinViewState extends State<_SetPinView> {
 
   void _advance() {
     if (_step == _Step.enter) {
-      // Move to confirm. Keep the gentle hint visible there if it is weak.
-      setState(() {
-        _error = isWeakPin(_first)
-            ? '1111 / 1234 jaise PIN na chunein — thoda mushkil rakhein.'
-            : null;
-        _step = _Step.confirm;
-      });
+      // HARD client block on an obviously guessable PIN — dialog, then stay.
+      if (isWeakPin(_first)) {
+        _blockWeakPin();
+        return;
+      }
+      setState(() => _step = _Step.confirm);
       return;
     }
     // Confirm step filled — must match.
     if (_confirm != _first) {
-      setState(() {
-        _error = 'PIN match nahi hua. Dobara try karein.';
-        _confirm = '';
-        _first = '';
-        _step = _Step.enter;
-      });
+      _mismatch();
       return;
     }
     final String pin = _first;
@@ -107,6 +111,59 @@ class _SetPinViewState extends State<_SetPinView> {
       _confirm = '';
     });
     context.read<SetPinCubit>().submit(pin);
+  }
+
+  /// Guessable PIN — block it, explain in a dialog, and stay on the enter step.
+  /// The buffer is cleared SYNCHRONOUSLY (before the await) so a re-tap while the
+  /// dialog animates in can't re-fire this.
+  Future<void> _blockWeakPin() async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+    setState(() {
+      _first = '';
+      _step = _Step.enter;
+    });
+    await showBbAlert(
+      context,
+      title: 'Yeh PIN aasan hai',
+      message: '1234 ya 1111 jaisa PIN koi bhi aasani se guess kar sakta hai. '
+          'Aisa 4-digit PIN chunein jo sirf aap jaante hain.',
+    );
+    if (mounted) _dialogOpen = false;
+  }
+
+  /// The two entries differed — explain, and send the worker back to the start.
+  Future<void> _mismatch() async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+    setState(() {
+      _first = '';
+      _confirm = '';
+      _step = _Step.enter;
+    });
+    await showBbAlert(
+      context,
+      title: 'PIN alag hai',
+      message: 'Dono baar ek jaisa PIN daalein. '
+          'Pehli baar aur confirm wala PIN abhi alag hain.',
+    );
+    if (mounted) _dialogOpen = false;
+  }
+
+  /// The server rejected the PIN — surface its full reason, then reset to enter.
+  Future<void> _showFailureAlert(String? message) async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+    final String text = (message == null || message.isEmpty)
+        ? 'Kuch gadbad ho gayi. Dobara try karein.'
+        : message;
+    setState(() {
+      _first = '';
+      _confirm = '';
+      _step = _Step.enter;
+    });
+    await showBbAlert(context, title: 'PIN set nahi hua', message: text);
+    if (mounted) _dialogOpen = false;
   }
 
   @override
@@ -119,16 +176,10 @@ class _SetPinViewState extends State<_SetPinView> {
           // New user → continue onboarding at consent; reset → back to the shell.
           context.go(widget.isReset ? Routes.resume : Routes.consent);
         } else if (state.status == SetPinStatus.failure) {
-          setState(() {
-            _error = state.message;
-            _step = _Step.enter;
-            _first = '';
-            _confirm = '';
-          });
+          _showFailureAlert(state.message);
         }
       },
       builder: (BuildContext context, SetPinState state) {
-        final bool weak = _error != null;
         // Kit auth chrome: the blue header carries the step title/subtitle; the
         // light body holds the masked dots + on-screen keypad. Reached via `go`
         // (new-user onboarding or reset), so no back affordance.
@@ -148,44 +199,39 @@ class _SetPinViewState extends State<_SetPinView> {
               Expanded(
                 child: SafeArea(
                   top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.gutter),
-                    child: Column(
-                      children: <Widget>[
-                        const Spacer(flex: 1),
-                        BbPinView(
-                          length: kPinLength,
-                          filled: _buffer.length,
-                          error: weak && !confirming ? false : weak,
-                        ),
-                        const SizedBox(height: AppSpacing.s4),
-                        SizedBox(
-                          height: AppSpacing.s8,
-                          child: _error != null
-                              ? Text(
-                                  _error!,
-                                  textAlign: TextAlign.center,
-                                  style: AppTypography.body(
-                                    size: AppTypography.sizeSm,
-                                    // Was AppColors.warning (haldi) — ~1.4:1 on
-                                    // white, effectively invisible. A weak-PIN
-                                    // caution is an error cue → red (legible + law:
-                                    // haldi is a fill, never body text).
-                                    color: AppColors.danger,
+                  // Scroll-safe centring: the body sits centred when there is
+                  // room and scrolls (never overflows) on a short screen.
+                  child: LayoutBuilder(
+                    builder: (BuildContext context, BoxConstraints constraints) {
+                      return SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                              minHeight: constraints.maxHeight),
+                          child: IntrinsicHeight(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.gutter),
+                              child: Column(
+                                children: <Widget>[
+                                  const Spacer(flex: 1),
+                                  BbPinView(
+                                    length: kPinLength,
+                                    filled: _buffer.length,
                                   ),
-                                )
-                              : null,
+                                  const SizedBox(height: AppSpacing.s6),
+                                  BbPinKeypad(
+                                    enabled: !state.isSubmitting,
+                                    onDigit: _onDigit,
+                                    onBackspace: _onBackspace,
+                                  ),
+                                  const Spacer(flex: 2),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
-                        const SizedBox(height: AppSpacing.s2),
-                        BbPinKeypad(
-                          enabled: !state.isSubmitting,
-                          onDigit: _onDigit,
-                          onBackspace: _onBackspace,
-                        ),
-                        const Spacer(flex: 2),
-                      ],
-                    ),
+                      );
+                    },
                   ),
                 ),
               ),
