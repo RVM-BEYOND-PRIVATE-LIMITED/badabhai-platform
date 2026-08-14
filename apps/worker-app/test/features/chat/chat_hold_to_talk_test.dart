@@ -12,15 +12,26 @@ import 'package:badabhai_worker_app/features/voice/domain/speech_dictation.dart'
 class MockChatRepository extends Mock implements ChatRepository {}
 
 /// A hand fake for the ON-DEVICE recogniser: [listen] feeds [emit] straight back
-/// through the result callback so the widget's live-fill can be asserted without
-/// a platform channel.
+/// through the result callback (and a sound level, if set) so the widget's
+/// live-fill + waveform can be exercised without a platform channel.
 class FakeSpeechDictation implements SpeechDictation {
   bool ready = true;
   bool listening = false;
   String emit = '';
+
+  /// A SECOND final, emitted right after [emit] within the same hold — stands in
+  /// for the impl's continuous-listen restart, where the words spoken before a
+  /// mid-hold pause are flushed as a final and the next utterance arrives as a
+  /// fresh final that must APPEND, not overwrite.
+  String emit2 = '';
+  double emitLevel = 0;
   int initCalls = 0;
   int listenCalls = 0;
   int stopCalls = 0;
+
+  /// The last result sink handed to [listen] — a test can replay it to simulate
+  /// a TRAILING final the recogniser flushes after the worker released.
+  void Function(DictationResult result)? lastOnResult;
 
   @override
   Future<bool> initialize() async {
@@ -31,11 +42,15 @@ class FakeSpeechDictation implements SpeechDictation {
   @override
   Future<void> listen({
     required void Function(DictationResult result) onResult,
+    void Function(double level)? onSoundLevel,
     String? localeId,
   }) async {
     listenCalls++;
     listening = true;
+    lastOnResult = onResult;
+    if (emitLevel > 0) onSoundLevel?.call(emitLevel);
     if (emit.isNotEmpty) onResult(DictationResult(emit, isFinal: true));
+    if (emit2.isNotEmpty) onResult(DictationResult(emit2, isFinal: true));
   }
 
   @override
@@ -54,9 +69,10 @@ class FakeSpeechDictation implements SpeechDictation {
 }
 
 /// Hold-to-talk on the chat composer mic: a LONG-PRESS runs the DEVICE speech
-/// recogniser and fills the input field live (voice → text). The worker then taps
-/// Send and it goes as an ORDINARY chat message — no server voice endpoint. A
-/// plain TAP still opens the full voice-note screen.
+/// recogniser and fills the input field live (voice → text), showing a live
+/// waveform cue while held. The worker then taps Send and it goes as an ORDINARY
+/// chat message — no server voice endpoint. A plain TAP still opens the voice
+/// screen.
 void main() {
   late MockChatRepository chat;
   late FakeSpeechDictation speech;
@@ -82,24 +98,22 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  double abBolenOpacity(WidgetTester tester) {
+  // Opacity of the live-waveform cue (0 hidden, 1 shown while held).
+  double waveOpacity(WidgetTester tester) {
     final AnimatedOpacity ao = tester.widget<AnimatedOpacity>(
-      find.ancestor(
-        of: find.text('AB BOLEN'),
-        matching: find.byType(AnimatedOpacity),
-      ),
+      find.byKey(const ValueKey<String>('voiceWaveCue')),
     );
     return ao.opacity;
   }
 
   Finder composerMic() => find.byIcon(Icons.mic);
 
-  testWidgets('holding the mic runs device dictation, flashes "AB BOLEN", and '
+  testWidgets('holding the mic runs device dictation, shows the waveform, and '
       'fills the composer — sending nothing', (WidgetTester tester) async {
     speech.emit = 'Me CNC per kaam krta hun';
 
     await pumpScreen(tester);
-    expect(abBolenOpacity(tester), 0);
+    expect(waveOpacity(tester), 0);
 
     final TestGesture gesture = await tester.startGesture(
       tester.getCenter(composerMic()),
@@ -110,7 +124,11 @@ void main() {
 
     expect(speech.initCalls, 1);
     expect(speech.listenCalls, 1);
-    expect(abBolenOpacity(tester), 1, reason: 'the cue shows during the hold');
+    expect(
+      waveOpacity(tester),
+      1,
+      reason: 'the waveform shows during the hold',
+    );
     expect(find.text('Me CNC per kaam krta hun'), findsOneWidget);
 
     await gesture.up();
@@ -120,11 +138,12 @@ void main() {
     expect(speech.stopCalls, 1);
     // Nothing was sent — the recognised text only reached the composer.
     verifyNever(() => chat.sendMessage(any()));
-    expect(abBolenOpacity(tester), 0);
+    expect(waveOpacity(tester), 0);
   });
 
-  testWidgets('the cue stays for the WHOLE hold (no auto-hide) and hides on '
-      'release', (WidgetTester tester) async {
+  testWidgets('the waveform stays for the WHOLE hold and hides on release', (
+    WidgetTester tester,
+  ) async {
     speech.emit = 'kuch';
 
     await pumpScreen(tester);
@@ -134,19 +153,19 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600)); // long-press
     await tester.pump(); // initialize()
     await tester.pump(); // listen() -> result
-    expect(abBolenOpacity(tester), 1);
+    expect(waveOpacity(tester), 1);
 
-    // The old build hid the cue at ~1.1s; it must now persist for the hold.
+    // No auto-hide — it must persist for the whole hold.
     await tester.pump(const Duration(seconds: 3));
     expect(
-      abBolenOpacity(tester),
+      waveOpacity(tester),
       1,
-      reason: 'cue shows until the button is let go',
+      reason: 'waveform shows until the button is let go',
     );
 
     await gesture.up();
     await tester.pumpAndSettle();
-    expect(abBolenOpacity(tester), 0, reason: 'hidden on release');
+    expect(waveOpacity(tester), 0, reason: 'hidden on release');
   });
 
   testWidgets('recognised words append onto text already typed', (
@@ -168,6 +187,125 @@ void main() {
 
     expect(find.text('Mera naam CNC operator'), findsOneWidget);
   });
+
+  testWidgets(
+    'a phrase before a mid-hold pause is KEPT — the next utterance appends',
+    (WidgetTester tester) async {
+      // "hello", then a five-second think (the recogniser silently restarts),
+      // then "I am a CLC programmer". The impl flushes the first phrase as a
+      // final, so the second must land as "hello I am a CLC programmer" — the
+      // first words are never dropped.
+      speech.emit = 'hello';
+      speech.emit2 = 'I am a CLC programmer';
+
+      await pumpScreen(tester);
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(composerMic()),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(); // initialize()
+      await tester.pump(); // listen() -> both finals arrive
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(find.text('hello I am a CLC programmer'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'a phrase kept when the recogniser RESETS its partial mid-hold — no final, '
+    'no restart — the pre-pause words survive',
+    (WidgetTester tester) async {
+      // The device delivers the first phrase as a PARTIAL, then after a pause
+      // starts a NEW partial for the second phrase WITHOUT a final and WITHOUT
+      // restarting the session. "hello" must not be replaced by the next phrase.
+      await pumpScreen(tester);
+
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(composerMic()),
+      );
+      await tester.pump(const Duration(milliseconds: 600)); // long-press
+      await tester.pump(); // initialize()
+      await tester.pump(); // listen() registers the result sink
+
+      // Utterance 1 — a partial, never finalised.
+      speech.lastOnResult!(const DictationResult('hello', isFinal: false));
+      await tester.pump();
+      expect(find.text('hello'), findsOneWidget);
+
+      // Utterance 2 after a think — a fresh partial that does NOT extend "hello".
+      speech.lastOnResult!(
+        const DictationResult('I am a CNC developer', isFinal: false),
+      );
+      await tester.pump();
+      expect(find.text('hello I am a CNC developer'), findsOneWidget);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'a partial that GROWS within one utterance updates in place (no dupes)',
+    (WidgetTester tester) async {
+      await pumpScreen(tester);
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(composerMic()),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
+      await tester.pump();
+
+      speech.lastOnResult!(const DictationResult('I am', isFinal: false));
+      await tester.pump();
+      speech.lastOnResult!(const DictationResult('I am a CNC', isFinal: false));
+      await tester.pump();
+      speech.lastOnResult!(
+        const DictationResult('I am a CNC developer', isFinal: false),
+      );
+      await tester.pump();
+
+      // A growing partial replaces in place — never "I am I am a CNC ...".
+      expect(find.text('I am a CNC developer'), findsOneWidget);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'a trailing final delivered AFTER release never re-fills the composer',
+    (WidgetTester tester) async {
+      // The recogniser can flush one last final asynchronously after the worker
+      // has let go — landing after they cleared/sent. It must be ignored, else
+      // the composer intermittently refills with the sentence just spoken.
+      speech.emit = 'pehla';
+
+      await pumpScreen(tester);
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(composerMic()),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(); // initialize()
+      await tester.pump(); // listen() -> onResult fills 'pehla'
+      expect(find.text('pehla'), findsOneWidget);
+
+      await gesture.up();
+      await tester.pumpAndSettle(); // release -> stops accepting dictation
+
+      // The plugin flushes a late final AFTER release:
+      speech.lastOnResult!(const DictationResult('doosra', isFinal: true));
+      await tester.pump();
+
+      final TextField field = tester.widget<TextField>(find.byType(TextField));
+      expect(
+        field.controller!.text,
+        'pehla',
+        reason: 'a post-release final must not append or refill',
+      );
+      expect(find.text('pehla doosra'), findsNothing);
+    },
+  );
 
   testWidgets(
     'no recogniser / denied mic → honest notice, composer stays empty',

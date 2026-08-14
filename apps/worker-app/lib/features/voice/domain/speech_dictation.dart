@@ -25,10 +25,14 @@ abstract interface class SpeechDictation {
   Future<bool> initialize();
 
   /// Begins listening. [onResult] fires with partial readings as the worker
-  /// speaks and once more with the final one. [localeId] is a recogniser locale
-  /// id (e.g. `hi_IN`); null uses the device default.
+  /// speaks and once more with the final one. [onSoundLevel] fires in near
+  /// real-time with the mic amplitude (raw device units) — the live-waveform
+  /// cue reads it directly, so it responds to the voice without waiting for
+  /// recognition. [localeId] is a recogniser locale id (e.g. `hi_IN`); null uses
+  /// the device default.
   Future<void> listen({
     required void Function(DictationResult result) onResult,
+    void Function(double level)? onSoundLevel,
     String? localeId,
   });
 
