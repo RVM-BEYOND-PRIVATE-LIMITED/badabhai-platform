@@ -35,7 +35,16 @@ class RealSpeechDictation implements SpeechDictation {
   /// Guards against overlapping restart attempts.
   bool _restarting = false;
 
+  /// The latest words the CURRENT recognition session has reported but NOT yet
+  /// settled as a final. Android ends a session on its own silence timeout with
+  /// only a PARTIAL in hand (no final), so without this the words spoken before
+  /// a mid-hold pause — e.g. "hello" before five seconds of thinking — would be
+  /// dropped when the session restarts. Flushed as a synthetic final on the
+  /// session boundary (see [_maybeRestart]); cleared once a real final settles.
+  String _pendingWords = '';
+
   void Function(DictationResult result)? _onResult;
+  void Function(double level)? _onSoundLevel;
   String? _localeId;
 
   /// Far longer than any single hold — the restart loop, not this, is what keeps
@@ -59,23 +68,28 @@ class RealSpeechDictation implements SpeechDictation {
   @override
   Future<void> listen({
     required void Function(DictationResult result) onResult,
+    void Function(double level)? onSoundLevel,
     String? localeId,
   }) async {
     _onResult = onResult;
+    _onSoundLevel = onSoundLevel;
     _localeId = localeId;
     _wantListening = true;
+    _pendingWords = '';
     await _startPluginListen();
   }
 
   @override
   Future<void> stop() async {
     _wantListening = false;
+    _pendingWords = '';
     await _speech.stop();
   }
 
   @override
   Future<void> cancel() async {
     _wantListening = false;
+    _pendingWords = '';
     await _speech.cancel();
   }
 
@@ -87,6 +101,14 @@ class RealSpeechDictation implements SpeechDictation {
   /// callbacks cannot stack two `listen` calls.
   void _maybeRestart() {
     if (!_wantListening || _restarting || _speech.isListening) return;
+    // The session ended mid-hold (silence timeout / done) with words that never
+    // settled as a final — Android drops them otherwise. Settle them now so the
+    // widget commits them before the fresh session appends the next utterance.
+    if (_pendingWords.isNotEmpty) {
+      final String flushed = _pendingWords;
+      _pendingWords = '';
+      _onResult?.call(DictationResult(flushed, isFinal: true));
+    }
     unawaited(_startPluginListen());
   }
 
@@ -95,9 +117,21 @@ class RealSpeechDictation implements SpeechDictation {
     _restarting = true;
     try {
       await _speech.listen(
-        onResult: (SpeechRecognitionResult r) => _onResult?.call(
-          DictationResult(r.recognizedWords, isFinal: r.finalResult),
-        ),
+        onResult: (SpeechRecognitionResult r) {
+          // Track the newest words this session has reported so a silence
+          // timeout can't drop them: a non-empty final commits them (clear the
+          // pending buffer), any partial just updates it, so [_maybeRestart] can
+          // flush the buffer if the session dies before a final arrives.
+          if (r.finalResult && r.recognizedWords.isNotEmpty) {
+            _pendingWords = '';
+          } else if (r.recognizedWords.isNotEmpty) {
+            _pendingWords = r.recognizedWords;
+          }
+          _onResult?.call(
+            DictationResult(r.recognizedWords, isFinal: r.finalResult),
+          );
+        },
+        onSoundLevelChange: (double level) => _onSoundLevel?.call(level),
         listenOptions: SpeechListenOptions(
           // Partial results fill the composer live as the worker speaks.
           partialResults: true,

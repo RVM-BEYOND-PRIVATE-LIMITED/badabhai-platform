@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart'
     show HapticFeedback, SystemUiOverlayStyle;
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -23,6 +25,7 @@ import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../router.dart';
 import '../../voice/domain/speech_dictation.dart';
+import '../../voice/domain/speech_reader.dart';
 import '../../voice/domain/voice_models.dart';
 import '../domain/chat_message.dart';
 import 'bloc/chat_bloc.dart';
@@ -115,7 +118,7 @@ class _ChatView extends StatefulWidget {
   State<_ChatView> createState() => _ChatViewState();
 }
 
-class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
+class _ChatViewState extends State<_ChatView> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scroll = ScrollController();
 
@@ -162,6 +165,13 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
   static const String _kVoiceToTextUnavailable =
       'Awaaz text mein nahi badal payi. Dobara boliye ya type kijiye.';
 
+  /// Mic units above the ambient [_floor] that still count as quiet — the
+  /// squelch that keeps a fan/room tone off the bars. (Android RMS scale.)
+  static const double _kWaveSquelch = 1.5;
+
+  /// Mic units above (floor + squelch) that fill the bars — speech headroom.
+  static const double _kWaveSpan = 6.0;
+
   /// Mic is held and the recorder is live.
   bool _holdRecording = false;
 
@@ -172,50 +182,64 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
   /// that in-flight start to cancel rather than leave a mic with no owner.
   bool _holdStopRequested = false;
 
-  /// The centre "AB BOLEN" cue is showing — for the WHOLE hold (shown on press,
-  /// hidden on release), not a flash.
-  bool _showAbBolen = false;
+  /// The live-waveform cue is showing — for the WHOLE hold (shown on press,
+  /// hidden on release).
+  bool _listening = false;
 
-  /// True while the worker is actively speaking (recognised words are arriving).
-  /// Drives the cue's shake; goes false after a short idle so the cue stands
-  /// still when they pause.
-  bool _speaking = false;
+  /// The live, normalized (0..1) mic amplitude the waveform reads. A
+  /// ValueNotifier so only the waveform repaints, never the whole screen.
+  final ValueNotifier<double> _micLevel = ValueNotifier<double>(0);
+
+  /// Adaptive NOISE FLOOR — the ambient level (a fan, room tone) the mic
+  /// amplitude is measured against. It seeds to the first sample, then drops
+  /// fast to a quieter floor and rises slowly, so a steady fan settles onto the
+  /// baseline and only SPEECH (louder than room noise) clears it. This is what
+  /// keeps the wave flat on ambient noise while staying REAL-TIME on the voice —
+  /// no recognition gate, no lag.
+  double _floor = 0;
+  bool _floorSeeded = false;
 
   /// Whatever was already typed when a hold began — recognised words append onto
   /// it so live dictation never clobbers text the worker started by hand. Each
-  /// FINAL utterance is committed back into this so a continuous-listen restart
-  /// (see [SpeechDictation]) never drops an earlier sentence.
+  /// finished utterance is committed back into this so a later utterance appends
+  /// onto it instead of overwriting the sentence just spoken.
   String _dictationBase = '';
 
-  /// Fires after a gap in recognised speech to drop [_speaking] (stop the shake).
-  Timer? _speechIdleTimer;
+  /// The latest partial reading of the CURRENT utterance. The recogniser only
+  /// ever GROWS a partial (each reading extends the last), so a reading that does
+  /// NOT extend this one means it started a NEW utterance after a pause — at which
+  /// point the previous utterance is folded into [_dictationBase] before the new
+  /// words append. This is what keeps a phrase spoken before a mid-hold pause
+  /// (e.g. "hello" before a 5s think) when the next phrase ("I am a CNC
+  /// developer") follows — WITHOUT depending on the recogniser emitting a final
+  /// or restarting the session, which some devices skip.
+  String _lastHeard = '';
 
-  /// The last recognised text the shake reacted to. The shake ticks only when
-  /// the words actually CHANGE — the recogniser re-emits the same partial while
-  /// idle, so keying on change (not on every callback) is what lets the shake
-  /// stop when the worker goes quiet.
-  String _lastHeardForShake = '';
+  /// True only while a hold is live and the composer should accept recognised
+  /// words. Goes false the instant the hold tears down ([_hideWave]) so a
+  /// trailing final result the recogniser delivers AFTER release — the
+  /// continuous-listen session flushing — can never re-fill the composer once
+  /// the worker has cleared or sent it. Without this the composer would
+  /// intermittently refill after Send.
+  bool _acceptingDictation = false;
 
-  /// The cue's shake — repeats while [_speaking], parked centred otherwise.
-  late final AnimationController _shakeCtrl;
+  /// Index of the bot bubble currently being read aloud (its speaker icon shows
+  /// the stop glyph); null when nothing is speaking.
+  int? _speakingIndex;
 
   @override
   void initState() {
     super.initState();
     // Manual scroll back near the bottom dismisses the pill.
     _scroll.addListener(_onScroll);
-    // A quick in-place shake while the worker speaks: one smooth sine cycle per
-    // ~90ms (~11Hz). Parked at 0 (centred) when not speaking.
-    _shakeCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 90),
-    );
   }
 
   @override
   void dispose() {
-    _speechIdleTimer?.cancel();
-    _shakeCtrl.dispose();
+    if (locator.isRegistered<SpeechReader>()) {
+      unawaited(locator<SpeechReader>().stop()); // never leave TTS reading
+    }
+    _micLevel.dispose();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _controller.dispose();
@@ -226,6 +250,11 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
     final String text = _controller.text;
     if (text.trim().isEmpty) return;
     _sendText(text);
+    // Clear the composer AND drop the dictation carry-over so a late recogniser
+    // final (or the next hold) can never re-fill it with the sentence just sent.
+    _acceptingDictation = false;
+    _dictationBase = '';
+    _lastHeard = '';
     _controller.clear();
   }
 
@@ -407,30 +436,37 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
     // is recognised, so the worker feels the mic engage and does not wonder
     // whether it is listening.
     HapticFeedback.vibrate();
-    setState(() => _showAbBolen = true);
+    _floor = 0;
+    _floorSeeded = false;
+    _micLevel.value = 0;
+    setState(() => _listening = true);
     try {
       final bool ready = await speech.initialize();
       if (!mounted) return;
       if (!ready) {
         // No recogniser on the device, or the worker denied the mic.
-        _hideAbBolen();
+        _hideWave();
         _showComposerNotice(const MicPermissionFailure().message);
         return;
       }
       if (_holdStopRequested) {
         // Released before listening began — nothing to start.
-        _hideAbBolen();
+        _hideWave();
         return;
       }
       // Preserve anything already typed; recognised words append onto it.
       _dictationBase = _controller.text.trimRight();
-      _lastHeardForShake = '';
-      await speech.listen(onResult: _onDictationResult);
+      _lastHeard = '';
+      _acceptingDictation = true;
+      await speech.listen(
+        onResult: _onDictationResult,
+        onSoundLevel: _onSoundLevel, // live amplitude → the waveform
+      );
       if (!mounted) return;
       setState(() => _holdRecording = true);
     } catch (_) {
       if (mounted) {
-        _hideAbBolen();
+        _hideWave();
         _showComposerNotice(_kVoiceToTextUnavailable);
       }
     } finally {
@@ -442,7 +478,7 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
   /// composer (filled live by [_onDictationResult]); the worker reviews and taps
   /// Send. NOTHING is sent here — from here it is an ordinary typed message.
   Future<void> _stopHoldToTalk() async {
-    _hideAbBolen();
+    _hideWave();
     if (!_holdRecording) {
       // Released mid-init: tell the start leg not to begin listening.
       _holdStopRequested = true;
@@ -462,62 +498,119 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
   /// at the end so Send is the natural next tap. No server, no upload — this text
   /// is sent exactly like a typed message.
   ///
-  /// A FINAL result is committed into [_dictationBase] so the next recognition
-  /// session (the continuous-listen restart) appends onto it instead of
-  /// overwriting the sentence just spoken.
+  /// Each finished utterance is committed into [_dictationBase] so the next one
+  /// appends onto it. A new utterance is detected by [_lastHeard] no longer being
+  /// extended — see that field — so a phrase said before a mid-hold pause is kept
+  /// even when the device never emits a final for it.
   void _onDictationResult(DictationResult result) {
-    if (!mounted) return;
+    if (!mounted || !_acceptingDictation) return;
     final String heard = result.text.trim();
     if (heard.isEmpty) return;
-    // Shake ONLY on genuinely new words — the recogniser re-emits the same
-    // partial while the worker is quiet, so keying on change is what lets the
-    // vibration stop between utterances.
-    if (heard != _lastHeardForShake) {
-      _lastHeardForShake = heard;
-      _onSpeechActivity();
+
+    // The recogniser has started a NEW utterance when this reading no longer
+    // extends the last — commit the finished one into the base BEFORE appending
+    // the new words, or the new phrase would REPLACE the old one.
+    if (_lastHeard.isNotEmpty && !_extendsUtterance(heard, _lastHeard)) {
+      _dictationBase = _appendToBase(_dictationBase, _lastHeard);
+      _lastHeard = '';
     }
-    final String merged = _dictationBase.isEmpty
-        ? heard
-        : '$_dictationBase $heard';
+
+    final String merged = _appendToBase(_dictationBase, heard);
     _controller.value = TextEditingValue(
       text: merged,
       selection: TextSelection.collapsed(offset: merged.length),
     );
+    _lastHeard = heard;
+
     if (result.isFinal) {
-      _dictationBase = merged; // commit — the next utterance appends onto this
+      // Settled — commit it and start the next utterance clean.
+      _dictationBase = _appendToBase(_dictationBase, heard);
+      _lastHeard = '';
     }
   }
 
-  /// A speaking tick (new recognised words): run the vibration and (re)arm the
-  /// short idle timer that stops it the moment the words stop coming.
-  void _onSpeechActivity() {
-    _speechIdleTimer?.cancel();
-    if (!_speaking) setState(() => _speaking = true);
-    if (!_shakeCtrl.isAnimating) _shakeCtrl.repeat();
-    _speechIdleTimer = Timer(const Duration(milliseconds: 500), () {
-      if (!mounted) return;
-      setState(() => _speaking = false);
-      _stopShake();
-    });
+  /// True when [next] continues the same utterance as [prev] — the recogniser
+  /// only extends a partial, so a growing reading starts with the prior one.
+  bool _extendsUtterance(String next, String prev) =>
+      next.toLowerCase().startsWith(prev.toLowerCase());
+
+  /// Joins a committed [base] with freshly [heard] words, single-spaced.
+  String _appendToBase(String base, String heard) =>
+      base.isEmpty ? heard : '$base $heard';
+
+  /// The mic's live amplitude → the waveform, in REAL TIME (no wait for
+  /// recognition). Measured against the adaptive [_floor] with a small squelch,
+  /// so a steady fan/room tone stays at the baseline (flat bars) while speech —
+  /// which is louder than ambient — drives the bars, and the moment the worker
+  /// stops the level drops and the bars settle. Tuned for the plugin's Android
+  /// RMS scale (~ -2..12); other platforms may want [_kWaveSquelch]/[_kWaveSpan]
+  /// adjusted.
+  void _onSoundLevel(double raw) {
+    if (!_floorSeeded) {
+      // Seed ABOVE the first sample so the floor can only settle DOWNWARD onto
+      // ambient — which it does fast (the 0.5 drop below). Seeding AT the first
+      // (cold-mic, often low) sample and letting the floor climb UP to the real
+      // ambient was the bug: the climb took 2–3s, and until it caught up every
+      // sample read as signal and slammed the bars full at the start of a hold.
+      _floor = raw + _kWaveSpan;
+      _floorSeeded = true;
+    } else if (raw < _floor) {
+      _floor = raw * 0.5 + _floor * 0.5; // drop fast toward a quieter ambient
+    } else {
+      _floor = _floor * 0.9 + raw * 0.1; // rise toward a louder ambient (a fan)
+    }
+    final double signal = raw - _floor - _kWaveSquelch;
+    _micLevel.value = signal <= 0 ? 0.0 : (signal / _kWaveSpan).clamp(0.0, 1.0);
   }
 
-  /// Parks the shake centred (offset 0) and stops the ticker.
-  void _stopShake() {
-    _shakeCtrl.stop();
-    _shakeCtrl.value = 0;
-  }
-
-  /// Hides the "AB BOLEN" cue and stops the shake at once (a failed start, or the
+  /// Hides the waveform cue and parks the level at rest (a failed start, or the
   /// worker released the button).
-  void _hideAbBolen() {
-    _speechIdleTimer?.cancel();
-    _stopShake();
+  void _hideWave() {
+    // Stop accepting recognised words the moment the hold ends — a trailing
+    // final the recogniser flushes after release must not re-fill the composer.
+    _acceptingDictation = false;
+    _micLevel.value = 0;
+    if (mounted && _listening) setState(() => _listening = false);
+  }
+
+  /// The read-aloud speaker on a bot bubble. Tap → speak that question; tap the
+  /// same one again (or it finishes) → stop. Shows a stop glyph while reading.
+  Widget _speakerButton(int index, String text) {
+    final bool active = _speakingIndex == index;
+    return IconButton(
+      onPressed: () => _toggleSpeak(index, text),
+      tooltip: 'Sunein',
+      visualDensity: VisualDensity.compact,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(
+        minWidth: AppSpacing.tap,
+        minHeight: AppSpacing.tap,
+      ),
+      icon: Icon(
+        active ? Icons.stop_circle_outlined : Icons.volume_up_rounded,
+        size: 20,
+        color: AppColors.blue,
+      ),
+    );
+  }
+
+  /// Reads bot bubble [index] aloud, or stops it if it is already the one
+  /// speaking. Best-effort: no recogniser/voice just does nothing (the text is
+  /// on screen). The speaker icon clears when playback finishes.
+  Future<void> _toggleSpeak(int index, String text) async {
+    if (!locator.isRegistered<SpeechReader>()) return;
+    final SpeechReader reader = locator<SpeechReader>();
+    if (_speakingIndex == index) {
+      await reader.stop();
+      if (mounted) setState(() => _speakingIndex = null);
+      return;
+    }
+    await reader.stop();
     if (!mounted) return;
-    if (_showAbBolen || _speaking) {
-      setState(() {
-        _showAbBolen = false;
-        _speaking = false;
-      });
+    setState(() => _speakingIndex = index);
+    await reader.speak(text); // resolves when playback finishes
+    if (mounted && _speakingIndex == index) {
+      setState(() => _speakingIndex = null);
     }
   }
 
@@ -792,6 +885,11 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
                                   fromWorker: m.fromWorker,
                                   failed: failed,
                                   onRetry: failed ? () => _retry(i) : null,
+                                  // Read-aloud speaker on bada bhai's questions
+                                  // only (never the worker's own messages).
+                                  trailing: (!m.fromWorker && !failed)
+                                      ? _speakerButton(i, m.text)
+                                      : null,
                                 );
                               },
                             ),
@@ -862,7 +960,7 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
                     ],
                   ),
                 ),
-                _abBolenOverlay(),
+                _waveOverlay(),
               ],
             );
           },
@@ -1019,61 +1117,39 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
   /// The centre "AB BOLEN" cue — a soft, smoky pill that fades in when a hold
   /// begins and fades out a moment later. Non-interactive (never eats a tap) and
   /// always mounted so BOTH the fade-in and the fade-out animate.
-  Widget _abBolenOverlay() {
+  /// The live-waveform cue (Gemini-style): a centred dark pill whose bars track
+  /// the mic amplitude in REAL TIME while the worker holds to talk — no wait for
+  /// recognition. Non-interactive (never eats a tap); fades in/out.
+  Widget _waveOverlay() {
     return Positioned.fill(
       child: IgnorePointer(
         child: Center(
           child: AnimatedOpacity(
-            opacity: _showAbBolen ? 1 : 0,
-            duration: AppMotion.base,
+            key: const ValueKey<String>('voiceWaveCue'),
+            opacity: _listening ? 1 : 0,
+            duration: AppMotion.fast,
             curve: Curves.easeOut,
-            child: AnimatedBuilder(
-              animation: _shakeCtrl,
-              builder: (BuildContext context, Widget? child) =>
-                  Transform.translate(
-                    // Smooth ±4px sine shake while speaking; 0 at rest.
-                    offset: Offset(
-                      math.sin(_shakeCtrl.value * 2 * math.pi) * 4,
-                      0,
-                    ),
-                    child: child,
-                  ),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.s5,
-                  vertical: AppSpacing.s4,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceInk.withValues(alpha: 0.86),
-                  borderRadius: BorderRadius.circular(AppRadii.lg),
-                  // The "smoke": a large, soft haldi glow bleeding outward.
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: AppColors.haldi.withValues(alpha: 0.45),
-                      blurRadius: 48,
-                      spreadRadius: 8,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const Icon(
-                      Icons.graphic_eq,
-                      color: AppColors.haldi,
-                      size: 40,
-                    ),
-                    const SizedBox(height: AppSpacing.s2),
-                    Text(
-                      'AB BOLEN',
-                      style: AppTypography.display(
-                        size: AppTypography.sizeLg,
-                        color: AppColors.onBlue,
-                      ),
-                    ),
-                  ],
-                ),
+            child: Container(
+              width: 300,
+              height: 72,
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.s5,
+                vertical: AppSpacing.s4,
               ),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceInk.withValues(alpha: 0.94),
+                borderRadius: BorderRadius.circular(AppRadii.pill),
+                // A soft blue glow — the "smoke" behind the wave.
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: AppColors.blue.withValues(alpha: 0.35),
+                    blurRadius: 44,
+                    spreadRadius: 4,
+                  ),
+                ],
+              ),
+              child: _VoiceWaveform(level: _micLevel, active: _listening),
             ),
           ),
         ),
@@ -1416,4 +1492,137 @@ class _ChatViewState extends State<_ChatView> with TickerProviderStateMixin {
       ),
     );
   }
+}
+
+/// A live, scrolling audio waveform (Gemini-style) driven by the mic's amplitude.
+///
+/// [level] is the current normalized (0..1) amplitude, updated in near real time
+/// from the recogniser's sound-level callback.
+///
+/// A STABLE equaliser, not a scrolling waveform (Gemini/ChatGPT style): a small
+/// fixed cluster of centred bars that SIT STILL at a resting height when it is
+/// quiet, and rise with the voice when the worker speaks — each bar in place, no
+/// left-to-right "running train". A [Ticker] eases the drawn level toward the
+/// live one every frame (smooth 60fps, not stepped to the sparse callbacks) and
+/// advances a gentle shimmer phase so the speaking cluster looks alive without
+/// travelling. The ticker only runs while [active] — a held mic.
+class _VoiceWaveform extends StatefulWidget {
+  const _VoiceWaveform({required this.level, required this.active});
+
+  final ValueListenable<double> level;
+  final bool active;
+
+  @override
+  State<_VoiceWaveform> createState() => _VoiceWaveformState();
+}
+
+class _VoiceWaveformState extends State<_VoiceWaveform> {
+  /// A compact Gemini-like cluster, not a full strip.
+  static const int _barCount = 7;
+
+  /// Smoothed, drawn level (eased toward the live [widget.level]).
+  double _cur = 0;
+
+  /// Gentle shimmer phase so a SPEAKING cluster shimmers in place — it scales
+  /// with the level, so at rest (level ~0) it has no visible effect and the bars
+  /// stay perfectly still.
+  double _phase = 0;
+  Ticker? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Ticker(_onTick);
+    if (widget.active) _ticker!.start();
+  }
+
+  @override
+  void didUpdateWidget(_VoiceWaveform old) {
+    super.didUpdateWidget(old);
+    if (widget.active && !_ticker!.isActive) {
+      _cur = 0; // fresh, resting start each hold
+      _phase = 0;
+      _ticker!.start();
+    } else if (!widget.active && _ticker!.isActive) {
+      _ticker!.stop();
+    }
+  }
+
+  void _onTick(Duration _) {
+    // Ease the drawn level toward the live target for a smooth, instant-feeling
+    // response, and advance the shimmer. Bars stay in place — only their heights
+    // change, so there is no travelling motion.
+    final double target = widget.level.value.clamp(0.0, 1.0);
+    _cur += (target - _cur) * 0.28;
+    _phase += 0.18;
+    setState(() {}); // repaint the bars
+  }
+
+  @override
+  void dispose() {
+    _ticker?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: const Size(double.infinity, double.infinity),
+      painter: _WavePainter(level: _cur, phase: _phase, barCount: _barCount),
+    );
+  }
+}
+
+/// Draws a STABLE centred cluster of [barCount] rounded vertical bars, mirrored
+/// around the horizontal mid-line. Each bar's height is a fixed centre-weighted
+/// envelope scaled by [level], with a per-bar shimmer (also scaled by [level]),
+/// so at rest the cluster is a still row of short equal bars and on speech it
+/// swells in place — never scrolling.
+class _WavePainter extends CustomPainter {
+  _WavePainter({
+    required this.level,
+    required this.phase,
+    required this.barCount,
+  });
+
+  final double level;
+  final double phase;
+  final int barCount;
+
+  /// Resting half-height as a fraction of the max — a short, calm baseline.
+  static const double _idle = 0.14;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final int n = barCount;
+    if (n == 0) return;
+    const double barW = 6;
+    const double gap = 9;
+    final double stripW = n * barW + (n - 1) * gap;
+    double x = (size.width - stripW) / 2 + barW / 2;
+    final double midY = size.height / 2;
+    final double maxHalf = size.height / 2;
+    final double lvl = level.clamp(0.0, 1.0);
+    final double centre = (n - 1) / 2;
+    final Paint paint = Paint()
+      ..color = AppColors.onBlue
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = barW;
+    for (int i = 0; i < n; i++) {
+      // Centre bar tallest, tapering to the edges.
+      final double dist = centre == 0 ? 0 : (i - centre).abs() / centre;
+      final double envelope = 1 - 0.5 * dist;
+      // A gentle per-bar shimmer, but ONLY when there is a level to shimmer — at
+      // rest this term is ~0 so the cluster is dead still.
+      final double shimmer = 0.6 + 0.4 * math.sin(phase + i * 0.9);
+      final double h = _idle + lvl * envelope * (0.55 + 0.45 * shimmer);
+      final double half = (h * maxHalf).clamp(2.0, maxHalf);
+      canvas.drawLine(Offset(x, midY - half), Offset(x, midY + half), paint);
+      x += barW + gap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_WavePainter oldDelegate) =>
+      oldDelegate.level != level || oldDelegate.phase != phase;
 }
