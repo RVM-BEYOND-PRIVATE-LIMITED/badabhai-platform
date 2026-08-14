@@ -63,6 +63,12 @@ importers:
 
   apps/admin-web:
     dependencies:
+      '@badabhai/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@badabhai/pricing':
+        specifier: workspace:*
+        version: link:../../packages/pricing
       '@badabhai/validators':
         specifier: workspace:*
         version: link:../../packages/validators
@@ -225,6 +231,9 @@ importers:
       '@badabhai/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@badabhai/pricing':
+        specifier: workspace:*
+        version: link:../../packages/pricing
       '@badabhai/types':
         specifier: workspace:*
         version: link:../../packages/types

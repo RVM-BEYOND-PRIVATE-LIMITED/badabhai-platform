@@ -38,6 +38,35 @@ export function isDevEnv(rawNodeEnv: string | undefined = process.env.NODE_ENV):
   return rawNodeEnv === "development" || rawNodeEnv === "test";
 }
 
+/**
+ * Should a web-portal session cookie be marked `Secure` (HTTPS-only)?
+ *
+ * True in production AND on any https/staging deployment. Local http dev stays
+ * non-secure so the cookie is still set at all -- a browser silently drops a
+ * `Secure` cookie set over plain http. Shared by every principal's
+ * session-cookie module (payer, admin, ...) so each stops reimplementing the
+ * identical three signals (BL-9).
+ *
+ * Signals (any ⇒ secure): `NODE_ENV=production`; a staging/production
+ * `NEXT_PUBLIC_ENVIRONMENT` label; or the deployment's OWN site URL being
+ * https. The backend API URL is deliberately NOT a signal -- it is a different
+ * host and could be https even during local http dev, a false positive that
+ * would silently drop the cookie and make login appear broken.
+ */
+export function shouldUseSecureCookie(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  if (env.NODE_ENV === "production") return true;
+
+  const environment = (env.NEXT_PUBLIC_ENVIRONMENT ?? "").trim().toLowerCase();
+  if (environment === "staging" || environment === "production") return true;
+
+  const siteUrls = [env.NEXT_PUBLIC_SITE_URL, env.VERCEL_URL && `https://${env.VERCEL_URL}`];
+  return siteUrls.some(
+    (u) => typeof u === "string" && u.trim().toLowerCase().startsWith("https://"),
+  );
+}
+
 /** Format a Zod error into a readable, multi-line message for boot-time failures. */
 export function formatEnvError(error: z.ZodError): string {
   const lines = error.issues.map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`);

@@ -47,8 +47,6 @@ export { OtpInput } from "./otp-input";
 export type { OtpInputProps } from "./otp-input";
 export { SelectMenu } from "./select-menu";
 export type { SelectMenuProps, SelectOption } from "./select-menu";
-export { WavyText } from "./wavy-text";
-export type { WavyTextProps } from "./wavy-text";
 export { Chip } from "./chip";
 export type { ChipProps } from "./chip";
 export { Dialog } from "./dialog";

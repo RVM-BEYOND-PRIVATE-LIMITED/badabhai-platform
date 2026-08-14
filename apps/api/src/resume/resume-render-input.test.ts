@@ -494,3 +494,103 @@ describe("buildResumeRenderInput — the résumé container", () => {
     });
   });
 });
+
+/**
+ * #831 — a STORED container's scalars were never certified.
+ *
+ * The ai-service now gates them at the write path (`_certified_scalar` in profiling.py), but
+ * that protects future extractions only. Rows written before it hold values no gateway ever
+ * vouched for, they are re-rendered from storage on every download, and this builder feeds BOTH
+ * the worker's own PDF and the employer-facing masked disclosure. `shift` is the field #831
+ * confirmed already crosses to a payer's screen.
+ */
+describe("buildResumeRenderInput — uncertified scalars in a stored container (#831)", () => {
+  const CLEAN = {
+    domain_label: "CNC Machining",
+    role_label: "VMC Operator",
+    skills: ["VMC operation"],
+    experiences: [],
+    shift: "day",
+    current_city: "Delhi",
+    preferred_locations: ["Pune"],
+    availability: "immediate",
+    expected_salary: 40000,
+  };
+  const build = (over: Record<string, unknown> = {}, audience: "worker" | "employer" = "worker") =>
+    buildResumeRenderInput(
+      { resume_profile: { ...CLEAN, ...over } },
+      "Asha Kumari",
+      "classic",
+      null,
+      audience,
+    );
+
+  const PHONE = "call 9876543210";
+  const EMAIL = "reach me at ravi@sharma.com";
+
+  it("suppresses a phone number stored in `shift` on the EMPLOYER PDF — the confirmed leak", () => {
+    const input = build({ shift: PHONE }, "employer");
+    expect(input.availability ?? "").not.toContain("9876543210");
+  });
+
+  it("suppresses it on the WORKER's own PDF too — this is not an audience rule", () => {
+    // Audience-gating `shift` would have hidden a legitimate matching signal from employers
+    // while still printing the phone number on the worker's own copy. Certification is the
+    // property that actually holds, and it holds for both readers.
+    const input = build({ shift: PHONE }, "worker");
+    expect(input.availability ?? "").not.toContain("9876543210");
+  });
+
+  it("suppresses PII in every scalar the container carries", () => {
+    const input = build({
+      role_label: PHONE,
+      domain_label: EMAIL,
+      current_city: PHONE,
+      availability: EMAIL,
+      shift: PHONE,
+    });
+    expect(input.canonicalRole).toBeNull();
+    expect(input.trade).toBeNull();
+    expect(input.location).toBeNull();
+    expect(input.availability).toBeNull();
+    // The summary reads role/domain too — it must not reprint what the fields just suppressed.
+    expect(input.summary ?? "").not.toContain("9876543210");
+    expect(input.summary ?? "").not.toContain("ravi@sharma.com");
+  });
+
+  it("drops only the offending entry from preferred_locations and skills", () => {
+    const input = build({
+      preferred_locations: ["Pune", PHONE, "Nashik"],
+      skills: ["VMC operation", EMAIL],
+    });
+    expect(input.preferredLocations).toEqual(["Pune", "Nashik"]);
+    expect(input.skills).toEqual(["VMC operation"]);
+  });
+
+  it("THE FALSE-POSITIVE GUARD: ordinary values are untouched", () => {
+    // A guard that ate real answers would be its own outage — a blanked résumé is exactly what
+    // #824 cost us. `looksLikePii` matches email shapes and 7+ digit runs ONLY, which is why
+    // the stricter `looksLikeActionContextPii` (which also rejects 2-4 title-cased words, i.e.
+    // "New Delhi" and most role labels) is deliberately NOT used here.
+    const input = build({
+      role_label: "VMC Operator",
+      domain_label: "CNC Machining",
+      current_city: "New Delhi",
+      preferred_locations: ["Navi Mumbai", "Pune"],
+      shift: "night",
+      availability: "immediate",
+    });
+    expect(input.canonicalRole).toBe("VMC Operator");
+    expect(input.trade).toBe("CNC Machining");
+    expect(input.location).toBe("New Delhi");
+    expect(input.preferredLocations).toEqual(["Navi Mumbai", "Pune"]);
+    expect(input.availability).toBe("Available immediately · Night shift");
+  });
+
+  it("a 4-digit pay-like number in a scalar is NOT treated as a phone", () => {
+    // The digit-run threshold is 7+, so ordinary numerals in free text survive.
+    const input = build({ role_label: "Operator grade 3", current_city: "Sector 21" });
+    expect(input.canonicalRole).toBe("Operator grade 3");
+    expect(input.location).toBe("Sector 21");
+  });
+});

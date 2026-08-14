@@ -454,6 +454,24 @@ describe("the resolution cache", () => {
     expect(repo.findBindings).toHaveBeenCalledTimes(2);
   });
 
+  it("zero bindings WARNS with the remedy — the degradation must not be silent", async () => {
+    // WHAT SILENCE COST. This branch is the single point every unseeded-database interview passes
+    // through, and it returned null without a word. `nextQuestion` then falls through to the
+    // universal pack, so the worker answered eight generic questions instead of their trade's and
+    // the only symptom was a thin profile — diagnosed, eventually, from screenshots of the chat.
+    // The condition is exactly knowable here, so it is stated here.
+    const { registry } = makeRegistry({ bindings: [], packs: {} });
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+
+    await registry.loadUniversal(NOW);
+
+    const line = warn.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(line).toContain("no family bindings");
+    // The remedy is IN the log line: an operator reading it must not have to find this file.
+    expect(line).toContain("db:seed:packs");
+    warn.mockRestore();
+  });
+
   it("promotes a SHARED hit into memory, so only the first turn pays a round trip", async () => {
     // Without this the in-process tier is populated only by the instance that WALKED the chain, so
     // every other instance pays a Redis round trip on every turn — most of the saving, undone one
