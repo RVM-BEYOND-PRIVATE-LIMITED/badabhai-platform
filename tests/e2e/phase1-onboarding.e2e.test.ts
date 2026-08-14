@@ -144,12 +144,14 @@ async function pollAutoExtraction(
   attempts = 60,
   delayMs = 250,
 ): Promise<{ aiJobId: string; profileId: string }> {
+  let lastJobs: typeof aiJobs.$inferSelect[] = [];
   for (let i = 0; i < attempts; i++) {
     const jobs = (await client.db.select().from(aiJobs)).filter(
       (j) =>
         j.jobType === "profile_extraction" &&
         (j.inputRef as { worker_id?: string } | null)?.worker_id === workerId,
     );
+    lastJobs = jobs;
     const done = jobs.find((j) => j.status === "completed");
     const profileId = (done?.outputRef as { profile_id?: string } | null)?.profile_id;
     if (done && profileId) return { aiJobId: done.id, profileId };
@@ -157,7 +159,14 @@ async function pollAutoExtraction(
     if (failed) throw new Error(`auto extraction failed: ${failed.errorMessage}`);
     await new Promise((r) => setTimeout(r, delayMs));
   }
-  throw new Error(`auto extraction did not complete for worker ${workerId} in time`);
+  // BL-18 diagnostic: distinguish "no job was ever queued" from "a job exists but is
+  // stuck in some other status" -- the generic message alone cannot tell those apart,
+  // and they point at completely different root causes (the enqueue call vs. the worker).
+  const statuses = lastJobs.map((j) => `${j.id}:${j.status}`).join(", ") || "(none found)";
+  throw new Error(
+    `auto extraction did not complete for worker ${workerId} in time; ` +
+      `profile_extraction jobs seen for this worker: ${statuses}`,
+  );
 }
 
 describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)", () => {
