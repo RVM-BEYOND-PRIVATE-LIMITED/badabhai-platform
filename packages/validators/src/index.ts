@@ -63,53 +63,36 @@ export const consentPurposesSchema = z
   .refine((arr) => new Set(arr).size === arr.length, "Consent purposes must be unique");
 
 // ---------------------------------------------------------------------------
-// Worker-conversation Storage object keys (ADR-0003)
+// Worker-conversation Storage prefix (ADR-0003, Withdrawn — erasure leg only)
 // ---------------------------------------------------------------------------
 
 /**
- * Object-key contract for the private `worker-conversations` Storage bucket.
+ * Per-worker prefix in the `worker-conversations` Storage bucket, for DPDP
+ * ERASURE ONLY.
  *
- *   <worker_id>/<session_id>/v<version>.json
+ *   <worker_id>/
  *
- * The key carries ONLY opaque UUIDs + an integer version — never PII — and is
- * namespaced by worker so every object for a worker can be listed/deleted by a
- * single prefix (DPDP erasure on consent revoke). The bucket name itself comes
- * from `CONVERSATIONS_BUCKET` (server config); these helpers build the key
- * WITHIN that bucket. They are the frozen path contract the chat-persistence
- * wiring writes against — see ADR-0003.
- */
-export interface ConversationObjectKeyParts {
-  workerId: string;
-  sessionId: string;
-  /** Monotonic snapshot version, starting at 1. */
-  version: number;
-}
-
-const conversationVersionSchema = z
-  .number()
-  .int("Conversation version must be an integer")
-  .positive("Conversation version must be >= 1");
-
-/**
- * Prefix covering every conversation object for one worker — use to list/delete
- * all of a worker's archived conversations (DPDP erasure). Throws if `workerId`
- * is not a UUID (fail closed — a non-opaque id must never become a storage path).
+ * ⚠ THIS IS NOT A WRITE CONTRACT ANY MORE. ADR-0003 planned an archival tier that
+ * mirrored each finished interview into this bucket as JSON; it was withdrawn on
+ * 2026-08-14 without ever being built (the bucket was never provisioned and nothing
+ * ever wrote `chat_sessions.conversation_storage_path`). `chat_messages` is the
+ * complete durable transcript, so a bucket copy would only have doubled the raw-PII
+ * surface — which was the whole of risk R10. Its sibling `conversationObjectKey`
+ * was deleted with the retirement; do not reintroduce a key builder here without a
+ * NEW ADR.
+ *
+ * WHY THIS SURVIVED THE RETIREMENT. It backs a live erasure leg — the
+ * `conversation_prefix` sweep in `AccountDeletionService` — and deleting an erasure
+ * leg to tidy up a retired feature is a security regression, not a cleanup. The
+ * sweep is defence in depth: against a bucket that does not exist the Storage `list`
+ * 404s and the sweep records `nothing_to_delete`, so it costs one call and would
+ * still catch an object if the tier were ever revived or provisioned by hand.
+ *
+ * Throws if `workerId` is not a UUID (fail closed — a non-opaque id must never
+ * become a storage path).
  */
 export function conversationWorkerPrefix(workerId: string): string {
   return `${uuidSchema.parse(workerId)}/`;
-}
-
-/**
- * Build the opaque object key for a worker conversation snapshot. Throws if any
- * id is not a UUID (fail closed — never let PII reach a storage path) or the
- * version is not a positive integer. The result always starts with
- * `conversationWorkerPrefix(workerId)`, so prefix deletion covers it.
- */
-export function conversationObjectKey(parts: ConversationObjectKeyParts): string {
-  const workerId = uuidSchema.parse(parts.workerId);
-  const sessionId = uuidSchema.parse(parts.sessionId);
-  const version = conversationVersionSchema.parse(parts.version);
-  return `${workerId}/${sessionId}/v${version}.json`;
 }
 
 // ---------------------------------------------------------------------------
