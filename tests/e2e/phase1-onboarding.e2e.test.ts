@@ -304,12 +304,15 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     const nonNullAsked = askedIds.filter((a): a is string => a !== null);
     expect(new Set(nonNullAsked).size).toBe(nonNullAsked.length); // no topic re-asked
 
-    // DB: session is active and carries the advanced interview state.
+    // DB: session carries the advanced interview state. Status is "ended", not "active":
+    // flush-at-end (chat.dto.ts's `session_ended` field) has `finalizeInterview` set
+    // chat_sessions.status = "ended" once the interview reaches extraction-ready -- a
+    // deliberate terminal state (chat.repository.ts) this test predates, not a bug.
     const sessionRow = (await client.db.select().from(chatSessions)).find(
       (s) => s.id === sessionId,
     );
     expect(sessionRow).toBeTruthy();
-    expect(sessionRow!.status).toBe("active");
+    expect(sessionRow!.status).toBe("ended");
     const convState = sessionRow!.conversationState as {
       turn_count?: number;
       asked_question_ids?: string[];
