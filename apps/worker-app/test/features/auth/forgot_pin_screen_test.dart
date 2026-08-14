@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/auth/auth_failure.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/forgot_pin_screen.dart';
@@ -147,5 +148,44 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Naya 4-digit PIN banayein'), findsOneWidget); // re-enter
     verifyNever(() => manager.confirmPinReset(any(), any(), any()));
+  });
+
+  testWidgets('a failed send-OTP is a dialog, and stays on the phone step',
+      (WidgetTester tester) async {
+    when(() => manager.requestPinReset(any()))
+        .thenThrow(const AuthFailure(AuthErrorCode.otpRateLimited));
+
+    await tester.pumpWidget(app());
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), '9876543210');
+    await tester.pump();
+    await tester.tap(find.text('Send OTP'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('OTP nahi bhej paye'), findsOneWidget); // dialog, not inline
+    await tester.tap(find.text('Theek hai'));
+    await tester.pumpAndSettle();
+    // Still on the phone step (never advanced to OTP).
+    expect(find.text('MOBILE NUMBER'), findsOneWidget);
+    expect(find.text('OTP DAALEIN'), findsNothing);
+  });
+
+  testWidgets('a bad OTP at confirm is a dialog and returns to the OTP step',
+      (WidgetTester tester) async {
+    when(() => manager.confirmPinReset(any(), any(), any()))
+        .thenThrow(const AuthFailure(AuthErrorCode.otpInvalid));
+
+    await pumpToPinPhase(tester);
+    await enterPin(tester, '3927'); // strong → confirm step
+    await tester.pumpAndSettle();
+    await enterPin(tester, '3927'); // matches → submit → throws otpInvalid
+    await tester.pumpAndSettle();
+
+    expect(find.text('OTP sahi nahi'), findsOneWidget); // dialog
+    await tester.tap(find.text('Theek hai'));
+    await tester.pumpAndSettle();
+    // Back on the OTP step to fix the code (new PIN not lost to a bad code).
+    expect(find.text('OTP daalein'), findsOneWidget);
+    expect(find.text('Aage badhein'), findsOneWidget);
   });
 }
