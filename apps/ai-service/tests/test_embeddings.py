@@ -1,37 +1,17 @@
 """Skill-alias embedding tests (ADR-0030 / TAX-3) — mock path, zero spend.
 
-Covers: pseudonymize-before-embed (spy), fail-closed on block, idempotent-on-null batch,
-mock dimension == schema vector(768), and the real path being SG-4-gated (flag off → no
-provider call).
+Covers: pseudonymize-before-embed (spy), fail-closed on block, mock dimension == schema
+vector(768), and the real path being SG-4-gated (flag off → no provider call). The batch
+runner itself lives in packages/db (embed-skill-aliases.ts) and is tested there — this file
+covers only the per-text primitives (embed_text) it calls.
 """
 
 from __future__ import annotations
 
 from app.ai import embeddings
-from app.ai.embeddings import EMBEDDING_DIMENSION, embed_aliases, embed_text
+from app.ai.embeddings import EMBEDDING_DIMENSION, embed_text
 from app.config import Settings
 from app.pseudonymize import PseudonymizationResult
-
-
-class MemStore:
-    """In-memory AliasStore — rows[alias_id] = [text, vector|None]. `fetch_unembedded`
-    returns only NULL-embedding rows (what makes the batch resumable/idempotent)."""
-
-    def __init__(self, rows: dict[str, list]):
-        self.rows = rows
-
-    def fetch_unembedded(
-        self, limit: int, exclude_ids: frozenset[str] = frozenset()
-    ) -> list[tuple[str, str]]:
-        # Mirrors the SQL seam: NULL embedding AND id not in the run's blocked set. Excluding
-        # `exclude_ids` is what lets the window advance past blocked NULL rows (F1 fix).
-        out = [
-            (aid, v[0]) for aid, v in self.rows.items() if v[1] is None and aid not in exclude_ids
-        ]
-        return out[:limit]
-
-    def save_embedding(self, alias_id: str, vector: list[float]) -> None:
-        self.rows[alias_id][1] = vector
 
 
 def _pseudo(text: str = "", *, blocked: bool = False, reason: str | None = None):
@@ -137,135 +117,3 @@ def test_real_path_used_when_flag_on(monkeypatch):
     assert res.vector == [0.5] * EMBEDDING_DIMENSION
     assert res.model == "gemini-embedding-001"
 
-
-# --- (3) batch: idempotent on NULL-only, resumable, fail-closed counted ------
-def test_embed_aliases_is_idempotent_on_null_rows():
-    store = MemStore(
-        {
-            "a1": ["CNC milling", None],
-            "a2": ["TIG welding", None],
-            "a3": ["Fanuc", None],
-        }
-    )
-    report = embed_aliases(store, _mock_settings())
-    assert report.embedded == 3 and report.blocked == 0 and report.is_mock is True
-    assert all(len(store.rows[a][1]) == 768 for a in store.rows)
-
-    # Re-run: every row now has an embedding -> fetch_unembedded returns [] -> no-op.
-    again = embed_aliases(store, _mock_settings())
-    assert again.embedded == 0 and again.blocked == 0
-
-
-def test_embed_aliases_skips_blocked_rows_leaving_them_null(monkeypatch):
-    def selective(text, *args, **kwargs):
-        if "12345678" in text:
-            return _pseudo(blocked=True, reason="residual_digits")
-        return _pseudo(text=text)
-
-    monkeypatch.setattr(embeddings, "pseudonymize", selective)
-    store = MemStore({"ok": ["milling", None], "bad": ["ref 12345678", None]})
-    report = embed_aliases(store, _mock_settings())
-    assert report.embedded == 1 and report.blocked == 1
-    assert report.blocked_alias_ids == ["bad"]
-    assert store.rows["ok"][1] is not None  # embedded
-    assert store.rows["bad"][1] is None  # left NULL for a later re-run
-
-
-def test_embed_aliases_crosses_batches_without_double_counting_blocked(monkeypatch):
-    # >1 batch (batch_size=2) with a blocked row wedged in the middle. A blocked row stays
-    # NULL, so a naive `WHERE embedding IS NULL LIMIT n` re-returns it every batch — double-
-    # counting it and starving rows behind it. The exclude-set seam must count it ONCE and
-    # still drain every clean row (F1).
-    def selective(text, *args, **kwargs):
-        if "12345678" in text:
-            return _pseudo(blocked=True, reason="residual_digits")
-        return _pseudo(text=text)
-
-    monkeypatch.setattr(embeddings, "pseudonymize", selective)
-    store = MemStore(
-        {
-            "c1": ["milling", None],
-            "c2": ["welding", None],
-            "bad": ["ref 12345678", None],
-            "c3": ["grinding", None],
-            "c4": ["turning", None],
-        }
-    )
-    report = embed_aliases(store, _mock_settings(), batch_size=2)
-    assert report.embedded == 4  # every clean row drained across batches
-    assert report.blocked == 1  # counted ONCE despite spanning batches
-    assert report.blocked_alias_ids == ["bad"]  # no duplicate ids
-    assert store.rows["bad"][1] is None  # left NULL for a later re-run
-    assert all(store.rows[c][1] is not None for c in ["c1", "c2", "c3", "c4"])
-
-
-def test_all_blocked_batch_terminates_not_infinite_loop(monkeypatch):
-    # A full batch of blocked rows stays NULL; without a no-progress break the batch would
-    # re-fetch the same rows forever. Assert it TERMINATES (no hang) and does not re-embed.
-    monkeypatch.setattr(
-        embeddings, "pseudonymize", lambda *_a, **_k: _pseudo(blocked=True, reason="x")
-    )
-    store = MemStore({"a": ["ref 111", None], "b": ["ref 222", None]})
-    report = embed_aliases(store, _mock_settings(), batch_size=2)
-    assert report.embedded == 0
-    assert report.blocked == 2  # each blocked row counted ONCE (not looped)
-    assert all(store.rows[a][1] is None for a in store.rows)
-
-
-class NonConformingStore(MemStore):
-    """A BUGGY store that ignores ``exclude_ids`` (e.g. a runner whose SQL dropped the
-    exclusion clause). Termination must not depend on the store honoring the contract."""
-
-    def fetch_unembedded(self, limit, exclude_ids=frozenset()):
-        return super().fetch_unembedded(limit, frozenset())  # contract violation
-
-
-def test_terminates_even_when_store_ignores_exclude_ids(monkeypatch):
-    def selective(text, *args, **kwargs):
-        if "12345678" in text:
-            return _pseudo(blocked=True, reason="residual_digits")
-        return _pseudo(text=text)
-
-    monkeypatch.setattr(embeddings, "pseudonymize", selective)
-    store = NonConformingStore(
-        {"bad1": ["ref 12345678", None], "bad2": ["no 12345678", None], "ok": ["milling", None]}
-    )
-    report = embed_aliases(store, _mock_settings(), batch_size=2)
-    # No hang, each blocked row counted once, and blocked ids never duplicated —
-    # even though the buggy store re-returns them every fetch.
-    assert report.blocked == 2
-    assert sorted(report.blocked_alias_ids) == ["bad1", "bad2"]
-    assert report.embedded <= 1  # the clean row may be starved behind the clogged window,
-    # but the batch must still TERMINATE (this test hanging = regression)
-    # …and the contract violation is SURFACED, not silent (operator can fix the SQL).
-    assert report.store_nonconforming is True
-
-
-def test_conforming_store_never_flags_nonconforming(monkeypatch):
-    def selective(text, *args, **kwargs):
-        if "12345678" in text:
-            return _pseudo(blocked=True, reason="residual_digits")
-        return _pseudo(text=text)
-
-    monkeypatch.setattr(embeddings, "pseudonymize", selective)
-    store = MemStore({"ok": ["milling", None], "bad": ["ref 12345678", None]})
-    report = embed_aliases(store, _mock_settings(), batch_size=1)
-    assert report.store_nonconforming is False
-
-
-def test_real_batch_budget_stops_spend(monkeypatch):
-    # TD64 interim guard: an unattended REAL corpus batch must stop at the INR budget —
-    # remaining rows stay NULL for a later resume. Mock batches are never budget-stopped.
-    monkeypatch.setattr(embeddings, "_real_embedding", lambda t, s: [0.1] * EMBEDDING_DIMENSION)
-    store = MemStore({f"a{i}": [f"skill number {i}", None] for i in range(10)})
-    report = embed_aliases(store, _real_settings(), batch_size=3, budget_inr=0.000001)
-    assert report.budget_stopped is True
-    assert report.embedded == 1  # stopped right after the first paid embed
-    assert report.estimated_cost_inr > 0  # real cost accumulated (rate entry exists)
-    remaining = [a for a, v in store.rows.items() if v[1] is None]
-    assert len(remaining) == 9  # the rest untouched, resumable
-
-    # Mock: same store shape, zero spend, never budget-stopped even with a zero budget.
-    mock_store = MemStore({"m1": ["milling", None]})
-    mock_report = embed_aliases(mock_store, _mock_settings(), budget_inr=0.0)
-    assert mock_report.budget_stopped is False and mock_report.embedded == 1

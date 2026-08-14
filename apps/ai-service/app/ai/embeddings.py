@@ -16,9 +16,9 @@ INVARIANTS (ADR-0030):
 - Dimension **768** matches ``skill_alias.embedding`` (Vertex text-multilingual-embedding-002
   / the configured Gemini embedding model — confirm at the staging real run, §7).
 
-The batch operates over an :class:`AliasStore` seam so the (DB-free by design) ai-service
-does not gain a DB client here: the DB read/write of ``skill_alias`` is provided by the
-caller. Resumable = ``fetch_unembedded`` only ever returns rows whose embedding is NULL.
+The batch embed itself is a db-side runner in ``packages/db`` (``embed-skill-aliases.ts``,
+the live ``/embeddings/skill-alias`` endpoint) rather than an in-process ai-service batch —
+this module stays DB-free by design and exposes only the per-text primitives below.
 """
 
 from __future__ import annotations
@@ -26,8 +26,7 @@ from __future__ import annotations
 import hashlib
 import math
 import struct
-from dataclasses import dataclass, field
-from typing import Protocol
+from dataclasses import dataclass
 
 import httpx
 
@@ -36,7 +35,6 @@ from ..logging_config import get_logger
 from ..pseudonymize import pseudonymize
 from . import cost_tracker
 from .langfuse_tracing import EMBED_TEXT, get_tracer
-from .model_config import rate_inr_per_1k
 
 logger = get_logger("ai.embeddings")
 
@@ -369,140 +367,3 @@ def embed_text(text: str, settings: Settings) -> EmbeddingResult:
         )
     return EmbeddingResult(vector=vector, blocked=False, is_mock=is_mock, model=model, text=safe)
 
-
-class AliasStore(Protocol):
-    """The DB seam the batch reads/writes. The ai-service stays DB-free — the caller
-    (a db-side runner with the owner connection) supplies this. `fetch_unembedded` MUST
-    return only rows whose embedding is NULL, which is what makes the batch resumable."""
-
-    def fetch_unembedded(
-        self, limit: int, exclude_ids: frozenset[str] = frozenset()
-    ) -> list[tuple[str, str]]:
-        """Return up to ``limit`` (alias_id, text) rows whose embedding is NULL AND whose
-        id is NOT in ``exclude_ids``. The exclude set carries the rows this run already
-        attempted-and-BLOCKED: a blocked row is never embedded, so it stays NULL and a
-        naive ``WHERE embedding IS NULL LIMIT n`` would re-return it every batch — clogging
-        the window (starving rows behind it) and re-counting it. Excluding them makes the
-        batch strictly progress-or-stop. SQL shape: ``... WHERE embedding IS NULL AND id <>
-        ALL($exclude) ORDER BY id LIMIT $limit``."""
-        ...
-
-    def save_embedding(self, alias_id: str, vector: list[float]) -> None:
-        """Persist the vector for one alias (sets embedding for that row)."""
-        ...
-
-
-@dataclass
-class EmbedBatchReport:
-    embedded: int = 0
-    blocked: int = 0
-    is_mock: bool = True
-    model: str = MOCK_MODEL
-    estimated_cost_inr: float = 0.0
-    blocked_alias_ids: list[str] = field(default_factory=list)
-    # True when the REAL batch stopped early because the projected spend would exceed
-    # the batch budget (TD64 interim guard). Remaining rows stay NULL — resume later.
-    budget_stopped: bool = False
-    # True when the store violated the exclude_ids contract (a fetch window contained
-    # ONLY already-blocked ids): the batch still terminates, but rows behind the clogged
-    # window were NOT processed this run — the store's SQL needs fixing.
-    store_nonconforming: bool = False
-
-
-def embed_aliases(
-    store: AliasStore,
-    settings: Settings,
-    *,
-    batch_size: int = 100,
-    max_rows: int | None = None,
-    budget_inr: float | None = None,
-) -> EmbedBatchReport:
-    """Embed all NULL-embedding aliases (resumable, idempotent, pseudonymize-first).
-
-    Idempotent: a re-run only sees rows still NULL, so a completed corpus is a no-op. A
-    blocked (fail-closed) phrase is left NULL + counted, never embedded.
-
-    ``budget_inr`` bounds the REAL batch's estimated spend (TD64 interim guard — the full
-    SpendLedger reserve/record wiring is the precondition for the §7 staging run). Default
-    = ``settings.ai_max_daily_cost_inr``. When the accumulated estimate reaches it the
-    batch STOPS (``budget_stopped=True``); remaining rows stay NULL and a later run
-    resumes. The mock path spends nothing and is never budget-stopped.
-
-    TD68: any future AliasStore caller of THIS library batch must do the TD27 SpendLedger
-    reserve/record itself (``would_exceed_spend`` -> ``record_spend``) — ``budget_inr``
-    alone is NOT the TD27 cap (the live ``/embeddings/skill-alias`` endpoint path already
-    wires the ledger).
-    """
-    report = EmbedBatchReport(is_mock=not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE))
-    report.model = settings.embedding_model if not report.is_mock else MOCK_MODEL
-    if budget_inr is None:
-        budget_inr = settings.ai_max_daily_cost_inr
-    processed = 0
-    # Rows attempted this run and BLOCKED. They stay NULL (never embedded), so they must be
-    # excluded from every subsequent fetch — otherwise a window of blocked NULL rows would
-    # be re-returned forever (infinite loop) or re-counted each batch. Each iteration then
-    # strictly makes progress: it either embeds >=1 clean row (that row leaves the NULL set)
-    # or adds >=1 id to `blocked` (that id leaves the fetchable set) — so the loop always
-    # drains and terminates.
-    blocked: set[str] = set()
-    while True:
-        limit = batch_size
-        if max_rows is not None:
-            limit = min(limit, max_rows - processed)
-        if limit <= 0:
-            break
-        fetched = store.fetch_unembedded(limit, frozenset(blocked))
-        # Defensive vs a NON-CONFORMING store that ignores ``exclude_ids``: drop ids we
-        # already attempted-and-blocked, so termination never depends on the store honoring
-        # the contract (a mis-written SQL runner must not hang or double-count).
-        rows = [(aid, text) for aid, text in fetched if aid not in blocked]
-        if not rows:
-            if fetched:
-                # The window held ONLY already-blocked ids — the store ignored exclude_ids.
-                # Terminate (never hang), but SAY so: rows behind the clog were skipped.
-                report.store_nonconforming = True
-                logger.warning(
-                    "embed_aliases: store ignored exclude_ids — terminating with "
-                    "unprocessed rows behind a blocked window",
-                    extra={"extra": {"blocked": len(blocked)}},
-                )
-            break
-        for alias_id, text in rows:
-            processed += 1
-            res = embed_text(text, settings)
-            if res.blocked or res.vector is None:
-                report.blocked += 1
-                report.blocked_alias_ids.append(alias_id)
-                blocked.add(alias_id)  # exclude from future fetches — no re-count, no loop
-                continue
-            store.save_embedding(alias_id, res.vector)
-            report.embedded += 1
-            if not res.is_mock:
-                # Cost on the PSEUDONYMIZED text actually sent (res.text), not the raw
-                # input — accumulated UNROUNDED per row: alias texts are ~3-token strings
-                # whose per-row estimate_cost_inr (4-dp rounding) is exactly 0.0, which
-                # would zero the whole batch estimate AND blind the budget stop.
-                in_rate, _out = rate_inr_per_1k(settings.embedding_model)
-                tokens = cost_tracker.estimate_tokens(res.text or "")
-                report.estimated_cost_inr += (tokens / 1000.0) * in_rate
-                if report.estimated_cost_inr >= budget_inr:
-                    # Hard stop: never let an unattended corpus batch spend past the budget.
-                    report.budget_stopped = True
-                    break
-        if report.budget_stopped:
-            break
-    # Round once on the TOTAL (6 dp — embeds are sub-paisa) so the report is stable while
-    # per-row accumulation stayed exact.
-    report.estimated_cost_inr = round(report.estimated_cost_inr, 6)
-    logger.info(
-        "embed_aliases done",
-        extra={
-            "extra": {
-                "embedded": report.embedded,
-                "blocked": report.blocked,
-                "is_mock": report.is_mock,
-                "model": report.model,
-            }
-        },
-    )
-    return report
