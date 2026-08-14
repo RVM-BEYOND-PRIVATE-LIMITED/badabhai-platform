@@ -3,9 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_spinner.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/cubit/set_pin_cubit.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/set_pin_screen.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
 
 class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
@@ -86,6 +88,25 @@ void main() {
 
     expect(find.text('PIN confirm karein'), findsOneWidget);
     expect(find.text(confirmMsg), findsOneWidget);
+  });
+
+  testWidgets('a 3-second loader shows before the confirm step',
+      (WidgetTester tester) async {
+    await pumpScreen(tester);
+    await enterPin(tester, '3927'); // strong PIN → start the processing beat
+    await tester.pump(const Duration(milliseconds: 500)); // mid-beat
+
+    // The keypad is swapped for the loader; the confirm step is not reached yet.
+    expect(find.byType(BbSpinner), findsOneWidget);
+    expect(find.text('PIN set kar rahe hain…'), findsOneWidget);
+    expect(find.byType(BbPinKeypad), findsNothing);
+    expect(find.text('PIN confirm karein'), findsNothing);
+
+    // After the delay elapses the loader clears and the confirm-prompt shows.
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.byType(BbSpinner), findsNothing);
+    expect(find.text('PIN confirm karein'), findsOneWidget);
   });
 
   testWidgets('a guessable PIN is blocked with a dialog and never advances',
