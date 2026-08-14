@@ -854,6 +854,156 @@ export class ChatService {
   }
 
   /**
+   * Close ONE idle session as `abandoned`, preserving whatever is still recoverable.
+   *
+   * WHAT THIS IS FOR. An interview the worker walks away from is never flushed, so its
+   * transcript lives only in the Redis buffer and dies with the idle TTL. The periodic
+   * `conversation_state` checkpoint survives, but nothing ever acts on it: the session
+   * stays `active` forever and the worker's words are simply lost. This is the missing
+   * trigger — it runs off the request path, on the sweep's clock.
+   *
+   * ══ IT PRESERVES. IT DOES NOT EXTRACT. ══
+   *
+   * No `profile.extraction_ready`, no `autoTriggerExtraction`, and
+   * `extraction_ready_emitted` stays FALSE in the persisted state. A profile is minted by a
+   * FINISHED interview and by nothing else. A worker who answered four of thirteen
+   * questions has told us too little to rank on, and CLAUDE.md §2 ("never show irrelevant
+   * candidates", "matching quality over quantity") makes a thin profile worse than no
+   * profile — it does not sit idle, it competes for a slot in front of an employer. So the
+   * answers are banked where the worker can resume onto them, and the ranking surface
+   * never sees them.
+   *
+   * This is also why the flag matters rather than being cosmetic: the extraction processor
+   * reads `conversation_state`, and a `true` here would let a later, unrelated trigger
+   * treat a four-answer stub as a completed interview.
+   *
+   * TWO RECOVERY GRADES, and the caller is told which happened.
+   *   1. BUFFER ALIVE (the sweep beat the TTL — the design target). The full verbatim
+   *      transcript and the pack answers are written exactly as a real flush writes them.
+   *   2. BUFFER GONE (the sweep did not). Nothing is left to write; the session is closed
+   *      on the `conversation_state` checkpoint it already had, which is preserved rather
+   *      than overwritten. Reporting this as an ordinary success would hide real data loss,
+   *      so it rides on the event as `transcript_recovered: false`.
+   *
+   * The whole write is ONE transaction, and `abandonSession` is conditional on the session
+   * still being `active` — so a worker who returns mid-sweep and finishes their interview
+   * wins, and this aborts having written nothing.
+   */
+  async abandonInterview(
+    session: { id: string; workerId: string; conversationState: Record<string, unknown> | null },
+    idleMinutes: number,
+    ctx: RequestContext,
+  ): Promise<{ closed: boolean; transcriptRecovered: boolean; messages: number; answers: number }> {
+    const at = new Date();
+    const sessionId = session.id;
+    const workerId = session.workerId;
+
+    const loaded = await this.buffer.load(sessionId);
+    // The tripwire from TranscriptBuffer.workerId: a buffer disagreeing with the session row
+    // means key reuse, and it must never be attributed to this worker.
+    const buffer = loaded && loaded.workerId === workerId ? loaded : null;
+
+    const state: Record<string, unknown> = buffer
+      ? {
+          role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
+          turn_count: buffer.turnCount,
+          captured: buffer.captured,
+          completion_reason: "abandoned",
+          answered_topics: this.slugFieldIds(Object.keys(buffer.captured).sort(), sessionId),
+          // ⚠ FALSE, and load-bearing — see the header. No extraction ran, and none will.
+          extraction_ready_emitted: false,
+          ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
+        }
+      : // Buffer gone: keep the checkpoint verbatim and only stamp WHY it closed. Rebuilding
+        // it here would overwrite a real answer map with an empty one.
+        { ...(session.conversationState ?? {}), completion_reason: "abandoned" };
+
+    const messageRows = buffer
+      ? buffer.messages.map((m) => this.toMessageRow(sessionId, workerId, m))
+      : [];
+    const answerRows = buffer ? this.toPackAnswerRows(workerId, sessionId, buffer) : [];
+
+    const closed = await this.chat.withTransaction(async (tx) => {
+      if (!(await this.chat.abandonSession(tx, sessionId, state, at))) {
+        // The worker came back and finished (or another sweep tick won). Either way this
+        // session is no longer ours to close, and nothing has been written.
+        this.logger.log(`abandon skipped session=${sessionId}: no longer active`);
+        return false;
+      }
+
+      const rows = await this.chat.insertMessages(tx, messageRows);
+      if (answerRows.length > 0) await this.chat.insertPackAnswers(tx, answerRows);
+
+      // The audit spine records the messages that now exist, exactly as the completion
+      // flush records them — same names, same payloads, same key shape. These rows are real
+      // `chat_messages` rows; the only thing that differs about this path is that no
+      // PROFILE is minted from them.
+      for (const row of rows) {
+        const inbound = row.direction === "inbound";
+        await this.events.emit({
+          event_name: inbound ? "chat.message_received" : "chat.message_sent",
+          actor: inbound
+            ? { actor_type: "worker", actor_id: workerId }
+            : { actor_type: "ai_service" },
+          subject: { subject_type: "chat_message", subject_id: row.id },
+          payload: {
+            session_id: sessionId,
+            worker_id: workerId,
+            message_id: row.id,
+            message_type: "text",
+            ...(inbound ? { has_voice_note: false } : {}),
+          },
+          idempotencyKey: `${inbound ? "chat.message_received" : "chat.message_sent"}:${row.id}`,
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+          tx,
+        });
+      }
+
+      await this.events.emit({
+        event_name: "chat.session_abandoned",
+        // The SWEEP closed this, not the worker. Attributing it to them would put an action
+        // they did not take in their own audit trail.
+        actor: { actor_type: "system" },
+        subject: { subject_type: "chat_session", subject_id: sessionId },
+        payload: {
+          session_id: sessionId,
+          worker_id: workerId,
+          transcript_recovered: buffer !== null,
+          messages_preserved: rows.length,
+          answers_preserved: answerRows.length,
+          idle_minutes: idleMinutes,
+        },
+        idempotencyKey: `chat.session_abandoned:${sessionId}`,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        tx,
+      });
+
+      return true;
+    });
+
+    // ONLY AFTER THE COMMIT, and never in a `finally` — same rule as the completion flush.
+    // Postgres is what makes the transcript durable, so dropping the key on a failed or
+    // lost-race close would destroy the one copy the next tick could still have saved.
+    if (closed && buffer) await this.buffer.drop(sessionId);
+
+    if (closed) {
+      this.logger.log(
+        `session abandoned session=${sessionId} idle=${idleMinutes}m ` +
+          `messages=${messageRows.length} answers=${answerRows.length} ` +
+          `transcript=${buffer ? "recovered" : "LOST (buffer expired before the sweep)"}`,
+      );
+    }
+    return {
+      closed,
+      transcriptRecovered: buffer !== null,
+      messages: closed ? messageRows.length : 0,
+      answers: closed ? answerRows.length : 0,
+    };
+  }
+
+  /**
    * RFS field ids narrowed to what `ProfileExtractionReadyPayload` will actually
    * accept: lowercase slugs, at most 40 characters, at most 50 of them.
    *
