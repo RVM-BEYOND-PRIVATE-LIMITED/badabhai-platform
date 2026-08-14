@@ -313,12 +313,15 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     );
     expect(sessionRow).toBeTruthy();
     expect(sessionRow!.status).toBe("ended");
-    const convState = sessionRow!.conversationState as {
-      turn_count?: number;
-      asked_question_ids?: string[];
-    } | null;
+    const convState = sessionRow!.conversationState as { turn_count?: number } | null;
     expect(convState?.turn_count).toBe(turns); // one engine turn per message
-    expect(convState?.asked_question_ids?.[0]).toBe("primary_trade");
+    // NOT asserting asked_question_ids[0] here: finalizeInterview (chat.service.ts)
+    // writes a DIFFERENT state shape once a session ends -- role_family/turn_count/
+    // captured/answered_topics/answer_map, projected from the buffer via
+    // toConversationStatePatch, never asked_question_ids. That field only exists on
+    // the LIVE, mid-interview state this test predates. The claim it was checking
+    // (the interview opens with primary_trade) is already proven above via the live
+    // API response order (askedIds[0]).
 
     // DB: every turn persisted one inbound + one outbound message, bodies intact.
     const msgRows = (await client.db.select().from(chatMessages))
