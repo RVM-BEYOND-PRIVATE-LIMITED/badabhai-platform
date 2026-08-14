@@ -99,11 +99,17 @@ async function req(
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-// REAL-ONLY: this suite mints an authenticated payer session via OTP login, which now
-// requires a real ZeptoMail code (no dev echo) — it cannot run in automated CI. The
-// end-to-end proof is the manual OTP-7 staging check (docs/ops/otp-real-send-staging-runbook.md).
-void RUN;
-describe.skip("Per-payer hiring capacity (e2e, ADR-0016)", () => {
+// BL-18: this suite was hard-`describe.skip`ped as "mints an authenticated payer session
+// via OTP login" — that claim was STALE even before OTP went real-only. Read the whole file:
+// every case drives `POST /job-postings/:id/plan` and `POST /payers/:payerId/capacity`
+// through `InternalServiceGuard` (the ops `x-internal-service-token` header) against a bare
+// `randomUUID()` `payer_id`, never a Bearer payer session. That is by design — `payer_capacity`
+// and `posting_plans` are the deliberately FK-less "opaque rail" (see packages/db/src/schema/
+// payer.ts's own comment on `payerCapacity`/`postingPlans`): no `payers` row is required to
+// exercise this surface at all, so there was never a payer login to unblock here. Opt-in via
+// `RUN` (RUN_E2E) same as every other e2e file; `describe.skipIf` (not a hard skip) so the
+// suite actually executes wherever RUN is set, CI included.
+describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
   let client!: DbClient;
 
   beforeAll(() => {
