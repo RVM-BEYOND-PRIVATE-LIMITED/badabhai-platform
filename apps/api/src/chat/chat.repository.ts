@@ -216,6 +216,79 @@ export class ChatRepository {
     return { packId: row.packId, packVersion: row.packVersion };
   }
 
+  /**
+   * Sessions still `active` that have been quiet since before `idleSince` — the
+   * abandonment sweep's work list.
+   *
+   * `coalesce(last_message_at, started_at)` IS THE POINT. A session that never received a
+   * message has `last_message_at` NULL, and there are a great many of them: every pre-fix
+   * app open called `startSession`, which always inserts (see
+   * {@link findLatestSessionByWorker}). Comparing the bare column would leave every one of
+   * those `active` forever — the exact rows most obviously abandoned. Falling back to
+   * `started_at` sweeps them too; they carry nothing to preserve, so closing them is pure
+   * cleanup.
+   *
+   * BOUNDED, and the caller re-ticks. A backlog drains across sweeps rather than in one
+   * unbounded run — same shape as `AccountDeletionSweepProcessor`'s batch limit.
+   *
+   * ORDERED OLDEST-FIRST so a persistent backlog drains FIFO and no session can be starved
+   * behind newer arrivals forever.
+   *
+   * ⚠ NO SUPPORTING INDEX YET, deliberately. This predicate wants a partial index on
+   * `coalesce(last_message_at, started_at) WHERE status = 'active'`, but adding one means
+   * running `db:generate`, which currently also re-proposes an unrelated
+   * `job_postings.state` ALTER (see #865 — `0075`'s snapshot was never reconciled). Landing
+   * that here would bundle a migration that FAILS on any DB that ran `0075`. The scan is
+   * hourly, capped at {@link SWEEP_BATCH_LIMIT} rows of output, and off every request path,
+   * so it is affordable meanwhile. Add the index once #865 unblocks a clean generate.
+   */
+  async findIdleActiveSessions(idleSince: Date, limit: number): Promise<ChatSession[]> {
+    return this.db
+      .select()
+      .from(chatSessions)
+      .where(
+        and(
+          eq(chatSessions.status, "active"),
+          sql`coalesce(${chatSessions.lastMessageAt}, ${chatSessions.startedAt}) < ${idleSince}`,
+        ),
+      )
+      .orderBy(sql`coalesce(${chatSessions.lastMessageAt}, ${chatSessions.startedAt}) asc`)
+      .limit(limit);
+  }
+
+  /**
+   * Close one session as `abandoned`, preserving the state the sweep salvaged.
+   *
+   * CONDITIONAL ON STILL BEING `active`, and that is the whole race guard — not a nicety.
+   * The sweep reads its batch and then works it row by row, so a worker can send a message
+   * (or finish the interview outright) between the read and this write. Only one of the two
+   * can pass `status = 'active'`, and the boolean return is "I won", which is what stops the
+   * sweep emitting an abandonment event for an interview the worker just completed.
+   *
+   * Mirrors {@link endSession}, deliberately — same guard, same shape, different terminal
+   * status — so the two cannot drift into disagreeing about what closing a session means.
+   *
+   * ⚠ DOES NOT TOUCH `last_message_at`, unlike {@link endSession}. That column means "when
+   * the worker last spoke", and the sweep is not the worker. Stamping it here would (a)
+   * destroy the only record of how long the session had actually been quiet — the input to
+   * this sweep's own predicate — and (b) make {@link findLatestSessionByWorker} rank a
+   * dead session above the live one the worker is currently typing into. `ended_at` is the
+   * column for "when it closed", and it is the one that moves.
+   */
+  async abandonSession(
+    tx: Tx,
+    sessionId: string,
+    state: Record<string, unknown>,
+    at: Date,
+  ): Promise<boolean> {
+    const updated = await tx
+      .update(chatSessions)
+      .set({ conversationState: state, status: "abandoned", endedAt: at })
+      .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.status, "active")))
+      .returning({ id: chatSessions.id });
+    return updated.length > 0;
+  }
+
   async insertMessage(input: NewChatMessage): Promise<ChatMessage> {
     const inserted = await this.db.insert(chatMessages).values(input).returning();
     const row = inserted[0];

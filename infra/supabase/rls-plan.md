@@ -79,7 +79,8 @@ CI/local has no `storage` schema). See [storage-buckets.md](storage-buckets.md) 
 
 - `worker-resumes` — **PRIVATE**, signed-URL-only (TD5 / R13); object path
   `resumes/<worker_id>/<resume_id>/v<n>.pdf`. Idempotent SQL provided.
-- `worker-conversations` (ADR-0003 / R10) and `voice-notes` (later) — same private model.
+- ~~`worker-conversations`~~ — **retired, never provisioned** ([ADR-0003 Withdrawn](../../docs/decisions/0003-worker-conversation-storage-boundary.md#withdrawal-2026-08-14); R10 Closed 2026-08-14). No bucket, so no policy to write.
+- `voice-notes` (later) — same private model.
 - Signed URLs issued by the backend (service role); no public/anon read.
 
 ## Checklist before enabling direct client access
@@ -88,5 +89,5 @@ CI/local has no `storage` schema). See [storage-buckets.md](storage-buckets.md) 
 - [ ] Define payer auth → DB identity mapping (`current_payer_id()`) + per-payer policies on the payer-owned tables (ADR-0019 C / XL-A launch gate — app-layer chokepoint enforced in Phase 1)
 - [ ] Enable RLS on every table and add explicit policies
 - [ ] Verify `events`/`audit_logs`/`ai_jobs` are unreachable by anon/authenticated
-- [x] Storage bucket policies + signed URL flow — `worker-resumes` private + signed-URL-only ([storage-buckets.md](storage-buckets.md)); `worker-conversations` / `voice-notes` pending
+- [x] Storage bucket policies + signed URL flow — `worker-resumes` private + signed-URL-only ([storage-buckets.md](storage-buckets.md)); `worker-conversations` **retired** (never provisioned, R10 Closed); `voice-notes` pending
 - [ ] Penetration test the policies

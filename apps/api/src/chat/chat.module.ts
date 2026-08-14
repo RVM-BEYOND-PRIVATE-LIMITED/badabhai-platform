@@ -3,11 +3,12 @@ import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module";
 import { ProfilesModule } from "../profiles/profiles.module";
 import { ProfilingModule } from "../profiling/profiling.module";
-import { PROFILE_EXTRACTION_QUEUE } from "../queue/queue.constants";
+import { CHAT_ABANDONMENT_QUEUE, PROFILE_EXTRACTION_QUEUE } from "../queue/queue.constants";
 import { ChatController } from "./chat.controller";
 import { ChatService } from "./chat.service";
 import { ChatRepository } from "./chat.repository";
 import { ChatTranscriptBuffer } from "./chat-transcript.buffer";
+import { ChatAbandonmentSweepProcessor } from "./chat-abandonment-sweep.processor";
 
 @Module({
   // forwardRef: ChatService auto-triggers extraction via ProfilesService, while
@@ -28,9 +29,13 @@ import { ChatTranscriptBuffer } from "./chat-transcript.buffer";
     // and avoids opening a second client. The queue is the one the flush ends up
     // enqueueing onto anyway, so it is not a new dependency for this path.
     BullModule.registerQueue({ name: PROFILE_EXTRACTION_QUEUE }),
+    // The abandonment sweep's own queue. Separate from PROFILE_EXTRACTION_QUEUE on purpose:
+    // this one carries a repeatable SCHEDULER, and sharing a queue would mean the sweep's
+    // cadence job and the extraction workload contend for the same worker concurrency.
+    BullModule.registerQueue({ name: CHAT_ABANDONMENT_QUEUE }),
   ],
   controllers: [ChatController],
-  providers: [ChatService, ChatRepository, ChatTranscriptBuffer],
+  providers: [ChatService, ChatRepository, ChatTranscriptBuffer, ChatAbandonmentSweepProcessor],
   // ChatTranscriptBuffer is exported for the EXTRACTION path only: mid-interview the
   // transcript has not been flushed, so `ProfileExtractionProcessor` must be able to
   // read the buffer or the app's "make the profile anyway" escape hatch extracts from

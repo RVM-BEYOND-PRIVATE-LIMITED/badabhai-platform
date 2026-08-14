@@ -43,12 +43,27 @@ export const chatSessions = pgTable(
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
-    // Opaque object key into the private worker-conversations Storage bucket for
-    // the archived full-conversation JSON (transcript + final state snapshot).
-    // Reference only — Postgres stays the queryable spine. Nullable until the
-    // session is archived. Carries opaque UUIDs only, never PII. See ADR-0003 and
-    // `conversationObjectKey` in @badabhai/validators. (The runtime archival write
-    // lives in the chat-persistence wiring; this is the frozen reference contract.)
+    /**
+     * @deprecated DEAD COLUMN — always NULL. Retired 2026-08-14; do not write it.
+     *
+     * It was the reference half of ADR-0003's archival tier: an opaque object key into
+     * a private `worker-conversations` bucket holding each finished interview as JSON.
+     * The column and migration `0002` shipped; the write never did, and the bucket was
+     * never provisioned. **ADR-0003 is now Withdrawn**, so nothing will ever write it.
+     *
+     * WHY IT IS STILL HERE. CLAUDE.md §3/§10 — production columns are not removed. It is
+     * nullable, unread, unindexed, and costs one NULL bitmap bit per row, which is a
+     * smaller price than a `DROP COLUMN` against a live `chat_sessions`.
+     *
+     * WHY THE FEATURE WAS RETIRED RATHER THAN FINISHED. `chat_messages` already holds the
+     * complete verbatim transcript of every finished interview (the Redis buffer flushes
+     * once, transactionally, at completion). A bucket copy would have been a SECOND copy
+     * of the same raw PII behind an object ACL that can drift — which is exactly what risk
+     * R10 was raised about — for no query the relational rows cannot already serve. See
+     * ADR-0003's Withdrawal section and R10 (Closed) in the risks register.
+     *
+     * Reviving archival requires a NEW ADR, not this column.
+     */
     conversationStoragePath: text("conversation_storage_path"),
     // ---- Question-pack pin (migration 0071) --------------------------------
     // WHICH interview this session is running. Nullable: the v1 model-driven chat pins nothing,

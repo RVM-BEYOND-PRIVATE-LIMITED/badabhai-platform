@@ -422,6 +422,32 @@ export const ChatMessageSentPayload = z.object({
   message_type: messageType,
 });
 
+/**
+ * A session the worker stopped answering, closed by the idle sweep rather than by them.
+ *
+ * COUNTS ONLY — no message text, no answer values, no free text of any kind. This is the
+ * audit fact that an interview ended without finishing plus the shape of what was
+ * salvaged; the words themselves live in `chat_messages` and never in an event (§2).
+ *
+ * `transcript_recovered` is the honest half of the record. The in-flight interview lives
+ * in Redis under an idle TTL, so a session found after that TTL lapsed has no transcript
+ * left to write — only the periodic `conversation_state` checkpoint. Without this flag a
+ * reader cannot tell "abandoned with 12 messages preserved" from "abandoned, transcript
+ * already gone", and those are very different data-loss stories.
+ */
+export const ChatSessionAbandonedPayload = z.object({
+  session_id: uuidSchema,
+  worker_id: uuidSchema,
+  /** Whether the Redis buffer was still alive, i.e. whether the transcript was saved. */
+  transcript_recovered: z.boolean(),
+  /** `chat_messages` rows written by the sweep. 0 when the buffer had already expired. */
+  messages_preserved: z.number().int().nonnegative(),
+  /** `worker_pack_answers` rows written by the sweep. */
+  answers_preserved: z.number().int().nonnegative(),
+  /** Whole minutes between the session's last activity and the sweep closing it. */
+  idle_minutes: z.number().int().nonnegative(),
+});
+
 // ---------------------------------------------------------------------------
 // voice_note.*
 // ---------------------------------------------------------------------------
@@ -790,6 +816,16 @@ export const AiCostRecordedPayload = z.object({
   latency_ms: z.number().int().nonnegative().default(0),
   cost_alert: z.boolean().default(false),
   above_target: z.boolean().default(false),
+  // BL-23: additive widen (docs/audit/22_REMEDIATION_BACKLOG.md) — mirrors
+  // AICallMetadataSchema's own success/error_code/failure_reason (packages/
+  // ai-contracts/src/common.ts) so a "spent ₹X successfully" row is distinguishable
+  // from "spent ₹X and the call still failed". PII-free by construction: router.py's
+  // own invariant is that error_code/failure_reason are EITHER a closed-set
+  // LlmTransportError.reason_code OR a bare exception type name — never a raw
+  // exception body, which might echo pseudonymized content.
+  success: z.boolean().default(true),
+  error_code: z.string().nullable().default(null),
+  failure_reason: z.string().nullable().default(null),
 });
 /** The task a cost record can be attributed to — see {@link aiTaskType}. */
 export type AiCostTaskType = z.infer<typeof aiTaskType>;
