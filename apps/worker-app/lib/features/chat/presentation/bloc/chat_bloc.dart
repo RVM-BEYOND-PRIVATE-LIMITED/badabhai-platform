@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../../core/api/api_models.dart'
     show
@@ -442,6 +443,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final String text = event.text.trim();
     if (text.isEmpty) return;
 
+    // #870 — mint the per-submission id ONCE, here, when the worker's action
+    // commits. It rides on the worker bubble (below) so [_onRetryRequested] can
+    // re-send the SAME id: a retried POST is then distinguishable server-side
+    // from a worker genuinely repeating the same words (which is a NEW action and
+    // a new id). Minted per physical submission, never per HTTP attempt.
+    final String submissionId = const Uuid().v4();
+
     // The transcript is append-only, so this index stays valid for marking the
     // worker bubble failed later (#343).
     final int index = state.messages.length;
@@ -458,7 +466,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       emit(state.copyWith(
         messages: <ChatMessage>[
           ...state.messages,
-          ChatMessage(text: text, fromWorker: true),
+          ChatMessage(text: text, fromWorker: true, submissionId: submissionId),
           // The optimistic bada-bhai bubble — REPLACED by the real reply in
           // [_deliver]. It is never persisted to history: it lives only in this
           // in-memory transcript until reconcile.
@@ -487,7 +495,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       emit(state.copyWith(
         messages: <ChatMessage>[
           ...state.messages,
-          ChatMessage(text: text, fromWorker: true),
+          ChatMessage(text: text, fromWorker: true, submissionId: submissionId),
         ],
         sending: true,
         followups: const <String>[],
@@ -502,16 +510,25 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ));
     }
 
-    await _deliver(text, index, emit);
+    await _deliver(text, index, emit, submissionId: submissionId);
   }
 
   /// Sends [text] (already appended at [index]) and records the outcome.
   ///
   /// Shared by a first send and a retry so both surface failure identically.
-  Future<void> _deliver(String text, int index, Emitter<ChatState> emit) async {
+  /// [submissionId] (#870) is forwarded to the repo unchanged; a retry passes the
+  /// ORIGINAL id read off the failed worker bubble, so the re-POST carries the
+  /// same id as the send it retries.
+  Future<void> _deliver(
+    String text,
+    int index,
+    Emitter<ChatState> emit, {
+    String? submissionId,
+  }) async {
     _inFlightSends++;
     try {
-      final ChatTurn turn = await _repo.sendMessage(text);
+      final ChatTurn turn =
+          await _repo.sendMessage(text, submissionId: submissionId);
       _inFlightSends--;
       // #761 — RECONCILE the optimistic lookahead render. The real reply is
       // ALWAYS authoritative: when an optimistic predicted bubble is on screen
@@ -662,7 +679,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       inputMode: ChatInputMode.text, // #770 — bring the composer back on retry
     ));
 
-    await _deliver(message.text, index, emit);
+    // #870 — re-send the ORIGINAL id minted for this bubble on the first send, so
+    // the server sees a retry (same submission) rather than a fresh answer. The
+    // text is already re-sent byte-identically; the id now rides with it.
+    await _deliver(
+      message.text,
+      index,
+      emit,
+      submissionId: message.submissionId,
+    );
   }
 
   /// Appends the already-server-merged voice transcript + reply. Local only —

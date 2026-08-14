@@ -16,7 +16,12 @@ abstract interface class ChatRepository {
 
   /// Sends [text] and returns bada bhai's reply plus any tap-to-answer
   /// [ChatTurn.followups].
-  Future<ChatTurn> sendMessage(String text);
+  ///
+  /// [submissionId] is the per-submission id (#870), forwarded to the wire body
+  /// when non-null. Minted once per physical send and re-sent verbatim on a
+  /// retry, so the server can tell a retried POST from a worker repeating the
+  /// same words. Null on the voice-merge path, which does not carry one.
+  Future<ChatTurn> sendMessage(String text, {String? submissionId});
 
   /// The persisted transcript for the CURRENT session, oldest-first, as
   /// redrawable bubbles (#502 transcript hydration). Empty when there is no open

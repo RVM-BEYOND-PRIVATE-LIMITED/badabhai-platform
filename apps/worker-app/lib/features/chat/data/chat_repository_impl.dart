@@ -60,7 +60,7 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
-  Future<ChatTurn> sendMessage(String text) async {
+  Future<ChatTurn> sendMessage(String text, {String? submissionId}) async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
 
@@ -81,6 +81,9 @@ class ChatRepositoryImpl implements ChatRepository {
         sessionId: sessionId,
         authToken: token,
         text: text,
+        // #870 — rides the /chat/message body only when non-null; the api client
+        // adds the key conditionally, so a null (the voice-merge path) is absent.
+        submissionId: submissionId,
       );
       // Carry the backend's tap-to-answer suggestions through to the UI. A
       // blocked reply (pseudonymize fail-closed) arrives with an empty list.

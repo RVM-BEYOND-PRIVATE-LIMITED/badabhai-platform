@@ -136,8 +136,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(speech.stopCalls, 1);
-    // Nothing was sent — the recognised text only reached the composer.
-    verifyNever(() => chat.sendMessage(any()));
+    // Nothing was sent — the recognised text only reached the composer. The
+    // bloc always submits WITH a #870 submission id, so match that shape.
+    verifyNever(() => chat.sendMessage(any(),
+        submissionId: any(named: 'submissionId')));
     expect(waveOpacity(tester), 0);
   });
 

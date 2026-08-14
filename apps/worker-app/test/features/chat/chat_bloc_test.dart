@@ -23,6 +23,28 @@ class MockChatRepository extends Mock implements ChatRepository {}
 // constant so a copy change can never silently desync the tests from the app.
 const ChatMessage _opening = kChatOpeningMessage;
 
+/// A #870-tolerant [ChatState] matcher: asserts the transcript SHAPE
+/// (text/fromWorker/status) plus [sending] and [followups], ignoring the random
+/// per-submission id now minted onto a worker bubble — which a `const` expected
+/// state cannot pin. Used only by the two exact-sequence blocTests below; every
+/// other test either seeds its own bubbles or asserts the id directly.
+Matcher _stateLike(
+  List<(String, bool, ChatSendStatus)> transcript, {
+  bool sending = false,
+  List<String> followups = const <String>[],
+}) {
+  return isA<ChatState>()
+      .having(
+        (ChatState s) => s.messages
+            .map((ChatMessage m) => (m.text, m.fromWorker, m.status))
+            .toList(),
+        'transcript',
+        transcript,
+      )
+      .having((ChatState s) => s.sending, 'sending', sending)
+      .having((ChatState s) => s.followups, 'followups', followups);
+}
+
 void main() {
   late MockChatRepository repo;
   setUp(() {
@@ -129,7 +151,7 @@ void main() {
     'ChatMessageSent appends the worker message, shows typing, then the reply + chips',
     build: () {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
-      when(() => repo.sendMessage(any())).thenAnswer((_) async =>
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer((_) async =>
           const ChatTurn(reply: 'Got it.', followups: <String>['Haan', 'Nahi']));
       return ChatBloc(repo);
     },
@@ -137,27 +159,23 @@ void main() {
       b.add(const ChatStarted());
       b.add(const ChatMessageSent('cnc'));
     },
-    expect: () => const <ChatState>[
-      ChatState(messages: <ChatMessage>[_opening], initializing: false),
+    // #870-tolerant: the worker bubble now carries a random submission id, so the
+    // sequence is asserted by SHAPE (see [_stateLike]).
+    expect: () => <Matcher>[
+      _stateLike(<(String, bool, ChatSendStatus)>[
+        (_opening.text, false, ChatSendStatus.sent),
+      ]),
       // Worker bubble appended + typing indicator on.
-      ChatState(
-        messages: <ChatMessage>[
-          _opening,
-          ChatMessage(text: 'cnc', fromWorker: true),
-        ],
-        initializing: false,
-        sending: true,
-      ),
+      _stateLike(<(String, bool, ChatSendStatus)>[
+        (_opening.text, false, ChatSendStatus.sent),
+        ('cnc', true, ChatSendStatus.sent),
+      ], sending: true),
       // Reply appended, typing off, followup chips carried through.
-      ChatState(
-        messages: <ChatMessage>[
-          _opening,
-          ChatMessage(text: 'cnc', fromWorker: true),
-          ChatMessage(text: 'Got it.', fromWorker: false),
-        ],
-        initializing: false,
-        followups: <String>['Haan', 'Nahi'],
-      ),
+      _stateLike(<(String, bool, ChatSendStatus)>[
+        (_opening.text, false, ChatSendStatus.sent),
+        ('cnc', true, ChatSendStatus.sent),
+        ('Got it.', false, ChatSendStatus.sent),
+      ], followups: <String>['Haan', 'Nahi']),
     ],
   );
 
@@ -183,7 +201,7 @@ void main() {
     ],
     // The voice pipeline already sent the transcript server-side — a resend
     // here would double the message.
-    verify: (_) => verifyNever(() => repo.sendMessage(any())),
+    verify: (_) => verifyNever(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))),
   );
 
   // #343 — this test used to assert the SILENT DROP as intended behaviour
@@ -194,34 +212,24 @@ void main() {
     'a send failure MARKS the worker message failed (never a silent drop)',
     build: () {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
-      when(() => repo.sendMessage(any())).thenThrow(const NetworkFailure());
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenThrow(const NetworkFailure());
       return ChatBloc(repo);
     },
     seed: () =>
         const ChatState(messages: <ChatMessage>[_opening], initializing: false),
     act: (ChatBloc b) => b.add(const ChatMessageSent('cnc')),
-    expect: () => const <ChatState>[
+    // #870-tolerant: assert the transcript by SHAPE (see [_stateLike]).
+    expect: () => <Matcher>[
       // Typing on while the send is in flight.
-      ChatState(
-        messages: <ChatMessage>[
-          _opening,
-          ChatMessage(text: 'cnc', fromWorker: true),
-        ],
-        initializing: false,
-        sending: true,
-      ),
+      _stateLike(<(String, bool, ChatSendStatus)>[
+        (_opening.text, false, ChatSendStatus.sent),
+        ('cnc', true, ChatSendStatus.sent),
+      ], sending: true),
       // Failure: the message is kept BUT flagged undelivered + retryable.
-      ChatState(
-        messages: <ChatMessage>[
-          _opening,
-          ChatMessage(
-            text: 'cnc',
-            fromWorker: true,
-            status: ChatSendStatus.failed,
-          ),
-        ],
-        initializing: false,
-      ),
+      _stateLike(<(String, bool, ChatSendStatus)>[
+        (_opening.text, false, ChatSendStatus.sent),
+        ('cnc', true, ChatSendStatus.failed),
+      ]),
     ],
   );
 
@@ -230,7 +238,7 @@ void main() {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
       // Fail once, then succeed.
       int calls = 0;
-      when(() => repo.sendMessage('cnc')).thenAnswer((_) async {
+      when(() => repo.sendMessage('cnc', submissionId: any(named: 'submissionId'))).thenAnswer((_) async {
         calls++;
         if (calls == 1) throw const NetworkFailure();
         return const ChatTurn(reply: 'Got it.');
@@ -259,7 +267,7 @@ void main() {
 
     test('a still-failing retry re-marks the bubble failed', () async {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
-      when(() => repo.sendMessage(any())).thenThrow(const NetworkFailure());
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenThrow(const NetworkFailure());
 
       final ChatBloc bloc = ChatBloc(repo);
       addTearDown(bloc.close);
@@ -276,7 +284,7 @@ void main() {
     test('a successful send clears the failed-session banner', () async {
       // Session open fails, but the next send heals it (repo-level self-heal).
       when(() => repo.ensureSession()).thenThrow(const NetworkFailure());
-      when(() => repo.sendMessage('cnc'))
+      when(() => repo.sendMessage('cnc', submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => const ChatTurn(reply: 'Got it.'));
 
       final ChatBloc bloc = ChatBloc(repo);
@@ -304,7 +312,7 @@ void main() {
       bloc.add(const ChatRetryRequested(99));
       await Future<void>.delayed(const Duration(milliseconds: 30));
 
-      verifyNever(() => repo.sendMessage(any()));
+      verifyNever(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')));
     });
   });
 
@@ -316,11 +324,11 @@ void main() {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
       // A is slow, B is fast → B's bubble+reply land while A is still in flight,
       // so A's reply emit is the one that used to clobber them.
-      when(() => repo.sendMessage('A')).thenAnswer((_) async {
+      when(() => repo.sendMessage('A', submissionId: any(named: 'submissionId'))).thenAnswer((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 100));
         return const ChatTurn(reply: 'replyA');
       });
-      when(() => repo.sendMessage('B')).thenAnswer((_) async {
+      when(() => repo.sendMessage('B', submissionId: any(named: 'submissionId'))).thenAnswer((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 10));
         return const ChatTurn(reply: 'replyB');
       });
@@ -345,11 +353,11 @@ void main() {
 
     test('the typing indicator stays up until the LAST reply lands', () async {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
-      when(() => repo.sendMessage('A')).thenAnswer((_) async {
+      when(() => repo.sendMessage('A', submissionId: any(named: 'submissionId'))).thenAnswer((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 150));
         return const ChatTurn(reply: 'replyA');
       });
-      when(() => repo.sendMessage('B')).thenAnswer((_) async {
+      when(() => repo.sendMessage('B', submissionId: any(named: 'submissionId'))).thenAnswer((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 10));
         return const ChatTurn(reply: 'replyB');
       });
@@ -373,7 +381,7 @@ void main() {
     test('a voice merge mid-send keeps both the send and the voice bubbles',
         () async {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
-      when(() => repo.sendMessage('typed')).thenAnswer((_) async {
+      when(() => repo.sendMessage('typed', submissionId: any(named: 'submissionId'))).thenAnswer((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 100));
         return const ChatTurn(reply: 'typedReply');
       });
@@ -408,14 +416,14 @@ void main() {
     final ChatBloc bloc = ChatBloc(repo);
     addTearDown(bloc.close);
 
-    when(() => repo.sendMessage('a')).thenAnswer((_) async => const ChatTurn(
+    when(() => repo.sendMessage('a', submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
         reply: 'r1', unansweredEssentials: <String>['machines', 'experience']));
     bloc.add(const ChatMessageSent('a'));
     await Future<void>.delayed(const Duration(milliseconds: 30));
     expect(bloc.state.unansweredEssentials, <String>['machines', 'experience']);
     expect(bloc.state.lastReplyBlocked, isFalse);
 
-    when(() => repo.sendMessage('b')).thenAnswer((_) async => const ChatTurn(
+    when(() => repo.sendMessage('b', submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
         reply: 'r2', blocked: true, unansweredEssentials: <String>[]));
     bloc.add(const ChatMessageSent('b'));
     await Future<void>.delayed(const Duration(milliseconds: 30));
@@ -430,7 +438,7 @@ void main() {
     test('a turn carries progress, question_kind and occupation to state',
         () async {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
-      when(() => repo.sendMessage(any())).thenAnswer((_) async => const ChatTurn(
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
             reply: 'Aap darzi hain?',
             followups: <String>['darzi', 'Kuch aur'],
             progress: ChatProgress(answered: 3, total: 12),
@@ -463,7 +471,7 @@ void main() {
         const ChatTurn(reply: 'q2'),
       ];
       int i = 0;
-      when(() => repo.sendMessage(any())).thenAnswer((_) async => turns[i++]);
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer((_) async => turns[i++]);
       final ChatBloc bloc = ChatBloc(repo);
       addTearDown(bloc.close);
 
@@ -493,7 +501,7 @@ void main() {
         const ChatTurn(reply: 'Theek hai'),
       ];
       int i = 0;
-      when(() => repo.sendMessage(any())).thenAnswer((_) async => turns[i++]);
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer((_) async => turns[i++]);
       final ChatBloc bloc = ChatBloc(repo);
       addTearDown(bloc.close);
 
@@ -524,13 +532,13 @@ void main() {
     /// [pending] so the optimistic render can be observed pre-reply.
     Future<ChatBloc> primeAndTapFanuc(Completer<ChatTurn> pending) async {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
-      when(() => repo.sendMessage('cnc')).thenAnswer((_) async => const ChatTurn(
+      when(() => repo.sendMessage('cnc', submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
             reply: 'Kaunsa control?',
             followups: <String>['Fanuc', 'Siemens'],
             askedQuestionId: 'controller',
             lookahead: <String, PredictedQuestion?>{'Fanuc': predSkills},
           ));
-      when(() => repo.sendMessage('Fanuc')).thenAnswer((_) => pending.future);
+      when(() => repo.sendMessage('Fanuc', submissionId: any(named: 'submissionId'))).thenAnswer((_) => pending.future);
 
       final ChatBloc bloc = ChatBloc(repo);
       bloc.add(const ChatMessageSent('cnc'));
@@ -632,7 +640,7 @@ void main() {
         () async {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
       final Completer<ChatTurn> pending = Completer<ChatTurn>();
-      when(() => repo.sendMessage('cnc')).thenAnswer((_) => pending.future);
+      when(() => repo.sendMessage('cnc', submissionId: any(named: 'submissionId'))).thenAnswer((_) => pending.future);
       final ChatBloc bloc = ChatBloc(repo);
       addTearDown(bloc.close);
 
@@ -659,20 +667,20 @@ void main() {
 
       // The wire send is the tapped LABEL, verbatim and once — the predicted
       // prompt is a render-only artefact and reaches no endpoint.
-      verify(() => repo.sendMessage('Fanuc')).called(1);
-      verifyNever(() => repo.sendMessage(predSkills.promptText));
+      verify(() => repo.sendMessage('Fanuc', submissionId: any(named: 'submissionId'))).called(1);
+      verifyNever(() => repo.sendMessage(predSkills.promptText, submissionId: any(named: 'submissionId')));
     });
 
     test('a failed send RETRACTS the optimistic bubble and marks the answer failed',
         () async {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
-      when(() => repo.sendMessage('cnc')).thenAnswer((_) async => const ChatTurn(
+      when(() => repo.sendMessage('cnc', submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
             reply: 'Kaunsa control?',
             followups: <String>['Fanuc', 'Siemens'],
             askedQuestionId: 'controller',
             lookahead: <String, PredictedQuestion?>{'Fanuc': predSkills},
           ));
-      when(() => repo.sendMessage('Fanuc')).thenThrow(const NetworkFailure());
+      when(() => repo.sendMessage('Fanuc', submissionId: any(named: 'submissionId'))).thenThrow(const NetworkFailure());
 
       final ChatBloc bloc = ChatBloc(repo);
       addTearDown(bloc.close);
@@ -701,7 +709,7 @@ void main() {
         'and STILL submits the label', () async {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
       // Turn 1 leaves a lookahead keyed by the STABLE option_key, not the label.
-      when(() => repo.sendMessage('kaam')).thenAnswer((_) async => const ChatTurn(
+      when(() => repo.sendMessage('kaam', submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
             reply: 'Kaunsa kaam?',
             followups: <String>['Salad bar attendant', 'Kuch aur'],
             suggestedOptions: <ChatOption>[
@@ -714,7 +722,7 @@ void main() {
             lookahead: <String, PredictedQuestion?>{'role_salad_bar': predSkills},
           ));
       final Completer<ChatTurn> pending = Completer<ChatTurn>();
-      when(() => repo.sendMessage('Salad bar attendant'))
+      when(() => repo.sendMessage('Salad bar attendant', submissionId: any(named: 'submissionId')))
           .thenAnswer((_) => pending.future);
 
       final ChatBloc bloc = ChatBloc(repo);
@@ -736,15 +744,15 @@ void main() {
           reason: 'the predicted next question is on screen before the reply');
       expect(bloc.state.predictedQuestionKey, 'skills');
       // And the wire submit is the LABEL, byte-identical — never the option_key.
-      verify(() => repo.sendMessage('Salad bar attendant')).called(1);
-      verifyNever(() => repo.sendMessage('role_salad_bar'));
+      verify(() => repo.sendMessage('Salad bar attendant', submissionId: any(named: 'submissionId'))).called(1);
+      verifyNever(() => repo.sendMessage('role_salad_bar', submissionId: any(named: 'submissionId')));
     });
 
     // The none-of-above option must map to the '__declined' lookahead key even
     // though its label_text is an ordinary phrase.
     test('an is_none_of_above option indexes the __declined prediction', () async {
       when(() => repo.ensureSession()).thenAnswer((_) async => null);
-      when(() => repo.sendMessage('kaam')).thenAnswer((_) async => const ChatTurn(
+      when(() => repo.sendMessage('kaam', submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
             reply: 'Kaunsa kaam?',
             followups: <String>['Kuch aur'],
             suggestedOptions: <ChatOption>[
@@ -757,7 +765,7 @@ void main() {
             lookahead: <String, PredictedQuestion?>{'__declined': predSkills},
           ));
       final Completer<ChatTurn> pending = Completer<ChatTurn>();
-      when(() => repo.sendMessage('Kuch aur')).thenAnswer((_) => pending.future);
+      when(() => repo.sendMessage('Kuch aur', submissionId: any(named: 'submissionId'))).thenAnswer((_) => pending.future);
 
       final ChatBloc bloc = ChatBloc(repo);
       addTearDown(bloc.close);
@@ -770,7 +778,91 @@ void main() {
 
       expect(bloc.state.messages.last.text, predSkills.promptText,
           reason: 'the __declined prediction rendered optimistically');
-      verify(() => repo.sendMessage('Kuch aur')).called(1);
+      verify(() => repo.sendMessage('Kuch aur', submissionId: any(named: 'submissionId'))).called(1);
+    });
+  });
+
+  // #870 — the per-submission id. Minted per PHYSICAL send (rides the worker
+  // bubble), re-sent verbatim on a retry, fresh on a new action — so the server
+  // can tell a retried POST from a worker repeating the same words.
+  group('per-submission id (#870)', () {
+    test('a normal send mints a non-null submissionId on the worker bubble AND '
+        'the repo receives that same id', () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.sendMessage('cnc',
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(reply: 'ok'));
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      // The worker bubble (index 1; index 0 is the opener) carries the id.
+      final ChatMessage worker = bloc.state.messages[1];
+      expect(worker.fromWorker, isTrue);
+      expect(worker.submissionId, isNotNull);
+
+      // And the SAME id reached the repo on the wire.
+      final List<dynamic> sent = verify(() => repo.sendMessage(
+          'cnc', submissionId: captureAny(named: 'submissionId'))).captured;
+      expect(sent, hasLength(1));
+      expect(sent.single, worker.submissionId,
+          reason: 'the bubble id is exactly what was submitted');
+    });
+
+    test('a NEW message gets a DIFFERENT id', () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(reply: 'ok'));
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('first'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      bloc.add(const ChatMessageSent('second'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      final List<dynamic> ids = verify(() => repo.sendMessage(
+          any(), submissionId: captureAny(named: 'submissionId'))).captured;
+      expect(ids, hasLength(2));
+      expect(ids[0], isNotNull);
+      expect(ids[1], isNotNull);
+      expect(ids[0], isNot(ids[1]),
+          reason: 'a fresh action is a new submission, not a retry');
+    });
+
+    test('a RETRY re-sends the SAME id the original send used', () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      // Fail once (so the bubble becomes retryable), then succeed on the retry.
+      int calls = 0;
+      when(() => repo.sendMessage('cnc',
+          submissionId: any(named: 'submissionId'))).thenAnswer((_) async {
+        calls++;
+        if (calls == 1) throw const NetworkFailure();
+        return const ChatTurn(reply: 'ok');
+      });
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(bloc.state.messages[1].status, ChatSendStatus.failed);
+
+      bloc.add(const ChatRetryRequested(1));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(bloc.state.messages[1].status, ChatSendStatus.sent);
+
+      final List<dynamic> ids = verify(() => repo.sendMessage(
+          'cnc', submissionId: captureAny(named: 'submissionId'))).captured;
+      expect(ids, hasLength(2), reason: 'the original send + the retry');
+      expect(ids[0], isNotNull);
+      expect(ids[1], ids[0],
+          reason: 'a retry re-sends the ORIGINAL id, never a fresh one');
     });
   });
 }

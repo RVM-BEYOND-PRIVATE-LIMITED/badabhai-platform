@@ -97,6 +97,82 @@ void main() {
         <String, dynamic>{'kind': 'chips', 'option_keys': ['mild_steel', 'stainless']});
   });
 
+  test('submit adds a non-null #870 submission_id, leaving the body otherwise '
+      'byte-identical', () async {
+    late Map<String, dynamic> answerBody;
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      client: MockClient((http.Request req) async {
+        if (req.url.path == '/profiling/session') {
+          return http.Response(
+              jsonEncode(<String, dynamic>{'session_id': 's1', 'step': _questionStep()}),
+              201);
+        }
+        answerBody = jsonDecode(req.body) as Map<String, dynamic>;
+        return http.Response(
+            jsonEncode(<String, dynamic>{'step': <String, dynamic>{'kind': 'done'}}),
+            201);
+      }),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+    await gw.start();
+
+    await gw.submit(const VoiceAnswer.text('main welder hoon'),
+        questionKey: 'q_material');
+
+    final Object? id = answerBody['submission_id'];
+    expect(id, isA<String>());
+    expect(id as String, isNotEmpty);
+    // The existing keys are UNCHANGED — the id is strictly additive.
+    expect(answerBody['session_id'], 's1');
+    expect(answerBody['question_key'], 'q_material');
+    expect(answerBody['answer'],
+        <String, dynamic>{'kind': 'text', 'text': 'main welder hoon'});
+  });
+
+  test('the 401-renewal retry re-POSTs the SAME submission_id — a transport '
+      'retry is ONE physical answer, not two (#870)', () async {
+    // The only path that re-POSTs the same answer body (the 409 arm re-attaches
+    // with a GET, never a re-POST). The body is built once, so the renewed retry
+    // must carry the id the first attempt did.
+    final List<String?> submissionIds = <String?>[];
+    String liveToken = 'stale-token';
+    final ApiClient api = ApiClient(
+      baseUrl: 'http://test',
+      onUnauthorized: () async {
+        liveToken = 'fresh-token';
+        return true;
+      },
+      currentAuthToken: () => liveToken,
+      client: MockClient((http.Request req) async {
+        if (req.url.path == '/profiling/session') {
+          return http.Response(
+              jsonEncode(<String, dynamic>{'session_id': 's1', 'step': _questionStep()}),
+              201);
+        }
+        // /profiling/answer — capture the id on the 401'd attempt AND the retry.
+        submissionIds.add((jsonDecode(req.body) as Map<String, dynamic>)['submission_id']
+            as String?);
+        if (req.headers['authorization'] == 'Bearer fresh-token') {
+          return http.Response(
+              jsonEncode(<String, dynamic>{'step': <String, dynamic>{'kind': 'done'}}),
+              201);
+        }
+        return http.Response('{}', 401);
+      }),
+    );
+    final HttpVoiceFormGateway gw = HttpVoiceFormGateway(api, _session());
+    await gw.start();
+
+    await gw.submit(const VoiceAnswer.text('main welder hoon'),
+        questionKey: 'q_material');
+
+    expect(submissionIds, hasLength(2), reason: 'the 401 then the renewed retry');
+    expect(submissionIds[0], isNotNull);
+    expect(submissionIds[1], submissionIds[0],
+        reason: 'the body is built once — the retry carries the SAME id');
+  });
+
   test('a 409 on submit re-attaches as ReattachedTo(current step), never retries '
       'the same body (#699/#727)', () async {
     final List<String> hits = <String>[];
