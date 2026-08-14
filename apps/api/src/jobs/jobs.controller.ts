@@ -1,11 +1,14 @@
-import { Controller, Get, Param, ParseUUIDPipe, UseGuards } from "@nestjs/common";
+import { Controller, Get, Param, ParseUUIDPipe, Query, UseGuards } from "@nestjs/common";
 import {
   WorkerAuthGuard,
   CurrentWorker,
   type AuthenticatedWorker,
 } from "../auth/worker-auth.guard";
 import { ConsentGuard } from "../auth/consent.guard";
+import { Ctx, type RequestContext } from "../common/request-context";
+import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { JobsService } from "./jobs.service";
+import { JobSearchQuerySchema, type JobSearchQueryDto } from "./jobs.dto";
 
 /**
  * Worker-scoped job detail HTTP surface (ADR-0024 final addendum, 2026-07-16 —
@@ -27,6 +30,29 @@ import { JobsService } from "./jobs.service";
 @Controller()
 export class JobsController {
   constructor(private readonly jobs: JobsService) {}
+
+  /**
+   * #822 — worker-facing job search: free text + city/state, paged, deterministic.
+   *
+   * ⚠ DECLARED BEFORE `jobs/:jobId`, and it must stay that way. Nest matches routes in
+   * declaration order, so with the parameterised route first the literal `search` would be
+   * bound as `:jobId` and rejected by its `ParseUUIDPipe` with a 400 — the endpoint would be
+   * unreachable and the failure would look like a validation bug, not a routing one. The same
+   * ordering rule `ApplicationsController` documents for `workers/me/applications`.
+   *
+   * Worker identity comes from the bearer via `@CurrentWorker`, never a query param: the
+   * already-applied/skipped exclusion is per-worker, so an id in the query string would let a
+   * caller shape someone else's result set.
+   */
+  @Get("jobs/search")
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  search(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Query(new ZodValidationPipe(JobSearchQuerySchema)) query: JobSearchQueryDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.jobs.searchJobs(worker.id, query, ctx);
+  }
 
   /**
    * Worker-visible job detail: the explicit PII-free projection of ONE open job.

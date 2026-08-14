@@ -160,6 +160,29 @@ export interface LastTurn {
    * said about the dropped chips too, and this cache promises the response it claims to repeat.
    */
   readonly inputMode: InputMode;
+  /**
+   * How many times THIS stamped reply has already been served as a replay. 0 on a fresh stamp.
+   *
+   * THE BUG THIS CLOSES. `inboundHash` is `(sessionId, rev, text)`, and `rev` advances in lock
+   * step with the turn count regardless of what the text says — so it does NOT distinguish "a
+   * network retry of the message that just landed" from "the worker's next, genuinely different
+   * turn happens to use the same words". A worker who answers two consecutive questions with the
+   * same short phrase ("haan", "theek hai", "pata nahi" — exactly the vocabulary a low-literacy
+   * conversational UI lives on) produces a SECOND inbound whose `(sessionId, rev, text)` is
+   * byte-identical to the first's stamp, because nothing else advanced `rev` in between. Unbounded,
+   * every further identical submission matches the same stamp again — since a replay itself writes
+   * nothing, the stamp NEVER goes stale, and the interview is stuck re-serving the question that
+   * was on screen for `REPLY_CACHE_WINDOW_MS` measured from that ONE original turn, however many
+   * genuinely new turns arrive inside it. Measured: an interview asked a `max_asks: 1` question,
+   * got a generic affirmative back, and never moved again for the rest of a 30-turn bound.
+   *
+   * `MAX_REPLAYS_PER_TURN` bounds it: once THIS stamp has already been replayed that many times,
+   * the next identical submission is no longer treated as a retry — it runs the turn for real
+   * instead of matching the same cache entry again. A genuine flaky-link retry still gets the
+   * byte-identical response for free; a worker's actual next answer, however plainly it echoes
+   * their last one, is never trapped behind it for longer than that.
+   */
+  readonly replays: number;
 }
 
 /**
@@ -190,6 +213,17 @@ export function inboundHash(sessionId: string, rev: number, text: string): strin
  * them.
  */
 export const REPLY_CACHE_WINDOW_MS = 10_000;
+
+/**
+ * How many times ONE stamped reply may be served as a replay before a further identical
+ * submission is treated as a real, new turn instead. See {@link LastTurn.replays}.
+ *
+ * ONE — matching the window above: this cache is sized for a single flaky-link retry, not a
+ * retry storm, so one absorbed duplicate is the whole of the intended protection. A worker whose
+ * actual next answer echoes their last one pays for at most ONE extra round trip before the
+ * interview advances, instead of being stuck for the whole ten-second window.
+ */
+export const MAX_REPLAYS_PER_TURN = 1;
 
 /**
  * One chip in an outstanding disambiguation offer, WITH the id it resolves to.
@@ -562,6 +596,12 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     // ABSENT NARROWS TO `text`, the same "degrade to today's behaviour" rule `kind` follows: an
     // entry written before this field existed described a turn on which typing was allowed.
     inputMode: v.inputMode === "options_only" ? "options_only" : "text",
+    // ABSENT NARROWS TO 0, matching a stamp written before this field existed: nothing has replayed
+    // it yet as far as this record can say, so it gets the same one-through-`MAX_REPLAYS_PER_TURN`
+    // budget a freshly-stamped turn would. Clamped rather than trusted verbatim for the same reason
+    // `askCount` clamps at 0 — a negative or non-finite value read back from Redis must not buy a
+    // replay budget the field's own type says cannot exist.
+    replays: Number.isInteger(v.replays) && (v.replays as number) >= 0 ? (v.replays as number) : 0,
   };
 }
 

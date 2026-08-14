@@ -1,5 +1,8 @@
 import "server-only";
 import { cookies } from "next/headers";
+// Frontend-SAFE subpath: `@badabhai/config/shared` carries only the env helpers (zod-only, no
+// secrets) — NEVER the secret-bearing root (`@badabhai/config`), per the server/public split.
+import { shouldUseSecureCookie } from "@badabhai/config/shared";
 
 /**
  * Admin-session cookie helpers (server-only).
@@ -18,29 +21,6 @@ import { cookies } from "next/headers";
  */
 
 export const ADMIN_TOKEN_COOKIE_NAME = "bb_admin_token";
-
-/**
- * Should the session cookie be `Secure` (HTTPS-only)? True in production AND on any
- * https/staging deployment. Local http dev stays non-secure so the cookie works at all.
- *
- * The API URL is deliberately NOT a signal: it is a different host and could be https
- * while the portal itself is served over local http — a false positive that would silently
- * drop the cookie and make login appear broken.
- */
-function shouldUseSecureCookie(): boolean {
-  if (process.env.NODE_ENV === "production") return true;
-
-  const env = (process.env.NEXT_PUBLIC_ENVIRONMENT ?? "").trim().toLowerCase();
-  if (env === "staging" || env === "production") return true;
-
-  const siteUrls = [
-    process.env.NEXT_PUBLIC_SITE_URL,
-    process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`,
-  ];
-  return siteUrls.some(
-    (u) => typeof u === "string" && u.trim().toLowerCase().startsWith("https://"),
-  );
-}
 
 /** Cookie options for the admin session. httpOnly + SameSite=strict (see above). */
 export function adminCookieOptions(maxAgeSeconds: number) {

@@ -93,6 +93,9 @@ const FULL: ProfilingEnvelope = {
     // NON-DEFAULT for the same reason as everything else here: `text` is what a `narrow` that
     // dropped the field would rebuild.
     inputMode: "options_only",
+    // NON-DEFAULT for the same reason as everything else here: 0 is what a `narrow` that dropped
+    // the field would default to (see `MAX_REPLAYS_PER_TURN`'s narrowing).
+    replays: 1,
   },
   // Every bucket distinct and non-zero, for the same reason as every other field here: a
   // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.
@@ -105,7 +108,12 @@ const FULL: ProfilingEnvelope = {
     role_label: "tandoor cook",
     skills: ["naan", "roti"],
     experiences: [
-      { role_label: "tandoor cook", duration_text: "3 saal", duration_months: 36, work_done: "naan" },
+      {
+        role_label: "tandoor cook",
+        duration_text: "3 saal",
+        duration_months: 36,
+        work_done: "naan",
+      },
     ],
   },
   llmAsks: 5,

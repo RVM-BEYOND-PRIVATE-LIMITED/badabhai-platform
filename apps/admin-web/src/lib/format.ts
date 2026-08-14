@@ -5,6 +5,7 @@
  * timestamp an operator can correlate with a log, an id they can copy, and — most
  * importantly — a suppressed statistic that reads as suppressed rather than as zero.
  */
+import { formatInr } from "@badabhai/pricing";
 
 /** Absolute UTC, second precision. Operators correlate these with server logs. */
 export function formatTimestamp(iso: string): string {
@@ -111,9 +112,12 @@ export function formatPayBand(min: number | null, max: number | null): string {
 /**
  * Whole rupees, Indian digit grouping. Never paise — the columns are integer ₹, and
  * decimals would imply a precision the data does not have.
+ *
+ * Delegates to `@badabhai/pricing`'s `formatInr` (BL-10) — the same formatter payer-web
+ * and apps/web use, so the same catalog renders identically across all three apps.
  */
 export function formatRupees(n: number): string {
-  return `₹${formatCount(n)}`;
+  return formatInr(n);
 }
 
 /**

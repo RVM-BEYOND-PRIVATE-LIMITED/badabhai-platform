@@ -413,6 +413,18 @@ jobs:
       # it grants nothing beyond this ephemeral job's own database.
       TEST_LOGIN_ENABLED: "true"
       TEST_LOGIN_TOKEN: e2e-test-login-token-not-a-secret-32ch
+      # BL-18: re-arming to VERIFY (not assume) whether TD129's blocker still holds. This
+      # comment block's own claim above ("the API cannot read the locked workers/events
+      # tables in this job") directly contradicts live evidence from TODAY's CI: a
+      # DIFFERENT e2e suite (referral-round-trip.e2e.test.ts, not gated behind this flag)
+      # runs the IDENTICAL POST /auth/test-login -> POST /consent/accept sequence -- same
+      # job, same DATABASE_URL role, same ConsentService.accept -> WorkersRepository.findById
+      # code path TD129's cited failure (run 30699229574) named -- and passes clean, zero
+      # permission errors. Either the underlying issue was fixed by an unrelated change
+      # since 2026-08-01, or it wasn't and this run will show it. Revert this one line if
+      # contact-unlock.e2e.test.ts fails here; the diagnosis in the suite's own gating
+      # comment (tests/e2e/contact-unlock.e2e.test.ts) still stands as the fallback account.
+      E2E_UNLOCK_SUITE: "1"
       # Set EXPLICITLY rather than inherited. The default is 200/day and it is a GLOBAL,
       # IP-INDEPENDENT counter — unlike OTP_MAX_SENDS_PER_HOUR above, raising the per-IP
       # cap does not cover it. A fresh Redis per job makes 200 probably sufficient today,

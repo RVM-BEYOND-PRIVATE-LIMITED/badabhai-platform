@@ -1,3 +1,4 @@
+import { formatInr } from "@badabhai/pricing";
 import { getPricingCatalog, type ActiveCatalog } from "@/lib/api";
 import {
   toProductTierRows,
@@ -98,7 +99,7 @@ export default async function PricingPage() {
                 <td className="mono">{r.productCode}</td>
                 <td>{r.kindLabel}</td>
                 <td className="mono">{r.tierCode}</td>
-                <td>{r.priceInr}</td>
+                <td className="mono">{formatInr(r.priceInr)}</td>
                 <td>{cell(r.validityDays, "d")}</td>
                 <td>{cell(r.applicantVisibilityQuota)}</td>
                 <td>{cell(r.boostDays, "d")}</td>
@@ -133,7 +134,7 @@ export default async function PricingPage() {
                   {o.scope.productCode}
                   {o.scope.tierCode ? ` / ${o.scope.tierCode}` : ""}
                 </td>
-                <td>{o.kind === "percent" ? `${o.value}%` : `₹${o.value}`}</td>
+                <td>{o.kind === "percent" ? `${o.value}%` : formatInr(o.value)}</td>
                 <td>{fmt(o.from)}</td>
                 <td>{fmt(o.until)}</td>
               </tr>
@@ -168,7 +169,7 @@ export default async function PricingPage() {
                   {c.scope.productCode}
                   {c.scope.tierCode ? ` / ${c.scope.tierCode}` : ""}
                 </td>
-                <td>{c.kind === "percent" ? `${c.value}%` : `₹${c.value}`}</td>
+                <td>{c.kind === "percent" ? `${c.value}%` : formatInr(c.value)}</td>
                 <td>{fmt(c.from)}</td>
                 <td>{fmt(c.until)}</td>
                 <td>{c.totalUsageCap}</td>

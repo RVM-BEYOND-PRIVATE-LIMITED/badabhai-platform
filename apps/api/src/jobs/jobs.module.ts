@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
+import { EventsModule } from "../events/events.module";
 import { JobsController } from "./jobs.controller";
 import { JobsService } from "./jobs.service";
 import { JobsRepository } from "./jobs.repository";
@@ -16,11 +17,15 @@ import { JobsRepository } from "./jobs.repository";
  * (SessionService, ConsentRepository) so Nest can resolve each guard's ctor deps
  * in THIS module's injector when @UseGuards applies them (mirrors
  * ApplicationsModule). The Drizzle DATABASE (DatabaseModule) is @Global, so it
- * needs no import here. NO EventsModule dependency — the detail read emits no
- * event by ruling (ADR-0024 final addendum §"Event ruling").
+ * needs no import here.
+ *
+ * EventsModule is imported for `GET /jobs/search` ONLY (#822). The detail read still emits
+ * nothing by ruling (ADR-0024 final addendum §"Event ruling") — it is a pure re-read of
+ * content `feed.shown` already evented. A search is a new worker ACTION, so §3 Event First
+ * applies to it and not to the read beside it.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, EventsModule],
   controllers: [JobsController],
   providers: [JobsService, JobsRepository],
 })
