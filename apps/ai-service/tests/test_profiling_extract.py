@@ -189,3 +189,87 @@ def test_a_skill_carrying_blocked_content_is_dropped(monkeypatch) -> None:
     )
     assert resp.status_code == 200
     assert resp.json()["skills"] == ["welding"]
+
+
+# --- #831: every string field is certified, not just experiences + skills ----
+#
+# THE EXPOSURE THESE LOCK. `shift` is read by `resume-render-input.ts::fromResumeProfile`
+# with no audience distinction, so it reaches the EMPLOYER-facing masked disclosure PDF as
+# well as the worker's own. It was never certified here, and neither were `domain_label`,
+# `role_label`, `current_city`, `availability` or `preferred_locations` — every one of them
+# model-composed free text (40- or 120-char `str | None`, none an enum), i.e. exactly what
+# this step exists to catch.
+
+_BLOCKED = "reference number 12345678"
+
+
+def _extract_with(monkeypatch, extracted: dict):
+    async def _mock_run(*_a, **_k):
+        return json.dumps(extracted), _meta(real_call=True)
+
+    monkeypatch.setattr(main_module.router, "run", _mock_run)
+    resp = client.post(
+        "/profiling/extract",
+        json={"worker_ref": "w1", "transcript": [_line(0, "worker", "welder hu")]},
+    )
+    assert resp.status_code == 200
+    return resp.json()
+
+
+def test_a_blocked_shift_is_nulled_before_it_can_reach_the_employer_pdf(monkeypatch) -> None:
+    """#831's headline: the one field confirmed to cross to a payer-facing surface."""
+    body = _extract_with(monkeypatch, {"shift": _BLOCKED, "role_label": "welder"})
+    assert body["shift"] is None
+    # The rest of the container survives — one blocked field must not cost the whole profile.
+    assert body["role_label"] == "welder"
+
+
+def test_every_blocked_scalar_is_nulled(monkeypatch) -> None:
+    body = _extract_with(
+        monkeypatch,
+        {
+            "domain_label": _BLOCKED,
+            "role_label": _BLOCKED,
+            "shift": _BLOCKED,
+            "current_city": _BLOCKED,
+            "availability": _BLOCKED,
+        },
+    )
+    for field in ("domain_label", "role_label", "shift", "current_city", "availability"):
+        assert body[field] is None, f"{field} was not certified"
+
+
+def test_a_blocked_scalar_becomes_null_and_NEVER_a_mask_token(monkeypatch) -> None:
+    """`pseudonymize` returns a MASKED rendering, and writing that back would print
+    "[PHONE]" on a worker's resume under Shift -- visible, unexplained, and worse than the
+    field being absent. Absence is a shape every consumer already handles."""
+    body = _extract_with(monkeypatch, {"shift": _BLOCKED})
+    assert body["shift"] is None
+    assert body["shift"] != ""
+    assert "12345678" not in json.dumps(body)
+
+
+def test_preferred_locations_drops_the_bad_entry_and_keeps_the_rest(monkeypatch) -> None:
+    """Per ITEM, like skills -- one bad entry must not cost the worker the others."""
+    body = _extract_with(
+        monkeypatch, {"preferred_locations": ["Delhi", _BLOCKED, "Noida"]}
+    )
+    assert body["preferred_locations"] == ["Delhi", "Noida"]
+
+
+def test_ordinary_values_are_untouched_by_certification(monkeypatch) -> None:
+    """THE FALSE-POSITIVE GUARD. Certification that ate real answers would be its own
+    outage -- a blanked resume is the bug #824 already cost us once."""
+    clean = {
+        "domain_label": "welding",
+        "role_label": "welder",
+        "shift": "day",
+        "current_city": "Delhi",
+        "availability": "immediate",
+        "preferred_locations": ["Delhi", "Noida"],
+        "skills": ["arc welding"],
+        "expected_salary": 20000,
+    }
+    body = _extract_with(monkeypatch, dict(clean))
+    for field, expected in clean.items():
+        assert body[field] == expected, f"{field} was altered by certification"
