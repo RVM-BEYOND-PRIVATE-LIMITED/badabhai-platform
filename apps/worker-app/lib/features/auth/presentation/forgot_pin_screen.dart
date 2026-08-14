@@ -12,10 +12,12 @@ import '../../../core/otp/sms_otp_autofill.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_blue_header.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../router.dart';
 import '../domain/auth_session_manager.dart';
+import '../domain/weak_pin.dart';
 import 'enter_pin_screen.dart' show kPinLength;
 import 'widgets/bb_pin_keypad.dart';
 import 'widgets/bb_pin_view.dart';
@@ -33,6 +35,12 @@ import 'widgets/bb_pin_view.dart';
 /// on a weak/format PIN (400 → pinWeak) it re-collects the PIN. On success it
 /// routes to [Routes.pin] — the redirect bounces to /login if the worker is now
 /// loggedOut (no surviving refresh token).
+///
+/// A guessable PIN (1111 / 1234) is BLOCKED CLIENT-SIDE ([isWeakPin]) the moment
+/// it is entered, via a centred [showBbAlert] — so it never wastes the worker's
+/// reset OTP (previously it was only caught server-side, after OTP + confirm).
+/// The pin-phase errors (weak PIN, confirm mismatch) are dialogs now; the
+/// phone/OTP steps keep their field-contextual inline copy.
 class ForgotPinScreen extends StatefulWidget {
   const ForgotPinScreen({super.key});
 
@@ -65,6 +73,10 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
 
   bool _busy = false;
   String? _error;
+
+  /// True while an alert dialog is open, so a rapid tap or a rebuild can't stack
+  /// a second dialog on top of the first.
+  bool _dialogOpen = false;
 
   /// Android SMS auto-read for the reset OTP. Null when the locator has no
   /// instance (tests) — the screen stays usable by typing.
@@ -161,16 +173,17 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
 
   void _advancePin() {
     if (_pinStep == _PinStep.enter) {
+      // HARD client block: catch a guessable PIN HERE, before it spends the
+      // worker's reset OTP on a server rejection they won't understand.
+      if (isWeakPin(_first)) {
+        _blockWeakPin();
+        return;
+      }
       setState(() => _pinStep = _PinStep.confirm);
       return;
     }
     if (_confirm != _first) {
-      setState(() {
-        _error = 'PIN match nahi hua. Dobara try karein.';
-        _first = '';
-        _confirm = '';
-        _pinStep = _PinStep.enter;
-      });
+      _mismatchPin();
       return;
     }
     setState(() {
@@ -179,6 +192,55 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       _confirm = '';
       _phase = _Phase.confirm;
     });
+  }
+
+  /// Guessable PIN — block it, explain in a dialog, and stay on the enter step.
+  /// The buffer is cleared SYNCHRONOUSLY (before the await) so a re-tap while the
+  /// dialog animates in can't re-fire this.
+  Future<void> _blockWeakPin() async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+    setState(() {
+      _first = '';
+      _confirm = '';
+      _error = null;
+      _pinStep = _PinStep.enter;
+    });
+    await showBbAlert(
+      context,
+      title: 'Yeh PIN aasan hai',
+      message: '1234 ya 1111 jaisa PIN koi bhi aasani se guess kar sakta hai. '
+          'Aisa 4-digit PIN chunein jo sirf aap jaante hain.',
+    );
+    if (mounted) _dialogOpen = false;
+  }
+
+  /// The two entries differed — explain, and send the worker back to the start.
+  Future<void> _mismatchPin() async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+    setState(() {
+      _first = '';
+      _confirm = '';
+      _error = null;
+      _pinStep = _PinStep.enter;
+    });
+    await showBbAlert(
+      context,
+      title: 'PIN alag hai',
+      message: 'Dono baar ek jaisa PIN daalein. '
+          'Pehli baar aur confirm wala PIN abhi alag hain.',
+    );
+    if (mounted) _dialogOpen = false;
+  }
+
+  /// The SERVER rejected the new PIN as weak (a pattern our local [isWeakPin]
+  /// does not catch). Surface its reason in the same centred dialog.
+  Future<void> _showWeakServerAlert(String message) async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+    await showBbAlert(context, title: 'Yeh PIN aasan hai', message: message);
+    if (mounted) _dialogOpen = false;
   }
 
   // --- phase 3: confirm OTP + new PIN ---------------------------------------
@@ -205,16 +267,22 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       context.go(Routes.pin);
     } on AuthFailure catch (f) {
       if (!mounted) return;
-      setState(() {
-        _error = authErrorMessage(f, 'hi');
-        // 401 (bad/expired OTP) → back to the OTP step; 400 (weak/format PIN) →
-        // re-collect the PIN.
-        if (f.code == AuthErrorCode.pinWeak) {
+      // 400 (weak/format PIN) → re-collect the PIN behind a centred dialog (the
+      // same treatment as the client-side block). 401 (bad/expired OTP) and the
+      // rest stay as field-contextual inline copy on their own step.
+      if (f.code == AuthErrorCode.pinWeak) {
+        setState(() {
+          _error = null;
           _newPin = '';
+          _first = '';
+          _confirm = '';
           _pinStep = _PinStep.enter;
           _phase = _Phase.pin;
-        }
-      });
+        });
+        unawaited(_showWeakServerAlert(authErrorMessage(f, 'hi')));
+      } else {
+        setState(() => _error = authErrorMessage(f, 'hi'));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -317,25 +385,32 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   }
 
   Widget _pinView() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-      child: Column(
-        children: <Widget>[
-          const Spacer(flex: 1),
-          BbPinView(
-              length: kPinLength,
-              filled: _buffer.length,
-              error: _error != null),
-          const SizedBox(height: AppSpacing.s4),
-          SizedBox(
-            height: AppSpacing.s6,
-            child: _error != null ? _errorText(_error!) : null,
+    // Pin-phase errors are centred dialogs now (weak-PIN block, confirm
+    // mismatch), so the body is just the masked dots + keypad. Scroll-safe:
+    // centred when there is room, scrolls (never overflows) on a short screen.
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                child: Column(
+                  children: <Widget>[
+                    const Spacer(flex: 1),
+                    BbPinView(length: kPinLength, filled: _buffer.length),
+                    const SizedBox(height: AppSpacing.s6),
+                    BbPinKeypad(onDigit: _onDigit, onBackspace: _onBackspace),
+                    const Spacer(flex: 2),
+                  ],
+                ),
+              ),
+            ),
           ),
-          const SizedBox(height: AppSpacing.s4),
-          BbPinKeypad(onDigit: _onDigit, onBackspace: _onBackspace),
-          const Spacer(flex: 2),
-        ],
-      ),
+        );
+      },
     );
   }
 
