@@ -2,24 +2,39 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:payer_app/core/config/app_config.dart';
 
-/// The release base URL is a SHIP BLOCKER: the app used to default to the
-/// Android emulator alias `10.0.2.2`, which is unreachable from a real device,
-/// so a release build would have silently failed every request. A release must
-/// now be built with `--dart-define=API_BASE_URL=https://…` or die at startup.
+/// With no `API_BASE_URL` override, the app falls back to the shared default
+/// backend — a live `https` origin (never localhost) — so a plain build reaches
+/// a real API in both debug and release. An explicit override still wins, and in
+/// release it must be a well-formed https origin or the resolver fails LOUDLY at
+/// startup (a plaintext/malformed value would fail every request or put the
+/// bearer token on the wire in the clear).
+const String _kDefault = 'https://43-204-36-199.sslip.io';
+
 void main() {
-  group('resolvePayerApiBaseUrl — release rules', () {
-    test('missing API_BASE_URL → StateError (never the emulator alias)', () {
+  group('resolvePayerApiBaseUrl — default backend (no override)', () {
+    test('empty in release falls back to the https default, never localhost',
+        () {
+      final String url =
+          resolvePayerApiBaseUrl(configuredUrl: '', isRelease: true);
+      expect(url, _kDefault);
+      expect(Uri.parse(url).scheme, 'https');
+      // Whitespace-only is still "no override" → the default.
       expect(
-        () => resolvePayerApiBaseUrl(configuredUrl: '', isRelease: true),
-        throwsA(isA<StateError>()),
-      );
-      // Whitespace-only is still "missing".
-      expect(
-        () => resolvePayerApiBaseUrl(configuredUrl: '   ', isRelease: true),
-        throwsA(isA<StateError>()),
+        resolvePayerApiBaseUrl(configuredUrl: '   ', isRelease: true),
+        _kDefault,
       );
     });
 
+    test('empty in debug also uses the default so no flag / adb reverse needed',
+        () {
+      expect(
+        resolvePayerApiBaseUrl(configuredUrl: '', isRelease: false),
+        _kDefault,
+      );
+    });
+  });
+
+  group('resolvePayerApiBaseUrl — explicit override in release', () {
     test('non-https → StateError (a bearer must never ride plaintext)', () {
       for (final String url in <String>[
         'http://api.badabhai.in',
@@ -62,16 +77,6 @@ void main() {
   });
 
   group('resolvePayerApiBaseUrl — debug rules', () {
-    test('empty falls back to the loopback (works on emulator + USB device)',
-        () {
-      // Matches the worker app: localhost + `adb reverse tcp:3001` reaches the
-      // host API from a real device over USB (10.0.2.2 was emulator-only).
-      expect(
-        resolvePayerApiBaseUrl(configuredUrl: '', isRelease: false),
-        'http://localhost:3001',
-      );
-    });
-
     test('a supplied URL wins, and plaintext is allowed in debug only', () {
       expect(
         resolvePayerApiBaseUrl(

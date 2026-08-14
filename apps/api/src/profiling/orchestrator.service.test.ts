@@ -16,6 +16,8 @@ import {
   inboundHash,
   narrowProfilingEnvelope,
   RETRY_STORM_FLOOR_MS,
+  REPLY_CACHE_WINDOW_MS,
+  STALE_RESPONSE_WINDOW_MS,
   type ProfilingEnvelope,
 } from "./conversation-state";
 import { DISAMBIGUATION_PROMPT, toPackOption } from "./identify.service";
@@ -854,14 +856,37 @@ describe("LAYER A — the reply cache", () => {
     expect(store.get(SESSION)?.profiling?.rev).toBe(3);
   });
 
-  it("takes a REAL turn once the window has passed", async () => {
+  /**
+   * ⚠ THIS ASSERTION MOVED WITH #869, deliberately, and the old one is preserved below as the
+   * boundary it became. It used to fire at 11 s — inside what is now the STALE window — and
+   * asserted `replayed: false`, which is precisely the behaviour that let the shipped client's
+   * 15 s timeout retry answer the next question with the previous question's words. The outer
+   * bound of the cache is now `STALE_RESPONSE_WINDOW_MS`, not `REPLY_CACHE_WINDOW_MS`.
+   */
+  it("takes a REAL turn once the STALE window has passed", async () => {
     const { orchestrator, store } = makeWorld();
     await orchestrator.takeTurn(say("main pune me rehta hu"));
     const later = await orchestrator.takeTurn(
-      say("main pune me rehta hu", new Date(T0.getTime() + 11_000)),
+      say("main pune me rehta hu", new Date(T0.getTime() + STALE_RESPONSE_WINDOW_MS + 1_000)),
     );
     expect(later.replayed).toBe(false);
     expect(store.get(SESSION)?.profiling?.rev).toBe(2);
+  });
+
+  it("still replays between the fresh and stale windows, writing nothing (#869)", async () => {
+    const { orchestrator, store } = makeWorld();
+    await orchestrator.takeTurn(say("main pune me rehta hu"));
+    const revAfterFirst = store.get(SESSION)?.profiling?.rev;
+
+    const stale = await orchestrator.takeTurn(
+      say("main pune me rehta hu", new Date(T0.getTime() + 11_000)),
+    );
+
+    expect(stale.replayed).toBe(true);
+    // No rev bump: a stale replay consumes no budget, so it costs no CAS write either.
+    expect(store.get(SESSION)?.profiling?.rev).toBe(revAfterFirst);
+    expect(REPLY_CACHE_WINDOW_MS).toBeLessThan(11_000);
+    expect(STALE_RESPONSE_WINDOW_MS).toBeGreaterThan(11_000);
   });
 
   it("does not replay a DIFFERENT message sent inside the window", async () => {
@@ -918,6 +943,124 @@ describe("LAYER A — the reply cache", () => {
     expect(replay.replayed).toBe(true);
     expect(replay.reply).toBe(first.reply);
     expect(replay.lookahead).toEqual(first.lookahead);
+  });
+});
+
+/**
+ * THE STALE-RESPONSE WINDOW (#869).
+ *
+ * `REPLY_CACHE_WINDOW_MS` is 10 s; the shipped worker app's own HTTP deadline is 15 s
+ * (`kRequestTimeout`). So the ONE retry that client is designed to produce — a POST that landed
+ * but whose response was lost — arrived outside the cache window EVERY time, ran a real turn, and
+ * captured the worker's words for question A against question B, which A's own success had put on
+ * screen. N = 2, no storm, so neither the replay budget nor the storm floor could see it: both
+ * live past the age test that rejected it.
+ *
+ * The pack below is the issue's own repro: `q_trade` at `max_asks: 1` (so it is settled and never
+ * re-servable after one ask) followed by `q_shift`.
+ */
+describe("the stale-response window — a client timeout retry never answers the next question (#869)", () => {
+  const TRADE = item({
+    question_key: "q_trade",
+    prompt_text: "Aap kya kaam karte hain?",
+    max_asks: 1,
+  });
+  const SHIFT = item({ question_key: "q_shift", prompt_text: "Aap kaunsi shift kar sakte hain?" });
+
+  const world = () => {
+    const w = makeWorld({
+      packs: { occupation: pack("qp_trade", [TRADE, SHIFT]), universal: UNIVERSAL_PACK },
+    });
+    seed(w.store, {
+      servedQuestionKey: null,
+      engineAsks: 0,
+      askCounts: {},
+      packId: "qp_trade",
+      packVersion: 1,
+    });
+    return w;
+  };
+
+  /**
+   * Put `q_trade` on screen, then answer it. The SECOND turn is the one that matters: its own
+   * success advances the interview to `q_shift`, which is the question a stale retry would
+   * otherwise be captured against.
+   */
+  const answerTrade = async (w: ReturnType<typeof world>) => {
+    await w.orchestrator.takeTurn(say("shuru karein", T0));
+    return w.orchestrator.takeTurn(say("welding ka kaam", new Date(T0.getTime() + 1_000)));
+  };
+
+  const answersFor = (w: ReturnType<typeof world>, key: string) =>
+    w.store.get(SESSION)?.profiling?.answerMap.filter((a) => a.question_key === key) ?? [];
+
+  it("REGRESSION: the 15s-timeout retry replays instead of settling q_shift with q_trade's words", async () => {
+    const w = world();
+    const first = await answerTrade(w);
+    expect(first.questionKey).toBe("q_shift");
+
+    // The client gave up at 15 s and re-sent the same bytes. Before the fix this was `replayed:
+    // false` and wrote {"question_key":"q_shift","value_raw":"welding ka kaam"} — settling a
+    // question the worker never saw, permanently, because `q_shift` had already been asked.
+    const retry = await w.orchestrator.takeTurn(
+      say("welding ka kaam", new Date(T0.getTime() + 17_000)),
+    );
+
+    expect(retry.replayed).toBe(true);
+    expect(retry.reply).toBe(first.reply);
+    expect(answersFor(w, "q_shift")).toEqual([]);
+    // And q_trade keeps the one real answer it always had.
+    expect(answersFor(w, "q_trade")[0]).toMatchObject({
+      value_raw: "welding ka kaam",
+      status: "answered",
+    });
+  });
+
+  it("holds even once the replay budget is spent — the budget governs only the fresh window", async () => {
+    const w = world();
+    await answerTrade(w);
+    // A first retry INSIDE the fresh window spends the budget (`MAX_REPLAYS_PER_TURN` is 1).
+    await w.orchestrator.takeTurn(say("welding ka kaam", new Date(T0.getTime() + 4_000)));
+    expect(w.store.get(SESSION)?.profiling?.lastTurn?.replays).toBe(1);
+
+    // The 15 s timeout retry then lands with the budget already gone. Without `&& !stale` on the
+    // budget check this falls straight through to a real turn — the defect, restored.
+    const late = await w.orchestrator.takeTurn(
+      say("welding ka kaam", new Date(T0.getTime() + 17_000)),
+    );
+
+    expect(late.replayed).toBe(true);
+    expect(answersFor(w, "q_shift")).toEqual([]);
+  });
+
+  it("a stale replay writes NOTHING — no budget consumed, no CAS write", async () => {
+    const w = world();
+    await answerTrade(w);
+    const revAfterFirst = w.store.get(SESSION)?.profiling?.rev;
+    const savesAfterFirst = w.buffer.saveWithCas.mock.calls.length;
+
+    await w.orchestrator.takeTurn(say("welding ka kaam", new Date(T0.getTime() + 17_000)));
+
+    // `last.at` is never refreshed either, which is what makes the window shut by the clock on its
+    // own rather than being extended by each retry — the property that removes the need for a
+    // budget out here at all.
+    expect(w.store.get(SESSION)?.profiling?.rev).toBe(revAfterFirst);
+    expect(w.store.get(SESSION)?.profiling?.lastTurn?.replays).toBe(0);
+    expect(w.buffer.saveWithCas.mock.calls.length).toBe(savesAfterFirst);
+  });
+
+  it("past the stale window the worker's considered second thought IS heard", async () => {
+    // The other half of the trade-off, and the reason the fresh window was not simply widened: a
+    // worker who really does repeat themselves must eventually get a turn, not an echo forever.
+    const w = world();
+    await answerTrade(w);
+
+    const secondThought = await w.orchestrator.takeTurn(
+      say("welding ka kaam", new Date(T0.getTime() + 40_000)),
+    );
+
+    expect(secondThought.replayed).toBe(false);
+    expect(answersFor(w, "q_shift")).toHaveLength(1);
   });
 });
 
