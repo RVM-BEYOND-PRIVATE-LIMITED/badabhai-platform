@@ -2436,8 +2436,8 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 157 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback)", () => {
-    expect(EVENT_NAMES).toHaveLength(157);
+  it("exposes all 158 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed)", () => {
+    expect(EVENT_NAMES).toHaveLength(158);
     // The LLM-led opening handed back to the deterministic engine. Designed to be invisible to
     // the worker, so this event is the only place a degraded ai-service becomes visible at all.
     expect(isEventName("profile.llm_interview_fallback")).toBe(true);
