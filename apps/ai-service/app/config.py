@@ -585,6 +585,27 @@ class Settings(BaseSettings):
     # mislabelled as prod silently corrupts every cost and quality metric read off it.
     langfuse_tracing_environment: str = "development"
 
+    # Fetch production prompts from Langfuse Prompt Management instead of using the
+    # in-image text. OFF BY DEFAULT, and the default is the whole safety argument: with
+    # it off the committed behaviour is byte-identical to before prompt management
+    # existed, and prompt VERSIONS are still recorded on every generation (as a content
+    # hash of the local text — see ai/prompt_registry.py). Turning it on lets a prompt be
+    # edited outside the deploy, which is the point AND the risk: `interview_system_prompt`
+    # is generated from the signed-off persona.json, and a Langfuse override bypasses the
+    # build-time gate that keeps the two in sync. Every failure mode of the fetch (network,
+    # missing prompt, unsupported SDK, empty body) falls back to the local text, so this
+    # flag can never make the service depend on Langfuse being reachable.
+    langfuse_prompts_enabled: bool = False
+    # How long a fetched prompt is reused before re-checking. Bounds both the request-path
+    # latency a prompt fetch can add and how stale a rollout can be.
+    langfuse_prompt_cache_ttl_seconds: int = Field(default=300, ge=0, le=86_400)
+
+    # The build this trace came from — the dimension that makes "did the deploy on Tuesday
+    # change extraction quality?" answerable at all. A trace with no version is
+    # uncomparable to any other trace once anything ships. Defaults to the FastAPI app
+    # version in main.py; a deploy should override it with a git sha.
+    app_version: str = "0.1.0"
+
     ai_service_port: int = 8000
 
     def real_calls_blocked_reason(self) -> str | None:

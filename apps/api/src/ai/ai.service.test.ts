@@ -160,6 +160,55 @@ describe("AiService", () => {
       expect(init.headers["x-correlation-id"]).toBe(init.headers["x-request-id"]);
     });
 
+    it("BL-19: a supplied ctx OVERRIDES the mint, on both headers and in the body", async () => {
+      // THE WHOLE POINT OF THE CTX PARAMETER. The far side derives its Langfuse TRACE id from
+      // `x-correlation-id`, so a call that lets `post()` mint one lands in a trace of its own,
+      // disconnected from the request that caused it. The BODY's `request_id` is part of the
+      // Python contract and used to be a THIRD, independently minted uuid agreeing with
+      // neither header; it now resolves to the same value `x-request-id` carries.
+      const fetchMock = vi.fn().mockResolvedValue(masked());
+      vi.stubGlobal("fetch", fetchMock);
+      await ai.pseudonymize("x", {
+        requestId: "11111111-1111-4111-8111-111111111111",
+        correlationId: "22222222-2222-4222-8222-222222222222",
+      });
+      const init = fetchMock.mock.calls[0]![1] as { headers: Record<string, string>; body: string };
+      expect(init.headers["x-request-id"]).toBe("11111111-1111-4111-8111-111111111111");
+      expect(init.headers["x-correlation-id"]).toBe("22222222-2222-4222-8222-222222222222");
+      expect((JSON.parse(init.body) as { request_id: string }).request_id).toBe(
+        init.headers["x-request-id"],
+      );
+    });
+
+    it("BL-19: two calls sharing ONE correlation id land in one trace", async () => {
+      // The far side keys its trace off `x-correlation-id` alone, so two calls of the same
+      // logical workflow must agree on it even when their request ids differ.
+      const fetchMock = vi.fn().mockResolvedValue(masked());
+      vi.stubGlobal("fetch", fetchMock);
+      const correlationId = "33333333-3333-4333-8333-333333333333";
+      await ai.pseudonymize("x", { requestId: "req-a", correlationId });
+      await ai.pseudonymize("y", { requestId: "req-b", correlationId });
+      const headerAt = (i: number) =>
+        (fetchMock.mock.calls[i]![1] as { headers: Record<string, string> }).headers;
+      expect(headerAt(0)["x-correlation-id"]).toBe(correlationId);
+      expect(headerAt(1)["x-correlation-id"]).toBe(correlationId);
+      expect(headerAt(0)["x-request-id"]).not.toBe(headerAt(1)["x-request-id"]);
+    });
+
+    it("BL-19: a ctx with only a correlation id still mints a request id, and the body agrees", async () => {
+      // Every BullMQ job payload stamps these as `string | null`, so a half-filled ctx is a
+      // real shape. The mint must not silently put a THIRD id in the body.
+      const fetchMock = vi.fn().mockResolvedValue(masked());
+      vi.stubGlobal("fetch", fetchMock);
+      await ai.pseudonymize("x", { requestId: null, correlationId: "corr-only" });
+      const init = fetchMock.mock.calls[0]![1] as { headers: Record<string, string>; body: string };
+      expect(init.headers["x-correlation-id"]).toBe("corr-only");
+      expect(init.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+      expect((JSON.parse(init.body) as { request_id: string }).request_id).toBe(
+        init.headers["x-request-id"],
+      );
+    });
+
     it("BL-19: a different request id is minted per call", async () => {
       const fetchMock = vi.fn().mockResolvedValue(masked());
       vi.stubGlobal("fetch", fetchMock);
@@ -657,6 +706,103 @@ describe("AiService", () => {
       // is "no turn happened" and the caller fails the request loudly.
       vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED")));
       expect(await ai.jobPostingChatRespond({ session_id: "s-1", message_text: "hi" })).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------
+  //  BL-19 — every ctx-taking method actually FORWARDS it
+  // ---------------------------------------------------------------
+  /**
+   * ONE CASE PER METHOD, and the mutation each one catches is the same one-line omission:
+   * dropping the `ctx` argument at the `post()` call. That compiles, keeps every return
+   * value identical, and passes every other test in this file — the only visible symptom is
+   * a Langfuse trace on the far side that is disconnected from the request that caused it,
+   * which nothing else here can see. `probeHealth` is deliberately absent: it sends no
+   * headers and no bearer by design (least privilege on an auth-exempt route).
+   */
+  describe("BL-19: the ctx reaches the wire", () => {
+    const CTX = {
+      requestId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      correlationId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    };
+
+    let fetchMock: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      config = mockConfig();
+      ai = new AiService(config);
+      // A body that satisfies every schema below at once: each contract is non-strict and
+      // defaults the fields it does not find, so one stub serves all five routes.
+      fetchMock = vi.fn().mockResolvedValue(
+        fakeResponse({
+          json: async () => ({
+            pseudonymized_text: "masked",
+            blocked: false,
+            replaced_entities: 0,
+            placeholder_tokens: [],
+            opening_text: "Kya role hai?",
+            reply_text: "Kaunsa kaam?",
+            stage: "skills",
+            input_mode: "text",
+            suggested_answers: [],
+            skills: [],
+            status: "unresolved",
+            skill_id: null,
+            score: null,
+          }),
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+    });
+
+    const sentHeaders = () =>
+      (fetchMock.mock.calls[0]![1] as { headers: Record<string, string> }).headers;
+
+    const expectForwarded = () => {
+      expect(sentHeaders()["x-request-id"]).toBe(CTX.requestId);
+      expect(sentHeaders()["x-correlation-id"]).toBe(CTX.correlationId);
+    };
+
+    it("llmTurn forwards it", async () => {
+      await ai.llmTurn({} as never, CTX);
+      expectForwarded();
+    });
+
+    it("pseudonymize forwards it", async () => {
+      await ai.pseudonymize("kharad ka kaam", CTX);
+      expectForwarded();
+    });
+
+    it("canonicalizeSkill forwards it", async () => {
+      await ai.canonicalizeSkill({ phrase: "milling", domain_id: "d", lang: "en" }, CTX);
+      expectForwarded();
+    });
+
+    it("jobPostingChatRespond forwards it", async () => {
+      await ai.jobPostingChatRespond({ session_id: "s-1", message_text: "hi" }, CTX);
+      expectForwarded();
+    });
+
+    it("jobPostingChatOpening forwards it", async () => {
+      await ai.jobPostingChatOpening(null, CTX);
+      expectForwarded();
+    });
+
+    it("every ctx parameter is OPTIONAL — no existing caller breaks", async () => {
+      // Backward compatibility as an assertion rather than a promise (CLAUDE.md §3): each
+      // call below omits the ctx entirely and must still reach the wire, with `post()`'s
+      // minted uuid on both headers.
+      await ai.llmTurn({} as never);
+      await ai.pseudonymize("x");
+      await ai.canonicalizeSkill({ phrase: "p", domain_id: "d", lang: "en" });
+      await ai.jobPostingChatRespond({ session_id: "s-1", message_text: "hi" });
+      await ai.jobPostingChatOpening();
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      for (const call of fetchMock.mock.calls) {
+        const headers = (call[1] as { headers: Record<string, string> }).headers;
+        expect(headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+        expect(headers["x-correlation-id"]).toBe(headers["x-request-id"]);
+      }
     });
   });
 });

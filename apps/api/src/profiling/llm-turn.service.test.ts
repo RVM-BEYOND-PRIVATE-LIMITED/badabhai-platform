@@ -50,10 +50,13 @@ const ENTRY = {
 };
 
 function make(over: { turn?: unknown; enabled?: boolean } = {}) {
-  // Typed to TAKE its argument, so a test can assert on what was sent — `vi.fn(async () => …)`
-  // infers a zero-arg signature and `mock.calls[0][0]` is then a compile error.
+  // Typed to TAKE its arguments, so a test can assert on what was sent — `vi.fn(async () => …)`
+  // infers a zero-arg signature and `mock.calls[0][0]` is then a compile error. The second
+  // parameter is BL-19's optional trace ctx, asserted on below.
   const ai = {
-    llmTurn: vi.fn(async (_input: unknown) => ("turn" in over ? over.turn : TURN())),
+    llmTurn: vi.fn(async (_input: unknown, _ctx?: unknown) =>
+      "turn" in over ? over.turn : TURN(),
+    ),
   };
   const config = { CHAT_LLM_INTERVIEW_ENABLED: over.enabled ?? true };
   const cost = { record: vi.fn(async () => undefined) };
@@ -131,6 +134,20 @@ describe("the caps — the API owns termination, never the model", () => {
     const { svc, ai } = make();
     await svc.take(env({ llmAsks: 3 }), "haan", [], CTX);
     expect(ai.llmTurn.mock.calls[0]?.[0]).toMatchObject({ force_close: false });
+  });
+
+  it("BL-19: forwards the turn's correlation/request ids, so the far side is ONE trace", async () => {
+    // WITHOUT THIS, `AiService.post` mints a fresh uuid per call and a twelve-turn interview
+    // lands as twelve unrelated traces — the same ids the cost record already carries, so a
+    // disagreement here also splits the spend from the call that caused it.
+    // The ids are the SAME pair the cost record already asserts on further down, which is the
+    // point: spend and trace must name one id, not two.
+    const { svc, ai } = make();
+    await svc.take(env(), "cook hu", [], CTX);
+    expect(ai.llmTurn.mock.calls[0]?.[1]).toEqual({
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
   });
 
   it("ends Phase A once the experience cap is reached, without a call", async () => {

@@ -14,7 +14,11 @@ import { EventsService, type EmitParams } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { PublishReachService } from "../match/publish-reach.service";
-import { JobPostingsRepository, type JobPostingApi, type JobPostingUpdate } from "./job-postings.repository";
+import {
+  JobPostingsRepository,
+  type JobPostingApi,
+  type JobPostingUpdate,
+} from "./job-postings.repository";
 import type {
   CreateJobPostingDto,
   ListJobPostingsQueryDto,
@@ -103,7 +107,9 @@ export class JobPostingsService {
     // array; failures resolve null (canonicalizeSkill never rejects, belt+braces here).
     const results = await Promise.allSettled(
       phrases.map((phrase) =>
-        this.ai.canonicalizeSkill({ phrase, domain_id: "cnc-machining", lang: "en" }),
+        // BL-19: the WRITE's ctx, shared by every phrase, so the whole fan-out reads as one
+        // trace on the far side instead of N unrelated ones.
+        this.ai.canonicalizeSkill({ phrase, domain_id: "cnc-machining", lang: "en" }, ctx),
       ),
     );
     const ids: string[] = [];

@@ -7,10 +7,16 @@ import json
 
 from fastapi import APIRouter
 
-from ..ai import cost_tracker
+from ..ai import cost_tracker, prompt_registry, trace_metadata
 from ..ai.canonicalize import canonicalize_labels
 from ..ai.embeddings import EMBEDDING_TASK_TYPE, embed_text
-from ..ai.langfuse_tracing import get_tracer
+from ..ai.langfuse_tracing import (
+    APPLY_PARSE_GATES,
+    SCORE_BOOLEAN,
+    SCORE_NUMERIC,
+    WORKFLOW_PROFILE_BUILD,
+    get_tracer,
+)
 from ..ai.model_config import rate_inr_per_1k
 from ..ai.skill_store import get_skill_store
 from ..config import get_settings
@@ -46,7 +52,7 @@ from ..profiling.parse_prompt import build_parse_messages, empty_parse
 from ..profiling.prompts import extraction_system_prompt
 from ..profiling.signals import has_first_person_claim, label_for_id
 from ..pseudonymize import pseudonymize
-from ._shared import logger, router, settings
+from ._shared import logger, resolve_prompt, router, settings, workflow_scope
 
 api_router = APIRouter()
 
@@ -489,111 +495,218 @@ async def profile_parse(body: ProfileParseInput) -> ProfileParseOutput:
     """
     settings_now = get_settings()
 
-    if not body.target_fields:
-        # Nothing was requested, so there is nothing to cite and no reason to spend a call.
-        return empty_parse([])
+    # ROOT TRACE. Same workflow name as Phase C's `/profiling/extract`, deliberately: both are
+    # steps of building ONE worker's profile, and `apps/api` sends the same BL-19 correlation id
+    # for both, so they land in one trace instead of two that nothing joins.
+    #
+    # `language` is a REAL field on `ProfileParseInput`, and it belongs here because it changes
+    # how the model transliterates a span — a dimension a quality regression splits along.
+    # It is NOT claimed to be locale-shaped: the contract is a bare `str | None` with no
+    # validator, which is exactly why `build_parse_messages` shape-checks it before letting it
+    # near the prompt. What protects it here is the tracer's own `mask=` hook, which runs
+    # `pseudonymize` over every string handed to the SDK, metadata included. `target_fields` goes
+    # in as a COUNT — the ids themselves are already the generation's input.
+    with workflow_scope(
+        name=WORKFLOW_PROFILE_BUILD,
+        worker_ref=body.worker_ref,
+        metadata={"target_fields": len(body.target_fields), "language": body.language},
+    ):
+        if not body.target_fields:
+            # Nothing was requested, so there is nothing to cite and no reason to spend a call.
+            return empty_parse([])
 
-    # 1. PSEUDONYMIZE FIRST, PER MESSAGE. Never the concatenation — see `parse_masking`.
-    masked = mask_parse_input(body)
-    notes: list[str] = []
-    if masked.dropped_lines:
-        notes.append("evidence_lines_dropped")
-    if masked.dropped_raw_answers:
-        notes.append("answer_text_dropped")
-    if masked.withheld_normalized:
-        notes.append("normalized_value_withheld")
-    if masked.dropped_lines or masked.dropped_raw_answers or masked.withheld_normalized:
-        # Counts only — the offending text is by definition un-maskable, so it is the last thing
-        # that may be logged.
-        logger.warning(
-            "dropped un-maskable legs from the parse input",
+        # 1. PSEUDONYMIZE FIRST, PER MESSAGE. Never the concatenation — see `parse_masking`.
+        masked = mask_parse_input(body)
+        notes: list[str] = []
+        if masked.dropped_lines:
+            notes.append("evidence_lines_dropped")
+        if masked.dropped_raw_answers:
+            notes.append("answer_text_dropped")
+        if masked.withheld_normalized:
+            notes.append("normalized_value_withheld")
+        if masked.dropped_lines or masked.dropped_raw_answers or masked.withheld_normalized:
+            # Counts only — the offending text is by definition un-maskable, so it is the last
+            # thing that may be logged.
+            logger.warning(
+                "dropped un-maskable legs from the parse input",
+                extra={
+                    "extra": {
+                        "lines": masked.dropped_lines,
+                        "raw_answers": masked.dropped_raw_answers,
+                        "normalized": masked.withheld_normalized,
+                    }
+                },
+            )
+
+        # 2. THE CALL, under a hard deadline. `router.run` never raises, but it can take
+        #    `gemini_timeout_seconds` x the retry chain — an order of magnitude past the p95
+        #    budget the worker is waiting inside. Cancelling is safe: the router refunds its spend
+        #    reservation in a `finally`, so a cancelled call leaks no ledger.
+        #
+        #    THE PROMPT IS RESOLVED rather than read straight off the module constant, so the
+        #    generation records WHICH version produced this overlay — the only way "did v2 parse
+        #    better than v1?" is answerable at all. `None` (management off or the name never
+        #    registered) means `build_parse_messages` uses `PARSE_SYSTEM_PROMPT`, exactly as
+        #    before, and the router simply records no prompt dimension.
+        resolved = resolve_prompt(prompt_registry.PROFILE_PARSE)
+        messages = build_parse_messages(
+            masked,
+            body.target_fields,
+            body.language,
+            system_prompt=resolved.text if resolved is not None else None,
+        )
+        fallback = empty_parse(body.target_fields).model_dump_json()
+        try:
+            content, meta = await asyncio.wait_for(
+                router.run(
+                    PARSE_TASK_TYPE,
+                    messages=messages,
+                    mock_response=fallback,
+                    real_call_allowed=True,
+                    user_ref=body.worker_ref,
+                    prompt=resolved,
+                ),
+                timeout=settings_now.profile_parse_deadline_seconds,
+            )
+        except TimeoutError:
+            # `TimeoutError` ONLY — deliberately not `CancelledError`. On Python >= 3.11
+            # `wait_for` raises the builtin, while a `CancelledError` here means the CLIENT went
+            # away, and swallowing that would turn a disconnect into a fabricated 200 and break
+            # cancellation for everything above this frame.
+            logger.warning(
+                "profile parse deadline exceeded",
+                extra={"extra": {"deadline_s": settings_now.profile_parse_deadline_seconds}},
+            )
+            # NO SCORE on this path. A deadline measures the provider, not the parse quality, and
+            # scoring 0.0 acceptance here would blame the prompt for an outage.
+            return _parse_response(
+                parse_gates.GateResult(), body, [*notes, "parse_deadline_exceeded"]
+            )
+
+        tracer = get_tracer()
+
+        # Two DIFFERENT degradations, and conflating them would hide the one that needs an
+        # operator. The router's terminal states are unambiguous: nothing attempted (mock mode, a
+        # spend cap, the kill switch) is `real_call=False`, while a provider that was reached and
+        # failed every candidate is `real_call=True, success=False`. The first is a posture, the
+        # second is an incident.
+        if not meta.real_call:
+            notes.append("mock_no_parse")
+        elif not meta.success:
+            notes.append("llm_unavailable")
+
+        # 3. Read the response as a contract object. An unparseable or off-contract body is NOT an
+        #    error to raise — it is simply an overlay that contributed nothing.
+        parsed = _read_parse_output(content)
+        if parsed is None:
+            # The call HAPPENED and was billed — an off-contract body does not refund it. The cost
+            # rides out even though the overlay contributed nothing, which is exactly the case a
+            # spend investigation needs to see.
+            if meta.real_call:
+                # Only a REAL call measures the model. On the mock path this body is our own
+                # `fallback` string, so a failure here would be scoring ourselves.
+                tracer.record_score(
+                    name="parse_output_contract_valid", value=False, data_type=SCORE_BOOLEAN
+                )
+            return _parse_response(
+                parse_gates.GateResult(), body, [*notes, "parse_output_invalid"], meta
+            )
+
+        # 4. THE SIX GATES, before the response leaves.
+        #
+        #    TRACED AS A SPAN OF ITS OWN. This is the point where model output becomes profile
+        #    data, and it is the one expensive step no provider call covers — the router's
+        #    generation closed when `router.run` returned. Untraced, a parse the wall rejected
+        #    WHOLESALE and one it accepted wholesale are the same picture in Langfuse: a
+        #    successful generation followed by a 200. The span's output is what tells them apart.
+        with tracer.observation(
+            name=APPLY_PARSE_GATES,
+            as_type=trace_metadata.AS_SPAN,
+            metadata=trace_metadata.build(
+                workflow=WORKFLOW_PROFILE_BUILD,
+                task=PARSE_TASK_TYPE,
+                application_version=settings_now.app_version,
+                real_call=meta.real_call,
+                # Counts only: how much the model offered, against how much was asked for.
+                extra={
+                    "requested": len(body.target_fields),
+                    "proposed": len(parsed.fields or {}),
+                },
+            ),
+        ) as gates_span:
+            gated = parse_gates.apply_parse_gates(
+                parsed,
+                list(body.answer_map),
+                masked.transcript,
+                list(body.target_fields),
+                _certify,
+            )
+            # COUNTS ONLY, and `unrecognized_cities` is deliberately `len(...)`: it is a list of
+            # city VALUES the gazetteer did not know, and a value is exactly what may not leave.
+            # This mirrors the `logger.info("profile parsed", ...)` block below — the shape that
+            # is already established as permitted here (§2).
+            gates_span.update(
+                output={
+                    "accepted": len(gated.accepted),
+                    "rejected": len(gated.rejections),
+                    "disagreements": len(gated.disagreements),
+                    "unrecognized_cities": len(gated.unrecognized_cities),
+                    "rejected_by_gate": parse_gates.count_by_gate(gated.rejections),
+                }
+            )
+
+        if gated.rejections:
+            notes.append("fields_rejected")
+        if gated.disagreements:
+            notes.append("parse_disagreement")
+        if gated.unrecognized_cities:
+            notes.append("city_unrecognized")
+
+        if meta.real_call:
+            # THE HEADLINE EXTRACTION-QUALITY NUMBER, and a genuine measurement rather than a
+            # judgement: the fraction of the fields the caller ASKED FOR that the model produced
+            # AND that survived all six gates. Both sides are counted by code that already ran.
+            #
+            # Scored only on a real call. In mock mode the body is our own `empty_parse`
+            # fallback, which accepts nothing by construction — recording that would drag the
+            # average to zero with a number about ourselves.
+            if body.target_fields:
+                # Structurally non-empty here (the handler returned at the top otherwise), but
+                # the division is at THIS call site, outside `record_score`'s fail-open boundary,
+                # and a ZeroDivisionError in a route whose contract is "degrades, never fails"
+                # would be exactly the wrong way to learn that the guard above moved.
+                tracer.record_score(
+                    name="parse_gate_acceptance",
+                    value=len(gated.accepted) / len(body.target_fields),
+                    data_type=SCORE_NUMERIC,
+                    # A count summary. Never a field id's value, never a rejected value.
+                    comment=f"{len(gated.accepted)}/{len(body.target_fields)} requested accepted",
+                )
+            # Gate 5's count: fields where the model contradicted the deterministic answer map.
+            # The map's value stands regardless, so this scores the MODEL, never the outcome.
+            tracer.record_score(
+                name="parse_disagreement_count",
+                value=len(gated.disagreements),
+                data_type=SCORE_NUMERIC,
+            )
+            tracer.record_score(
+                name="parse_output_contract_valid", value=True, data_type=SCORE_BOOLEAN
+            )
+
+        logger.info(
+            "profile parsed",
             extra={
                 "extra": {
-                    "lines": masked.dropped_lines,
-                    "raw_answers": masked.dropped_raw_answers,
-                    "normalized": masked.withheld_normalized,
+                    "is_mock": not meta.real_call,
+                    "requested": len(body.target_fields),
+                    "accepted": len(gated.accepted),
+                    "disagreements": len(gated.disagreements),
+                    # Field ids and counts only — never a value (§2).
+                    "rejected_by_gate": parse_gates.count_by_gate(gated.rejections),
                 }
             },
         )
-
-    # 2. THE CALL, under a hard deadline. `router.run` never raises, but it can take
-    #    `gemini_timeout_seconds` x the retry chain — an order of magnitude past the p95 budget the
-    #    worker is waiting inside. Cancelling is safe: the router refunds its spend reservation in
-    #    a `finally`, so a cancelled call leaks no ledger.
-    messages = build_parse_messages(masked, body.target_fields, body.language)
-    fallback = empty_parse(body.target_fields).model_dump_json()
-    try:
-        content, meta = await asyncio.wait_for(
-            router.run(
-                PARSE_TASK_TYPE,
-                messages=messages,
-                mock_response=fallback,
-                real_call_allowed=True,
-                user_ref=body.worker_ref,
-            ),
-            timeout=settings_now.profile_parse_deadline_seconds,
-        )
-    except TimeoutError:
-        # `TimeoutError` ONLY — deliberately not `CancelledError`. On Python >= 3.11 `wait_for`
-        # raises the builtin, while a `CancelledError` here means the CLIENT went away, and
-        # swallowing that would turn a disconnect into a fabricated 200 and break cancellation for
-        # everything above this frame.
-        logger.warning(
-            "profile parse deadline exceeded",
-            extra={"extra": {"deadline_s": settings_now.profile_parse_deadline_seconds}},
-        )
-        return _parse_response(parse_gates.GateResult(), body, [*notes, "parse_deadline_exceeded"])
-
-    # Two DIFFERENT degradations, and conflating them would hide the one that needs an operator.
-    # The router's terminal states are unambiguous: nothing attempted (mock mode, a spend cap, the
-    # kill switch) is `real_call=False`, while a provider that was reached and failed every
-    # candidate is `real_call=True, success=False`. The first is a posture, the second is an
-    # incident.
-    if not meta.real_call:
-        notes.append("mock_no_parse")
-    elif not meta.success:
-        notes.append("llm_unavailable")
-
-    # 3. Read the response as a contract object. An unparseable or off-contract body is NOT an
-    #    error to raise — it is simply an overlay that contributed nothing.
-    parsed = _read_parse_output(content)
-    if parsed is None:
-        # The call HAPPENED and was billed — an off-contract body does not refund it. The cost
-        # rides out even though the overlay contributed nothing, which is exactly the case a
-        # spend investigation needs to see.
-        return _parse_response(
-            parse_gates.GateResult(), body, [*notes, "parse_output_invalid"], meta
-        )
-
-    # 4. THE SIX GATES, before the response leaves.
-    gated = parse_gates.apply_parse_gates(
-        parsed,
-        list(body.answer_map),
-        masked.transcript,
-        list(body.target_fields),
-        _certify,
-    )
-    if gated.rejections:
-        notes.append("fields_rejected")
-    if gated.disagreements:
-        notes.append("parse_disagreement")
-    if gated.unrecognized_cities:
-        notes.append("city_unrecognized")
-
-    logger.info(
-        "profile parsed",
-        extra={
-            "extra": {
-                "is_mock": not meta.real_call,
-                "requested": len(body.target_fields),
-                "accepted": len(gated.accepted),
-                "disagreements": len(gated.disagreements),
-                # Field ids and counts only — never a value (§2).
-                "rejected_by_gate": parse_gates.count_by_gate(gated.rejections),
-            }
-        },
-    )
-    return _parse_response(gated, body, notes, meta)
+        return _parse_response(gated, body, notes, meta)
 
 
 def _read_parse_output(content: str) -> ProfileParseOutput | None:

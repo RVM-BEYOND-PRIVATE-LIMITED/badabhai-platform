@@ -6,18 +6,57 @@ import json
 
 from fastapi import APIRouter
 
+from ..ai.langfuse_tracing import WORKFLOW_RESUME
 from ..contracts import ResumeGenerationInput, ResumeGenerationOutput
 from ..extraction import build_resume, resolve_taxonomy_ids
 from ..profiling.prompts import RESUME_SYSTEM_PROMPT
 from ..profiling.signals import label_for_id
 from ..pseudonymize import certified_clean_skill_labels, pseudonymize
-from ._shared import logger, router
+from ._shared import logger, router, workflow_scope
 
 api_router = APIRouter()
 
 
 @api_router.post("/resume/generate", response_model=ResumeGenerationOutput)
 async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput:
+    # THE WORKFLOW ROOT — the only thing this wrapper adds, and it adds no behaviour.
+    #
+    # `router.run` below already opens a task span, but a task with nothing above it IS
+    # its own trace, so a résumé landed in Langfuse DISCONNECTED from the interview turns
+    # and the Phase C extract that produced the very profile it renders — even though
+    # apps/api stamps the SAME BL-19 correlation id on all of them. `workflow_scope` reads
+    # that id off the request context var and derives the trace id from it, so the whole
+    # "profile a worker, then hand them a résumé" arc reads as one operation.
+    #
+    # `worker_ref` really is on this contract (ResumeGenerationInput.worker_ref — the
+    # opaque, PII-free ref the spend ledger already attributes cost to), so the root
+    # carries Langfuse's native user dimension rather than an invented id.
+    #
+    # METADATA IS COUNTS AND A FLAG, NOTHING ELSE. Every free-text field on a DraftProfile
+    # (education_level, current_city, the labels themselves) is precisely what the gate
+    # further down exists to mask; none of it belongs on a span attribute. A count answers
+    # the only question a trace is asked here — how much profile was there to render —
+    # and cannot carry an identity. No value here can be None, so the root never gains a
+    # null metadata key that would show up as a dead filter in the UI.
+    with workflow_scope(
+        name=WORKFLOW_RESUME,
+        worker_ref=body.worker_ref,
+        metadata={
+            "skill_count": len(body.profile.skills),
+            "skill_label_count": len(body.profile.skill_labels),
+            "machine_count": len(body.profile.machines),
+            "education_count": len(body.profile.education),
+            "certification_count": len(body.profile.certifications),
+            "has_resume_profile": body.profile.resume_profile is not None,
+        },
+    ):
+        return await _generate(body)
+
+
+async def _generate(body: ResumeGenerationInput) -> ResumeGenerationOutput:
+    """The handler body, split out only so the trace root above can wrap it whole without
+    re-indenting (and forcing a re-review of) every privacy comment in it. Same shape and
+    same reason as ``routers/voice.py``; nothing below this line changed."""
     # Q14: `skill_labels` is the ONLY free-text field on the résumé profile
     # (everything else is closed-set ids/enums/numbers). Labels are already
     # CERTIFIED AT REST at population (/profile/extract → sanitize_skill_labels),
