@@ -301,10 +301,23 @@ const String kChatOpeningText =
     'Namaste. Main aapka Bada Bhai. Chalo, ab aapka accha sa resume banate hain. '
     'Chaliye shuru karte hain — aap kaunsa kaam karte hain?';
 
-/// The opening bada-bhai prompt as a transcript bubble.
+/// The DEVANAGARI rendering of [kChatOpeningText] for read-aloud (#896) — the
+/// SAME content in the native script so the on-device hi-IN voice pronounces it
+/// correctly (romanized Hindi is read as gibberish by every TTS voice). Client
+/// constant because the opener itself is: unlike every later reply, the first
+/// question is never served with a `tts_text`, so its sibling has to live here to
+/// read correctly on turn one. Keep it in step with [kChatOpeningText] byte-for-
+/// byte in MEANING if that copy changes. Displayed nowhere — spoken only.
+const String kChatOpeningTtsText =
+    'नमस्ते। मैं आपका बड़ा भाई। चलो, अब आपका अच्छा सा रिज़्यूमे बनाते हैं। '
+    'चलिए शुरू करते हैं — आप कौनसा काम करते हैं?';
+
+/// The opening bada-bhai prompt as a transcript bubble. Carries [kChatOpeningTtsText]
+/// so read-aloud speaks Devanagari from the very first question (#896).
 const ChatMessage kChatOpeningMessage = ChatMessage(
   text: kChatOpeningText,
   fromWorker: false,
+  ttsText: kChatOpeningTtsText,
 );
 
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
@@ -554,15 +567,23 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // No optimistic bubble — today's behaviour: append the reply.
         nextMessages = <ChatMessage>[
           ...healed,
-          ChatMessage(text: turn.reply, fromWorker: false),
+          // #896 — the reply bubble carries the Devanagari read-aloud script.
+          ChatMessage(
+            text: turn.reply,
+            fromWorker: false,
+            ttsText: turn.ttsText,
+          ),
         ];
       } else if (predictionWasRight) {
         // The prediction stood — keep the optimistic bubble as-is (metadata
-        // refreshes below), so an agreeing turn causes no visible flicker.
+        // refreshes below), so an agreeing turn causes no visible flicker. Its
+        // ttsText stays null: the predicted bubble has no Devanagari, and it
+        // shows the romanized predicted prompt (which read-aloud falls back to).
         nextMessages = healed;
       } else {
-        // The prediction was wrong — overwrite the optimistic bubble in place.
-        nextMessages = _replaceLastBot(healed, turn.reply);
+        // The prediction was wrong — overwrite the optimistic bubble in place
+        // with the real reply AND its Devanagari read-aloud script (#896).
+        nextMessages = _replaceLastBot(healed, turn.reply, turn.ttsText);
       }
       emit(state.copyWith(
         messages: nextMessages,
@@ -627,12 +648,18 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }
 
   /// Returns [messages] with the LAST message replaced by a bot bubble carrying
-  /// [reply] (the #761 optimistic-bubble overwrite). Defensive, mirroring
-  /// [_withStatus]: an empty list or a worker-bubble tail is returned unchanged.
-  List<ChatMessage> _replaceLastBot(List<ChatMessage> messages, String reply) {
+  /// [reply] and its Devanagari read-aloud script [ttsText] (#761 optimistic-
+  /// bubble overwrite; #896 read-aloud). Defensive, mirroring [_withStatus]: an
+  /// empty list or a worker-bubble tail is returned unchanged.
+  List<ChatMessage> _replaceLastBot(
+    List<ChatMessage> messages,
+    String reply,
+    String? ttsText,
+  ) {
     if (messages.isEmpty || messages.last.fromWorker) return messages;
     final List<ChatMessage> next = List<ChatMessage>.of(messages);
-    next[next.length - 1] = ChatMessage(text: reply, fromWorker: false);
+    next[next.length - 1] =
+        ChatMessage(text: reply, fromWorker: false, ttsText: ttsText);
     return next;
   }
 

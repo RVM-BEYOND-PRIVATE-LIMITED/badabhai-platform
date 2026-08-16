@@ -865,4 +865,42 @@ void main() {
           reason: 'a retry re-sends the ORIGINAL id, never a fresh one');
     });
   });
+
+  // #896 — read-aloud Devanagari. The opener carries its Devanagari sibling
+  // constant so the FIRST question reads correctly; every reply bubble carries
+  // the turn's `tts_text` while a worker bubble never does.
+  group('read-aloud tts_text rides the BOT bubble (#896)', () {
+    test('the opener bubble carries kChatOpeningTtsText', () {
+      expect(kChatOpeningMessage.ttsText, isNotNull);
+      expect(kChatOpeningMessage.ttsText, kChatOpeningTtsText);
+    });
+
+    test('a reply bubble carries the turn ttsText; the worker bubble is null',
+        () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.sendMessage('cnc',
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Aap kaunsa kaam karte hain?',
+                ttsText: 'आप कौनसा काम करते हैं?',
+              ));
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      // index 0 opener, 1 worker bubble, 2 reply bubble.
+      final ChatMessage worker = bloc.state.messages[1];
+      final ChatMessage reply = bloc.state.messages[2];
+      expect(worker.fromWorker, isTrue);
+      expect(worker.ttsText, isNull,
+          reason: 'a worker bubble never carries a read-aloud script');
+      expect(reply.fromWorker, isFalse);
+      expect(reply.text, 'Aap kaunsa kaam karte hain?',
+          reason: 'the bubble still SHOWS the romanized text');
+      expect(reply.ttsText, 'आप कौनसा काम करते हैं?',
+          reason: 'read-aloud SPEAKS the Devanagari sibling');
+    });
+  });
 }
