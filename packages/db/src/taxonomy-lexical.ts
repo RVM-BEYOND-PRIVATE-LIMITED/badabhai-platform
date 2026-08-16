@@ -44,22 +44,22 @@
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
 import { SKILL_CORPUS } from "@badabhai/taxonomy";
 
-import { GENERIC_SKILL_STOPLIST, type TaxonomySkillRecord } from "./taxonomy-corpus";
+import {
+  GENERIC_SKILL_STOPLIST,
+  taxonomyTokens,
+  type TaxonomySkillRecord,
+} from "./taxonomy-corpus";
 
 // ===========================================================================
 // Tokens
 // ===========================================================================
 
 /**
- * The joiners the normalizer keeps intra-word, plus whitespace. See the header: these are
- * separators for an OVERLAP measure and nowhere else.
+ * Re-exported, NOT redefined. `taxonomyTokens` lives in `taxonomy-corpus.ts` so the validator
+ * and this file cannot drift — they did, and the divergence let an all-generic label slip
+ * every check in the pipeline. See the docblock there.
  */
-const TOKEN_SPLIT = /[\s/-]+/;
-
-/** Split an ALREADY-NORMALIZED string into comparison tokens. */
-export function taxonomyTokens(normalized: string): string[] {
-  return normalized.split(TOKEN_SPLIT).filter((t) => t.length > 0);
-}
+export { taxonomyTokens };
 
 /** `normalizeOccupationText` + {@link taxonomyTokens}. The only way text enters this file. */
 export function normalizedTokens(text: string): string[] {
@@ -373,15 +373,50 @@ export interface AliasCoherence {
   divergent_clusters: SurfaceCluster[];
 }
 
+/** Devanagari, the only non-Latin script this corpus carries (`lang: "hi"`). */
+const DEVANAGARI = /[ऀ-ॿ]/;
+
 /**
- * Cluster a skill's surface forms by shared informative token.
+ * Which writing system a surface form is in.
+ *
+ * THIS EXISTS BECAUSE TOKEN OVERLAP IS MEANINGLESS ACROSS SCRIPTS, and treating it as
+ * meaningful produced a confident false accusation on the corpus's own required input shape.
+ *
+ * `normalizeOccupationText` preserves Devanagari, so a Hindi alias and an English label can
+ * NEVER share a token — not because they describe different concepts, but because they are
+ * written in different alphabets. `aliasCoherence` reads "shares no token with the label" as
+ * evidence of a second concept, so before this split every skill with two families of Hindi
+ * aliases scored two divergent clusters and blocked as FALSE_REUSE. Verified on a real
+ * fixture: `"Mortar Mixing"` with `गारा मिश्रण / गारा बनाना / मसाला तैयार / मसाला घोल` —
+ * four correct Hindi synonyms — produced clusters
+ * `[["mortar mix","mortar mixing"],["गारा बनाना","गारा मिश्रण"],["मसाला घोल","मसाला तैयार"]]`
+ * and a BLOCK. The prompt REQUIRES those aliases (`generate-domain-skills.ts` asks for
+ * "Hindi in Devanagari"), so the gate was rejecting exactly what it asked for.
+ *
+ * A form containing ANY Devanagari counts as Devanagari: a mixed form like `MIG वेल्डिंग`
+ * belongs with the Hindi vocabulary it is written for.
+ */
+function scriptOf(normalized: string): "deva" | "latn" {
+  return DEVANAGARI.test(normalized) ? "deva" : "latn";
+}
+
+/**
+ * Cluster a skill's surface forms by shared informative token, WITHIN ONE WRITING SYSTEM.
  *
  * THIS IS THE HALF THE GENERATOR CANNOT PRODUCE. A generator that wrongly merges two
  * concepts reports it as a confident reuse — it cannot grade its own homework. What it
  * leaves behind is physical: the merged row now carries the vocabulary of both concepts,
  * and that shows up as two mutually-disconnected groups of alias text on one skill.
+ *
+ * ONLY THE LABEL'S SCRIPT PRODUCES DIVERGENCE. Forms in another script are clustered and
+ * reported (so the shape of the vocabulary is still visible) but can never be `divergent`,
+ * because the question divergence asks — "does this share vocabulary with the canonical
+ * label?" — has no answer across alphabets. Nor is divergence computed inside the other
+ * script: two Hindi synonym families for one concept routinely share no token (`गारा` and
+ * `मसाला` are both mortar), so a cluster count there is not evidence of anything.
  */
 export function aliasCoherence(surface: SkillSurface): AliasCoherence {
+  const labelScript = scriptOf(surface.label_norm);
   const nodes = surface.surface_norms;
   const tokensOf = new Map<string, Set<string>>(
     nodes.map((n) => [n, new Set(taxonomyTokens(n).filter((t) => !UNINFORMATIVE.has(t)))]),
@@ -408,6 +443,10 @@ export function aliasCoherence(surface: SkillSurface): AliasCoherence {
     for (let j = i + 1; j < nodes.length; j += 1) {
       const a = nodes[i] as string;
       const b = nodes[j] as string;
+      // Cross-script pairs are never joined, and never compared — see `scriptOf`. Their
+      // token sets are disjoint by construction, so the check below would "correctly"
+      // return false and the whole point is that the false is not evidence.
+      if (scriptOf(a) !== scriptOf(b)) continue;
       const ta = tokensOf.get(a) as Set<string>;
       const tb = tokensOf.get(b) as Set<string>;
       if ([...ta].some((t) => tb.has(t))) union(a, b);
@@ -437,6 +476,13 @@ export function aliasCoherence(surface: SkillSurface): AliasCoherence {
 
   return {
     clusters,
-    divergent_clusters: clusters.filter((c) => !c.contains_label && c.members.length >= 2),
+    divergent_clusters: clusters.filter(
+      (c) =>
+        !c.contains_label &&
+        c.members.length >= 2 &&
+        // Same alphabet as the label, or "shares nothing with the label" is a fact about
+        // Unicode rather than about meaning.
+        c.members.every((m) => scriptOf(m) === labelScript),
+    ),
   };
 }

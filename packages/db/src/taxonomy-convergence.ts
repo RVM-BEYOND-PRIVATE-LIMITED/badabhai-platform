@@ -372,7 +372,27 @@ export const SENIORITY_WORDS: readonly string[] = [
   "incharge",
   "sahayak",
   "madadgar",
+  // ── added after an adversarial review found the list missed the rungs an Indian shop
+  //    floor actually uses. `mistri` is the most common of all and was absent.
+  "mistri",
+  "foreman",
+  "chargehand",
+  "thekedar",
+  "fresher",
+  "sr",
+  "jr",
 ];
+
+/**
+ * DELIBERATELY NOT SENIORITY WORDS, though the same review proposed them: `head` and `lead`.
+ *
+ * Both are ordinary technical nouns in exactly these trades — a `head gasket`, `lead
+ * soldering`, `leadwork` on a roof, a `weld head`. The flag fires only when NOTHING technical
+ * survives the level word, so "Head Gasket Replacement" would be safe either way; but "Lead
+ * Work" would not, and it is a real roofing skill. A false positive here BLOCKS a seed with
+ * no override, so the asymmetry decides it: missing a rung leaves a weak skill for a human
+ * reviewer to catch in the diff, while inventing one deletes a real capability.
+ */
 
 const SENIORITY_SET: ReadonlySet<string> = new Set(SENIORITY_WORDS);
 

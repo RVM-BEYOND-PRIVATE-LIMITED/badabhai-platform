@@ -305,6 +305,24 @@ export type TaxonomyProblemCode =
   | "DOMAIN_DUPLICATE"
   | "DOMAIN_LABEL_MISSING";
 
+/**
+ * The joiners `normalizeOccupationText` keeps INTRA-WORD, plus whitespace.
+ *
+ * THE ONE TOKENIZER. It lives here, in the lowest layer, because there was briefly a second
+ * one: this file used `labelNorm.split(" ")` while `taxonomy-lexical.ts` split on `/[\s/-]+/`,
+ * and the two disagreed on exactly the characters the normalizer preserves. `"Machine/Tools"`
+ * was one token to the validator (not in the stoplist, so not over-generic) and two tokens to
+ * the analyzer (both generic, so zero informative tokens) — a label that was simultaneously
+ * too specific to reject and too empty to compare, invisible to every detector downstream.
+ * Two tokenizers is one too many; `taxonomy-lexical.ts` imports this.
+ */
+const TOKEN_SPLIT = /[\s/-]+/;
+
+/** Split an ALREADY-NORMALIZED string into comparison tokens. */
+export function taxonomyTokens(normalized: string): string[] {
+  return normalized.split(TOKEN_SPLIT).filter((t) => t.length > 0);
+}
+
 const PROBLEM_SEPARATOR = " — ";
 
 function problem(locator: string, code: TaxonomyProblemCode, detail: string): string {
@@ -718,14 +736,20 @@ export function validateTaxonomyCorpus(
         );
       }
 
-      const tokens = labelNorm.split(" ").filter((t) => t.length > 0);
-      const only = tokens.length === 1 ? tokens[0] : undefined;
-      if (only !== undefined && stoplist.has(only)) {
+      // EVERY token generic, not merely a lone generic token. The old rule only fired on a
+      // one-word label, so `"machine work"` and `"machine/tools"` — labels made entirely of
+      // filler, which is the same defect wearing two words — went straight through. Worse,
+      // they went through with an EMPTY informative-token set, which makes them invisible to
+      // `equivalenceEvidence`, `aliasCoherence` and the seniority detector too: unmatchable,
+      // unmergeable, unflaggable. `taxonomy-convergence.ts` already documents this check as
+      // the thing that catches `"machine work"`; now it does.
+      const tokens = taxonomyTokens(labelNorm);
+      if (tokens.length > 0 && tokens.every((t) => stoplist.has(t))) {
         problems.push(
           problem(
             where,
             "SKILL_LABEL_OVER_GENERIC",
-            `${JSON.stringify(s.label_en)} is a single over-generic word. It tells an employer nothing ` +
+            `${JSON.stringify(s.label_en)} is made entirely of over-generic words. It tells an employer nothing ` +
               `and it acts as an attractor during canonicalization, swallowing phrases that should ` +
               `have resolved to a real skill. Delete it or qualify it ("machine" -> "machine ` +
               `maintenance"). A HUMAN decides; the validator only refuses to let it through unseen.`,
@@ -1065,6 +1089,6 @@ function main(): void {
 
 // Guarded so importing the loader/validator (the seeder, the generator, the tests) does
 // not run the CLI. Same guard shape as `generate-domain-aliases.ts`.
-if (process.argv[1] && /taxonomy-corpus/.test(process.argv[1])) {
+if (process.argv[1] && /taxonomy-corpus\.ts$/.test(process.argv[1])) {
   main();
 }

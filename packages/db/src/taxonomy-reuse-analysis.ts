@@ -181,8 +181,16 @@ export interface TradeGroupReuseReport {
    * truth for every trade the 49-skill wedge corpus does not cover.
    */
   reuse_opportunity_ratio: number | null;
-  /** The reading, in words, so a column-scanner cannot get it backwards. */
-  limitation: "no_shipped_coverage" | "thin_shipped_coverage" | "covered";
+  /**
+   * The reading, in words, so a column-scanner cannot get it backwards.
+   *
+   * `not_drafted` is the fourth and it is not a coverage statement at all: the group has NO
+   * EDGES, so no batch has touched it. Without it, a well-covered trade nobody has drafted
+   * yet rendered `reused 0/3 ratio=0 (covered)` — which reads as "the generator reused
+   * nothing", the exact misreading the NULL-vs-zero rule exists to prevent, arriving through
+   * the numerator instead of the denominator.
+   */
+  limitation: "no_shipped_coverage" | "thin_shipped_coverage" | "covered" | "not_drafted";
 }
 
 export interface ReuseAnalysis {
@@ -589,15 +597,25 @@ function classify(
     };
   }
   if (match !== null) {
+    // WHERE the twin lives has to be stated correctly even in the weak band. Saying "shipped"
+    // about a sibling sends a reviewer looking for an id that is not in `SKILL_CORPUS` and
+    // never was — the same failure the strong branch's `WITHIN_BATCH:` prefix exists to
+    // prevent, and the reason that prefix exists at all.
+    const fromShipped = match === shippedMatch;
     return {
       skill_id: input.skill_id,
       label_en: input.label_en,
       category: "POTENTIAL_AMBIGUITY",
-      reason:
-        `this new skill partially overlaps shipped ${match.skill_id}, but neither label contains ` +
-        `the other and they share no alias. Reuse may or may not have been available.`,
+      reason: fromShipped
+        ? `this new skill partially overlaps shipped ${match.skill_id}, but neither label contains ` +
+          `the other and they share no alias. Reuse may or may not have been available.`
+        : `this new skill partially overlaps ${match.skill_id}, which this batch also minted — ` +
+          `neither is shipped. Too weak to call a duplicate; a human rules on whether they are ` +
+          `one concept.`,
       matched_existing_skill_id: match.skill_id,
-      evidence: [`LEXICAL:${match.relation} ${match.detail}`],
+      evidence: [
+        `${fromShipped ? "LEXICAL" : "WITHIN_BATCH"}:${match.relation} ${match.detail}`,
+      ],
       confidence_signal: "worth_looking_at",
     };
   }
@@ -688,8 +706,11 @@ function buildTradeGroupReports(
       // narrower than the model's judgement.
       const candidates = [...new Set([...lexical, ...reused])].sort();
 
+      // A group with no edges has not been drafted. Its ratio is NULL for the same reason a
+      // group with no candidates has one: 0 would assert a failure that did not happen.
+      const drafted = referenced.size > 0;
       const ratio =
-        candidates.length === 0
+        candidates.length === 0 || !drafted
           ? null
           : Math.round((reused.length / candidates.length) * 1000) / 1000;
 
@@ -701,8 +722,9 @@ function buildTradeGroupReports(
         actual_reuse: reused.length,
         new_skills: minted.length,
         reuse_opportunity_ratio: ratio,
-        limitation:
-          candidates.length === 0
+        limitation: !drafted
+          ? "not_drafted"
+          : candidates.length === 0
             ? "no_shipped_coverage"
             : candidates.length < THIN_COVERAGE_THRESHOLD
               ? "thin_shipped_coverage"

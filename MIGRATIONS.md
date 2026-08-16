@@ -38,9 +38,29 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0072`–`0073` | Divyanshu | **MERGED** — OIE P8 cutover: `unresolved_phrase.scope`, pack answers (#650) |
 | `0074`        | Prakash   | **MERGED** — `.enableRLS()` model markers, 31 tables (BL-26, #839) |
 | `0075`        | Divyanshu | **MERGED** — `job_postings` state for `GET /jobs/search` (#822, #856) |
-| `0076`        | Prakash   | **CLAIMED** — canonical Domain→Skill taxonomy, Phase 1 (see note below) |
+| `0076`        | Prakash   | **ON `main`** — canonical Domain→Skill taxonomy, Phase 1 (`fca0ef9c`; see notes below) |
 | `0077`–`0079` | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
 | `0080`+       | unclaimed | claim in a PR of its own, so the claim is reviewable          |
+
+### `0076` deploy ordering and rollback — 2026-08-16
+
+Two operational facts that the migration header does not carry, recorded here because both
+were found by review rather than by anyone hitting them.
+
+**MIGRATE BEFORE YOU DEPLOY.** `0076` adds `job_postings.job_domain_id`, and `schema/job.ts`
+adds the matching Drizzle column. Drizzle enumerates columns explicitly on `.select()`, so a
+`@badabhai/db` build containing that column, deployed against a database that has not run
+`0076`, fails **every** `job_postings` read with `column "job_domain_id" does not exist` — not
+merely the new canonical arm. There is no application-level feature flag that avoids this; the
+ordering is the control.
+
+**THE ROLLBACK IS NO LONGER SINGLE-COMMIT.** The recipe in the migration header was written at
+Phase 1 and is correct in isolation. `ef73ce70` then made
+`apps/api/src/skills/skills.repository.ts` query `job_domain_skill` directly, so reverting
+`0076` now requires reverting `ef73ce70` in the same operation. Today the blast radius is
+compile/deploy-time rather than request-time — nothing writes `job_postings.job_domain_id`
+yet, so the canonical arm is unreachable at runtime — but the pairing is real and the header
+does not mention it.
 
 ### The `0076` claim, and the stale table that preceded it — 2026-08-16
 
