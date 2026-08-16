@@ -1,0 +1,185 @@
+{
+  "artifact_kind": "post_generation_remediation",
+  "remediation_id": "batch_2026-08-16T14-30-41Z-remediation",
+  "parent_batch": "batch_2026-08-16T14-30-41Z",
+  "original_prompt_sha256": "e43b9fcfeffc720e4b13a5c5f3d48471bd3d7322a3a5f8724fc8e2b6dcd1dc2a",
+  "original_raw_response_sha256": "fbf12a04724e1551ac94cc10319e843934be4945da910aedde7a809aa0b42e6a",
+  "corrected_raw_response_sha256": "6564bf6901d9bb9b2617b29dec90b3bbc1de2415f3c9acb7a21ba07d8520a63b",
+  "remediation_method": "deterministic_manual_correction",
+  "model_called_for_remediation": false,
+  "remediation_reason": "The first 28-domain run passed structural validation with 0 rejections and was then BLOCKED by the semantic quality gate with 3 blocking findings: 1 MISSED_REUSE_CATALOGUE and 2 MISSED_REUSE_WITHIN_BATCH (both ends of one pair). All three were assessed as true positives caused by the generation, not by the gate. The gate is unchanged.",
+  "affected_domains": [
+    "jd_isco_7233",
+    "jd_nco_7112_0601",
+    "jd_nco_7233_0101"
+  ],
+  "unaffected_domains": [
+    "jd_isco_4321",
+    "jd_isco_7127",
+    "jd_isco_7213",
+    "jd_nco_4321_0100",
+    "jd_nco_4321_0601",
+    "jd_nco_7112_0100",
+    "jd_nco_7126_0101",
+    "jd_nco_7126_0301",
+    "jd_nco_7212_0100",
+    "jd_nco_7212_0300",
+    "jd_nco_7212_0301",
+    "jd_nco_7223_0701",
+    "jd_nco_7223_2400",
+    "jd_nco_7223_6002",
+    "jd_nco_7223_6003",
+    "jd_nco_7224_0102",
+    "jd_nco_7231_0100",
+    "jd_nco_7231_0400",
+    "jd_nco_7313_2601",
+    "jd_nco_7411_0100",
+    "jd_nco_7412_0200",
+    "jd_nco_7421_0401",
+    "jd_nco_7543_2001",
+    "jd_nco_8211_1200",
+    "jd_nco_8212_0100"
+  ],
+  "changes": [
+    {
+      "change_id": "R1",
+      "finding": "MISSED_REUSE_CATALOGUE",
+      "gate_evidence": "LEXICAL:surface_form_shared",
+      "op": "remove_proposal_folded_into_existing_reuse",
+      "job_domain_id": "jd_isco_7233",
+      "job_domain_label_en": "Agricultural and Industrial Machinery Mechanics and Repairers",
+      "skills_index": 7,
+      "removed_skill_id_would_have_been": "skill_preventive_maintenance_scheduling",
+      "canonical_skill_id": "skill_machine_maintenance",
+      "canonical_already_echoed_at_skills_index": 0,
+      "reason": "The proposal carried the alias \"preventive maintenance\", which the shipped skill skill_machine_maintenance already answers to. Two rows competing for one surface form makes canonicalization non-deterministic. The domain already reuses skill_machine_maintenance (required, relevance 95), so the concept survives the removal at a HIGHER relevance than the proposal claimed.",
+      "before": {
+        "existing_skill_id": null,
+        "label_en": "Preventive maintenance scheduling",
+        "label_hi": "निवारक रखरखाव योजना",
+        "aliases": [
+          {
+            "text": "preventive maintenance",
+            "lang": "en"
+          },
+          {
+            "text": "नियमित रखरखाव",
+            "lang": "hi"
+          }
+        ],
+        "requirement": "preferred",
+        "relevance": 78,
+        "confidence": 0.88
+      },
+      "surviving_entry": {
+        "existing_skill_id": "skill_machine_maintenance",
+        "label_en": "skill_machine_maintenance",
+        "label_hi": null,
+        "aliases": [],
+        "requirement": "required",
+        "relevance": 95,
+        "confidence": 0.95
+      }
+    },
+    {
+      "change_id": "R2",
+      "finding": "MISSED_REUSE_CATALOGUE",
+      "gate_evidence": "LEXICAL:surface_form_shared",
+      "op": "remove_proposal_folded_into_existing_reuse",
+      "job_domain_id": "jd_nco_7233_0101",
+      "job_domain_label_en": "Maintenance Fitter-Mechanical",
+      "skills_index": 4,
+      "removed_skill_id_would_have_been": "skill_preventive_maintenance_scheduling",
+      "canonical_skill_id": "skill_machine_maintenance",
+      "canonical_already_echoed_at_skills_index": 0,
+      "reason": "Same concept, same shared surface form, second domain. This domain also already reuses skill_machine_maintenance (required, relevance 94). Removing the proposal here as well is what prevents skill_preventive_maintenance_scheduling from being minted at all.",
+      "before": {
+        "existing_skill_id": null,
+        "label_en": "Preventive maintenance scheduling",
+        "label_hi": "निवारक रखरखाव योजना",
+        "aliases": [
+          {
+            "text": "preventive maintenance",
+            "lang": "en"
+          },
+          {
+            "text": "नियमित रखरखाव",
+            "lang": "hi"
+          }
+        ],
+        "requirement": "required",
+        "relevance": 82,
+        "confidence": 0.88
+      },
+      "surviving_entry": {
+        "existing_skill_id": "skill_machine_maintenance",
+        "label_en": "skill_machine_maintenance",
+        "label_hi": null,
+        "aliases": [],
+        "requirement": "required",
+        "relevance": 94,
+        "confidence": 0.94
+      }
+    },
+    {
+      "change_id": "R3",
+      "finding": "MISSED_REUSE_WITHIN_BATCH",
+      "gate_evidence": "WITHIN_BATCH:strict_token_subset",
+      "op": "remove_within_batch_duplicate",
+      "job_domain_id": "jd_nco_7112_0601",
+      "job_domain_label_en": "Assistant Mason",
+      "skills_index": 6,
+      "removed_skill_id_would_have_been": "skill_mixing_machine_operation",
+      "canonical_skill_id": "skill_mortar_mixing",
+      "canonical_already_echoed_at_skills_index": 0,
+      "reason": "Both ids were minted by this batch, so no against-catalogue check could see the pair. On site these are one activity. skill_mortar_mixing is kept as the canonical generated concept and is already wired into this domain at skills[0] (required, relevance 92). The detector fired via strict_token_subset and was correct; it is unchanged.",
+      "before": {
+        "existing_skill_id": null,
+        "label_en": "Mixing machine operation",
+        "label_hi": "मिक्सर चलाना",
+        "aliases": [
+          {
+            "text": "mixer operation",
+            "lang": "en"
+          },
+          {
+            "text": "मिक्सर मशीन",
+            "lang": "hi"
+          }
+        ],
+        "requirement": "preferred",
+        "relevance": 70,
+        "confidence": 0.8
+      },
+      "surviving_entry": {
+        "existing_skill_id": null,
+        "label_en": "Mortar mixing",
+        "label_hi": "गारा मिश्रण",
+        "aliases": [
+          {
+            "text": "mortar mix",
+            "lang": "en"
+          },
+          {
+            "text": "गारा बनाना",
+            "lang": "hi"
+          },
+          {
+            "text": "मसाला तैयार करना",
+            "lang": "hi"
+          }
+        ],
+        "requirement": "required",
+        "relevance": 92,
+        "confidence": 0.93
+      }
+    }
+  ],
+  "gate_unchanged": {
+    "MIN_TOKENS_FOR_SET_EQUALITY": "unchanged",
+    "strict_token_subset": "unchanged",
+    "stoplist": "unchanged",
+    "BLOCKING_CODES": "unchanged"
+  },
+  "reconstruction": "corrected = original raw-responses.jsonl with changes[].skills_index removed from changes[].job_domain_id, in the listed order, plus a leading '#' provenance banner. Deleting entries at descending indices within a domain is not required here: the three removals are in three distinct domains."
+}
