@@ -11,7 +11,19 @@
  * of thousands of reference rows pointed at the wrong database is exactly the failure that
  * harness exists to prevent.
  *
- * REFUSES AN INVALID CORPUS. The validator is the gate; this file is only the hands.
+ * REFUSES AN INVALID CORPUS, AND REFUSES AN UNSOUND ONE. Two gates, in order, both before
+ * a connection is opened; this file is only the hands.
+ *
+ *   1. `validateTaxonomyCorpus`   — STRUCTURAL. Well-formed ids, resolvable edges, no alias
+ *                                   owned twice, no empty label.
+ *   2. `taxonomyQualityVerdict`   — SEMANTIC. Duplicate concepts (against the shipped
+ *                                   catalogue AND within the corpus itself), fragmented
+ *                                   concepts across related trades, seniority rungs wearing
+ *                                   a skill's clothes. A corpus can pass gate 1 completely
+ *                                   and fail gate 2, which is exactly why gate 2 exists.
+ *
+ * Gate 2 runs with NO attribution scope — every row in the corpus is accountable. That is
+ * stricter than the ingest, on purpose: see the comment at the call site.
  *
  * It calls `loadTaxonomyCorpus` + `validateTaxonomyCorpus` INLINE rather than the
  * convenience wrapper `resolveTaxonomyCorpus`, and that is deliberate rather than an
@@ -90,6 +102,11 @@ import {
   type TaxonomyLang,
   type TaxonomySkillRecord,
 } from "./taxonomy-corpus";
+import {
+  analyzeTaxonomyQuality,
+  formatTaxonomyQualityReport,
+  taxonomyQualityVerdict,
+} from "./taxonomy-quality-gate";
 
 const SCRIPT = "seed:domain-skills";
 
@@ -310,6 +327,38 @@ async function main(): Promise<void> {
         `as a successful seed is how a taxonomy silently never ships.`,
     );
   }
+
+  // THE SECOND GATE — semantic, not structural. The validator above proved every record is
+  // well-formed; this proves the SET is fit to become immutable rows.
+  //
+  // NO `attributableSkillIds`, deliberately. At ingest a batch is only accountable for what
+  // it proposed, because blaming it for the committed corpus would block every future batch
+  // on somebody else's mistake. Here that reasoning inverts: this is the last moment before
+  // `skill_id` becomes immutable and never reused (ADR-0030 SG-5), and "a previous commit
+  // introduced it" is not a reason to write a duplicate concept into a database. Everything
+  // in the corpus is accountable, including rows that got here by a route that had no gate
+  // (a hand edit, or a batch ingested before this gate existed).
+  //
+  // It runs in DRY RUN too. A dry run's job is to report what an apply would do, and an
+  // apply would refuse.
+  const qualityFindings = analyzeTaxonomyQuality(corpus.skills, corpus.edges, {
+    domains: corpus.domains,
+    problems, // consumed, not recomputed — the same set the structural gate acted on
+  });
+  const quality = taxonomyQualityVerdict(qualityFindings);
+  for (const line of formatTaxonomyQualityReport(qualityFindings, quality)) {
+    console.log(`[${SCRIPT}] ${line}`);
+  }
+  if (quality.verdict === "BLOCK") {
+    throw new Error(
+      `[${SCRIPT}] quality gate BLOCKED — refusing to seed. ${quality.blocking.length} blocking ` +
+        `finding(s); a skill_id is immutable and never reused, so a duplicate or fragmented ` +
+        `concept written here cannot be edited out later, only deprecated. Run ` +
+        `'pnpm db:report:taxonomy' for the full detail.\n  - ` +
+        quality.blocking.map((f) => `${f.code} ${f.subject} — ${f.reason}`).join("\n  - "),
+    );
+  }
+
   printCounts(SCRIPT, summariseTaxonomyCorpus(corpus));
 
   const { db, sql } = createDbClient(opts.databaseUrl, { max: 1 });
@@ -426,10 +475,26 @@ async function main(): Promise<void> {
       return;
     }
 
-    // ── 1) `skill` — labels only on conflict ────────────────────────────────
+    // ── ALL THREE WRITES IN ONE TRANSACTION ─────────────────────────────────
+    //
+    // The three tables are not independent: `job_domain_skill` has FKs to `skill`, and
+    // `skill_alias` is meaningless without its skill. Run as three loose loops, any mid-run
+    // failure — a statement timeout, a dropped connection, a concurrent claimant taking a
+    // `(skill_id, text_norm, lang)` group between the read above and the write below, or a
+    // CHECK a future edit reintroduces — leaves skills written, aliases half-written and
+    // edges missing. The seed is idempotent so a re-run would converge, but the operator sees
+    // a stack trace with nothing telling them that, and a half-populated employer skill picker
+    // in the meantime.
+    //
+    // One transaction makes the run atomic: either the whole taxonomy lands or none of it
+    // does, and a failure needs no recovery reasoning at all.
     let skillWrites = 0;
+    let aliasWrites = 0;
+    let edgeWrites = 0;
+    await db.transaction(async (tx) => {
+    // ── 1) `skill` — labels only on conflict ────────────────────────────────
     for (const chunk of chunked(skillRows, CHUNK)) {
-      const written = await db
+      const written = await tx
         .insert(skills)
         .values(
           chunk.map((s) => ({
@@ -459,20 +524,32 @@ async function main(): Promise<void> {
         )
         .onConflictDoUpdate({
           target: skills.skillId,
-          set: { labelEn: dsql`excluded.label_en`, labelHi: dsql`excluded.label_hi`, updatedAt: now },
+          set: {
+            labelEn: dsql`excluded.label_en`,
+            // COALESCE, NOT a straight overwrite. A corpus record carries `label_hi: null`
+            // for almost every skill; ops translating one directly in the database is a
+            // legitimate and expected act. A plain `excluded.label_hi` made the next re-seed
+            // DELETE that translation — silently, because `NULL IS DISTINCT FROM 'फैनुक'` is
+            // true, so the guard below saw a real change and wrote it. Propagating a value is
+            // defensible; destroying one a human typed is not, and nothing else in this file
+            // deletes anything (CLAUDE.md §10).
+            labelHi: dsql`COALESCE(excluded.label_hi, "skill"."label_hi")`,
+            updatedAt: now,
+          },
           // Only when something actually differs, so a re-run is a genuine no-op rather
-          // than a rewrite of every row's `updated_at`.
+          // than a rewrite of every row's `updated_at`. The `IS NOT NULL` on the Hindi arm
+          // keeps a null-vs-present difference from counting as a change at all.
           setWhere: dsql`"skill"."label_en" IS DISTINCT FROM excluded."label_en"
-                      OR "skill"."label_hi" IS DISTINCT FROM excluded."label_hi"`,
+                      OR ( excluded."label_hi" IS NOT NULL
+                       AND "skill"."label_hi" IS DISTINCT FROM excluded."label_hi" )`,
         })
         .returning({ id: skills.skillId });
       skillWrites += written.length;
     }
 
     // ── 2) `skill_alias` — deterministic id, embedding untouched ────────────
-    let aliasWrites = 0;
     for (const chunk of chunked(aliasRows, CHUNK)) {
-      const written = await db
+      const written = await tx
         .insert(skillAliases)
         .values(
           chunk.map((a) => ({
@@ -506,9 +583,8 @@ async function main(): Promise<void> {
     }
 
     // ── 3) `job_domain_skill` — curated always wins ─────────────────────────
-    let edgeWrites = 0;
     for (const chunk of chunked(edgeRows, CHUNK)) {
-      const written = await db
+      const written = await tx
         .insert(jobDomainSkills)
         // `status` is INSERT-ONLY, and its absence from both `set` and `setWhere` below is
         // deliberate: a re-seed must never resurrect an edge a human deprecated. New rows
@@ -529,7 +605,15 @@ async function main(): Promise<void> {
           // (schema/taxonomy.ts). The IS DISTINCT FROM tail keeps a re-run from bumping
           // `computed_at` on rows nothing changed for — which matters, because
           // `computed_at` is how a partial or stale rebuild is detected.
-          setWhere: dsql`"job_domain_skill"."source" <> 'curated'
+          //
+          // `inherited` is excluded for a HARD reason, not a soft one. CHECK
+          // `job_domain_skill_inherited_source_ck` (migration 0076) requires
+          // `inherited_from_job_domain_id IS NULL OR source = 'inherited'`. This `set` rewrites
+          // `source` and never touches `inherited_from_job_domain_id`, so flipping an
+          // inherited row back to `llm_bootstrap` leaves a non-NULL parent link under a
+          // non-inherited source — the CHECK fires, the statement errors, and the apply dies
+          // part-way through. The curated guard was written; this one was missed.
+          setWhere: dsql`"job_domain_skill"."source" NOT IN ('curated', 'inherited')
                      AND ( "job_domain_skill"."default_requirement" IS DISTINCT FROM excluded."default_requirement"
                         OR "job_domain_skill"."relevance"           IS DISTINCT FROM excluded."relevance"
                         OR "job_domain_skill"."confidence"          IS DISTINCT FROM excluded."confidence"
@@ -538,6 +622,7 @@ async function main(): Promise<void> {
         .returning({ id: jobDomainSkills.skillId });
       edgeWrites += written.length;
     }
+    });
 
     printCounts(SCRIPT, {
       skills_written: skillWrites,

@@ -113,6 +113,14 @@ const LOCKED_TABLES = [
   // ── Voice profiling form (migration 0071) ───────────────────────────────────
   "worker_attributes", // 0071: the settled value of an `attribute`-kind answer (77% of the pack corpus had no destination before this) — trade facts keyed by an opaque worker_id, same class as worker_profiles; RLS+FORCE+REVOKE in migration 0071
   "profiling_voice_answer", // 0071: one row per recorded answer clip — opaque ids + question_key + status, NEVER a transcript (that stays on voice_notes); RLS+FORCE+REVOKE in migration 0071
+  // ── Canonical Domain→Skill taxonomy (migration 0076) ────────────────────────
+  // Listed late, and that is the finding rather than the fix: 0076 created these three
+  // tables and landed on `main` without this list being updated. The drift guard below did
+  // its job — it just had nothing to fail, because that commit bypassed `ci-required`. The
+  // first change in the workstream to actually run CI is what surfaced it.
+  "job_domain_skill", // 0076: the canonical trade -> skill materialization the employer's picker reads — reference data, PII-free (jd_*/skill_* ids, relevance, confidence); RLS+FORCE+REVOKE in migration 0076
+  "worker_profile_skill", // 0076: per-worker extracted skills keyed by an opaque worker_id — same class as worker_skill; evidence_ref is an OPAQUE INTERNAL ID, never a quote or transcript fragment; RLS+FORCE+REVOKE in migration 0076
+  "job_posting_skill", // 0076: the requirement an employer actually chose per posting — opaque posting id + closed-vocabulary skill id, PII-free; RLS+FORCE+REVOKE in migration 0076
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

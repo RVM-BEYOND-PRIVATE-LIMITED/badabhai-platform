@@ -471,12 +471,42 @@ async function main(): Promise<void> {
             source: a.source,
             domainId: targetDomain,
             embedding: a.embedding,
+            // ── COLUMNS ADDED BY MIGRATION 0076 ──────────────────────────────
+            //
+            // This is a row REPLACEMENT (insert-then-delete), so every column omitted here is
+            // silently dropped. Before 0076 that was complete; 0076 added four columns and
+            // this writer was not audited, so a retag quietly reset all four:
+            //   text_norm      -> NULL, dropping the alias out of `skill_alias_text_norm_idx`
+            //                     (L0 exact) and the trigram index (L2). Retrieval stops
+            //                     hitting it and nothing errors.
+            //   embedding_model / embedded_at -> NULL, leaving a paid vector with no
+            //                     provenance — exactly the pairing 0076 introduced.
+            textNorm: a.textNorm,
+            embeddingModel: a.embeddingModel,
+            embeddedAt: a.embeddedAt,
+            // `is_searchable` is deliberately NOT carried, and it is the one exception.
+            // Election is scoped to (skill_id, text_norm, lang), and the move CHANGES
+            // skill_id — so a row that legitimately won its group on the deprecated skill may
+            // arrive at a terminal whose group already has a winner. Carrying `true` there is
+            // not a soft conflict: `skill_alias_skill_norm_lang_uq` is a UNIQUE partial index
+            // and it would abort the retag mid-run. Arriving unelected is recoverable (the
+            // next `db:seed:domain-skills` elects a winner per group); an aborted retag is
+            // not. The footer below says so out loud rather than leaving it to be discovered.
+            isSearchable: false,
           })
           .onConflictDoNothing({ target: skillAliases.id });
         await db.delete(skillAliases).where(eq(skillAliases.id, a.id));
         moved += 1;
       }
       applyStats.push(`skill_alias: moved=${moved}${held > 0 ? ` held=${held}` : ""}`);
+      if (moved > 0) {
+        console.log(
+          `[retag] skill_alias: ${moved} moved row(s) arrive with is_searchable=false — a move ` +
+            `changes skill_id, which changes the election group, and claiming an occupied group ` +
+            `would violate skill_alias_skill_norm_lang_uq. Run 'pnpm db:seed:domain-skills --apply' ` +
+            `to re-elect one searchable row per group.`,
+        );
+      }
       if (held > 0) {
         console.log(`[retag] skill_alias: ${held} alias row(s) HELD (no safe terminal) — untouched.`);
       }

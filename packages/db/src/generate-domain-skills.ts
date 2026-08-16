@@ -10,11 +10,27 @@
  *
  * IT IS AN AUTHORING AID, NOT A DECISION-MAKER. CLAUDE.md §3 forbids an LLM owning a
  * business decision; what satisfies it here is not a disclaimer but the shape of the
- * pipeline — the model's output lands in a batch directory, the validator refuses
- * everything it cannot prove is coherent, a human signs the diff, and the signature is
+ * pipeline — the model's output lands in a batch directory, two independent gates refuse
+ * everything they cannot prove is sound, a human signs the diff, and the signature is
  * recoverable from `git blame` forever after. Nothing the model emits can reach `skill`,
- * `skill_alias` or `job_domain_skill` without passing `validateTaxonomyCorpus` AND a
- * human commit.
+ * `skill_alias` or `job_domain_skill` without passing BOTH gates AND a human commit.
+ *
+ * ---------------------------------------------------------------------------
+ * THE TWO GATES, AND WHY ONE IS NOT ENOUGH
+ * ---------------------------------------------------------------------------
+ *   candidates -> shape/domain/skill validation   `validateTaxonomyCorpus`
+ *              -> catalogue reuse analysis        }
+ *              -> within-batch duplicate analysis } `analyzeTaxonomyQuality`
+ *              -> convergence assertions          }
+ *              -> quality gate                    `taxonomyQualityVerdict`
+ *              -> ONLY IF PASS: accepted-*.jsonl -> human commit -> seed
+ *
+ * The validator is STRUCTURAL: well-formed ids, resolvable edges, no alias owned twice. A
+ * batch can pass all of it and still be unfit, because the faults that destroy a taxonomy
+ * are semantic — two new skills in one run that mean the same thing collide with nothing,
+ * share no alias, and resolve perfectly. `taxonomy-quality-gate.ts` is the second gate, and
+ * a BLOCK there writes `blocked-*.jsonl` instead of `accepted-*.jsonl` and exits non-zero,
+ * so the "append the accepted files to the corpus" step has nothing to append.
  *
  * TWO PHASES, AND WHY IT IS NOT ONE.
  *
@@ -64,11 +80,18 @@
  * detail.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import {
+  analyzeTaxonomyQuality,
+  formatTaxonomyQualityReport,
+  taxonomyQualityVerdict,
+  type QualityGateCode,
+} from "./taxonomy-quality-gate";
+import {
   TAXONOMY_BATCHES_DIR,
+  TAXONOMY_DATA_DIR,
   edgeLocator,
   loadTaxonomyCorpus,
   skillCatalogue,
@@ -480,6 +503,18 @@ export interface BatchManifest {
   rejected_count: number | null;
   /** Counts keyed by the stable `TaxonomyProblemCode` (plus PARSE / INVENTED_SKILL_ID). */
   rejections_by_reason: Record<string, number> | null;
+  /**
+   * The SEMANTIC gate's verdict — the second, independent reason a batch can fail.
+   *
+   * Recorded separately from `rejected_count` because the two answer different questions and
+   * conflating them would hide the more dangerous one. A rejection means "this candidate is
+   * malformed and was dropped"; a BLOCK means "every candidate is well-formed and the SET is
+   * still unfit to persist" — a duplicate pair, a fragmented concept, a seniority rung. A
+   * batch can rightly read `rejected_count: 0` and still be blocked.
+   */
+  quality_gate_verdict: "PASS" | "BLOCK" | null;
+  /** Counts keyed by the stable `QualityGateCode`, blocking findings only. */
+  quality_gate_blocking_by_code: Record<string, number> | null;
 }
 
 /** Build the emit-time manifest. Everything the ingest fills is explicitly null, never
@@ -507,6 +542,8 @@ export function buildBatchManifest(input: {
     accepted_count: null,
     rejected_count: null,
     rejections_by_reason: null,
+    quality_gate_verdict: null,
+    quality_gate_blocking_by_code: null,
   };
 }
 
@@ -529,10 +566,15 @@ export function withIngestResults(
     rejections: readonly BatchRejection[];
     model?: string | null;
     provider?: string | null;
+    /** The semantic gate's verdict and its blocking codes. Both required together — a
+     *  verdict with no breakdown is unauditable, and a breakdown with no verdict is noise. */
+    qualityGate?: { verdict: "PASS" | "BLOCK"; blockingCodes: readonly QualityGateCode[] };
   },
 ): BatchManifest {
   const byReason: Record<string, number> = {};
   for (const r of result.rejections) byReason[r.reason] = (byReason[r.reason] ?? 0) + 1;
+  const byGateCode: Record<string, number> = {};
+  for (const c of result.qualityGate?.blockingCodes ?? []) byGateCode[c] = (byGateCode[c] ?? 0) + 1;
   return {
     ...manifest,
     model: result.model ?? manifest.model,
@@ -542,6 +584,8 @@ export function withIngestResults(
     accepted_count: result.acceptedCount,
     rejected_count: result.rejections.length,
     rejections_by_reason: byReason,
+    quality_gate_verdict: result.qualityGate?.verdict ?? null,
+    quality_gate_blocking_by_code: result.qualityGate === undefined ? null : byGateCode,
   };
 }
 
@@ -635,7 +679,54 @@ function emit(argv: string[], root: string): void {
   );
 }
 
-function ingest(argv: string[], dir: string): void {
+/**
+ * The validator problems that still describe something the ingest is about to keep.
+ *
+ * A rejected candidate is dropped, so its problems must not reach the quality gate — a dead
+ * row's fault would mark a live one, and the gate's `consumed_problem_codes` would count
+ * evidence for a decision that no longer exists.
+ *
+ * THE COMMITTED SUBTRACTION IS THE SUBTLE HALF, and its absence was a real defect. A locator
+ * is not unique to a candidate: when a candidate mints an id a committed record already holds
+ * (`SKILL_ID_DUPLICATE`), `skill[<id>]` names BOTH. Dropping by locator alone therefore took
+ * every pre-existing problem on the committed record with it, and a genuine ALIAS_AMBIGUOUS
+ * on a row already in the corpus vanished from the report — including from the PRE-EXISTING
+ * section, which is the operator's only signal that the corpus is rotting. A locator that
+ * names a committed record is never "the rejected candidate's".
+ *
+ * Exported and pure because the bug was invisible from the outside: the ingest's console
+ * output looked identical either way.
+ */
+export function survivingValidatorProblems(
+  problems: readonly string[],
+  rejectedLocators: ReadonlySet<string>,
+  committedLocators: ReadonlySet<string>,
+): string[] {
+  return problems.filter((p) => {
+    const locator = taxonomyProblemLocator(p);
+    if (locator === null) return true;
+    return !rejectedLocators.has(locator) || committedLocators.has(locator);
+  });
+}
+
+/** What `--ingest` decided, for the CLI's exit code and for a test that must prove the gate
+ *  actually withheld the artifacts rather than merely printing about it. */
+export interface IngestOutcome {
+  blocked: boolean;
+  acceptedSkillCount: number;
+  acceptedEdgeCount: number;
+  rejectionCount: number;
+  blockingCodes: QualityGateCode[];
+}
+
+/**
+ * Exported, and it RETURNS rather than exiting.
+ *
+ * The exit belongs to `main`. A function that calls `process.exit` cannot be tested at all —
+ * the assertion after it never runs — and "does the gate actually withhold accepted-*.jsonl?"
+ * is precisely the question that must not be answered by reading the source.
+ */
+export function ingest(argv: string[], dir: string): IngestOutcome {
   const rawPath = join(dir, "raw-responses.jsonl");
   const manifestPath = join(dir, "manifest.json");
   if (!existsSync(rawPath)) {
@@ -703,6 +794,49 @@ function ingest(argv: string[], dir: string): void {
       !rejectedLocators.has(skillLocator(e.skill_id)),
   );
 
+  // ── THE SEMANTIC GATE ─────────────────────────────────────────────────────
+  //
+  // Everything above answered "is each candidate well-formed?". This answers the question
+  // that survives a clean validator run: "is this SET fit to become immutable rows?"
+  //
+  // Run over what would ACTUALLY be persisted — committed ∪ accepted — because the faults
+  // that matter are relational. A duplicate needs both members present to be visible, and
+  // one of them may have shipped last month.
+  //
+  // The problem set is filtered to the survivors first. A rejected candidate is already
+  // dropped, so folding its problems into the gate would let a dead row's fault mark a live
+  // one — and `consumed_problem_codes` in the report would count evidence for a decision
+  // that no longer exists.
+  const survivingProblems = survivingValidatorProblems(
+    problems,
+    rejectedLocators,
+    new Set(committed.skills.map((s) => skillLocator(s.skill_id))),
+  );
+  const qualityFindings = analyzeTaxonomyQuality(
+    [...committed.skills, ...acceptedSkills],
+    [...committed.edges, ...acceptedEdges],
+    {
+      domains: committed.domains,
+      problems: survivingProblems,
+      // ONLY the skills this batch AUTHORED are accountable for skill-level findings. A
+      // pre-existing fault in the committed corpus is reported (see the PRE-EXISTING block in
+      // the report) but does not block a batch that did not cause it. The seed holds
+      // everything accountable; that is where a pre-existing fault is finally stopped.
+      //
+      // Reused ids are deliberately NOT here. `toCorpusRecords` emits no skill record for an
+      // echoed `existing_skill_id` — the row already exists — and putting those ids in this
+      // set made a batch inherit the reused skill's own pre-existing FALSE_REUSE or duplicate
+      // twin. That inverted the harness: correctly echoing an id blocked, while lazily
+      // minting a fresh synonym passed. They belong in the edge set below.
+      attributableSkillIds: [...new Set(acceptedSkills.map((s) => s.skill_id))],
+      // Every skill this batch wired into a domain, authored or not — fragmentation is a
+      // property of the edges, and the batch that added the wire owns it.
+      attributableEdgeSkillIds: [...new Set(acceptedEdges.map((e) => e.skill_id))],
+    },
+  );
+  const quality = taxonomyQualityVerdict(qualityFindings);
+  const blocked = quality.verdict === "BLOCK";
+
   const updated = withIngestResults(manifest, {
     ingestedAt: new Date(),
     rawRecordCount: responses.length,
@@ -710,13 +844,57 @@ function ingest(argv: string[], dir: string): void {
     rejections,
     model: arg(argv, "--model") ?? null,
     provider: arg(argv, "--provider") ?? null,
+    qualityGate: { verdict: quality.verdict, blockingCodes: quality.blocking.map((f) => f.code) },
   });
 
   const outDir = arg(argv, "--out") ?? dir;
+  // `--out` MUST NOT point at the corpus. `loadTaxonomyCorpus` globs `*.jsonl` out of that
+  // directory, so writing candidates there makes unreviewed model output part of the corpus
+  // the moment it lands — no commit, no diff, no reviewer signature. On a passing batch that
+  // silently bypasses the entire review model; on a blocked one it wedges `db:verify:taxonomy`
+  // with files nobody can find the provenance of.
+  if (resolve(outDir) === resolve(TAXONOMY_DATA_DIR)) {
+    throw new Error(
+      `[${SCRIPT}] --out must not be the corpus directory (${TAXONOMY_DATA_DIR}). Candidates are ` +
+        `reviewed and appended by a human; a commit is the reviewer signature. Write them ` +
+        `anywhere else and append deliberately.`,
+    );
+  }
   mkdirSync(outDir, { recursive: true });
-  writeOut(join(outDir, "accepted-skills.jsonl"), toSkillCorpusLines(acceptedSkills));
-  writeOut(join(outDir, "accepted-domain-skills.jsonl"), toEdgeCorpusLines(acceptedEdges));
+
+  // THE ENFORCEMENT. On a BLOCK the candidates are written under a `blocked-` name instead
+  // of `accepted-`, and the paths differ for a reason that is not cosmetic: the documented
+  // next step is to append `accepted-*.jsonl` to the corpus, so a file that keeps that name
+  // after a failed gate WILL eventually be appended by someone reading the happy path.
+  //
+  // Nothing is hidden — the same records are on disk under the honest name, and a human who
+  // decides the gate is wrong can still act on them. That is a visible decision in a diff,
+  // which is the whole review model here, rather than a silent one.
+  const acceptedSkillsPath = join(outDir, "accepted-skills.jsonl");
+  const acceptedEdgesPath = join(outDir, "accepted-domain-skills.jsonl");
+  const skillsOut = blocked ? join(outDir, "blocked-skills.jsonl") : acceptedSkillsPath;
+  const edgesOut = blocked ? join(outDir, "blocked-domain-skills.jsonl") : acceptedEdgesPath;
+  if (blocked) {
+    // A prior PASSING run's artifacts must not survive a subsequent BLOCK. Leaving them is
+    // the worst outcome available: the operator finds `accepted-*.jsonl` exactly where the
+    // instructions say to look, with no indication it is stale and superseded by a failure.
+    //
+    // BOTH DIRECTORIES, because `outDir` and `dir` diverge under `--out`. Cleaning only
+    // `outDir` left yesterday's pass sitting in the batch directory beside a manifest that
+    // now says BLOCK — which is precisely the state this deletion exists to prevent, reachable
+    // through a documented flag.
+    for (const d of new Set([outDir, dir])) {
+      rmSync(join(d, "accepted-skills.jsonl"), { force: true });
+      rmSync(join(d, "accepted-domain-skills.jsonl"), { force: true });
+    }
+  }
+  writeOut(skillsOut, toSkillCorpusLines(acceptedSkills));
+  writeOut(edgesOut, toEdgeCorpusLines(acceptedEdges));
   writeOut(join(dir, "rejections.jsonl"), rejections.map((r) => JSON.stringify(r)).join("\n"));
+  writeOut(
+    join(dir, "quality-gate.json"),
+    JSON.stringify({ verdict: quality.verdict, ...qualityFindings }, null, 2),
+  );
   writeOut(manifestPath, JSON.stringify(updated, null, 2));
 
   console.log(`[${SCRIPT}] batch ${updated.batch_id}`);
@@ -729,6 +907,11 @@ function ingest(argv: string[], dir: string): void {
   }
   for (const r of rejections) console.log(`  REJECT ${r.message}`);
   for (const c of context) console.log(`  NOTE   ${c} (pre-existing; not attributed to this batch)`);
+
+  // Reporting reuses the gate module's formatter — the ingest owns no opinion of its own
+  // about how a finding reads.
+  for (const line of formatTaxonomyQualityReport(qualityFindings, quality)) console.log(`  ${line}`);
+
   if (updated.model === null || updated.provider === null) {
     console.log(
       `[${SCRIPT}] manifest model/provider is null — this batch ran outside this process, so ` +
@@ -737,11 +920,29 @@ function ingest(argv: string[], dir: string): void {
         `worse than an absent one.`,
     );
   }
-  console.log(
-    `[${SCRIPT}] REVIEW the accepted-*.jsonl files, then append them to ` +
-      `data/taxonomy/skills.jsonl and data/taxonomy/domain-skills.jsonl. Your commit is the ` +
-      `reviewer signature. Then: pnpm db:verify:taxonomy && pnpm db:seed:domain-skills.`,
-  );
+
+  if (blocked) {
+    console.log(
+      `[${SCRIPT}] QUALITY GATE BLOCKED this batch. Candidates were written to ` +
+        `blocked-*.jsonl, NOT accepted-*.jsonl — they must not be appended to the corpus as ` +
+        `they stand. Every finding above names the skill ids involved; fold each duplicate ` +
+        `pair into one row, or re-run the affected domains. Full detail: quality-gate.json.`,
+    );
+  } else {
+    console.log(
+      `[${SCRIPT}] REVIEW the accepted-*.jsonl files, then append them to ` +
+        `data/taxonomy/skills.jsonl and data/taxonomy/domain-skills.jsonl. Your commit is the ` +
+        `reviewer signature. Then: pnpm db:verify:taxonomy && pnpm db:seed:domain-skills.`,
+    );
+  }
+
+  return {
+    blocked,
+    acceptedSkillCount: acceptedSkills.length,
+    acceptedEdgeCount: acceptedEdges.length,
+    rejectionCount: rejections.length,
+    blockingCodes: quality.blocking.map((f) => f.code),
+  };
 }
 
 function main(): void {
@@ -761,11 +962,16 @@ function main(): void {
     process.exit(1);
   }
 
-  if (emitTo) emit(argv, emitTo);
-  else ingest(argv, ingestFrom!);
+  if (emitTo) {
+    emit(argv, emitTo);
+    return;
+  }
+  // A blocked batch must fail the SHELL, not just the log. `pnpm db:gen:domain-skills
+  // --ingest ... && <next step>` has to stop here, and a CI step has to go red.
+  if (ingest(argv, ingestFrom!).blocked) process.exit(1);
 }
 
 // Guarded so importing the helpers for tests does not run the CLI.
-if (process.argv[1] && /generate-domain-skills/.test(process.argv[1])) {
+if (process.argv[1] && /generate-domain-skills\.ts$/.test(process.argv[1])) {
   main();
 }
