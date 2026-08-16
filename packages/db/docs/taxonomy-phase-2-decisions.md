@@ -129,6 +129,34 @@ Impact if deferred: A legitimate specialisation pair blocks a batch and needs a 
                     Visible and loud, which is the safe direction.
 ```
 
+**Real-data evidence — 2026-08-16, first controlled 28-domain run.** The deferral above was
+written against a hypothetical (`Torch Cutting` / `Underwater Torch Cutting`). The relation has
+now fired on actual generated output, and it was **right**:
+
+```
+Batch:              batch_2026-08-16T14-30-41Z  (28 domains, prompt v1)
+Finding:            MISSED_REUSE_WITHIN_BATCH, both ends, BLOCKING
+Pair:               skill_mixing_machine_operation  <->  skill_mortar_mixing
+Evidence:           WITHIN_BATCH:strict_token_subset
+Mechanism:          "mixing machine operation" reduces to the single informative token
+                    {mixing} once the stoplist absorbs `machine` and `operation`, making it a
+                    strict subset of {mortar, mixing}.
+Adjudication:       TRUE POSITIVE. On a site these are one activity, and a reviewer merges
+                    them. Neither id was shipped, so no against-catalogue check could have
+                    seen the pair — this is the class within-batch detection exists for.
+Outcome:            Batch blocked before any write. Remediated by removing
+                    skill_mixing_machine_operation and keeping skill_mortar_mixing as the
+                    canonical concept. Re-gated: PASS.
+```
+
+This is **evidence supporting the detector, not a reason to weaken it.** The first real
+exercise of the sensitivity this deferral describes — a 3-word label collapsing to one
+informative token — produced a correct block, not a false accusation. `MIN_TOKENS_FOR_SET_EQUALITY`,
+the stoplist, and `MAX_SUBSET_EXTRA_TOKENS` are **unchanged**, and the bar for changing them is
+unchanged too: a demonstrated false positive on real data. One correct block is the opposite of
+that. The reviewed-exception file still does not exist and still should not be built until
+something actually needs an exception.
+
 ### 4. Live-database taxonomy verifier
 
 ```
@@ -184,14 +212,25 @@ Impact if deferred: None before the first seed, because no alias exists to edit 
 
 ## Generation gates
 
+Updated 2026-08-16, after the first controlled 28-domain run (Phase 3).
+
 ```
-External generation: NOT AUTHORIZED
-Prompts:             NOT EMITTED
-Model:               NOT CALLED
-Ingest:              NOT RUN
-Seed:                NOT RUN
+External generation: EXECUTED   — 28 domains, prompt v1 e43b9fcf…dc2a, session-based,
+                                  no AIRouter call and no provider key in packages/db
+Prompts:             EMITTED    — batch_2026-08-16T14-30-41Z/prompts.jsonl
+Model:               CALLED     — outside this process; ₹0 metered spend, 0 provider tokens
+Ingest attempt 1:    BLOCKED    — 3 blocking findings, nothing written
+Ingest attempt 2:    PASS       — batch_2026-08-16T14-30-41Z-remediation, 0 findings
+Corpus:              APPENDED   — 98 skills, 197 aliases, 238 edges over 28 domains
+Seed:                see the Phase 3 record
 ```
+
+The 4 071-domain corpus is **not** authorized off the back of this. The 28-domain run is a
+sample, and deferral #1 (the O(n²) analyzer) has its own re-measurement gate before any batch
+above ~2 000 skills.
 
 CI verification is **not available** for this work — the three Phase 1/1.5/2 commits bypassed
 branch protection and `ci-required`, and the follow-up sits on a branch. Every number in this
 document is from a local run on a dev machine and must not be represented as CI-verified.
+(PR #898 itself did run `ci-required` green before merge; that is the one exception, and it
+covers the gate code, not the generated data.)
