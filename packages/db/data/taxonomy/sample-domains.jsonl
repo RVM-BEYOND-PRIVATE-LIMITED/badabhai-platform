@@ -1,0 +1,28 @@
+{"job_domain_id": "jd_nco_7223_6002", "label_en": "CNC Operator-Turning", "trade_group": "cnc_machining"}
+{"job_domain_id": "jd_nco_7223_6003", "label_en": "CNC Programmer", "trade_group": "cnc_machining"}
+{"job_domain_id": "jd_nco_7223_0701", "label_en": "Lathe Machinist", "trade_group": "cnc_machining"}
+{"job_domain_id": "jd_nco_7212_0301", "label_en": "Welder", "trade_group": "welding"}
+{"job_domain_id": "jd_nco_7212_0100", "label_en": "Welder, Gas", "trade_group": "welding"}
+{"job_domain_id": "jd_nco_7212_0300", "label_en": "Welder, Machine", "trade_group": "welding"}
+{"job_domain_id": "jd_nco_7224_0102", "label_en": "Fitter-Fabrication", "trade_group": "fabrication"}
+{"job_domain_id": "jd_isco_7213", "label_en": "Sheet Metal Workers", "trade_group": "fabrication"}
+{"job_domain_id": "jd_nco_7223_2400", "label_en": "Sheet Metal Machine Operator", "trade_group": "fabrication"}
+{"job_domain_id": "jd_nco_7411_0100", "label_en": "Electrician, General", "trade_group": "electrical"}
+{"job_domain_id": "jd_nco_7412_0200", "label_en": "Electrical Fitter", "trade_group": "electrical"}
+{"job_domain_id": "jd_nco_7231_0100", "label_en": "Mechanic, Automobile", "trade_group": "automobile"}
+{"job_domain_id": "jd_nco_7231_0400", "label_en": "Fitter Automobile", "trade_group": "automobile"}
+{"job_domain_id": "jd_nco_7233_0101", "label_en": "Maintenance Fitter-Mechanical", "trade_group": "industrial_maintenance"}
+{"job_domain_id": "jd_isco_7233", "label_en": "Agricultural and Industrial Machinery Mechanics and Repairers", "trade_group": "industrial_maintenance"}
+{"job_domain_id": "jd_isco_7127", "label_en": "Air Conditioning and Refrigeration Mechanics", "trade_group": "hvac"}
+{"job_domain_id": "jd_nco_7421_0401", "label_en": "Field Technician, Air Conditioner", "trade_group": "hvac"}
+{"job_domain_id": "jd_nco_7112_0100", "label_en": "Stone Mason", "trade_group": "construction"}
+{"job_domain_id": "jd_nco_7112_0601", "label_en": "Assistant Mason", "trade_group": "construction"}
+{"job_domain_id": "jd_nco_7126_0101", "label_en": "Plumber, General", "trade_group": "plumbing"}
+{"job_domain_id": "jd_nco_7126_0301", "label_en": "Pipe Fitter", "trade_group": "plumbing"}
+{"job_domain_id": "jd_isco_4321", "label_en": "Stock Clerks", "trade_group": "warehouse_logistics"}
+{"job_domain_id": "jd_nco_4321_0100", "label_en": "Store Keeper", "trade_group": "warehouse_logistics"}
+{"job_domain_id": "jd_nco_4321_0601", "label_en": "Warehouse Picker", "trade_group": "warehouse_logistics"}
+{"job_domain_id": "jd_nco_8211_1200", "label_en": "Assembler, Automobile", "trade_group": "assembly"}
+{"job_domain_id": "jd_nco_8212_0100", "label_en": "Battery Assembler", "trade_group": "assembly"}
+{"job_domain_id": "jd_nco_7543_2001", "label_en": "Quality Inspector-forged, casted or machined components", "trade_group": "quality_inspection"}
+{"job_domain_id": "jd_nco_7313_2601", "label_en": "Final Quality Inspector", "trade_group": "quality_inspection"}
