@@ -1,0 +1,69 @@
+{
+  "batch_id": "batch_2026-08-16T14-30-41Z",
+  "generated_at": "2026-08-16T14:30:41.745Z",
+  "generation_mode": "external_session_batch",
+  "model": "claude-opus-5",
+  "provider": "anthropic-claude-code-session",
+  "prompt_template_version": 1,
+  "prompt_template_sha256": "e43b9fcfeffc720e4b13a5c5f3d48471bd3d7322a3a5f8724fc8e2b6dcd1dc2a",
+  "instruction_schema": {
+    "job_domain_id": "string (echo the one given)",
+    "skills": [
+      {
+        "existing_skill_id": "string from the catalogue, or null",
+        "label_en": "string",
+        "label_hi": "string or null",
+        "aliases": [
+          {
+            "text": "string",
+            "lang": "en | hi"
+          }
+        ],
+        "requirement": "required | preferred",
+        "relevance": "integer 0-100",
+        "confidence": "number 0-1"
+      }
+    ]
+  },
+  "domain_count": 28,
+  "domains": [
+    "jd_nco_8211_1200",
+    "jd_nco_8212_0100",
+    "jd_nco_7231_0100",
+    "jd_nco_7231_0400",
+    "jd_nco_7223_0701",
+    "jd_nco_7223_6002",
+    "jd_nco_7223_6003",
+    "jd_nco_7112_0100",
+    "jd_nco_7112_0601",
+    "jd_nco_7411_0100",
+    "jd_nco_7412_0200",
+    "jd_isco_7213",
+    "jd_nco_7223_2400",
+    "jd_nco_7224_0102",
+    "jd_isco_7127",
+    "jd_nco_7421_0401",
+    "jd_isco_7233",
+    "jd_nco_7233_0101",
+    "jd_nco_7126_0101",
+    "jd_nco_7126_0301",
+    "jd_nco_7313_2601",
+    "jd_nco_7543_2001",
+    "jd_isco_4321",
+    "jd_nco_4321_0100",
+    "jd_nco_4321_0601",
+    "jd_nco_7212_0100",
+    "jd_nco_7212_0300",
+    "jd_nco_7212_0301"
+  ],
+  "ingested_at": "2026-08-16T14:36:20.759Z",
+  "raw_record_count": 28,
+  "accepted_count": 341,
+  "rejected_count": 0,
+  "rejections_by_reason": {},
+  "quality_gate_verdict": "BLOCK",
+  "quality_gate_blocking_by_code": {
+    "MISSED_REUSE_CATALOGUE": 1,
+    "MISSED_REUSE_WITHIN_BATCH": 2
+  }
+}
