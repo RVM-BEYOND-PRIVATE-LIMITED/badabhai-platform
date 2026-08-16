@@ -85,6 +85,16 @@
  * operator to pass `--i-know-better`, which is worth less than no gate. CONVERGENCE_ABSENT is
  * not a defect at all: a domain that did not emit a concept has not fragmented anything.
  *
+ * ---------------------------------------------------------------------------
+ * KNOWN LIMITS ARE WRITTEN DOWN, NOT REDISCOVERED
+ * ---------------------------------------------------------------------------
+ * `packages/db/docs/taxonomy-phase-2-decisions.md` records five weaknesses that were found by
+ * adversarial review and DELIBERATELY not fixed, with the reasoning for each. Read it before
+ * "improving" a threshold here. Two of the obvious fixes — lowering
+ * `MIN_TOKENS_FOR_SET_EQUALITY` and weakening `strict_token_subset` — make this gate strictly
+ * worse, trading a detection gap for a false-accusation class, and a gate that falsely accuses
+ * is one an operator learns to override.
+ *
  * PRIVACY: trade vocabulary, published occupation ids and integer counts. No worker data can
  * reach this module by construction — its inputs are corpus records and `SKILL_CORPUS`.
  */

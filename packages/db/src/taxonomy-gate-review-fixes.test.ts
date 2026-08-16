@@ -416,6 +416,61 @@ describe("a label made entirely of generic words is refused", () => {
 });
 
 // ===========================================================================
+// DEFERRED #2 — inflectional duplicates stay in the weak band, ON PURPOSE
+// ===========================================================================
+
+describe("an inflectional pair is surfaced as a candidate, never silently equated", () => {
+  // THIS TEST PROTECTS A DEFERRAL, NOT A FIX. See packages/db/docs/taxonomy-phase-2-decisions.md.
+  //
+  // "Boiler Operation" / "Boiler Operations" is the most likely real duplicate shape and the
+  // gate does NOT block it. That is a decision, not an oversight: the obvious fix is lowering
+  // MIN_TOKENS_FOR_SET_EQUALITY from 2 to 1, and that threshold is load-bearing — with the
+  // stoplist absorbing the second word, "Boiler Operation" and "Boiler Cleaning" BOTH reduce
+  // to {boiler}, so size-1 set equality would confidently merge two different skills. Trading
+  // a detection gap for a false-accusation class is a downgrade.
+  //
+  // What the deferral REQUIRES is that the pair is still visible. If a future change makes
+  // these silently canonical-equivalent, or drops them from the report, this fails.
+  const A = skill({
+    skill_id: "skill_boiler_operation",
+    label_en: "Boiler Operation",
+    aliases: [{ text: "boiler op", lang: "en" }],
+  });
+  const B = skill({
+    skill_id: "skill_boiler_operations",
+    label_en: "Boiler Operations",
+    aliases: [{ text: "boiler ops", lang: "en" }],
+  });
+  const EDGES = [edge({ skill_id: A.skill_id }), edge({ skill_id: B.skill_id })];
+
+  it("reports BOTH ends as advisory weak-band ambiguity", () => {
+    const result = gate([A, B], EDGES);
+    const ambiguous = result.findings.findings.filter((f) => f.code === "POTENTIAL_AMBIGUITY");
+    expect(ambiguous.map((f) => f.subject).sort()).toEqual([A.skill_id, B.skill_id].sort());
+    for (const f of ambiguous) expect(f.severity).toBe("ADVISORY");
+  });
+
+  it("names the twin, so a reviewer can act on it without re-deriving the pair", () => {
+    const result = gate([A, B], EDGES);
+    const finding = result.findings.findings.find((f) => f.code === "POTENTIAL_AMBIGUITY");
+    expect(finding?.skill_ids.sort()).toEqual([A.skill_id, B.skill_id].sort());
+    expect(finding?.evidence.some((e) => e.startsWith("WITHIN_BATCH:"))).toBe(true);
+  });
+
+  it("does NOT block — the deferral is that a human rules, not that the gate guesses", () => {
+    expect(gate([A, B], EDGES).verdict).toBe("PASS");
+  });
+
+  it("is NOT counted as a confident reuse decision of any kind", () => {
+    const totals = gate([A, B], EDGES).findings.reuse.totals;
+    expect(totals.MISSED_REUSE).toBe(0);
+    expect(totals.FALSE_REUSE).toBe(0);
+    expect(totals.CORRECT_NEW).toBe(0); // silently "fine" would be the bad outcome
+    expect(totals.POTENTIAL_AMBIGUITY).toBe(2);
+  });
+});
+
+// ===========================================================================
 // FINDING 5 — --out
 // ===========================================================================
 
