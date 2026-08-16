@@ -24,6 +24,7 @@ import type {
 import type { TradeKey, SkipReason, SourceSurface } from "@badabhai/taxonomy";
 import { jsonArray } from "./internal/sql-defaults";
 import { workers } from "./worker";
+import { jobDomains } from "./occupation";
 
 // Re-export TradeKey for downstream consumers (seed files, etc.)
 export type { TradeKey, SkipReason, SourceSurface } from "@badabhai/taxonomy";
@@ -97,6 +98,25 @@ export const jobPostings = pgTable(
     // Industry scope (`ind_*`). Matching never crosses industries. Nullable: a legacy
     // posting has none until an ops/payer edit or D3 sets it.
     industryId: text("industry_id"),
+    // THE POSTING'S CANONICAL JOB DOMAIN (migration 0076) — the employer's answer to
+    // "what trade is this?", and the key the recommended-skills read starts from:
+    // `job_domain_id -> job_domain_skill -> skill`, one index probe, no AI.
+    //
+    // This is the first domain classifier `job_postings` has ever had. Before 0076 the
+    // table carried no domain, no occupation and no trade column at all — only the
+    // nullable `industry_id` above, which the API never writes and the serve path never
+    // reads. Skill canonicalization consequently anchored EVERY posting to a hardcoded
+    // "cnc-machining", which is exactly the fiction this column retires.
+    //
+    // NULLABLE WITH NO BACKFILL (§10 additive). Every existing posting reads NULL, and
+    // NULL means "no domain selected" — the employer picker simply shows no
+    // recommendations, which is the pre-0076 behaviour. It is never a hidden default;
+    // nothing infers a domain for a legacy row.
+    //
+    // Mirrors `worker_profiles.job_domain_id`, deliberately: the same `jd_*` id space on
+    // both sides of the match is the whole point of the canonical taxonomy. ON DELETE
+    // NO ACTION (drizzle default) because a domain is deprecated, never deleted (SG-5).
+    jobDomainId: text("job_domain_id").references(() => jobDomains.jobDomainId),
     // The 1..N (config `max_skills_per_posting`, 3 at launch) `mskill_*` ids the poster
     // actually asked for. TIER 1 = a worker holding one of these.
     matchSkillIds: jsonb("match_skill_ids").$type<string[]>().notNull().default(jsonArray),
@@ -175,6 +195,9 @@ export const jobPostings = pgTable(
     // jsonb_ops) because we only ever ask containment/existence questions: it is ~3x
     // smaller and faster for exactly that, at the cost of key-only lookups we never do.
     index("job_postings_reach_gin").using("gin", t.reachSkillIds.op("jsonb_path_ops")),
+    // FK-referencing column (migration 0076); Postgres does not auto-index it. Also
+    // serves the ops/analytics read "all postings in this trade".
+    index("job_postings_job_domain_id_idx").on(t.jobDomainId),
     // D4 idempotency: one posting per converted legacy job. NULLs are DISTINCT in
     // Postgres, so the thousands of natively-created postings never collide.
     uniqueIndex("job_postings_source_job_id_uq").on(t.sourceJobId),
