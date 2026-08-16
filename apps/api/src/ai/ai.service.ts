@@ -170,7 +170,10 @@ export class AiService {
    * session id, and never the payer's organisation name (ADR-0035 §Decision 3: the
    * chat does not ask for it and the AI service never receives it).
    */
-  async jobPostingChatOpening(tradeHint: string | null = null): Promise<string | null> {
+  async jobPostingChatOpening(
+    tradeHint: string | null = null,
+    ctx?: AiRequestContext,
+  ): Promise<string | null> {
     const key = tradeHint ?? "";
     const cached = this.jobPostingOpeningCache.get(key);
     if (cached !== undefined) return cached;
@@ -179,6 +182,8 @@ export class AiService {
       "/job-posting-chat/opening",
       { trade_hint: tradeHint },
       JobPostingChatOpeningOutputSchema,
+      undefined,
+      ctx,
     );
     const text = remote?.opening_text?.trim() ? remote.opening_text : null;
     if (text !== null) this.jobPostingOpeningCache.set(key, text);
@@ -207,8 +212,15 @@ export class AiService {
    */
   async jobPostingChatRespond(
     input: JobPostingChatTurnInput,
+    ctx?: AiRequestContext,
   ): Promise<JobPostingChatTurnOutput | null> {
-    return this.post("/job-posting-chat/respond", input, JobPostingChatTurnOutputSchema);
+    return this.post(
+      "/job-posting-chat/respond",
+      input,
+      JobPostingChatTurnOutputSchema,
+      undefined,
+      ctx,
+    );
   }
 
   async extractProfile(
@@ -433,8 +445,10 @@ export class AiService {
    * slow. The far side already collapses its own failures to an empty `reply_text`; this
    * normalises that to `null` so there is exactly one fallback trigger.
    */
-  async llmTurn(input: LlmTurnInput): Promise<LlmTurnOutput | null> {
-    const out = await this.post("/profiling/turn", input, LlmTurnOutputSchema);
+  async llmTurn(input: LlmTurnInput, ctx?: AiRequestContext): Promise<LlmTurnOutput | null> {
+    // BL-19: without the caller's ctx every turn of ONE interview minted its own id, so a
+    // twelve-turn conversation landed as twelve unrelated traces on the far side.
+    const out = await this.post("/profiling/turn", input, LlmTurnOutputSchema, undefined, ctx);
     if (out === null || !out.reply_text.trim()) return null;
     return out;
   }
@@ -482,11 +496,17 @@ export class AiService {
    * must not be treated as one: it means the text carried PII the gateway would not mask, which
    * is a definitive "do not store this", not an outage.
    */
-  async pseudonymize(text: string): Promise<PseudonymizationOutput | null> {
+  async pseudonymize(text: string, ctx?: AiRequestContext): Promise<PseudonymizationOutput | null> {
+    // BL-19: the BODY's `request_id` is part of the Python contract and stays, but it is
+    // resolved HERE so it is the SAME value `post()` puts on `x-request-id` — it used to be a
+    // third, independently minted id that agreed with neither header.
+    const requestId = ctx?.requestId || randomUUID();
     return this.post(
       "/pseudonymize",
-      { text, request_id: randomUUID() },
+      { text, request_id: requestId },
       PseudonymizationOutputSchema,
+      undefined,
+      { requestId, correlationId: ctx?.correlationId ?? null },
     );
   }
 
@@ -499,8 +519,11 @@ export class AiService {
    */
   async canonicalizeSkill(
     input: SkillCanonicalizationInput,
+    ctx?: AiRequestContext,
   ): Promise<SkillCanonicalization | null> {
-    return this.post("/skills/canonicalize", input, SkillCanonicalizationSchema);
+    // BL-19: the caller fans this out one call per phrase, so without a shared ctx a
+    // ten-skill posting produced ten disconnected traces for one write.
+    return this.post("/skills/canonicalize", input, SkillCanonicalizationSchema, undefined, ctx);
   }
 
   /**

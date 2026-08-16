@@ -182,6 +182,91 @@ def test_repeated_entity_reuses_same_token():
     assert result.replaced_entities == 1
 
 
+# --- email addresses ---------------------------------------------------------
+# THE GAP THESE CLOSE. There was no email rule at all, measured on main:
+#     pseudonymize("ramesh@gmail.com")                      -> unchanged, blocked=False
+#     pseudonymize("contact: ramesh.kumar@tatasteel.co.in") -> unchanged, blocked=False
+# An address is a COMPOSITE of identity classes this gateway already claims to mask —
+# a name in the local part, an employer in the domain, a contact handle overall — and
+# it was walking out to the provider AND, through the shared `mask=` hook, to the
+# trace store.
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ramesh@gmail.com",
+        "contact: ramesh.kumar@tatasteel.co.in",
+        "Reach me at RAMESH.K+jobs@sub.domain.co.in please",
+        "a@b.io",
+    ],
+)
+def test_email_addresses_are_masked_and_never_block(text):
+    result = pseudonymize(text)
+    assert "@" not in result.text
+    assert "[EMAIL_1]" in result.text
+    # MASK, NOT BLOCK — consistent with phones, and with the D-1 ruling that
+    # over-blocking is its own harm. A worker who types their email keeps their turn.
+    assert result.blocked is False
+
+
+def test_an_email_is_masked_WHOLE_rather_than_fragmented_by_the_phone_rule():
+    """THE ORDERING PROPERTY, and the reason the email rule runs first.
+
+    Phone-first would turn this into "worker[PHONE_1]@gmail.com" — which still
+    publishes the domain, still publishes the local part, and LOOKS masked. Masking
+    the address as one atomic unit is what removes the name, the employer and the
+    digits together.
+    """
+    result = pseudonymize("worker9876543210@gmail.com")
+    assert result.text == "[EMAIL_1]"
+    assert "gmail" not in result.text
+    assert "[PHONE_" not in result.text
+
+
+def test_the_employer_domain_does_not_survive_the_email_mask():
+    # `_EMPLOYER_RE` cannot catch "tatasteel.co.in" — it carries no Ltd/Pvt suffix —
+    # so before the email rule the worker's employer left the process in plain text.
+    result = pseudonymize("mail me on ramesh@tatasteel.co.in")
+    assert "tatasteel" not in result.text.lower()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "M8@1.25",  # thread spec — TLD arm is letters-only, so "25" cannot match
+        "part@100.5mm",  # dimension — "5mm" starts with a digit
+        "welding @ 220V",  # no local@domain.tld shape at all
+        "@ramesh",  # a bare handle has no domain
+        "tolerance +0.05 @ 3000 rpm",
+    ],
+)
+def test_manufacturing_at_signs_are_not_mistaken_for_emails(text):
+    # The false-positive boundary, measured against real trade text. A rule that ate
+    # "M8@1.25" would silently destroy the thread specs a machinist's profile is made
+    # of — the same class of harm the city ruling and FIX-5 both record.
+    result = pseudonymize(text)
+    assert result.text == text
+    assert result.replaced_entities == 0
+
+
+def test_repeated_email_reuses_one_token_like_every_other_class():
+    result = pseudonymize("ramesh@gmail.com or again ramesh@gmail.com")
+    assert result.text.count("[EMAIL_1]") == 2
+    assert result.replaced_entities == 1
+
+
+def test_email_masking_did_not_move_any_other_identity_class():
+    # The narrowest possible statement of "this change adds a class, it does not
+    # relax the gate" — mirroring `test_the_city_ruling_did_not_touch_any_identity_class`.
+    assert "[PHONE_1]" in pseudonymize("call me on 9876543210").text
+    assert "[ID_1]" in pseudonymize("PAN ABCDE1234F for records").text
+    assert "[PERSON_1]" in pseudonymize("mera naam Ramesh hai").text
+    assert "[EMPLOYER_1]" in pseudonymize("Tata Steel Ltd").text
+    assert "[AMOUNT_1]" in pseudonymize("salary 1500000 chahiye").text
+    assert pseudonymize("reference number 12345678 please").blocked is True
+
+
 def test_fails_closed_on_oversize_input():
     result = pseudonymize("a" * 50, max_length=10)
     assert result.blocked is True

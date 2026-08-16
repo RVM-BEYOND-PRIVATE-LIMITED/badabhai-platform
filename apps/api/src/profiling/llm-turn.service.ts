@@ -134,7 +134,9 @@ export class LlmTurnService {
       // question, IN THIS SAME TURN. Returning an empty ask here would spend a worker's round
       // trip on a bubble with no question in it.
     }
-    const closeGate: Partial<ProfilingEnvelope> = envelope.llmGateOpen ? { llmGateOpen: false } : {};
+    const closeGate: Partial<ProfilingEnvelope> = envelope.llmGateOpen
+      ? { llmGateOpen: false }
+      : {};
 
     // 2. CAPS, CHECKED BEFORE THE CALL, so a runaway costs nothing at all.
     const asks = envelope.llmAsks;
@@ -147,18 +149,23 @@ export class LlmTurnService {
       return { kind: "done", patch: { ...closeGate, llmStage: "done" } };
     }
 
-    const out = await this.ai.llmTurn({
-      schema_version: "oie.v1",
-      worker_ref: ctx.workerId,
-      stage: envelope.llmStage,
-      message_text: text,
-      history: [...history],
-      draft: envelope.llmDraft,
-      experience_count: entries,
-      // THE LAST ASK, not a cap already hit: a hit cap returned above without calling at all.
-      // This is what lets the model spend its final question on the thing it most needs.
-      force_close: asks + 1 >= MAX_LLM_ASKS,
-    });
+    const out = await this.ai.llmTurn(
+      {
+        schema_version: "oie.v1",
+        worker_ref: ctx.workerId,
+        stage: envelope.llmStage,
+        message_text: text,
+        history: [...history],
+        draft: envelope.llmDraft,
+        experience_count: entries,
+        // THE LAST ASK, not a cap already hit: a hit cap returned above without calling at all.
+        // This is what lets the model spend its final question on the thing it most needs.
+        force_close: asks + 1 >= MAX_LLM_ASKS,
+      },
+      // BL-19: the SAME pair the cost record below carries, so the far side's trace joins to
+      // the request that made it rather than to an id minted inside the client.
+      { correlationId: ctx.correlationId, requestId: ctx.requestId },
+    );
 
     // LEDGERED BEFORE THE NULL CHECK, because a turn we could not USE is still a turn that may
     // have been PAID FOR — a reply that failed the contract burned tokens exactly like one that

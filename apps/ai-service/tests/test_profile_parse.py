@@ -100,7 +100,17 @@ class StubRouter:
         self.calls = 0
 
     async def run(
-        self, task_type, *, messages, mock_response, real_call_allowed=True, user_ref=None
+        self,
+        task_type,
+        *,
+        messages,
+        mock_response,
+        real_call_allowed=True,
+        user_ref=None,
+        # Mirrors `AIRouter.run`: the route now hands over the ResolvedPrompt so the generation
+        # can record which prompt version produced the overlay. Accepted (and ignored) here so
+        # the double stays signature-compatible with the thing it stands in for.
+        prompt=None,
     ):
         self.calls += 1
         self.messages = messages

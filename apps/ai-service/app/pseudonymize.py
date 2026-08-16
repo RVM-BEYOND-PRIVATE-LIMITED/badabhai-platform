@@ -241,6 +241,40 @@ _PHONE_SEPARATORS = (
     "།၊"
 )
 _PHONE_RE = re.compile(r"(?<!\d)\d(?:[" + _PHONE_SEPARATORS + r"]*\d){8,12}(?!\d)")
+
+# Email addresses. THE GAP THIS CLOSES, measured on main before the fix:
+#
+#     pseudonymize("ramesh@gmail.com")                  -> unchanged, blocked=False
+#     pseudonymize("contact: ramesh.kumar@tatasteel.co.in") -> unchanged, blocked=False
+#
+# There was no email rule at all. That is three identity classes leaving in one
+# string: the LOCAL PART is very often the worker's name, the DOMAIN is very often
+# their EMPLOYER (the exact class `_EMPLOYER_RE` exists to mask, which it misses here
+# because "tatasteel.co.in" carries no Ltd/Pvt suffix), and the address itself is a
+# direct contact handle — the same category as the phone number two lines up. It
+# reached both the provider AND, through the shared `mask=` hook, the trace store.
+#
+# ONE ATOMIC TOKEN, and that is why this runs FIRST in the pipeline rather than
+# alongside the other identity rules. An email is a self-contained unit delimited by
+# `@`, and every other rule that touches it makes things WORSE by fragmenting it:
+# phone-first turns "worker9876543210@gmail.com" into "worker[PHONE_1]@gmail.com",
+# which still publishes the domain and still looks masked. Masking the whole address
+# in one move removes the name, the employer and the digits together.
+#
+# MASK, NOT BLOCK — consistent with phones and with the D-1 ruling that over-blocking
+# is its own harm. A worker who types their email should not lose the turn.
+#
+# FALSE-POSITIVE BOUNDARY, measured against manufacturing/trade text. The TLD arm is
+# `[A-Za-z]{2,}` (letters only, never digits), which is what keeps the `@` forms a
+# machinist actually writes out of this rule:
+#   "M8@1.25"          -> no match (TLD "25" is digits)
+#   "part@100.5mm"     -> no match ("5mm" starts with a digit)
+#   "welding @ 220V"   -> no match (no local@domain.tld shape)
+#   "@ramesh"          -> no match (a bare handle has no domain)
+# The lookbehind stops a partial match starting mid-address.
+_EMAIL_RE = re.compile(
+    r"(?<![A-Za-z0-9._%+\-])[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}"
+)
 _EMPLOYER_RE = re.compile(r"\b(?:[A-Z][\w&.]*\s+){1,4}" + _COMPANY_SUFFIX + r"\b")
 _NAME_CUE_RE = re.compile(
     r"(?i:\bmy name is\b|\bmyself\b|\bi am\b|\bi'm\b|\bthis is\b|\bname is\b|"
@@ -434,7 +468,13 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
 
         result = text
 
-        # 1. ID-like tokens first (PAN, Aadhaar, cued credential IDs) so phone
+        # 0. EMAIL FIRST — before every other rule, because it is the only pattern
+        #    here that is a COMPOSITE of other identity classes (a name in the local
+        #    part, an employer in the domain, sometimes a phone in either). Any rule
+        #    that runs ahead of it fragments the address instead of removing it, and a
+        #    fragment still publishes the half it did not touch. See `_EMAIL_RE`.
+        result = _EMAIL_RE.sub(lambda m: token_for(m.group(0), "EMAIL"), result)
+        # 1. ID-like tokens (PAN, Aadhaar, cued credential IDs) so phone
         #    matching doesn't eat them.
         result = _PAN_RE.sub(lambda m: token_for(m.group(0), "ID"), result)
         result = _AADHAAR_RE.sub(lambda m: token_for(m.group(0), "ID"), result)

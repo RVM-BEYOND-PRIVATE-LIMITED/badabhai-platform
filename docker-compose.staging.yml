@@ -539,6 +539,60 @@ services:
       # REDIS_URL is a different, mandatory store and cannot reach these Settings.
       AI_SPEND_REDIS_URL: ${AI_SPEND_REDIS_URL:-}
 
+      # ---- Langfuse observability. DECLARED-BUT-EMPTY, which is the #798/#794 lesson
+      # applied before it bites rather than after: compose forwards ONLY the names a
+      # service's `environment:` block declares, so until this block existed the box
+      # could export LANGFUSE_PUBLIC_KEY all day and the container would never see it.
+      # The integration was not "off" in staging — it was UNREACHABLE, and nothing said so.
+      #
+      # EMPTY IS STILL OFF. `langfuse_enabled` requires BOTH keys to be non-empty, so this
+      # block changes nothing until an operator exports real keys; it only gives them a
+      # path in. Same posture as GEMINI_FLASH_API_KEY two dozen lines up.
+      #
+      # BEFORE EXPORTING KEYS — this is a NEW EXTERNAL PROCESSOR, not just a dashboard.
+      # Pseudonymized worker text (and, once R30/R32 are considered, whatever those
+      # residuals let through) leaves the VPC for Langfuse's servers. ADR-0030 §7(e)
+      # requires recorded data-retention / no-train terms before a new external
+      # PII-egress surface goes live, and NO ADR covers Langfuse as a processor today.
+      # Get that written down first; `user_id` here is the opaque worker_ref, but a trace
+      # store still becomes a DSAR/erasure-relevant location and ADR-0026/ADR-0031's
+      # deletion sweeps do not reach it.
+      #
+      # NOT DECLARED ON THE `api` SERVICE, deliberately: nothing in apps/api reads these,
+      # and packages/config types them `.min(1).optional()` — a `${VAR:-}` pass-through
+      # would hand Zod an EMPTY STRING and crash-loop the api at boot. Same trap as
+      # AI_INTERNAL_TOKEN documents below.
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      # RESTATED WITH A DEFAULT, not passed through empty — the SARVAM_TTS_MODEL lesson
+      # eight lines up: both are non-optional `str` with real defaults, so a bare
+      # `${VAR:-}` would overwrite them with "" and point the exporter at nothing.
+      LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}"
+      # THE DEFAULT HERE IS `staging`, NOT the Settings default of `development`. An
+      # unset deployment tracing into `development` silently mixes staging traffic into
+      # the dashboards, cost totals and evaluator inputs that describe dev — this file
+      # knows which environment it is, so it says so.
+      LANGFUSE_TRACING_ENVIRONMENT: "${LANGFUSE_TRACING_ENVIRONMENT:-staging}"
+      # Prompt management stays OFF through the flip: prompt versions are recorded either
+      # way (content hash of the local text), so the baseline is fully attributable
+      # without handing prompt control to a second system on the day real calls arm.
+      LANGFUSE_PROMPTS_ENABLED: ${LANGFUSE_PROMPTS_ENABLED:-false}
+      # The deployed build, so traces from different releases are distinguishable. Without
+      # it, "did the last deploy change quality?" is unanswerable no matter how much else
+      # is measured.
+      #
+      # DEFAULTS TO "unknown", NOT to empty and NOT to the Settings default. Empty would
+      # overwrite a non-optional `str` with "" (the SARVAM_TTS_MODEL trap, three fields
+      # up), and inheriting "0.1.0" would be worse than useless — it would stamp every
+      # staging trace with a version number that is not a build and cannot be looked up.
+      # "unknown" is at least true, and it is greppable when someone asks why.
+      APP_VERSION: "${APP_VERSION:-unknown}"
+
+      # ---- TD27 independent kill switch. Also previously undeclared and therefore
+      # unreachable from the box — the emergency OFF for real calls that outranks
+      # AI_ENABLE_REAL_CALLS could not actually be thrown without a code change.
+      AI_REAL_CALLS_KILL_SWITCH: ${AI_REAL_CALLS_KILL_SWITCH:-false}
+
       # ---- TD67 service token. Inherited VALUELESS (compose pass-through form)
       # from the base file for BOTH this service and the api, which is what makes
       # the flip a pure env action on the box: export AI_INTERNAL_TOKEN (>= 16
