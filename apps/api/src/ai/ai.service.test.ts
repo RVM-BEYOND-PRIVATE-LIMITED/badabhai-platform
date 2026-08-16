@@ -535,6 +535,53 @@ describe("AiService", () => {
       });
       expect(result).toBeNull();
     });
+
+    it("puts the CANONICAL job_domain_id on the wire verbatim (Phase 1.5)", async () => {
+      // The whole seam: the api does not translate between the two id spaces, it forwards
+      // whichever one the caller chose. A silent rewrite here would turn a canonical
+      // request into a legacy one that cannot see the new taxonomy's skills.
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          fakeResponse({ json: async () => ({ status: "unresolved", skill_id: null }) }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await ai.canonicalizeSkill({
+        phrase: "kharad",
+        job_domain_id: "jd_nco_7223_0100",
+        lang: "hi",
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+      expect(url).toContain("/skills/canonicalize");
+      expect(JSON.parse(init.body)).toEqual({
+        phrase: "kharad",
+        job_domain_id: "jd_nco_7223_0100",
+        lang: "hi",
+      });
+      // EXACTLY ONE domain per call — a body carrying both is a 400/422 on the far side.
+      expect(JSON.parse(init.body)).not.toHaveProperty("domain_id");
+    });
+
+    it("still sends the LEGACY domain_id alone when that is what the caller passed", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          fakeResponse({ json: async () => ({ status: "unresolved", skill_id: null }) }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await ai.canonicalizeSkill({ phrase: "milling", domain_id: "cnc-machining", lang: "en" });
+
+      const [, init] = fetchMock.mock.calls[0] as [string, { body: string }];
+      expect(JSON.parse(init.body)).toEqual({
+        phrase: "milling",
+        domain_id: "cnc-machining",
+        lang: "en",
+      });
+      expect(JSON.parse(init.body)).not.toHaveProperty("job_domain_id");
+    });
   });
 
   // ---------------------------------------------------------------

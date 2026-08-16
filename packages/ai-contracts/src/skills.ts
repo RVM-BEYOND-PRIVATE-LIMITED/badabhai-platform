@@ -9,11 +9,38 @@ import { AICallMetadataSchema } from "./common";
 // ---------------------------------------------------------------------------
 // Skill canonicalization (ADR-0030 / TAX-4) — mirrors contracts.py
 // ---------------------------------------------------------------------------
-export const SkillCanonicalizationInputSchema = z.object({
-  phrase: z.string(),
-  domain_id: z.string(),
-  lang: z.string().default("en"),
-});
+/**
+ * TWO DOMAIN ID SPACES, EXACTLY ONE PER REQUEST (Phase 1.5 canonicalizer cutover).
+ *
+ * `domain_id` is the LEGACY 11-slug skill domain ("cnc-machining") that
+ * `skill_alias.domain_id` denormalizes. Migration 0076 made that column NULLABLE and
+ * demoted it to compatibility metadata, so a canonical skill minted by the taxonomy
+ * bootstrap carries no slug at all and is INVISIBLE to a `WHERE domain_id = $1` scan.
+ * `job_domain_id` is the canonical `jd_*` id, and it resolves candidates through
+ * `job_domain_skill` instead — which is the whole point of the cutover.
+ *
+ * EXACTLY ONE, ENFORCED — neither is 400, both is 400. This is the rule that matters
+ * most in the file: making both optional without the refine would let a caller send
+ * neither, and "no domain" must never be allowed to degrade into "search the entire
+ * skill vocabulary". A cook would get offered lathe skills. Reject instead.
+ *
+ * A `.refine` (i.e. a ZodEffects, not a ZodObject) is safe here because nothing calls
+ * `.shape`, `.extend`, `.partial` or `.pick` on this schema — verified at cutover; if
+ * that ever changes, move the rule to `.superRefine` on the object and re-check.
+ */
+export const SkillCanonicalizationInputSchema = z
+  .object({
+    phrase: z.string(),
+    /** LEGACY 11-slug skill domain. Optional as of Phase 1.5; still fully supported. */
+    domain_id: z.string().optional(),
+    /** CANONICAL `jd_*` job domain — candidates come from `job_domain_skill`. */
+    job_domain_id: z.string().optional(),
+    lang: z.string().default("en"),
+  })
+  .refine((v) => (v.domain_id === undefined) !== (v.job_domain_id === undefined), {
+    message:
+      "exactly one of domain_id (legacy skill-domain slug) or job_domain_id (canonical jd_*) is required",
+  });
 export type SkillCanonicalizationInput = z.infer<typeof SkillCanonicalizationInputSchema>;
 
 // Result: an ASSIGNED skill_id (top match >= floor) or UNRESOLVED. No PII. SG-3 /

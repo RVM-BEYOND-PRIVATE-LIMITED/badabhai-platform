@@ -516,6 +516,17 @@ export class AiService {
    * unreachable — the caller treats null exactly like UNRESOLVED (a posting is
    * NEVER blocked or failed by canonicalization; the raw phrase is kept either way).
    * SG-3 rides the contract: skill_id is only ever a vector-layer-assigned id.
+   *
+   * PHASE 1.5 — `input` carries EXACTLY ONE domain: the LEGACY `domain_id` slug or the
+   * CANONICAL `job_domain_id` (`jd_*`), which resolves candidates through
+   * `job_domain_skill` and is the only way to reach a skill whose legacy domain is NULL.
+   * The contract's refine states the rule; this method does not re-validate it, and that
+   * is deliberate — throwing here would convert a caller bug into a failed posting write,
+   * where the fail-soft posture is that a malformed body 422s on the far side, `post()`
+   * returns null, and the phrase is simply treated as UNRESOLVED.
+   *
+   * `phrase` is worker/payer free text and is pseudonymized FAIL-CLOSED on the other side
+   * before any embed (SG-1); neither domain id is PII.
    */
   async canonicalizeSkill(
     input: SkillCanonicalizationInput,

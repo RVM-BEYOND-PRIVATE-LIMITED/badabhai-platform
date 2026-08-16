@@ -235,6 +235,35 @@ invariant and adds a second raw-DB authority for no capability gain.
   ([SR-1 runbook](../ai/skill-embedding-staging-runbook.md)) + these routes deployed +
   `BACKEND_API_URL`/`SKILLS_INTERNAL_TOKEN` on the ai-service + `SKILL_CANONICALIZE_ENABLED=true`.
 
+**Amendment (Phase 1.5, migration 0076) — the candidate-resolution path is now
+dual-scoped.** Record of what shipped; Decision 2 above is otherwise unchanged (same two
+routes, same guard, same credential, same response shapes, same fail-open-to-UNRESOLVED
+posture).
+
+0076 made `skill.domain_id` / `skill_alias.domain_id` NULLABLE legacy metadata and moved
+the authoritative domain <-> skill relationship to `job_domain_skill(job_domain_id,
+skill_id, status)`. The shipped `WHERE skill_alias.domain_id = $1` pre-filter is therefore
+BLIND to any skill the canonical taxonomy bootstrap mints. The wire contract gained a
+second, mutually exclusive scope rather than changing the first:
+
+- `POST /internal/skills/nearest-aliases` accepts **exactly one** of `domain_id` (LEGACY
+  11-slug skill domain) or `job_domain_id` (CANONICAL `jd_*`). Neither ⇒ 400; both ⇒ 400.
+  A missing domain is never a wildcard — an unscoped ANN would answer a cook's phrase with
+  a machinist's skill. With `job_domain_id`, candidates come from a join to
+  `job_domain_skill` filtered to `status = 'active'`; with `domain_id`, the pre-0076
+  statement runs byte-for-byte unchanged. Response shape unchanged.
+- `POST /internal/skills/unresolved` — `domain_id` is now **nullable** (a `job_domain_id`-
+  scoped miss has no legacy slug). The column and the repository signature were already
+  nullable; only the DTO forced non-null. `skill.phrase_unresolved` stays **v1**: its
+  `domain_id` was WIDENED to accept null, so every payload that validated before still
+  does and no producer changes.
+- `POST /skills/canonicalize` (ai-service) mirrors the same exactly-one-of rule.
+
+Callers migrate independently — a caller that still sends only `domain_id` is unaffected.
+`job_postings.job_domain_id` is nullable and unbackfilled, so the posting-side fan-out uses
+the posting's canonical domain when set and falls back to the transitional `"cnc-machining"`
+anchor when NULL; removing that fallback today would stop canonicalization on every posting.
+
 ---
 
 ## Addendum (2026-07-23) — the confidence floor is **0.75**, and SG-3 is now ENFORCED, not merely stated

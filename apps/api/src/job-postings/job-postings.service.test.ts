@@ -33,6 +33,12 @@ type Row = {
   verificationStatus: "unverified" | "verified" | "rejected";
   skillPhrases: string[];
   skillIds: string[];
+  /**
+   * The posting's CANONICAL `jd_*` domain (migration 0076). NULL in the fixture because
+   * it is NULL in production: the column is unbackfilled and no write path in this module
+   * sets it. Tests that exercise the canonical canonicalization scope override it.
+   */
+  jobDomainId: string | null;
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -51,6 +57,7 @@ function row(overrides: Partial<Row> = {}): Row {
     verificationStatus: "unverified",
     skillPhrases: [],
     skillIds: [],
+    jobDomainId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     closedAt: null,
@@ -74,6 +81,7 @@ function toApi(r: Row) {
     verified: r.verificationStatus === "verified",
     skill_phrases: r.skillPhrases,
     skill_ids: r.skillIds,
+    job_domain_id: r.jobDomainId,
     // ADR-0036 (migration 0054) — the matchable + worker-visible fields the served
     // entity gained. The real mapper always populates these (both jsonb columns default
     // to '[]', so neither is ever null); the fixture mirrors that rather than omitting
@@ -889,6 +897,86 @@ describe("TAX-6 — job-side skill canonicalization (shared id space, ADR-0030)"
       svc.update(POSTING_ID, { skills: ["milling"] } as never, CTX as never),
     ).rejects.toThrow(/no effective changes/i);
     expect(canonicalize).not.toHaveBeenCalled(); // no wasted round-trips on a true no-op
+  });
+
+  // ── Phase 1.5 canonicalizer cutover — which DOMAIN the fan-out anchors to ──
+  //
+  // Migration 0076 gave `job_postings` its first real domain column and demoted the
+  // hardcoded "cnc-machining" anchor to a transitional fallback. Both arms are pinned
+  // because the fallback is not dead code: `job_domain_id` is NULLABLE with no backfill,
+  // so it is NULL for every posting that exists today and for every posting this API
+  // creates. Deleting the fallback would not "use the canonical domain" — it would stop
+  // canonicalizing skills on 100% of postings, silently, with no error anywhere.
+
+  it("a posting WITH a canonical job_domain_id canonicalizes against it, not the legacy anchor", async () => {
+    const existing = row({ status: "open", jobDomainId: "jd_nco_7223_0100" } as Partial<Row>);
+    const { svc, canonicalize } = make(existing);
+    canonicalize.mockResolvedValueOnce({
+      status: "matched",
+      skill_id: "skill_turning",
+      score: 0.91,
+    });
+    await svc.update(POSTING_ID, { skills: ["lathe operation"] } as never, CTX as never);
+
+    // EXACTLY ONE domain rides the contract — sending both is a 400 on the far side.
+    expect(canonicalize).toHaveBeenCalledWith(
+      { phrase: "lathe operation", job_domain_id: "jd_nco_7223_0100", lang: "en" },
+      CTX,
+    );
+    const sent = canonicalize.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent).not.toHaveProperty("domain_id");
+  });
+
+  it("a posting with a NULL job_domain_id still uses the transitional legacy anchor", async () => {
+    // The state of every row in production. If this regresses to "no domain", the
+    // canonicalizer rejects the call and every posting loses its skill ids.
+    const existing = row({ status: "open", jobDomainId: null } as Partial<Row>);
+    const { svc, canonicalize } = make(existing);
+    canonicalize.mockResolvedValueOnce({ status: "matched", skill_id: "skill_x", score: 0.9 });
+    await svc.update(POSTING_ID, { skills: ["lathe operation"] } as never, CTX as never);
+
+    expect(canonicalize).toHaveBeenCalledWith(
+      { phrase: "lathe operation", domain_id: "cnc-machining", lang: "en" },
+      CTX,
+    );
+    const sent = canonicalize.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent).not.toHaveProperty("job_domain_id");
+  });
+
+  it("the payer edit path reads the domain from the CALLER'S OWN posting, never the body", async () => {
+    // Authorization discipline: the domain comes from the owner-scoped read
+    // (`findByIdAndPayer`), so a payer cannot canonicalize against someone else's trade
+    // by putting an id in the request body — the DTO has no such field at all.
+    const existing = row({ status: "open", jobDomainId: "jd_nco_7212_0301" } as Partial<Row>);
+    const { svc, canonicalize } = make(existing);
+    canonicalize.mockResolvedValueOnce({ status: "matched", skill_id: "skill_weld", score: 0.9 });
+    await svc.updateForPayer(
+      POSTING_ID,
+      PAYER_ID,
+      { skills: ["gas welding"], job_domain_id: "jd_attacker_supplied" } as never,
+      CTX as never,
+    );
+
+    expect(canonicalize).toHaveBeenCalledWith(
+      { phrase: "gas welding", job_domain_id: "jd_nco_7212_0301", lang: "en" },
+      CTX,
+    );
+  });
+
+  it("CREATE has no posting yet, so it anchors to the legacy domain (unchanged)", async () => {
+    // Pinned separately from the update path: neither create DTO accepts a domain and
+    // nothing in this module writes the column, so create can only ever take the
+    // fallback. When the payer flow starts capturing a domain, THIS is the test that
+    // should change.
+    const { svc, canonicalize } = make();
+    await svc.create(
+      { created_by: CREATED_BY, org_label: ORG, role_title: ROLE, skills: ["milling"] } as never,
+      CTX as never,
+    );
+    expect(canonicalize).toHaveBeenCalledWith(
+      { phrase: "milling", domain_id: "cnc-machining", lang: "en" },
+      CTX,
+    );
   });
 });
 

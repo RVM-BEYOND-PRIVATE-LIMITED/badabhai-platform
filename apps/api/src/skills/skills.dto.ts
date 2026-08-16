@@ -12,13 +12,71 @@ import { z } from "zod";
  * Unicode-aware — this boundary must not be looser than the upstream gate. */
 const RESIDUAL_DIGITS = /[\d०-९]{7,}/;
 
-export const NearestAliasesDtoSchema = z.object({
-  domain_id: z.string().min(1).max(64),
-  /** The query embedding — MUST be exactly the house dimension (vector(768)). */
-  vector: z.array(z.number().finite()).length(768),
-  k: z.number().int().min(1).max(20).default(5),
-});
+/**
+ * The two ways to scope an alias search, and they are mutually exclusive.
+ *
+ * `legacy` reads `skill_alias.domain_id` — the shipped pre-filter, unchanged.
+ * `canonical` reads `job_domain_skill`, which is the authoritative domain <-> skill
+ * relationship as of migration 0076 and the ONLY way to reach a skill whose legacy
+ * `domain_id` is NULL.
+ *
+ * A DISCRIMINATED UNION rather than two nullable strings, deliberately: it makes
+ * "neither scope" unrepresentable in the repository signature, so the rule that a
+ * missing domain must never fall through to an unscoped search over the whole
+ * vocabulary is enforced by the type system rather than by remembering to check.
+ */
+export type AliasSearchScope =
+  | { kind: "legacy"; domainId: string }
+  | { kind: "canonical"; jobDomainId: string };
+
+export const NearestAliasesDtoSchema = z
+  .object({
+    /**
+     * LEGACY 11-slug skill domain ("cnc-machining"). Optional as of the Phase 1.5
+     * cutover — every existing caller that sends only this keeps identical behaviour.
+     */
+    domain_id: z.string().min(1).max(64).optional(),
+    /**
+     * CANONICAL `jd_*` job domain. Candidates are resolved through `job_domain_skill`,
+     * so a skill with a NULL legacy `skill_alias.domain_id` is reachable.
+     */
+    job_domain_id: z.string().min(1).max(64).optional(),
+    /** The query embedding — MUST be exactly the house dimension (vector(768)). */
+    vector: z.array(z.number().finite()).length(768),
+    k: z.number().int().min(1).max(20).default(5),
+  })
+  /**
+   * EXACTLY ONE. Neither => 400, both => 400.
+   *
+   * The "neither" arm is the security-relevant one: an unscoped ANN over `skill_alias`
+   * would return the nearest alias in ANY trade, which is precisely the answer the
+   * domain scope exists to prevent. Failing the request is the only safe degradation
+   * (fail closed) — there is no sensible default domain to fall back to.
+   *
+   * The "both" arm is a correctness guard: the two id spaces are disjoint and would
+   * select different candidate sets, so silently preferring one would make the caller's
+   * intent unknowable from the wire.
+   */
+  .refine((v) => (v.domain_id === undefined) !== (v.job_domain_id === undefined), {
+    message:
+      "exactly one of domain_id (legacy skill-domain slug) or job_domain_id (canonical jd_*) is required",
+  });
 export type NearestAliasesDto = z.infer<typeof NearestAliasesDtoSchema>;
+
+/**
+ * Narrow a validated DTO to the repository's scope union.
+ *
+ * Returns `null` for the impossible "neither" case instead of inventing a scope: the
+ * schema's refine has already rejected it at the boundary, and the caller turns a null
+ * into a 400 rather than a silent unscoped search. Never throws, never guesses.
+ */
+export function toAliasSearchScope(dto: NearestAliasesDto): AliasSearchScope | null {
+  if (dto.job_domain_id !== undefined) {
+    return { kind: "canonical", jobDomainId: dto.job_domain_id };
+  }
+  if (dto.domain_id !== undefined) return { kind: "legacy", domainId: dto.domain_id };
+  return null;
+}
 
 export const RecordUnresolvedDtoSchema = z.object({
   /**
@@ -33,6 +91,32 @@ export const RecordUnresolvedDtoSchema = z.object({
     .refine((v) => !RESIDUAL_DIGITS.test(v), {
       message: "phrase contains a residual numeric sequence (pseudonymize first)",
     }),
+  /**
+   * STAYS NON-NULL, and the reason is the EVENT contract rather than this table.
+   *
+   * The column itself is nullable and always has been (the occupation scope has written
+   * null since migration 0070, and the unique index is NULLS NOT DISTINCT so nulls still
+   * dedupe onto one row). Phase 1.5 briefly relaxed this DTO to match — then reverted,
+   * because `SkillsService.recordUnresolved` emits `skill.phrase_unresolved`, whose v1
+   * payload declares `domain_id: z.string().min(1)`. Accepting null here would either
+   * force a v1 event-schema mutation (CLAUDE.md §3: never) or write the row and THEN fail
+   * validation, leaving a queued phrase with no event — an Event-First violation that is
+   * strictly worse than refusing the write.
+   *
+   * SO THE CANONICAL-SCOPED MISS PATH IS CLOSED, DELIBERATELY, AND ONLY THE MISS PATH:
+   * a `job_domain_id`-scoped canonicalization that MATCHES works fine — this route is
+   * reached only when nothing cleared the floor. The ai-service skips the call rather
+   * than firing a doomed request (see `canonicalize.py`), and its record path is
+   * fail-soft, so nothing blocks a worker's turn or a posting write.
+   *
+   * Reachable today: never. Nothing writes `job_postings.job_domain_id`, so no caller
+   * produces a canonical-scoped miss.
+   *
+   * UNBLOCKED BY: adding `job_domain_id` to `unresolved_phrase` (+ widening the unique
+   * index, + teaching the growth runner the second scope, + an ADDITIVE optional field on
+   * the event payload — additive is not a mutation). That migration is already a hard
+   * prerequisite of the payer domain picker.
+   */
   domain_id: z.string().min(1).max(64),
   lang: z.string().min(2).max(8).default("en"),
 });

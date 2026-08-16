@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { SkillCanonicalizationInput } from "@badabhai/ai-contracts";
 import { bandForCount } from "@badabhai/validators";
 import type { JobPosting } from "@badabhai/db";
 import type { JobPostingVerificationStatus } from "@badabhai/types";
@@ -25,6 +26,23 @@ import type {
   PayerCreateJobPostingDto,
   UpdateJobPostingDto,
 } from "./job-postings.dto";
+
+/**
+ * TRANSITIONAL — the hardcoded LEGACY skill-domain slug every posting's skill
+ * canonicalization anchored to before migration 0076 gave `job_postings` a real domain.
+ *
+ * It is a fiction and it is knowingly kept. `job_postings.job_domain_id` is NULLABLE with
+ * NO backfill (§10 additive), so it reads NULL for every posting that exists today and for
+ * every posting this API creates — nothing in the write path sets it yet. Removing the
+ * fallback would therefore not "use the canonical domain", it would silently stop
+ * canonicalizing skills on 100% of postings.
+ *
+ * IT RETIRES WHEN A POSTING CAN ACTUALLY CARRY A DOMAIN — i.e. when the payer flow captures
+ * `job_domain_id` and the existing rows are classified. Until then: canonical when set,
+ * this anchor when not, and never a domainless call (the canonicalizer rejects those, and
+ * an unscoped skill search would offer a welder's vocabulary to a tailor).
+ */
+const LEGACY_ANCHOR_SKILL_DOMAIN = "cnc-machining";
 
 /** The acting identity on a job_posting.* event — ops (the creator) or a payer (the owner). */
 type JobPostingActor = { actor_type: "ops" | "payer"; actor_id: string };
@@ -91,15 +109,37 @@ export class JobPostingsService {
    *
    * BEST-EFFORT by design: an unreachable AI service / a disabled flag yields []
    * (the raw phrases are still stored) — canonicalization NEVER blocks or fails a
-   * posting. SG-3: only ids the vector layer returned are stored; the anchor domain
-   * mirrors the worker-side default until per-label domain resolution lands.
+   * posting. SG-3: only ids the vector layer returned are stored.
    * NOT a RANK input (invariant #4) — the reach-engine guard test locks that.
+   *
+   * `jobDomainId` is the posting's CANONICAL `jd_*` domain (migration 0076) when it has
+   * one, and null otherwise. See {@link LEGACY_ANCHOR_SKILL_DOMAIN} for what null means
+   * and why the fallback still exists.
    */
   private async canonicalizeSkills(
     phrases: string[] | undefined,
     ctx: RequestContext,
+    jobDomainId: string | null,
   ): Promise<string[]> {
     if (!phrases?.length) return [];
+    // EXACTLY ONE domain rides the contract (the canonicalizer 400s/422s on neither and
+    // on both), so this picks one arm rather than sending both and letting the far side
+    // choose. Built once and shared by every phrase in the fan-out.
+    // `!= null` (loose) CATCHES `undefined` TOO, and that is the whole reason it is written
+    // this way. The parameter is typed `string | null`, but the value comes from
+    // `toJobPostingApi`, where every `row.*` read is currently type-UNCHECKED — the
+    // `JobPosting` type resolves truncated in apps/api's tsc, so all 14 reads in that
+    // function including this one report TS2339. TypeScript therefore offers no guarantee
+    // here. If `job_domain_id` ever arrives as `undefined` (a narrower `select()` projection,
+    // or an environment where 0076 has not been applied), strict `!== null` would build
+    // `{ job_domain_id: undefined }`, `JSON.stringify` would drop the key, the body would
+    // reach the canonicalizer with NEITHER domain, the contract would 422, and every phrase
+    // on every posting update would silently canonicalize to nothing. Fail-soft, but
+    // silently and totally. Loose `!=` falls back to the legacy anchor instead.
+    const scope: Pick<SkillCanonicalizationInput, "domain_id" | "job_domain_id"> =
+      jobDomainId != null
+        ? { job_domain_id: jobDomainId }
+        : { domain_id: LEGACY_ANCHOR_SKILL_DOMAIN };
     // PARALLEL by design (#226 review M1): sequential awaits made the worst case
     // N x timeout (10 x 8s = 80s of a held-open posting write against a blackholed
     // ai-service). allSettled bounds the whole pass at ONE client timeout (~8s) and a
@@ -109,7 +149,7 @@ export class JobPostingsService {
       phrases.map((phrase) =>
         // BL-19: the WRITE's ctx, shared by every phrase, so the whole fan-out reads as one
         // trace on the far side instead of N unrelated ones.
-        this.ai.canonicalizeSkill({ phrase, domain_id: "cnc-machining", lang: "en" }, ctx),
+        this.ai.canonicalizeSkill({ phrase, ...scope, lang: "en" }, ctx),
       ),
     );
     const ids: string[] = [];
@@ -159,7 +199,10 @@ export class JobPostingsService {
         description: dto.description ?? null,
         vacancyBand: resolveCreateBand(dto),
         skillPhrases: dto.skills ?? [],
-        skillIds: await this.canonicalizeSkills(dto.skills, ctx),
+        // CREATE has no domain to pass: the row does not exist yet and neither create DTO
+        // accepts `job_domain_id` (nothing in this module writes that column). Explicit
+        // null -> the transitional legacy anchor, which is exactly today's behaviour.
+        skillIds: await this.canonicalizeSkills(dto.skills, ctx, null),
       },
       { actor_type: "ops", actor_id: dto.created_by },
       ctx,
@@ -180,7 +223,13 @@ export class JobPostingsService {
     const current = await this.getOne(id);
     const prepared = this.prepareUpdate(current, dto);
     if (prepared.changedFields.includes("skills")) {
-      prepared.patch.skillIds = await this.canonicalizeSkills(dto.skills, ctx);
+      // The posting's OWN canonical domain when it has one (null for every row today —
+      // the column is unbackfilled), else the transitional legacy anchor.
+      prepared.patch.skillIds = await this.canonicalizeSkills(
+        dto.skills,
+        ctx,
+        current.job_domain_id,
+      );
     }
 
     const updated = await this.repo.update(id, prepared.patch);
@@ -281,7 +330,8 @@ export class JobPostingsService {
         description: dto.description ?? null,
         vacancyBand: resolveCreateBand(dto),
         skillPhrases: dto.skills ?? [],
-        skillIds: await this.canonicalizeSkills(dto.skills, ctx),
+        // Same as the ops create: no domain exists at insert time. See the note there.
+        skillIds: await this.canonicalizeSkills(dto.skills, ctx, null),
       },
       { actor_type: "payer", actor_id: payerId },
       ctx,
@@ -308,7 +358,13 @@ export class JobPostingsService {
     const current = await this.getOneForPayer(id, payerId); // no-oracle 404
     const prepared = this.prepareUpdate(current, dto);
     if (prepared.changedFields.includes("skills")) {
-      prepared.patch.skillIds = await this.canonicalizeSkills(dto.skills, ctx);
+      // Owner-scoped read, so the domain is the CALLER'S OWN posting's — never a
+      // body-supplied id. Null for every row today; see the ops update above.
+      prepared.patch.skillIds = await this.canonicalizeSkills(
+        dto.skills,
+        ctx,
+        current.job_domain_id,
+      );
     }
 
     const updated = await this.repo.updateOwned(id, payerId, prepared.patch);

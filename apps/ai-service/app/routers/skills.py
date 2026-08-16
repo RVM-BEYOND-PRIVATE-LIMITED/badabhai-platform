@@ -30,8 +30,13 @@ async def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonica
     """ADR-0030 / TAX-6: the JOB side canonicalizes through the SAME pipeline as the
     worker side — one shared id space. The NestJS api calls this at job-posting
     create/update for each posting skill phrase; `canonicalize_skill` runs
-    pseudonymize -> embed (SG-2/SG-4) -> domain-scoped nearest-alias (seam A store) ->
+    pseudonymize -> embed (SG-2/SG-4) -> scope-bounded nearest-alias (seam A store) ->
     floor gate. SG-3 holds: the id can only come from the closed skill_alias set.
+
+    SCOPE (Phase 1.5): the body carries EXACTLY ONE of `domain_id` (legacy slug) or
+    `job_domain_id` (canonical `jd_*`, resolved through `job_domain_skill` so a skill
+    with a NULL legacy domain is reachable at all). Neither/both is a 422 from the
+    contract — an unscoped search is refused, never widened.
 
     Honors SKILL_CANONICALIZE_ENABLED: flag off -> UNRESOLVED (inert — rollback for the
     job side is the same single flag as the worker side). ``async def`` + ``to_thread``:
@@ -54,7 +59,16 @@ async def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonica
     tracer = get_tracer()
     with tracer.task(
         task_type="skill_canonicalization",
-        input={"domain_id": body.domain_id, "lang": body.lang},
+        # BOTH SCOPE KEYS ARE TRACED, and both are safe: a legacy slug and a `jd_*` id are
+        # closed-set identifiers, never worker text. Tracing only the one that was set would
+        # make the two Phase 1.5 paths indistinguishable in Langfuse — the exact question the
+        # cutover has to be able to answer ("did this go through job_domain_skill or the
+        # legacy column?"). The phrase itself is still never traced.
+        input={
+            "domain_id": body.domain_id,
+            "job_domain_id": body.job_domain_id,
+            "lang": body.lang,
+        },
         real_call=settings.real_call_enabled_for(EMBEDDING_TASK_TYPE),
     ) as task:
         if not settings.skill_canonicalize_enabled:
@@ -85,6 +99,9 @@ async def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonica
                 get_skill_store(settings),
                 settings,
                 lang=body.lang,
+                # Phase 1.5: EXACTLY ONE of these is set (the contract 422s anything else),
+                # so the legacy call is unchanged — this is None on every existing caller.
+                job_domain_id=body.job_domain_id,
             )
             # Leave the full reservation recorded as the actual spend (conservative:
             # one real embed ran; a pseudonymize-blocked phrase slightly over-records).

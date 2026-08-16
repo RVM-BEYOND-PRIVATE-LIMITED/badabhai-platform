@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { sql } from "drizzle-orm";
 import type { Database, UnresolvedPhraseScope } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
-import type { AliasCandidate, DomainCandidate } from "./skills.dto";
+import type { AliasCandidate, AliasSearchScope, DomainCandidate } from "./skills.dto";
 
 /**
  * ANN overfetch bounds and the HNSW search width for `nearestDomains`.
@@ -63,24 +63,104 @@ export class SkillsRepository {
    * `1 - (embedding <=> $q)` = cosine similarity (pgvector `<=>` is cosine DISTANCE).
    * Domain isolation is the WHERE clause; NULL (un-embedded) aliases never match.
    * Returns (skill_id, score) DESC — ids only ever come from this closed set (SG-3).
+   *
+   * TWO SCOPES, ONE CONTRACT (Phase 1.5 cutover). The `scope` union is the whole safety
+   * property: there is no third arm meaning "unscoped", so this method structurally
+   * cannot be asked to search the entire vocabulary. A request with no domain is
+   * rejected at the DTO boundary and never reaches here.
    */
   async nearestAliases(
-    domainId: string,
+    scope: AliasSearchScope,
     vector: number[],
     k: number,
   ): Promise<AliasCandidate[]> {
     // pgvector accepts the '[1,2,3]' literal; JSON.stringify produces exactly that.
     const vec = JSON.stringify(vector);
-    const rows = await this.db.execute(sql`
+    const rows =
+      scope.kind === "canonical"
+        ? await this.canonicalAliasRows(scope.jobDomainId, vec, k)
+        : await this.legacyAliasRows(scope.domainId, vec, k);
+    return (rows as unknown as Array<{ skill_id: string; score: string | number }>).map(
+      (r) => ({ skill_id: r.skill_id, score: Number(r.score) }),
+    );
+  }
+
+  /**
+   * LEGACY / FALLBACK PATH — the shipped `skill_alias.domain_id` pre-filter, byte for
+   * byte the statement this repository has always run.
+   *
+   * Kept unchanged on purpose. It is what every pre-cutover caller still sends, and the
+   * 11 hand-minted slugs remain the only domain the 131 already-embedded aliases carry.
+   * It retires when the alias corpus is fully re-domained onto `job_domain_skill`, not
+   * before — and until then a regression here is a silent recall loss, not an error.
+   */
+  private legacyAliasRows(domainId: string, vec: string, k: number) {
+    return this.db.execute(sql`
       SELECT skill_id, 1 - (embedding <=> ${vec}::vector) AS score
       FROM skill_alias
       WHERE domain_id = ${domainId} AND embedding IS NOT NULL
       ORDER BY embedding <=> ${vec}::vector
       LIMIT ${k}
     `);
-    return (rows as unknown as Array<{ skill_id: string; score: string | number }>).map(
-      (r) => ({ skill_id: r.skill_id, score: Number(r.score) }),
-    );
+  }
+
+  /**
+   * CANONICAL PATH — candidates resolved through `job_domain_skill`, the authoritative
+   * domain <-> skill relationship as of migration 0076.
+   *
+   * WHY THIS EXISTS AT ALL. 0076 made `skill.domain_id` / `skill_alias.domain_id`
+   * NULLABLE legacy metadata, so a skill minted by the canonical taxonomy bootstrap
+   * carries no slug — and `WHERE domain_id = $1` cannot see it. The legacy query is not
+   * wrong, it is BLIND to the new rows. The join is how they become reachable, and it is
+   * deliberately NOT fixed by backfilling `skill.domain_id`: mapping the 11 slugs onto
+   * the 4,071 `jd_*` rows is a re-domain, which SG-5 defines as deprecate-and-recreate.
+   *
+   * ── WHY THE JOIN IS SAFE FOR THE INDEX ──
+   *
+   * `skill_alias_embedding_hnsw` is NON-PARTIAL (schema/skill.ts states this explicitly:
+   * 0076 left it untuned because a `WHERE is_searchable` predicate would have unindexed
+   * all 131 live rows). A non-partial index needs NO predicate repeated in the query to
+   * be usable, which is exactly why adding a join here does not cost the index the way
+   * dropping `is_searchable` costs `nearestDomains` its partial one.
+   *
+   * The ANN stage still reads as the one shape HNSW serves — `ORDER BY <distance>` on a
+   * bare column reference with a `LIMIT` — because nothing is ordered ahead of the
+   * distance and the join contributes no sort key. The planner's expected shape is an
+   * index scan on `skill_alias` feeding a nested loop that probes `job_domain_skill` on
+   * its PRIMARY KEY `(job_domain_id, skill_id)`: both columns are bound (one from the
+   * parameter, one from the outer row), so each probe is an exact PK lookup, not a scan.
+   * `jds.status` is read from that same fetched row — no extra access.
+   *
+   * ── THE HONEST CAVEAT: THIS IS A POST-FILTER, SO RECALL IS NOT GUARANTEED ──
+   *
+   * The domain test is applied AFTER the vector order, not before it. HNSW walks
+   * `ef_search` candidates; if very few of them belong to this `job_domain_id`, the
+   * statement can legitimately return fewer than k rows even though qualifying aliases
+   * exist further down the list. That is a RECALL bound, never a correctness bug — every
+   * row returned is genuinely in the domain, and the caller's floor gate is unaffected.
+   *
+   * NOT TUNED HERE, on the same reasoning `ANN_OVERFETCH_*` above documents at length:
+   * `job_domain_skill` is written by an offline bootstrap and the alias corpus is barely
+   * embedded, so there is no real distance distribution to calibrate an overfetch or an
+   * `ef_search` against. When Phase 2 lands the embeddings, MEASURE the shortfall before
+   * reaching for a knob — and prefer widening `ef_search` inside a transaction (the
+   * `nearestDomains` pattern) over inflating `LIMIT`, which is what loses the index.
+   *
+   * `status = 'active'` is not optional: a deprecated or merely provisional edge is not
+   * a recommendation, and letting one through would put a retired skill on a worker's
+   * profile with no way to tell it apart from a live one.
+   */
+  private canonicalAliasRows(jobDomainId: string, vec: string, k: number) {
+    return this.db.execute(sql`
+      SELECT sa.skill_id, 1 - (sa.embedding <=> ${vec}::vector) AS score
+      FROM skill_alias sa
+      JOIN job_domain_skill jds ON jds.skill_id = sa.skill_id
+      WHERE jds.job_domain_id = ${jobDomainId}
+        AND jds.status = 'active'
+        AND sa.embedding IS NOT NULL
+      ORDER BY sa.embedding <=> ${vec}::vector
+      LIMIT ${k}
+    `);
   }
 
   /**
