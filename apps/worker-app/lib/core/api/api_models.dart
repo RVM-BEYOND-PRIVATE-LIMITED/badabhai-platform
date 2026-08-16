@@ -588,6 +588,7 @@ class ChatReply extends Equatable {
     this.questionKind = ChatQuestionKind.ask,
     this.inputMode = ChatInputMode.text,
     this.occupationLabel,
+    this.ttsText,
     this.lookahead = const <String, PredictedQuestion?>{},
   });
 
@@ -674,6 +675,17 @@ class ChatReply extends Equatable {
   /// null before it pins. The trust moment of the interview (#649).
   final String? occupationLabel;
 
+  /// The Devanagari rendering of [reply] for read-aloud (`tts_text`, #896) — the
+  /// SAME content as the shown, romanized [reply], written in the native script
+  /// so the on-device hi-IN voice pronounces the Hindi correctly (romanized
+  /// Hindi is read as gibberish by every TTS voice). It is NEVER displayed and
+  /// NEVER echoed back (the POST body is unchanged); only the SPOKEN string uses it.
+  ///
+  /// ADDITIVE / optional: null when absent, null or blank (an older API build).
+  /// Read-aloud then falls back to speaking [reply], exactly as before this field
+  /// existed — so an old server is unchanged behaviour.
+  final String? ttsText;
+
   /// ADVISORY next-turn predictions keyed by the tapped option (#761), plus the
   /// decline/escape chip under `'__declined'`. Each value is what THIS turn's
   /// chips are predicted to lead to, so the client can render it optimistically
@@ -748,6 +760,14 @@ class ChatReply extends Equatable {
         occupationLabel: json['occupation_label'] is String
             ? json['occupation_label'] as String
             : null,
+        // #896 — the Devanagari read-aloud string. Absent / null / non-string /
+        // BLANK -> null (an older API build), and read-aloud then speaks the
+        // romanized `reply` unchanged. Never thrown (#371): a bad value must not
+        // lose bada bhai's whole reply over a cosmetic pronunciation aid.
+        ttsText: json['tts_text'] is String &&
+                (json['tts_text'] as String).trim().isNotEmpty
+            ? json['tts_text'] as String
+            : null,
         // Absent / malformed -> empty map ("no predictions"), never thrown (#371).
         lookahead: _parseLookahead(json['lookahead']),
       );
@@ -767,6 +787,7 @@ class ChatReply extends Equatable {
         questionKind,
         inputMode,
         occupationLabel,
+        ttsText,
         lookahead,
       ];
 }
@@ -785,6 +806,7 @@ class SessionMessage extends Equatable {
     required this.direction,
     required this.bodyText,
     required this.createdAt,
+    this.ttsText,
   });
 
   /// 'inbound' (the worker) | 'outbound' (bada bhai). Kept as the RAW wire
@@ -800,6 +822,12 @@ class SessionMessage extends Equatable {
 
   final String createdAt;
 
+  /// The Devanagari read-aloud rendering of [bodyText] for an OUTBOUND (bada
+  /// bhai) row (`tts_text`, #896), or null — absent on an inbound row, an older
+  /// API build, or a voice row before its transcript lands. Rides only the
+  /// hydrated bot bubble; read-aloud falls back to [bodyText] when null.
+  final String? ttsText;
+
   /// True for the worker's own (inbound) messages. Anything that is not
   /// explicitly 'inbound' is treated as a bada-bhai bubble — the tolerant
   /// default the contract's enum note asks for.
@@ -809,10 +837,16 @@ class SessionMessage extends Equatable {
         direction: json['direction'] as String? ?? 'outbound',
         bodyText: json['body_text'] as String?,
         createdAt: json['created_at'] as String? ?? '',
+        // #896 — additive: absent / null / blank -> null (read-aloud falls back
+        // to the romanized body_text).
+        ttsText: json['tts_text'] is String &&
+                (json['tts_text'] as String).trim().isNotEmpty
+            ? json['tts_text'] as String
+            : null,
       );
 
   @override
-  List<Object?> get props => <Object?>[direction, bodyText, createdAt];
+  List<Object?> get props => <Object?>[direction, bodyText, createdAt, ttsText];
 }
 
 /// Result of POST /profile/extract.

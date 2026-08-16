@@ -28,6 +28,7 @@ class ChatTurn extends Equatable {
     this.inputMode = ChatInputMode.text,
     this.occupationLabel,
     this.askedQuestionId,
+    this.ttsText,
     this.lookahead = const <String, PredictedQuestion?>{},
   });
 
@@ -70,6 +71,12 @@ class ChatTurn extends Equatable {
   /// or null before it pins. The interview's trust moment.
   final String? occupationLabel;
 
+  /// The Devanagari rendering of [reply] for read-aloud (`tts_text`, #896),
+  /// carried from `ChatReply.ttsText`. Null on an older API build — read-aloud
+  /// then speaks the romanized [reply]. Never displayed; the on-screen bubble
+  /// always shows [reply].
+  final String? ttsText;
+
   /// The interview engine's own completeness decision, carried from the
   /// backend's `extraction_ready` (#421). False until the engine says it has
   /// enough to build a profile — and false when the field is missing (see
@@ -107,6 +114,7 @@ class ChatTurn extends Equatable {
         inputMode,
         occupationLabel,
         askedQuestionId,
+        ttsText,
         lookahead,
       ];
 }

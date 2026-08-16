@@ -387,4 +387,47 @@ void main() {
       expect(reply.suggestedOptions, isEmpty);
     });
   });
+
+  // #896 — `tts_text` is the Devanagari rendering of `reply` for read-aloud.
+  // Additive/optional: absent, null or blank -> null (an older API build), and
+  // read-aloud then speaks the romanized `reply`. Never displayed.
+  group('tts_text parsing (#896)', () {
+    test('a present Devanagari string parses onto ttsText; reply stays romanized',
+        () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Aap kaunsa kaam karte hain?',
+        'tts_text': 'आप कौनसा काम करते हैं?',
+      });
+      expect(reply.reply, 'Aap kaunsa kaam karte hain?',
+          reason: 'the shown text is unchanged (romanized)');
+      expect(reply.ttsText, 'आप कौनसा काम करते हैं?',
+          reason: 'the SPOKEN text is the Devanagari sibling');
+    });
+
+    test('an absent tts_text -> null (older API build), reply unchanged', () {
+      final ChatReply reply =
+          ChatReply.fromJson(<String, dynamic>{'reply': 'Theek hai'});
+      expect(reply.ttsText, isNull);
+      expect(reply.reply, 'Theek hai');
+    });
+
+    test('a null or blank tts_text -> null (never an empty spoken string)', () {
+      for (final Object? bad in <Object?>[null, '', '   ']) {
+        final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+          'reply': 'ok',
+          'tts_text': bad,
+        });
+        expect(reply.ttsText, isNull, reason: 'blank/null tts_text: $bad');
+      }
+    });
+
+    test('a non-string tts_text degrades to null, the reply survives (#371)', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Bada bhai ka jawaab',
+        'tts_text': 42,
+      });
+      expect(reply.reply, 'Bada bhai ka jawaab');
+      expect(reply.ttsText, isNull);
+    });
+  });
 }

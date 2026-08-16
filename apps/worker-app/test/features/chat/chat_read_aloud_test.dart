@@ -67,11 +67,16 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  // Worker 'hi' + one bot reply → exactly one bot bubble.
-  Future<void> seedBotReply(WidgetTester tester, String reply) async {
+  // Worker 'hi' + one bot reply → exactly one bot bubble. [ttsText] (#896) is the
+  // Devanagari read-aloud script the reply bubble carries (null = older API).
+  Future<void> seedBotReply(
+    WidgetTester tester,
+    String reply, {
+    String? ttsText,
+  }) async {
     when(
       () => chat.sendMessage(any(), submissionId: any(named: 'submissionId')),
-    ).thenAnswer((_) async => ChatTurn(reply: reply));
+    ).thenAnswer((_) async => ChatTurn(reply: reply, ttsText: ttsText));
     await tester.enterText(find.byType(TextField), 'hi');
     await tester.testTextInput.receiveAction(TextInputAction.send);
     await tester.pumpAndSettle();
@@ -111,6 +116,52 @@ void main() {
     await tester.pumpAndSettle();
     expect(reader.stopCalls, greaterThan(0));
     expect(find.byIcon(Icons.stop_circle_outlined), findsNothing);
+  });
+
+  // #896 — the on-screen text is romanized Hindi, which no TTS voice pronounces
+  // right; read-aloud must SPEAK the Devanagari `tts_text` when present.
+  testWidgets(
+    'a bot reply with tts_text is READ ALOUD in Devanagari, not the romanized text',
+    (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await seedBotReply(
+        tester,
+        'Aap kaunsa kaam karte hain?',
+        ttsText: 'आप कौनसा काम करते हैं?',
+      );
+
+      await tester.tap(find.byIcon(Icons.volume_up_rounded).last);
+      await tester.pump();
+      expect(
+        reader.spoken,
+        <String>['आप कौनसा काम करते हैं?'],
+        reason: 'the SPOKEN string is the Devanagari, never the romanized text',
+      );
+    },
+  );
+
+  testWidgets(
+    'a bot reply with no tts_text falls back to speaking the on-screen text',
+    (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await seedBotReply(tester, 'Aap kahan rehte hain?'); // no tts_text
+
+      await tester.tap(find.byIcon(Icons.volume_up_rounded).last);
+      await tester.pump();
+      expect(reader.spoken, <String>['Aap kahan rehte hain?'],
+          reason: 'absent tts_text -> speak the romanized text, as before');
+    },
+  );
+
+  testWidgets('the opener bubble reads its Devanagari constant aloud (#896)', (
+    WidgetTester tester,
+  ) async {
+    await pumpScreen(tester);
+    // The opener is bubble 0; its speaker is the first on screen.
+    await tester.tap(find.byIcon(Icons.volume_up_rounded).first);
+    await tester.pump();
+    expect(reader.spoken, <String>[kChatOpeningTtsText],
+        reason: 'the first question speaks Devanagari from turn one');
   });
 
   testWidgets('a bot reply adds ONE speaker; the worker message adds none', (
