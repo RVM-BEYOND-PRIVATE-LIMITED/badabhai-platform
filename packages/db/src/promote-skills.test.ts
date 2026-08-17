@@ -14,10 +14,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  bestCorrectScores,
   blockingHistogram,
+  CANONICALIZATION_FLOOR,
   CRITERIA,
   isCriterion,
   judge,
+  judgeRegression,
+  REGRESSION_BASELINE,
   reportPath,
   writeReport,
   type CandidateFacts,
@@ -35,6 +39,9 @@ const ok = (o: Partial<CandidateFacts> = {}): CandidateFacts => ({
   unembedded_aliases: 0,
   embedding_models: ["gemini-embedding-001"],
   eval_covered: true,
+  best_correct_score: 0.92,
+  no_regression: true,
+  regression_detail: "meets the reference",
   ...o,
 });
 
@@ -45,7 +52,7 @@ describe("the criteria set", () => {
   it("is closed", () => {
     expect(isCriterion("EVAL_COVERED")).toBe(true);
     expect(isCriterion("LOOKS_FINE")).toBe(false);
-    expect(CRITERIA).toHaveLength(5);
+    expect(CRITERIA).toHaveLength(7);
   });
 
   it("judges EVERY criterion on every candidate, pass or fail", () => {
@@ -201,6 +208,18 @@ describe("the audit report", () => {
     batch_dir: "batch_x",
     fixture: "retrieval-v2.jsonl",
     waived: [],
+    floor: CANONICALIZATION_FLOOR,
+    regression_baseline: { ...REGRESSION_BASELINE },
+    regression: {
+      passed: true,
+      detail: "ok",
+      observed_recall_at_1: 1,
+      observed_mrr: 1,
+      delta_recall_at_1: 0,
+      delta_mrr: 0,
+    },
+    sweep_record: "sweep.json",
+    eval_record: "eval.json",
     candidates: 1,
     eligible: 1,
     blocked: 0,
@@ -215,7 +234,7 @@ describe("the audit report", () => {
     const p = writeReport(report(), join(dir, "r.json"));
     const back = JSON.parse(readFileSync(p, "utf8")) as PromotionReport;
     expect(back.promoted).toEqual(["skill_x"]);
-    expect(back.verdicts[0]?.criteria).toHaveLength(5);
+    expect(back.verdicts[0]?.criteria).toHaveLength(7);
   });
 
   it("REFUSES to overwrite — a promotion report is evidence, not a scratch file", () => {
@@ -275,5 +294,243 @@ describe("the CURRENT corpus, judged", () => {
       ...Array.from({ length: 37 }, (_, i) => judge(ok({ skill_id: `u${i}`, eval_covered: false }), w)),
     ];
     expect(vs.filter((v) => v.eligible)).toHaveLength(98);
+  });
+});
+
+// ===========================================================================
+// Phase 8 safeguard 1: RESOLVABLE_ABOVE_FLOOR
+// ===========================================================================
+describe("judge — RESOLVABLE_ABOVE_FLOOR", () => {
+  it("admits a skill whose best validated resolution clears the floor", () => {
+    expect(blocked(ok({ best_correct_score: 0.92 }))).toEqual([]);
+    expect(blocked(ok({ best_correct_score: CANONICALIZATION_FLOOR }))).toEqual([]); // inclusive
+  });
+
+  it("REFUSES a skill that would be live but permanently unassignable", () => {
+    // The failure this gate exists for: every other criterion passes, the skill goes active,
+    // and the canonicalization floor then rejects every match it could ever win. Gate C
+    // measured 13 of 112 correct answers sitting below 0.75.
+    const v = judge(ok({ best_correct_score: 0.7402 }));
+    expect(v.blocking).toContain("RESOLVABLE_ABOVE_FLOOR");
+    expect(v.criteria.find((c) => c.criterion === "RESOLVABLE_ABOVE_FLOOR")?.detail).toMatch(/BELOW/);
+  });
+
+  it("REFUSES a skill no validated query ever resolved to", () => {
+    // Distinct from "scored low": there is no evidence at all. Silence is not a pass.
+    const v = judge(ok({ best_correct_score: null }));
+    expect(v.blocking).toContain("RESOLVABLE_ABOVE_FLOOR");
+    expect(v.criteria.find((c) => c.criterion === "RESOLVABLE_ABOVE_FLOOR")?.detail).toMatch(/no validated query ever resolved/);
+  });
+
+  it("is judged against the floor that is actually running", () => {
+    // If someone lowers CANONICALIZATION_FLOOR to make this gate pass, the constant is the
+    // single place that happens, and it is pinned to the shipped config.
+    expect(CANONICALIZATION_FLOOR).toBe(0.75);
+  });
+});
+
+describe("bestCorrectScores — reading the floor sweep", () => {
+  const rec = (cases: unknown[]) => ({ detail: { per_case: cases } });
+
+  it("keeps each skill's BEST correct score", () => {
+    const m = bestCorrectScores(
+      rec([
+        { top_skill_id: "a", score: 0.7, correct: true },
+        { top_skill_id: "a", score: 0.93, correct: true },
+        { top_skill_id: "b", score: 0.8, correct: true },
+      ]),
+    );
+    expect(m.get("a")).toBe(0.93);
+    expect(m.get("b")).toBe(0.8);
+  });
+
+  it("IGNORES high-scoring WRONG answers", () => {
+    // A skill that confidently wins when it should not has demonstrated it can be
+    // mis-assigned. Counting that as evidence FOR promoting it inverts the whole gate.
+    const m = bestCorrectScores(rec([{ top_skill_id: "rival", score: 0.99, correct: false }]));
+    expect(m.has("rival")).toBe(false);
+  });
+
+  it("ignores null scores and null skills", () => {
+    const m = bestCorrectScores(
+      rec([
+        { top_skill_id: null, score: 0.9, correct: true },
+        { top_skill_id: "a", score: null, correct: true },
+      ]),
+    );
+    expect(m.size).toBe(0);
+  });
+
+  it("survives a record with no per_case detail rather than throwing mid-promotion", () => {
+    expect(bestCorrectScores({}).size).toBe(0);
+    expect(bestCorrectScores({ detail: {} }).size).toBe(0);
+  });
+});
+
+// ===========================================================================
+// Phase 8 safeguard 2: NO_REGRESSION
+// ===========================================================================
+describe("judgeRegression — no tolerance band, by design", () => {
+  const evalRec = (o: Record<string, unknown> = {}) => ({
+    recall_at_1: 1.0,
+    mrr: 1.0,
+    evaluator_version: 2,
+    fixture_version: 2,
+    ...o,
+  });
+
+  it("passes when the evaluation MEETS the reference exactly", () => {
+    const v = judgeRegression(evalRec());
+    expect(v.passed).toBe(true);
+    expect(v.delta_recall_at_1).toBe(0);
+  });
+
+  it("BLOCKS on the smallest measurable drop — there is no allowance", () => {
+    // The whole point. Any "block if it drops more than X" is a number nobody chose, and a
+    // number chosen to let the current corpus through is a rubber stamp with arithmetic on it.
+    const v = judgeRegression(evalRec({ recall_at_1: 0.9999 }));
+    expect(v.passed).toBe(false);
+    expect(v.detail).toMatch(/REGRESSION/);
+  });
+
+  it("BLOCKS on the ACTUAL post-Gate-B numbers, and reports the delta", () => {
+    // This gate is EXPECTED to fire today: Gate B embedded the shipped catalogue, which put
+    // skill_turning into competition and cost case GP-04.
+    const v = judgeRegression(evalRec({ recall_at_1: 0.9912, mrr: 0.9956 }));
+    expect(v.passed).toBe(false);
+    expect(v.delta_recall_at_1).toBeCloseTo(-0.0088, 6);
+    expect(v.delta_mrr).toBeCloseTo(-0.0044, 6);
+    expect(v.detail).toMatch(/Reported for review/);
+  });
+
+  it("BLOCKS on an MRR-only regression, even when Recall@1 holds", () => {
+    // Recall@1 is rank-1 only; MRR is where a slip from rank 1 to rank 2 shows up. A gate
+    // watching recall alone would miss the whole corpus degrading by one position.
+    expect(judgeRegression(evalRec({ recall_at_1: 1.0, mrr: 0.97 })).passed).toBe(false);
+  });
+
+  it("REFUSES an evaluation taken with a different EVALUATOR — not comparable", () => {
+    // A v1 number against the v2 reference is two different questions, and the delta would
+    // be a measurement artifact dressed up as a safety verdict.
+    const v = judgeRegression(evalRec({ evaluator_version: 1 }));
+    expect(v.passed).toBe(false);
+    expect(v.detail).toMatch(/different questions/);
+  });
+
+  it("REFUSES an evaluation taken against a different FIXTURE version", () => {
+    expect(judgeRegression(evalRec({ fixture_version: 1 })).passed).toBe(false);
+  });
+
+  it("REFUSES a record carrying no metrics — absence is not a pass", () => {
+    expect(judgeRegression(evalRec({ recall_at_1: null, mrr: null })).passed).toBe(false);
+    expect(judgeRegression(null).passed).toBe(false);
+  });
+
+  it("never reports passed=true on any malformed input", () => {
+    for (const bad of [undefined, 0, "", [], {}, { recall_at_1: 1 }]) {
+      expect(judgeRegression(bad).passed, `malformed input passed: ${JSON.stringify(bad)}`).toBe(false);
+    }
+  });
+});
+
+describe("judge — NO_REGRESSION applies to every candidate in the batch", () => {
+  it("blocks every candidate when the batch regresses", () => {
+    // Promotion is all-or-nothing per batch, so the regression verdict is batch-level and is
+    // reported on each candidate rather than buried in a preamble.
+    const vs = [ok({ skill_id: "a" }), ok({ skill_id: "b" })].map((f) =>
+      judge({ ...f, no_regression: false, regression_detail: "R@1 0.9912 (-0.0088)" }),
+    );
+    expect(vs.every((v) => v.blocking.includes("NO_REGRESSION"))).toBe(true);
+    expect(blockingHistogram(vs)).toEqual({ NO_REGRESSION: 2 });
+  });
+
+  it("carries the regression detail onto the criterion so the report explains itself", () => {
+    const v = judge(ok({ no_regression: false, regression_detail: "R@1 0.9912 (-0.0088)" }));
+    expect(v.criteria.find((c) => c.criterion === "NO_REGRESSION")?.detail).toBe("R@1 0.9912 (-0.0088)");
+  });
+
+  it("can be waived, and the waiver is recorded rather than hidden", () => {
+    const v = judge(
+      ok({ no_regression: false, regression_detail: "R@1 0.9912" }),
+      new Set<Criterion>(["NO_REGRESSION"]),
+    );
+    expect(v.eligible).toBe(true);
+    const c = v.criteria.find((x) => x.criterion === "NO_REGRESSION");
+    expect(c?.passed).toBe(false);
+    expect(c?.waived).toBe(true);
+  });
+});
+
+describe("the CURRENT corpus under BOTH new safeguards", () => {
+  it("blocks the whole batch today, because Gate B caused a real regression", () => {
+    // Regression guard on the policy against the measured state: 98 candidates, all blocked
+    // by NO_REGRESSION regardless of their individual merits.
+    const vs = Array.from({ length: 98 }, (_, i) =>
+      judge(ok({ skill_id: `s${i}`, no_regression: false, regression_detail: "R@1 0.9912 (-0.0088)" })),
+    );
+    expect(vs.filter((v) => v.eligible)).toHaveLength(0);
+    expect(blockingHistogram(vs)).toEqual({ NO_REGRESSION: 98 });
+  });
+
+  it("still blocks the 44 skills below the floor once the regression is waived", () => {
+    // Gate C measured 54 of 98 skills with a validated resolution at/above 0.75.
+    const w = new Set<Criterion>(["NO_REGRESSION"]);
+    const vs = [
+      ...Array.from({ length: 54 }, (_, i) =>
+        judge(ok({ skill_id: `hi${i}`, best_correct_score: 0.9, no_regression: false }), w),
+      ),
+      ...Array.from({ length: 44 }, (_, i) =>
+        judge(ok({ skill_id: `lo${i}`, best_correct_score: null, no_regression: false }), w),
+      ),
+    ];
+    expect(vs.filter((v) => v.eligible)).toHaveLength(54);
+    expect(blockingHistogram(vs)).toEqual({ RESOLVABLE_ABOVE_FLOOR: 44 });
+  });
+});
+
+describe("judgeRegression — evidence must be CURRENT", () => {
+  const rec = (o: Record<string, unknown> = {}) => ({
+    recall_at_1: 1.0,
+    mrr: 1.0,
+    evaluator_version: 2,
+    fixture_version: 2,
+    recorded_at: "2026-08-17T12:00:00.000Z",
+    ...o,
+  });
+
+  it("accepts an evaluation taken AFTER the corpus last changed", () => {
+    const v = judgeRegression(rec(), new Date("2026-08-17T09:41:00.000Z"));
+    expect(v.passed).toBe(true);
+  });
+
+  it("REFUSES an evaluation that PREDATES the corpus it is clearing", () => {
+    // Caught in review of this gate. The first demonstration run passed NO_REGRESSION using
+    // the pre-Gate-B record while the live corpus had already regressed to 0.9912 — the gate
+    // reported PASS on evidence that could not possibly have seen the regression. Pointing at
+    // an old record is the easiest way to defeat this gate without touching any code.
+    const v = judgeRegression(
+      rec({ recorded_at: "2026-08-17T06:33:38.652Z" }),
+      new Date("2026-08-17T09:41:42.150Z"),
+    );
+    expect(v.passed).toBe(false);
+    expect(v.detail).toMatch(/PREDATES/);
+  });
+
+  it("REFUSES a record with no parsable recorded_at — it cannot prove it is current", () => {
+    expect(judgeRegression(rec({ recorded_at: undefined }), new Date()).passed).toBe(false);
+    expect(judgeRegression(rec({ recorded_at: "not a date" }), new Date()).passed).toBe(false);
+  });
+
+  it("skips the freshness check only when the corpus has never been embedded", () => {
+    // null means there is no embedding to be stale against, not "assume fresh".
+    expect(judgeRegression(rec({ recorded_at: "2020-01-01T00:00:00.000Z" }), null).passed).toBe(true);
+  });
+
+  it("staleness outranks good numbers — a perfect stale score still blocks", () => {
+    const v = judgeRegression(
+      rec({ recall_at_1: 1.0, mrr: 1.0, recorded_at: "2026-01-01T00:00:00.000Z" }),
+      new Date("2026-08-17T09:41:00.000Z"),
+    );
+    expect(v.passed).toBe(false);
   });
 });
