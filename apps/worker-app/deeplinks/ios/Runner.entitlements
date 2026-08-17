@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Universal Links for the referral invite domain. `applinks:` (not
+	     `webcredentials:`) is what routes https://app.badabhai.in/i/<code> into the
+	     app. This entitlement ONLY takes effect once the App ID has the Associated
+	     Domains capability enabled in the Apple Developer portal AND the
+	     provisioning profile is regenerated — until then it breaks signing, which
+	     is why this file lives here and is NOT wired into ios/Runner yet. See
+	     deeplinks/README.md for the go-live copy-in step. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:app.badabhai.in</string>
+	</array>
+</dict>
+</plist>
