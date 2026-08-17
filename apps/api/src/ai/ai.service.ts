@@ -47,6 +47,11 @@ import { SERVER_CONFIG } from "../config/config.module";
  * ABOVE the ai-service's own 20 s deadlines on both routes, so the SEMANTIC bound wins the race:
  * the far side degrades to a healthy 200 that says `parse_deadline_exceeded`, where this abort
  * would hand the processor a bare null indistinguishable from the service being down.
+ *
+ * ⚠ SPENT TWICE PER EXTRACTION JOB, and a WORKER IS BLOCKED ON THE TOTAL. `parseProfile` and
+ * Phase C's `extractInterview` both take this bound, sequentially, so one job's provider ceiling
+ * is 2 x this — and the worker app waits on that job behind a spinner. Raising this number
+ * without raising `kProfileExtractWaitBudget` in the worker app puts the timeout bug back.
  */
 const PROFILE_JOB_TIMEOUT_MS = 25_000;
 
@@ -421,9 +426,23 @@ export class AiService {
     // null the processor can only read as `parse_service_unreachable`. The informative failure
     // has to be the reachable one, so the transport budget sits ABOVE the semantic one.
     //
-    // Safe to be this long because NOBODY IS WAITING: the only caller is the BullMQ extraction
-    // job, minutes after the interview closed. The default 8 s was a chat-shaped budget applied
-    // to a queue-shaped call.
+    // SOMEBODY IS WAITING, and this comment used to say otherwise — "safe to be this long
+    // because NOBODY IS WAITING: the only caller is the BullMQ extraction job, minutes after the
+    // interview closed". The queue-shaped half is true; the conclusion was not. The worker app
+    // blocks on this job the moment they tap "Ho gaya — meri profile banaiye", polling
+    // `GET /workers/me/ai-jobs/{id}` on a fixed budget, and it showed them "Profile taiyaar nahi
+    // ho payi" while the server was still working — then completed, billed and stored the profile
+    // they had just been told they did not have.
+    //
+    // THE BUDGET STAYS 25 s. Shortening it would only fail extractions sooner and lose profiles;
+    // the client is what was mis-sized. But this job spends this bound TWICE — `/profile/parse`
+    // here and Phase C's `/profiling/extract` below, sequentially — so the STRUCTURAL CEILING a
+    // client must clear is ~50 s of provider time plus queue pickup, the gates, the projector and
+    // the write. `kProfileExtractWaitBudget` in `apps/worker-app/lib/core/api/api_client.dart`
+    // now carries that arithmetic and 90 s of margin.
+    //
+    // ANY CHANGE TO THIS CONSTANT MOVES THAT CEILING. Raise it and the client budget must move
+    // with it, or this bug comes back exactly as it was — silently, and only on the real path.
     return this.post(
       "/profile/parse",
       input,
