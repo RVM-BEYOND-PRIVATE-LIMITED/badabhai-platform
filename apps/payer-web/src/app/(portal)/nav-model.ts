@@ -33,11 +33,12 @@
  *     browser's back button was the only route back. They are now addressable from the nav.
  *     This exposes no new capability: both routes keep `requireAgent()` + their flag gate.
  *
- *  3. DUPLICATES PRESENTED AS PEERS. `/profile` renders the very same `AccountForm` as
- *     `/account` (profile/page.tsx imports `../account/account-form`), so the nav offered
- *     two doors onto one screen. `/account` is the survivor and lives in the account menu
- *     where a settings screen belongs; `/profile` KEEPS WORKING and is not removed — it is
- *     simply no longer advertised twice.
+ *  3. DUPLICATES PRESENTED AS PEERS. `/profile` used to render the very same `AccountForm`
+ *     as `/account`, so the nav offered two doors onto one screen. `/account` is the
+ *     survivor and lives in the account menu where a settings screen belongs. BL-6/DU-1
+ *     (product decision, 2026-08-14): `/profile` is now a server `redirect()` to `/account`
+ *     (see profile/page.tsx) — it KEEPS WORKING for old links/bookmarks, it just no longer
+ *     renders its own copy of the form or shows up in the nav.
  *
  * `comingSoon` marks a capability whose server side is real but is not open to this user
  * yet — a parked shell (`/agency/revenue`) or a flag that is OFF by default. Those render

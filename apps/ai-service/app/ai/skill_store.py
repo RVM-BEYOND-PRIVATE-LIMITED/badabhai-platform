@@ -9,6 +9,12 @@ on its owner connection:
     POST {backend_api_url}/internal/skills/nearest-aliases  -> {candidates: [{skill_id, score}]}
     POST {backend_api_url}/internal/skills/unresolved       -> 204 (+ hash-only event)
 
+PHASE 1.5 SCOPE KEY: the search body carries EXACTLY ONE of ``domain_id`` (legacy
+11-slug skill domain; the api runs the unchanged ``skill_alias.domain_id`` query) or
+``job_domain_id`` (canonical ``jd_*``; the api joins ``job_domain_skill``). Neither/both
+is a 400 api-side, and a refusal here before the request is even sent. The unresolved
+body's ``domain_id`` is NULLABLE — a canonical-scoped miss has no legacy slug to record.
+
 AUTH (least privilege — #222 review): the SCOPED ``SKILLS_INTERNAL_TOKEN``
 (``x-skills-internal-token``), guarded api-side by ``SkillsInternalGuard``. Deliberately
 NOT the api's all-routes ``INTERNAL_SERVICE_TOKEN`` — this credential opens ONLY the two
@@ -37,6 +43,7 @@ from __future__ import annotations
 import httpx
 
 from ..config import Settings
+from ..contracts import exactly_one_skill_scope
 from ..logging_config import get_logger
 from .canonicalize import NullSkillStore, SkillCanonicalStore
 
@@ -59,14 +66,44 @@ class HttpSkillStore:
         self._client = httpx.Client(timeout=_TIMEOUT)
 
     def nearest_aliases(
-        self, domain_id: str, query_vector: list[float], k: int
+        self,
+        domain_id: str | None,
+        query_vector: list[float],
+        k: int,
+        *,
+        job_domain_id: str | None = None,
     ) -> list[tuple[str, float]]:
+        # EXACTLY ONE SCOPE KEY ON THE WIRE (Phase 1.5). The api DTO 400s a request carrying
+        # neither or both, so send precisely the one that applies:
+        #   legacy    -> {"domain_id": "cnc-machining", ...}  (BYTE-IDENTICAL to pre-1.5)
+        #   canonical -> {"job_domain_id": "jd_welding", ...} (candidates via job_domain_skill)
+        # `domain_id` is deliberately OMITTED (not sent as null) on the canonical path — a
+        # fabricated legacy slug would silently re-scope the query to the wrong id space.
+        if not exactly_one_skill_scope(domain_id, job_domain_id):
+            # Fail CLOSED locally rather than posting an unscoped body and trusting the api to
+            # refuse it: "no domain" must never have a chance of meaning "search everything".
+            logger.warning(
+                "skill_store nearest_aliases refused: need exactly one of "
+                "domain_id / job_domain_id",
+                extra={
+                    "extra": {
+                        "has_domain_id": domain_id is not None,
+                        "has_job_domain_id": job_domain_id is not None,
+                    }
+                },
+            )
+            return []
+        scope: dict[str, str | None] = (
+            {"job_domain_id": job_domain_id}
+            if job_domain_id is not None
+            else {"domain_id": domain_id}
+        )
         try:
             resp = self._client.post(
                 f"{self._base}/internal/skills/nearest-aliases",
                 headers=self._headers,
                 json={
-                    "domain_id": domain_id,
+                    **scope,
                     "vector": query_vector,
                     "k": max(_K_MIN, min(_K_MAX, k)),
                 },
@@ -88,7 +125,21 @@ class HttpSkillStore:
             )
             return []
 
-    def record_unresolved(self, phrase: str, domain_id: str, lang: str) -> None:
+    def record_unresolved(self, phrase: str, domain_id: str | None, lang: str) -> None:
+        # `domain_id` IS NON-NULL ON THIS ROUTE. The api DTO requires it because recording
+        # emits the v1 `skill.phrase_unresolved` event, whose payload declares
+        # `domain_id: string` — and a shipped event schema is not mutable (CLAUDE.md §3).
+        # `canonicalize._safe_record` already skips a None domain, so this is defence in
+        # depth for a direct caller: refuse locally rather than spend a round trip earning a
+        # 400. Writing the `jd_*` id into this LEGACY-slug column is NOT the alternative —
+        # that would mix two id spaces and corrupt every per-domain reader of the queue.
+        # Reopened by the deferred `unresolved_phrase.job_domain_id` migration.
+        if domain_id is None:
+            logger.info(
+                "skill_store record_unresolved skipped (canonical scope has no queue yet)",
+                extra={"extra": {"scope": "job_domain_id"}},
+            )
+            return
         try:
             resp = self._client.post(
                 f"{self._base}/internal/skills/unresolved",

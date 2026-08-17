@@ -239,6 +239,186 @@ describe("SkillsRepository.nearestDomains — the retrieval SQL", () => {
   });
 });
 
+/**
+ * PHASE 1.5 CANONICALIZER CUTOVER — the two alias-search scopes.
+ *
+ * Same DB-free discipline as the block above, and for a sharper reason: migration 0076
+ * made `skill_alias.domain_id` NULLABLE legacy metadata, so the shipped
+ * `WHERE domain_id = $1` pre-filter is now BLIND to every skill the canonical taxonomy
+ * bootstrap mints. Nothing errors when that happens — the query returns fewer rows, the
+ * floor gate sees no candidate, and the phrase lands in the growth queue as UNRESOLVED.
+ * A silent recall hole, indistinguishable from a genuinely unknown phrase.
+ *
+ * So the predicates ARE the behaviour, and each one below is asserted on its own:
+ *
+ *   - the canonical statement joins `job_domain_skill` and constrains NOTHING on
+ *     `skill_alias.domain_id` — that absence is what makes a NULL-legacy-domain skill
+ *     reachable, and it is the entire point of the cutover;
+ *   - the join is INNER, so an alias with no taxonomy edge is not a candidate;
+ *   - `jds.status = 'active'`, so a deprecated/provisional edge is not a candidate;
+ *   - the domain travels as a BOUND PARAMETER, so scoping to B cannot return A's skills;
+ *   - the legacy statement is pinned CHARACTER FOR CHARACTER, because "unchanged" is the
+ *     backward-compatibility promise and a reformat is the easiest way to break the
+ *     `skill_alias_domain_id_idx` pre-filter without noticing.
+ */
+describe("SkillsRepository.nearestAliases — legacy vs canonical scope", () => {
+  const LEGACY = { kind: "legacy", domainId: "cnc-machining" } as const;
+  const CANONICAL = { kind: "canonical", jobDomainId: "jd_nco_7223_0100" } as const;
+
+  it("CANONICAL: resolves candidates through job_domain_skill, not skill_alias.domain_id", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(CANONICAL, VECTOR, 5);
+
+    const sql = sqlText(captured.sql);
+    expect(sql).toContain("from skill_alias sa");
+    expect(sql).toContain("join job_domain_skill jds on jds.skill_id = sa.skill_id");
+    expect(sql).toContain("where jds.job_domain_id = $2");
+  });
+
+  it("CANONICAL: places NO predicate on skill_alias.domain_id — the NULL-legacy-domain fix", async () => {
+    // THE assertion this whole phase exists for. A canonical skill has
+    // `skill_alias.domain_id IS NULL`, so ANY surviving `sa.domain_id = ...` /
+    // `sa.domain_id IS NOT NULL` filter would exclude exactly the rows the join was added
+    // to reach — and would do it silently, since a filtered-out candidate is
+    // indistinguishable from a phrase the vocabulary genuinely does not know.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(CANONICAL, VECTOR, 5);
+
+    const sql = sqlText(captured.sql);
+    expect(sql).not.toContain("sa.domain_id");
+    // ...and the only `domain_id` mentioned anywhere is the CANONICAL one on the join
+    // table. `jds.job_domain_id` is a different column in a different id space.
+    expect(sql.replace(/jds\.job_domain_id/g, "")).not.toContain("domain_id");
+  });
+
+  it("CANONICAL: an alias with no job_domain_skill row is not a candidate (INNER join)", async () => {
+    // A LEFT JOIN would readmit every alias in the table with a NULL `jds` side, which —
+    // combined with the `status` predicate below being NULL-false — would look correct in
+    // most tests while quietly widening the search to the entire vocabulary on any planner
+    // rewrite. Pin the join kind.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(CANONICAL, VECTOR, 5);
+
+    const sql = sqlText(captured.sql);
+    expect(sql).not.toContain("left join");
+    expect(sql).not.toContain("full join");
+    expect(sql).toContain("join job_domain_skill");
+  });
+
+  it("CANONICAL: only ACTIVE taxonomy edges count — deprecated/provisional are excluded", async () => {
+    // `job_domain_skill.status` is one of active|provisional|deprecated. Dropping this
+    // predicate would put a retired skill back on a worker's profile with nothing at the
+    // read end able to tell it from a live one.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(CANONICAL, VECTOR, 5);
+
+    expect(sqlText(captured.sql)).toContain("jds.status = 'active'");
+  });
+
+  it("CANONICAL: keeps the bare `ORDER BY <=> ... LIMIT` shape HNSW serves", async () => {
+    // The join must not push anything ahead of the distance in the ORDER BY. If it did,
+    // `skill_alias_embedding_hnsw` becomes unusable and the query degrades to a sequential
+    // scan returning the SAME rows — the exact no-symptom regression `nearestDomains`
+    // documents at length.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(CANONICAL, VECTOR, 5);
+
+    const sql = sqlText(captured.sql);
+    const orderBy = sql.slice(sql.indexOf("order by"));
+    expect(orderBy).toContain("sa.embedding <=>");
+    expect(orderBy).toContain("limit");
+    expect(orderBy.indexOf("<=>")).toBeLessThan(orderBy.indexOf("limit"));
+    // Un-embedded aliases can never match — a NULL embedding has no distance.
+    expect(sql).toContain("sa.embedding is not null");
+  });
+
+  it("CANONICAL: the domain is a BOUND parameter — scoping to B cannot return A's skills", async () => {
+    const a = makeCapturingDb();
+    await new SkillsRepository(a.db as never).nearestAliases(
+      { kind: "canonical", jobDomainId: "jd_domain_a" },
+      VECTOR,
+      5,
+    );
+    const b = makeCapturingDb();
+    await new SkillsRepository(b.db as never).nearestAliases(
+      { kind: "canonical", jobDomainId: "jd_domain_b" },
+      VECTOR,
+      5,
+    );
+
+    // Domain isolation IS this parameter. A skill reachable only from domain A is not in
+    // the result set of the B statement, because the equality never matches its edge row.
+    expect(render(b.captured.sql).params).toContain("jd_domain_b");
+    expect(render(b.captured.sql).params).not.toContain("jd_domain_a");
+    expect(render(a.captured.sql).params).toContain("jd_domain_a");
+    expect(render(a.captured.sql).params).not.toContain("jd_domain_b");
+    // Both render the SAME statement text — one plan, one prepared statement.
+    expect(sqlText(a.captured.sql)).toBe(sqlText(b.captured.sql));
+  });
+
+  it("CANONICAL: binds the vector as a pgvector literal and returns numeric similarity", async () => {
+    const { db, captured } = makeCapturingDb([
+      { skill_id: "skill_cnc_turning", score: "0.91" },
+      { skill_id: "skill_fanuc", score: "0.77" },
+    ]);
+    const out = await new SkillsRepository(db as never).nearestAliases(CANONICAL, VECTOR, 2);
+
+    const { sql, params } = render(captured.sql);
+    expect(sql).toContain("::vector");
+    expect(params).toContain(JSON.stringify(VECTOR));
+    expect(params).toContain(2); // k reaches SQL, never a JS slice
+    // `1 - (<=>)` is similarity, not distance — every consumer compares against a FLOOR.
+    expect(sqlText(captured.sql)).toContain("1 - (sa.embedding <=>");
+    // Order is SQL's; scores arrive as strings over the wire and must be numbers here.
+    expect(out).toEqual([
+      { skill_id: "skill_cnc_turning", score: 0.91 },
+      { skill_id: "skill_fanuc", score: 0.77 },
+    ]);
+  });
+
+  it("LEGACY: runs the shipped statement CHARACTER FOR CHARACTER (backward-compat pin)", async () => {
+    // Not a structural assertion — a literal one. Every pre-cutover caller sends only
+    // `domain_id`, and "byte-identical behaviour" is the promise made to them. A reformat
+    // that dropped or renamed the `domain_id` predicate would lose
+    // `skill_alias_domain_id_idx` and silently widen the search across trades.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(LEGACY, VECTOR, 5);
+
+    const { sql, params } = render(captured.sql);
+    expect(sql.split("\n").map((l) => l.trim()).filter(Boolean)).toEqual([
+      "SELECT skill_id, 1 - (embedding <=> $1::vector) AS score",
+      "FROM skill_alias",
+      "WHERE domain_id = $2 AND embedding IS NOT NULL",
+      "ORDER BY embedding <=> $3::vector",
+      "LIMIT $4",
+    ]);
+    // The vector is bound TWICE ($1 in the projection, $3 in the ORDER BY) — drizzle does
+    // not dedupe identical parameters. Pinned as-is: this is the shipped statement.
+    expect(params).toEqual([JSON.stringify(VECTOR), "cnc-machining", JSON.stringify(VECTOR), 5]);
+    // The legacy path must NOT have acquired the canonical join.
+    expect(sql).not.toContain("job_domain_skill");
+  });
+
+  it("LEGACY: maps rows exactly as it always has (string score -> number)", async () => {
+    const { db } = makeCapturingDb([{ skill_id: "skill_vmc_operator", score: "0.93" }]);
+    const out = await new SkillsRepository(db as never).nearestAliases(LEGACY, VECTOR, 5);
+    expect(out).toEqual([{ skill_id: "skill_vmc_operator", score: 0.93 }]);
+  });
+
+  it("neither scope runs inside a transaction — no ef_search widening, no pool leak", async () => {
+    // `nearestDomains` needs one for `SET LOCAL`; these two are single statements. Asserted
+    // so a future copy-paste of the domain query's transaction wrapper is a visible change
+    // rather than an accidental one.
+    const legacy = makeCapturingDb();
+    await new SkillsRepository(legacy.db as never).nearestAliases(LEGACY, VECTOR, 5);
+    expect(legacy.db.transaction).not.toHaveBeenCalled();
+
+    const canonical = makeCapturingDb();
+    await new SkillsRepository(canonical.db as never).nearestAliases(CANONICAL, VECTOR, 5);
+    expect(canonical.db.transaction).not.toHaveBeenCalled();
+  });
+});
+
 describe("SkillsRepository.isSelectableDomain — the last hallucination wall", () => {
   it("requires the domain to be both selectable and active", async () => {
     const { db, captured } = makeCapturingDb([{ "?column?": 1 }]);

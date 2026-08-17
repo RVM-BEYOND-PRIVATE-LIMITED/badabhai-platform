@@ -575,10 +575,14 @@ class _ChatViewState extends State<_ChatView> {
 
   /// The read-aloud speaker on a bot bubble. Tap → speak that question; tap the
   /// same one again (or it finishes) → stop. Shows a stop glyph while reading.
-  Widget _speakerButton(int index, String text) {
+  ///
+  /// [ttsText] is the Devanagari rendering of [text] (#896): when present it is
+  /// what gets SPOKEN (romanized Hindi is unpronounceable by TTS), while [text]
+  /// stays what the bubble shows. Null (older API / worker bubble) → speak [text].
+  Widget _speakerButton(int index, String text, String? ttsText) {
     final bool active = _speakingIndex == index;
     return IconButton(
-      onPressed: () => _toggleSpeak(index, text),
+      onPressed: () => _toggleSpeak(index, text, ttsText),
       tooltip: 'Sunein',
       visualDensity: VisualDensity.compact,
       padding: EdgeInsets.zero,
@@ -597,7 +601,11 @@ class _ChatViewState extends State<_ChatView> {
   /// Reads bot bubble [index] aloud, or stops it if it is already the one
   /// speaking. Best-effort: no recogniser/voice just does nothing (the text is
   /// on screen). The speaker icon clears when playback finishes.
-  Future<void> _toggleSpeak(int index, String text) async {
+  ///
+  /// #896 — SPEAKS the Devanagari [ttsText] when present (so the hi-IN voice
+  /// pronounces the Hindi), falling back to the on-screen romanized [text] when
+  /// absent. The bubble display is unaffected either way.
+  Future<void> _toggleSpeak(int index, String text, String? ttsText) async {
     if (!locator.isRegistered<SpeechReader>()) return;
     final SpeechReader reader = locator<SpeechReader>();
     if (_speakingIndex == index) {
@@ -608,7 +616,7 @@ class _ChatViewState extends State<_ChatView> {
     await reader.stop();
     if (!mounted) return;
     setState(() => _speakingIndex = index);
-    await reader.speak(text); // resolves when playback finishes
+    await reader.speak(ttsText ?? text); // resolves when playback finishes
     if (mounted && _speakingIndex == index) {
       setState(() => _speakingIndex = null);
     }
@@ -784,7 +792,9 @@ class _ChatViewState extends State<_ChatView> {
         foregroundColor: AppColors.onBlue,
         iconTheme: const IconThemeData(color: AppColors.onBlue),
         systemOverlayStyle: SystemUiOverlayStyle.light,
-        titleSpacing: 0,
+        // Gutter of left space so the BB avatar + title are not flush against
+        // the screen edge — aligns the header with the body's left margin.
+        titleSpacing: AppSpacing.gutter,
         title: Row(
           children: <Widget>[
             Container(
@@ -886,9 +896,11 @@ class _ChatViewState extends State<_ChatView> {
                                   failed: failed,
                                   onRetry: failed ? () => _retry(i) : null,
                                   // Read-aloud speaker on bada bhai's questions
-                                  // only (never the worker's own messages).
+                                  // only (never the worker's own messages). #896 —
+                                  // pass the Devanagari script so read-aloud speaks
+                                  // it (falls back to the romanized text when null).
                                   trailing: (!m.fromWorker && !failed)
-                                      ? _speakerButton(i, m.text)
+                                      ? _speakerButton(i, m.text, m.ttsText)
                                       : null,
                                 );
                               },

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../../core/api/api_models.dart'
     show
@@ -300,10 +301,23 @@ const String kChatOpeningText =
     'Namaste. Main aapka Bada Bhai. Chalo, ab aapka accha sa resume banate hain. '
     'Chaliye shuru karte hain — aap kaunsa kaam karte hain?';
 
-/// The opening bada-bhai prompt as a transcript bubble.
+/// The DEVANAGARI rendering of [kChatOpeningText] for read-aloud (#896) — the
+/// SAME content in the native script so the on-device hi-IN voice pronounces it
+/// correctly (romanized Hindi is read as gibberish by every TTS voice). Client
+/// constant because the opener itself is: unlike every later reply, the first
+/// question is never served with a `tts_text`, so its sibling has to live here to
+/// read correctly on turn one. Keep it in step with [kChatOpeningText] byte-for-
+/// byte in MEANING if that copy changes. Displayed nowhere — spoken only.
+const String kChatOpeningTtsText =
+    'नमस्ते। मैं आपका बड़ा भाई। चलो, अब आपका अच्छा सा रिज़्यूमे बनाते हैं। '
+    'चलिए शुरू करते हैं — आप कौनसा काम करते हैं?';
+
+/// The opening bada-bhai prompt as a transcript bubble. Carries [kChatOpeningTtsText]
+/// so read-aloud speaks Devanagari from the very first question (#896).
 const ChatMessage kChatOpeningMessage = ChatMessage(
   text: kChatOpeningText,
   fromWorker: false,
+  ttsText: kChatOpeningTtsText,
 );
 
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
@@ -442,6 +456,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final String text = event.text.trim();
     if (text.isEmpty) return;
 
+    // #870 — mint the per-submission id ONCE, here, when the worker's action
+    // commits. It rides on the worker bubble (below) so [_onRetryRequested] can
+    // re-send the SAME id: a retried POST is then distinguishable server-side
+    // from a worker genuinely repeating the same words (which is a NEW action and
+    // a new id). Minted per physical submission, never per HTTP attempt.
+    final String submissionId = const Uuid().v4();
+
     // The transcript is append-only, so this index stays valid for marking the
     // worker bubble failed later (#343).
     final int index = state.messages.length;
@@ -458,7 +479,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       emit(state.copyWith(
         messages: <ChatMessage>[
           ...state.messages,
-          ChatMessage(text: text, fromWorker: true),
+          ChatMessage(text: text, fromWorker: true, submissionId: submissionId),
           // The optimistic bada-bhai bubble — REPLACED by the real reply in
           // [_deliver]. It is never persisted to history: it lives only in this
           // in-memory transcript until reconcile.
@@ -487,7 +508,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       emit(state.copyWith(
         messages: <ChatMessage>[
           ...state.messages,
-          ChatMessage(text: text, fromWorker: true),
+          ChatMessage(text: text, fromWorker: true, submissionId: submissionId),
         ],
         sending: true,
         followups: const <String>[],
@@ -502,16 +523,25 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ));
     }
 
-    await _deliver(text, index, emit);
+    await _deliver(text, index, emit, submissionId: submissionId);
   }
 
   /// Sends [text] (already appended at [index]) and records the outcome.
   ///
   /// Shared by a first send and a retry so both surface failure identically.
-  Future<void> _deliver(String text, int index, Emitter<ChatState> emit) async {
+  /// [submissionId] (#870) is forwarded to the repo unchanged; a retry passes the
+  /// ORIGINAL id read off the failed worker bubble, so the re-POST carries the
+  /// same id as the send it retries.
+  Future<void> _deliver(
+    String text,
+    int index,
+    Emitter<ChatState> emit, {
+    String? submissionId,
+  }) async {
     _inFlightSends++;
     try {
-      final ChatTurn turn = await _repo.sendMessage(text);
+      final ChatTurn turn =
+          await _repo.sendMessage(text, submissionId: submissionId);
       _inFlightSends--;
       // #761 — RECONCILE the optimistic lookahead render. The real reply is
       // ALWAYS authoritative: when an optimistic predicted bubble is on screen
@@ -537,15 +567,23 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // No optimistic bubble — today's behaviour: append the reply.
         nextMessages = <ChatMessage>[
           ...healed,
-          ChatMessage(text: turn.reply, fromWorker: false),
+          // #896 — the reply bubble carries the Devanagari read-aloud script.
+          ChatMessage(
+            text: turn.reply,
+            fromWorker: false,
+            ttsText: turn.ttsText,
+          ),
         ];
       } else if (predictionWasRight) {
         // The prediction stood — keep the optimistic bubble as-is (metadata
-        // refreshes below), so an agreeing turn causes no visible flicker.
+        // refreshes below), so an agreeing turn causes no visible flicker. Its
+        // ttsText stays null: the predicted bubble has no Devanagari, and it
+        // shows the romanized predicted prompt (which read-aloud falls back to).
         nextMessages = healed;
       } else {
-        // The prediction was wrong — overwrite the optimistic bubble in place.
-        nextMessages = _replaceLastBot(healed, turn.reply);
+        // The prediction was wrong — overwrite the optimistic bubble in place
+        // with the real reply AND its Devanagari read-aloud script (#896).
+        nextMessages = _replaceLastBot(healed, turn.reply, turn.ttsText);
       }
       emit(state.copyWith(
         messages: nextMessages,
@@ -610,12 +648,18 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }
 
   /// Returns [messages] with the LAST message replaced by a bot bubble carrying
-  /// [reply] (the #761 optimistic-bubble overwrite). Defensive, mirroring
-  /// [_withStatus]: an empty list or a worker-bubble tail is returned unchanged.
-  List<ChatMessage> _replaceLastBot(List<ChatMessage> messages, String reply) {
+  /// [reply] and its Devanagari read-aloud script [ttsText] (#761 optimistic-
+  /// bubble overwrite; #896 read-aloud). Defensive, mirroring [_withStatus]: an
+  /// empty list or a worker-bubble tail is returned unchanged.
+  List<ChatMessage> _replaceLastBot(
+    List<ChatMessage> messages,
+    String reply,
+    String? ttsText,
+  ) {
     if (messages.isEmpty || messages.last.fromWorker) return messages;
     final List<ChatMessage> next = List<ChatMessage>.of(messages);
-    next[next.length - 1] = ChatMessage(text: reply, fromWorker: false);
+    next[next.length - 1] =
+        ChatMessage(text: reply, fromWorker: false, ttsText: ttsText);
     return next;
   }
 
@@ -662,7 +706,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       inputMode: ChatInputMode.text, // #770 — bring the composer back on retry
     ));
 
-    await _deliver(message.text, index, emit);
+    // #870 — re-send the ORIGINAL id minted for this bubble on the first send, so
+    // the server sees a retry (same submission) rather than a fresh answer. The
+    // text is already re-sent byte-identically; the id now rides with it.
+    await _deliver(
+      message.text,
+      index,
+      emit,
+      submissionId: message.submissionId,
+    );
   }
 
   /// Appends the already-server-merged voice transcript + reply. Local only —

@@ -62,7 +62,7 @@ void main() {
   /// Fills the transcript with worker messages so the list overflows. Each send
   /// resolves its bot reply immediately.
   Future<void> fillTranscript(WidgetTester tester, int count) async {
-    when(() => repo.sendMessage(any()))
+    when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
         .thenAnswer((_) async => const ChatTurn(reply: 'ok bhai'));
     for (int i = 0; i < count; i++) {
       await tester.enterText(find.byType(TextField), 'msg $i');
@@ -84,7 +84,7 @@ void main() {
     expect(controller.position.pixels, 0);
 
     // Send the worker's own message — it must follow them down regardless.
-    when(() => repo.sendMessage(any()))
+    when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
         .thenAnswer((_) async => const ChatTurn(reply: 'ok bhai'));
     await tester.enterText(find.byType(TextField), 'my own line');
     await tester.testTextInput.receiveAction(TextInputAction.send);
@@ -107,7 +107,7 @@ void main() {
 
       // Hold the bot reply open so we can scroll up before it lands.
       final Completer<ChatTurn> reply = Completer<ChatTurn>();
-      when(() => repo.sendMessage(any())).thenAnswer((_) => reply.future);
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer((_) => reply.future);
 
       await tester.enterText(find.byType(TextField), 'trigger');
       await tester.testTextInput.receiveAction(TextInputAction.send);
@@ -144,7 +144,7 @@ void main() {
     // bogus answer against whatever question the engine has just served.
     final Completer<ChatTurn> reply = Completer<ChatTurn>();
     int sends = 0;
-    when(() => repo.sendMessage(any())).thenAnswer((Invocation i) {
+    when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer((Invocation i) {
       sends++;
       if (sends == 1) {
         return Future<ChatTurn>.value(const ChatTurn(
@@ -172,7 +172,7 @@ void main() {
   testWidgets(
       'renders suggested_followups as chips and tapping one sends that answer',
       (WidgetTester tester) async {
-    when(() => repo.sendMessage(any())).thenAnswer((_) async => const ChatTurn(
+    when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
         reply: 'Kaunsa control?', followups: <String>['Fanuc', 'Siemens']));
     await pumpScreen(tester);
 
@@ -187,14 +187,14 @@ void main() {
     // Tapping a chip sends it exactly like a typed answer.
     await tester.tap(find.text('Fanuc'));
     await tester.pumpAndSettle();
-    verify(() => repo.sendMessage('Fanuc')).called(1);
+    verify(() => repo.sendMessage('Fanuc', submissionId: any(named: 'submissionId'))).called(1);
   });
 
   testWidgets('shows the typing indicator while a reply is in flight', (
     WidgetTester tester,
   ) async {
     final Completer<ChatTurn> reply = Completer<ChatTurn>();
-    when(() => repo.sendMessage(any())).thenAnswer((_) => reply.future);
+    when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer((_) => reply.future);
     await pumpScreen(tester);
 
     await tester.enterText(find.byType(TextField), 'cnc');
@@ -219,7 +219,7 @@ void main() {
     await fillTranscript(tester, 12);
 
     final Completer<ChatTurn> reply = Completer<ChatTurn>();
-    when(() => repo.sendMessage(any())).thenAnswer((_) => reply.future);
+    when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer((_) => reply.future);
 
     await tester.enterText(find.byType(TextField), 'trigger');
     await tester.testTextInput.receiveAction(TextInputAction.send);
@@ -294,7 +294,7 @@ void main() {
   group('send-failure surface (#343)', () {
     testWidgets('a failed send marks the bubble and offers retry',
         (WidgetTester tester) async {
-      when(() => repo.sendMessage(any())).thenThrow(const NetworkFailure());
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenThrow(const NetworkFailure());
       await pumpScreen(tester);
 
       await tester.enterText(find.byType(TextField), 'cnc');
@@ -308,7 +308,7 @@ void main() {
 
     testWidgets('tapping a failed bubble re-sends it', (WidgetTester tester) async {
       int calls = 0;
-      when(() => repo.sendMessage('cnc')).thenAnswer((_) async {
+      when(() => repo.sendMessage('cnc', submissionId: any(named: 'submissionId'))).thenAnswer((_) async {
         calls++;
         if (calls == 1) throw const NetworkFailure();
         return const ChatTurn(reply: 'Got it.');
@@ -383,7 +383,7 @@ void main() {
       // #421 gates the ready CTA on the engine's `extraction_ready`. Drive one
       // ready turn so the button under test is the PRIMARY path — the
       // not-ready path opens the nudge sheet instead, which is its own guard.
-      when(() => repo.sendMessage(any())).thenAnswer(
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
         (_) async => const ChatTurn(reply: 'bas ho gaya', extractionReady: true),
       );
       await tester.enterText(find.byType(TextField), 'CNC operator hun');
@@ -437,7 +437,7 @@ void main() {
       'an options_only turn hides the composer, the chips are the only answer '
       'path, and the composer returns once answered',
       (WidgetTester tester) async {
-        when(() => repo.sendMessage(any())).thenAnswer(
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
           (_) async => const ChatTurn(
             reply: 'Aur koi experience jodna hai?',
             followups: <String>['Haan', 'Nahi'],
@@ -460,11 +460,11 @@ void main() {
 
         // The chips are present and actually submit.
         expect(find.text('Haan'), findsOneWidget);
-        when(() => repo.sendMessage('Haan'))
+        when(() => repo.sendMessage('Haan', submissionId: any(named: 'submissionId')))
             .thenAnswer((_) async => const ChatTurn(reply: 'Theek hai'));
         await tester.tap(find.text('Haan'));
         await tester.pumpAndSettle();
-        verify(() => repo.sendMessage('Haan')).called(1);
+        verify(() => repo.sendMessage('Haan', submissionId: any(named: 'submissionId'))).called(1);
 
         // The next turn is a normal text turn — the composer must come back so
         // the worker is not locked out for the rest of the interview.
@@ -480,7 +480,7 @@ void main() {
     testWidgets(
       'a default text turn keeps the composer unchanged (byte-identical path)',
       (WidgetTester tester) async {
-        when(() => repo.sendMessage(any())).thenAnswer(
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
           // inputMode omitted -> defaults to text.
           (_) async => const ChatTurn(
             reply: 'Aur batayein',
@@ -507,7 +507,7 @@ void main() {
       'options_only with NO chips still shows the composer — never trap the '
       'worker with no way to answer',
       (WidgetTester tester) async {
-        when(() => repo.sendMessage(any())).thenAnswer(
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
           (_) async => const ChatTurn(
             reply: 'Hmm',
             followups: <String>[],
@@ -543,7 +543,7 @@ void main() {
         'tapping a predicted chip shows the next prompt+chips with NO network '
         'wait, and the one-tap latch still holds', (WidgetTester tester) async {
       // Turn 1 establishes the chips + the lookahead for the next tap.
-      when(() => repo.sendMessage('cnc')).thenAnswer((_) async => const ChatTurn(
+      when(() => repo.sendMessage('cnc', submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
             reply: 'Kaunsa control?',
             followups: <String>['Fanuc', 'Siemens'],
             askedQuestionId: 'controller',
@@ -551,7 +551,7 @@ void main() {
           ));
       // Turn 2 (the chip tap) is HELD open — nothing may need it to render.
       final Completer<ChatTurn> pending = Completer<ChatTurn>();
-      when(() => repo.sendMessage('Fanuc')).thenAnswer((_) => pending.future);
+      when(() => repo.sendMessage('Fanuc', submissionId: any(named: 'submissionId'))).thenAnswer((_) => pending.future);
 
       await pumpScreen(tester);
       await tester.enterText(find.byType(TextField), 'cnc');
@@ -579,8 +579,8 @@ void main() {
       // unsettled is swallowed (no second send).
       await tester.tap(find.text('Welding'));
       await tester.pump();
-      verifyNever(() => repo.sendMessage('Welding'));
-      verify(() => repo.sendMessage('Fanuc')).called(1);
+      verifyNever(() => repo.sendMessage('Welding', submissionId: any(named: 'submissionId')));
+      verify(() => repo.sendMessage('Fanuc', submissionId: any(named: 'submissionId'))).called(1);
     });
 
     // #761 THE FIX (end-to-end) — on the LLM chat the chip LABEL differs from
@@ -594,7 +594,7 @@ void main() {
         (WidgetTester tester) async {
       // Turn 1 serves options whose key != label, with a lookahead keyed by the
       // KEY. `suggested_followups` is served alongside (and stays the same list).
-      when(() => repo.sendMessage('kaam')).thenAnswer((_) async => const ChatTurn(
+      when(() => repo.sendMessage('kaam', submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
             reply: 'Kaunsa kaam karte hain?',
             followups: <String>['Salad bar attendant', 'Cook'],
             suggestedOptions: <ChatOption>[
@@ -610,7 +610,7 @@ void main() {
       // The chip tap (submitted as the LABEL) is HELD open — the render must not
       // depend on the network.
       final Completer<ChatTurn> pending = Completer<ChatTurn>();
-      when(() => repo.sendMessage('Salad bar attendant'))
+      when(() => repo.sendMessage('Salad bar attendant', submissionId: any(named: 'submissionId')))
           .thenAnswer((_) => pending.future);
 
       await pumpScreen(tester);
@@ -639,8 +639,8 @@ void main() {
 
       // And the wire submit is the LABEL, verbatim — the option_key never leaves
       // the client.
-      verify(() => repo.sendMessage('Salad bar attendant')).called(1);
-      verifyNever(() => repo.sendMessage('role_salad_bar'));
+      verify(() => repo.sendMessage('Salad bar attendant', submissionId: any(named: 'submissionId'))).called(1);
+      verifyNever(() => repo.sendMessage('role_salad_bar', submissionId: any(named: 'submissionId')));
     });
 
     // A `suggested_options` turn where the option is flagged none-of-above maps
@@ -648,7 +648,7 @@ void main() {
     testWidgets(
         'a none-of-above option chip fires the __declined prediction and submits '
         'its label', (WidgetTester tester) async {
-      when(() => repo.sendMessage('kaam')).thenAnswer((_) async => const ChatTurn(
+      when(() => repo.sendMessage('kaam', submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
             reply: 'Kaunsa kaam?',
             followups: <String>['Cook', 'Kuch aur'],
             suggestedOptions: <ChatOption>[
@@ -662,7 +662,7 @@ void main() {
             lookahead: <String, PredictedQuestion?>{'__declined': predSkills},
           ));
       final Completer<ChatTurn> pending = Completer<ChatTurn>();
-      when(() => repo.sendMessage('Kuch aur')).thenAnswer((_) => pending.future);
+      when(() => repo.sendMessage('Kuch aur', submissionId: any(named: 'submissionId'))).thenAnswer((_) => pending.future);
 
       await pumpScreen(tester);
       await tester.enterText(find.byType(TextField), 'kaam');
@@ -676,8 +676,8 @@ void main() {
       expect(pending.isCompleted, isFalse);
       expect(find.text(predSkills.promptText), findsOneWidget,
           reason: 'the __declined prediction rendered on the escape tap');
-      verify(() => repo.sendMessage('Kuch aur')).called(1);
-      verifyNever(() => repo.sendMessage('__declined'));
+      verify(() => repo.sendMessage('Kuch aur', submissionId: any(named: 'submissionId'))).called(1);
+      verifyNever(() => repo.sendMessage('__declined', submissionId: any(named: 'submissionId')));
     });
 
     // Back-compat: a turn with NO `suggested_options` (deterministic/older API)
@@ -685,14 +685,14 @@ void main() {
     testWidgets(
         'with no suggested_options the label-keyed fallback still fires the '
         'prediction (label == key)', (WidgetTester tester) async {
-      when(() => repo.sendMessage('cnc')).thenAnswer((_) async => const ChatTurn(
+      when(() => repo.sendMessage('cnc', submissionId: any(named: 'submissionId'))).thenAnswer((_) async => const ChatTurn(
             reply: 'Kaunsa control?',
             followups: <String>['Fanuc', 'Siemens'],
             askedQuestionId: 'controller',
             lookahead: <String, PredictedQuestion?>{'Fanuc': predSkills},
           ));
       final Completer<ChatTurn> pending = Completer<ChatTurn>();
-      when(() => repo.sendMessage('Fanuc')).thenAnswer((_) => pending.future);
+      when(() => repo.sendMessage('Fanuc', submissionId: any(named: 'submissionId'))).thenAnswer((_) => pending.future);
 
       await pumpScreen(tester);
       await tester.enterText(find.byType(TextField), 'cnc');
@@ -707,7 +707,7 @@ void main() {
       expect(pending.isCompleted, isFalse);
       expect(find.text(predSkills.promptText), findsOneWidget,
           reason: 'the fallback path still indexes by the label (label == key)');
-      verify(() => repo.sendMessage('Fanuc')).called(1);
+      verify(() => repo.sendMessage('Fanuc', submissionId: any(named: 'submissionId'))).called(1);
     });
   });
 }

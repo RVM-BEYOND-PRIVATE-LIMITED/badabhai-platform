@@ -1,0 +1,1804 @@
+{
+  "verdict": "BLOCK",
+  "findings": [
+    {
+      "code": "MISSED_REUSE_CATALOGUE",
+      "subject": "skill_preventive_maintenance_scheduling",
+      "skill_ids": [
+        "skill_preventive_maintenance_scheduling",
+        "skill_machine_maintenance"
+      ],
+      "attributable": true,
+      "reason": "a new canonical skill was minted although shipped skill_machine_maintenance already means the same thing — two rows for one concept split it permanently.",
+      "evidence": [
+        "LEXICAL:surface_form_shared skill_preventive_maintenance_scheduling and skill_machine_maintenance both answer to \"preventive maintenance\" — canonicalizing that phrase is a coin flip between them"
+      ],
+      "severity": "BLOCKING"
+    },
+    {
+      "code": "MISSED_REUSE_WITHIN_BATCH",
+      "subject": "skill_mixing_machine_operation",
+      "skill_ids": [
+        "skill_mixing_machine_operation",
+        "skill_mortar_mixing"
+      ],
+      "attributable": true,
+      "reason": "this batch minted BOTH this skill and skill_mortar_mixing for what reads as one concept. Neither is shipped, so no against-catalogue check can see it — the batch duplicated itself. Keep one and fold the other's aliases into it.",
+      "evidence": [
+        "WITHIN_BATCH:strict_token_subset \"mixing machine operation\" is a strict token-subset of \"mortar mixing\""
+      ],
+      "severity": "BLOCKING"
+    },
+    {
+      "code": "MISSED_REUSE_WITHIN_BATCH",
+      "subject": "skill_mortar_mixing",
+      "skill_ids": [
+        "skill_mortar_mixing",
+        "skill_mixing_machine_operation"
+      ],
+      "attributable": true,
+      "reason": "this batch minted BOTH this skill and skill_mixing_machine_operation for what reads as one concept. Neither is shipped, so no against-catalogue check can see it — the batch duplicated itself. Keep one and fold the other's aliases into it.",
+      "evidence": [
+        "WITHIN_BATCH:strict_token_subset \"mixing machine operation\" is a strict token-subset of \"mortar mixing\""
+      ],
+      "severity": "BLOCKING"
+    }
+  ],
+  "reuse": {
+    "decisions": [
+      {
+        "skill_id": "skill_arc_welding",
+        "label_en": "Arc welding",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_arc_welding; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_arc_welding",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_assembly_line_sequencing",
+        "label_en": "Assembly line sequencing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_barcode_scanning",
+        "label_en": "Barcode scanning",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_battery_capacity_checking",
+        "label_en": "Battery capacity checking",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_battery_cell_stacking",
+        "label_en": "Battery cell stacking",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_battery_pack_leak_testing",
+        "label_en": "Battery pack leak testing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_battery_terminal_crimping",
+        "label_en": "Battery terminal crimping",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_bearing_replacement",
+        "label_en": "Bearing replacement",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_belt_and_chain_drive_alignment",
+        "label_en": "Belt and chain drive alignment",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "label_en": "Bench fitting",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_bench_fitting; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_bench_fitting",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_bin_location_management",
+        "label_en": "Bin location management",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_body_panel_alignment",
+        "label_en": "Body panel alignment",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_boring",
+        "label_en": "Boring",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_boring; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_boring",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_brake_system_servicing",
+        "label_en": "Brake system servicing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_brazing_of_copper_lines",
+        "label_en": "Brazing of copper lines",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_brick_and_block_laying",
+        "label_en": "Brick and block laying",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_cable_termination_and_jointing",
+        "label_en": "Cable termination and jointing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_cad_interpretation",
+        "label_en": "CAD / technical drawing interpretation",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_cad_interpretation; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_cad_interpretation",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_cam_software",
+        "label_en": "CAM software (Mastercam/Fusion/etc.)",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_cam_software; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_cam_software",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_chassis_fitting",
+        "label_en": "Chassis fitting",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_chemical_handling_safety",
+        "label_en": "Chemical handling safety",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_clutch_and_gearbox_repair",
+        "label_en": "Clutch and gearbox repair",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_cmm",
+        "label_en": "CMM operation",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_cmm; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_cmm",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_cnc_programming",
+        "label_en": "CNC programming",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_cnc_programming; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_cnc_programming",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_compressor_replacement",
+        "label_en": "Compressor replacement",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_concrete_curing",
+        "label_en": "Concrete curing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_conduit_bending_and_laying",
+        "label_en": "Conduit bending and laying",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_control_panel_wiring",
+        "label_en": "Control panel wiring",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_coolant_management",
+        "label_en": "Coolant management",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_customer_site_handover",
+        "label_en": "Customer site handover",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_cutting_tool_selection",
+        "label_en": "Cutting tool selection",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_deburring",
+        "label_en": "Deburring / finishing",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_deburring; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_deburring",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "label_en": "Dimensional inspection",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_dimensional_inspection; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_dimensional_inspection",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_dispatch_documentation",
+        "label_en": "Dispatch documentation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_distortion_control_in_weldments",
+        "label_en": "Distortion control in weldments",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_distribution_board_assembly",
+        "label_en": "Distribution board assembly",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_drain_cleaning_and_unclogging",
+        "label_en": "Drain cleaning and unclogging",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_drainage_systems",
+        "label_en": "Drainage systems",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_drainage_systems; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_drainage_systems",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_drilling",
+        "label_en": "Drilling",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_drilling; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_drilling",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_ducting_installation",
+        "label_en": "Ducting installation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_earthing_and_bonding",
+        "label_en": "Earthing and bonding",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_electrical_fault_finding",
+        "label_en": "Electrical fault finding",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_electrical_safety_and_lockout",
+        "label_en": "Electrical safety and lockout",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_electrode_selection",
+        "label_en": "Electrode selection",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_electrolyte_filling",
+        "label_en": "Electrolyte filling",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_engine_overhauling",
+        "label_en": "Engine overhauling",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_fanuc",
+        "label_en": "Fanuc control operation",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_fanuc; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_fanuc",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_fastener_selection_and_tightening",
+        "label_en": "Fastener selection and tightening",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_first_piece_approval",
+        "label_en": "First piece approval",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "label_en": "Fixture / job setup",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_fixture_setup; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_fixture_setup",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_forklift_operation",
+        "label_en": "Forklift operation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_gas_cutting",
+        "label_en": "Gas cutting",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_gas_cutting; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_gas_cutting",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_gas_torch_flame_setting",
+        "label_en": "Gas torch flame setting",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_gdt_reading",
+        "label_en": "GD&T / drawing reading",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_gdt_reading; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_gdt_reading",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_go_no_go_gauge_checking",
+        "label_en": "Go no-go gauge checking",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_goods_receipt_verification",
+        "label_en": "Goods receipt verification",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_grinding_ops",
+        "label_en": "Grinding (surface / cylindrical)",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_grinding_ops; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_grinding_ops",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_hardness_testing",
+        "label_en": "Hardness testing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_house_wiring_installation",
+        "label_en": "House wiring installation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_hydraulics_pneumatics",
+        "label_en": "Hydraulics / pneumatics",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_hydraulics_pneumatics; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_hydraulics_pneumatics",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_indoor_unit_servicing_and_cleaning",
+        "label_en": "Indoor unit servicing and cleaning",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_inspection_report_recording",
+        "label_en": "Inspection report recording",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_insulation_resistance_testing",
+        "label_en": "Insulation resistance testing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_inventory_record_keeping",
+        "label_en": "Inventory record keeping",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_issue_and_requisition_control",
+        "label_en": "Issue and requisition control",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_lathe_chuck_mounting",
+        "label_en": "Lathe chuck mounting",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_leak_repair_in_water_lines",
+        "label_en": "Leak repair in water lines",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_lubrication_schedule_execution",
+        "label_en": "Lubrication schedule execution",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "label_en": "Machine maintenance",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_machine_maintenance; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_machine_maintenance",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_material_handling_equipment_operation",
+        "label_en": "Material handling equipment operation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_measuring_instruments",
+        "label_en": "Micrometer / Vernier / gauge usage",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_measuring_instruments; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_measuring_instruments",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_mechanical_assembly",
+        "label_en": "Mechanical assembly",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_mechanical_assembly; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_mechanical_assembly",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_mig_welding",
+        "label_en": "MIG welding",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_mig_welding; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_mig_welding",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_milling",
+        "label_en": "Milling",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_milling; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_milling",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_mitsubishi",
+        "label_en": "Mitsubishi control operation",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_mitsubishi; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_mitsubishi",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_mixing_machine_operation",
+        "label_en": "Mixing machine operation",
+        "category": "MISSED_REUSE",
+        "reason": "this batch minted BOTH this skill and skill_mortar_mixing for what reads as one concept. Neither is shipped, so no against-catalogue check can see it — the batch duplicated itself. Keep one and fold the other's aliases into it.",
+        "matched_existing_skill_id": "skill_mortar_mixing",
+        "evidence": [
+          "WITHIN_BATCH:strict_token_subset \"mixing machine operation\" is a strict token-subset of \"mortar mixing\""
+        ],
+        "confidence_signal": "confident"
+      },
+      {
+        "skill_id": "skill_mortar_mixing",
+        "label_en": "Mortar mixing",
+        "category": "MISSED_REUSE",
+        "reason": "this batch minted BOTH this skill and skill_mixing_machine_operation for what reads as one concept. Neither is shipped, so no against-catalogue check can see it — the batch duplicated itself. Keep one and fold the other's aliases into it.",
+        "matched_existing_skill_id": "skill_mixing_machine_operation",
+        "evidence": [
+          "WITHIN_BATCH:strict_token_subset \"mixing machine operation\" is a strict token-subset of \"mortar mixing\""
+        ],
+        "confidence_signal": "confident"
+      },
+      {
+        "skill_id": "skill_motor_connection_and_starter_wiring",
+        "label_en": "Motor connection and starter wiring",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_non_destructive_testing_of_castings",
+        "label_en": "Non-destructive testing of castings",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_order_picking_and_packing",
+        "label_en": "Order picking and packing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_oxy_acetylene_cylinder_handling",
+        "label_en": "Oxy-acetylene cylinder handling",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_pallet_stacking_and_loading",
+        "label_en": "Pallet stacking and loading",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_pipe_bending",
+        "label_en": "Pipe bending",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_pipe_fitting",
+        "label_en": "Pipe fitting",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_pipe_fitting; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_pipe_fitting",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_pipe_support_and_clamping",
+        "label_en": "Pipe support and clamping",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_plastering",
+        "label_en": "Plastering",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_press_brake_bending",
+        "label_en": "Press brake bending",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_pressure_testing_of_pipelines",
+        "label_en": "Pressure testing of pipelines",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_preventive_maintenance_scheduling",
+        "label_en": "Preventive maintenance scheduling",
+        "category": "MISSED_REUSE",
+        "reason": "a new canonical skill was minted although shipped skill_machine_maintenance already means the same thing — two rows for one concept split it permanently.",
+        "matched_existing_skill_id": "skill_machine_maintenance",
+        "evidence": [
+          "LEXICAL:surface_form_shared skill_preventive_maintenance_scheduling and skill_machine_maintenance both answer to \"preventive maintenance\" — canonicalizing that phrase is a coin flip between them"
+        ],
+        "confidence_signal": "confident"
+      },
+      {
+        "skill_id": "skill_program_editing",
+        "label_en": "Program editing (G & M codes)",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_program_editing; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_program_editing",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_pump_and_valve_repair",
+        "label_en": "Pump and valve repair",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_punching_machine_operation",
+        "label_en": "Punching machine operation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "label_en": "Quality control (QC)",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_quality_control; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_quality_control",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_refrigerant_charging",
+        "label_en": "Refrigerant charging",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_refrigerant_leak_detection",
+        "label_en": "Refrigerant leak detection",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_rejection_tagging_and_segregation",
+        "label_en": "Rejection tagging and segregation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_sanitary_fixture_installation",
+        "label_en": "Sanitary fixture installation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_scaffolding_erection",
+        "label_en": "Scaffolding erection",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_shaft_and_coupling_alignment",
+        "label_en": "Shaft and coupling alignment",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_shearing_machine_operation",
+        "label_en": "Shearing machine operation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_sheet_metal",
+        "label_en": "Sheet-metal fabrication",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_sheet_metal; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_sheet_metal",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_sheet_metal_marking_and_layout",
+        "label_en": "Sheet metal marking and layout",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_siemens",
+        "label_en": "Siemens control operation",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_siemens; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_siemens",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_site_material_stacking",
+        "label_en": "Site material stacking",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_solvent_cement_jointing",
+        "label_en": "Solvent cement jointing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_split_unit_installation",
+        "label_en": "Split unit installation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_stock_counting",
+        "label_en": "Stock counting",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_stone_dressing",
+        "label_en": "Stone dressing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_stone_joint_pointing",
+        "label_en": "Stone joint pointing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_structural_fit_up_and_tacking",
+        "label_en": "Structural fit-up and tacking",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_sub_assembly_quality_checking",
+        "label_en": "Sub-assembly quality checking",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_surface_finish_inspection",
+        "label_en": "Surface finish inspection",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_suspension_and_steering_repair",
+        "label_en": "Suspension and steering repair",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_switchgear_installation",
+        "label_en": "Switchgear installation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_tapping_threading",
+        "label_en": "Tapping / threading",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_tapping_threading; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_tapping_threading",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_thermostat_and_control_wiring",
+        "label_en": "Thermostat and control wiring",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_tig_welding",
+        "label_en": "TIG welding",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_tig_welding; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_tig_welding",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_tool_offset_setting",
+        "label_en": "Tool offset setting",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_tool_offset_setting; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_tool_offset_setting",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_torque_wrench_operation",
+        "label_en": "Torque wrench operation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_turning",
+        "label_en": "Turning (lathe operation)",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_turning; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_turning",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_vacuum_pump_evacuation",
+        "label_en": "Vacuum pump evacuation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_vehicle_diagnostic_scanning",
+        "label_en": "Vehicle diagnostic scanning",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_vibration_and_noise_fault_diagnosis",
+        "label_en": "Vibration and noise fault diagnosis",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_visual_defect_identification",
+        "label_en": "Visual defect identification",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_wall_plumb_and_level_checking",
+        "label_en": "Wall plumb and level checking",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_water_supply",
+        "label_en": "Water supply systems",
+        "category": "CORRECT_REUSE",
+        "reason": "references shipped skill_water_supply; no conflicting name, alias or validator problem.",
+        "matched_existing_skill_id": "skill_water_supply",
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_weld_bead_inspection",
+        "label_en": "Weld bead inspection",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_weld_program_parameter_setting",
+        "label_en": "Weld program parameter setting",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_weld_spatter_cleaning",
+        "label_en": "Weld spatter cleaning",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_welding_joint_preparation",
+        "label_en": "Welding joint preparation",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_welding_machine_consumable_changeover",
+        "label_en": "Welding machine consumable changeover",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_wheel_alignment_and_balancing",
+        "label_en": "Wheel alignment and balancing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      },
+      {
+        "skill_id": "skill_wiring_harness_routing",
+        "label_en": "Wiring harness routing",
+        "category": "CORRECT_NEW",
+        "reason": "no shipped skill shares this label, an alias, or enough of its tokens to reuse.",
+        "matched_existing_skill_id": null,
+        "evidence": [],
+        "confidence_signal": "none"
+      }
+    ],
+    "totals": {
+      "CORRECT_REUSE": 33,
+      "CORRECT_NEW": 97,
+      "FALSE_REUSE": 0,
+      "MISSED_REUSE": 3,
+      "POTENTIAL_AMBIGUITY": 0
+    },
+    "by_trade_group": [
+      {
+        "trade_group": "assembly",
+        "job_domain_ids": [
+          "jd_nco_8211_1200",
+          "jd_nco_8212_0100"
+        ],
+        "available_candidate_skills": 3,
+        "candidate_skill_ids": [
+          "skill_bench_fitting",
+          "skill_cad_interpretation",
+          "skill_mechanical_assembly"
+        ],
+        "actual_reuse": 3,
+        "new_skills": 11,
+        "reuse_opportunity_ratio": 1,
+        "limitation": "covered"
+      },
+      {
+        "trade_group": "automobile",
+        "job_domain_ids": [
+          "jd_nco_7231_0100",
+          "jd_nco_7231_0400"
+        ],
+        "available_candidate_skills": 6,
+        "candidate_skill_ids": [
+          "skill_bench_fitting",
+          "skill_cad_interpretation",
+          "skill_fitter_occupation",
+          "skill_hydraulics_pneumatics",
+          "skill_measuring_instruments",
+          "skill_mechanical_assembly"
+        ],
+        "actual_reuse": 5,
+        "new_skills": 9,
+        "reuse_opportunity_ratio": 0.833,
+        "limitation": "covered"
+      },
+      {
+        "trade_group": "cnc_machining",
+        "job_domain_ids": [
+          "jd_nco_7223_0701",
+          "jd_nco_7223_6002",
+          "jd_nco_7223_6003"
+        ],
+        "available_candidate_skills": 19,
+        "candidate_skill_ids": [
+          "skill_boring",
+          "skill_cad_interpretation",
+          "skill_cam_software",
+          "skill_cnc_programming",
+          "skill_deburring",
+          "skill_drilling",
+          "skill_fanuc",
+          "skill_fixture_setup",
+          "skill_gdt_reading",
+          "skill_machine_maintenance",
+          "skill_machinist_occupation",
+          "skill_measuring_instruments",
+          "skill_milling",
+          "skill_mitsubishi",
+          "skill_program_editing",
+          "skill_siemens",
+          "skill_tapping_threading",
+          "skill_tool_offset_setting",
+          "skill_turning"
+        ],
+        "actual_reuse": 18,
+        "new_skills": 4,
+        "reuse_opportunity_ratio": 0.947,
+        "limitation": "covered"
+      },
+      {
+        "trade_group": "construction",
+        "job_domain_ids": [
+          "jd_nco_7112_0100",
+          "jd_nco_7112_0601"
+        ],
+        "available_candidate_skills": 0,
+        "candidate_skill_ids": [],
+        "actual_reuse": 0,
+        "new_skills": 10,
+        "reuse_opportunity_ratio": null,
+        "limitation": "no_shipped_coverage"
+      },
+      {
+        "trade_group": "electrical",
+        "job_domain_ids": [
+          "jd_nco_7411_0100",
+          "jd_nco_7412_0200"
+        ],
+        "available_candidate_skills": 2,
+        "candidate_skill_ids": [
+          "skill_cad_interpretation",
+          "skill_fitter_occupation"
+        ],
+        "actual_reuse": 1,
+        "new_skills": 11,
+        "reuse_opportunity_ratio": 0.5,
+        "limitation": "thin_shipped_coverage"
+      },
+      {
+        "trade_group": "fabrication",
+        "job_domain_ids": [
+          "jd_isco_7213",
+          "jd_nco_7223_2400",
+          "jd_nco_7224_0102"
+        ],
+        "available_candidate_skills": 11,
+        "candidate_skill_ids": [
+          "skill_arc_welding",
+          "skill_bench_fitting",
+          "skill_cad_interpretation",
+          "skill_deburring",
+          "skill_fitter_occupation",
+          "skill_gas_cutting",
+          "skill_gdt_reading",
+          "skill_grinding_ops",
+          "skill_machine_maintenance",
+          "skill_measuring_instruments",
+          "skill_sheet_metal"
+        ],
+        "actual_reuse": 10,
+        "new_skills": 5,
+        "reuse_opportunity_ratio": 0.909,
+        "limitation": "covered"
+      },
+      {
+        "trade_group": "hvac",
+        "job_domain_ids": [
+          "jd_isco_7127",
+          "jd_nco_7421_0401"
+        ],
+        "available_candidate_skills": 2,
+        "candidate_skill_ids": [
+          "skill_gdt_reading",
+          "skill_pipe_fitting"
+        ],
+        "actual_reuse": 1,
+        "new_skills": 10,
+        "reuse_opportunity_ratio": 0.5,
+        "limitation": "thin_shipped_coverage"
+      },
+      {
+        "trade_group": "industrial_maintenance",
+        "job_domain_ids": [
+          "jd_isco_7233",
+          "jd_nco_7233_0101"
+        ],
+        "available_candidate_skills": 7,
+        "candidate_skill_ids": [
+          "skill_bench_fitting",
+          "skill_fitter_occupation",
+          "skill_gdt_reading",
+          "skill_hydraulics_pneumatics",
+          "skill_machine_maintenance",
+          "skill_measuring_instruments",
+          "skill_mechanical_assembly"
+        ],
+        "actual_reuse": 4,
+        "new_skills": 7,
+        "reuse_opportunity_ratio": 0.571,
+        "limitation": "covered"
+      },
+      {
+        "trade_group": "plumbing",
+        "job_domain_ids": [
+          "jd_nco_7126_0101",
+          "jd_nco_7126_0301"
+        ],
+        "available_candidate_skills": 9,
+        "candidate_skill_ids": [
+          "skill_arc_welding",
+          "skill_drainage_systems",
+          "skill_fitter_occupation",
+          "skill_gas_cutting",
+          "skill_gdt_reading",
+          "skill_pipe_fitting",
+          "skill_plumber_occupation",
+          "skill_tapping_threading",
+          "skill_water_supply"
+        ],
+        "actual_reuse": 7,
+        "new_skills": 7,
+        "reuse_opportunity_ratio": 0.778,
+        "limitation": "covered"
+      },
+      {
+        "trade_group": "quality_inspection",
+        "job_domain_ids": [
+          "jd_nco_7313_2601",
+          "jd_nco_7543_2001"
+        ],
+        "available_candidate_skills": 5,
+        "candidate_skill_ids": [
+          "skill_cmm",
+          "skill_dimensional_inspection",
+          "skill_gdt_reading",
+          "skill_measuring_instruments",
+          "skill_quality_control"
+        ],
+        "actual_reuse": 5,
+        "new_skills": 7,
+        "reuse_opportunity_ratio": 1,
+        "limitation": "covered"
+      },
+      {
+        "trade_group": "warehouse_logistics",
+        "job_domain_ids": [
+          "jd_isco_4321",
+          "jd_nco_4321_0100",
+          "jd_nco_4321_0601"
+        ],
+        "available_candidate_skills": 0,
+        "candidate_skill_ids": [],
+        "actual_reuse": 0,
+        "new_skills": 11,
+        "reuse_opportunity_ratio": null,
+        "limitation": "no_shipped_coverage"
+      },
+      {
+        "trade_group": "welding",
+        "job_domain_ids": [
+          "jd_nco_7212_0100",
+          "jd_nco_7212_0300",
+          "jd_nco_7212_0301"
+        ],
+        "available_candidate_skills": 8,
+        "candidate_skill_ids": [
+          "skill_arc_welding",
+          "skill_gas_cutting",
+          "skill_gdt_reading",
+          "skill_grinding_ops",
+          "skill_machine_maintenance",
+          "skill_mig_welding",
+          "skill_tig_welding",
+          "skill_welder_occupation"
+        ],
+        "actual_reuse": 7,
+        "new_skills": 9,
+        "reuse_opportunity_ratio": 0.875,
+        "limitation": "covered"
+      }
+    ],
+    "consumed_problem_codes": {},
+    "skipped_unknown_skill_ids": [],
+    "shipped_skill_count": 48
+  },
+  "convergence": {
+    "findings": [
+      {
+        "group": "cnc_machining",
+        "concept": "Fanuc control operation",
+        "skill_ids": [
+          "skill_fanuc"
+        ],
+        "domains_with_concept": [
+          "jd_nco_7223_6002",
+          "jd_nco_7223_6003"
+        ],
+        "domains_without_concept": [
+          "jd_nco_7223_0701"
+        ],
+        "status": "CONVERGED",
+        "fragmented_clusters": [],
+        "evidence": [],
+        "reason": "one canonical skill (skill_fanuc) carries this concept across 2 of 3 domain(s). Domains that did not emit it have not fragmented anything."
+      },
+      {
+        "group": "cnc_machining",
+        "concept": "G-code programming",
+        "skill_ids": [
+          "skill_program_editing"
+        ],
+        "domains_with_concept": [
+          "jd_nco_7223_6002",
+          "jd_nco_7223_6003"
+        ],
+        "domains_without_concept": [
+          "jd_nco_7223_0701"
+        ],
+        "status": "CONVERGED",
+        "fragmented_clusters": [],
+        "evidence": [],
+        "reason": "one canonical skill (skill_program_editing) carries this concept across 2 of 3 domain(s). Domains that did not emit it have not fragmented anything."
+      },
+      {
+        "group": "welding",
+        "concept": "Weld bead inspection",
+        "skill_ids": [
+          "skill_weld_bead_inspection"
+        ],
+        "domains_with_concept": [
+          "jd_nco_7212_0100",
+          "jd_nco_7212_0300",
+          "jd_nco_7212_0301"
+        ],
+        "domains_without_concept": [],
+        "status": "CONVERGED",
+        "fragmented_clusters": [],
+        "evidence": [],
+        "reason": "one canonical skill (skill_weld_bead_inspection) carries this concept across 3 of 3 domain(s). Domains that did not emit it have not fragmented anything."
+      },
+      {
+        "group": "welding",
+        "concept": "Torch flame setting",
+        "skill_ids": [
+          "skill_gas_torch_flame_setting"
+        ],
+        "domains_with_concept": [
+          "jd_nco_7212_0100"
+        ],
+        "domains_without_concept": [
+          "jd_nco_7212_0300",
+          "jd_nco_7212_0301"
+        ],
+        "status": "CONVERGED",
+        "fragmented_clusters": [],
+        "evidence": [],
+        "reason": "one canonical skill (skill_gas_torch_flame_setting) carries this concept across 1 of 3 domain(s). Domains that did not emit it have not fragmented anything."
+      },
+      {
+        "group": "welding",
+        "concept": "Machine program setting",
+        "skill_ids": [
+          "skill_weld_program_parameter_setting"
+        ],
+        "domains_with_concept": [
+          "jd_nco_7212_0300"
+        ],
+        "domains_without_concept": [
+          "jd_nco_7212_0100",
+          "jd_nco_7212_0301"
+        ],
+        "status": "CONVERGED",
+        "fragmented_clusters": [],
+        "evidence": [],
+        "reason": "one canonical skill (skill_weld_program_parameter_setting) carries this concept across 1 of 3 domain(s). Domains that did not emit it have not fragmented anything."
+      },
+      {
+        "group": "quality_inspection",
+        "concept": "Dimensional inspection",
+        "skill_ids": [
+          "skill_dimensional_inspection"
+        ],
+        "domains_with_concept": [
+          "jd_nco_7313_2601",
+          "jd_nco_7543_2001"
+        ],
+        "domains_without_concept": [],
+        "status": "CONVERGED",
+        "fragmented_clusters": [],
+        "evidence": [],
+        "reason": "one canonical skill (skill_dimensional_inspection) carries this concept across 2 of 2 domain(s). Domains that did not emit it have not fragmented anything."
+      },
+      {
+        "group": "quality_inspection",
+        "concept": "Measuring instruments",
+        "skill_ids": [
+          "skill_measuring_instruments"
+        ],
+        "domains_with_concept": [
+          "jd_nco_7313_2601",
+          "jd_nco_7543_2001"
+        ],
+        "domains_without_concept": [],
+        "status": "CONVERGED",
+        "fragmented_clusters": [],
+        "evidence": [],
+        "reason": "one canonical skill (skill_measuring_instruments) carries this concept across 2 of 2 domain(s). Domains that did not emit it have not fragmented anything."
+      },
+      {
+        "group": "construction",
+        "concept": "Mortar work",
+        "skill_ids": [
+          "skill_mortar_mixing"
+        ],
+        "domains_with_concept": [
+          "jd_nco_7112_0100",
+          "jd_nco_7112_0601"
+        ],
+        "domains_without_concept": [],
+        "status": "CONVERGED",
+        "fragmented_clusters": [],
+        "evidence": [],
+        "reason": "one canonical skill (skill_mortar_mixing) carries this concept across 2 of 2 domain(s). Domains that did not emit it have not fragmented anything."
+      },
+      {
+        "group": "warehouse_logistics",
+        "concept": "Stock counting",
+        "skill_ids": [
+          "skill_stock_counting"
+        ],
+        "domains_with_concept": [
+          "jd_isco_4321",
+          "jd_nco_4321_0100",
+          "jd_nco_4321_0601"
+        ],
+        "domains_without_concept": [],
+        "status": "CONVERGED",
+        "fragmented_clusters": [],
+        "evidence": [],
+        "reason": "one canonical skill (skill_stock_counting) carries this concept across 3 of 3 domain(s). Domains that did not emit it have not fragmented anything."
+      },
+      {
+        "group": "warehouse_logistics",
+        "concept": "Material handling",
+        "skill_ids": [
+          "skill_material_handling_equipment_operation"
+        ],
+        "domains_with_concept": [
+          "jd_isco_4321",
+          "jd_nco_4321_0100",
+          "jd_nco_4321_0601"
+        ],
+        "domains_without_concept": [],
+        "status": "CONVERGED",
+        "fragmented_clusters": [],
+        "evidence": [],
+        "reason": "one canonical skill (skill_material_handling_equipment_operation) carries this concept across 3 of 3 domain(s). Domains that did not emit it have not fragmented anything."
+      }
+    ],
+    "totals": {
+      "CONVERGED": 10,
+      "FRAGMENTED": 0,
+      "ABSENT": 0,
+      "NEEDS_REVIEW": 0
+    }
+  },
+  "seniority": [],
+  "totals": {
+    "FALSE_REUSE": 0,
+    "MISSED_REUSE_CATALOGUE": 1,
+    "MISSED_REUSE_WITHIN_BATCH": 2,
+    "CONVERGENCE_FRAGMENTED": 0,
+    "SENIORITY_AS_SKILL": 0,
+    "CONVERGENCE_GROUP_UNKNOWN_DOMAIN": 0,
+    "POTENTIAL_AMBIGUITY": 0,
+    "CONVERGENCE_NEEDS_REVIEW": 0,
+    "CONVERGENCE_ABSENT": 0,
+    "EDGE_SKILL_UNRESOLVED": 0
+  },
+  "attributable_skill_ids": [
+    "skill_assembly_line_sequencing",
+    "skill_barcode_scanning",
+    "skill_battery_capacity_checking",
+    "skill_battery_cell_stacking",
+    "skill_battery_pack_leak_testing",
+    "skill_battery_terminal_crimping",
+    "skill_bearing_replacement",
+    "skill_belt_and_chain_drive_alignment",
+    "skill_bin_location_management",
+    "skill_body_panel_alignment",
+    "skill_brake_system_servicing",
+    "skill_brazing_of_copper_lines",
+    "skill_brick_and_block_laying",
+    "skill_cable_termination_and_jointing",
+    "skill_chassis_fitting",
+    "skill_chemical_handling_safety",
+    "skill_clutch_and_gearbox_repair",
+    "skill_compressor_replacement",
+    "skill_concrete_curing",
+    "skill_conduit_bending_and_laying",
+    "skill_control_panel_wiring",
+    "skill_coolant_management",
+    "skill_customer_site_handover",
+    "skill_cutting_tool_selection",
+    "skill_dispatch_documentation",
+    "skill_distortion_control_in_weldments",
+    "skill_distribution_board_assembly",
+    "skill_drain_cleaning_and_unclogging",
+    "skill_ducting_installation",
+    "skill_earthing_and_bonding",
+    "skill_electrical_fault_finding",
+    "skill_electrical_safety_and_lockout",
+    "skill_electrode_selection",
+    "skill_electrolyte_filling",
+    "skill_engine_overhauling",
+    "skill_fastener_selection_and_tightening",
+    "skill_first_piece_approval",
+    "skill_forklift_operation",
+    "skill_gas_torch_flame_setting",
+    "skill_go_no_go_gauge_checking",
+    "skill_goods_receipt_verification",
+    "skill_hardness_testing",
+    "skill_house_wiring_installation",
+    "skill_indoor_unit_servicing_and_cleaning",
+    "skill_inspection_report_recording",
+    "skill_insulation_resistance_testing",
+    "skill_inventory_record_keeping",
+    "skill_issue_and_requisition_control",
+    "skill_lathe_chuck_mounting",
+    "skill_leak_repair_in_water_lines",
+    "skill_lubrication_schedule_execution",
+    "skill_material_handling_equipment_operation",
+    "skill_mixing_machine_operation",
+    "skill_mortar_mixing",
+    "skill_motor_connection_and_starter_wiring",
+    "skill_non_destructive_testing_of_castings",
+    "skill_order_picking_and_packing",
+    "skill_oxy_acetylene_cylinder_handling",
+    "skill_pallet_stacking_and_loading",
+    "skill_pipe_bending",
+    "skill_pipe_support_and_clamping",
+    "skill_plastering",
+    "skill_press_brake_bending",
+    "skill_pressure_testing_of_pipelines",
+    "skill_preventive_maintenance_scheduling",
+    "skill_pump_and_valve_repair",
+    "skill_punching_machine_operation",
+    "skill_refrigerant_charging",
+    "skill_refrigerant_leak_detection",
+    "skill_rejection_tagging_and_segregation",
+    "skill_sanitary_fixture_installation",
+    "skill_scaffolding_erection",
+    "skill_shaft_and_coupling_alignment",
+    "skill_shearing_machine_operation",
+    "skill_sheet_metal_marking_and_layout",
+    "skill_site_material_stacking",
+    "skill_solvent_cement_jointing",
+    "skill_split_unit_installation",
+    "skill_stock_counting",
+    "skill_stone_dressing",
+    "skill_stone_joint_pointing",
+    "skill_structural_fit_up_and_tacking",
+    "skill_sub_assembly_quality_checking",
+    "skill_surface_finish_inspection",
+    "skill_suspension_and_steering_repair",
+    "skill_switchgear_installation",
+    "skill_thermostat_and_control_wiring",
+    "skill_torque_wrench_operation",
+    "skill_vacuum_pump_evacuation",
+    "skill_vehicle_diagnostic_scanning",
+    "skill_vibration_and_noise_fault_diagnosis",
+    "skill_visual_defect_identification",
+    "skill_wall_plumb_and_level_checking",
+    "skill_weld_bead_inspection",
+    "skill_weld_program_parameter_setting",
+    "skill_weld_spatter_cleaning",
+    "skill_welding_joint_preparation",
+    "skill_welding_machine_consumable_changeover",
+    "skill_wheel_alignment_and_balancing",
+    "skill_wiring_harness_routing"
+  ]
+}

@@ -98,14 +98,16 @@ export function healthTone(value: string): "ok" | "warn" | "bad" {
  *
  * Never paise: the column is an integer ₹ amount, and showing decimals would imply a
  * precision the band does not have.
+ *
+ * Delegates to `@badabhai/pricing`'s `formatInr` (BL-10 fast-follow) — the same formatter
+ * `formatRupees` in this file already uses, so a pay band and a rupee figure never drift.
  */
 export function formatPayBand(min: number | null, max: number | null): string {
-  const rupees = (n: number) => `₹${formatCount(n)}`;
   if (min !== null && max !== null) {
-    return min === max ? rupees(min) : `${rupees(min)}–${rupees(max)}`;
+    return min === max ? formatInr(min) : `${formatInr(min)}–${formatInr(max)}`;
   }
-  if (min !== null) return `from ${rupees(min)}`;
-  if (max !== null) return `up to ${rupees(max)}`;
+  if (min !== null) return `from ${formatInr(min)}`;
+  if (max !== null) return `up to ${formatInr(max)}`;
   return "not stated";
 }
 

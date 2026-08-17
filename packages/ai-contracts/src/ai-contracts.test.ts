@@ -306,6 +306,48 @@ describe("SkillCanonicalizationSchema (contracts.py parity — ADR-0030/TAX-4)",
     const inp = SkillCanonicalizationInputSchema.parse({ phrase: "VMC operator", domain_id: "vmc-machining" });
     expect(inp.lang).toBe("en");
   });
+
+  // ── Phase 1.5 canonicalizer cutover: two domain id spaces, exactly one per call ──
+  it("input accepts the LEGACY domain_id alone (every pre-cutover caller is unchanged)", () => {
+    const inp = SkillCanonicalizationInputSchema.parse({
+      phrase: "VMC operator",
+      domain_id: "cnc-machining",
+      lang: "en",
+    });
+    expect(inp.domain_id).toBe("cnc-machining");
+    expect(inp.job_domain_id).toBeUndefined();
+  });
+
+  it("input accepts the CANONICAL job_domain_id alone", () => {
+    const inp = SkillCanonicalizationInputSchema.parse({
+      phrase: "kharad",
+      job_domain_id: "jd_nco_7223_0100",
+      lang: "hi",
+    });
+    expect(inp.job_domain_id).toBe("jd_nco_7223_0100");
+    expect(inp.domain_id).toBeUndefined();
+  });
+
+  it("input rejects NEITHER domain — an unscoped skill search is never the fallback", () => {
+    // The rule with real consequences: without a domain the vector layer would return the
+    // nearest alias in ANY trade at a plausible score. There is no safe default, so the
+    // contract refuses the call rather than degrading it.
+    const res = SkillCanonicalizationInputSchema.safeParse({ phrase: "kharad", lang: "hi" });
+    expect(res.success).toBe(false);
+    expect(res.success === false && JSON.stringify(res.error.issues)).toContain(
+      "exactly one of domain_id",
+    );
+  });
+
+  it("input rejects BOTH domains — the slug space and the jd_* space are disjoint", () => {
+    const res = SkillCanonicalizationInputSchema.safeParse({
+      phrase: "kharad",
+      domain_id: "cnc-machining",
+      job_domain_id: "jd_nco_7223_0100",
+      lang: "hi",
+    });
+    expect(res.success).toBe(false);
+  });
 });
 
 describe("SkillAliasEmbed schemas (contracts.py parity — ADR-0030 fork-B seam)", () => {

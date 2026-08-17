@@ -5,9 +5,14 @@ fabricates, always records a miss for later learning.
 above the floor) or ``UNRESOLVED``. The pipeline is:
 
     pseudonymize (SG-2, fail-closed)  →  embed (TAX-3 adapter, MOCK by default)
-      →  nearest skill_alias vectors IN THAT DOMAIN  →  floor gate:
+      →  nearest skill_alias vectors IN THAT SCOPE  →  floor gate:
          top.score >= FLOOR  →  return {skill_id, score}      (ASSIGN an existing id)
          else                →  record unresolved_phrase + return UNRESOLVED
+
+SCOPE (Phase 1.5 canonicalizer cutover): EXACTLY ONE of the LEGACY ``domain_id`` slug (reads
+``skill_alias.domain_id``, which migration 0076 made nullable/legacy) or the CANONICAL
+``job_domain_id`` (resolves through ``job_domain_skill``, so a skill with NO legacy slug is
+still reachable). Neither is REFUSED, never widened to an unscoped search.
 
 INVARIANTS (ADR-0030):
 - **SG-2**: every phrase is pseudonymized (fail-closed) BEFORE the embed — inherited from
@@ -32,9 +37,12 @@ import time
 from typing import Protocol
 
 from ..config import Settings
-from ..contracts import AICallMetadata, SkillCanonicalization
+from ..contracts import AICallMetadata, SkillCanonicalization, exactly_one_skill_scope
+from ..logging_config import get_logger
 from . import cost_tracker
 from .embeddings import EMBEDDING_TASK_TYPE, embed_text
+
+logger = get_logger("ai.canonicalize")
 
 MATCHED = "matched"
 UNRESOLVED = "unresolved"
@@ -42,23 +50,57 @@ UNRESOLVED = "unresolved"
 
 class SkillCanonicalStore(Protocol):
     """The DB seam canonicalization reads/writes. Supplied by the caller (the ai-service is
-    DB-free). Both methods are DOMAIN-SCOPED — an alias in another domain must never be
-    returned, and an unresolved miss is bucketed by ``(phrase, domain_id, lang)``."""
+    DB-free). Both methods are DOMAIN-SCOPED — an alias outside the requested scope must never
+    be returned, and an unresolved miss is bucketed by ``(phrase, domain_id, lang)``.
+
+    PHASE 1.5 — TWO SCOPES, EXACTLY ONE PER CALL. ``job_domain_id`` is KEYWORD-ONLY AND
+    DEFAULTED so every pre-existing implementation (and every existing call site) keeps
+    working untouched: ``canonicalize_skill`` only passes it when a canonical scope was
+    actually requested, so the legacy path calls these methods with the SAME positional
+    signature it always did."""
 
     def nearest_aliases(
-        self, domain_id: str, query_vector: list[float], k: int
+        self,
+        domain_id: str | None,
+        query_vector: list[float],
+        k: int,
+        *,
+        job_domain_id: str | None = None,
     ) -> list[tuple[str, float]]:
-        """Return up to ``k`` ``(skill_id, score)`` for aliases WHERE ``domain_id`` matches,
-        ``score = 1 - (embedding <=> $q)`` (cosine similarity), ordered DESC. SQL shape:
-        ``SELECT skill_id, 1 - (embedding <=> $q) AS score FROM skill_alias WHERE domain_id=$d
-        AND embedding IS NOT NULL ORDER BY embedding <=> $q LIMIT $k``. Domain scoping is the
-        WHERE clause — the same phrase in the wrong domain returns no rows."""
+        """Return up to ``k`` ``(skill_id, score)``, ``score = 1 - (embedding <=> $q)``
+        (cosine similarity), ordered DESC.
+
+        CANONICAL scope (``job_domain_id`` set) — the Phase 1.5 path. Candidates come from
+        the authoritative ``job_domain_skill`` link table, NOT from the legacy denormalized
+        column, so a skill whose ``skill_alias.domain_id`` is NULL is still reachable::
+
+            SELECT sa.skill_id, 1 - (sa.embedding <=> $q) AS score
+            FROM skill_alias sa
+            JOIN job_domain_skill jds ON jds.skill_id = sa.skill_id
+            WHERE jds.job_domain_id = $jobDomainId
+              AND jds.status = 'active'
+              AND sa.embedding IS NOT NULL
+            ORDER BY sa.embedding <=> $q LIMIT $k
+
+        LEGACY/FALLBACK scope (``domain_id`` set) — UNCHANGED, byte for byte::
+
+            SELECT skill_id, 1 - (embedding <=> $q) AS score FROM skill_alias
+            WHERE domain_id = $d AND embedding IS NOT NULL
+            ORDER BY embedding <=> $q LIMIT $k
+
+        Scoping is the WHERE clause in both — the same phrase in the wrong domain returns no
+        rows. NEITHER id set is NOT "search everything": it is a refusal (``[]``), enforced by
+        ``canonicalize_skill`` before the embed and again in the HTTP store."""
         ...
 
-    def record_unresolved(self, phrase: str, domain_id: str, lang: str) -> None:
+    def record_unresolved(self, phrase: str, domain_id: str | None, lang: str) -> None:
         """Upsert ``unresolved_phrase`` (``phrase`` is ALREADY pseudonymized): insert a new
         row, or on the ``(phrase, domain_id, lang)`` unique key increment ``count`` and bump
-        ``last_seen``. Records the miss for later learning (TAX-5). Stores no raw PII."""
+        ``last_seen``. Records the miss for later learning (TAX-5). Stores no raw PII.
+
+        ``domain_id`` IS NULLABLE AND THAT IS THE HONEST ANSWER FOR A CANONICAL-SCOPED MISS
+        — see the call site in :func:`canonicalize_skill` for why no ``jd_*`` id is written
+        here and what the future fix is."""
         ...
 
 
@@ -68,32 +110,121 @@ class NullSkillStore:
     DB-backed store is the §7/DB-wiring runner."""
 
     def nearest_aliases(
-        self, domain_id: str, query_vector: list[float], k: int
+        self,
+        domain_id: str | None,
+        query_vector: list[float],
+        k: int,
+        *,
+        job_domain_id: str | None = None,
     ) -> list[tuple[str, float]]:
         return []
 
-    def record_unresolved(self, phrase: str, domain_id: str, lang: str) -> None:
+    def record_unresolved(self, phrase: str, domain_id: str | None, lang: str) -> None:
         return None
+
+
+def _safe_nearest(
+    store: SkillCanonicalStore,
+    domain_id: str | None,
+    vector: list[float],
+    k: int,
+    **scope: str | None,
+) -> list[tuple[str, float]]:
+    """The search, FAIL-SOFT. Any store failure degrades to ``[]`` → UNRESOLVED → the caller
+    keeps the raw phrase; canonicalization NEVER blocks extraction or a job posting (TAX-8).
+
+    :class:`HttpSkillStore` already swallows its own transport errors; this is the seam-level
+    net for EVERY implementation, and Phase 1.5 is why it now exists here: a store written
+    before the ``job_domain_id`` kwarg raises ``TypeError`` when asked for a canonical scope,
+    and that must degrade like an outage rather than 500 a worker's profile turn. Logged
+    (type only, never the phrase) so a store that silently answers nothing is still visible.
+    """
+    try:
+        return store.nearest_aliases(domain_id, vector, k, **scope)  # type: ignore[arg-type]
+    except Exception as exc:
+        logger.warning(
+            "skill store nearest_aliases failed (degrading to UNRESOLVED)",
+            extra={"extra": {"error": type(exc).__name__, "canonical_scope": bool(scope)}},
+        )
+        return []
+
+
+def _safe_record(
+    store: SkillCanonicalStore, phrase: str, domain_id: str | None, lang: str
+) -> None:
+    """The miss upsert, FAIL-SOFT. Losing one growth-queue row is acceptable; failing a
+    worker's turn for it is not. ``phrase`` is ALREADY pseudonymized (SG-1) and is never
+    logged here — only the exception TYPE is.
+
+    A ``None`` domain SKIPS THE CALL ENTIRELY rather than firing a request that cannot
+    succeed. The api route requires a non-null ``domain_id`` because recording emits the v1
+    ``skill.phrase_unresolved`` event, whose payload declares ``domain_id: string`` — and a
+    shipped event schema is not mutable (CLAUDE.md §3). So a canonical-``job_domain_id``
+    scoped MISS has nowhere to be queued until ``unresolved_phrase`` grows a
+    ``job_domain_id`` column. Posting it anyway would spend a round trip to earn a 400 and
+    a misleading "failed" warning; this logs the real reason instead.
+
+    Only the MISS path is closed. A canonical-scoped canonicalization that MATCHES is
+    unaffected, and nothing here can block a worker's turn either way.
+    """
+    if domain_id is None:
+        logger.info(
+            "skill miss not queued: canonical-scoped misses have no home in "
+            "unresolved_phrase until it carries job_domain_id",
+            extra={"extra": {"scope": "job_domain_id"}},
+        )
+        return
+    try:
+        store.record_unresolved(phrase, domain_id, lang)
+    except Exception as exc:
+        logger.warning(
+            "skill store record_unresolved failed (miss not recorded)",
+            extra={"extra": {"error": type(exc).__name__}},
+        )
 
 
 def canonicalize_skill(
     phrase: str,
-    domain_id: str,
+    domain_id: str | None,
     store: SkillCanonicalStore,
     settings: Settings,
     *,
     lang: str = "en",
     top_k: int | None = None,
     floor: float | None = None,
+    job_domain_id: str | None = None,
 ) -> SkillCanonicalization:
-    """Canonicalize one skill phrase within ``domain_id``. Returns a MATCHED result with the
-    assigned ``skill_id`` + ``score`` (top score >= floor), else UNRESOLVED (miss recorded).
+    """Canonicalize one skill phrase within EXACTLY ONE scope — the legacy ``domain_id`` slug
+    or the canonical ``job_domain_id`` (Phase 1.5). Returns a MATCHED result with the assigned
+    ``skill_id`` + ``score`` (top score >= floor), else UNRESOLVED (miss recorded).
 
     Deterministic given the store + the (mock) embedder. Never fabricates a ``skill_id``:
     ``skill_id`` is only ever a value the vector search returned.
+
+    ``job_domain_id`` is keyword-only and defaults to None, so every existing caller is
+    byte-identical: same embed, same positional store call, same result.
     """
     top_k = settings.skill_canonicalize_top_k if top_k is None else top_k
     floor = settings.skill_canonicalize_floor if floor is None else floor
+
+    # SCOPE GATE, BEFORE THE EMBED (fail-closed, and defence in depth behind the contract's
+    # own exactly-one-of rule — this function is a library entry point too, not only an HTTP
+    # handler). NEITHER id means there is no WHERE clause to scope by, and an unscoped search
+    # would return the nearest alias in the ENTIRE vocabulary — a cook offered lathe skills.
+    # BOTH means two scopes with no defined precedence. Either way: refuse before spending an
+    # embed, touch no store, record nothing (there is no bucket to record under).
+    if not exactly_one_skill_scope(domain_id, job_domain_id):
+        logger.warning(
+            "skill canonicalization refused: scope must be exactly one of "
+            "domain_id / job_domain_id",
+            extra={
+                "extra": {
+                    "has_domain_id": domain_id is not None,
+                    "has_job_domain_id": job_domain_id is not None,
+                }
+            },
+        )
+        return SkillCanonicalization(status=UNRESOLVED)
 
     # SG-2: pseudonymize + embed (mock unless SG-4). A blocked phrase cannot be embedded and
     # its text still holds the residual PII that blocked it -> fail closed to UNRESOLVED and do
@@ -133,7 +264,16 @@ def canonicalize_skill(
         settings=settings,
     )
 
-    candidates = store.nearest_aliases(domain_id, emb.vector, top_k)
+    # THE LEGACY CALL IS UNTOUCHED: when no canonical scope was requested the store is called
+    # with the exact positional signature it has always been called with, so a pre-Phase-1.5
+    # store implementation (one whose `nearest_aliases` has no `job_domain_id` parameter)
+    # keeps working. The kwarg is only ever sent when a `jd_*` scope was actually supplied.
+    if job_domain_id is not None:
+        candidates = _safe_nearest(
+            store, domain_id, emb.vector, top_k, job_domain_id=job_domain_id
+        )
+    else:
+        candidates = _safe_nearest(store, domain_id, emb.vector, top_k)
     if candidates:
         # Defensive: take the true max rather than trusting the store's DESC order — a future
         # runner that drops ORDER BY must not cause a valid >=floor match to be missed. SG-3
@@ -149,17 +289,50 @@ def canonicalize_skill(
 
     # Miss (no candidate, or top below floor): record the PSEUDONYMIZED text (emb.text, SG-1)
     # for later learning, then return UNRESOLVED. The raw phrase is never stored.
-    store.record_unresolved(emb.text or "", domain_id, lang)
+    #
+    # A CANONICAL-SCOPED MISS IS RECORDED WITH domain_id = NULL, AND THAT IS A KNOWN,
+    # DELIBERATE LOSS OF SCOPE — not an oversight. `unresolved_phrase` has NO job_domain_id
+    # column, and its `domain_id` column holds LEGACY 11-slug values; writing a `jd_*` id
+    # into it would put two id spaces in one column, which silently breaks every existing
+    # reader (the TAX-7 growth runner batches OPEN rows *per domain slug*) and is far worse
+    # than a null. `domain_id` is already legally NULL there — the occupation scope records
+    # exactly this way — and the unique index's NULLS NOT DISTINCT still dedupes the row, so
+    # the miss is counted.
+    #
+    # BUT THE COST IS HIGHER THAN "UN-ATTRIBUTED", AND THE HONEST VERSION IS THIS: the TAX-7
+    # growth runner does not merely fail to cluster these rows, it EXPLICITLY SKIPS THEM —
+    # `growth-cluster.ts` filters `domainId === null` out of its open set and logs
+    # "skipping N open row(s) with NULL domain_id", and it does so only AFTER Phase 1 has
+    # already spent a real embedding on each one. So a canonical-scoped miss is permanently
+    # unprocessable by the growth loop AND burns embed spend on a row that will always be
+    # refused. It is not a lossy bucket; it is a dead-letter queue with a bill.
+    #
+    # Impact TODAY is zero: nothing writes `job_postings.job_domain_id`, so no caller reaches
+    # this branch. It becomes real the moment the payer domain picker ships.
+    # REQUIRED FIX, and a hard PREREQUISITE of that picker rather than an open TODO (it needs
+    # a migration, which this task must not create): add a nullable `job_domain_id` column to
+    # `unresolved_phrase`, widen the unique index, teach the growth runner the second scope,
+    # and pass the id here.
+    #
+    # `domain_id` is None here whenever `job_domain_id` was supplied (exactly-one-of, enforced
+    # above). `_safe_record` SKIPS a None domain rather than posting it — the api route
+    # requires non-null because recording emits the v1 `skill.phrase_unresolved` event, and
+    # that payload's `domain_id: string` is not mutable (CLAUDE.md §3). So on the canonical
+    # path the embed is spent and the miss is simply not queued. That is the honest cost of
+    # deferring the migration, and it is bounded: nothing writes `job_postings.job_domain_id`
+    # yet, so no caller reaches this line today.
+    _safe_record(store, emb.text or "", domain_id, lang)
     return SkillCanonicalization(status=UNRESOLVED, ai_metadata=meta)
 
 
 def canonicalize_labels(
     labels: list[str],
-    domain_id: str,
+    domain_id: str | None,
     store: SkillCanonicalStore,
     settings: Settings,
     *,
     lang: str = "en",
+    job_domain_id: str | None = None,
 ) -> tuple[list[str], list[str], list[AICallMetadata]]:
     """Canonicalize a list of model-emitted skill LABELS. Returns ``(assigned_skill_ids,
     unresolved_labels, embed_cost_records)`` — assigned ids are de-duplicated in first-seen
@@ -183,14 +356,20 @@ def canonicalize_labels(
     blank label is skipped before any embed and contributes nothing; a pseudonymize-blocked
     label produces no metadata (nothing was attempted) and so contributes nothing either.
     The list is therefore <= the number of labels, and a caller must not infer either count
-    from the other."""
+    from the other.
+
+    ONE SCOPE FOR THE WHOLE FAN-OUT (Phase 1.5): every label is canonicalized under the same
+    legacy ``domain_id`` OR the same canonical ``job_domain_id``, exactly one of which must be
+    supplied. Neither ⇒ every label refuses before its embed (no spend, nothing recorded)."""
     assigned: list[str] = []
     unresolved: list[str] = []
     cost_records: list[AICallMetadata] = []
     for label in labels:
         if not label or not label.strip():
             continue
-        res = canonicalize_skill(label, domain_id, store, settings, lang=lang)
+        res = canonicalize_skill(
+            label, domain_id, store, settings, lang=lang, job_domain_id=job_domain_id
+        )
         if res.ai_metadata is not None:
             cost_records.append(res.ai_metadata)
         if res.status == MATCHED and res.skill_id is not None:

@@ -127,7 +127,12 @@ export class JobPostingChatService {
     // the opener copy, free to drift from the AI service's. The clients test for empty
     // and render their own constant. Nothing is stored in that case either — a message
     // row with no text would hydrate as a blank bubble on the next device.
-    const openingText = await this.ai.jobPostingChatOpening();
+    // BL-19: `null` trade hint is unchanged; the ctx is the request's own pair, so the opener
+    // call lands under the same trace as the session it opens.
+    const openingText = await this.ai.jobPostingChatOpening(null, {
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
     const opener =
       openingText === null
         ? null
@@ -201,12 +206,17 @@ export class JobPostingChatService {
     // 3. One deterministic engine turn. `payer_ref` is the opaque payer uuid (spend
     //    attribution only — never a name, email, or organisation), and `message_text`
     //    is pseudonymized FAIL-CLOSED on the other side before the engine reads it.
-    const aiResult = await this.ai.jobPostingChatRespond({
-      session_id: session.id,
-      payer_ref: payerId,
-      message_text: dto.text,
-      conversation_state: priorState,
-    });
+    const aiResult = await this.ai.jobPostingChatRespond(
+      {
+        session_id: session.id,
+        payer_ref: payerId,
+        message_text: dto.text,
+        conversation_state: priorState,
+      },
+      // BL-19: the same pair `aiCost.record` below is given, so the spend record and the far
+      // side's trace name one id rather than two.
+      { correlationId: ctx.correlationId, requestId: ctx.requestId },
+    );
     if (!aiResult) {
       // NO LOCAL FALLBACK, deliberately — see `AiService.jobPostingChatRespond`. The
       // payer's message is already stored and the session state is untouched, so a

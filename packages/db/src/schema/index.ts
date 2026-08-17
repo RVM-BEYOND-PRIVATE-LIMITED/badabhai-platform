@@ -32,6 +32,11 @@ import {
   jobDomains,
 } from "./occupation";
 import {
+  jobDomainSkills,
+  jobPostingSkills,
+  workerProfileSkills,
+} from "./taxonomy";
+import {
   profilingFamilies,
   profilingFamilyBindings,
   questionPackItems,
@@ -110,6 +115,7 @@ import {
 export * from "./worker";
 export * from "./skill";
 export * from "./occupation";
+export * from "./taxonomy";
 export * from "./question-pack";
 export * from "./chat";
 export * from "./pack-answer";
@@ -228,6 +234,12 @@ export type JobDomain = typeof jobDomains.$inferSelect;
 export type NewJobDomain = typeof jobDomains.$inferInsert;
 export type JobDomainAlias = typeof jobDomainAliases.$inferSelect;
 export type NewJobDomainAlias = typeof jobDomainAliases.$inferInsert;
+export type JobDomainSkill = typeof jobDomainSkills.$inferSelect;
+export type NewJobDomainSkill = typeof jobDomainSkills.$inferInsert;
+export type WorkerProfileSkill = typeof workerProfileSkills.$inferSelect;
+export type NewWorkerProfileSkill = typeof workerProfileSkills.$inferInsert;
+export type JobPostingSkill = typeof jobPostingSkills.$inferSelect;
+export type NewJobPostingSkill = typeof jobPostingSkills.$inferInsert;
 export type ProfilingFamily = typeof profilingFamilies.$inferSelect;
 export type NewProfilingFamily = typeof profilingFamilies.$inferInsert;
 export type ProfilingFamilyBinding = typeof profilingFamilyBindings.$inferSelect;
@@ -291,6 +303,9 @@ export const schema = {
   workerIndustryTenure,
   jobDomains,
   jobDomainAliases,
+  jobDomainSkills,
+  workerProfileSkills,
+  jobPostingSkills,
   profilingFamilies,
   profilingFamilyBindings,
   questionPacks,

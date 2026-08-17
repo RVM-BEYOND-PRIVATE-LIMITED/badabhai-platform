@@ -193,7 +193,11 @@ export class IdentifyService {
           `session ${ctx.sessionId} falls back to the universal pack`,
       );
       return {
-        patch: { needsDisambiguation: false, disambiguationOffer: [], identifyAttempts: MAX_IDENTIFY_ATTEMPTS },
+        patch: {
+          needsDisambiguation: false,
+          disambiguationOffer: [],
+          identifyAttempts: MAX_IDENTIFY_ATTEMPTS,
+        },
         offer: null,
         pinned: null,
       };
@@ -394,7 +398,12 @@ export class IdentifyService {
         `disambiguate status for session ${ctx.sessionId} produced fewer than two real chips; ` +
           `treating it as unresolved`,
       );
-      await this.emitUnresolved(ctx, "ambiguous", result.catalogVersion, result.candidates[0] ?? null);
+      await this.emitUnresolved(
+        ctx,
+        "ambiguous",
+        result.catalogVersion,
+        result.candidates[0] ?? null,
+      );
       return { patch: { identifyAttempts: MAX_IDENTIFY_ATTEMPTS }, offer: null, pinned: null };
     }
 
@@ -475,7 +484,11 @@ export class IdentifyService {
     ctx: { readonly sessionId: string } & RequestContext,
   ): Promise<void> {
     try {
-      const safe = await this.ai.pseudonymize(text);
+      // BL-19: the turn's own ids, so the gateway hop joins the request that triggered it.
+      const safe = await this.ai.pseudonymize(text, {
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
       if (safe === null || safe.blocked) {
         this.logger.warn(
           `not queueing an unresolved occupation phrase for session ${ctx.sessionId}: ` +
@@ -512,7 +525,10 @@ export class IdentifyService {
         // Narrowed from the seven-value column vocabulary to the three an IDENTIFICATION can
         // actually produce. The payload enum rejects the rest, so a future caller cannot emit
         // an "identified" event about a worker nobody identified.
-        match_status: pin.match_status as "matched_auto" | "matched_lexical" | "matched_worker_confirmed",
+        match_status: pin.match_status as
+          | "matched_auto"
+          | "matched_lexical"
+          | "matched_worker_confirmed",
         match_layer: pin.match_layer,
         match_score: pin.match_score,
         // The pin's `catalog_version` is nullable in the contract (an `rvm` row minted outside

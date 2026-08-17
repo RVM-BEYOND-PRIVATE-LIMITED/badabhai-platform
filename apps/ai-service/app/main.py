@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from .ai import cost_tracker
+from .ai import cost_tracker, prompt_registry
 from .ai.langfuse_tracing import get_tracer
 from .config import get_settings
 from .job_posting_chat import interview_engine as job_posting_engine
@@ -107,6 +107,26 @@ async def _lifespan(_app: FastAPI):
     # (or the reason it is not) is logged at STARTUP rather than on the first AI
     # call. Constructing it does no network I/O, and it never raises.
     tracer = get_tracer()
+    # Bind each production prompt name to the builder that produces its LOCAL text, so
+    # every generation can record WHICH prompt version ran. Done from the lifespan and not
+    # at import time for the reason `install_default_prompts` states: it imports the
+    # profiling package, and doing that from `app.ai` at module scope would give the AI
+    # package a permanent import-time dependency on the profiling package.
+    #
+    # GUARDED, UNLIKE THE LEDGER ABOVE, and the asymmetry is the point. An unconstructable
+    # ledger cannot verify a spend cap, so booting without one would let unverifiable real
+    # spend through — fail closed, abort. A prompt registry is pure observability: without
+    # it a route falls back to the literal it used before this module existed and every
+    # answer is byte-identical, only the `prompt_version` attribute on the trace goes
+    # missing. Taking the service down over a missing trace attribute would be the
+    # observability layer causing the outage it exists to explain.
+    try:
+        prompt_registry.install_default_prompts()
+    except Exception as exc:  # pragma: no cover - builders are pure string functions
+        logger.warning(
+            "prompt registry install failed; routes will use their local literals",
+            extra={"extra": {"error": str(exc)}},
+        )
     yield
     # Langfuse buffers spans in a background exporter, so the traces most worth
     # keeping — the ones from the minutes before a deploy or a crash-loop restart —

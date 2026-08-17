@@ -26,6 +26,16 @@ interface JobPostingApi {
   verified: boolean;
   skill_phrases: string[];
   skill_ids: string[];
+  /**
+   * The posting's CANONICAL job domain (`jd_*`, migration 0076), or null.
+   *
+   * READ-ONLY on this projection and never accepted from a client: no write path in this
+   * module sets it (it is absent from `JobPostingUpdate` on purpose), so it is null for
+   * every posting the API has ever created. Surfaced because the skill canonicalizer
+   * needs it — a posting with a domain canonicalizes against `job_domain_skill` instead
+   * of the hardcoded legacy anchor.
+   */
+  job_domain_id: string | null;
   // ── Matching V1 (ADR-0036) — the matchable + worker-visible fields ──────────
   // `match_skill_ids` is what the company asked for; `reach_skill_ids` is the RESOLVED
   // net (posted ∪ curated related ⊖ honoured unticks). Both are returned so the payer
@@ -62,6 +72,7 @@ function toJobPostingApi(row: JobPosting): JobPostingApi {
     verified: row.verificationStatus === "verified",
     skill_phrases: row.skillPhrases,
     skill_ids: row.skillIds,
+    job_domain_id: row.jobDomainId,
     match_skill_ids: Array.isArray(row.matchSkillIds) ? row.matchSkillIds : [],
     reach_skill_ids: Array.isArray(row.reachSkillIds) ? row.reachSkillIds : [],
     city: row.city,

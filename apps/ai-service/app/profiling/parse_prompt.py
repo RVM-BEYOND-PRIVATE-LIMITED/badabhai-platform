@@ -73,6 +73,7 @@ def build_parse_messages(
     masked: MaskedParseInput,
     target_fields: list[TargetField],
     language: str | None = None,
+    system_prompt: str | None = None,
 ) -> list[dict[str, str]]:
     """The one LLM call's messages.
 
@@ -81,6 +82,12 @@ def build_parse_messages(
     a string leaf the masker would touch withheld entirely. The claim is about `masked`, not about
     the arguments: `target_fields` and `language` come from the CALLER, not the worker, and
     `language` is shape-checked below because the contract does not constrain it.
+
+    `system_prompt` OVERRIDES `PARSE_SYSTEM_PROMPT` and exists for one reason: the route resolves
+    the prompt through `ai/prompt_registry` so the generation can record which version produced
+    the output. It defaults to None — meaning "use the module constant" — so every other caller
+    and every test is byte-identical to before, and an empty override falls back rather than
+    sending a system prompt of nothing.
     """
     sections: list[str] = []
 
@@ -123,7 +130,7 @@ def build_parse_messages(
         sections.append(f"The worker answered in: {language}.")
 
     return [
-        {"role": "system", "content": PARSE_SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt or PARSE_SYSTEM_PROMPT},
         {"role": "user", "content": "\n\n".join(sections)},
     ]
 

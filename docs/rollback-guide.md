@@ -101,5 +101,5 @@ locally-cached image.
 
 Rolling back a `staging-cd.yml` deploy (a different, `workflow_dispatch`-only pipeline
 for a *persistent* staging host — see that workflow's own header comments); provisioning
-a new box from scratch; anything about `apps/web`/`apps/payer-web`/`apps/admin-web`
-(no deployment path is documented for any of the three — BL-1).
+a new box from scratch; anything about `apps/web`/`apps/payer-web`/`apps/admin-web` —
+see `docs/operations/COMMANDS.md` (BL-1): none of the three is deployed yet.

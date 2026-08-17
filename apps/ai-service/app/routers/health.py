@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from ..ai import cost_tracker
+from ..ai.langfuse_tracing import get_tracer
 from ..config import get_settings
 from ._shared import router, settings
 
@@ -28,6 +29,17 @@ async def health() -> dict:
         "service_auth_enabled": False,
         # Actual tracer state (keys present AND package installed), not just config.
         "langfuse_enabled": router.langfuse_enabled,
+        # WHICH OPTIONAL LANGFUSE SURFACES ACTUALLY BOUND — {scores, prompt_management,
+        # trace_continuation}. The SDK is an optional dependency whose method names for
+        # these three are not verifiable outside an image that installed
+        # requirements-ai.txt, so `langfuse_tracing` probes for them at init and every
+        # unbound one degrades SILENTLY to a no-op. That is the right runtime behaviour and
+        # a terrible diagnostic one: without this readout "no scores are reaching Langfuse"
+        # and "the installed SDK exposes no scoring method" look identical from outside the
+        # process, and only the first of those is a bug. Config ids and booleans only — no
+        # keys, no URLs. Deliberately NOT in the TD67-trimmed payload above: it is provider
+        # posture, which is exactly the recon data the locked branch exists to withhold.
+        "langfuse_capabilities": get_tracer().capabilities,
         "max_call_cost_inr": settings.ai_max_call_cost_inr,
         # Which spend-ledger backend is active (redis = global caps; in_process =
         # per-worker). PII-free; no store round-trip.

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { EventsService } from "../events/events.service";
 import { SkillsRepository } from "./skills.repository";
-import type { AliasCandidate, DomainCandidate } from "./skills.dto";
+import type { AliasCandidate, AliasSearchScope, DomainCandidate } from "./skills.dto";
 
 /**
  * Skill-canonicalization support service (ADR-0030 / FORK-B-1 seam A).
@@ -17,13 +17,19 @@ export class SkillsService {
     private readonly events: EventsService,
   ) {}
 
-  /** Read-only ANN lookup — no event (reads don't ride the spine). */
+  /**
+   * Read-only ANN lookup — no event (reads don't ride the spine).
+   *
+   * The scope arrives ALREADY narrowed (legacy slug vs canonical `jd_*`); choosing
+   * between the two id spaces is a boundary concern, and choosing the SQL is the
+   * repository's. Nothing is decided here, which is why this stays a passthrough.
+   */
   async nearestAliases(
-    domainId: string,
+    scope: AliasSearchScope,
     vector: number[],
     k: number,
   ): Promise<AliasCandidate[]> {
-    return this.repo.nearestAliases(domainId, vector, k);
+    return this.repo.nearestAliases(scope, vector, k);
   }
 
   /**
@@ -43,6 +49,16 @@ export class SkillsService {
    * `skill.phrase_unresolved` — hash-only: even the pseudonymized text never rides
    * the event spine. Idempotency key = the content triple, so an at-least-once retry
    * of the SAME miss occurrence doesn't double-emit.
+   *
+   * `domainId` IS NON-NULL, and that is an EVENT-CONTRACT constraint, not a table one.
+   * The write below would accept null (the column and the repository signature both do,
+   * for the occupation scope), but the emit that follows would not: the v1
+   * `skill.phrase_unresolved` payload declares `domain_id: z.string().min(1)`, and
+   * mutating a shipped event schema is a CLAUDE.md §3 non-negotiable. Accepting null
+   * here would write the row and then throw on validation — a queued phrase with no
+   * event, which is a worse failure than not queueing it. The DTO refuses it at the
+   * boundary instead; see the long note on `RecordUnresolvedDtoSchema.domain_id` for the
+   * migration that reopens the path.
    */
   async recordUnresolved(phrase: string, domainId: string, lang: string): Promise<void> {
     const { id, count } = await this.repo.recordUnresolved(phrase, domainId, lang);
