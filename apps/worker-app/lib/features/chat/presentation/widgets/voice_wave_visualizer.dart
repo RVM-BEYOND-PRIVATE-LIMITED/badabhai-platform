@@ -6,20 +6,29 @@ import 'package:flutter/scheduler.dart';
 
 import '../../../../core/theme/app_colors.dart';
 
-/// A full-width, STATIC voice waveform (the ChatGPT/Gemini recorder look).
+/// A full-width, Gemini-style voice waveform.
 ///
-/// The bars NEVER move left/right — they sit in fixed positions across the whole
-/// input area. In silence they are a flat dotted line; when the worker speaks,
-/// the bars RISE INTO A WAVE, tallest in the CENTRE and tapering to dots at the
-/// edges, scaled by the live mic amplitude. So it "just creates the wave when it
-/// hears sound" — no scrolling, no travelling.
+/// The bars sit in FIXED positions across the whole input area — the strip never
+/// scrolls and the central peak never travels sideways. In silence it is a flat
+/// dotted line; when the worker speaks the bars RISE INTO A WAVE, tallest in the
+/// CENTRE, tapering to dots at the edges.
+///
+/// SMOOTHNESS (the Gemini feel) comes from three things, all continuous so there
+/// is never a pop:
+///  1. an ATTACK/RELEASE eased level — bars jump up quickly on speech and fall
+///     back slowly, like a real audio meter (no jitter on the sparse mic
+///     callbacks);
+///  2. a gentle, slowly-advancing FLOW so the crest shimmers and breathes
+///     instead of every bar moving in lockstep — kept subtle (~20%) so the centre
+///     stays put;
+///  3. per-frame drawing at ~60fps.
 ///
 /// Fed a normalized 0..1 [level] (from `speech_to_text`'s `onSoundLevelChange`,
 /// smoothed by the composer against an adaptive noise floor).
 ///
-/// PERFORMANCE: a [Ticker] eases the drawn level toward the live one at ~60fps and
-/// bumps a [ValueNotifier] the painter listens to via `super.repaint`, so ONLY
-/// paint() runs each frame (no widget rebuild), inside a [RepaintBoundary].
+/// PERFORMANCE: a [Ticker] advances the eased level + flow phase and bumps a
+/// [ValueNotifier] the painter listens to via `super.repaint`, so ONLY paint()
+/// runs each frame (no widget rebuild), inside a [RepaintBoundary].
 class VoiceWaveVisualizer extends StatefulWidget {
   const VoiceWaveVisualizer({super.key, required this.level, this.color});
 
@@ -34,13 +43,21 @@ class VoiceWaveVisualizer extends StatefulWidget {
 }
 
 class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
-  /// The eased, drawn level tracking [widget.level] for a smooth response.
+  /// The eased, drawn level — attack fast, release slow.
   double _cur = 0;
+
+  /// Slowly-advancing phase driving the gentle crest flow.
+  double _phase = 0;
 
   /// Repaint pulse — bumped each frame so the painter repaints without a rebuild.
   final ValueNotifier<int> _rev = ValueNotifier<int>(0);
 
   Ticker? _ticker;
+  Duration _last = Duration.zero;
+
+  /// Ease-in (attack) and ease-out (release) factors per frame.
+  static const double _attack = 0.32;
+  static const double _release = 0.12;
 
   @override
   void initState() {
@@ -48,10 +65,18 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
     _ticker = Ticker(_onTick)..start();
   }
 
-  void _onTick(Duration _) {
+  void _onTick(Duration elapsed) {
+    // Frame delta (seconds), so the flow speed is stable regardless of refresh
+    // rate. Clamped so a paused/janky frame cannot jump the phase.
+    final double dt =
+        ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 1 / 30);
+    _last = elapsed;
+
     final double target = widget.level.value.clamp(0.0, 1.0);
-    // Snappy ease so the wave tracks the voice closely without jitter.
-    _cur += (target - _cur) * 0.45;
+    final double k = target > _cur ? _attack : _release;
+    _cur += (target - _cur) * k;
+
+    _phase += dt * 5.0; // gentle flow speed (~5 rad/s)
     _rev.value++;
   }
 
@@ -69,6 +94,7 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
         size: const Size(double.infinity, double.infinity),
         painter: _WavePainter(
           levelOf: () => _cur,
+          phaseOf: () => _phase,
           color: widget.color ?? AppColors.textSecondary,
           repaint: _rev,
         ),
@@ -78,17 +104,19 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
 }
 
 /// Draws the full-width bar strip: fixed-position thin bars, each a resting DOT
-/// that grows with the live [levelOf] weighted by a CENTRE-tallest envelope and a
-/// fixed spatial jaggedness (so it reads as a waveform, not a smooth arc). No time
-/// term anywhere → the bars only change HEIGHT with the voice, never position.
+/// that grows with the eased [levelOf], weighted by a CENTRE-tallest envelope and
+/// a subtle time [phaseOf] flow. Positions never change — only heights — so the
+/// centre peak stays where it is.
 class _WavePainter extends CustomPainter {
   _WavePainter({
     required this.levelOf,
+    required this.phaseOf,
     required this.color,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
   final double Function() levelOf;
+  final double Function() phaseOf;
   final Color color;
 
   static const double _barW = 2.0;
@@ -101,6 +129,7 @@ class _WavePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (size.width <= 0 || size.height <= 0) return;
     final double lvl = levelOf().clamp(0.0, 1.0);
+    final double phase = phaseOf();
     final int n = ((size.width + _gap) / (_barW + _gap)).floor();
     if (n <= 0) return;
     final double stripW = n * _barW + (n - 1) * _gap;
@@ -114,11 +143,18 @@ class _WavePainter extends CustomPainter {
       ..strokeWidth = _barW;
     for (int i = 0; i < n; i++) {
       final double dist = centre == 0 ? 0 : (i - centre) / centre; // -1..1
-      // Centre-tallest envelope: 1 in the middle → 0 at the edges (a raised
-      // cosine, squared for a tighter central hump like the screenshot).
+      // Centre-tallest envelope (raised cosine, squared for a tighter hump).
       final double env = math.cos(dist * math.pi / 2).clamp(0.0, 1.0);
-      final double weight = env * env * _noise(i);
-      final double half = _dotHalf + lvl * weight * (maxHalf - _dotHalf);
+      final double env2 = env * env;
+      // Gentle crest FLOW: two soft sines at different rates for an organic wave.
+      // Kept to ~20% of the height and scaled by level, so silence is flat dots
+      // and the central peak never drifts.
+      final double flow = 0.5 +
+          0.5 *
+              (0.6 * math.sin(phase - i * 0.45) +
+                  0.4 * math.sin(phase * 0.6 + i * 0.22));
+      final double amp = env2 * lvl * (0.8 + 0.2 * flow);
+      final double half = _dotHalf + amp * (maxHalf - _dotHalf);
       canvas.drawLine(
         Offset(x, midY - half),
         Offset(x, midY + half),
@@ -127,10 +163,6 @@ class _WavePainter extends CustomPainter {
       x += _barW + _gap;
     }
   }
-
-  /// Fixed per-bar jaggedness in ~[0.55, 1.0], purely a function of the bar index
-  /// (NO time), so the wave looks like real audio yet never wobbles on its own.
-  double _noise(int i) => 0.55 + 0.45 * (0.5 + 0.5 * math.sin(i * 1.7));
 
   @override
   bool shouldRepaint(_WavePainter oldDelegate) => oldDelegate.color != color;
