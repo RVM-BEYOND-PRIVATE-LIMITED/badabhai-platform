@@ -1077,16 +1077,20 @@ class _ChatViewState extends State<_ChatView> {
               isDense: true,
               filled: true,
               fillColor: AppColors.canvas,
+              // Roomier padding + the design's input radius (md=12, not the pill):
+              // a fully-rounded pill made multi-line text hug the curved corners
+              // and touch the border. A softer 12-radius box gives the text clear
+              // breathing room on every line.
               contentPadding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.s3,
-                vertical: 10,
+                horizontal: AppSpacing.s4,
+                vertical: AppSpacing.s3,
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadii.pill),
+                borderRadius: BorderRadius.circular(AppRadii.md),
                 borderSide: const BorderSide(color: AppColors.borderSubtle),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadii.pill),
+                borderRadius: BorderRadius.circular(AppRadii.md),
                 borderSide: const BorderSide(
                   color: AppColors.blue,
                   width: 1.5,
