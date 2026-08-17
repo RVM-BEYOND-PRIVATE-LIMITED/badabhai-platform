@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { CONSTANT_REPLIES, normalizeReplyText } from "./reply-closure";
 import {
@@ -6,6 +8,18 @@ import {
   TTS_TEXT_ENTRIES,
   ttsTextFor,
 } from "./question-tts-text";
+
+/**
+ * The committed render manifest — every string the interview can say, content-addressed. Read
+ * rather than rebuilt, because it is the same artifact the TTS render and its Python mirror are
+ * keyed by, and a coverage claim measured against anything else would be measuring the wrong set.
+ */
+const CLOSURE = JSON.parse(
+  readFileSync(
+    join(__dirname, "../../../../packages/db/data/question-packs/reply-closure.json"),
+    "utf8",
+  ),
+) as { clips: { id: string; text: string; producer: string }[] };
 
 /**
  * The guard that keeps the Devanagari sidecar honest (#896).
@@ -28,18 +42,69 @@ describe("question-tts-text — coverage of the reply closure's constants", () =
     expect([...TTS_CONSTANT_SOURCES].sort()).toEqual([...CONSTANT_REPLIES].sort());
   });
 
-  it("has NO orphan keys — every key still matches a live engine string", () => {
-    // A pack-derived key is legitimate and unresolvable from here (the packs live in Postgres),
-    // so only constant-shaped keys are checked: today the table is constants-only, and this
-    // assertion is what will need relaxing — deliberately, in the PR that adds the corpus.
-    const live = new Set(CONSTANT_REPLIES.map(normalizeReplyText));
+  it("has NO orphan keys — every key still matches a string the engine can serve", () => {
+    // NOW CHECKED AGAINST THE WHOLE CLOSURE, not just the constants. `reply-closure.json` is the
+    // committed manifest of every string the interview can say, so it is the exact authority for
+    // "is this key still real". An orphan means a pack prompt or why-text was edited and its
+    // Devanagari was not re-authored with it — the drift this file's literal keys exist to expose.
+    const live = new Set(CLOSURE.clips.map((c) => normalizeReplyText(c.text)));
     const orphans = TTS_TEXT_ENTRIES.map(([roman]) => roman).filter(
       (roman) => !live.has(normalizeReplyText(roman)),
     );
     expect(
       orphans,
-      `these keys match no engine constant — a constant was edited without re-authoring its Devanagari:\n  ${orphans.join("\n  ")}`,
+      `these keys match nothing in reply-closure.json — the roman text was edited without re-authoring its Devanagari:\n  ${orphans.join("\n  ")}`,
     ).toEqual([]);
+  });
+});
+
+/**
+ * COVERAGE, asserted as a floor rather than a percentage.
+ *
+ * The closure is the whole worker-facing vocabulary. A clip with no twin is a question some worker
+ * hears mispronounced, so the interesting number is not "how much is covered" but "which ones are
+ * not" — hence the failure message lists them.
+ */
+describe("question-tts-text — coverage of the reply closure", () => {
+  it("covers EVERY clip: constants, prompts, retries, why-texts and composed clarifies", () => {
+    const missing = CLOSURE.clips
+      .filter((c) => ttsTextFor(c.text) === undefined)
+      .map((c) => `${c.producer}: ${c.text}`);
+    expect(
+      missing,
+      `${missing.length} of ${CLOSURE.clips.length} clips have no Devanagari twin:\n  ${missing.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
+  it("COMPOSES the clarify twins rather than authoring them", () => {
+    // The 152 clarify clips are `why + " " + question`, so they must resolve WITHOUT appearing in
+    // the authored table. If one ever needs a hand-written entry, the join rule has changed and
+    // `composeClarify` is what should be fixed.
+    const authored = new Set(TTS_TEXT_ENTRIES.map(([roman]) => normalizeReplyText(roman)));
+    const clarifies = CLOSURE.clips.filter((c) => c.producer === "clarify");
+    expect(clarifies.length).toBeGreaterThan(0);
+    for (const clip of clarifies) {
+      expect(authored.has(normalizeReplyText(clip.text)), `authored by hand: ${clip.text}`).toBe(
+        false,
+      );
+      expect(ttsTextFor(clip.text), `not composed: ${clip.text}`).toBeDefined();
+    }
+  });
+
+  it("composes a clarify twin as why + ' ' + question, in that order", () => {
+    const why = "Har welding alag hoti hai, isse sahi naukri milti hai.";
+    const question = "Aap kaunsi welding karte hain?";
+    expect(ttsTextFor(`${why} ${question}`)).toBe(
+      `${ttsTextFor(why)} ${ttsTextFor(question)}`,
+    );
+  });
+
+  it("does NOT compose when only one half is authored", () => {
+    // Half Devanagari and half roman is worse than the romanized line the client already speaks.
+    const why = "Har welding alag hoti hai, isse sahi naukri milti hai.";
+    expect(ttsTextFor(`${why} Kya aap chandrayaan udate hain?`)).toBeUndefined();
+    expect(ttsTextFor("Yeh why text kisi pack me nahi hai. Aap kaunsi welding karte hain?"))
+      .toBeUndefined();
   });
 });
 
@@ -85,7 +150,10 @@ describe("ttsTextFor", () => {
   });
 
   it("returns undefined for an unauthored reply — the client then speaks the roman text", () => {
-    expect(ttsTextFor("Aap kaunsi welding karte hain?")).toBeUndefined();
+    // DELIBERATELY not a real pack question. This case used a genuine prompt until the corpus
+    // landed and authored it, which is the trap: the closure is now covered end to end, so the
+    // only honest way to exercise a miss is a string no pack can ever contain.
+    expect(ttsTextFor("Kya aap chandrayaan udate hain?")).toBeUndefined();
   });
 
   it("returns undefined for empty, null and undefined rather than throwing", () => {
