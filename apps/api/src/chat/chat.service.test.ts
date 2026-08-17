@@ -1235,10 +1235,11 @@ describe("ChatService — tts_text, the read-aloud sibling (#896)", () => {
   });
 
   it("OMITS the key entirely for an unauthored reply — the client then speaks the roman text", async () => {
-    // A pack question: no Devanagari authored yet, so absence is the whole contract. `in` rather
-    // than a null check, because `tts_text: null` would deserialize as a present-but-empty field
-    // on a client that treats null as "speak nothing".
-    const { res } = await run({ turn: { reply: "Aap kaunsi welding karte hain?" } });
+    // A string NO pack contains — the corpus now covers the whole reply closure, so a real pack
+    // question would resolve and this would assert nothing. `in` rather than a null check, because
+    // `tts_text: null` would deserialize as a present-but-empty field on a client that treats null
+    // as "speak nothing".
+    const { res } = await run({ turn: { reply: "Kya aap chandrayaan udate hain?" } });
     expect("tts_text" in (res as Record<string, unknown>)).toBe(false);
   });
 
