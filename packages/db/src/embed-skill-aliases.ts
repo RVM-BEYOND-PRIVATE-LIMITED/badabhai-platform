@@ -22,6 +22,7 @@
  *   pnpm db:embed:skills                      # backfill NULL rows (ENTIRE table)
  *   pnpm db:embed:skills --batch <batch-dir>  # ONLY the skills that batch's gate accepted
  *   pnpm db:embed:skills --batch <dir> --plan # inventory + call/token plan; calls nothing
+ *   pnpm db:embed:skills --only-active-skills # ONLY aliases of skill.status='active'
  *   pnpm db:embed:skills --reset-embeddings    # NULL ALL vectors (mixed-space recovery)
  *
  * SCOPE. Without `--batch` this embeds every `embedding IS NULL` row in `skill_alias` —
@@ -38,7 +39,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { config } from "dotenv";
-import { isNull, isNotNull, and, eq, inArray, notInArray, type SQL } from "drizzle-orm";
+import { isNull, isNotNull, and, eq, inArray, notInArray, sql as sqlTag, type SQL } from "drizzle-orm";
 
 import { createDbClient } from "./client";
 import { parseEmbedResponse } from "./embed-response";
@@ -150,13 +151,43 @@ export function batchScopeSkillIds(batchDir: string): string[] {
   return [...ids].sort();
 }
 
-/** The pending-row predicate: NULL embeddings, minus this run's blocked ids, restricted to
- *  the `--batch` scope when one was given. Factored out because it is the one place a bug
- *  would silently widen the blast radius, and that deserves a test rather than a reading. */
-export function pendingAliasWhere(blocked: readonly string[], scopeSkillIds: readonly string[] | null): SQL {
+/**
+ * The pending-row predicate: NULL embeddings, minus this run's blocked ids, restricted to
+ * the `--batch` scope when one was given, and — with `--only-active-skills` — to aliases of
+ * skills that are `status = 'active'`.
+ *
+ * Factored out because it is the one place a bug would silently widen the blast radius, and
+ * that deserves a test rather than a reading.
+ *
+ * ── WHY `--only-active-skills` EXISTS (Phase 7 Gate B) ──
+ *
+ * The two existing scopes could not express "the shipped catalogue". `--batch` scopes to the
+ * skills a generation batch ACCEPTED, which is the provisional corpus — the opposite set.
+ * Unscoped takes every NULL row in the table. On the Gate B corpus that difference is
+ * concrete: 131 aliases are unembedded, but only 98 of them belong to `active` skills; the
+ * other 33 belong to 15 PROVISIONAL skills. An unscoped run would have embedded all 131 and
+ * quietly exceeded its authorisation.
+ *
+ * Written as a correlated EXISTS rather than by resolving the active ids into an array
+ * first. Two reasons, and the second is the load-bearing one:
+ *   - it keeps this function PURE, so the predicate stays testable without a database; and
+ *   - an id list read a moment earlier is a snapshot, so a skill promoted or deprecated
+ *     between the read and the UPDATE would be scoped by stale state. The EXISTS is
+ *     evaluated by the same statement that selects the rows, so there is no window.
+ */
+export function pendingAliasWhere(
+  blocked: readonly string[],
+  scopeSkillIds: readonly string[] | null,
+  onlyActiveSkills = false,
+): SQL {
   const clauses: SQL[] = [isNull(skillAliases.embedding) as SQL];
   if (blocked.length > 0) clauses.push(notInArray(skillAliases.id, [...blocked]) as SQL);
   if (scopeSkillIds !== null) clauses.push(inArray(skillAliases.skillId, [...scopeSkillIds]) as SQL);
+  if (onlyActiveSkills) {
+    clauses.push(
+      sqlTag`EXISTS (SELECT 1 FROM skill s WHERE s.skill_id = ${skillAliases.skillId} AND s.status = 'active')` as SQL,
+    );
+  }
   return (clauses.length === 1 ? clauses[0] : and(...clauses)) as SQL;
 }
 
@@ -220,6 +251,12 @@ async function main(): Promise<void> {
   if (scopeSkillIds !== null) {
     console.log(`[embed:skills] scope --batch ${batchDir} — ${scopeSkillIds.length} skill id(s)`);
   }
+  // --only-active-skills: restrict to aliases of `skill.status = 'active'` — the shipped
+  // catalogue. Composes with --batch (both apply); on its own it is the Gate B scope.
+  const onlyActiveSkills = hasFlag(process.argv, "--only-active-skills");
+  if (onlyActiveSkills) {
+    console.log(`[embed:skills] scope --only-active-skills — aliases of ACTIVE skills only`);
+  }
 
   const { db, sql } = createDbClient(url, { max: 1 });
 
@@ -231,10 +268,18 @@ async function main(): Promise<void> {
       const pending = await db
         .select({ id: skillAliases.id, text: skillAliases.text, skillId: skillAliases.skillId })
         .from(skillAliases)
-        .where(pendingAliasWhere([], scopeSkillIds));
+        .where(pendingAliasWhere([], scopeSkillIds, onlyActiveSkills));
       const tokens = pending.reduce((n, r) => n + estimateTokens(r.text), 0);
       console.log(`[embed:skills] PLAN — nothing called, nothing written`);
-      console.log(`  scope                    = ${batchDir ?? "(entire table)"}`);
+      // Describe the EFFECTIVE scope. Printing "(entire table)" while --only-active-skills
+      // is in force is the kind of log line an operator reads as authorisation to proceed.
+      const scopeLabel = [
+        batchDir === null ? null : `--batch ${batchDir}`,
+        onlyActiveSkills ? "--only-active-skills (skill.status='active')" : null,
+      ]
+        .filter(Boolean)
+        .join(" AND ");
+      console.log(`  scope                    = ${scopeLabel === "" ? "(entire table)" : scopeLabel}`);
       console.log(`  skills in scope          = ${scopeSkillIds?.length ?? "all"}`);
       console.log(`  aliases needing embedding= ${pending.length}`);
       console.log(`  distinct skills covered  = ${new Set(pending.map((r) => r.skillId)).size}`);
@@ -265,7 +310,7 @@ async function main(): Promise<void> {
       const rows = await db
         .select({ id: skillAliases.id, text: skillAliases.text })
         .from(skillAliases)
-        .where(pendingAliasWhere(blocked, scopeSkillIds))
+        .where(pendingAliasWhere(blocked, scopeSkillIds, onlyActiveSkills))
         .orderBy(skillAliases.id)
         .limit(BATCH_SIZE);
       if (rows.length === 0) break;

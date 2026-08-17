@@ -78,6 +78,22 @@ const YEARS = item({
   prompt_text: "Is kaam mein aapko kitne saal ho gaye?",
 });
 
+/**
+ * A trade's own skills question — `multi_select` over a CLOSED option list, which is what all 100
+ * skills items in the corpus are. Used by the Phase A skills handoff tests below.
+ */
+const SKILLS = item({
+  question_key: "welding_process",
+  target_kind: "rfs",
+  target_field: "skills",
+  answer_type: "multi_select",
+  prompt_text: "Aap kaunsi welding karte hain?",
+  options: [
+    { option_key: "mig", label_text: "MIG welding", value: "mig", implies_skill_id: null, is_none_of_above: false },
+    { option_key: "tig", label_text: "TIG welding", value: "tig", implies_skill_id: null, is_none_of_above: false },
+  ],
+});
+
 const UNIVERSAL_PACK: QuestionPack = {
   pack_id: "qp_universal",
   version: 1,
@@ -86,6 +102,25 @@ const UNIVERSAL_PACK: QuestionPack = {
   status: "active",
   content_hash: "hash_universal",
   items: [CITY, SHIFT, TRADE, YEARS],
+};
+
+/** The same pack plus a skills question, for the tests that exercise the skills handoff. */
+const PACK_WITH_SKILLS: QuestionPack = {
+  ...UNIVERSAL_PACK,
+  items: [CITY, SHIFT, TRADE, YEARS, SKILLS],
+};
+
+/** Retrieval's pin — the deterministic decision that chose the pack, not a model claim. */
+const PIN = {
+  job_domain_id: "jd_nco_7212_0100",
+  label: "welder",
+  isco_unit_code: "7212",
+  match_status: "matched_lexical" as const,
+  match_score: 0.94,
+  match_layer: "l0_exact" as const,
+  pack_id: null,
+  pack_version: null,
+  catalog_version: "cat_2026_08",
 };
 
 const ASK: LlmTurnResult = {
@@ -110,7 +145,9 @@ const GATE: LlmTurnResult = {
 
 const DONE: LlmTurnResult = { kind: "done", patch: { llmStage: "done", llmAsks: 6 } };
 
-function makeWorld(opts: { leads?: boolean; take?: LlmTurnResult | null } = {}) {
+function makeWorld(
+  opts: { leads?: boolean; take?: LlmTurnResult | null; pack?: QuestionPack } = {},
+) {
   const store = new Map<string, TranscriptBuffer>();
 
   const buffer = {
@@ -135,7 +172,7 @@ function makeWorld(opts: { leads?: boolean; take?: LlmTurnResult | null } = {}) 
     }),
   };
   const registry = {
-    loadUniversal: vi.fn(async () => UNIVERSAL_PACK),
+    loadUniversal: vi.fn(async () => opts.pack ?? UNIVERSAL_PACK),
     loadPinned: vi.fn(async () => null),
     resolveForOccupation: vi.fn(async () => null),
   };
@@ -331,6 +368,167 @@ describe("Phase A ends and the template tail takes over", () => {
     const map = store.get(SESSION)?.profiling?.answerMap ?? [];
     expect(map.find((a) => a.target_field === "experience_years")).toBeUndefined();
     expect(map.find((a) => a.target_field === "trade")?.value_normalized).toBe("cooking");
+  });
+
+  /**
+   * THE REPORTED BUG. A worker answers the composite opener with trade, city and experience in one
+   * sentence; the model returns an `experience_entry` on that first turn with both labels still
+   * null; the entry opens the Yes/No gate; the worker taps "Nahi". Before this, `trade` resolved to
+   * "" and the very next line was "Aap kaunsa kaam karte hain?" — the question the conversation had
+   * just been about.
+   *
+   * The patch below is EXACTLY what `LlmTurnService.take` returns on that path (the gate branch,
+   * answered no): `llmGateOpen` closed, stage done, and NO `llmDraft` — because no model call was
+   * made, so the draft on the envelope is the one that stands.
+   */
+  it("falls back to the PINNED occupation for the trade when the model never labelled it", async () => {
+    const { orchestrator, store } = makeWorld({
+      take: { kind: "done", patch: { llmGateOpen: false, llmStage: "done" } },
+    });
+    seed(store, {
+      occupation: PIN,
+      llmGateOpen: true,
+      llmStage: "experience",
+      llmDraft: {
+        domain_label: null,
+        role_label: null,
+        skills: [],
+        experiences: [
+          { role_label: "welder", duration_text: "5 saal", duration_months: 60, work_done: "" },
+        ],
+      },
+    });
+
+    const result = await orchestrator.takeTurn(say("Nahi"));
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(map.find((a) => a.target_field === "trade")).toMatchObject({
+      question_key: "primary_trade",
+      value_normalized: "welder",
+      status: "answered",
+    });
+    // The point of the whole fix: the tail must not open by re-asking the trade.
+    expect(result.reply).not.toBe(TRADE.prompt_text);
+    expect(result.questionKey).not.toBe("primary_trade");
+  });
+
+  it("prefers the MODEL's label over the pin — the pin is the last fallback, not the first", async () => {
+    const { orchestrator, store } = makeWorld({
+      take: { kind: "done", patch: { llmGateOpen: false, llmStage: "done" } },
+    });
+    seed(store, {
+      occupation: PIN, // label "welder"
+      llmGateOpen: true,
+      llmDraft: {
+        domain_label: "welding",
+        role_label: "pipe fitter welder", // more specific than the pinned domain
+        skills: [],
+        experiences: [],
+      },
+    });
+    await orchestrator.takeTurn(say("Nahi"));
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(map.find((a) => a.target_field === "trade")?.value_normalized).toBe("pipe fitter welder");
+  });
+
+  it("settles NOTHING for the trade when there is no label and no pin either", async () => {
+    // Honest absence beats a fabricated trade: the pack question is the right way to find out.
+    const { orchestrator, store } = makeWorld({
+      take: { kind: "done", patch: { llmGateOpen: false, llmStage: "done" } },
+    });
+    seed(store, {
+      occupation: null,
+      llmGateOpen: true,
+      llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+    });
+    await orchestrator.takeTurn(say("Nahi"));
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(map.find((a) => a.target_field === "trade")).toBeUndefined();
+  });
+
+  it("settles the skills question from the draft, against the PACK's own vocabulary", async () => {
+    const { orchestrator, store } = makeWorld({
+      pack: PACK_WITH_SKILLS,
+      take: { kind: "done", patch: { llmGateOpen: false, llmStage: "done" } },
+    });
+    seed(store, {
+      occupation: PIN,
+      llmGateOpen: true,
+      llmDraft: {
+        domain_label: "welding",
+        role_label: null,
+        skills: ["MIG welding", "TIG welding"],
+        experiences: [],
+      },
+    });
+    await orchestrator.takeTurn(say("Nahi"));
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    // The OPTION VALUES, not the model's words — `answer_option_keys` is read as pack vocabulary.
+    expect(map.find((a) => a.target_field === "skills")).toMatchObject({
+      question_key: "welding_process",
+      value_normalized: ["mig", "tig"],
+      status: "answered",
+    });
+  });
+
+  it("settles NO skill the pack's options do not contain — an unmatched draft is still asked", async () => {
+    // §11: the model's output is untrusted input. A skill outside the closed vocabulary is not a
+    // value this question can hold, and writing it through would put a non-option in a column the
+    // matcher reads as options.
+    const { orchestrator, store } = makeWorld({
+      pack: PACK_WITH_SKILLS,
+      take: { kind: "done", patch: { llmGateOpen: false, llmStage: "done" } },
+    });
+    seed(store, {
+      occupation: PIN,
+      llmGateOpen: true,
+      llmDraft: {
+        domain_label: "welding",
+        role_label: null,
+        skills: ["underwater basket weaving"],
+        experiences: [],
+      },
+    });
+    await orchestrator.takeTurn(say("Nahi"));
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(map.find((a) => a.target_field === "skills")).toBeUndefined();
+  });
+
+  it("never overwrites a skills answer the worker gave against the real question", async () => {
+    const { orchestrator, store } = makeWorld({
+      pack: PACK_WITH_SKILLS,
+      take: { kind: "done", patch: { llmGateOpen: false, llmStage: "done" } },
+    });
+    seed(store, {
+      occupation: PIN,
+      llmGateOpen: true,
+      answerMap: [
+        {
+          question_key: "welding_process",
+          target_field: "skills",
+          value_raw: "sirf TIG",
+          value_normalized: ["tig"],
+          status: "answered",
+          evidence: null,
+          turn: 1,
+          history: [],
+        },
+      ],
+      llmDraft: {
+        domain_label: "welding",
+        role_label: null,
+        skills: ["MIG welding"],
+        experiences: [],
+      },
+    });
+    await orchestrator.takeTurn(say("Nahi"));
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(map.find((a) => a.target_field === "skills")?.value_normalized).toEqual(["tig"]);
   });
 
   it("never overwrites an answer the worker gave against a real question", async () => {

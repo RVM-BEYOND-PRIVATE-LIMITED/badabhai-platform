@@ -24,6 +24,7 @@ import {
 import { ProfilingVoiceRepository } from "./profiling-voice.repository";
 import { isSettled } from "./answer-map";
 import { clipId } from "./reply-closure";
+import { ttsField } from "./question-tts-text";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ProfilesService } from "../profiles/profiles.service";
 import type {
@@ -631,6 +632,8 @@ export class ProfilingSessionService {
         })),
         why_text: turn.whyText,
         tts_clip_id: clipId(turn.reply),
+        // #896 — the on-device fallback for when the clip id resolves to no bundled asset.
+        ...ttsField(turn.reply),
       },
       // 1-BASED, and derived from what is settled rather than counted client-side. `answered` is
       // how many questions are behind the worker, so the one in front of them is the next.
@@ -663,6 +666,7 @@ export class ProfilingSessionService {
                     is_none_of_above: option.is_none_of_above,
                   })),
                   tts_clip_id: clipId(entry.promptText),
+                  ...ttsField(entry.promptText),
                   index: Math.min(entry.progress.answered + 1, Math.max(entry.progress.total, 1)),
                   total: entry.progress.total,
                   // #766 item 4. Load-bearing on THIS surface specifically: `tts_clip_id` above
