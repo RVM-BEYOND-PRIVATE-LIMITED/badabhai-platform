@@ -225,15 +225,6 @@ class _ChatViewState extends State<_ChatView> {
   /// intermittently refill after Send.
   bool _acceptingDictation = false;
 
-  /// Auto-stop-on-silence timer (spec): armed when listening starts and RESET on
-  /// every recognised utterance, so a run of silence with no new words ends the
-  /// session on its own. The device recogniser itself is continuous (it restarts
-  /// through short pauses so a slow speaker is not cut off mid-thought), so this
-  /// widget-level window is what gives the Gemini-style auto-stop. Manual Stop
-  /// still works at any time.
-  Timer? _silenceTimer;
-  static const Duration _kSilenceWindow = Duration(seconds: 4);
-
   /// Index of the bot bubble currently being read aloud (its speaker icon shows
   /// the stop glyph); null when nothing is speaking.
   int? _speakingIndex;
@@ -250,7 +241,6 @@ class _ChatViewState extends State<_ChatView> {
     if (locator.isRegistered<SpeechReader>()) {
       unawaited(locator<SpeechReader>().stop()); // never leave TTS reading
     }
-    _silenceTimer?.cancel();
     _micLevel.dispose();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
@@ -434,19 +424,19 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
-  /// Tap the MIC (send slot): START voice-to-text. Requests the mic permission
-  /// (via the recogniser's `initialize`), starts the DEVICE recogniser, and
-  /// STREAMS recognised words into the field live (Gemini-style) with the pulsing
-  /// visualizer beside it. Keeps listening until the worker taps Stop OR a run of
-  /// silence trips the auto-stop. A denied mic / no recogniser surfaces an honest
-  /// notice and leaves typing untouched — never a crash.
+  /// Tap the MIC: START voice-to-text. Requests the mic permission (via the
+  /// recogniser's `initialize`), starts the DEVICE recogniser, and shows the
+  /// FULL-WIDTH waveform in place of the field. NOTHING is typed while listening —
+  /// the recognised text lands in the field only on Stop. Keeps listening until
+  /// the worker taps Stop. A denied mic / no recogniser surfaces an honest notice
+  /// and leaves typing untouched — never a crash.
   Future<void> _startDictation() async {
     if (_dictating || _dictationBusy) return;
     if (!locator.isRegistered<SpeechDictation>()) return;
     final SpeechDictation speech = locator<SpeechDictation>();
     _dictationBusy = true;
     _stopRequested = false;
-    // Instant, BEFORE any await: a buzz + the visualizer the moment the tap is
+    // Instant, BEFORE any await: a buzz + the waveform the moment the tap is
     // recognised, so the worker feels the mic engage.
     HapticFeedback.vibrate();
     _floor = 0;
@@ -474,11 +464,10 @@ class _ChatViewState extends State<_ChatView> {
       _acceptingDictation = true;
       await speech.listen(
         onResult: _onDictationResult,
-        onSoundLevel: _onSoundLevel, // live amplitude → the visualizer
+        onSoundLevel: _onSoundLevel, // live amplitude → the waveform
       );
       if (!mounted) return;
       setState(() => _dictating = true);
-      _armSilenceTimer(); // auto-stop if no speech arrives at all
     } catch (_) {
       if (mounted) {
         _hideWave();
@@ -489,36 +478,61 @@ class _ChatViewState extends State<_ChatView> {
     }
   }
 
-  /// End listening (tapped Stop, or the silence auto-stop fired). The streamed
-  /// text is ALREADY in the field, so the trailing button just becomes Send.
-  /// NOTHING is sent here.
+  /// Tap Stop: end listening and DROP the recognised text into the field — the
+  /// waveform hides and all the spoken text lands at once. NOTHING is sent here;
+  /// the trailing button becomes Send.
   Future<void> _stopDictation() async {
-    _silenceTimer?.cancel();
     if (!_dictating) {
       // Stopped mid-init: tell the start leg not to begin listening.
       _hideWave();
       _stopRequested = true;
       return;
     }
-    _acceptingDictation = false;
-    _dictationBase = '';
-    _lastHeard = '';
-    _micLevel.value = 0;
+    final String text = _finalDictationText();
+    _resetDictationState();
+    setState(() {
+      _dictating = false;
+      _listening = false;
+      if (text.isNotEmpty) {
+        _controller.value = TextEditingValue(
+          text: text,
+          selection: TextSelection.collapsed(offset: text.length),
+        );
+      }
+    });
+    await _stopRecogniser();
+  }
+
+  /// SEND while listening (the send arrow on the recorder row): end listening and
+  /// send the recognised text in ONE tap. A stop with no speech just returns to
+  /// the idle composer.
+  Future<void> _sendFromDictation() async {
+    if (!_dictating) return;
+    final String text = _finalDictationText();
+    _resetDictationState();
     setState(() {
       _dictating = false;
       _listening = false;
     });
     await _stopRecogniser();
+    if (text.isEmpty) return;
+    _sendText(text);
+    _controller.clear();
   }
 
-  /// Re-arm the auto-stop-on-silence window. Called when listening starts and on
-  /// every recognised utterance, so continuous speech keeps the session alive and
-  /// a [_kSilenceWindow] gap with no new words ends it.
-  void _armSilenceTimer() {
-    _silenceTimer?.cancel();
-    _silenceTimer = Timer(_kSilenceWindow, () {
-      if (_dictating) unawaited(_stopDictation());
-    });
+  /// The full recognised text so far — the committed base plus the current
+  /// utterance — trimmed. Empty when nothing was recognised.
+  String _finalDictationText() =>
+      _appendToBase(_dictationBase, _lastHeard).trim();
+
+  /// Clears dictation RUNTIME state (accepting flag, carry-over, mic level). The
+  /// caller wraps the visual flip (`_dictating`/`_listening` + any controller
+  /// write) in its own setState.
+  void _resetDictationState() {
+    _acceptingDictation = false;
+    _dictationBase = '';
+    _lastHeard = '';
+    _micLevel.value = 0;
   }
 
   /// Best-effort stop of the device recogniser — must never surface an error.
@@ -529,10 +543,9 @@ class _ChatViewState extends State<_ChatView> {
     } catch (_) {}
   }
 
-  /// Dictation callback: STREAMS the recognised words into the field live as the
-  /// worker speaks (Gemini-style), cursor parked at the end so Send is the natural
-  /// next tap. Every utterance re-arms the auto-stop window. No server, no upload
-  /// — the text is sent exactly like a typed message.
+  /// Dictation callback: ACCUMULATES the recognised words in memory but writes
+  /// NOTHING to the field while listening — the worker sees the waveform, not
+  /// typing, and the full text lands only on Stop/Send ([_finalDictationText]).
   ///
   /// Each finished utterance is committed into [_dictationBase] so the next one
   /// appends onto it. A new utterance is detected by [_lastHeard] no longer being
@@ -542,7 +555,6 @@ class _ChatViewState extends State<_ChatView> {
     if (!mounted || !_acceptingDictation) return;
     final String heard = result.text.trim();
     if (heard.isEmpty) return;
-    _armSilenceTimer(); // speech heard → restart the auto-stop countdown
 
     // The recogniser has started a NEW utterance when this reading no longer
     // extends the last — commit the finished one into the base BEFORE the new
@@ -551,16 +563,10 @@ class _ChatViewState extends State<_ChatView> {
       _dictationBase = _appendToBase(_dictationBase, _lastHeard);
       _lastHeard = '';
     }
-
-    final String merged = _appendToBase(_dictationBase, heard);
-    _controller.value = TextEditingValue(
-      text: merged,
-      selection: TextSelection.collapsed(offset: merged.length),
-    );
     _lastHeard = heard;
 
     if (result.isFinal) {
-      // Settled — commit it and start the next utterance clean.
+      // Settled — fold it into the base and start the next utterance clean.
       _dictationBase = _appendToBase(_dictationBase, heard);
       _lastHeard = '';
     }
@@ -1017,11 +1023,10 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
-  /// Kit 03 composer: a rounded pill input + a trailing MIC / STOP / SEND button.
-  /// While the worker dictates, a compact Gemini-style [VoiceWaveVisualizer] shows
-  /// in the row and recognised words STREAM into the field live; the trailing
-  /// button is Stop. The bottom-left voice-note mic is kept in the tree but hidden
-  /// (Visibility) per the owner's earlier request.
+  /// Kit 03 composer. IDLE: a rounded pill input + a trailing MIC / SEND button.
+  /// While the worker dictates, the input area IS the recorder — a FULL-WIDTH
+  /// static waveform ([_listeningBar]) fills the field slot with Stop + Send, and
+  /// NOTHING is typed until Stop lands the recognised text in the field.
   Widget _inputBar(bool showVoice) {
     return Container(
       decoration: const BoxDecoration(
@@ -1034,98 +1039,113 @@ class _ChatViewState extends State<_ChatView> {
         AppSpacing.s3,
         AppSpacing.s2,
       ),
-      child: Row(
-        children: <Widget>[
-          // Owner request: HIDE the bottom-left voice-note mic — hidden with
-          // Visibility ONLY (no code removed); flip `visible` true to restore it.
-          if (showVoice)
-            Visibility(
-              visible: false,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  _composerMic(),
-                  const SizedBox(width: AppSpacing.s2),
-                ],
+      child: _listening ? _listeningBar() : _idleBar(showVoice),
+    );
+  }
+
+  /// The normal composer row: (hidden) voice-note mic + text field + the trailing
+  /// mic/send action.
+  Widget _idleBar(bool showVoice) {
+    return Row(
+      children: <Widget>[
+        // Owner request: HIDE the bottom-left voice-note mic — hidden with
+        // Visibility ONLY (no code removed); flip `visible` true to restore it.
+        if (showVoice)
+          Visibility(
+            visible: false,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _composerMic(),
+                const SizedBox(width: AppSpacing.s2),
+              ],
+            ),
+          ),
+        Expanded(
+          child: TextField(
+            controller: _controller,
+            minLines: 1,
+            maxLines: 4,
+            textInputAction: TextInputAction.send,
+            onSubmitted: (_) => _send(),
+            // Compact composer (owner request): body-size text + dense padding so
+            // the field is shorter and leaves more transcript visible with the
+            // keyboard open. Matches the chat bubble size (sizeSm).
+            style: AppTypography.body(size: AppTypography.sizeSm),
+            decoration: InputDecoration(
+              hintText: 'Boliye ya likhiye…',
+              isDense: true,
+              filled: true,
+              fillColor: AppColors.canvas,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.s3,
+                vertical: 10,
               ),
-            ),
-          // The live audio-reactive visualizer (spec: bars pulse with the voice
-          // volume) shows only while dictating.
-          if (_listening) ...<Widget>[
-            SizedBox(
-              key: const ValueKey<String>('voiceWaveInline'),
-              height: AppSpacing.tap,
-              child: VoiceWaveVisualizer(level: _micLevel),
-            ),
-            const SizedBox(width: AppSpacing.s2),
-          ],
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              minLines: 1,
-              maxLines: 4,
-              // While listening the field shows the STREAMING recognised text but
-              // is recogniser-driven, not hand-edited, and never raises the
-              // keyboard over the visualizer.
-              readOnly: _listening,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _send(),
-              // Compact composer (owner request): body-size text + dense padding so
-              // the field is shorter and leaves more transcript visible with the
-              // keyboard open. Matches the chat bubble size (sizeSm).
-              style: AppTypography.body(size: AppTypography.sizeSm),
-              decoration: InputDecoration(
-                hintText: _listening ? 'Sun rahe hain…' : 'Boliye ya likhiye…',
-                isDense: true,
-                filled: true,
-                fillColor: AppColors.canvas,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.s3,
-                  vertical: 10,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.pill),
-                  borderSide: const BorderSide(color: AppColors.borderSubtle),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.pill),
-                  borderSide: const BorderSide(
-                    color: AppColors.blue,
-                    width: 1.5,
-                  ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadii.pill),
+                borderSide: const BorderSide(color: AppColors.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadii.pill),
+                borderSide: const BorderSide(
+                  color: AppColors.blue,
+                  width: 1.5,
                 ),
               ),
             ),
           ),
-          const SizedBox(width: AppSpacing.s1),
-          _composerAction(),
-        ],
-      ),
+        ),
+        const SizedBox(width: AppSpacing.s1),
+        _composerAction(),
+      ],
     );
   }
 
-  /// The trailing composer button — one slot that cycles by state:
-  ///  - listening → STOP (ends dictation; the streamed text stays in the field),
-  ///  - the field has text → SEND,
-  ///  - otherwise → MIC (tap starts voice-to-text).
-  ///
-  /// `_listening` is checked first; dictation-state changes arrive via the
-  /// enclosing setState rebuild, text edits via the [_controller] listenable.
+  /// The LISTENING row: a FULL-WIDTH static waveform fills the field slot while
+  /// the recogniser runs — it just LISTENS (no typing yet) and the bars rise with
+  /// the voice, tallest in the centre. STOP hides the wave and drops the recognised
+  /// text into the field for review (Send then appears); SEND drops it in and sends
+  /// in one tap.
+  Widget _listeningBar() {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: SizedBox(
+            key: const ValueKey<String>('voiceWaveInline'),
+            height: AppSpacing.tap,
+            child: VoiceWaveVisualizer(level: _micLevel),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.s1),
+        IconButton(
+          tooltip: 'Rokein',
+          onPressed: _stopDictation,
+          icon: const Icon(
+            Icons.stop_circle_rounded,
+            color: AppColors.textSecondary,
+            size: 30,
+          ),
+        ),
+        IconButton(
+          tooltip: 'Bhejein',
+          onPressed: _sendFromDictation,
+          icon: const Icon(
+            Icons.send_rounded,
+            color: AppColors.blue,
+            size: 24,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The trailing button on the IDLE row: SEND when the field has text, otherwise
+  /// MIC (tap starts voice-to-text). While listening the whole row is
+  /// [_listeningBar] (waveform + Stop + Send), so this slot never shows a Stop.
   Widget _composerAction() {
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: _controller,
       builder: (BuildContext context, TextEditingValue value, Widget? _) {
-        if (_listening) {
-          return IconButton(
-            tooltip: 'Rokein',
-            onPressed: _stopDictation,
-            icon: const Icon(
-              Icons.stop_circle_rounded,
-              color: AppColors.textSecondary,
-              size: 30,
-            ),
-          );
-        }
         if (value.text.trim().isNotEmpty) {
           return IconButton(
             tooltip: 'Bhejein',
