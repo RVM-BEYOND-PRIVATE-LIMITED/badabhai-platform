@@ -5,8 +5,10 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/auth/auth_failure.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_spinner.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/forgot_pin_screen.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
 import 'package:badabhai_worker_app/router.dart';
 
 class MockAuthSessionManager extends Mock implements AuthSessionManager {}
@@ -110,6 +112,33 @@ void main() {
     // The OTP entered in the OTP phase rides the confirm with the new PIN.
     verify(() => manager.confirmPinReset(any(), '123456', '3927')).called(1);
     expect(find.text('PIN STUB'), findsOneWidget); // routed on success
+  });
+
+  testWidgets(
+      'the new-PIN 4th dot pops, THEN a 2-second loader, THEN the confirm step',
+      (WidgetTester tester) async {
+    await pumpToPinPhase(tester);
+    await enterPin(tester, '3927'); // strong → transition begins
+
+    // Briefly the keypad is STILL up so the 4th dot's fill-pop can render — the
+    // loader has not swapped in yet.
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(BbPinKeypad), findsOneWidget);
+    expect(find.byType(BbSpinner), findsNothing);
+
+    // After the ~300ms pop beat the loader takes over; confirm not reached yet.
+    await tester.pump(const Duration(milliseconds: 400)); // ~500ms in
+    expect(find.byType(BbSpinner), findsOneWidget);
+    expect(find.text('PIN set kar rahe hain…'), findsOneWidget);
+    expect(find.byType(BbPinKeypad), findsNothing);
+    expect(find.text('PIN dobara daalein'), findsNothing);
+
+    // After the 2-second delay the loader clears into the confirm step.
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.byType(BbSpinner), findsNothing);
+    expect(find.text('PIN dobara daalein'), findsOneWidget); // confirm header
+    verifyNever(() => manager.confirmPinReset(any(), any(), any()));
   });
 
   testWidgets('a guessable new PIN is blocked before the confirm call',
