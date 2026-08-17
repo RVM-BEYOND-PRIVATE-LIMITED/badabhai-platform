@@ -13,8 +13,8 @@ import 'package:badabhai_worker_app/features/voice/domain/speech_dictation.dart'
 class MockChatRepository extends Mock implements ChatRepository {}
 
 /// A hand fake for the ON-DEVICE recogniser: [listen] feeds [emit] straight back
-/// through the result callback (and a sound level, if set) so the widget's
-/// accumulation + waveform can be exercised without a platform channel.
+/// through the result callback (and a sound level, if set) so the widget's live
+/// streaming + auto-stop can be exercised without a platform channel.
 class FakeSpeechDictation implements SpeechDictation {
   bool ready = true;
   bool listening = false;
@@ -22,16 +22,15 @@ class FakeSpeechDictation implements SpeechDictation {
 
   /// A SECOND final, emitted right after [emit] within the same listen — stands
   /// in for the impl's continuous-listen restart, where the words spoken before a
-  /// mid-session pause are flushed as a final and the next utterance arrives as a
-  /// fresh final that must APPEND, not overwrite.
+  /// mid-session pause are flushed as a final and the next utterance appends.
   String emit2 = '';
   double emitLevel = 0;
   int initCalls = 0;
   int listenCalls = 0;
   int stopCalls = 0;
 
-  /// The last result sink handed to [listen] — a test can replay it to simulate
-  /// a TRAILING final the recogniser flushes after the worker tapped Stop.
+  /// The last result sink handed to [listen] — a test can replay it to simulate a
+  /// TRAILING final the recogniser flushes after the worker tapped Stop.
   void Function(DictationResult result)? lastOnResult;
 
   @override
@@ -69,12 +68,11 @@ class FakeSpeechDictation implements SpeechDictation {
   bool get isListening => listening;
 }
 
-/// Tap-to-talk on the chat composer (owner request, ChatGPT-style): the trailing
-/// button is a MIC when the field is empty. TAP it → the device recogniser starts
-/// and the input row becomes an INLINE WAVEFORM (no live typing) with Stop + Send.
-/// STOP drops the full recognised text into the field (Send then appears); SEND
-/// drops it in and sends in one tap. The left haldi mic still opens the voice
-/// screen.
+/// Voice-to-text on the chat composer (Gemini-style): the trailing button is a
+/// MIC when the field is empty. TAP it → the device recogniser starts, an inline
+/// pulsing visualizer shows, and recognised words STREAM into the field LIVE. The
+/// button becomes STOP; tapping STOP (or a run of silence via the auto-stop) ends
+/// listening, the streamed text stays, and the button becomes SEND.
 void main() {
   late MockChatRepository chat;
   late FakeSpeechDictation speech;
@@ -100,7 +98,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  // The inline waveform that fills the field slot while listening.
+  // The inline visualizer shown while listening.
   Finder waveInline() => find.byKey(const ValueKey<String>('voiceWaveInline'));
 
   // The composer buttons, by tooltip (the left voice-note mic is never matched).
@@ -108,13 +106,16 @@ void main() {
   Finder stopButton() => find.byTooltip('Rokein');
   Finder sendButton() => find.byTooltip('Bhejein');
 
+  String fieldText(WidgetTester tester) =>
+      tester.widget<TextField>(find.byType(TextField)).controller!.text;
+
   /// Tap the mic and pump through initialize()+listen() so the recogniser's
-  /// results have been accumulated (but NOT yet placed in the field).
+  /// results have streamed into the field.
   Future<void> startDictation(WidgetTester tester) async {
     await tester.tap(micButton());
-    await tester.pump(); // _startDictation -> setState(listening) -> listeningBar
+    await tester.pump(); // _startDictation -> setState(listening)
     await tester.pump(); // initialize()
-    await tester.pump(); // listen() -> onResult accumulates
+    await tester.pump(); // listen() -> onResult streams into the field
   }
 
   Future<void> stopDictation(WidgetTester tester) async {
@@ -123,60 +124,54 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  String fieldText(WidgetTester tester) =>
-      tester.widget<TextField>(find.byType(TextField)).controller!.text;
-
   testWidgets(
-      'tap Mic starts the inline recorder; NOTHING is typed until Stop, then the '
-      'text lands and Send appears', (WidgetTester tester) async {
+      'tap Mic streams text LIVE with the visualizer; Stop keeps the text and '
+      'Send appears', (WidgetTester tester) async {
     speech.emit = 'Me CNC per kaam krta hun';
 
     await pumpScreen(tester);
     expect(micButton(), findsOneWidget);
     expect(waveInline(), findsNothing);
-    expect(find.byType(TextField), findsOneWidget); // idle: the field is present
 
     await startDictation(tester);
 
     expect(speech.initCalls, 1);
     expect(speech.listenCalls, 1);
-    expect(waveInline(), findsOneWidget); // waveform replaces the field
+    expect(waveInline(), findsOneWidget); // pulsing visualizer shows
     expect(stopButton(), findsOneWidget);
-    expect(find.byType(TextField), findsNothing); // field hidden while listening
-    expect(find.text('Me CNC per kaam krta hun'), findsNothing,
-        reason: 'the recogniser does not type live any more');
+    expect(find.byType(TextField), findsOneWidget); // field stays visible
+    // LIVE: the recognised text is already in the field while listening.
+    expect(fieldText(tester), 'Me CNC per kaam krta hun');
 
     await stopDictation(tester);
 
     expect(speech.stopCalls, 1);
     expect(waveInline(), findsNothing);
-    expect(find.byType(TextField), findsOneWidget); // field is back
-    expect(fieldText(tester), 'Me CNC per kaam krta hun'); // text landed on Stop
+    expect(fieldText(tester), 'Me CNC per kaam krta hun'); // stays after Stop
     expect(sendButton(), findsOneWidget);
     verifyNever(() => chat.sendMessage(any(),
         submissionId: any(named: 'submissionId')));
   });
 
-  testWidgets('the Send arrow WHILE listening ends it and sends in one tap',
+  testWidgets('a run of SILENCE auto-stops listening (text kept, Send appears)',
       (WidgetTester tester) async {
     speech.emit = 'CNC operator';
-    when(() => chat.sendMessage(any(), submissionId: any(named: 'submissionId')))
-        .thenAnswer((_) async => const ChatTurn(reply: 'Got it.'));
 
     await pumpScreen(tester);
     await startDictation(tester);
+    expect(waveInline(), findsOneWidget);
 
-    // The recorder row carries the Send arrow (ChatGPT layout).
-    await tester.tap(sendButton());
+    // No further speech → after the silence window the session ends itself.
+    await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
 
-    verify(() => chat.sendMessage('CNC operator',
-        submissionId: any(named: 'submissionId'))).called(1);
+    expect(speech.stopCalls, 1, reason: 'auto-stop stopped the recogniser');
     expect(waveInline(), findsNothing);
-    expect(micButton(), findsOneWidget); // back to the idle mic for the next turn
+    expect(fieldText(tester), 'CNC operator'); // streamed text kept
+    expect(sendButton(), findsOneWidget);
   });
 
-  testWidgets('tapping Send AFTER Stop sends the recognised text once',
+  testWidgets('tapping Send after Stop sends the streamed text once',
       (WidgetTester tester) async {
     speech.emit = 'CNC operator';
     when(() => chat.sendMessage(any(), submissionId: any(named: 'submissionId')))
@@ -192,10 +187,10 @@ void main() {
 
     verify(() => chat.sendMessage('CNC operator',
         submissionId: any(named: 'submissionId'))).called(1);
-    expect(micButton(), findsOneWidget);
+    expect(micButton(), findsOneWidget); // composer cleared → back to Mic
   });
 
-  testWidgets('the inline waveform shows while listening and clears on Stop',
+  testWidgets('the visualizer shows while listening and clears on Stop',
       (WidgetTester tester) async {
     speech.emit = 'kuch';
 
@@ -203,8 +198,8 @@ void main() {
     await startDictation(tester);
     expect(waveInline(), findsOneWidget);
 
-    // Persists — no auto-hide — until the worker taps Stop.
-    await tester.pump(const Duration(seconds: 3));
+    // Persists across a couple of seconds (still under the silence window).
+    await tester.pump(const Duration(seconds: 2));
     expect(waveInline(), findsOneWidget);
 
     await stopDictation(tester);
@@ -215,16 +210,16 @@ void main() {
     'a phrase before a mid-listen pause is KEPT — the next utterance appends',
     (WidgetTester tester) async {
       // "hello", then a think (the recogniser silently restarts), then "I am a
-      // CLC programmer". Both are flushed as finals; the text landed on Stop must
-      // be "hello I am a CLC programmer" — the first phrase never dropped.
+      // CLC programmer". Both flush as finals; the field must stream to
+      // "hello I am a CLC programmer" — the first phrase never dropped.
       speech.emit = 'hello';
       speech.emit2 = 'I am a CLC programmer';
 
       await pumpScreen(tester);
       await startDictation(tester);
-      await stopDictation(tester);
 
       expect(fieldText(tester), 'hello I am a CLC programmer');
+      await stopDictation(tester);
     },
   );
 
@@ -238,19 +233,21 @@ void main() {
       // Utterance 1 — a partial, never finalised.
       speech.lastOnResult!(const DictationResult('hello', isFinal: false));
       await tester.pump();
+      expect(fieldText(tester), 'hello');
+
       // Utterance 2 after a think — a fresh partial that does NOT extend "hello".
       speech.lastOnResult!(
         const DictationResult('I am a CNC developer', isFinal: false),
       );
       await tester.pump();
+      expect(fieldText(tester), 'hello I am a CNC developer');
 
       await stopDictation(tester);
-      expect(fieldText(tester), 'hello I am a CNC developer');
     },
   );
 
   testWidgets(
-    'a partial that GROWS within one utterance lands once (no dupes)',
+    'a partial that GROWS within one utterance updates in place (no dupes)',
     (WidgetTester tester) async {
       await pumpScreen(tester);
       await startDictation(tester);
@@ -264,9 +261,9 @@ void main() {
       );
       await tester.pump();
 
-      await stopDictation(tester);
-      // A growing partial is one utterance — never "I am I am a CNC ...".
+      // A growing partial replaces in place — never "I am I am a CNC ...".
       expect(fieldText(tester), 'I am a CNC developer');
+      await stopDictation(tester);
     },
   );
 
@@ -274,13 +271,14 @@ void main() {
     'a trailing final delivered AFTER Stop never re-fills the composer',
     (WidgetTester tester) async {
       // The recogniser can flush one last final asynchronously after Stop. It
-      // must be ignored, else the composer refills with the sentence just landed.
+      // must be ignored, else the composer refills.
       speech.emit = 'pehla';
 
       await pumpScreen(tester);
       await startDictation(tester);
-      await stopDictation(tester);
       expect(fieldText(tester), 'pehla');
+
+      await stopDictation(tester); // stops accepting dictation
 
       // The plugin flushes a late final AFTER Stop:
       speech.lastOnResult!(const DictationResult('doosra', isFinal: true));
