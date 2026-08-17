@@ -52,6 +52,15 @@ export const EXPERIMENTS = {
   "EXP-ANN-DEFAULT": "Scale simulation at the stock ANN configuration.",
   "EXP-ANN-EF-SEARCH": "Scale simulation sweeping hnsw.ef_search.",
   "EXP-ANN-ITERATIVE-SCAN": "Scale simulation with hnsw.iterative_scan enabled (pgvector >= 0.8).",
+  // ── Phase 8 ────────────────────────────────────────────────────────────
+  // EXP-EVAL-CORRECTION is NOT reused for the post-Gate-B baseline even though the
+  // instrument is identical (evaluator v2, fixture v2). That experiment answers "what did
+  // correcting the metric change"; this one answers "what did embedding the shipped
+  // catalogue change". Filing the second under the first would leave two records in one
+  // directory whose difference has two candidate explanations and no way to tell them apart.
+  "EXP-P8-BASELINE": "Phase 8 post-Gate-B baseline. Evaluator v2, fixture v2, complete 295-alias corpus.",
+  "EXP-P8-CANONICAL-LABEL":
+    "Phase 8 offline simulation: add each skill's own canonical label_en where absent from its aliases.",
 } as const;
 export type ExperimentId = keyof typeof EXPERIMENTS;
 
