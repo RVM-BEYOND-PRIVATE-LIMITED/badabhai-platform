@@ -56,11 +56,50 @@ const REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 /** Texts the ai-service packs into ONE provider request (`EMBED_REQUEST_BATCH` there).
  *  Mirrored here only to PLAN the request count; it changes nothing about what is sent. */
 const PROVIDER_TEXTS_PER_REQUEST = 100;
+/** Written to `skill_alias.embedding_model` for a mock vector. Same sentinel the sibling
+ *  runner `embed-job-domain-aliases.ts` uses, so one query answers "is this corpus mock?"
+ *  across both vocabularies. */
+export const MOCK_MODEL_TAG = "mock-embedding";
 
-/** Read `--flag value` out of argv. */
-function arg(argv: readonly string[], flag: string): string | null {
+/**
+ * Is `flag` present, in EITHER `--flag value` or `--flag=value` form?
+ *
+ * Separate from `requiredArg` because the two questions have different answers and
+ * conflating them was a real, destructive bug: `--reset-embeddings --batch=<dir>` was
+ * guarded by `argv.includes("--batch")`, which is false for the `=` form, so the refusal
+ * did not fire and the global "NULL every embedding" ran while the operator believed they
+ * had scoped it.
+ */
+export function hasFlag(argv: readonly string[], flag: string): boolean {
+  return argv.some((a) => a === flag || a.startsWith(`${flag}=`));
+}
+
+/**
+ * Read a flag's value, accepting `--flag value` and `--flag=value`.
+ *
+ * THROWS when the flag is present with no value. Returning null there is what let
+ * `--batch` (trailing, or `=`-form) degrade into an UNSCOPED run that embedded the entire
+ * table — silently, because the "scope applied" log line only prints when a scope exists.
+ * A missing value is an operator typo, and the safe response to a typo that widens a blast
+ * radius is to stop.
+ */
+export function requiredArg(argv: readonly string[], flag: string): string | null {
+  const eq = argv.find((a) => a.startsWith(`${flag}=`));
+  if (eq !== undefined) {
+    const v = eq.slice(flag.length + 1);
+    if (v.length === 0) throw new Error(`[embed:skills] ${flag}= was given with no value.`);
+    return v;
+  }
   const i = argv.indexOf(flag);
-  return i >= 0 ? (argv[i + 1] ?? null) : null;
+  if (i < 0) return null;
+  const v = argv[i + 1];
+  if (v === undefined || v.startsWith("--")) {
+    throw new Error(
+      `[embed:skills] ${flag} requires a value. Without one the run would be UNSCOPED and would ` +
+        `embed every pending alias in the table, including the shipped catalogue.`,
+    );
+  }
+  return v;
 }
 
 /**
@@ -139,8 +178,18 @@ async function main(): Promise<void> {
   // mixed vector space (mock hash vectors are indistinguishable at rest from real ones —
   // no provenance column), run BEFORE a real backfill if a prior mock run persisted
   // vectors (SR-1 step 2). Re-embedding the corpus afterwards is cheap.
-  if (process.argv.includes("--reset-embeddings")) {
-    if (process.argv.includes("--batch")) {
+  if (hasFlag(process.argv, "--reset-embeddings")) {
+    if (hasFlag(process.argv, "--plan")) {
+      // --plan is the flag an operator reaches for to be SAFE. Letting the destructive
+      // branch run while it is set — because the reset block sits above the plan block —
+      // means the one gesture meant to prevent a mistake silently performs it.
+      const scoped = hasFlag(process.argv, "--batch");
+      console.log(`[embed:skills] PLAN — --reset-embeddings would set embedding = NULL on EVERY`);
+      console.log(`  row where embedding IS NOT NULL, across the whole table. Nothing was written.`);
+      console.log(`  (--batch does not scope it${scoped ? " — and combining the two is refused" : ""}.)`);
+      return;
+    }
+    if (hasFlag(process.argv, "--batch")) {
       // Refusing beats guessing. --reset-embeddings is a GLOBAL recovery for a mixed vector
       // space; --batch means "only these skills". Honouring one while the operator typed the
       // other would either wipe the whole corpus when they scoped it, or leave the mixed
@@ -154,7 +203,7 @@ async function main(): Promise<void> {
     try {
       const reset = await db
         .update(skillAliases)
-        .set({ embedding: null })
+        .set({ embedding: null, embeddingModel: null, embeddedAt: null })
         .where(isNotNull(skillAliases.embedding))
         .returning({ id: skillAliases.id });
       console.log(`[embed:skills] reset — ${reset.length} embeddings set to NULL; re-run the backfill.`);
@@ -166,7 +215,7 @@ async function main(): Promise<void> {
 
   // --batch <dir>: restrict this run to the skills that batch's quality gate accepted.
   // Absent = every pending alias in the table, which is the historical behaviour.
-  const batchDir = arg(process.argv, "--batch");
+  const batchDir = requiredArg(process.argv, "--batch");
   const scopeSkillIds = batchDir === null ? null : batchScopeSkillIds(batchDir);
   if (scopeSkillIds !== null) {
     console.log(`[embed:skills] scope --batch ${batchDir} — ${scopeSkillIds.length} skill id(s)`);
@@ -177,7 +226,7 @@ async function main(): Promise<void> {
   // --plan: inventory what WOULD be embedded and exit. No ai-service call, no write. The
   // pre-execution numbers ("how many calls, how many tokens") have to come from the same
   // predicate the run uses, or they describe a different job than the one that executes.
-  if (process.argv.includes("--plan")) {
+  if (hasFlag(process.argv, "--plan")) {
     try {
       const pending = await db
         .select({ id: skillAliases.id, text: skillAliases.text, skillId: skillAliases.skillId })
@@ -238,6 +287,9 @@ async function main(): Promise<void> {
       providerErrors += data.errors;
       costInr += data.estimated_cost_inr;
 
+      // MOCK_MODEL_TAG mirrors the sibling runner so both vocabularies use one sentinel.
+      const provenanceTag = data.is_mock ? MOCK_MODEL_TAG : data.model || "unknown";
+      const embeddedAt = new Date();
       let savedThisBatch = 0;
       let blockedThisBatch = 0;
       for (const r of data.results) {
@@ -248,7 +300,13 @@ async function main(): Promise<void> {
         }
         await db
           .update(skillAliases)
-          .set({ embedding: r.vector })
+          // STAMP THE PROVENANCE. `embedding_model` and `embedded_at` have existed since
+          // migration 0076 and this runner left them NULL, so a mock vector and a real one
+          // were indistinguishable at rest — which forced the evaluation harness to detect
+          // mock-ness by recomputing a sha256, and left a corpus embedded across TWO real
+          // models undetectable. The sibling runner (embed-job-domain-aliases.ts) has always
+          // stamped these; this is that behaviour, not a new idea.
+          .set({ embedding: r.vector, embeddingModel: provenanceTag, embeddedAt })
           .where(eq(skillAliases.id, r.alias_id));
         embedded += 1;
         savedThisBatch += 1;

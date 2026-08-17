@@ -14,7 +14,13 @@ import { join } from "node:path";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, afterAll } from "vitest";
 
-import { batchScopeSkillIds, estimateTokens, pendingAliasWhere } from "./embed-skill-aliases";
+import {
+  batchScopeSkillIds,
+  estimateTokens,
+  hasFlag,
+  pendingAliasWhere,
+  requiredArg,
+} from "./embed-skill-aliases";
 
 const dirs: string[] = [];
 function batchDir(files: Record<string, string>): string {
@@ -113,6 +119,53 @@ describe("pendingAliasWhere", () => {
     expect(empty).toMatch(/\bfalse\b/);
     // and it is strictly narrower than the unscoped predicate, which has no contradiction
     expect(rendered([], null)).not.toMatch(/\bfalse\b/);
+  });
+});
+
+describe("argv parsing — the blast-radius surface", () => {
+  // Two real, adversarially-found bugs live here, both of which a reading passes over:
+  //
+  //   `--reset-embeddings --batch=<dir>` did NOT trip the refusal, because the guard was
+  //   `argv.includes("--batch")` and the `=` form is a different string. The global
+  //   "NULL every embedding" then ran while the operator believed they had scoped it.
+  //
+  //   `--batch=<dir>` and a trailing `--batch` both yielded null, which meant UNSCOPED —
+  //   and the "scope applied" log only prints when a scope exists, so the widened run was
+  //   indistinguishable from the correct one in the output.
+
+  describe("hasFlag", () => {
+    it("sees both --flag and --flag=value", () => {
+      expect(hasFlag(["--batch", "d"], "--batch")).toBe(true);
+      expect(hasFlag(["--batch=d"], "--batch")).toBe(true);
+      expect(hasFlag(["--plan"], "--batch")).toBe(false);
+    });
+
+    it("does not match a different flag that shares a prefix", () => {
+      expect(hasFlag(["--batches=d"], "--batch")).toBe(false);
+    });
+  });
+
+  describe("requiredArg", () => {
+    it("reads both forms", () => {
+      expect(requiredArg(["--batch", "dir"], "--batch")).toBe("dir");
+      expect(requiredArg(["--batch=dir"], "--batch")).toBe("dir");
+    });
+
+    it("returns null only when the flag is genuinely absent", () => {
+      expect(requiredArg(["--plan"], "--batch")).toBeNull();
+    });
+
+    it("THROWS on a trailing flag rather than silently running unscoped", () => {
+      expect(() => requiredArg(["--plan", "--batch"], "--batch")).toThrow(/requires a value/);
+    });
+
+    it("THROWS when the next token is another flag, not a value", () => {
+      expect(() => requiredArg(["--batch", "--plan"], "--batch")).toThrow(/requires a value/);
+    });
+
+    it("THROWS on an empty =value", () => {
+      expect(() => requiredArg(["--batch="], "--batch")).toThrow(/no value/);
+    });
   });
 });
 
