@@ -143,9 +143,17 @@ export class PayerAuthService {
    * guard returns while disabled, so a token holder cannot distinguish "seam off" from "address
    * not allowed" — no oracle either way. The refusal is logged WITHOUT the address (PII).
    *
-   * It reuses the ordinary account path (`createOrGet` + `ensureSoloOrg` + the free-tier grant)
-   * so a test session is identical in every respect to a real one EXCEPT that no mailbox was
-   * proven — which is precisely what `payer.test_login` records on the spine.
+   * It reuses the ordinary account path (`createOrGet` + `ensureSoloOrg`), so a test session
+   * authenticates and resolves its org exactly like a real one. Two DELIBERATE differences:
+   * no mailbox was proven — which is precisely what `payer.test_login` records on the spine —
+   * and the account is force-`activate`d rather than promoted by a first successful verify.
+   *
+   * ⚠ NO FREE-TIER GRANT. Unlike {@link signup}, this path does NOT call
+   * `freeTier.grantQuietly`, so a test-minted payer starts with ZERO unlock credits — never
+   * assume `match_config.free_unlock_credits` is already on the ledger here. A test that needs
+   * credits must seed them explicitly (`payer-tenancy.e2e.test.ts` does this via the ops route).
+   * Whether the seam SHOULD mirror the grant is a product call, not a drift to be silently
+   * closed; `payer-auth.service.test.ts` locks today's answer so the two cannot diverge unnoticed.
    */
   async testLogin(email: string, ctx: RequestContext): Promise<PayerSessionResponse> {
     if (!isSyntheticPayerEmail(email)) {
