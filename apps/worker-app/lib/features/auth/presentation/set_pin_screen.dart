@@ -74,12 +74,6 @@ class _SetPinViewState extends State<_SetPinView> {
   /// too fast for the worker to register they'd moved to "confirm".
   static const Duration _confirmDelay = Duration(seconds: 2);
 
-  /// A short beat AFTER the 4th digit before the keypad is swapped for the
-  /// loader — long enough for the just-filled dot's pop to render. Without it
-  /// the swap lands in the SAME frame as the 4th digit and its layout change
-  /// masks the 4th dot's pop that the first three showed.
-  static const Duration _lastDotPop = Duration(milliseconds: 300);
-
   String get _buffer => _step == _Step.enter ? _first : _confirm;
 
   void _onDigit(String d) {
@@ -137,7 +131,7 @@ class _SetPinViewState extends State<_SetPinView> {
   Future<void> _startConfirmTransition() async {
     // Let the 4th dot finish its fill-pop BEFORE the keypad→loader swap (that
     // same-frame layout change otherwise eats the pop the first three showed).
-    await Future<void>.delayed(_lastDotPop);
+    await Future<void>.delayed(BbPinView.fillPopSettle);
     // A backspace during that beat drops the buffer below full — abort and let
     // the worker keep typing rather than advancing a partial PIN.
     if (!mounted || _first.length != kPinLength) return;
