@@ -8,9 +8,9 @@ from fastapi import APIRouter
 
 from ..ai import cost_tracker
 from ..ai.embeddings import (
-    EMBED_REQUEST_BATCH,
     EMBEDDING_TASK_TYPE,
     MOCK_MODEL,
+    embed_request_batch,
     embed_texts,
 )
 from ..ai.langfuse_tracing import get_tracer
@@ -87,11 +87,14 @@ def _embed_loop(
     # item — the finest granularity a batched provider call allows. It stays a real
     # guard: alias texts are ~3-token strings, so a full runner batch is a small
     # fraction of a paisa and the cap can only be approached over many chunks.
-    for start in range(0, len(items), EMBED_REQUEST_BATCH):
+    request_batch = embed_request_batch(settings)
+    for start in range(0, len(items), request_batch):
         if not is_mock and cost_inr >= settings.ai_max_call_cost_inr:
+            # Checked BEFORE the pacing wait inside embed_texts, so a budget stop never
+            # sits out a rate-limit cooldown for a request it was never going to make.
             budget_stopped = True
             break
-        chunk = items[start : start + EMBED_REQUEST_BATCH]
+        chunk = items[start : start + request_batch]
         if not is_mock:
             # Take only the prefix of this chunk that fits under the ceiling. Batching
             # means cost can no longer be observed between items, so the affordability

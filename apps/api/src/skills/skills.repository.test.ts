@@ -315,6 +315,81 @@ describe("SkillsRepository.nearestAliases — legacy vs canonical scope", () => 
     expect(sqlText(captured.sql)).toContain("jds.status = 'active'");
   });
 
+  it("CANONICAL: only ACTIVE SKILLS count — a provisional skill is not production-retrievable", async () => {
+    // Phase 7 Gate A. The edge status and the skill status are SEPARATE lifecycles, and the
+    // taxonomy bootstrap moves them independently: it writes edges as `active` while minting
+    // the skills they point at as `provisional`. Filtering only the edge therefore enforced
+    // half the rule.
+    //
+    // This is not hypothetical. On the Phase 3 corpus all 238 edges are `active` and all 98
+    // skills are `provisional`, so every one of them was reachable through this query — the
+    // Phase 5/6 evaluation scored 100% Recall@1 entirely against provisional skills. Dropping
+    // this predicate re-opens exactly that.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(CANONICAL, VECTOR, 5);
+
+    const sql = sqlText(captured.sql);
+    expect(sql).toContain("join skill s");
+    expect(sql).toContain("s.status = 'active'");
+  });
+
+  it("CANONICAL: the skill join is INNER — a LEFT join would readmit provisional rows", async () => {
+    // Same trap as the job_domain_skill join above, and worse here: `s.status = 'active'` is
+    // NULL-false, so a LEFT join would drop the unmatched rows anyway in most cases and read
+    // as correct — right up until a planner rewrite or a partial-index change makes the NULL
+    // side survive. Pin the join kind rather than relying on the predicate to do two jobs.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(CANONICAL, VECTOR, 5);
+
+    const sql = sqlText(captured.sql);
+    const joinIdx = sql.indexOf("join skill s");
+    expect(joinIdx).toBeGreaterThan(-1);
+    // No LEFT/FULL immediately preceding the skill join.
+    expect(sql.slice(Math.max(0, joinIdx - 12), joinIdx)).not.toMatch(/left |full /);
+  });
+
+  it("LEGACY: also requires an ACTIVE skill — Gate A must not leave a second door open", async () => {
+    // `nearestAliases` dispatches on scope: a jobDomainId takes the canonical path, anything
+    // else lands on the legacy one. Filtering only the canonical query would mean the safety
+    // property held for migrated callers and nobody else.
+    //
+    // Concrete on this data: 33 aliases belonging to PROVISIONAL skills carry a legacy
+    // domain_id, so the legacy statement can select them. They are unembedded today, which
+    // hides it — and embedding the alias backlog would make all 33 retrievable here on the
+    // same day the canonical path started refusing them.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(LEGACY, VECTOR, 5);
+
+    const sql = sqlText(captured.sql);
+    expect(sql).toContain("join skill s");
+    expect(sql).toContain("s.status = 'active'");
+  });
+
+  it("LEGACY: keeps the bare `ORDER BY <=> ... LIMIT` shape after the join", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(LEGACY, VECTOR, 5);
+
+    const sql = sqlText(captured.sql);
+    const orderBy = sql.slice(sql.indexOf("order by"));
+    expect(orderBy).toContain("sa.embedding <=>");
+    expect(orderBy).not.toContain("s.status");
+    expect(orderBy.indexOf("<=>")).toBeLessThan(orderBy.indexOf("limit"));
+  });
+
+  it("CANONICAL: the skill join adds NOTHING ahead of the distance in the ORDER BY", async () => {
+    // The extra join must stay a PK probe hanging off the same nested loop. If it ever
+    // contributed a sort key, `skill_alias_embedding_hnsw` becomes unusable and the query
+    // silently degrades to a sequential scan returning the same rows.
+    const { db, captured } = makeCapturingDb();
+    await new SkillsRepository(db as never).nearestAliases(CANONICAL, VECTOR, 5);
+
+    const sql = sqlText(captured.sql);
+    const orderBy = sql.slice(sql.indexOf("order by"));
+    expect(orderBy).not.toContain("s.status");
+    expect(orderBy).not.toContain("skill_id");
+    expect(orderBy.indexOf("sa.embedding <=>")).toBeLessThan(orderBy.indexOf("limit"));
+  });
+
   it("CANONICAL: keeps the bare `ORDER BY <=> ... LIMIT` shape HNSW serves", async () => {
     // The join must not push anything ahead of the distance in the ORDER BY. If it did,
     // `skill_alias_embedding_hnsw` becomes unusable and the query degrades to a sequential
@@ -381,15 +456,25 @@ describe("SkillsRepository.nearestAliases — legacy vs canonical scope", () => 
     // `domain_id`, and "byte-identical behaviour" is the promise made to them. A reformat
     // that dropped or renamed the `domain_id` predicate would lose
     // `skill_alias_domain_id_idx` and silently widen the search across trades.
+    //
+    // CHANGED ONCE, DELIBERATELY, in Phase 7 Gate A: the statement gained
+    // `JOIN skill s` + `s.status = 'active'`. The pin is not a promise never to change this
+    // query — it is a guard against changing it by ACCIDENT. A provisional skill must not be
+    // retrievable through the legacy scope any more than through the canonical one, and 33
+    // aliases of provisional skills carry a legacy `domain_id`, so the door was real. The
+    // `domain_id` predicate the pin was written to protect is untouched.
     const { db, captured } = makeCapturingDb();
     await new SkillsRepository(db as never).nearestAliases(LEGACY, VECTOR, 5);
 
     const { sql, params } = render(captured.sql);
     expect(sql.split("\n").map((l) => l.trim()).filter(Boolean)).toEqual([
-      "SELECT skill_id, 1 - (embedding <=> $1::vector) AS score",
-      "FROM skill_alias",
-      "WHERE domain_id = $2 AND embedding IS NOT NULL",
-      "ORDER BY embedding <=> $3::vector",
+      "SELECT sa.skill_id, 1 - (sa.embedding <=> $1::vector) AS score",
+      "FROM skill_alias sa",
+      "JOIN skill s ON s.skill_id = sa.skill_id",
+      "WHERE sa.domain_id = $2",
+      "AND s.status = 'active'",
+      "AND sa.embedding IS NOT NULL",
+      "ORDER BY sa.embedding <=> $3::vector",
       "LIMIT $4",
     ]);
     // The vector is bound TWICE ($1 in the projection, $3 in the ORDER BY) — drizzle does

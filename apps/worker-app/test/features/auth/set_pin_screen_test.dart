@@ -90,20 +90,27 @@ void main() {
     expect(find.text(confirmMsg), findsOneWidget);
   });
 
-  testWidgets('a 3-second loader shows before the confirm step',
+  testWidgets('the 4th-dot pop plays first, THEN a 2-second loader, THEN confirm',
       (WidgetTester tester) async {
     await pumpScreen(tester);
-    await enterPin(tester, '3927'); // strong PIN → start the processing beat
-    await tester.pump(const Duration(milliseconds: 500)); // mid-beat
+    await enterPin(tester, '3927'); // strong PIN → 4th digit lands
 
-    // The keypad is swapped for the loader; the confirm step is not reached yet.
+    // Briefly the keypad is STILL up so the 4th dot's fill-pop can render — the
+    // loader has not swapped in yet (this is the fix: the swap no longer lands
+    // in the same frame and eats the 4th dot's pop).
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(BbPinKeypad), findsOneWidget);
+    expect(find.byType(BbSpinner), findsNothing);
+
+    // After the ~300ms pop beat, the loader takes over; confirm not reached yet.
+    await tester.pump(const Duration(milliseconds: 400)); // ~500ms in
     expect(find.byType(BbSpinner), findsOneWidget);
     expect(find.text('PIN set kar rahe hain…'), findsOneWidget);
     expect(find.byType(BbPinKeypad), findsNothing);
     expect(find.text('PIN confirm karein'), findsNothing);
 
-    // After the delay elapses the loader clears and the confirm-prompt shows.
-    await tester.pump(const Duration(seconds: 3));
+    // After the 2-second delay the loader clears into the confirm prompt.
+    await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
     expect(find.byType(BbSpinner), findsNothing);
     expect(find.text('PIN confirm karein'), findsOneWidget);

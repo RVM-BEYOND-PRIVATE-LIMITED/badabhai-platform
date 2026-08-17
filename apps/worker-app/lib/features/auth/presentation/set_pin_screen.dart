@@ -72,7 +72,7 @@ class _SetPinViewState extends State<_SetPinView> {
 
   /// How long the loader shows before the confirm step. The instant switch was
   /// too fast for the worker to register they'd moved to "confirm".
-  static const Duration _confirmDelay = Duration(seconds: 3);
+  static const Duration _confirmDelay = Duration(seconds: 2);
 
   String get _buffer => _step == _Step.enter ? _first : _confirm;
 
@@ -129,6 +129,12 @@ class _SetPinViewState extends State<_SetPinView> {
   /// notice they'd advanced; the loader makes the transition legible. Input is
   /// ignored during the beat ([_processing]).
   Future<void> _startConfirmTransition() async {
+    // Let the 4th dot finish its fill-pop BEFORE the keypad→loader swap (that
+    // same-frame layout change otherwise eats the pop the first three showed).
+    await Future<void>.delayed(BbPinView.fillPopSettle);
+    // A backspace during that beat drops the buffer below full — abort and let
+    // the worker keep typing rather than advancing a partial PIN.
+    if (!mounted || _first.length != kPinLength) return;
     setState(() => _processing = true);
     await Future<void>.delayed(_confirmDelay);
     if (!mounted) return;

@@ -49,5 +49,30 @@
 	<string>BadaBhai needs the microphone so you can record a short voice note about your work experience, which is used to build your profile and resume.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>BadaBhai uses speech recognition to turn what you say into text in the chat, so you can speak your answers instead of typing them.</string>
+	<!-- Deep links (referral invites, `/i/<code>`) — the iOS twin of the Android
+	     manifest setup. FlutterDeepLinkingEnabled routes an incoming URL through
+	     the Flutter Router (go_router), whose root redirect captures the opaque
+	     code — the SAME Dart path as Android (lib/router.dart). CFBundleURLTypes
+	     registers the `badabhai://` custom-scheme FALLBACK (the iOS twin of the
+	     Android `badabhai://i` intent-filter); it needs no Apple entitlement, so it
+	     works the moment this ships. Universal Links (the https app-link twin,
+	     https://app.badabhai.in/i/<code>) are the go-live step: they need the
+	     Associated Domains capability + the hosted apple-app-site-association —
+	     see deeplinks/README.md. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.badabhai.workerapp.referral</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>badabhai</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
