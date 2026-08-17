@@ -1051,10 +1051,20 @@ class _ChatViewState extends State<_ChatView> {
   Widget _idleBar(bool showVoice) {
     return Row(
       children: <Widget>[
-        if (showVoice) ...<Widget>[
-          _composerMic(),
-          const SizedBox(width: AppSpacing.s2),
-        ],
+        // Owner request: HIDE the bottom-left voice-note mic (the one that opens
+        // the separate voice screen). Hidden with Visibility ONLY — no code
+        // removed, so flipping `visible` back to true restores it as-is.
+        if (showVoice)
+          Visibility(
+            visible: false,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _composerMic(),
+                const SizedBox(width: AppSpacing.s2),
+              ],
+            ),
+          ),
         Expanded(
           child: TextField(
             controller: _controller,
