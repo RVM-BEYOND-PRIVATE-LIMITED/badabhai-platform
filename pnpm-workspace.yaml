@@ -60,6 +60,7 @@ packages:
   - "apps/web"
   - "apps/payer-web"
   - "apps/admin-web"
+  - "apps/marketing-web"
   - "packages/*"
   - "tests/e2e"
 # Allow these dependencies to run install/build scripts (pnpm sandboxes the rest).
