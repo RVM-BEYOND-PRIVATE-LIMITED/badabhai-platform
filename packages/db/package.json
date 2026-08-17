@@ -69,7 +69,8 @@
     "db:audit:domains": "tsx src/audit-job-domains.ts",
     "db:score:wedge": "tsx src/score-wedge.ts",
     "db:scale:taxonomy": "tsx src/taxonomy-scale-sim.ts",
-    "db:promote:skills": "tsx src/promote-skills.ts"
+    "db:promote:skills": "tsx src/promote-skills.ts",
+    "db:sweep:floor": "tsx src/taxonomy-floor-sweep.ts"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",
