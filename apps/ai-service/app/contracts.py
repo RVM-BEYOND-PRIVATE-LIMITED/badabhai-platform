@@ -1235,10 +1235,18 @@ class ResumeGenerationInput(BaseModel):
 
 
 class ResumeGenerationOutput(BaseModel):
+    # THE DETERMINISTIC `Label: value` TEMPLATE, on every path (#909). `build_resume` is the
+    # only thing that produces it, and the worker app parses it to render the sectioned résumé
+    # — so this field is a CONTRACT ABOUT SHAPE, not merely "some résumé text". The LLM's prose
+    # goes to `summary` below; it must never replace this.
     resume_text: str
     resume_json: dict = Field(default_factory=dict)
     format: Literal["text", "json"] = "text"
     is_mock: bool = True
+    # The model's 2-4 sentence blurb, or None when no provider was called (mock posture, a
+    # pseudonymize block, a cap). ADDITIVE and optional: nothing renders it yet, and the
+    # sectioned résumé does not depend on it.
+    summary: str | None = None
     # #745: `router.run` has always produced this metadata here — the route simply dropped
     # it on the floor, so resume spend reached no ledger. Same additive/defaulted shape as
     # the STT fix (#738). None on the pseudonymize-blocked path, where the route completes
