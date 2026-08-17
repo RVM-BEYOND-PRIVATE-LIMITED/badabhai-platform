@@ -413,6 +413,17 @@ jobs:
       # it grants nothing beyond this ephemeral job's own database.
       TEST_LOGIN_ENABLED: "true"
       TEST_LOGIN_TOKEN: e2e-test-login-token-not-a-secret-32ch
+      # ---- PAYER test-login seam (BL-18) — the `/payer/*` analogue of TEST_LOGIN_* above ----
+      # Payer login is EMAIL OTP with no dev echo (real-only, ZeptoMail), so payer-tenancy.e2e
+      # and payer-capacity.e2e were dead-`describe.skip`ped: nothing could complete a payer
+      # login in CI. `POST /payer/test-login` (PayerTestLoginGuard) is the seam built for
+      # exactly this — same two-part discipline as TEST_LOGIN_* (assertPayerAuthConfig refuses
+      # to BOOT when armed outside development/test/staging, or with a token under 32 chars).
+      # The value below is a throwaway CI literal, not a secret; it grants nothing beyond this
+      # ephemeral job's own database, and the guard additionally restricts minted sessions to
+      # the reserved `@e2e.badabhai.invalid` domain (isSyntheticPayerEmail) regardless of token.
+      PAYER_TEST_LOGIN_ENABLED: "true"
+      PAYER_TEST_LOGIN_TOKEN: e2e-payer-test-login-token-not-a-secret-32ch
       # BL-18: re-arming to VERIFY (not assume) whether TD129's blocker still holds. This
       # comment block's own claim above ("the API cannot read the locked workers/events
       # tables in this job") directly contradicts live evidence from TODAY's CI: a

@@ -16,14 +16,29 @@ import { mintPayerSession } from "./helpers/payer-session";
  * interim ops `/payers/:payerId/credits` route (InternalServiceGuard) is used ONLY to seed
  * credits against each session's SERVER-ASSIGNED id.
  *
+ * BL-18: both principals this suite drives are minted via a TEST-LOGIN SEAM, not OTP.
+ * Worker + payer login are both real-only (Fast2SMS / ZeptoMail, no dev-echo), so the old
+ * `dev_otp`-reading helpers can no longer complete either login. `loginWorker()` uses the
+ * D-3 worker seam (`POST /auth/test-login`, mirrors contact-unlock.e2e.test.ts /
+ * phase1-onboarding.e2e.test.ts); payer sessions come from `mintPayerSession()`
+ * (`./helpers/payer-session`), which now drives `POST /payer/test-login`.
+ *
  * Opt-in (same harness as contact-unlock.e2e.test.ts; payer sessions are Redis-backed):
  *   1. docker compose up -d postgres redis
  *   2. pnpm db:migrate
- *   3. INTERNAL_SERVICE_TOKEN=<token> pnpm --filter @badabhai/api start   (NODE_ENV=test/dev)
- *   4. RUN_E2E=1 INTERNAL_SERVICE_TOKEN=<token> pnpm --filter @badabhai/e2e test
+ *   3. TEST_LOGIN_ENABLED=true TEST_LOGIN_TOKEN=<32+ chars>
+ *      PAYER_TEST_LOGIN_ENABLED=true PAYER_TEST_LOGIN_TOKEN=<32+ chars>
+ *      INTERNAL_SERVICE_TOKEN=<token> pnpm --filter @badabhai/api start (NODE_ENV=test/dev)
+ *   4. RUN_E2E=1 TEST_LOGIN_TOKEN=<same> PAYER_TEST_LOGIN_TOKEN=<same>
+ *      INTERNAL_SERVICE_TOKEN=<token> pnpm --filter @badabhai/e2e test
  */
 
-const RUN = process.env.RUN_E2E === "1";
+// D-3 worker test-login gate secret (loginWorker) + the payer analogue (mintPayerSession
+// reads PAYER_TEST_LOGIN_TOKEN itself). Both must be armed — this suite mints one of each.
+const TEST_LOGIN_TOKEN = process.env.TEST_LOGIN_TOKEN ?? "";
+const PAYER_TEST_LOGIN_TOKEN = process.env.PAYER_TEST_LOGIN_TOKEN ?? "";
+const RUN =
+  process.env.RUN_E2E === "1" && TEST_LOGIN_TOKEN.length > 0 && PAYER_TEST_LOGIN_TOKEN.length > 0;
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
 const OPS_TOKEN = process.env.INTERNAL_SERVICE_TOKEN ?? "";
 const DATABASE_URL =
@@ -46,11 +61,12 @@ const PII_KEYS = [
 async function req(
   method: string,
   path: string,
-  opts: { body?: unknown; token?: string; ops?: boolean } = {},
+  opts: { body?: unknown; token?: string; ops?: boolean; testLogin?: boolean } = {},
 ): Promise<{ status: number; json: any }> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (opts.token) headers["authorization"] = `Bearer ${opts.token}`;
   if (opts.ops) headers["x-internal-service-token"] = OPS_TOKEN;
+  if (opts.testLogin) headers["x-test-login-token"] = TEST_LOGIN_TOKEN;
   const res = await fetch(`${API_URL}${path}`, {
     method,
     headers,
@@ -60,17 +76,32 @@ async function req(
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-/** Login a fresh worker (mock OTP); returns its id + the sentinel phone used. */
+/**
+ * A phone in the ONLY range the D-3 mint will serve: `SYNTHETIC_TEST_PHONE_PATTERN`
+ * (`/^\+910{5}\d{5}$/`, i.e. `+9100000` + 5 digits) — the reserved, unassignable block.
+ * `AuthService.testLogin` refuses anything else, mirrors contact-unlock.e2e.test.ts.
+ */
+let phoneSeq = Math.floor(Math.random() * 90_000);
+function syntheticPhone(): string {
+  phoneSeq = (phoneSeq + 1) % 100_000;
+  return `+9100000${String(phoneSeq).padStart(5, "0")}`;
+}
+
+/**
+ * Login a fresh worker via the D-3 test-login mint seam (`POST /auth/test-login`); returns
+ * its id + the synthetic phone used. Worker OTP is real-only (Fast2SMS, no `dev_otp` echo),
+ * so this is the only way to authenticate a worker in CI — see contact-unlock.e2e.test.ts's
+ * `loginWorker` for the full rationale.
+ */
 async function loginWorker(): Promise<{ workerId: string; token: string; phone: string }> {
-  const phone = `+9196${String(Date.now()).slice(-8)}${Math.floor(Math.random() * 10)}`.slice(
-    0,
-    13,
-  );
-  const r1 = await req("POST", "/auth/otp/request", { body: { phone } });
-  expect(r1.status).toBe(200);
-  const r2 = await req("POST", "/auth/otp/verify", { body: { phone, otp: r1.json.dev_otp } });
-  expect(r2.status).toBe(200);
-  return { workerId: r2.json.worker_id as string, token: r2.json.access_token as string, phone };
+  const phone = syntheticPhone();
+  const r = await req("POST", "/auth/test-login", { body: { phone }, testLogin: true });
+  expect(
+    r.status,
+    "POST /auth/test-login must be armed for this suite: set TEST_LOGIN_ENABLED=true and a " +
+      ">=32-char TEST_LOGIN_TOKEN on BOTH the API process and this test runner",
+  ).toBe(200);
+  return { workerId: r.json.worker_id as string, token: r.json.access_token as string, phone };
 }
 
 async function consent(token: string, purposes: string[]): Promise<void> {
@@ -83,14 +114,13 @@ async function consent(token: string, purposes: string[]): Promise<void> {
   expect(r.status).toBe(201);
 }
 
-// SKIPPED — real OTP provider required: login cannot complete without a real code. Every
-// test here mints a payer session (signup → email-OTP → verify) AND a worker session
-// (phone OTP), both of which relied on the now-removed dev_otp echo (worker SMS + payer
-// email are REAL-ONLY). So the suite is .skip until a staging run can supply real codes;
-// the logic is kept intact. `RUN` (RUN_E2E gate) is retained for parity with the other
-// e2e files even though the suite is hard-skipped.
-void RUN;
-describe.skip("Payer self-serve horizontal authz (e2e, ADR-0019 R16 / XB-A) — real OTP provider required (real-only)", () => {
+// BL-18: the OLD blocker (both logins needed a real OTP round-trip) is gone. `loginWorker`
+// mints via the D-3 worker test-login seam and `mintPayerSession` mints via the payer
+// analogue (`POST /payer/test-login`) — neither touches OTP. Opt-in via `RUN` (RUN_E2E +
+// both test-login tokens present); `describe.skipIf` rather than a hard skip so the suite
+// runs wherever the seams are armed (CI included) and stays a disclosed, not silent, gap
+// everywhere else.
+describe.skipIf(!RUN)("Payer self-serve horizontal authz (e2e, ADR-0019 R16 / XB-A)", () => {
   let client!: DbClient;
 
   beforeAll(() => {
