@@ -1,42 +1,33 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../../../../core/theme/app_colors.dart';
 
-/// A compact, Gemini-style voice visualizer: a small cluster of rounded bars that
-/// grow and shrink IN REAL TIME with the mic amplitude while the worker speaks.
+/// A full-width, STATIC voice waveform (the ChatGPT/Gemini recorder look).
+///
+/// The bars NEVER move left/right — they sit in fixed positions across the whole
+/// input area. In silence they are a flat dotted line; when the worker speaks,
+/// the bars RISE INTO A WAVE, tallest in the CENTRE and tapering to dots at the
+/// edges, scaled by the live mic amplitude. So it "just creates the wave when it
+/// hears sound" — no scrolling, no travelling.
 ///
 /// Fed a normalized 0..1 [level] (from `speech_to_text`'s `onSoundLevelChange`,
-/// smoothed by the composer against an adaptive noise floor). The bars are
-/// AMPLITUDE-reactive only — a fixed centre-weighted envelope, no time-based
-/// ripple — so they are STABLE (louder voice = taller bars, quiet = short calm
-/// bars), never wobbling on their own.
+/// smoothed by the composer against an adaptive noise floor).
 ///
-/// PERFORMANCE: a [Ticker] eases the drawn level toward the live one at ~60fps
-/// and bumps a [ValueNotifier] the painter listens to via `super.repaint`, so ONLY
-/// paint() runs each frame — the widget itself never rebuilds — and a
-/// [RepaintBoundary] keeps those repaints off the composer around it.
+/// PERFORMANCE: a [Ticker] eases the drawn level toward the live one at ~60fps and
+/// bumps a [ValueNotifier] the painter listens to via `super.repaint`, so ONLY
+/// paint() runs each frame (no widget rebuild), inside a [RepaintBoundary].
 class VoiceWaveVisualizer extends StatefulWidget {
-  const VoiceWaveVisualizer({
-    super.key,
-    required this.level,
-    this.barCount = 5,
-    this.color,
-    this.width = 40,
-  });
+  const VoiceWaveVisualizer({super.key, required this.level, this.color});
 
   /// Normalized live mic amplitude, 0 (silence) .. 1 (loud).
   final ValueListenable<double> level;
 
-  /// Number of bars (spec: 4–5).
-  final int barCount;
-
-  /// Bar colour; defaults to the brand blue.
+  /// Bar colour; defaults to a muted grey that reads on the light input pill.
   final Color? color;
-
-  /// Fixed width of the cluster within the input row.
-  final double width;
 
   @override
   State<VoiceWaveVisualizer> createState() => _VoiceWaveVisualizerState();
@@ -59,8 +50,8 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
 
   void _onTick(Duration _) {
     final double target = widget.level.value.clamp(0.0, 1.0);
-    // Snappy ease so the bars track the voice closely without jitter.
-    _cur += (target - _cur) * 0.4;
+    // Snappy ease so the wave tracks the voice closely without jitter.
+    _cur += (target - _cur) * 0.45;
     _rev.value++;
   }
 
@@ -74,67 +65,73 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
-      child: SizedBox(
-        width: widget.width,
-        height: double.infinity,
-        child: CustomPaint(
-          painter: _BarsPainter(
-            levelOf: () => _cur,
-            barCount: widget.barCount,
-            color: widget.color ?? AppColors.blue,
-            repaint: _rev,
-          ),
+      child: CustomPaint(
+        size: const Size(double.infinity, double.infinity),
+        painter: _WavePainter(
+          levelOf: () => _cur,
+          color: widget.color ?? AppColors.textSecondary,
+          repaint: _rev,
         ),
       ),
     );
   }
 }
 
-/// Draws [barCount] rounded vertical bars, centre-weighted, mirrored around the
-/// mid-line, each scaled by the live [levelOf]. Repaints are driven by the
-/// [repaint] Listenable, so it never depends on a widget rebuild.
-class _BarsPainter extends CustomPainter {
-  _BarsPainter({
+/// Draws the full-width bar strip: fixed-position thin bars, each a resting DOT
+/// that grows with the live [levelOf] weighted by a CENTRE-tallest envelope and a
+/// fixed spatial jaggedness (so it reads as a waveform, not a smooth arc). No time
+/// term anywhere → the bars only change HEIGHT with the voice, never position.
+class _WavePainter extends CustomPainter {
+  _WavePainter({
     required this.levelOf,
-    required this.barCount,
     required this.color,
     required Listenable repaint,
   }) : super(repaint: repaint);
 
   final double Function() levelOf;
-  final int barCount;
   final Color color;
 
-  /// Resting half-height as a fraction of the max — short, calm bars at silence.
-  static const double _idle = 0.18;
+  static const double _barW = 2.0;
+  static const double _gap = 3.0;
+
+  /// Resting half-height — a small dot when silent.
+  static const double _dotHalf = 1.5;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final int n = barCount;
-    if (n <= 0 || size.width <= 0 || size.height <= 0) return;
+    if (size.width <= 0 || size.height <= 0) return;
     final double lvl = levelOf().clamp(0.0, 1.0);
-    // n bars + (n-1) equal gaps → 2n-1 slots of width `barW`.
-    final double barW = size.width / (n * 2 - 1);
+    final int n = ((size.width + _gap) / (_barW + _gap)).floor();
+    if (n <= 0) return;
+    final double stripW = n * _barW + (n - 1) * _gap;
+    double x = (size.width - stripW) / 2 + _barW / 2;
     final double midY = size.height / 2;
     final double maxHalf = size.height / 2;
     final double centre = (n - 1) / 2;
     final Paint paint = Paint()
       ..color = color
       ..strokeCap = StrokeCap.round
-      ..strokeWidth = barW;
-    double x = barW / 2;
+      ..strokeWidth = _barW;
     for (int i = 0; i < n; i++) {
-      // Centre bar tallest, tapering to the edges — a stable, natural envelope.
-      final double dist = centre == 0 ? 0 : (i - centre).abs() / centre;
-      final double envelope = 1 - 0.5 * dist;
-      final double h = _idle + lvl * envelope;
-      final double half = (h * maxHalf).clamp(barW / 2, maxHalf);
-      canvas.drawLine(Offset(x, midY - half), Offset(x, midY + half), paint);
-      x += barW * 2;
+      final double dist = centre == 0 ? 0 : (i - centre) / centre; // -1..1
+      // Centre-tallest envelope: 1 in the middle → 0 at the edges (a raised
+      // cosine, squared for a tighter central hump like the screenshot).
+      final double env = math.cos(dist * math.pi / 2).clamp(0.0, 1.0);
+      final double weight = env * env * _noise(i);
+      final double half = _dotHalf + lvl * weight * (maxHalf - _dotHalf);
+      canvas.drawLine(
+        Offset(x, midY - half),
+        Offset(x, midY + half),
+        paint,
+      );
+      x += _barW + _gap;
     }
   }
 
+  /// Fixed per-bar jaggedness in ~[0.55, 1.0], purely a function of the bar index
+  /// (NO time), so the wave looks like real audio yet never wobbles on its own.
+  double _noise(int i) => 0.55 + 0.45 * (0.5 + 0.5 * math.sin(i * 1.7));
+
   @override
-  bool shouldRepaint(_BarsPainter old) =>
-      old.color != color || old.barCount != barCount;
+  bool shouldRepaint(_WavePainter oldDelegate) => oldDelegate.color != color;
 }
