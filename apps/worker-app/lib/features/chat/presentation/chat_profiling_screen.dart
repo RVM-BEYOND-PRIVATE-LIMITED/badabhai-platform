@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
@@ -1594,13 +1593,27 @@ class _VoiceWaveform extends StatefulWidget {
 }
 
 class _VoiceWaveformState extends State<_VoiceWaveform> {
-  /// Smoothed, drawn level (eased toward the live [widget.level]).
+  /// A ROLLING HISTORY of recent, eased mic levels — the ChatGPT recorder look.
+  /// A new sample is appended at the RIGHT and the oldest drops off the left, so
+  /// each bar HOLDS a real captured amplitude and the strip scrolls smoothly
+  /// instead of every bar wobbling via a synthetic ripple. That is the
+  /// "stability" the previous shimmer lacked. Sized generously; the painter draws
+  /// the newest N that fit the width.
+  static const int _capacity = 96;
+  final List<double> _samples =
+      List<double>.filled(_capacity, 0, growable: true);
+
+  /// The eased, drawn level that tracks the live [widget.level] between samples.
   double _cur = 0;
 
-  /// Gentle shimmer phase so a SPEAKING cluster shimmers in place — it scales
-  /// with the level, so at rest (level ~0) it has no visible effect and the bars
-  /// stay perfectly still.
-  double _phase = 0;
+  /// Advance one history step every [_pushEvery] ticks (a ~60fps Ticker), so the
+  /// strip scrolls at a calm, ChatGPT-like pace rather than a bar per frame.
+  static const int _pushEvery = 2;
+  int _sincesPush = 0;
+
+  /// Bumped on every pushed sample so the painter repaints only when the strip
+  /// actually advanced.
+  int _rev = 0;
   Ticker? _ticker;
 
   @override
@@ -1614,22 +1627,31 @@ class _VoiceWaveformState extends State<_VoiceWaveform> {
   void didUpdateWidget(_VoiceWaveform old) {
     super.didUpdateWidget(old);
     if (widget.active && !_ticker!.isActive) {
-      _cur = 0; // fresh, resting start each hold
-      _phase = 0;
+      _reset(); // fresh, flat start each time listening begins
       _ticker!.start();
     } else if (!widget.active && _ticker!.isActive) {
       _ticker!.stop();
     }
   }
 
+  void _reset() {
+    _cur = 0;
+    for (int i = 0; i < _samples.length; i++) {
+      _samples[i] = 0;
+    }
+  }
+
   void _onTick(Duration _) {
-    // Ease the drawn level toward the live target for a smooth, instant-feeling
-    // response, and advance the shimmer. Bars stay in place — only their heights
-    // change, so there is no travelling motion.
+    // Ease the drawn level toward the live target so a pushed sample is smooth,
+    // then advance the rolling window every few ticks.
     final double target = widget.level.value.clamp(0.0, 1.0);
-    _cur += (target - _cur) * 0.28;
-    _phase += 0.18;
-    setState(() {}); // repaint the bars
+    _cur += (target - _cur) * 0.35;
+    if (++_sincesPush < _pushEvery) return;
+    _sincesPush = 0;
+    _samples.removeAt(0);
+    _samples.add(_cur); // newest at the right → the strip scrolls left
+    _rev++;
+    setState(() {});
   }
 
   @override
@@ -1643,56 +1665,54 @@ class _VoiceWaveformState extends State<_VoiceWaveform> {
     return CustomPaint(
       size: const Size(double.infinity, double.infinity),
       painter: _WavePainter(
-        level: _cur,
-        phase: _phase,
+        samples: _samples,
+        rev: _rev,
         color: AppColors.textSecondary,
       ),
     );
   }
 }
 
-/// Draws a LEFT-FILLED strip of thin rounded vertical bars across the width
-/// (ChatGPT-style recorder), mirrored around the horizontal mid-line. Bar count
-/// is derived from the width so the strip fills the field slot. Each bar's height
-/// is a resting baseline plus a per-bar shimmer scaled by [level], so at rest the
-/// strip is a calm even row and on speech the bars swell in place — never
-/// scrolling.
+/// Draws the rolling amplitude strip: thin rounded vertical bars mirrored around
+/// the mid-line, RIGHT-aligned so new [samples] enter at the right and scroll
+/// left (ChatGPT recorder). Each bar's height is a real captured level (plus a
+/// small resting baseline), so the strip is stable — no per-frame ripple.
 class _WavePainter extends CustomPainter {
   _WavePainter({
-    required this.level,
-    required this.phase,
+    required this.samples,
+    required this.rev,
     required this.color,
   });
 
-  final double level;
-  final double phase;
+  final List<double> samples;
+  final int rev;
   final Color color;
 
   /// Resting half-height as a fraction of the max — a short, calm baseline.
-  static const double _idle = 0.16;
+  static const double _idle = 0.10;
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (size.width <= 0) return;
+    if (size.width <= 0 || samples.isEmpty) return;
     const double barW = 3;
     const double gap = 4;
-    final int n = ((size.width + gap) / (barW + gap)).floor();
-    if (n <= 0) return;
-    double x = barW / 2;
+    final int fit = ((size.width + gap) / (barW + gap)).floor();
+    final int n = fit.clamp(1, samples.length);
+    final double stripW = n * barW + (n - 1) * gap;
+    // Right-align: the newest sample sits at the right edge and the wave travels
+    // left as fresh samples arrive.
+    double x = size.width - stripW + barW / 2;
     final double midY = size.height / 2;
     final double maxHalf = size.height / 2;
-    final double lvl = level.clamp(0.0, 1.0);
+    final int startIndex = samples.length - n;
     final Paint paint = Paint()
       ..color = color
       ..strokeCap = StrokeCap.round
       ..strokeWidth = barW;
     for (int i = 0; i < n; i++) {
-      // Per-bar shimmer gives the strip its waveform texture; it scales with the
-      // live level, so at rest the strip is a calm even row and on speech the bars
-      // swell in place.
-      final double shimmer = 0.5 + 0.5 * math.sin(phase + i * 0.7);
-      final double h = _idle + lvl * (0.35 + 0.65 * shimmer);
-      final double half = (h * maxHalf).clamp(1.5, maxHalf);
+      final double s = samples[startIndex + i].clamp(0.0, 1.0);
+      final double h = _idle + s * (1 - _idle);
+      final double half = (h * maxHalf).clamp(1.0, maxHalf);
       canvas.drawLine(Offset(x, midY - half), Offset(x, midY + half), paint);
       x += barW + gap;
     }
@@ -1700,7 +1720,5 @@ class _WavePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_WavePainter oldDelegate) =>
-      oldDelegate.level != level ||
-      oldDelegate.phase != phase ||
-      oldDelegate.color != color;
+      oldDelegate.rev != rev || oldDelegate.color != color;
 }
