@@ -265,9 +265,8 @@ class TestPacedBatch:
             raise embeddings.ProviderEmbedError("timeout", retryable=True)
 
         monkeypatch.setattr(embeddings, "_real_embedding_batch", timeout)
-        embeddings._embed_batch_paced(
-            ["a"], _settings(ai_embed_retry_on_read_timeout=True, ai_embed_max_retries=1), sleep=_Naps()
-        )
+        s = _settings(ai_embed_retry_on_read_timeout=True, ai_embed_max_retries=1)
+        embeddings._embed_batch_paced(["a"], s, sleep=_Naps())
         assert calls["n"] == 2
 
     def test_RERAISES_an_isolatable_4xx_so_the_caller_can_bisect(self, monkeypatch):

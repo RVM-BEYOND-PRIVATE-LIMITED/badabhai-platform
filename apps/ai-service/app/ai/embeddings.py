@@ -350,7 +350,9 @@ def _real_embedding_batch(texts: list[str], settings: Settings) -> list[list[flo
             resp = client.post(url, headers=headers, json=body)
     except httpx.ConnectError as exc:
         # Never reached the provider, so nothing was embedded and nothing was billed.
-        raise ProviderEmbedError(f"skill_embedding transport: {type(exc).__name__}", retryable=True) from exc
+        raise ProviderEmbedError(
+            f"skill_embedding transport: {type(exc).__name__}", retryable=True
+        ) from exc
     except httpx.TimeoutException as exc:
         # The request WAS sent and the outcome is unknown. Retrying can pay twice for
         # the same texts, so this is retryable only when explicitly opted into.
