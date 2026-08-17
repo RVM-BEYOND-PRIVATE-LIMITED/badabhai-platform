@@ -89,17 +89,36 @@ export class SkillsRepository {
    * LEGACY / FALLBACK PATH — the shipped `skill_alias.domain_id` pre-filter, byte for
    * byte the statement this repository has always run.
    *
-   * Kept unchanged on purpose. It is what every pre-cutover caller still sends, and the
-   * 11 hand-minted slugs remain the only domain the 131 already-embedded aliases carry.
-   * It retires when the alias corpus is fully re-domained onto `job_domain_skill`, not
-   * before — and until then a regression here is a silent recall loss, not an error.
+   * Kept otherwise unchanged on purpose. It is what every pre-cutover caller still sends,
+   * and the 11 hand-minted slugs remain the only domain the 131 already-embedded aliases
+   * carry. It retires when the alias corpus is fully re-domained onto `job_domain_skill`,
+   * not before — and until then a regression here is a silent recall loss, not an error.
+   *
+   * ── IT CARRIES THE SAME SKILL-STATUS FILTER, AND IT HAS TO (Phase 7 Gate A) ──
+   *
+   * `nearestAliases` dispatches on scope: a `jobDomainId` takes the canonical path, anything
+   * else lands HERE. Filtering only the canonical query would therefore leave a second door
+   * open — a caller with a legacy `domainId` scope would still reach provisional skills, and
+   * the safety property would hold only for callers who happened to have migrated.
+   *
+   * That is not hypothetical on this data. 33 aliases belonging to PROVISIONAL skills carry
+   * a legacy `domain_id`, so this statement can select them. They are unembedded today, so
+   * `embedding IS NOT NULL` hides the problem — and hiding it is the danger, because the
+   * very next step (embedding the remaining alias backlog) would make all 33 retrievable
+   * through this path on the same day the canonical path started refusing them.
+   *
+   * The join is a PK lookup on `skill_pkey`; the `ORDER BY <distance> LIMIT` shape that the
+   * HNSW index serves is untouched.
    */
   private legacyAliasRows(domainId: string, vec: string, k: number) {
     return this.db.execute(sql`
-      SELECT skill_id, 1 - (embedding <=> ${vec}::vector) AS score
-      FROM skill_alias
-      WHERE domain_id = ${domainId} AND embedding IS NOT NULL
-      ORDER BY embedding <=> ${vec}::vector
+      SELECT sa.skill_id, 1 - (sa.embedding <=> ${vec}::vector) AS score
+      FROM skill_alias sa
+      JOIN skill s ON s.skill_id = sa.skill_id
+      WHERE sa.domain_id = ${domainId}
+        AND s.status = 'active'
+        AND sa.embedding IS NOT NULL
+      ORDER BY sa.embedding <=> ${vec}::vector
       LIMIT ${k}
     `);
   }
@@ -149,14 +168,57 @@ export class SkillsRepository {
    * `status = 'active'` is not optional: a deprecated or merely provisional edge is not
    * a recommendation, and letting one through would put a retired skill on a worker's
    * profile with no way to tell it apart from a live one.
+   *
+   * ── TWO STATUSES, AND BOTH ARE LOAD-BEARING (Phase 7 Gate A) ──
+   *
+   * `jds.status` is the status of the EDGE — "this skill belongs to this domain". It says
+   * nothing about whether the SKILL itself is fit to publish. Those are separate lifecycles
+   * and the taxonomy bootstrap moves them independently: it writes edges as `active` while
+   * minting the skills they point at as `provisional`, because the domain->skill mapping is
+   * machine-derived but the skill is not a recommendation until a human promotes it.
+   *
+   * The measured consequence of filtering only the edge: on the Phase 3 corpus, all 238
+   * edges are `active` and all 98 skills are `provisional`, so every one of those skills
+   * was reachable through this query. The Phase 5/6 evaluation scored 100% Recall@1 against
+   * them, which is the proof — not a hypothetical. The comment above already stated the
+   * intent ("a merely provisional ... is not a recommendation"); only the edge half of it
+   * was ever enforced.
+   *
+   * So the SKILL's own status is now required to be `active` too. The cost is real and
+   * intended: until a human promotes them, provisional skills resolve to nothing here
+   * rather than resolving to something unpublishable. An empty result is a state the
+   * caller already handles (the floor gate produces one routinely); a provisional skill on
+   * a worker's profile is not.
+   *
+   * ── WHAT THE PLANNER ACTUALLY DOES WITH THE EXTRA JOIN (measured, not assumed) ──
+   *
+   * `EXPLAIN ANALYZE` on the seeded corpus (197 embedded aliases, 146 skills):
+   *
+   *     Limit -> Sort (Sort Key: sa.embedding <=> $1)
+   *           -> Nested Loop
+   *                -> Hash Join  (Hash Cond: s.skill_id = jds.skill_id)
+   *                     -> Seq Scan on skill s  (Filter: status = ...)
+   *
+   * So at this size it is a hash join over a sequential scan of `skill`, NOT the PK probe
+   * that would be the natural guess — the same small-table effect that keeps the HNSW index
+   * unused here (Phase 6 measured that separately and at 9,121 rows). Stated plainly because
+   * an earlier draft of this comment asserted the PK-probe shape and the plan disagreed.
+   *
+   * The invariant that matters survives either way, and the plan above confirms it: the
+   * join contributes NOTHING ahead of the distance, so the sort key is still the bare
+   * `sa.embedding <=> $1` and the `ORDER BY <=> ... LIMIT` shape HNSW serves is intact. When
+   * the corpus is large enough for the planner to prefer the index, `skill_pkey` is there to
+   * make the probe cheap; that is an expectation, not a measurement, and is labelled as one.
    */
   private canonicalAliasRows(jobDomainId: string, vec: string, k: number) {
     return this.db.execute(sql`
       SELECT sa.skill_id, 1 - (sa.embedding <=> ${vec}::vector) AS score
       FROM skill_alias sa
       JOIN job_domain_skill jds ON jds.skill_id = sa.skill_id
+      JOIN skill s ON s.skill_id = sa.skill_id
       WHERE jds.job_domain_id = ${jobDomainId}
         AND jds.status = 'active'
+        AND s.status = 'active'
         AND sa.embedding IS NOT NULL
       ORDER BY sa.embedding <=> ${vec}::vector
       LIMIT ${k}

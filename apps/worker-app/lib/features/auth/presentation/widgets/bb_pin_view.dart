@@ -35,6 +35,14 @@ class BbPinView extends StatelessWidget {
   /// full size rather than a flat colour swap.
   static const double _emptyScale = 0.72;
 
+  /// Time the just-filled dot needs to finish its fill-pop (the [AnimatedScale]
+  /// runs 260ms; this leaves a small margin). A parent that CLEARS or SWITCHES
+  /// its buffer on the last digit MUST wait this long first — otherwise the
+  /// same-frame rebuild drops `filled` before the 4th dot ever renders full,
+  /// masking the pop the first three showed. Set, reset, and unlock all honour
+  /// it so the last dot pops on every PIN surface.
+  static const Duration fillPopSettle = Duration(milliseconds: 300);
+
   @override
   Widget build(BuildContext context) {
     final Color on = error ? AppColors.danger : AppColors.brand;
