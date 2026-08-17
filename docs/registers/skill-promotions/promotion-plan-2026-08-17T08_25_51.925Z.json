@@ -1,0 +1,4896 @@
+{
+  "script": "promote:skills",
+  "mode": "PLAN",
+  "generated_at": "2026-08-17T08:25:51.925Z",
+  "batch_dir": "data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation",
+  "fixture": "C:\\Users\\kpdag\\OneDrive\\Desktop\\BB\\badabhai-platform\\packages\\db\\data\\taxonomy\\eval\\retrieval-v2.jsonl",
+  "waived": [],
+  "candidates": 98,
+  "eligible": 61,
+  "blocked": 37,
+  "promoted": [],
+  "skipped_concurrent": [],
+  "verdicts": [
+    {
+      "skill_id": "skill_assembly_line_sequencing",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_assembly_line_sequencing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_barcode_scanning",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_barcode_scanning",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_battery_capacity_checking",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_battery_capacity_checking",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_battery_cell_stacking",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_battery_cell_stacking",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_battery_pack_leak_testing",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_battery_pack_leak_testing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_battery_terminal_crimping",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_battery_terminal_crimping",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_bearing_replacement",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_bearing_replacement",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_belt_and_chain_drive_alignment",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_belt_and_chain_drive_alignment",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_bin_location_management",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_bin_location_management",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 3,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "3 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_body_panel_alignment",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_body_panel_alignment",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_brake_system_servicing",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_brake_system_servicing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_brazing_of_copper_lines",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_brazing_of_copper_lines",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_brick_and_block_laying",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_brick_and_block_laying",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_cable_termination_and_jointing",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_cable_termination_and_jointing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_chassis_fitting",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_chassis_fitting",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_chemical_handling_safety",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_chemical_handling_safety",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_clutch_and_gearbox_repair",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_clutch_and_gearbox_repair",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_compressor_replacement",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_compressor_replacement",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_concrete_curing",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_concrete_curing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_conduit_bending_and_laying",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_conduit_bending_and_laying",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_control_panel_wiring",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_control_panel_wiring",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_coolant_management",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_coolant_management",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_customer_site_handover",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_customer_site_handover",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_cutting_tool_selection",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_cutting_tool_selection",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_dispatch_documentation",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_dispatch_documentation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_distortion_control_in_weldments",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_distortion_control_in_weldments",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 3,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "3 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_distribution_board_assembly",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_distribution_board_assembly",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_drain_cleaning_and_unclogging",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_drain_cleaning_and_unclogging",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_ducting_installation",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_ducting_installation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_earthing_and_bonding",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_earthing_and_bonding",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_electrical_fault_finding",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_electrical_fault_finding",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_electrical_safety_and_lockout",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_electrical_safety_and_lockout",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_electrode_selection",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_electrode_selection",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_electrolyte_filling",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_electrolyte_filling",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_engine_overhauling",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_engine_overhauling",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_fastener_selection_and_tightening",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_fastener_selection_and_tightening",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_first_piece_approval",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_first_piece_approval",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_forklift_operation",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_forklift_operation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_gas_torch_flame_setting",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_gas_torch_flame_setting",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_go_no_go_gauge_checking",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_go_no_go_gauge_checking",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_goods_receipt_verification",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_goods_receipt_verification",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_hardness_testing",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_hardness_testing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_house_wiring_installation",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_house_wiring_installation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_indoor_unit_servicing_and_cleaning",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_indoor_unit_servicing_and_cleaning",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_inspection_report_recording",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_inspection_report_recording",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_insulation_resistance_testing",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_insulation_resistance_testing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_inventory_record_keeping",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_inventory_record_keeping",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_issue_and_requisition_control",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_issue_and_requisition_control",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_lathe_chuck_mounting",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_lathe_chuck_mounting",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_leak_repair_in_water_lines",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_leak_repair_in_water_lines",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_lubrication_schedule_execution",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_lubrication_schedule_execution",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_material_handling_equipment_operation",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_material_handling_equipment_operation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 3,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "3 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_mortar_mixing",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_mortar_mixing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 3,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "3 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_motor_connection_and_starter_wiring",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_motor_connection_and_starter_wiring",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_non_destructive_testing_of_castings",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_non_destructive_testing_of_castings",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_order_picking_and_packing",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_order_picking_and_packing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_oxy_acetylene_cylinder_handling",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_oxy_acetylene_cylinder_handling",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_pallet_stacking_and_loading",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_pallet_stacking_and_loading",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_pipe_bending",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_pipe_bending",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_pipe_support_and_clamping",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_pipe_support_and_clamping",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_plastering",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_plastering",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_press_brake_bending",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_press_brake_bending",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_pressure_testing_of_pipelines",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_pressure_testing_of_pipelines",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_pump_and_valve_repair",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_pump_and_valve_repair",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_punching_machine_operation",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_punching_machine_operation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_refrigerant_charging",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_refrigerant_charging",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_refrigerant_leak_detection",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_refrigerant_leak_detection",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_rejection_tagging_and_segregation",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_rejection_tagging_and_segregation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_sanitary_fixture_installation",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_sanitary_fixture_installation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_scaffolding_erection",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_scaffolding_erection",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_shaft_and_coupling_alignment",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_shaft_and_coupling_alignment",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_shearing_machine_operation",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_shearing_machine_operation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_sheet_metal_marking_and_layout",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_sheet_metal_marking_and_layout",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 3,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "3 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_site_material_stacking",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_site_material_stacking",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_solvent_cement_jointing",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_solvent_cement_jointing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_split_unit_installation",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_split_unit_installation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_stock_counting",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_stock_counting",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 3,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "3 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_stone_dressing",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_stone_dressing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_stone_joint_pointing",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_stone_joint_pointing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_structural_fit_up_and_tacking",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_structural_fit_up_and_tacking",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_sub_assembly_quality_checking",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_sub_assembly_quality_checking",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_surface_finish_inspection",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_surface_finish_inspection",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_suspension_and_steering_repair",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_suspension_and_steering_repair",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_switchgear_installation",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_switchgear_installation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_thermostat_and_control_wiring",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_thermostat_and_control_wiring",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_torque_wrench_operation",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_torque_wrench_operation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 3,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "3 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_vacuum_pump_evacuation",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_vacuum_pump_evacuation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_vehicle_diagnostic_scanning",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_vehicle_diagnostic_scanning",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_vibration_and_noise_fault_diagnosis",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_vibration_and_noise_fault_diagnosis",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_visual_defect_identification",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_visual_defect_identification",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_wall_plumb_and_level_checking",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_wall_plumb_and_level_checking",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_weld_bead_inspection",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_weld_bead_inspection",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 3,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "3 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_weld_program_parameter_setting",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_weld_program_parameter_setting",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_weld_spatter_cleaning",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_weld_spatter_cleaning",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 2,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "2 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_welding_joint_preparation",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_welding_joint_preparation",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 3,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "3 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_welding_machine_consumable_changeover",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_welding_machine_consumable_changeover",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    },
+    {
+      "skill_id": "skill_wheel_alignment_and_balancing",
+      "eligible": true,
+      "facts": {
+        "skill_id": "skill_wheel_alignment_and_balancing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": true
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": true,
+          "waived": false,
+          "detail": "exercised by the evaluation fixture"
+        }
+      ],
+      "blocking": []
+    },
+    {
+      "skill_id": "skill_wiring_harness_routing",
+      "eligible": false,
+      "facts": {
+        "skill_id": "skill_wiring_harness_routing",
+        "status": "provisional",
+        "in_accepted_batch": true,
+        "active_edges": 1,
+        "aliases": 2,
+        "unembedded_aliases": 0,
+        "embedding_models": [
+          "gemini-embedding-001"
+        ],
+        "eval_covered": false
+      },
+      "criteria": [
+        {
+          "criterion": "GATE_ACCEPTED",
+          "passed": true,
+          "waived": false,
+          "detail": "in the batch's accepted-skills.jsonl"
+        },
+        {
+          "criterion": "IS_PROVISIONAL",
+          "passed": true,
+          "waived": false,
+          "detail": "status = provisional"
+        },
+        {
+          "criterion": "ACTIVE_EDGE",
+          "passed": true,
+          "waived": false,
+          "detail": "1 active job_domain_skill edge(s)"
+        },
+        {
+          "criterion": "FULLY_EMBEDDED",
+          "passed": true,
+          "waived": false,
+          "detail": "2 alias(es), model gemini-embedding-001"
+        },
+        {
+          "criterion": "EVAL_COVERED",
+          "passed": false,
+          "waived": false,
+          "detail": "never exercised by any eval case"
+        }
+      ],
+      "blocking": [
+        "EVAL_COVERED"
+      ]
+    }
+  ],
+  "notes": [
+    "Promotion moves skill.status provisional -> active. Since Phase 7 Gate A that is what makes a skill retrievable by SkillsRepository.canonicalAliasRows, so this report is the record of why each skill became publishable.",
+    "This runner emits no spine event: a packages/db runner has no request, actor or correlation id, so an event from here would have to invent one. The committed report is the audit artifact — commit it with the run (same convention as retag-skills.ts).",
+    "Reversible: `--revert <this file> --apply` sets the promoted ids back to provisional, skipping any row that is no longer 'active'."
+  ]
+}

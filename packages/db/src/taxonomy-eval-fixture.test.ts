@@ -23,6 +23,8 @@ import {
   COVERAGE_ONLY_CATEGORIES,
   DEFAULT_FIXTURE,
   EMBEDDING_DIMENSION,
+  PRE_PROMOTION_SKILL_STATUSES,
+  PRODUCTION_SKILL_STATUSES,
   langfuseStatus,
   mockEmbedding,
   partitionCases,
@@ -329,7 +331,9 @@ describe("CANONICAL_RETRIEVAL_SQL", () => {
   it("keeps every load-bearing clause of the canonical path", () => {
     const s = CANONICAL_RETRIEVAL_SQL.toLowerCase().replace(/\s+/g, " ");
     expect(s).toContain("join job_domain_skill jds on jds.skill_id = sa.skill_id");
+    expect(s).toContain("join skill s on s.skill_id = sa.skill_id");
     expect(s).toContain("jds.status = 'active'");
+    expect(s).toContain("s.status = any($4::text[])");
     expect(s).toContain("sa.embedding is not null");
     expect(s).toContain("1 - (sa.embedding <=>");
     // the bare ORDER BY ... LIMIT is the only shape an HNSW index serves
@@ -353,12 +357,38 @@ describe("CANONICAL_RETRIEVAL_SQL", () => {
     const ours = CANONICAL_RETRIEVAL_SQL.toLowerCase().replace(/\s+/g, " ");
     for (const clause of [
       "join job_domain_skill jds on jds.skill_id = sa.skill_id",
+      "join skill s on s.skill_id = sa.skill_id",
       "jds.status = 'active'",
       "sa.embedding is not null",
     ]) {
       expect(repo.replace(/\s+/g, " "), `production no longer contains: ${clause}`).toContain(clause);
       expect(ours, `harness no longer contains: ${clause}`).toContain(clause);
     }
+  });
+
+  it("mirrors production's SKILL-status filter, as a parameter rather than a literal", () => {
+    // Gate A put `s.status = 'active'` on the production path. The harness cannot copy the
+    // LITERAL: every skill in this corpus is provisional, so a literal-matching harness would
+    // report Recall@1 = 0 for everything — true of production, useless about the corpus, and
+    // certain to be misread as "retrieval broke".
+    //
+    // So it parameterises the same predicate and DEFAULTS to production's value. What this
+    // test pins is that the parameterisation cannot drift into simply dropping the filter:
+    // production must still carry the literal, and the harness must still carry the join and
+    // a status predicate.
+    const repo = readFileSync(
+      join(__dirname, "..", "..", "..", "apps", "api", "src", "skills", "skills.repository.ts"),
+      "utf8",
+    )
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+    expect(repo, "production must filter the SKILL status, not only the edge").toContain(
+      "s.status = 'active'",
+    );
+    expect(CANONICAL_RETRIEVAL_SQL.toLowerCase()).toContain("s.status = any($4::text[])");
+    // The default is production-equivalent; widening is opt-in and recorded.
+    expect(PRODUCTION_SKILL_STATUSES).toEqual(["active"]);
+    expect(PRE_PROMOTION_SKILL_STATUSES).toEqual(["active", "provisional"]);
   });
 
   it("overfetches aliases so Recall@k is over k SKILLS", () => {
