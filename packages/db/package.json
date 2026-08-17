@@ -70,7 +70,8 @@
     "db:score:wedge": "tsx src/score-wedge.ts",
     "db:scale:taxonomy": "tsx src/taxonomy-scale-sim.ts",
     "db:promote:skills": "tsx src/promote-skills.ts",
-    "db:sweep:floor": "tsx src/taxonomy-floor-sweep.ts"
+    "db:sweep:floor": "tsx src/taxonomy-floor-sweep.ts",
+    "db:experiment:alias": "tsx src/taxonomy-alias-experiment.ts"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",
