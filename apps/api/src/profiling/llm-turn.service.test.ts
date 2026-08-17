@@ -294,6 +294,66 @@ describe("the draft accumulates rather than overwrites", () => {
   });
 });
 
+describe("the gate never opens on a trade nobody has named", () => {
+  // #917. An `experience_entry` may arrive on ANY turn — the composite opener invites exactly
+  // that — and it opens the Yes/No gate immediately. Nothing required a label first, so a worker
+  // could be looking at "Aur koi experience jodna hai?" while the draft asserted no trade at all.
+  // The entry already carries the role; borrowing it costs no turn and no token.
+  const NAMELESS = {
+    domain_label: null,
+    role_label: null,
+    skills: [],
+    experiences: [],
+  };
+
+  it("borrows the entry's role when the turn and the draft both name nothing", async () => {
+    const { svc } = make({ turn: TURN({ domain_label: null, experience_entry: ENTRY }) });
+    const out = await svc.take(env({ llmDraft: NAMELESS }), "3 saal tandoor pe kaam kiya", [], CTX);
+    // The gate IS what this turn serves — the point is that it no longer serves it nameless.
+    expect(out).toMatchObject({ kind: "ask", reply: EXPERIENCE_GATE_PROMPT });
+    expect(out?.patch.llmDraft?.role_label).toBe(ENTRY.role_label);
+  });
+
+  it("borrows nothing when there is no entry — an absent label stays absent", async () => {
+    // The fallback must not invent a role on ordinary turns; `settleFromLlmDraft` treats a label
+    // as the worker's answer of record, so a fabricated one is worse than the pack question.
+    const { svc } = make({ turn: TURN({ domain_label: null }) });
+    const out = await svc.take(env({ llmDraft: NAMELESS }), "haan", [], CTX);
+    expect(out?.patch.llmDraft?.role_label).toBeNull();
+  });
+
+  it("lets the turn's OWN role_label beat the entry's — the model named it properly", async () => {
+    const { svc } = make({
+      turn: TURN({ role_label: "pipe fitter welder", experience_entry: ENTRY }),
+    });
+    const out = await svc.take(env({ llmDraft: NAMELESS }), "welding ka kaam", [], CTX);
+    expect(out?.patch.llmDraft?.role_label).toBe("pipe fitter welder");
+  });
+
+  it("does not let an EARLIER job rename the worker's trade", async () => {
+    // Entry two onwards is a previous job ("uske pehle main helper tha"). The draft already holds
+    // a role by then, and that precedence is the whole reason the fallback sits last.
+    const { svc } = make({
+      turn: TURN({ role_label: null, experience_entry: { ...ENTRY, role_label: "helper" } }),
+    });
+    const out = await svc.take(
+      env({
+        llmDraft: { ...NAMELESS, role_label: "tandoor cook", experiences: [ENTRY] },
+      }),
+      "uske pehle main helper tha",
+      [],
+      CTX,
+    );
+    expect(out?.patch.llmDraft?.role_label).toBe("tandoor cook");
+  });
+
+  it("borrows the ROLE only — the domain is not something an entry can answer", async () => {
+    const { svc } = make({ turn: TURN({ domain_label: null, experience_entry: ENTRY }) });
+    const out = await svc.take(env({ llmDraft: NAMELESS }), "3 saal", [], CTX);
+    expect(out?.patch.llmDraft?.domain_label).toBeNull();
+  });
+});
+
 describe("every Phase A turn is a billable call, and the ledger has to say so", () => {
   const META = {
     ai_call_id: "77777777-7777-4777-8777-777777777777",
