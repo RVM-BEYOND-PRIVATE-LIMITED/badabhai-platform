@@ -208,6 +208,7 @@ void main() {
     //     never be able to strand the journey.
     await _pumpUntil(tester, find.text(kChatDoneNotReadyLabel));
     await tester.enterText(find.byType(TextField), 'CNC, 4 years, Fanuc');
+    await tester.pump(); // composer switches Mic→Send once there is text
     await tester.tap(find.byIcon(Icons.send_rounded));
     await _pumpUntil(tester, find.text(kChatDoneNotReadyLabel));
     await tester.tap(find.text(kChatDoneNotReadyLabel));
