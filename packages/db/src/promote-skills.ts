@@ -96,11 +96,161 @@ export const CRITERIA = [
   "ACTIVE_EDGE",
   "FULLY_EMBEDDED",
   "EVAL_COVERED",
+  "RESOLVABLE_ABOVE_FLOOR",
+  "NO_REGRESSION",
 ] as const;
 export type Criterion = (typeof CRITERIA)[number];
 
+/**
+ * The canonicalization floor a candidate must be able to clear.
+ *
+ * Mirrors `skill_canonicalize_floor` in the ai-service. Gate C re-measured it against the
+ * complete corpus and RECOMMENDED KEEPING IT: 0.75 already yields 100% precision, and the
+ * only cheaper option (0.72) buys two resolutions while cutting the margin over a known
+ * failure from 0.047 to 0.017. Promotion is judged against the floor that is actually
+ * running, not against one somebody hopes to move to.
+ */
+export const CANONICALIZATION_FLOOR = 0.75;
+
+/**
+ * The regression reference, and it is deliberately NOT a tolerance band.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THERE IS NO ALLOWANCE
+ * ---------------------------------------------------------------------------
+ * The obvious shape for this gate is "block if Recall@1 drops more than X". Every value of
+ * X is an invention: nobody has established what size of regression is acceptable for a
+ * worker's profile, and a number chosen to let the current corpus through is not a safety
+ * gate, it is a rubber stamp with arithmetic on it.
+ *
+ * So the reference is the measured Phase 6 corrected-evaluation result — Recall@1 1.0000 and
+ * MRR 1.0000, evaluator v2, fixture v2 — and ANY shortfall blocks and is REPORTED FOR REVIEW.
+ * A human can then decide that a specific regression is acceptable and say so explicitly, in
+ * a waiver that is recorded. That is a different act from a threshold quietly absorbing it.
+ *
+ * This gate is expected to FIRE on the current corpus, and that is the point. Gate B embedded
+ * the shipped catalogue, which put `skill_turning` (5 aliases, previously unembedded) into
+ * competition inside `jd_nco_7223_6002` and cost case GP-04 — Recall@1 1.0000 -> 0.9912. That
+ * is a real, causally-attributed regression, and promotion should stop on it rather than
+ * proceed while a number nobody chose says it is small enough.
+ */
+export const REGRESSION_BASELINE = {
+  recall_at_1: 1.0,
+  mrr: 1.0,
+  source: "EXP-EVAL-CORRECTION eval-taxonomy-retrieval-v1-v2-e2-2026-08-17T06:33:38.652Z",
+  evaluator_version: 2,
+  fixture_version: 2,
+} as const;
+
 export function isCriterion(v: string): v is Criterion {
   return (CRITERIA as readonly string[]).includes(v);
+}
+
+/**
+ * Best CORRECT resolution score per skill, read out of a Gate C floor-sweep record.
+ *
+ * Only `correct` resolutions count. A skill that scores 0.9 while being the WRONG answer has
+ * demonstrated it can be confidently mis-assigned, which is an argument against promoting it,
+ * not for it.
+ */
+export function bestCorrectScores(sweepRecord: unknown): Map<string, number> {
+  const detail = (sweepRecord as { detail?: { per_case?: unknown[] } }).detail;
+  const cases = (detail?.per_case ?? []) as {
+    top_skill_id: string | null;
+    score: number | null;
+    correct: boolean;
+  }[];
+  const out = new Map<string, number>();
+  for (const c of cases) {
+    if (!c.correct || c.score === null || c.top_skill_id === null) continue;
+    const seen = out.get(c.top_skill_id);
+    if (seen === undefined || c.score > seen) out.set(c.top_skill_id, c.score);
+  }
+  return out;
+}
+
+export interface RegressionVerdict {
+  passed: boolean;
+  detail: string;
+  observed_recall_at_1: number | null;
+  observed_mrr: number | null;
+  delta_recall_at_1: number | null;
+  delta_mrr: number | null;
+}
+
+/**
+ * Compare an evaluation record against the regression reference. NO tolerance.
+ *
+ * Refuses an evaluation taken with a DIFFERENT instrument. Comparing a v1-evaluator number
+ * with the v2 reference would be comparing two different questions, and the delta would be a
+ * measurement artifact presented as a safety verdict — precisely the defect Phase 6 existed
+ * to remove.
+ */
+export function judgeRegression(evalRecord: unknown, corpusChangedAt: Date | null = null): RegressionVerdict {
+  const r = evalRecord as {
+    recall_at_1?: number | null;
+    mrr?: number | null;
+    evaluator_version?: number;
+    fixture_version?: number | null;
+  };
+  const none = (detail: string): RegressionVerdict => ({
+    passed: false,
+    detail,
+    observed_recall_at_1: r?.recall_at_1 ?? null,
+    observed_mrr: r?.mrr ?? null,
+    delta_recall_at_1: null,
+    delta_mrr: null,
+  });
+  if (r === null || typeof r !== "object") return none("no evaluation record supplied");
+  if (r.evaluator_version !== REGRESSION_BASELINE.evaluator_version) {
+    return none(
+      `evaluation used evaluator v${String(r.evaluator_version)} but the reference is ` +
+        `v${REGRESSION_BASELINE.evaluator_version}; the numbers answer different questions`,
+    );
+  }
+  if (r.fixture_version !== REGRESSION_BASELINE.fixture_version) {
+    return none(
+      `evaluation used fixture v${String(r.fixture_version)} but the reference is ` +
+        `v${REGRESSION_BASELINE.fixture_version}`,
+    );
+  }
+  if (typeof r.recall_at_1 !== "number" || typeof r.mrr !== "number") {
+    return none("evaluation record carries no recall_at_1/mrr — nothing to compare");
+  }
+  // STALENESS. An evaluation taken before the corpus last changed describes a corpus that no
+  // longer exists, and pointing the gate at one is the easiest way to defeat it without
+  // touching any code. Caught in review of this very gate: the first demonstration run passed
+  // NO_REGRESSION using the PRE-Gate-B record, while the live corpus had already regressed to
+  // 0.9912 — the gate reported PASS on evidence that could not have seen the regression.
+  if (corpusChangedAt !== null) {
+    const taken = Date.parse(String((r as { recorded_at?: string }).recorded_at ?? ""));
+    if (!Number.isFinite(taken)) {
+      return none("evaluation record has no parsable recorded_at — cannot prove it is current");
+    }
+    if (taken < corpusChangedAt.getTime()) {
+      return none(
+        `evaluation was recorded ${new Date(taken).toISOString()} but the corpus last changed ` +
+          `${corpusChangedAt.toISOString()} — this evidence PREDATES the corpus it is being used ` +
+          `to clear. Re-run db:eval:taxonomy --run --experiment and use the fresh record.`,
+      );
+    }
+  }
+  const d1 = Math.round((r.recall_at_1 - REGRESSION_BASELINE.recall_at_1) * 10_000) / 10_000;
+  const dm = Math.round((r.mrr - REGRESSION_BASELINE.mrr) * 10_000) / 10_000;
+  // Strictly below. No epsilon: an allowance is a number nobody chose.
+  const passed = r.recall_at_1 >= REGRESSION_BASELINE.recall_at_1 && r.mrr >= REGRESSION_BASELINE.mrr;
+  return {
+    passed,
+    detail: passed
+      ? `R@1 ${r.recall_at_1} / MRR ${r.mrr} meets the reference (${REGRESSION_BASELINE.recall_at_1} / ${REGRESSION_BASELINE.mrr})`
+      : `REGRESSION vs the reference: R@1 ${r.recall_at_1} (${d1 >= 0 ? "+" : ""}${d1}), ` +
+        `MRR ${r.mrr} (${dm >= 0 ? "+" : ""}${dm}). Reported for review — promotion does not ` +
+        `absorb this silently.`,
+    observed_recall_at_1: r.recall_at_1,
+    observed_mrr: r.mrr,
+    delta_recall_at_1: d1,
+    delta_mrr: dm,
+  };
 }
 
 /** What the runner knows about one candidate, before any judgement. */
@@ -113,6 +263,14 @@ export interface CandidateFacts {
   unembedded_aliases: number;
   embedding_models: string[];
   eval_covered: boolean;
+  /** Best score at which a VALIDATED query resolved to this skill CORRECTLY, from a Gate C
+   *  floor sweep. null = the sweep never resolved to it at all. */
+  best_correct_score: number | null;
+  /** Batch-level: does the supplied evaluation still meet the regression reference?
+   *  Identical for every candidate — promotion is all-or-nothing for a batch. */
+  no_regression: boolean;
+  /** Human-readable regression detail, carried so the report explains itself. */
+  regression_detail: string;
 }
 
 export interface CriterionResult {
@@ -183,6 +341,23 @@ export function judge(facts: CandidateFacts, waived: ReadonlySet<Criterion> = ne
     facts.eval_covered ? "exercised by the evaluation fixture" : "never exercised by any eval case",
   );
 
+  // A skill can pass every other criterion and still be unreachable in production: the
+  // canonicalization floor rejects any match below CANONICALIZATION_FLOOR, so a skill whose
+  // best validated resolution sits under it is promoted into a state where it is live,
+  // correct, and never assigned. Gate C measured 13 of 112 correct answers below 0.75.
+  add(
+    "RESOLVABLE_ABOVE_FLOOR",
+    facts.best_correct_score !== null && facts.best_correct_score >= CANONICALIZATION_FLOOR,
+    facts.best_correct_score === null
+      ? "no validated query ever resolved to this skill correctly"
+      : facts.best_correct_score >= CANONICALIZATION_FLOOR
+        ? `best validated resolution ${facts.best_correct_score} >= floor ${CANONICALIZATION_FLOOR}`
+        : `best validated resolution ${facts.best_correct_score} is BELOW the ${CANONICALIZATION_FLOOR} floor — ` +
+          `promoting it would make it live but unassignable`,
+  );
+
+  add("NO_REGRESSION", facts.no_regression, facts.regression_detail);
+
   const blocking = results.filter((r) => !r.passed && !r.waived).map((r) => r.criterion);
   return { skill_id: facts.skill_id, eligible: blocking.length === 0, facts, criteria: results, blocking };
 }
@@ -195,6 +370,11 @@ export interface PromotionReport {
   batch_dir: string;
   fixture: string;
   waived: Criterion[];
+  floor: number;
+  regression_baseline: typeof REGRESSION_BASELINE;
+  regression: RegressionVerdict;
+  sweep_record: string | null;
+  eval_record: string | null;
   candidates: number;
   eligible: number;
   blocked: number;
@@ -285,6 +465,39 @@ async function main(): Promise<void> {
       );
     }
     const scope = batchScopeSkillIds(batchDir); // throws for a BLOCKED batch
+    // The two new gates are EVIDENCE-BACKED: they read recorded experiment artifacts rather
+    // than re-deriving anything here. That keeps the runner file+DB only, and it makes the
+    // basis for a promotion auditable long after the run.
+    const sweepPath = requiredArg(argv, "--sweep");
+    const evalPath = requiredArg(argv, "--eval");
+    const waivedFloor = waived.has("RESOLVABLE_ABOVE_FLOOR");
+    const waivedRegression = waived.has("NO_REGRESSION");
+    if (sweepPath === null && !waivedFloor) {
+      throw new Error(
+        `[${SCRIPT}] --sweep <floor-sweep record> is required for RESOLVABLE_ABOVE_FLOOR. ` +
+          `Produce one with db:sweep:floor --run --experiment, or waive the criterion explicitly.`,
+      );
+    }
+    if (evalPath === null && !waivedRegression) {
+      throw new Error(
+        `[${SCRIPT}] --eval <evaluation record> is required for NO_REGRESSION. Produce one with ` +
+          `db:eval:taxonomy --run --experiment, or waive the criterion explicitly.`,
+      );
+    }
+    // When the corpus last changed. Any evaluation older than this cannot have observed the
+    // current state, whatever its numbers say.
+    const changedRows = (await sql.unsafe(
+      `SELECT max(embedded_at) AS at FROM skill_alias WHERE embedding IS NOT NULL`,
+    )) as unknown as { at: string | null }[];
+    const corpusChangedAt = changedRows[0]?.at ? new Date(changedRows[0].at as string) : null;
+
+    const bestScores =
+      sweepPath === null ? new Map<string, number>() : bestCorrectScores(JSON.parse(readFileSync(sweepPath, "utf8")));
+    const regression =
+      evalPath === null
+        ? { passed: false, detail: "no evaluation supplied", observed_recall_at_1: null, observed_mrr: null, delta_recall_at_1: null, delta_mrr: null }
+        : judgeRegression(JSON.parse(readFileSync(evalPath, "utf8")), corpusChangedAt);
+
     const fixturePath = requiredArg(argv, "--fixture") ?? DEFAULT_FIXTURE;
     const fixture = loadEvalFixture(fixturePath);
     const covered = new Set<string>();
@@ -327,6 +540,9 @@ async function main(): Promise<void> {
           unembedded_aliases: r?.unembedded ?? 0,
           embedding_models: [...(r?.models ?? [])].sort(),
           eval_covered: covered.has(id),
+          best_correct_score: bestScores.get(id) ?? null,
+          no_regression: regression.passed,
+          regression_detail: regression.detail,
         },
         waived,
       );
@@ -339,6 +555,10 @@ async function main(): Promise<void> {
     console.log(`[${SCRIPT}] ${apply ? "APPLY" : "PLAN"} — batch ${batchDir}`);
     console.log(`  fixture                  = ${fixturePath}`);
     console.log(`  waived criteria          = ${waived.size === 0 ? "(none)" : [...waived].join(", ")}`);
+    console.log(`  floor sweep              = ${sweepPath ?? "(waived)"}`);
+    console.log(`  evaluation               = ${evalPath ?? "(waived)"}`);
+    console.log(`  corpus last changed      = ${corpusChangedAt?.toISOString() ?? "(never embedded)"}`);
+    console.log(`  regression verdict       = ${regression.passed ? "PASS" : "BLOCK"} — ${regression.detail}`);
     console.log(`  candidates               = ${verdicts.length}`);
     console.log(`  eligible                 = ${eligible.length}`);
     console.log(`  blocked                  = ${blocked.length}`);
@@ -356,6 +576,11 @@ async function main(): Promise<void> {
       batch_dir: batchDir,
       fixture: fixturePath,
       waived: [...waived],
+      floor: CANONICALIZATION_FLOOR,
+      regression_baseline: { ...REGRESSION_BASELINE },
+      regression: regression,
+      sweep_record: sweepPath,
+      eval_record: evalPath,
       candidates: verdicts.length,
       eligible: eligible.length,
       blocked: blocked.length,
