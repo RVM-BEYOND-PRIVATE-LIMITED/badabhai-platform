@@ -7,14 +7,17 @@
  */
 import { describe, expect, it } from "vitest";
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
   ALIAS_OVERFETCH,
+  BASELINE_FIXTURE,
   classifyAll,
   classifyEmbedding,
   corpusBlockReason,
+  evalArg,
   MOCK_MODEL_TAG,
   CANONICAL_RETRIEVAL_SQL,
   COVERAGE_ONLY_CATEGORIES,
@@ -468,5 +471,105 @@ describe("the committed retrieval fixture", () => {
       if (c.expected_skill_id !== null) continue;
       expect((c.must_not_return_skill_ids ?? []).length, `${c.case_id} asserts nothing`).toBeGreaterThan(0);
     }
+  });
+});
+
+// ===========================================================================
+// The v1 -> v2 relationship. This is what keeps a versioned dataset honest.
+// ===========================================================================
+describe("fixture versioning — v1 is the baseline's immutable instrument", () => {
+  const v1 = loadEvalFixture(BASELINE_FIXTURE);
+  const v2 = loadEvalFixture(DEFAULT_FIXTURE);
+
+  it("keeps BOTH versions on disk and reachable", () => {
+    // The Phase 5 baseline was measured against v1. Editing v1 in place would leave a
+    // preserved number whose dataset no longer exists — a baseline that cannot be reproduced
+    // is a claim, not a measurement.
+    expect(BASELINE_FIXTURE).not.toBe(DEFAULT_FIXTURE);
+    expect(v1.manifest.version).toBe(1);
+    expect(v2.manifest.version).toBe(2);
+    expect(v2.manifest.fixture_id).toBe(v1.manifest.fixture_id);
+  });
+
+  it("pins v1's content hash, so an edit to the baseline's dataset fails the build", () => {
+    // A test that merely reads v1 would pass after someone "fixed" a case in it. The hash is
+    // the only assertion that catches a well-intentioned edit to a frozen artifact.
+    const sha = createHash("sha256").update(readFileSync(BASELINE_FIXTURE)).digest("hex");
+    expect(sha).toBe("7648dae542fa20314524c60eb24cf11f25670dd99199ec9a9c5108b3bfa511bd");
+  });
+
+  it("changes EXACTLY the declared cases and nothing else", () => {
+    // The two files are near-duplicates, which is a real drift risk. Rather than trust that
+    // the copy stayed a copy, the invariant is checked: every case is byte-identical except
+    // the ones the manifest itself declares as corrections.
+    const declared = new Set(
+      ((v2.manifest as unknown as { corrections?: { case_id: string }[] }).corrections ?? []).map((c) => c.case_id),
+    );
+    expect(declared.size).toBeGreaterThan(0);
+
+    expect(v2.cases.map((c) => c.case_id)).toEqual(v1.cases.map((c) => c.case_id));
+    const byId = new Map(v1.cases.map((c) => [c.case_id, c]));
+    const differing: string[] = [];
+    for (const c of v2.cases) {
+      const before = byId.get(c.case_id);
+      if (JSON.stringify(before) !== JSON.stringify(c)) differing.push(c.case_id);
+    }
+    expect(differing.sort()).toEqual([...declared].sort());
+  });
+
+  it("widens DC-18 rather than moving its expected_skill_id onto the model's answer", () => {
+    // Ground truth was widened, not relabelled. Moving `expected_skill_id` to the id the
+    // model happened to rank first would change no metric (both land in the correct set) and
+    // would make a reviewed widening look like it had always been the expectation.
+    const a = v1.cases.find((c) => c.case_id === "DC-18");
+    const b = v2.cases.find((c) => c.case_id === "DC-18");
+    expect(a?.expected_skill_id).toBe("skill_fastener_selection_and_tightening");
+    expect(b?.expected_skill_id).toBe(a?.expected_skill_id);
+    expect(b?.query).toBe(a?.query);
+    expect(b?.job_domain_id).toBe(a?.job_domain_id);
+    expect(b?.acceptable_skill_ids).toEqual(["skill_torque_wrench_operation"]);
+  });
+
+  it("justifies the DC-18 alternative from the CORPUS, not from the score", () => {
+    // The corpus is the evidence: both skills are active edges of the queried domain, and
+    // each carries an alias naming one half of the query. Without that, an "acceptable
+    // alternative" is just a failing case being marked passing.
+    const corpusReal = loadTaxonomyCorpus();
+    const edges = new Set(corpusReal.edges.map((e) => `${e.job_domain_id} ${e.skill_id}`));
+    expect(edges.has("jd_nco_8211_1200 skill_fastener_selection_and_tightening")).toBe(true);
+    expect(edges.has("jd_nco_8211_1200 skill_torque_wrench_operation")).toBe(true);
+
+    const aliasesOf = (id: string): string[] =>
+      corpusReal.skills.find((s) => s.skill_id === id)?.aliases.map((a) => a.text) ?? [];
+    expect(aliasesOf("skill_fastener_selection_and_tightening")).toContain("fastener tightening");
+    expect(aliasesOf("skill_torque_wrench_operation")).toContain("torque tightening");
+  });
+
+  it("both versions still pass the ground-truth gate against the real corpus", () => {
+    const corpusReal = loadTaxonomyCorpus();
+    const authored = new Set(corpusReal.skills.map((s) => s.skill_id));
+    const shipped = new Set(corpusReal.edges.map((e) => e.skill_id).filter((id) => !authored.has(id)));
+    expect(validateEvalFixture(v1, corpusReal, shipped)).toEqual([]);
+    expect(validateEvalFixture(v2, corpusReal, shipped)).toEqual([]);
+  });
+});
+
+describe("evalArg — selecting a dataset must not fail open", () => {
+  it("reads both --flag value and --flag=value", () => {
+    expect(evalArg(["--fixture", "a.jsonl"], "--fixture")).toBe("a.jsonl");
+    expect(evalArg(["--fixture=b.jsonl"], "--fixture")).toBe("b.jsonl");
+  });
+
+  it("returns null when the flag is absent", () => {
+    expect(evalArg(["--run"], "--fixture")).toBeNull();
+  });
+
+  it("THROWS on a valueless flag instead of falling back to the default dataset", () => {
+    // Silently defaulting would measure v2 while the operator believed they selected v1 —
+    // and the report would name whichever file was actually loaded, so the mistake is
+    // invisible in the output. The same defect in the embed runner widened a blast radius.
+    expect(() => evalArg(["--fixture"], "--fixture")).toThrow(/requires a value/);
+    expect(() => evalArg(["--fixture", "--run"], "--fixture")).toThrow(/requires a value/);
+    expect(() => evalArg(["--fixture="], "--fixture")).toThrow(/no value/);
   });
 });
