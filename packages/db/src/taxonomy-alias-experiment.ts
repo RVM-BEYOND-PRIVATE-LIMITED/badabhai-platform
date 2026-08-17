@@ -46,6 +46,8 @@
  * simulation reporting only the rank change would recommend a change that does not reach a
  * worker's profile. Both are reported, per case, and never merged into one score.
  */
+import { readFileSync } from "node:fs";
+
 import { sql as dsql } from "drizzle-orm";
 import { config } from "dotenv";
 
@@ -398,7 +400,23 @@ async function main(): Promise<void> {
       [statuses],
     )) as unknown as SkillRow[];
 
-    const candidates = canonicalLabelCandidates(skills);
+    let candidates = canonicalLabelCandidates(skills);
+
+    // --approved narrows the candidate set to the labels an audit cleared. Without it the
+    // simulation answers "what if we added everything", which is a useful bound and not a
+    // proposal: 34 of the 119 labels enumerate two concepts and 1 is a bare single token, so
+    // the set that would actually be ingested is smaller than the set that was measured.
+    const approvedPath = evalArg(argv, "--approved");
+    if (approvedPath !== null) {
+      const manifest = JSON.parse(readFileSync(approvedPath, "utf8")) as {
+        candidates?: { skill_id: string; verdict: string }[];
+      };
+      const ok = new Set((manifest.candidates ?? []).filter((c) => c.verdict === "OK").map((c) => c.skill_id));
+      const before = candidates.size;
+      candidates = new Map([...candidates].filter(([id]) => ok.has(id)));
+      console.log(`[${SCRIPT}] --approved ${approvedPath}: ${before} candidates narrowed to ${candidates.size}`);
+    }
+
     console.log(`[${SCRIPT}] candidate source = canonical label_en absent from the alias set`);
     console.log(`  skills reachable via an active edge = ${skills.length}`);
     console.log(`  candidate aliases                   = ${candidates.size}`);
@@ -537,7 +555,10 @@ async function main(): Promise<void> {
           alias_overfetch: ALIAS_OVERFETCH,
         },
         detail: {
-          candidate_source: "skill.label_en absent from skill_alias",
+          candidate_source:
+            approvedPath === null
+              ? "skill.label_en absent from skill_alias (ALL candidates, an upper bound)"
+              : `skill.label_en absent from skill_alias, narrowed to audit-approved (${approvedPath})`,
           candidate_count: candidates.size,
           skill_statuses: statuses,
           fetch_window: window,

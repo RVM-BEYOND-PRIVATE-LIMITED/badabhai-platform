@@ -77,7 +77,47 @@ export interface EvalCase {
   /** Where the ground truth came from. `corpus_alias:<skill_id>/<lang>` for derived cases,
    *  `reviewed_fixture` for hand-authored ones. Never absent. */
   provenance: string;
+  /**
+   * How much this case's ground truth can be trusted. Absent means "derive it from
+   * provenance" — see {@link reviewStatusOf} — so existing fixtures need no rewrite.
+   */
+  review_status?: ReviewStatus;
   notes?: string;
+}
+
+/**
+ * The three grades of ground truth, kept apart because they are earned differently.
+ *
+ * `mechanical` — the query IS an alias of the expected skill, so correctness is tautological.
+ *   Cheap and unlimited, and worth almost nothing as evidence: the run already warns that
+ *   44.7% of queries are exact-alias hits, "a floor under R@1 that retrieval did not earn".
+ *   Generating more of them raises the headline without improving the measurement.
+ * `reviewed` — a human judged that this query should resolve to this skill. The only grade
+ *   that makes a paraphrase result mean anything.
+ * `pending_review` — authored, plausible, and NOT YET JUDGED. Scoring these would let the
+ *   author of the cases decide the score, which is how DC-18 became a ground-truth dispute
+ *   instead of a model finding. They are carried in the fixture so a reviewer has something
+ *   concrete to work on, and excluded from every metric until promoted.
+ */
+export const REVIEW_STATUSES = ["reviewed", "mechanical", "pending_review"] as const;
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+
+/**
+ * Read a case's review status, deriving it from `provenance` when the field is absent.
+ *
+ * The derivation is not a guess: `corpus_alias:*` provenance means the case was generated
+ * from a corpus alias, which is exactly what `mechanical` denotes, and every other existing
+ * value was hand-authored into a reviewed fixture. Defaulting instead to `pending_review`
+ * would silently drop all 127 existing cases out of the metrics.
+ */
+export function reviewStatusOf(c: Pick<EvalCase, "provenance" | "review_status">): ReviewStatus {
+  if (c.review_status !== undefined) return c.review_status;
+  return c.provenance.startsWith("corpus_alias:") ? "mechanical" : "reviewed";
+}
+
+/** Cases whose ground truth is settled enough to produce a number. */
+export function isScoreable(c: Pick<EvalCase, "provenance" | "review_status">): boolean {
+  return reviewStatusOf(c) !== "pending_review";
 }
 
 /** The fixture manifest — what this dataset IS, so a report can name its instrument. */
@@ -95,6 +135,7 @@ export interface EvalFixture {
 }
 
 const CATEGORY_SET = new Set<string>(EVAL_CATEGORIES);
+const REVIEW_STATUS_SET = new Set<string>(REVIEW_STATUSES);
 /** Minimum rationale length for a case that widens its own target with alternatives. */
 export const MIN_ALTERNATIVE_RATIONALE = 40;
 
@@ -187,6 +228,24 @@ export function validateEvalFixture(
     }
     if (typeof c.provenance !== "string" || c.provenance.trim().length === 0) {
       p(id, "PROVENANCE_MISSING", "provenance is required — ground truth must be traceable");
+    }
+    if (c.review_status !== undefined && !REVIEW_STATUS_SET.has(c.review_status)) {
+      p(
+        id,
+        "REVIEW_STATUS_ENUM",
+        `review_status must be one of ${REVIEW_STATUSES.join("|")}, got ${JSON.stringify(c.review_status)}`,
+      );
+    }
+    if (c.review_status === "mechanical" && !c.provenance.startsWith("corpus_alias:")) {
+      // "mechanical" asserts the query is literally an alias of the expected skill, which is
+      // what makes its correctness tautological. Claiming it without corpus provenance would
+      // let a hand-authored paraphrase into the metrics under a grade that skips review.
+      p(
+        id,
+        "MECHANICAL_WITHOUT_CORPUS_PROVENANCE",
+        "review_status=mechanical requires provenance corpus_alias:<skill_id>/<lang> — the grade " +
+          "means the query IS an alias, and nothing else may claim it",
+      );
     }
 
     const qkey = `${c.query} ${c.lang} ${c.job_domain_id}`;

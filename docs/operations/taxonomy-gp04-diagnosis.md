@@ -151,9 +151,18 @@ of the fixture and the catalogue, not a run with a metric to compare across inst
 | **dark** | 66 |
 | **active/shipped skills exercised** | **4 of 30** |
 
-Gate B embedded 98 aliases for the shipped catalogue and the fixture barely tests it. Several
-dark active skills carry large alias sets — `skill_measuring_instruments` (54),
-`skill_gdt_reading` (32), `skill_cad_interpretation` (24), `skill_bench_fitting` (18).
+Gate B embedded 98 aliases for the shipped catalogue and the fixture barely tests it.
+
+> **Correction (Phase 8, second pass).** An earlier revision of this document reported alias
+> counts of 54, 32, 24 and 18 for `skill_measuring_instruments`, `skill_gdt_reading`,
+> `skill_cad_interpretation` and `skill_bench_fitting`. Those were wrong: the query counted
+> aliases through a join on `job_domain_skill`, so each alias was counted once per domain the
+> skill is wired to (54 = 6 aliases × 9 domains). The true figures are **6, 4, 4 and 3**. No
+> skill in the corpus has more than **6** aliases and the mean is **2.25**.
+>
+> The correction runs against the argument it was originally used for. These are not
+> well-covered skills whose absence from the fixture is merely an oversight — the whole corpus
+> is thin, which makes the 90.8% missing-canonical-label finding above more serious, not less.
 
 Authoring those cases is deliberately **not** done here. The mechanically safe cases —
 query = an existing alias — are also the least informative, and the run already warns that

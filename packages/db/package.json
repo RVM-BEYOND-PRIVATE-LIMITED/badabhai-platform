@@ -71,7 +71,9 @@
     "db:scale:taxonomy": "tsx src/taxonomy-scale-sim.ts",
     "db:promote:skills": "tsx src/promote-skills.ts",
     "db:sweep:floor": "tsx src/taxonomy-floor-sweep.ts",
-    "db:experiment:alias": "tsx src/taxonomy-alias-experiment.ts"
+    "db:experiment:alias": "tsx src/taxonomy-alias-experiment.ts",
+    "db:audit:labels": "tsx src/taxonomy-label-audit.ts",
+    "db:review-pack:fixture": "tsx src/taxonomy-fixture-review-pack.ts"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",

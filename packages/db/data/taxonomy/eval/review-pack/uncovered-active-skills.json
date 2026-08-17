@@ -1,0 +1,2707 @@
+{
+  "generated_against_fixture": "taxonomy-retrieval-v1 v2",
+  "corpus_batch": "batch_2026-08-16T14-30-41Z-remediation",
+  "skill_status": "active",
+  "reachable": 30,
+  "dark": 26,
+  "status": "NOT GROUND TRUTH — pending domain review",
+  "entries": [
+    {
+      "skill_id": "skill_arc_welding",
+      "label_en": "Arc welding",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_isco_7213",
+        "jd_nco_7126_0301",
+        "jd_nco_7212_0301",
+        "jd_nco_7224_0102"
+      ],
+      "existing_aliases": [
+        {
+          "text": "arc welding",
+          "lang": "en"
+        },
+        {
+          "text": "SMAW",
+          "lang": "en"
+        },
+        {
+          "text": "stick welding",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_mig_welding",
+          "label": "MIG welding",
+          "alias": "GMAW",
+          "similarity": 0.8404996049553042
+        },
+        {
+          "skill_id": "skill_tig_welding",
+          "label": "TIG welding",
+          "alias": "TIG welding",
+          "similarity": 0.7864319320449812
+        },
+        {
+          "skill_id": "skill_gas_cutting",
+          "label": "Gas cutting",
+          "alias": "oxy-fuel cutting",
+          "similarity": 0.6831784248352051
+        },
+        {
+          "skill_id": "skill_distortion_control_in_weldments",
+          "label": "Distortion control in weldments",
+          "alias": "वेल्ड विकृति रोकना",
+          "similarity": 0.6627209186553955
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-arc_welding-1",
+          "query": "arc welding",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_arc_welding",
+          "provenance": "corpus_alias:skill_arc_welding/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-arc_welding-2",
+          "query": "SMAW",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_arc_welding",
+          "provenance": "corpus_alias:skill_arc_welding/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-arc_welding-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_arc_welding",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-arc_welding-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_arc_welding",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Arc welding\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"GMAW\" (skill_mig_welding, cosine 0.8405) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"TIG welding\" (skill_tig_welding, cosine 0.7864) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 4 domains (jd_isco_7213, jd_nco_7126_0301, jd_nco_7212_0301, jd_nco_7224_0102). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_bench_fitting",
+      "label_en": "Bench fitting",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_isco_7233",
+        "jd_nco_7224_0102",
+        "jd_nco_7231_0100",
+        "jd_nco_7231_0400",
+        "jd_nco_7233_0101",
+        "jd_nco_8211_1200"
+      ],
+      "existing_aliases": [
+        {
+          "text": "bench fitting",
+          "lang": "en"
+        },
+        {
+          "text": "fitting",
+          "lang": "en"
+        },
+        {
+          "text": "fitting ka kaam",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_bearing_replacement",
+          "label": "Bearing replacement",
+          "alias": "बेयरिंग फिटिंग",
+          "similarity": 0.7365907650169962
+        },
+        {
+          "skill_id": "skill_grinding_ops",
+          "label": "Grinding (surface / cylindrical)",
+          "alias": "ghisai ka kaam",
+          "similarity": 0.7146254181861877
+        },
+        {
+          "skill_id": "skill_structural_fit_up_and_tacking",
+          "label": "Structural fit-up and tacking",
+          "alias": "fit up and tack",
+          "similarity": 0.7061879284605894
+        },
+        {
+          "skill_id": "skill_machine_maintenance",
+          "label": "Machine maintenance",
+          "alias": "machine ki marammat",
+          "similarity": 0.6883621401570964
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-bench_fitting-1",
+          "query": "bench fitting",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_bench_fitting",
+          "provenance": "corpus_alias:skill_bench_fitting/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-bench_fitting-2",
+          "query": "fitting",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_bench_fitting",
+          "provenance": "corpus_alias:skill_bench_fitting/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-bench_fitting-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_bench_fitting",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-bench_fitting-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_bench_fitting",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Bench fitting\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"बेयरिंग फिटिंग\" (skill_bearing_replacement, cosine 0.7366) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"ghisai ka kaam\" (skill_grinding_ops, cosine 0.7146) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 6 domains (jd_isco_7233, jd_nco_7224_0102, jd_nco_7231_0100, jd_nco_7231_0400, jd_nco_7233_0101, jd_nco_8211_1200). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_boring",
+      "label_en": "Boring",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7223_0701"
+      ],
+      "existing_aliases": [
+        {
+          "text": "boring",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_drilling",
+          "label": "Drilling",
+          "alias": "drilling",
+          "similarity": 0.75561921331997
+        },
+        {
+          "skill_id": "skill_turning",
+          "label": "Turning (lathe operation)",
+          "alias": "turning",
+          "similarity": 0.665203074657828
+        },
+        {
+          "skill_id": "skill_tapping_threading",
+          "label": "Tapping / threading",
+          "alias": "tapping",
+          "similarity": 0.6366215131653257
+        },
+        {
+          "skill_id": "skill_deburring",
+          "label": "Deburring / finishing",
+          "alias": "deburring",
+          "similarity": 0.6207812613481661
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-boring-1",
+          "query": "boring",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_boring",
+          "provenance": "corpus_alias:skill_boring/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-boring-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_boring",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-boring-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_boring",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Boring\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 1 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"drilling\" (skill_drilling, cosine 0.7556) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"turning\" (skill_turning, cosine 0.6652) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them."
+      ]
+    },
+    {
+      "skill_id": "skill_cad_interpretation",
+      "label_en": "CAD / technical drawing interpretation",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_isco_7213",
+        "jd_nco_7223_6003",
+        "jd_nco_7224_0102",
+        "jd_nco_7231_0400",
+        "jd_nco_7412_0200",
+        "jd_nco_8211_1200"
+      ],
+      "existing_aliases": [
+        {
+          "text": "CAD",
+          "lang": "en"
+        },
+        {
+          "text": "drawing padhna",
+          "lang": "hi"
+        },
+        {
+          "text": "read engineering drawings",
+          "lang": "en"
+        },
+        {
+          "text": "technical drawing",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_gdt_reading",
+          "label": "GD&T / drawing reading",
+          "alias": "blueprint reading",
+          "similarity": 0.7985171555588948
+        },
+        {
+          "skill_id": "skill_cam_software",
+          "label": "CAM software (Mastercam/Fusion/etc.)",
+          "alias": "CAM software",
+          "similarity": 0.6811617612838745
+        },
+        {
+          "skill_id": "skill_cnc_programming",
+          "label": "CNC programming",
+          "alias": "CNC programming",
+          "similarity": 0.6332357118498004
+        },
+        {
+          "skill_id": "skill_sheet_metal_marking_and_layout",
+          "label": "Sheet metal marking and layout",
+          "alias": "marking and layout",
+          "similarity": 0.6257669925689697
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-cad_interpretation-1",
+          "query": "CAD",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_cad_interpretation",
+          "provenance": "corpus_alias:skill_cad_interpretation/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-cad_interpretation-2",
+          "query": "drawing padhna",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_cad_interpretation",
+          "provenance": "corpus_alias:skill_cad_interpretation/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-cad_interpretation-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_cad_interpretation",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-cad_interpretation-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_cad_interpretation",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"CAD / technical drawing interpretation\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"blueprint reading\" (skill_gdt_reading, cosine 0.7985) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"CAM software\" (skill_cam_software, cosine 0.6812) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 6 domains (jd_isco_7213, jd_nco_7223_6003, jd_nco_7224_0102, jd_nco_7231_0400, jd_nco_7412_0200, jd_nco_8211_1200). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_cam_software",
+      "label_en": "CAM software (Mastercam/Fusion/etc.)",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7223_6003"
+      ],
+      "existing_aliases": [
+        {
+          "text": "CAM software",
+          "lang": "en"
+        },
+        {
+          "text": "Fusion 360",
+          "lang": "en"
+        },
+        {
+          "text": "Mastercam",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_milling",
+          "label": "Milling",
+          "alias": "CNC milling",
+          "similarity": 0.6868305410990283
+        },
+        {
+          "skill_id": "skill_cnc_programming",
+          "label": "CNC programming",
+          "alias": "CNC programming",
+          "similarity": 0.6865573133992351
+        },
+        {
+          "skill_id": "skill_cad_interpretation",
+          "label": "CAD / technical drawing interpretation",
+          "alias": "CAD",
+          "similarity": 0.6811617612838745
+        },
+        {
+          "skill_id": "skill_fanuc",
+          "label": "Fanuc control operation",
+          "alias": "Fanuc",
+          "similarity": 0.679497241973877
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-cam_software-1",
+          "query": "CAM software",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_cam_software",
+          "provenance": "corpus_alias:skill_cam_software/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-cam_software-2",
+          "query": "Fusion 360",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_cam_software",
+          "provenance": "corpus_alias:skill_cam_software/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-cam_software-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_cam_software",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-cam_software-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_cam_software",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"CAM software (Mastercam/Fusion/etc.)\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"CNC milling\" (skill_milling, cosine 0.6868) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"CNC programming\" (skill_cnc_programming, cosine 0.6866) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them."
+      ]
+    },
+    {
+      "skill_id": "skill_cmm",
+      "label_en": "CMM operation",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7543_2001"
+      ],
+      "existing_aliases": [
+        {
+          "text": "CMM",
+          "lang": "en"
+        },
+        {
+          "text": "coordinate measuring machine",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_dimensional_inspection",
+          "label": "Dimensional inspection",
+          "alias": "dimensional inspection",
+          "similarity": 0.7008371531464379
+        },
+        {
+          "skill_id": "skill_gdt_reading",
+          "label": "GD&T / drawing reading",
+          "alias": "geometric dimensioning and tolerancing",
+          "similarity": 0.664282500743866
+        },
+        {
+          "skill_id": "skill_measuring_instruments",
+          "label": "Micrometer / Vernier / gauge usage",
+          "alias": "vernier caliper",
+          "similarity": 0.6554440455271022
+        },
+        {
+          "skill_id": "skill_go_no_go_gauge_checking",
+          "label": "Go no-go gauge checking",
+          "alias": "plug gauge check",
+          "similarity": 0.6424024105072021
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-cmm-1",
+          "query": "CMM",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7543_2001",
+          "expected_skill_id": "skill_cmm",
+          "provenance": "corpus_alias:skill_cmm/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-cmm-2",
+          "query": "coordinate measuring machine",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7543_2001",
+          "expected_skill_id": "skill_cmm",
+          "provenance": "corpus_alias:skill_cmm/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-cmm-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7543_2001",
+          "expected_skill_id": "skill_cmm",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-cmm-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7543_2001",
+          "expected_skill_id": "skill_cmm",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"CMM operation\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"dimensional inspection\" (skill_dimensional_inspection, cosine 0.7008) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"geometric dimensioning and tolerancing\" (skill_gdt_reading, cosine 0.6643) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them."
+      ]
+    },
+    {
+      "skill_id": "skill_deburring",
+      "label_en": "Deburring / finishing",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_isco_7213",
+        "jd_nco_7223_0701",
+        "jd_nco_7223_2400"
+      ],
+      "existing_aliases": [
+        {
+          "text": "chhilai",
+          "lang": "hi"
+        },
+        {
+          "text": "deburring",
+          "lang": "en"
+        },
+        {
+          "text": "finishing",
+          "lang": "en"
+        },
+        {
+          "text": "finishing ka kaam",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_drilling",
+          "label": "Drilling",
+          "alias": "drilling ka kaam",
+          "similarity": 0.7298052528442521
+        },
+        {
+          "skill_id": "skill_sheet_metal",
+          "label": "Sheet-metal fabrication",
+          "alias": "chadar ka kaam",
+          "similarity": 0.7029323577880859
+        },
+        {
+          "skill_id": "skill_machine_maintenance",
+          "label": "Machine maintenance",
+          "alias": "machine ki marammat",
+          "similarity": 0.6871274300141686
+        },
+        {
+          "skill_id": "skill_turning",
+          "label": "Turning (lathe operation)",
+          "alias": "kharad ka kaam",
+          "similarity": 0.6781537532806396
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-deburring-1",
+          "query": "chhilai",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_deburring",
+          "provenance": "corpus_alias:skill_deburring/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-deburring-2",
+          "query": "deburring",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_deburring",
+          "provenance": "corpus_alias:skill_deburring/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-deburring-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_deburring",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-deburring-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_deburring",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Deburring / finishing\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"drilling ka kaam\" (skill_drilling, cosine 0.7298) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"chadar ka kaam\" (skill_sheet_metal, cosine 0.7029) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 3 domains (jd_isco_7213, jd_nco_7223_0701, jd_nco_7223_2400). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_drilling",
+      "label_en": "Drilling",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7223_0701"
+      ],
+      "existing_aliases": [
+        {
+          "text": "chhed karna",
+          "lang": "hi"
+        },
+        {
+          "text": "drilling",
+          "lang": "en"
+        },
+        {
+          "text": "drilling ka kaam",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_boring",
+          "label": "Boring",
+          "alias": "boring",
+          "similarity": 0.75561921331997
+        },
+        {
+          "skill_id": "skill_deburring",
+          "label": "Deburring / finishing",
+          "alias": "finishing ka kaam",
+          "similarity": 0.7298052528442521
+        },
+        {
+          "skill_id": "skill_tapping_threading",
+          "label": "Tapping / threading",
+          "alias": "chudi katna",
+          "similarity": 0.6992965936660767
+        },
+        {
+          "skill_id": "skill_turning",
+          "label": "Turning (lathe operation)",
+          "alias": "kharad ka kaam",
+          "similarity": 0.6920935121802545
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-drilling-1",
+          "query": "chhed karna",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_drilling",
+          "provenance": "corpus_alias:skill_drilling/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-drilling-2",
+          "query": "drilling",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_drilling",
+          "provenance": "corpus_alias:skill_drilling/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-drilling-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_drilling",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-drilling-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_drilling",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Drilling\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"boring\" (skill_boring, cosine 0.7556) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"finishing ka kaam\" (skill_deburring, cosine 0.7298) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them."
+      ]
+    },
+    {
+      "skill_id": "skill_fixture_setup",
+      "label_en": "Fixture / job setup",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7223_6002"
+      ],
+      "existing_aliases": [
+        {
+          "text": "fixture setup",
+          "lang": "en"
+        },
+        {
+          "text": "job setting",
+          "lang": "hi"
+        },
+        {
+          "text": "job setup",
+          "lang": "en"
+        },
+        {
+          "text": "setting karna",
+          "lang": "hi"
+        },
+        {
+          "text": "workholding",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_tool_offset_setting",
+          "label": "Tool offset setting",
+          "alias": "offset setting",
+          "similarity": 0.6878941264120977
+        },
+        {
+          "skill_id": "skill_gdt_reading",
+          "label": "GD&T / drawing reading",
+          "alias": "GD&T",
+          "similarity": 0.6427258444644766
+        },
+        {
+          "skill_id": "skill_program_editing",
+          "label": "Program editing (G & M codes)",
+          "alias": "program sudharna",
+          "similarity": 0.6408510208129883
+        },
+        {
+          "skill_id": "skill_machine_maintenance",
+          "label": "Machine maintenance",
+          "alias": "machine ki marammat",
+          "similarity": 0.6192499626129899
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-fixture_setup-1",
+          "query": "fixture setup",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_fixture_setup",
+          "provenance": "corpus_alias:skill_fixture_setup/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-fixture_setup-2",
+          "query": "job setting",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_fixture_setup",
+          "provenance": "corpus_alias:skill_fixture_setup/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-fixture_setup-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_fixture_setup",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-fixture_setup-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_fixture_setup",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Fixture / job setup\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"offset setting\" (skill_tool_offset_setting, cosine 0.6879) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"GD&T\" (skill_gdt_reading, cosine 0.6427) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them."
+      ]
+    },
+    {
+      "skill_id": "skill_gas_cutting",
+      "label_en": "Gas cutting",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_isco_7213",
+        "jd_nco_7126_0301",
+        "jd_nco_7212_0100",
+        "jd_nco_7212_0301",
+        "jd_nco_7224_0102"
+      ],
+      "existing_aliases": [
+        {
+          "text": "gas cutting",
+          "lang": "en"
+        },
+        {
+          "text": "gas se katna",
+          "lang": "hi"
+        },
+        {
+          "text": "oxy-fuel cutting",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_tapping_threading",
+          "label": "Tapping / threading",
+          "alias": "chudi katna",
+          "similarity": 0.737906813621521
+        },
+        {
+          "skill_id": "skill_oxy_acetylene_cylinder_handling",
+          "label": "Oxy-acetylene cylinder handling",
+          "alias": "गैस सिलेंडर",
+          "similarity": 0.7016175985336304
+        },
+        {
+          "skill_id": "skill_arc_welding",
+          "label": "Arc welding",
+          "alias": "arc welding",
+          "similarity": 0.6831784248352051
+        },
+        {
+          "skill_id": "skill_mig_welding",
+          "label": "MIG welding",
+          "alias": "MIG/MAG",
+          "similarity": 0.6729403338712556
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-gas_cutting-1",
+          "query": "gas cutting",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_gas_cutting",
+          "provenance": "corpus_alias:skill_gas_cutting/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-gas_cutting-2",
+          "query": "gas se katna",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_gas_cutting",
+          "provenance": "corpus_alias:skill_gas_cutting/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-gas_cutting-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_gas_cutting",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-gas_cutting-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_gas_cutting",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Gas cutting\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"chudi katna\" (skill_tapping_threading, cosine 0.7379) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"गैस सिलेंडर\" (skill_oxy_acetylene_cylinder_handling, cosine 0.7016) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 5 domains (jd_isco_7213, jd_nco_7126_0301, jd_nco_7212_0100, jd_nco_7212_0301, jd_nco_7224_0102). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_gdt_reading",
+      "label_en": "GD&T / drawing reading",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7126_0301",
+        "jd_nco_7212_0301",
+        "jd_nco_7223_0701",
+        "jd_nco_7223_6002",
+        "jd_nco_7223_6003",
+        "jd_nco_7224_0102",
+        "jd_nco_7313_2601",
+        "jd_nco_7543_2001"
+      ],
+      "existing_aliases": [
+        {
+          "text": "blueprint reading",
+          "lang": "en"
+        },
+        {
+          "text": "drawing reading",
+          "lang": "en"
+        },
+        {
+          "text": "GD&T",
+          "lang": "en"
+        },
+        {
+          "text": "geometric dimensioning and tolerancing",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_cad_interpretation",
+          "label": "CAD / technical drawing interpretation",
+          "alias": "read engineering drawings",
+          "similarity": 0.7985171555588948
+        },
+        {
+          "skill_id": "skill_dimensional_inspection",
+          "label": "Dimensional inspection",
+          "alias": "dimensional inspection",
+          "similarity": 0.7569773342026882
+        },
+        {
+          "skill_id": "skill_tig_welding",
+          "label": "TIG welding",
+          "alias": "GTAW",
+          "similarity": 0.6691840488204939
+        },
+        {
+          "skill_id": "skill_cmm",
+          "label": "CMM operation",
+          "alias": "coordinate measuring machine",
+          "similarity": 0.664282500743866
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-gdt_reading-1",
+          "query": "blueprint reading",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_gdt_reading",
+          "provenance": "corpus_alias:skill_gdt_reading/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-gdt_reading-2",
+          "query": "drawing reading",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_gdt_reading",
+          "provenance": "corpus_alias:skill_gdt_reading/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-gdt_reading-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_gdt_reading",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-gdt_reading-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_gdt_reading",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"GD&T / drawing reading\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"read engineering drawings\" (skill_cad_interpretation, cosine 0.7985) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"dimensional inspection\" (skill_dimensional_inspection, cosine 0.7570) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 8 domains (jd_nco_7126_0301, jd_nco_7212_0301, jd_nco_7223_0701, jd_nco_7223_6002, jd_nco_7223_6003, jd_nco_7224_0102, jd_nco_7313_2601, jd_nco_7543_2001). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_grinding_ops",
+      "label_en": "Grinding (surface / cylindrical)",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7212_0100",
+        "jd_nco_7212_0301",
+        "jd_nco_7224_0102"
+      ],
+      "existing_aliases": [
+        {
+          "text": "cylindrical grinding",
+          "lang": "en"
+        },
+        {
+          "text": "ghisai",
+          "lang": "hi"
+        },
+        {
+          "text": "ghisai ka kaam",
+          "lang": "hi"
+        },
+        {
+          "text": "grinding",
+          "lang": "en"
+        },
+        {
+          "text": "surface grinding",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_bench_fitting",
+          "label": "Bench fitting",
+          "alias": "fitting ka kaam",
+          "similarity": 0.7146254181861877
+        },
+        {
+          "skill_id": "skill_oxy_acetylene_cylinder_handling",
+          "label": "Oxy-acetylene cylinder handling",
+          "alias": "cylinder handling",
+          "similarity": 0.6629428863525391
+        },
+        {
+          "skill_id": "skill_weld_spatter_cleaning",
+          "label": "Weld spatter cleaning",
+          "alias": "छींटे साफ करना",
+          "similarity": 0.6371378518856864
+        },
+        {
+          "skill_id": "skill_welding_joint_preparation",
+          "label": "Welding joint preparation",
+          "alias": "joint preparation",
+          "similarity": 0.6262812801087287
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-grinding_ops-1",
+          "query": "cylindrical grinding",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7212_0100",
+          "expected_skill_id": "skill_grinding_ops",
+          "provenance": "corpus_alias:skill_grinding_ops/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-grinding_ops-2",
+          "query": "ghisai",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7212_0100",
+          "expected_skill_id": "skill_grinding_ops",
+          "provenance": "corpus_alias:skill_grinding_ops/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-grinding_ops-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7212_0100",
+          "expected_skill_id": "skill_grinding_ops",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-grinding_ops-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7212_0100",
+          "expected_skill_id": "skill_grinding_ops",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Grinding (surface / cylindrical)\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"fitting ka kaam\" (skill_bench_fitting, cosine 0.7146) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"cylinder handling\" (skill_oxy_acetylene_cylinder_handling, cosine 0.6629) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 3 domains (jd_nco_7212_0100, jd_nco_7212_0301, jd_nco_7224_0102). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_hydraulics_pneumatics",
+      "label_en": "Hydraulics / pneumatics",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_isco_7233",
+        "jd_nco_7231_0100",
+        "jd_nco_7233_0101"
+      ],
+      "existing_aliases": [
+        {
+          "text": "hydraulics",
+          "lang": "en"
+        },
+        {
+          "text": "pneumatics",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_pump_and_valve_repair",
+          "label": "Pump and valve repair",
+          "alias": "pump repair",
+          "similarity": 0.6222543716430664
+        },
+        {
+          "skill_id": "skill_suspension_and_steering_repair",
+          "label": "Suspension and steering repair",
+          "alias": "suspension repair",
+          "similarity": 0.5893130478058176
+        },
+        {
+          "skill_id": "skill_machine_maintenance",
+          "label": "Machine maintenance",
+          "alias": "preventive maintenance",
+          "similarity": 0.5829837669720521
+        },
+        {
+          "skill_id": "skill_brake_system_servicing",
+          "label": "Brake system servicing",
+          "alias": "ब्रेक ठीक करना",
+          "similarity": 0.5811001831620989
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-hydraulics_pneumat-1",
+          "query": "hydraulics",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_hydraulics_pneumatics",
+          "provenance": "corpus_alias:skill_hydraulics_pneumatics/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-hydraulics_pneumat-2",
+          "query": "pneumatics",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_hydraulics_pneumatics",
+          "provenance": "corpus_alias:skill_hydraulics_pneumatics/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-hydraulics_pneumat-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_hydraulics_pneumatics",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-hydraulics_pneumat-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_hydraulics_pneumatics",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Hydraulics / pneumatics\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"pump repair\" (skill_pump_and_valve_repair, cosine 0.6223) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"suspension repair\" (skill_suspension_and_steering_repair, cosine 0.5893) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 3 domains (jd_isco_7233, jd_nco_7231_0100, jd_nco_7233_0101). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_machine_maintenance",
+      "label_en": "Machine maintenance",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_isco_7233",
+        "jd_nco_7212_0300",
+        "jd_nco_7223_2400",
+        "jd_nco_7223_6002",
+        "jd_nco_7233_0101"
+      ],
+      "existing_aliases": [
+        {
+          "text": "machine ki marammat",
+          "lang": "hi"
+        },
+        {
+          "text": "maintenance",
+          "lang": "en"
+        },
+        {
+          "text": "preventive maintenance",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_punching_machine_operation",
+          "label": "Punching machine operation",
+          "alias": "पंच मशीन",
+          "similarity": 0.6918586859871524
+        },
+        {
+          "skill_id": "skill_bench_fitting",
+          "label": "Bench fitting",
+          "alias": "fitting ka kaam",
+          "similarity": 0.6883621401570964
+        },
+        {
+          "skill_id": "skill_deburring",
+          "label": "Deburring / finishing",
+          "alias": "finishing ka kaam",
+          "similarity": 0.6871274300141686
+        },
+        {
+          "skill_id": "skill_pump_and_valve_repair",
+          "label": "Pump and valve repair",
+          "alias": "वाल्व ठीक करना",
+          "similarity": 0.6843902656799409
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-machine_maintenanc-1",
+          "query": "machine ki marammat",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_machine_maintenance",
+          "provenance": "corpus_alias:skill_machine_maintenance/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-machine_maintenanc-2",
+          "query": "maintenance",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_machine_maintenance",
+          "provenance": "corpus_alias:skill_machine_maintenance/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-machine_maintenanc-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_machine_maintenance",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-machine_maintenanc-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_isco_7233",
+          "expected_skill_id": "skill_machine_maintenance",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Machine maintenance\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"पंच मशीन\" (skill_punching_machine_operation, cosine 0.6919) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"fitting ka kaam\" (skill_bench_fitting, cosine 0.6884) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 5 domains (jd_isco_7233, jd_nco_7212_0300, jd_nco_7223_2400, jd_nco_7223_6002, jd_nco_7233_0101). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_measuring_instruments",
+      "label_en": "Micrometer / Vernier / gauge usage",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_isco_7213",
+        "jd_nco_7223_0701",
+        "jd_nco_7223_2400",
+        "jd_nco_7223_6002",
+        "jd_nco_7224_0102",
+        "jd_nco_7231_0400",
+        "jd_nco_7233_0101",
+        "jd_nco_7313_2601",
+        "jd_nco_7543_2001"
+      ],
+      "existing_aliases": [
+        {
+          "text": "gauge",
+          "lang": "en"
+        },
+        {
+          "text": "measuring instruments",
+          "lang": "en"
+        },
+        {
+          "text": "micrometer",
+          "lang": "en"
+        },
+        {
+          "text": "micrometer se naapna",
+          "lang": "hi"
+        },
+        {
+          "text": "naap tol",
+          "lang": "hi"
+        },
+        {
+          "text": "vernier caliper",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_go_no_go_gauge_checking",
+          "label": "Go no-go gauge checking",
+          "alias": "गेज से जांच",
+          "similarity": 0.7932832837104797
+        },
+        {
+          "skill_id": "skill_sheet_metal_marking_and_layout",
+          "label": "Sheet metal marking and layout",
+          "alias": "नाप लगाना",
+          "similarity": 0.7578606605529785
+        },
+        {
+          "skill_id": "skill_cmm",
+          "label": "CMM operation",
+          "alias": "coordinate measuring machine",
+          "similarity": 0.6554440455271022
+        },
+        {
+          "skill_id": "skill_dimensional_inspection",
+          "label": "Dimensional inspection",
+          "alias": "dimensional inspection",
+          "similarity": 0.6532102433913812
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-measuring_instrume-1",
+          "query": "gauge",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_measuring_instruments",
+          "provenance": "corpus_alias:skill_measuring_instruments/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-measuring_instrume-2",
+          "query": "measuring instruments",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_measuring_instruments",
+          "provenance": "corpus_alias:skill_measuring_instruments/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-measuring_instrume-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_measuring_instruments",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-measuring_instrume-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_measuring_instruments",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Micrometer / Vernier / gauge usage\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"गेज से जांच\" (skill_go_no_go_gauge_checking, cosine 0.7933) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"नाप लगाना\" (skill_sheet_metal_marking_and_layout, cosine 0.7579) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 9 domains (jd_isco_7213, jd_nco_7223_0701, jd_nco_7223_2400, jd_nco_7223_6002, jd_nco_7224_0102, jd_nco_7231_0400, jd_nco_7233_0101, jd_nco_7313_2601, jd_nco_7543_2001). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_mechanical_assembly",
+      "label_en": "Mechanical assembly",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7231_0400",
+        "jd_nco_8211_1200",
+        "jd_nco_8212_0100"
+      ],
+      "existing_aliases": [
+        {
+          "text": "assembly",
+          "lang": "en"
+        },
+        {
+          "text": "mechanical assembly",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_chassis_fitting",
+          "label": "Chassis fitting",
+          "alias": "chassis assembly",
+          "similarity": 0.7569757699966431
+        },
+        {
+          "skill_id": "skill_sub_assembly_quality_checking",
+          "label": "Sub-assembly quality checking",
+          "alias": "sub assembly check",
+          "similarity": 0.7107906341552734
+        },
+        {
+          "skill_id": "skill_fastener_selection_and_tightening",
+          "label": "Fastener selection and tightening",
+          "alias": "fastener tightening",
+          "similarity": 0.6419359445571899
+        },
+        {
+          "skill_id": "skill_bench_fitting",
+          "label": "Bench fitting",
+          "alias": "fitting",
+          "similarity": 0.622526265533345
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-mechanical_assembl-1",
+          "query": "assembly",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7231_0400",
+          "expected_skill_id": "skill_mechanical_assembly",
+          "provenance": "corpus_alias:skill_mechanical_assembly/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-mechanical_assembl-2",
+          "query": "mechanical assembly",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7231_0400",
+          "expected_skill_id": "skill_mechanical_assembly",
+          "provenance": "corpus_alias:skill_mechanical_assembly/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-mechanical_assembl-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7231_0400",
+          "expected_skill_id": "skill_mechanical_assembly",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-mechanical_assembl-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7231_0400",
+          "expected_skill_id": "skill_mechanical_assembly",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Mechanical assembly\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"chassis assembly\" (skill_chassis_fitting, cosine 0.7570) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"sub assembly check\" (skill_sub_assembly_quality_checking, cosine 0.7108) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 3 domains (jd_nco_7231_0400, jd_nco_8211_1200, jd_nco_8212_0100). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_mig_welding",
+      "label_en": "MIG welding",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7212_0300",
+        "jd_nco_7212_0301"
+      ],
+      "existing_aliases": [
+        {
+          "text": "GMAW",
+          "lang": "en"
+        },
+        {
+          "text": "MIG/MAG",
+          "lang": "en"
+        },
+        {
+          "text": "MIG welding",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_arc_welding",
+          "label": "Arc welding",
+          "alias": "SMAW",
+          "similarity": 0.8404996049553042
+        },
+        {
+          "skill_id": "skill_tig_welding",
+          "label": "TIG welding",
+          "alias": "GTAW",
+          "similarity": 0.8355350245375958
+        },
+        {
+          "skill_id": "skill_gas_cutting",
+          "label": "Gas cutting",
+          "alias": "oxy-fuel cutting",
+          "similarity": 0.6729403338712556
+        },
+        {
+          "skill_id": "skill_distortion_control_in_weldments",
+          "label": "Distortion control in weldments",
+          "alias": "वेल्ड विकृति रोकना",
+          "similarity": 0.6370816230773926
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-mig_welding-1",
+          "query": "GMAW",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7212_0300",
+          "expected_skill_id": "skill_mig_welding",
+          "provenance": "corpus_alias:skill_mig_welding/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-mig_welding-2",
+          "query": "MIG/MAG",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7212_0300",
+          "expected_skill_id": "skill_mig_welding",
+          "provenance": "corpus_alias:skill_mig_welding/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-mig_welding-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7212_0300",
+          "expected_skill_id": "skill_mig_welding",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-mig_welding-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7212_0300",
+          "expected_skill_id": "skill_mig_welding",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"MIG welding\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"SMAW\" (skill_arc_welding, cosine 0.8405) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"GTAW\" (skill_tig_welding, cosine 0.8355) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 2 domains (jd_nco_7212_0300, jd_nco_7212_0301). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_milling",
+      "label_en": "Milling",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7223_6003"
+      ],
+      "existing_aliases": [
+        {
+          "text": "CNC milling",
+          "lang": "en"
+        },
+        {
+          "text": "milling",
+          "lang": "en"
+        },
+        {
+          "text": "VMC operation",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_cnc_programming",
+          "label": "CNC programming",
+          "alias": "CNC programming",
+          "similarity": 0.7312716681523125
+        },
+        {
+          "skill_id": "skill_cam_software",
+          "label": "CAM software (Mastercam/Fusion/etc.)",
+          "alias": "CAM software",
+          "similarity": 0.6868305410990283
+        },
+        {
+          "skill_id": "skill_fanuc",
+          "label": "Fanuc control operation",
+          "alias": "Fanuc controller",
+          "similarity": 0.6242272257804871
+        },
+        {
+          "skill_id": "skill_gdt_reading",
+          "label": "GD&T / drawing reading",
+          "alias": "GD&T",
+          "similarity": 0.6232254690893136
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-milling-1",
+          "query": "CNC milling",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_milling",
+          "provenance": "corpus_alias:skill_milling/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-milling-2",
+          "query": "milling",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_milling",
+          "provenance": "corpus_alias:skill_milling/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-milling-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_milling",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-milling-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_milling",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Milling\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"CNC programming\" (skill_cnc_programming, cosine 0.7313) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"CAM software\" (skill_cam_software, cosine 0.6868) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them."
+      ]
+    },
+    {
+      "skill_id": "skill_mitsubishi",
+      "label_en": "Mitsubishi control operation",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7223_6003"
+      ],
+      "existing_aliases": [
+        {
+          "text": "Mitsubishi",
+          "lang": "en"
+        },
+        {
+          "text": "Mitsubishi controller",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_fanuc",
+          "label": "Fanuc control operation",
+          "alias": "Fanuc controller",
+          "similarity": 0.7650445699691772
+        },
+        {
+          "skill_id": "skill_siemens",
+          "label": "Siemens control operation",
+          "alias": "Siemens",
+          "similarity": 0.6500748783394633
+        },
+        {
+          "skill_id": "skill_program_editing",
+          "label": "Program editing (G & M codes)",
+          "alias": "M-code",
+          "similarity": 0.6188049685242765
+        },
+        {
+          "skill_id": "skill_cam_software",
+          "label": "CAM software (Mastercam/Fusion/etc.)",
+          "alias": "Mastercam",
+          "similarity": 0.617088794708252
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-mitsubishi-1",
+          "query": "Mitsubishi",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_mitsubishi",
+          "provenance": "corpus_alias:skill_mitsubishi/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-mitsubishi-2",
+          "query": "Mitsubishi controller",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_mitsubishi",
+          "provenance": "corpus_alias:skill_mitsubishi/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-mitsubishi-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_mitsubishi",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-mitsubishi-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_mitsubishi",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Mitsubishi control operation\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"Fanuc controller\" (skill_fanuc, cosine 0.7650) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"Siemens\" (skill_siemens, cosine 0.6501) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them."
+      ]
+    },
+    {
+      "skill_id": "skill_program_editing",
+      "label_en": "Program editing (G & M codes)",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7223_6002",
+        "jd_nco_7223_6003"
+      ],
+      "existing_aliases": [
+        {
+          "text": "G-code editing",
+          "lang": "en"
+        },
+        {
+          "text": "M-code",
+          "lang": "en"
+        },
+        {
+          "text": "program editing",
+          "lang": "en"
+        },
+        {
+          "text": "program sudharna",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_cnc_programming",
+          "label": "CNC programming",
+          "alias": "part programming",
+          "similarity": 0.7315056381975689
+        },
+        {
+          "skill_id": "skill_fixture_setup",
+          "label": "Fixture / job setup",
+          "alias": "setting karna",
+          "similarity": 0.6408510208129883
+        },
+        {
+          "skill_id": "skill_mitsubishi",
+          "label": "Mitsubishi control operation",
+          "alias": "Mitsubishi",
+          "similarity": 0.6188049685242765
+        },
+        {
+          "skill_id": "skill_cad_interpretation",
+          "label": "CAD / technical drawing interpretation",
+          "alias": "drawing padhna",
+          "similarity": 0.6171186750268544
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-program_editing-1",
+          "query": "G-code editing",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_program_editing",
+          "provenance": "corpus_alias:skill_program_editing/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-program_editing-2",
+          "query": "M-code",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_program_editing",
+          "provenance": "corpus_alias:skill_program_editing/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-program_editing-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_program_editing",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-program_editing-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_program_editing",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Program editing (G & M codes)\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"part programming\" (skill_cnc_programming, cosine 0.7315) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"setting karna\" (skill_fixture_setup, cosine 0.6409) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 2 domains (jd_nco_7223_6002, jd_nco_7223_6003). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_quality_control",
+      "label_en": "Quality control (QC)",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7313_2601"
+      ],
+      "existing_aliases": [
+        {
+          "text": "QC",
+          "lang": "en"
+        },
+        {
+          "text": "quality check karna",
+          "lang": "hi"
+        },
+        {
+          "text": "quality control",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_dimensional_inspection",
+          "label": "Dimensional inspection",
+          "alias": "quality check",
+          "similarity": 0.8218673467636108
+        },
+        {
+          "skill_id": "skill_surface_finish_inspection",
+          "label": "Surface finish inspection",
+          "alias": "surface finish check",
+          "similarity": 0.6953323665063175
+        },
+        {
+          "skill_id": "skill_visual_defect_identification",
+          "label": "Visual defect identification",
+          "alias": "आंख से जांच",
+          "similarity": 0.6939069811161184
+        },
+        {
+          "skill_id": "skill_go_no_go_gauge_checking",
+          "label": "Go no-go gauge checking",
+          "alias": "गेज से जांच",
+          "similarity": 0.6670666337013245
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-quality_control-1",
+          "query": "QC",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7313_2601",
+          "expected_skill_id": "skill_quality_control",
+          "provenance": "corpus_alias:skill_quality_control/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-quality_control-2",
+          "query": "quality check karna",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7313_2601",
+          "expected_skill_id": "skill_quality_control",
+          "provenance": "corpus_alias:skill_quality_control/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-quality_control-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7313_2601",
+          "expected_skill_id": "skill_quality_control",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-quality_control-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7313_2601",
+          "expected_skill_id": "skill_quality_control",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Quality control (QC)\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"quality check\" (skill_dimensional_inspection, cosine 0.8219) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"surface finish check\" (skill_surface_finish_inspection, cosine 0.6953) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them."
+      ]
+    },
+    {
+      "skill_id": "skill_sheet_metal",
+      "label_en": "Sheet-metal fabrication",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_isco_7213",
+        "jd_nco_7223_2400"
+      ],
+      "existing_aliases": [
+        {
+          "text": "chadar ka kaam",
+          "lang": "hi"
+        },
+        {
+          "text": "fabrication",
+          "lang": "en"
+        },
+        {
+          "text": "sheet metal",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_deburring",
+          "label": "Deburring / finishing",
+          "alias": "finishing ka kaam",
+          "similarity": 0.7029323577880859
+        },
+        {
+          "skill_id": "skill_press_brake_bending",
+          "label": "Press brake bending",
+          "alias": "press brake operation",
+          "similarity": 0.6609035927326561
+        },
+        {
+          "skill_id": "skill_punching_machine_operation",
+          "label": "Punching machine operation",
+          "alias": "punching operation",
+          "similarity": 0.6487338542938232
+        },
+        {
+          "skill_id": "skill_shearing_machine_operation",
+          "label": "Shearing machine operation",
+          "alias": "shearing operation",
+          "similarity": 0.6355681419372559
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-sheet_metal-1",
+          "query": "chadar ka kaam",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_sheet_metal",
+          "provenance": "corpus_alias:skill_sheet_metal/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-sheet_metal-2",
+          "query": "fabrication",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_sheet_metal",
+          "provenance": "corpus_alias:skill_sheet_metal/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-sheet_metal-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_sheet_metal",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-sheet_metal-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_isco_7213",
+          "expected_skill_id": "skill_sheet_metal",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Sheet-metal fabrication\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"finishing ka kaam\" (skill_deburring, cosine 0.7029) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"press brake operation\" (skill_press_brake_bending, cosine 0.6609) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 2 domains (jd_isco_7213, jd_nco_7223_2400). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_siemens",
+      "label_en": "Siemens control operation",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7223_6002",
+        "jd_nco_7223_6003"
+      ],
+      "existing_aliases": [
+        {
+          "text": "Siemens",
+          "lang": "en"
+        },
+        {
+          "text": "Sinumerik",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_fanuc",
+          "label": "Fanuc control operation",
+          "alias": "Fanuc",
+          "similarity": 0.7192981075822192
+        },
+        {
+          "skill_id": "skill_mitsubishi",
+          "label": "Mitsubishi control operation",
+          "alias": "Mitsubishi",
+          "similarity": 0.6500748783394633
+        },
+        {
+          "skill_id": "skill_cam_software",
+          "label": "CAM software (Mastercam/Fusion/etc.)",
+          "alias": "Mastercam",
+          "similarity": 0.6433440830316605
+        },
+        {
+          "skill_id": "skill_cnc_programming",
+          "label": "CNC programming",
+          "alias": "CNC programming",
+          "similarity": 0.6418281771387023
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-siemens-1",
+          "query": "Siemens",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_siemens",
+          "provenance": "corpus_alias:skill_siemens/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-siemens-2",
+          "query": "Sinumerik",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_siemens",
+          "provenance": "corpus_alias:skill_siemens/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-siemens-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_siemens",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-siemens-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_siemens",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Siemens control operation\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"Fanuc\" (skill_fanuc, cosine 0.7193) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"Mitsubishi\" (skill_mitsubishi, cosine 0.6501) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 2 domains (jd_nco_7223_6002, jd_nco_7223_6003). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_tapping_threading",
+      "label_en": "Tapping / threading",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7126_0301",
+        "jd_nco_7223_0701"
+      ],
+      "existing_aliases": [
+        {
+          "text": "chudi katna",
+          "lang": "hi"
+        },
+        {
+          "text": "tapping",
+          "lang": "en"
+        },
+        {
+          "text": "threading",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_gas_cutting",
+          "label": "Gas cutting",
+          "alias": "gas se katna",
+          "similarity": 0.737906813621521
+        },
+        {
+          "skill_id": "skill_drilling",
+          "label": "Drilling",
+          "alias": "chhed karna",
+          "similarity": 0.6992965936660767
+        },
+        {
+          "skill_id": "skill_lathe_chuck_mounting",
+          "label": "Lathe chuck mounting",
+          "alias": "चक कसना",
+          "similarity": 0.6650227308273315
+        },
+        {
+          "skill_id": "skill_turning",
+          "label": "Turning (lathe operation)",
+          "alias": "turning",
+          "similarity": 0.6534470721051996
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-tapping_threading-1",
+          "query": "chudi katna",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_tapping_threading",
+          "provenance": "corpus_alias:skill_tapping_threading/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-tapping_threading-2",
+          "query": "tapping",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_tapping_threading",
+          "provenance": "corpus_alias:skill_tapping_threading/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-tapping_threading-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_tapping_threading",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-tapping_threading-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_tapping_threading",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Tapping / threading\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"gas se katna\" (skill_gas_cutting, cosine 0.7379) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"chhed karna\" (skill_drilling, cosine 0.6993) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 2 domains (jd_nco_7126_0301, jd_nco_7223_0701). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_tool_offset_setting",
+      "label_en": "Tool offset setting",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7223_6002",
+        "jd_nco_7223_6003"
+      ],
+      "existing_aliases": [
+        {
+          "text": "offset setting",
+          "lang": "en"
+        },
+        {
+          "text": "tool offset",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_fixture_setup",
+          "label": "Fixture / job setup",
+          "alias": "job setting",
+          "similarity": 0.6878941264120977
+        },
+        {
+          "skill_id": "skill_cutting_tool_selection",
+          "label": "Cutting tool selection",
+          "alias": "टूल चुनना",
+          "similarity": 0.632820505881921
+        },
+        {
+          "skill_id": "skill_cnc_programming",
+          "label": "CNC programming",
+          "alias": "CNC programming",
+          "similarity": 0.620709080121192
+        },
+        {
+          "skill_id": "skill_cam_software",
+          "label": "CAM software (Mastercam/Fusion/etc.)",
+          "alias": "CAM software",
+          "similarity": 0.6180469393730164
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-tool_offset_settin-1",
+          "query": "offset setting",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_tool_offset_setting",
+          "provenance": "corpus_alias:skill_tool_offset_setting/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-tool_offset_settin-2",
+          "query": "tool offset",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_tool_offset_setting",
+          "provenance": "corpus_alias:skill_tool_offset_setting/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-tool_offset_settin-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_tool_offset_setting",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-tool_offset_settin-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_6002",
+          "expected_skill_id": "skill_tool_offset_setting",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Tool offset setting\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval.",
+        "No Hindi/Devanagari alias. Supply the term workers use on the shop floor, or record that the English term is what is actually spoken.",
+        "Is \"job setting\" (skill_fixture_setup, cosine 0.6879) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"टूल चुनना\" (skill_cutting_tool_selection, cosine 0.6328) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 2 domains (jd_nco_7223_6002, jd_nco_7223_6003). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    },
+    {
+      "skill_id": "skill_turning",
+      "label_en": "Turning (lathe operation)",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7223_0701",
+        "jd_nco_7223_6002"
+      ],
+      "existing_aliases": [
+        {
+          "text": "CNC turning",
+          "lang": "en"
+        },
+        {
+          "text": "kharad",
+          "lang": "hi"
+        },
+        {
+          "text": "kharad ka kaam",
+          "lang": "hi"
+        },
+        {
+          "text": "lathe operation",
+          "lang": "en"
+        },
+        {
+          "text": "turning",
+          "lang": "en"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_drilling",
+          "label": "Drilling",
+          "alias": "drilling ka kaam",
+          "similarity": 0.6920935121802545
+        },
+        {
+          "skill_id": "skill_deburring",
+          "label": "Deburring / finishing",
+          "alias": "finishing ka kaam",
+          "similarity": 0.6781537532806396
+        },
+        {
+          "skill_id": "skill_boring",
+          "label": "Boring",
+          "alias": "boring",
+          "similarity": 0.665203074657828
+        },
+        {
+          "skill_id": "skill_lathe_chuck_mounting",
+          "label": "Lathe chuck mounting",
+          "alias": "चक कसना",
+          "similarity": 0.6577062010765076
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-turning-1",
+          "query": "CNC turning",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_turning",
+          "provenance": "corpus_alias:skill_turning/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-turning-2",
+          "query": "kharad",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_turning",
+          "provenance": "corpus_alias:skill_turning/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-turning-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_turning",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-turning-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_turning",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Turning (lathe operation)\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"drilling ka kaam\" (skill_drilling, cosine 0.6921) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"finishing ka kaam\" (skill_deburring, cosine 0.6782) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 2 domains (jd_nco_7223_0701, jd_nco_7223_6002). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    }
+  ]
+}
