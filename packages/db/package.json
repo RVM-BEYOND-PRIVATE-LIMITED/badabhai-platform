@@ -67,7 +67,11 @@
     "db:verify:match-v1": "tsx src/verify-match-v1.ts",
     "clean": "rimraf --glob dist .turbo *.tsbuildinfo",
     "db:audit:domains": "tsx src/audit-job-domains.ts",
-    "db:score:wedge": "tsx src/score-wedge.ts"
+    "db:score:wedge": "tsx src/score-wedge.ts",
+    "db:scale:taxonomy": "tsx src/taxonomy-scale-sim.ts",
+    "db:promote:skills": "tsx src/promote-skills.ts",
+    "db:sweep:floor": "tsx src/taxonomy-floor-sweep.ts",
+    "db:experiment:alias": "tsx src/taxonomy-alias-experiment.ts"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",

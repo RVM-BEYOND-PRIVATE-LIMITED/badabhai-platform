@@ -1,0 +1,62 @@
+{
+  "_why": "Tail family for ISCO minor group 513 (Bar Service). Bound at MINOR level (specificity 30) rather than per unit group: the 513x units are narrow industrial specialisations whose workers would get near-identical questions, and 158 near-duplicate packs would be padding that LOOKS like coverage. A unit-level family always wins over this one — that is what the six specificity levels are for.",
+  "_v2": "REMOVES `tools_owned`. 'Kya aapke paas apne auzaar hain?' has no referent in a service, sales, care or supervision role — a cashier, a ward attendant and a security guard do not carry a tool kit to work, and every one of them was asked anyway. The item was never authored FOR this pack: Phase 6 (#615) stamped one shared four-question block onto every cluster it could not differentiate, and this is the row that block got wrong. An irrelevant question costs a paid provider call, one of 24 engine asks, and the worker's trust that the interview knows what they do.",
+  "pack_id": "qp_bar_service",
+  "version": 2,
+  "family_id": "fam_bar_service",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v2 removes tools_owned (service cluster). v1 is deprecated in the same commit — the corpus validator refuses a second ACTIVE pack for one family+locale, because the resolver must never have to choose.",
+  "items": [
+    {
+      "question_key": "service_given",
+      "prompt_text": "Aap kaunsi service dete hain?",
+      "why_text": "Service ke hisaab se jagah dhoondhte hain.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "text",
+      "is_core": true,
+      "max_asks": 2
+    },
+    {
+      "question_key": "customer_facing",
+      "prompt_text": "Kya aap grahak se baat karte hain?",
+      "why_text": "Grahak se baat karne wale alag rakhe jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "customer_facing",
+      "answer_type": "boolean",
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "field",
+          "label_text": "Bahar ya khet me",
+          "value_text": "field"
+        }
+      ]
+    }
+  ]
+}

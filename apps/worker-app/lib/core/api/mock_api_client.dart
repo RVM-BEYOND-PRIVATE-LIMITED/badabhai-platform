@@ -110,8 +110,11 @@ class MockApiClient extends ApiClient {
   Future<String> awaitProfileId(
     String aiJobId, {
     required String authToken,
-    int maxAttempts = 40,
-    Duration pollInterval = const Duration(milliseconds: 350),
+    // Mirrors the real client's default rather than repeating the old literal
+    // 40. Unused here (the mock resolves immediately), but a stale copy of a
+    // budget that has moved is exactly how the two drift back apart.
+    int maxAttempts = kProfileExtractPollMaxAttempts,
+    Duration pollInterval = kAiJobPollInterval,
   }) async {
     await _delay();
     return 'mock-profile-0001';

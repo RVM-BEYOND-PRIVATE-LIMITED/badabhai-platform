@@ -184,6 +184,24 @@ const ProfilingQuestionSchema = z.object({
    * refuses to build a manifest containing one.
    */
   tts_clip_id: z.string(),
+  /**
+   * `prompt_text` in DEVANAGARI for read-aloud (#896) — the ON-DEVICE companion to the
+   * pre-rendered `tts_clip_id` above, not a replacement for it.
+   *
+   * TWO MECHANISMS, DELIBERATELY, because they fail in opposite directions. `tts_clip_id`
+   * resolves a Sarvam-rendered clip: better prosody, zero device variance, but only for text
+   * inside the closure and only once the catalogue has actually been rendered. `tts_text` is
+   * spoken by the device's own `hi-IN` voice: available immediately, for any string, at the cost
+   * of a synthetic voice. A client should prefer the clip and fall back to speaking this.
+   *
+   * WHY IT MATTERS ON THIS SURFACE AT ALL. A worker on the voice form cannot read the screen —
+   * that is the premise of the surface. An id that resolves to no asset is documented above as
+   * "the designed degradation… the client falls back to text", and falling back to TEXT is
+   * silence for this worker. This field is what that fallback can actually say.
+   *
+   * Absent, never null, when no Devanagari is authored — same additive contract as chat.
+   */
+  tts_text: z.string().optional(),
 });
 
 /**

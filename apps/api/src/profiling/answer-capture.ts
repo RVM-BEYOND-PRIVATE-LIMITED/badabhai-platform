@@ -448,8 +448,15 @@ function needlesFor(labelText: string): string[] {
  * claims its characters before the shorter one can. Sorting per-option was not enough once labels
  * decomposed into alternatives: a two-character-longer fragment of option B must not lose to the
  * whole label of option A merely because A was scanned first.
+ *
+ * EXPORTED for the Phase A handoff (`settleFromLlmDraft`), which has to turn a model's free-text
+ * skill list into values a pack question can hold. That path deliberately does NOT go through
+ * {@link captureAnswer}: it has no worker utterance to classify and no transcript to cite, so it
+ * needs the vocabulary match ALONE — with the evidence span left null rather than invented. This
+ * is the one function that decides what an option list accepts, and a second copy of that decision
+ * living in the orchestrator is exactly the drift this export prevents.
  */
-function matchOptions(item: QuestionPackItem, text: string): unknown[] {
+export function matchOptions(item: QuestionPackItem, text: string): unknown[] {
   const masked = applyNegation(text).masked.toLowerCase();
 
   const needles = item.options

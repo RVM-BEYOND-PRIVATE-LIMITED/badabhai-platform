@@ -4,17 +4,21 @@ import {
   ForbiddenException,
   HttpException,
   HttpStatus,
+  NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { validateEvent } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
+import { PAYER_TEST_LOGIN_DOMAIN } from "../payers/payer-test-login.guard";
 import { PayerAuthService } from "./payer-auth.service";
 
 const CTX: RequestContext = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req-1" };
 const PAYER_ID = "aaaaaaaa-0000-4000-8000-000000000001";
 const EMAIL = "boss@acme.com";
+/** Inside the reserved RFC 2606 `.invalid` domain the test-login seam is allowed to mint for. */
+const SYNTHETIC_EMAIL = `e2e-1${PAYER_TEST_LOGIN_DOMAIN}`;
 const ORG = "Acme Manufacturing Pvt Ltd";
 const PHONE = "+919876543210";
 
@@ -110,6 +114,48 @@ describe("PayerAuthService.signup", () => {
     // B5: an existing account is NEVER mutated on the signup path — no org ensure either.
     expect(d.orgs.ensureSoloOrg).not.toHaveBeenCalled();
     expect(res).toMatchObject({ status: "code_sent" }); // same neutral shape as a new signup
+  });
+});
+
+describe("PayerAuthService.testLogin (Phase 2.1 seam)", () => {
+  let d: ReturnType<typeof setup>;
+  beforeEach(() => {
+    d = setup();
+  });
+
+  // The drift this suite exists to prevent (#902): `testLogin`'s JSDoc used to claim it ran
+  // "the ordinary account path ... + the free-tier grant". It never has. Locking the ABSENCE is
+  // the only thing that stops the doc — or an e2e assertion trusting it — drifting back.
+  it("does NOT grant free-tier credits — a test-minted payer starts with zero unlock credits", async () => {
+    await d.svc.testLogin(SYNTHETIC_EMAIL, CTX);
+    expect(d.freeTier.grantQuietly).not.toHaveBeenCalled();
+  });
+
+  // Contrast, so the assertion above can never pass vacuously (e.g. a renamed/unwired mock):
+  // the SAME fixture does grant on the signup path.
+  it("...while signup on the same fixture DOES grant — the mock is wired", async () => {
+    await d.svc.signup({ role: "employer", email: EMAIL, org_name: ORG, phone: PHONE }, CTX);
+    expect(d.freeTier.grantQuietly).toHaveBeenCalledWith(PAYER_ID);
+  });
+
+  it("mints a session for a synthetic address, force-activates, and emits payer.test_login (not session_started)", async () => {
+    const res = await d.svc.testLogin(SYNTHETIC_EMAIL, CTX);
+    // Force-activated: without this PayerAuthGuard 403s the very next request.
+    expect(d.payers.activate).toHaveBeenCalledWith(PAYER_ID);
+    expect(res).toMatchObject({ access_token: "jwt-token", payer_id: PAYER_ID, role: "employer", is_new_payer: true });
+
+    const names = d.events.emit.mock.calls.map((c) => c[0].event_name);
+    expect(names).toContain("payer.test_login");
+    // A synthetic session must never be indistinguishable from a real login on the spine.
+    expect(names).not.toContain("payer.session_started");
+    assertNoPiiInEvents(d.events);
+  });
+
+  it("refuses an address OUTSIDE the reserved .invalid domain with the guard's neutral 404 — no account touched", async () => {
+    await expect(d.svc.testLogin(EMAIL, CTX)).rejects.toBeInstanceOf(NotFoundException);
+    expect(d.payers.createOrGet).not.toHaveBeenCalled();
+    expect(d.sessions.create).not.toHaveBeenCalled();
+    expect(d.events.emit).not.toHaveBeenCalled();
   });
 });
 

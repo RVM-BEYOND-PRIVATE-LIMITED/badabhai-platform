@@ -20,7 +20,14 @@
  * the questions a worker speaks aloud in a noisy yard, each one a paid provider call, and 8-9 of a
  * ~13-question session are attribute-kind. Discarding them costs money, costs the worker's time,
  * and throws away exactly the signals CLAUDE.md §2 says to rank on — `workplace_type` (100 items),
- * `tools_owned` (99), `safety_training` (17), `shift_work` (14).
+ * `tools_owned` (59), `safety_training` (17), `shift_work` (14).
+ *
+ * `tools_owned` WAS 99 AND IS NOW 59, deliberately. Phase 6 (#615) stamped one shared four-question
+ * block onto every cluster it could not differentiate, so a cashier, a ward attendant and a bus
+ * driver were all asked "Kya aapke paas apne auzaar hain?" — a question with no referent in their
+ * work. Forty packs were cut to v2 with the item removed; it stays in the 59 skilled trades where a
+ * worker really does arrive with a kit and contractors really do choose on it. Counting a signal
+ * that 40 packs could not produce honestly is what made it look stronger than it was.
  *
  * WHY A TABLE RATHER THAN JSONB ON `worker_profiles`. The 80 distinct attribute keys are matching
  * inputs, not display fields. A row per (worker, attribute) is what lets the matcher filter on

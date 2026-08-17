@@ -1214,6 +1214,106 @@ describe("ChatService — the lookahead reaches the client (#765)", () => {
 // The opener
 // ---------------------------------------------------------------------------
 
+/**
+ * #896 — the Devanagari read-aloud sibling.
+ *
+ * The premise of the whole feature is a worker who CANNOT READ THE SCREEN, so the failure these
+ * tests guard is silent by construction: a missing or wrong `tts_text` produces a response that
+ * looks perfect in a diff and is mispronounced on a phone. Every assertion below is therefore
+ * about the WIRE — present, absent, or equal to a specific string — never about the lookup.
+ */
+describe("ChatService — tts_text, the read-aloud sibling (#896)", () => {
+  const CLOSING = "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.";
+  const UNAVAILABLE = "Abhi thodi dikkat aa rahi hai. Ek minute baad dobara bhejiye.";
+
+  it("carries the Devanagari twin of a CONSTANT reply", async () => {
+    const { res } = await run({ turn: { unavailable: true, reply: UNAVAILABLE } });
+    expect(res.reply).toBe(UNAVAILABLE);
+    expect((res as Record<string, unknown>).tts_text).toBe(
+      "अभी थोड़ी दिक्कत आ रही है। एक मिनट बाद दोबारा भेजिये।",
+    );
+  });
+
+  it("OMITS the key entirely for an unauthored reply — the client then speaks the roman text", async () => {
+    // A string NO pack contains — the corpus now covers the whole reply closure, so a real pack
+    // question would resolve and this would assert nothing. `in` rather than a null check, because
+    // `tts_text: null` would deserialize as a present-but-empty field on a client that treats null
+    // as "speak nothing".
+    const { res } = await run({ turn: { reply: "Kya aap chandrayaan udate hain?" } });
+    expect("tts_text" in (res as Record<string, unknown>)).toBe(false);
+  });
+
+  it("a TERMINAL turn into a finished session still reads aloud", async () => {
+    const { res } = await run({ sessionStatus: "ended" });
+    expect(res.reply).toBe(CLOSING);
+    expect((res as Record<string, unknown>).tts_text).toBe(
+      "आपकी बात पूरी हो चुकी है। प्रोफ़ाइल तैयार हो रही है।",
+    );
+  });
+
+  it("a REPLAYED turn repeats the twin along with the reply", async () => {
+    const { res } = await run({ turn: { replayed: true, reply: CLOSING } });
+    expect((res as Record<string, unknown>).tts_text).toBe(
+      "आपकी बात पूरी हो चुकी है। प्रोफ़ाइल तैयार हो रही है।",
+    );
+  });
+
+  it("never carries a raw {{worker_name}} — the twin is rendered through the same path as the reply", async () => {
+    const { res } = await run({ turn: { unavailable: true, reply: UNAVAILABLE } });
+    expect((res as Record<string, unknown>).tts_text).not.toContain("{{");
+  });
+});
+
+describe("ChatService.listMessages — replayed questions read aloud too (#896)", () => {
+  it("adds tts_text to OUTBOUND rows and never to inbound ones", async () => {
+    // `buffer: null` forces the POSTGRES branch — no buffer, so hydration reads rows.
+    const { svc, chat } = make({ buffer: null });
+    chat.listMessages.mockResolvedValue([
+      {
+        direction: "outbound",
+        bodyText: "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
+        createdAt: new Date("2026-08-17T05:00:00.000Z"),
+      },
+      // The worker's OWN words. Even when they coincide with an authored string, nothing reads a
+      // worker's message back to them — so the key must be absent on this row.
+      {
+        direction: "inbound",
+        bodyText: "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
+        createdAt: new Date("2026-08-17T05:00:01.000Z"),
+      },
+    ]);
+
+    const res = await svc.listMessages(WORKER, SESSION);
+    const [outbound, inbound] = res.messages as unknown as Record<string, unknown>[];
+
+    expect(outbound!.tts_text).toBe("आपकी बात पूरी हो चुकी है। प्रोफ़ाइल तैयार हो रही है।");
+    expect("tts_text" in inbound!).toBe(false);
+  });
+
+  it("resolves from the BUFFER branch on the same rule", async () => {
+    // Through `make`, so the buffer is a REAL TranscriptBuffer (turnCount, captured, roleFamily,
+    // startedAt) rather than the two fields this assertion happens to read.
+    const { svc } = make({
+      buffer: {
+        messages: [
+          {
+            role: "assistant",
+            text: "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
+            at: "2026-08-17T05:00:00.000Z",
+          },
+          { role: "worker", text: "haan", at: "2026-08-17T05:00:01.000Z" },
+        ],
+      },
+    });
+
+    const res = await svc.listMessages(WORKER, SESSION);
+    const [assistant, worker] = res.messages as unknown as Record<string, unknown>[];
+
+    expect(assistant!.tts_text).toBe("आपकी बात पूरी हो चुकी है। प्रोफ़ाइल तैयार हो रही है।");
+    expect("tts_text" in worker!).toBe(false);
+  });
+});
+
 describe("ChatService.startSession — the opener is reviewed copy, not a model call", () => {
   it("omits opening_text entirely when the flag is off", async () => {
     const { svc } = make();
@@ -1229,6 +1329,20 @@ describe("ChatService.startSession — the opener is reviewed copy, not a model 
     const text = res.opening_text as string;
     expect((text.match(/\?/g) ?? []).length).toBe(1);
     expect(text).not.toMatch(/!/);
+  });
+
+  it("serves opening_tts_text beside it, so turn one reads aloud (#896)", async () => {
+    const { svc } = make({ oneShotOpener: true });
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect(res.opening_tts_text).toBe(
+      "नमस्ते। आप कौन सा काम करते हैं, कहाँ रहते हैं, और कितना तजुर्बा है?",
+    );
+  });
+
+  it("omits opening_tts_text when the opener itself is omitted", async () => {
+    const { svc } = make();
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect("opening_tts_text" in res).toBe(false);
   });
 
   it("still emits chat.session_started", async () => {

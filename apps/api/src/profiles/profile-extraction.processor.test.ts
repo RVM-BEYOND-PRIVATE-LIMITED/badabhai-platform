@@ -1080,8 +1080,13 @@ describe("the 77% reaches worker_attributes", () => {
    * dropped on the floor. A live 13-turn welding interview produced 10 typed answers and
    * ZERO rows here: the original 77% defect, moved one layer later and no less total.
    *
-   * `workplace_type` (100 items), `tools_owned` (99), `safety_training` (17) and
+   * `workplace_type` (100 items), `tools_owned` (59), `safety_training` (17) and
    * `shift_work` (14) are matching inputs under §2. An unwritten row ranks nobody.
+   *
+   * `tools_owned` reads 59 rather than the 99 this comment carried when the defect was found:
+   * 40 packs were cut to v2 with the item removed, because a cashier and a bus driver were
+   * being asked whether they own their own auzaar. The RATIO in the name above is the one
+   * measured at the time and is left alone; today's is 319 of 426 active items.
    */
   const attributeMap = (over: Record<string, unknown> = {}) => ({
     conversationState: {

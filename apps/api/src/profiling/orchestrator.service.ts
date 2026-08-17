@@ -46,7 +46,7 @@ import {
   toPackOption,
 } from "./identify.service";
 import { LlmTurnService } from "./llm-turn.service";
-import { captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
+import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
 import {
   answerSetHash,
   isSettled,
@@ -1082,7 +1082,13 @@ export class ProfilingOrchestrator {
         // `done` — Phase A is over. What the model gathered becomes ANSWERS before the engine is
         // consulted, or the template tail opens by asking a worker their trade immediately after
         // a conversation that was largely about it.
-        answers = settleFromLlmDraft(answers, next.llmDraft, items, turn);
+        answers = settleFromLlmDraft(
+          answers,
+          next.llmDraft,
+          next.occupation?.label ?? null,
+          items,
+          turn,
+        );
         next = withAnswers(next, answers);
         // FALL THROUGH so the engine serves the template pack's first question on THIS turn:
         // returning the model's closing words here would cost the worker a round trip to see a
@@ -1939,14 +1945,35 @@ function unavailable(): TurnResult {
  * model could not put a number on understates a worker's experience, and understating it is the
  * one direction that costs them jobs — so a partial answer is left for the pack question to ask
  * properly rather than filled in with a number nobody can defend.
+ *
+ * THE PINNED OCCUPATION IS THE LAST TRADE FALLBACK, and it is what closes the bug this function
+ * was already written to prevent. Both draft labels default to `null`, and an `experience_entry`
+ * may arrive on ANY turn — including the first, which the composite opener actively invites
+ * ("aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?"). An entry opens the
+ * Yes/No gate immediately, so a worker can reach "Aur koi experience jodna hai?" with both labels
+ * still null, answer "nahi", and be asked "Aap kaunsa kaam karte hain?" as the very next line —
+ * after a conversation that was entirely about their trade.
+ *
+ * `occupation.label` is safe to spend here in a way a model's free text would not be: it is
+ * RETRIEVAL's pin, the same deterministic decision that chose the pack whose questions are about
+ * to be served. Last in precedence, because the model's own labels are more specific when present.
+ *
+ * SKILLS ARE MATCHED AGAINST THE PACK'S OWN VOCABULARY, never written through verbatim. The draft
+ * carries free text ("MIG welding") and the skills items are `multi_select` over a closed option
+ * list, so the model's words are run through {@link matchOptions} — the SAME matcher a typed
+ * answer goes through — and only the options that actually land are settled. A skill that matches
+ * nothing settles nothing and the question is still asked, which is the correct outcome: §11 says
+ * validate AI output before business logic consumes it, and `answer_option_keys` is read by the
+ * matcher as pack vocabulary. Writing "MIG welding" into it would be a value no option means.
  */
 function settleFromLlmDraft(
   answers: AnswerMap,
   draft: ProfilingEnvelope["llmDraft"],
+  occupationLabel: string | null,
   items: readonly QuestionPackItem[],
   turn: number,
 ): AnswerMap {
-  const trade = (draft.role_label ?? draft.domain_label ?? "").trim();
+  const trade = (draft.role_label ?? draft.domain_label ?? occupationLabel ?? "").trim();
   const months = draft.experiences.map((entry) => entry.duration_months);
   const years =
     months.length > 0 && months.every((m): m is number => typeof m === "number")
@@ -1975,6 +2002,41 @@ function settleFromLlmDraft(
 
   if (trade) settle("trade", trade, trade);
   if (years !== null) settle("experience_years", `${years}`, years);
+
+  // EVERY skills item, not the first one `settle` would have found: a pack may carry more than one
+  // (`welding_process` and a materials question both target `skills`), and they ask about different
+  // things. One joined string is scanned for each, because `matchOptions` masks negation and
+  // consumes matched characters per item — running it per skill would let a two-word option lose to
+  // a one-word fragment scanned in a different call.
+  const skillsText = draft.skills.join(", ").trim();
+  if (skillsText) {
+    for (const item of items) {
+      if (item.target_field !== "skills" || isSettled(next, item.question_key)) continue;
+      const matched = matchOptions(item, skillsText);
+      // MIRRORS THE CAPTURE RULES EXACTLY (`normalizeFor`): a multi_select holds the list, a
+      // single_select holds exactly one — two option labels in one draft is not an answer to a
+      // single-choice question, and picking the first would be picking at random. Anything else
+      // (a free-text skills item) is left for the question to ask properly.
+      const value =
+        item.answer_type === "multi_select" && matched.length > 0
+          ? matched
+          : item.answer_type === "single_select" && matched.length === 1
+            ? matched[0]
+            : undefined;
+      if (value === undefined) continue;
+      next = recordAnswer(
+        next,
+        {
+          questionKey: item.question_key,
+          targetField: "skills",
+          valueRaw: skillsText,
+          valueNormalized: value,
+          evidence: null,
+        },
+        turn,
+      );
+    }
+  }
   return next;
 }
 

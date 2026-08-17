@@ -8,6 +8,7 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import { ProfilesService } from "../profiles/profiles.service";
 import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrator.service";
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
+import { ttsField, ttsTextFor } from "../profiling/question-tts-text";
 import { toConversationStatePatch } from "../profiling/conversation-state";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
@@ -222,7 +223,15 @@ export class ChatService {
     // DELIBERATELY NOT the universal pack's first question. The engine asks that on the first
     // POST, and rendering it here too would show the worker the same question twice — once as
     // an un-answerable greeting and once as a real turn.
-    const response: StartSessionResponse = { ...base, opening_text: CHAT_OPENING_TEXT };
+    // #896 — the opener's Devanagari twin ships WITH it, so turn one reads aloud correctly and
+    // the client can stop carrying its own hard-coded copy of this sentence.
+    const response: StartSessionResponse = {
+      ...base,
+      opening_text: CHAT_OPENING_TEXT,
+      ...(ttsTextFor(CHAT_OPENING_TEXT) === undefined
+        ? {}
+        : { opening_tts_text: ttsTextFor(CHAT_OPENING_TEXT) }),
+    };
     const checked = StartSessionResponseSchema.safeParse(response);
     if (!checked.success) {
       this.logger.warn(
@@ -268,6 +277,7 @@ export class ChatService {
           {
             session_id: dto.session_id,
             reply: CHAT_ALREADY_COMPLETE_REPLY,
+            ...this.ttsField(CHAT_ALREADY_COMPLETE_REPLY, null),
             blocked: false,
             is_mock: true,
             // Nothing is on screen to tap: the interview is over.
@@ -299,6 +309,9 @@ export class ChatService {
           {
             session_id: dto.session_id,
             reply: outcome.turn.reply,
+            // FROM THE REPLAYED TURN too — a resubmit over a bad link must read aloud exactly as
+            // the response it claims to repeat.
+            ...this.ttsField(outcome.turn.reply, null),
             blocked: false,
             is_mock: false,
             // FROM THE REPLAYED TURN, not empty (#695). The orchestrator caches the chips
@@ -564,6 +577,11 @@ export class ChatService {
     const response: PostMessageResponse = {
       session_id: dto.session_id,
       reply: this.renderPackText(turn.reply, workerFullName),
+      // #896 — the SAME sentence in Devanagari, so read-aloud pronounces it. Resolved from
+      // `turn.reply` PRE-interpolation (the sidecar is keyed by the engine string, and a lookup
+      // on the rendered text would key on the worker's real name), then rendered through the
+      // identical `renderPackText` so both strings carry the name the same way.
+      ...this.ttsField(turn.reply, workerFullName),
       blocked: false,
       // PERMANENTLY FALSE, and deliberately not repurposed. The field meant "this reply
       // came from a mock LLM instead of a real one"; there is no LLM in this path at all,
@@ -617,6 +635,7 @@ export class ChatService {
                 question_key: entry.questionKey,
                 question_kind: entry.kind,
                 prompt_text: this.renderPackText(entry.promptText, workerFullName),
+                ...this.ttsField(entry.promptText, workerFullName),
                 why_text:
                   entry.whyText === null
                     ? null
@@ -1097,6 +1116,11 @@ export class ChatService {
       {
         session_id: sessionId,
         reply: reply.replace(/\{\{[^}]*\}\}/g, ""),
+        // #896 — a degraded/terminal turn serves a CONSTANT ("Abhi thodi dikkat aa rahi hai…"),
+        // which is exactly the kind of line a worker is most likely to have read aloud, since
+        // nothing else on screen explains what went wrong. Placeholders are stripped the same
+        // way on both strings.
+        ...this.ttsField(reply, null),
         blocked: opts.blocked ?? false,
         is_mock: true,
         // No turn happened, so there are no chips — the same reason `progress` is null below.
@@ -1138,6 +1162,7 @@ export class ChatService {
       {
         session_id: sessionId,
         reply: CHAT_ALREADY_COMPLETE_REPLY,
+        ...this.ttsField(CHAT_ALREADY_COMPLETE_REPLY, null),
         blocked: false,
         is_mock: true,
         // A dead session serves no question, so it offers nothing to tap.
@@ -1245,6 +1270,9 @@ export class ChatService {
         messages: buffered.messages.map((m) => ({
           direction: m.role === "worker" ? ("inbound" as const) : ("outbound" as const),
           body_text: m.text,
+          // #896 — ASSISTANT lines only. An inbound line is the worker's own words, in whatever
+          // script they typed, and nothing reads those back to them.
+          ...(m.role === "worker" ? {} : this.ttsField(m.text, null)),
           created_at: m.at,
         })),
       };
@@ -1262,6 +1290,10 @@ export class ChatService {
       messages: rows.map((row) => ({
         direction: row.direction,
         body_text: row.bodyText,
+        // #896 — the durable half of the same rule as the buffer branch above. The stored line
+        // looks ITSELF up: `chat_messages` carries no question_key, which is exactly why the
+        // sidecar is keyed by reply text rather than by key.
+        ...(row.direction === "inbound" ? {} : this.ttsField(row.bodyText ?? "", null)),
         created_at: row.createdAt.toISOString(),
       })),
     };
@@ -1293,6 +1325,25 @@ export class ChatService {
       );
       return null;
     }
+  }
+
+  /**
+   * `{ tts_text }` for a reply, or `{}` when no Devanagari twin is authored (#896).
+   *
+   * SPREAD RATHER THAN A NULLABLE FIELD, so an unauthored reply produces a body with the key
+   * ABSENT — the shape the DTO documents and the one the client treats as "speak the romanized
+   * text", which is today's behaviour. `tts_text: undefined` would serialize the same over JSON
+   * but reads, in every call site below, as a field somebody forgot to fill.
+   *
+   * TAKES THE RAW ENGINE STRING. The sidecar is keyed by the reply the engine produced, before
+   * `{{worker_name}}` becomes a real name; the twin is then rendered through the SAME
+   * {@link renderPackText} as the shown text so the two cannot diverge on the vocative.
+   */
+  private ttsField(reply: string, fullName: string | null): { tts_text?: string } {
+    const field = ttsField(reply);
+    return field.tts_text === undefined
+      ? {}
+      : { tts_text: this.renderPackText(field.tts_text, fullName) };
   }
 
   /**
