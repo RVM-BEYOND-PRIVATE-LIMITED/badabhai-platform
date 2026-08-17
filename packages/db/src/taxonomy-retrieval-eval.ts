@@ -262,12 +262,40 @@ export const CANONICAL_RETRIEVAL_SQL = `
   SELECT sa.skill_id AS skill_id, 1 - (sa.embedding <=> $1::vector) AS score
   FROM skill_alias sa
   JOIN job_domain_skill jds ON jds.skill_id = sa.skill_id
+  JOIN skill s ON s.skill_id = sa.skill_id
   WHERE jds.job_domain_id = $2
     AND jds.status = 'active'
+    AND s.status = ANY($4::text[])
     AND sa.embedding IS NOT NULL
   ORDER BY sa.embedding <=> $1::vector
   LIMIT $3
 `;
+
+/**
+ * Skill statuses the harness will retrieve. Production is `['active']` — full stop.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THIS IS A PARAMETER HERE AND A LITERAL IN PRODUCTION
+ * ---------------------------------------------------------------------------
+ * Gate A made `skill.status = 'active'` mandatory on the production path, which is correct
+ * and is the whole point. It also means that TODAY the canonical query returns nothing at
+ * all for this corpus: every one of the 98 generated skills is `provisional`, and none will
+ * be `active` until a human promotion runs.
+ *
+ * That leaves the evaluation harness with two bad options and one good one. Mirroring the
+ * literal exactly would make `--run` report Recall@1 = 0 across the board — a true statement
+ * about production and a useless one about the corpus, and a number that would absolutely
+ * get quoted as "retrieval broke". Dropping the predicate would let the harness measure
+ * something production cannot return, which is how a harness stops being evidence.
+ *
+ * So the status set is a PARAMETER whose default is production's literal, and widening it
+ * is an explicit `--include-provisional` that is stamped into the run record. A reader of
+ * any record can therefore see whether the number describes what production would serve or
+ * what the corpus contains — which are different questions, and are about to have very
+ * different answers until promotion happens.
+ */
+export const PRODUCTION_SKILL_STATUSES = ["active"] as const;
+export const PRE_PROMOTION_SKILL_STATUSES = ["active", "provisional"] as const;
 
 /** Langfuse availability, reported rather than assumed. */
 export type LangfuseStatus = "LANGFUSE_CONFIGURED" | "LANGFUSE_NOT_CONFIGURED";
@@ -309,6 +337,11 @@ export interface EvalRunRecord {
   alias_overfetch: number;
   /** `hnsw.ef_search` in effect. Changes ANN recall, so a metric without it is unreproducible. */
   hnsw_ef_search: string | null;
+  /** Skill statuses this run retrieved. `["active"]` is what production serves; anything
+   *  wider is a PRE-PROMOTION measurement and must never be quoted as a production number. */
+  skill_statuses: string[];
+  /** True when the run widened past production's `active`-only filter. */
+  includes_provisional: boolean;
   /** Share of scored queries whose text IS a committed alias of the expected skill.
    *  Derived from CONTENT, not from the category label — a high value means the headline
    *  Recall has a floor that retrieval did not earn. */
@@ -417,6 +450,10 @@ async function main(): Promise<void> {
     );
   }
   const experiment = experimentRaw as ExperimentId | null;
+  const includeProvisional = argv.includes("--include-provisional");
+  const skillStatuses: string[] = includeProvisional
+    ? [...PRE_PROMOTION_SKILL_STATUSES]
+    : [...PRODUCTION_SKILL_STATUSES];
   const kRaw = evalArg(argv, "--k");
   const k = kRaw === null ? 5 : Number(kRaw);
   if (!Number.isInteger(k) || k < 1) {
@@ -447,6 +484,12 @@ async function main(): Promise<void> {
   console.log(`  languages                = ${JSON.stringify(dist.byLang)}`);
   console.log(`  domains covered          = ${Object.keys(dist.byDomain).length}`);
   console.log(`  langfuse                 = ${langfuseStatus()}`);
+  console.log(
+    `  skill statuses retrieved = ${skillStatuses.join(", ")}` +
+      (includeProvisional
+        ? "   <- PRE-PROMOTION. Production serves 'active' only; this is NOT a production number."
+        : "   (production-equivalent)"),
+  );
 
   if (problems.length > 0) {
     // The instrument is broken. Measuring with it produces a number that gets quoted.
@@ -541,8 +584,14 @@ async function main(): Promise<void> {
     // against job_domain_skill. If the DB was seeded from an older batch, every case is
     // "VALID" on disk and unpassable in the database — and the shortfall reads as a model
     // failure. So the two are reconciled before any query is scored.
-    const liveEdges = (await db.execute(
-      dsql`SELECT job_domain_id, skill_id FROM job_domain_skill WHERE status = 'active'`,
+    // Reconciled against the SAME status filter the run will use. Checking only the edge
+    // would report every case reachable and then retrieve nothing, blaming the model for a
+    // promotion gap — which is precisely the confusion Gate A introduces if unhandled.
+    const liveEdges = (await sql.unsafe(
+      `SELECT jds.job_domain_id, jds.skill_id
+       FROM job_domain_skill jds JOIN skill s ON s.skill_id = jds.skill_id
+       WHERE jds.status = 'active' AND s.status = ANY($1::text[])`,
+      [skillStatuses],
     )) as unknown as { job_domain_id: string; skill_id: string }[];
     const liveSet = new Set(liveEdges.map((e) => `${e.job_domain_id} ${e.skill_id}`));
     const unreachable = fixture.cases.filter(
@@ -623,7 +672,12 @@ async function main(): Promise<void> {
       // Executes CANONICAL_RETRIEVAL_SQL ITSELF. It used to be a separate inline template
       // that merely resembled the constant, so the "divergence pin" test asserted about a
       // string nothing ran — a change to the executed query would not have failed anything.
-      const rows = (await sql.unsafe(CANONICAL_RETRIEVAL_SQL, [q, c.job_domain_id, k * ALIAS_OVERFETCH])) as unknown as RetrievedRow[];
+      const rows = (await sql.unsafe(CANONICAL_RETRIEVAL_SQL, [
+        q,
+        c.job_domain_id,
+        k * ALIAS_OVERFETCH,
+        skillStatuses,
+      ])) as unknown as RetrievedRow[];
       return rows;
     };
 
@@ -678,6 +732,8 @@ async function main(): Promise<void> {
       k,
       alias_overfetch: ALIAS_OVERFETCH,
       hnsw_ef_search: efSearch,
+      skill_statuses: skillStatuses,
+      includes_provisional: includeProvisional,
       exact_alias_query_share:
         scored.length === 0
           ? 0
@@ -694,6 +750,13 @@ async function main(): Promise<void> {
       provider_estimated_cost_inr: estimatedCostInr,
       embed_requests: attempted,
       notes: [
+        includeProvisional
+          ? "PRE-PROMOTION RUN: --include-provisional widened the skill.status filter beyond " +
+            "production's 'active'. Production (Gate A) retrieves ACTIVE skills only, and every " +
+            "skill in this corpus is currently provisional — so production would return NOTHING " +
+            "for these queries. This number describes the corpus, not the served system."
+          : "Production-equivalent run: skill.status = 'active' only, matching " +
+            "SkillsRepository.canonicalAliasRows.",
         `evaluator_version=${EVALUATOR_VERSION}. Forbidden ids are judged by RANK RELATIVE TO ` +
           `the expected skill, not by top-k membership, and the structural (negative-case, ` +
           `out-of-scope) measure is reported separately from the semantic (positive-case, ` +
@@ -787,6 +850,8 @@ async function main(): Promise<void> {
           competitor_outranking: record.overall?.competitor_outranking_rate ?? null,
           structural_isolation_violations: record.overall?.structural_isolation_violations ?? null,
           exact_alias_query_share: record.exact_alias_query_share,
+          skill_statuses: record.skill_statuses,
+          includes_provisional: record.includes_provisional,
           coverage_probe: record.coverage_probe,
         },
         notes: record.notes,
