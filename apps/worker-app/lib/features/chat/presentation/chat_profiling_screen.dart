@@ -151,14 +151,16 @@ class _ChatViewState extends State<_ChatView> {
   /// so that fires on the way IN and unlatches before the second tap.
   bool _wasSending = false;
 
-  // ---- Hold-to-talk (voice → text into the composer) ----------------------
+  // ---- Tap-to-talk (voice → text into the composer) -----------------------
   //
-  // Long-pressing the composer mic runs the DEVICE's own speech recogniser
-  // ([SpeechDictation], the `speech_to_text` plugin). Recognised words fill the
-  // input field live as the worker speaks; on release the text stays there for
-  // them to review and Send — sent as an ORDINARY chat message. NO server, no
-  // upload, no `/voice/*` endpoint (so no bucket dependency, no 503). A plain
-  // TAP still opens the full server-side voice-note screen (unchanged).
+  // Tapping the MIC in the send slot ([_composerAction]) runs the DEVICE's own
+  // speech recogniser ([SpeechDictation], the `speech_to_text` plugin) and KEEPS
+  // listening — no hold. Recognised words fill the input field live as the worker
+  // speaks; tapping STOP ends listening and the text stays for review, with the
+  // button now showing SEND — sent as an ORDINARY chat message. NO server, no
+  // upload, no `/voice/*` endpoint (so no bucket dependency, no 503). The haldi
+  // mic on the LEFT is unrelated: a plain TAP there opens the server-side
+  // voice-note screen (unchanged).
 
   /// Honest copy when the device recogniser could not be started (no engine, or
   /// an unexpected error). Typing always stays available.
@@ -172,18 +174,20 @@ class _ChatViewState extends State<_ChatView> {
   /// Mic units above (floor + squelch) that fill the bars — speech headroom.
   static const double _kWaveSpan = 6.0;
 
-  /// Mic is held and the recorder is live.
-  bool _holdRecording = false;
+  /// Tap-to-talk dictation is live (the device recogniser is listening). Owner
+  /// request: the mic is a TOGGLE now — tap to start, tap Stop to end — not a
+  /// hold. The button sits in the send slot and cycles mic → stop → send.
+  bool _dictating = false;
 
-  /// A hold-to-talk leg (start OR transcribe) is in flight — reentrancy guard.
-  bool _holdBusy = false;
+  /// A dictation leg (start OR stop) is in flight — reentrancy guard.
+  bool _dictationBusy = false;
 
-  /// Release arrived before [_startHoldToTalk] finished starting the mic — ask
+  /// Stop was tapped before [_startDictation] finished starting the mic — ask
   /// that in-flight start to cancel rather than leave a mic with no owner.
-  bool _holdStopRequested = false;
+  bool _stopRequested = false;
 
-  /// The live-waveform cue is showing — for the WHOLE hold (shown on press,
-  /// hidden on release).
+  /// The live-waveform cue is showing — for the WHOLE dictation (shown when
+  /// listening starts, hidden when the worker taps Stop).
   bool _listening = false;
 
   /// The live, normalized (0..1) mic amplitude the waveform reads. A
@@ -422,19 +426,20 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
-  /// Long-press the composer mic: HOLD TO TALK. Buzzes, flashes the centre "AB
-  /// BOLEN" cue, and starts the DEVICE recogniser; recognised words fill the
-  /// composer live and the worker still taps Send. No recogniser or a denied mic
-  /// surfaces as an honest snackbar and leaves typing untouched — never a crash.
-  Future<void> _startHoldToTalk() async {
-    if (_holdRecording || _holdBusy) return;
+  /// Tap the composer mic (in the send slot): START tap-to-talk. Buzzes, shows
+  /// the live-waveform cue, and starts the DEVICE recogniser; recognised words
+  /// fill the composer live and KEEP listening until the worker taps Stop — no
+  /// hold. No recogniser or a denied mic surfaces as an honest notice and leaves
+  /// typing untouched — never a crash.
+  Future<void> _startDictation() async {
+    if (_dictating || _dictationBusy) return;
     if (!locator.isRegistered<SpeechDictation>()) return;
     final SpeechDictation speech = locator<SpeechDictation>();
-    _holdBusy = true;
-    _holdStopRequested = false;
-    // Instant, BEFORE any await: a buzz + the "AB BOLEN" cue the moment the hold
-    // is recognised, so the worker feels the mic engage and does not wonder
-    // whether it is listening.
+    _dictationBusy = true;
+    _stopRequested = false;
+    // Instant, BEFORE any await: a buzz + the waveform cue the moment the tap is
+    // recognised, so the worker feels the mic engage and does not wonder whether
+    // it is listening.
     HapticFeedback.vibrate();
     _floor = 0;
     _floorSeeded = false;
@@ -449,8 +454,8 @@ class _ChatViewState extends State<_ChatView> {
         _showComposerNotice(const MicPermissionFailure().message);
         return;
       }
-      if (_holdStopRequested) {
-        // Released before listening began — nothing to start.
+      if (_stopRequested) {
+        // Stopped before listening began — nothing to start.
         _hideWave();
         return;
       }
@@ -463,28 +468,29 @@ class _ChatViewState extends State<_ChatView> {
         onSoundLevel: _onSoundLevel, // live amplitude → the waveform
       );
       if (!mounted) return;
-      setState(() => _holdRecording = true);
+      setState(() => _dictating = true);
     } catch (_) {
       if (mounted) {
         _hideWave();
         _showComposerNotice(_kVoiceToTextUnavailable);
       }
     } finally {
-      _holdBusy = false;
+      _dictationBusy = false;
     }
   }
 
-  /// Release the mic: stop listening. The recognised words are ALREADY in the
-  /// composer (filled live by [_onDictationResult]); the worker reviews and taps
-  /// Send. NOTHING is sent here — from here it is an ordinary typed message.
-  Future<void> _stopHoldToTalk() async {
+  /// Tap Stop: end listening. The recognised words are ALREADY in the composer
+  /// (filled live by [_onDictationResult]); the button now shows Send so the
+  /// worker reviews and sends. NOTHING is sent here — from here it is an ordinary
+  /// typed message.
+  Future<void> _stopDictation() async {
     _hideWave();
-    if (!_holdRecording) {
-      // Released mid-init: tell the start leg not to begin listening.
-      _holdStopRequested = true;
+    if (!_dictating) {
+      // Stopped mid-init: tell the start leg not to begin listening.
+      _stopRequested = true;
       return;
     }
-    setState(() => _holdRecording = false);
+    setState(() => _dictating = false);
     if (!locator.isRegistered<SpeechDictation>()) return;
     try {
       await locator<SpeechDictation>().stop();
@@ -1037,7 +1043,39 @@ class _ChatViewState extends State<_ChatView> {
             ),
           ),
           const SizedBox(width: AppSpacing.s1),
-          IconButton(
+          _composerAction(),
+        ],
+      ),
+    );
+  }
+
+  /// The trailing composer button — ONE slot in the old send position that
+  /// cycles by state (owner request):
+  ///  - dictating → STOP (tap ends listening; the recognised text stays in the
+  ///    composer for review),
+  ///  - the composer has text → SEND,
+  ///  - otherwise → MIC (tap starts tap-to-talk dictation — no hold).
+  ///
+  /// Rebuilds on text edits via the [_controller] listenable; dictation state
+  /// changes ([_dictating]/[_dictationBusy]) arrive through the enclosing
+  /// setState rebuild.
+  Widget _composerAction() {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _controller,
+      builder: (BuildContext context, TextEditingValue value, Widget? _) {
+        if (_dictating || _dictationBusy) {
+          return IconButton(
+            tooltip: 'Rokein',
+            onPressed: _stopDictation,
+            icon: const Icon(
+              Icons.stop_rounded,
+              color: AppColors.danger,
+              size: 26,
+            ),
+          );
+        }
+        if (value.text.trim().isNotEmpty) {
+          return IconButton(
             tooltip: 'Bhejein',
             onPressed: _send,
             icon: const Icon(
@@ -1045,9 +1083,18 @@ class _ChatViewState extends State<_ChatView> {
               color: AppColors.blue,
               size: 24,
             ),
+          );
+        }
+        return IconButton(
+          tooltip: 'Bolkar likhein',
+          onPressed: _startDictation,
+          icon: const Icon(
+            Icons.mic,
+            color: AppColors.blue,
+            size: 24,
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1089,35 +1136,29 @@ class _ChatViewState extends State<_ChatView> {
   }
 
   /// The haldi circular mic in the composer — opens the voice-note flow (kit 03).
-  /// Blue glyph on haldi (text/icon on haldi is always deep blue).
+  /// Blue glyph on haldi (text/icon on haldi is always deep blue). TAP-ONLY now:
+  /// speech-to-text moved to the tap-to-talk mic in the send slot
+  /// ([_composerAction]), so this button no longer records into the composer on a
+  /// hold — it only opens the server voice-note screen.
   Widget _composerMic() {
     return Semantics(
       button: true,
-      label: 'Voice note bhejein ya dabaye rakhein',
+      label: 'Voice note bhejein',
       child: Tooltip(
-        message: 'Tap: voice note · Dabaye rakhein: awaaz se likhein',
-        // Tap → the full voice-note screen (unchanged). HOLD → record straight
-        // into the composer. The long-press recognizer and the InkWell tap share
-        // the pointer: a quick tap wins the gesture arena, a hold wins it — so
-        // onTap never fires at the end of a hold, and a hold never opens the
-        // voice-note screen.
-        child: GestureDetector(
-          onLongPressStart: (_) => _startHoldToTalk(),
-          onLongPressEnd: (_) => _stopHoldToTalk(),
-          child: Material(
-            color: AppColors.haldi,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: _openVoiceNote,
-              child: SizedBox(
-                width: AppSpacing.tap,
-                height: AppSpacing.tap,
-                child: Icon(
-                  _holdRecording ? Icons.mic_none : Icons.mic,
-                  color: AppColors.onHaldi,
-                  size: 22,
-                ),
+        message: 'Voice note',
+        child: Material(
+          color: AppColors.haldi,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: _openVoiceNote,
+            child: const SizedBox(
+              width: AppSpacing.tap,
+              height: AppSpacing.tap,
+              child: Icon(
+                Icons.mic,
+                color: AppColors.onHaldi,
+                size: 22,
               ),
             ),
           ),

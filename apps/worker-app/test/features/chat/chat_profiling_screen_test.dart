@@ -298,6 +298,7 @@ void main() {
       await pumpScreen(tester);
 
       await tester.enterText(find.byType(TextField), 'cnc');
+      await tester.pump(); // composer switches Mic→Send once there is text
       await tester.tap(find.byIcon(Icons.send_rounded));
       await tester.pumpAndSettle();
 
@@ -316,6 +317,7 @@ void main() {
       await pumpScreen(tester);
 
       await tester.enterText(find.byType(TextField), 'cnc');
+      await tester.pump(); // composer switches Mic→Send once there is text
       await tester.tap(find.byIcon(Icons.send_rounded));
       await tester.pumpAndSettle();
       expect(find.text(kChatSendFailedLabel), findsOneWidget);

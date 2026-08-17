@@ -68,6 +68,7 @@ void main() {
 
     Future<void> sendOneMessage(WidgetTester tester) async {
       await tester.enterText(find.byType(TextField), 'CNC operator');
+      await tester.pump(); // composer switches Mic→Send once there is text
       await tester.tap(find.byIcon(Icons.send_rounded));
       await tester.pumpAndSettle();
     }
