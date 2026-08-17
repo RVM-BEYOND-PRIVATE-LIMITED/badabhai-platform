@@ -36,6 +36,46 @@ const int kAiJobPollMaxAttempts = 40;
 /// [buildAiJobPollSchedule].
 const Duration kAiJobPollInterval = Duration(milliseconds: 350);
 
+/// Poll BUDGET for a PROFILE EXTRACTION job — the same class of bug TD59 fixed
+/// for transcription, on the route it was never applied to.
+///
+/// THE SERVER'S STRUCTURAL CEILING IS ~50s OF AI ALONE. One extraction job makes
+/// TWO sequential provider calls, and the API allows each of them 25s
+/// (`PROFILE_JOB_TIMEOUT_MS` in `apps/api/src/ai/ai.service.ts`):
+///
+///   1. `/profile/parse`     — types the deterministic answer map
+///   2. `/profiling/extract` — Phase C, reads the conversation for
+///                             `experiences[]` ("A SECOND CALL, AND
+///                             DELIBERATELY SO"), when the LLM interview is on
+///
+/// On top of that sit BullMQ queue pickup, the provenance gates, the projector
+/// and the profile write. So the old default — [kAiJobPollMaxAttempts] x
+/// [kAiJobPollInterval] = **14s** — did not merely risk the failure, it
+/// GUARANTEED it on the real path: the worker was told "Profile taiyaar nahi ho
+/// payi. Zyada time lag raha hai." while the server was still working, then
+/// completed, billed and stored the profile they had just been told they did not
+/// have. Verified on a real device against the live backend.
+///
+/// The API comment that set 25s reasoned "safe to be this long because NOBODY IS
+/// WAITING: the only caller is the BullMQ extraction job, minutes after the
+/// interview closed." This screen is what was waiting. Both halves are corrected
+/// together, because that assumption is what would re-break this later.
+///
+/// 90s EXCEEDS THE CEILING WITH MARGIN, the same shape as
+/// [kVoiceTranscriptWaitBudget]'s 150s over its own ~140s ceiling. It is a
+/// ceiling to STOP the bug, not a tuned value — the real number should come from
+/// measured staging p50/p95, and the better fix is to stop BLOCKING on the job
+/// at all (show "profile ban rahi hai" and resolve when it lands), which removes
+/// the latency dependency instead of lengthening the wait.
+const Duration kProfileExtractWaitBudget = Duration(seconds: 90);
+
+/// [kProfileExtractWaitBudget] expressed as poll attempts for
+/// [ApiClient.awaitProfileId] (total budget is `attempts x`
+/// [kAiJobPollInterval]). [buildAiJobPollSchedule]'s exponential backoff keeps
+/// the request COUNT modest across the longer wait — this buys time, not traffic.
+const int kProfileExtractPollMaxAttempts =
+    90 * 1000 ~/ 350; // kProfileExtractWaitBudget / kAiJobPollInterval ~= 257
+
 /// Poll BUDGET for a VOICE TRANSCRIPTION job (#635 / TD59) — deliberately far
 /// larger than the extraction default of [kAiJobPollMaxAttempts] x
 /// [kAiJobPollInterval] (14s).
@@ -315,16 +355,21 @@ class ApiClient {
 
   /// Polls [getAiJob] until the job completes and yields a `profile_id`.
   ///
-  /// Bounded poll over a total budget of `maxAttempts * pollInterval` (14s by
-  /// default), spent on a jittered exponential-backoff schedule rather than a
-  /// flat 350ms drumbeat (#378 — same wait, ~5x fewer requests; see
-  /// [buildAiJobPollSchedule]). Throws [ApiException] if the job fails, or
-  /// [ProfileExtractionTimeout] if the budget is exhausted while still
-  /// queued/running.
+  /// Bounded poll over a total budget of `maxAttempts * pollInterval`
+  /// ([kProfileExtractWaitBudget], 90s by default), spent on a jittered
+  /// exponential-backoff schedule rather than a flat 350ms drumbeat (#378 —
+  /// same wait, far fewer requests; see [buildAiJobPollSchedule]). Throws
+  /// [ApiException] if the job fails, or [ProfileExtractionTimeout] if the
+  /// budget is exhausted while still queued/running.
+  ///
+  /// THE DEFAULT IS NOT [kAiJobPollMaxAttempts], and that is the fix rather than
+  /// a preference: 14s is under a THIRD of the server's ~50s structural ceiling
+  /// for this job, so it timed out on the real path every time. See
+  /// [kProfileExtractWaitBudget] for the arithmetic.
   Future<String> awaitProfileId(
     String aiJobId, {
     required String authToken,
-    int maxAttempts = kAiJobPollMaxAttempts,
+    int maxAttempts = kProfileExtractPollMaxAttempts,
     Duration pollInterval = kAiJobPollInterval,
   }) async {
     final List<Duration> schedule = buildAiJobPollSchedule(
