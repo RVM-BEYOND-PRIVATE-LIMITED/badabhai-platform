@@ -87,6 +87,7 @@ import { createDbClient } from "./client";
 import { parseEmbedResponse } from "./embed-response";
 import {
   fixtureDistribution,
+  isScoreable,
   loadEvalFixture,
   validateEvalFixture,
   type EvalCase,
@@ -367,11 +368,26 @@ export interface EvalRunRecord {
   notes: string[];
 }
 
-/** Split cases into the ones that score and the ones that only probe coverage. */
-export function partitionCases(fixture: EvalFixture): { scored: EvalCase[]; coverageOnly: EvalCase[] } {
+/**
+ * Split cases into the ones that score, the ones that only probe coverage, and the ones whose
+ * ground truth has not been reviewed yet.
+ *
+ * The third bucket is the point. A fixture can now carry proposed cases for skills nobody has
+ * tested — 26 of the 30 reachable active skills are currently dark — so that a domain reviewer
+ * has something concrete to judge. Until they judge it, scoring those cases would mean the
+ * author of the questions also decides the score.
+ */
+export function partitionCases(fixture: EvalFixture): {
+  scored: EvalCase[];
+  coverageOnly: EvalCase[];
+  pendingReview: EvalCase[];
+} {
+  const pendingReview = fixture.cases.filter((c) => !isScoreable(c));
+  const settled = fixture.cases.filter((c) => isScoreable(c));
   return {
-    scored: fixture.cases.filter((c) => !COVERAGE_ONLY_CATEGORIES.has(c.category)),
-    coverageOnly: fixture.cases.filter((c) => COVERAGE_ONLY_CATEGORIES.has(c.category)),
+    scored: settled.filter((c) => !COVERAGE_ONLY_CATEGORIES.has(c.category)),
+    coverageOnly: settled.filter((c) => COVERAGE_ONLY_CATEGORIES.has(c.category)),
+    pendingReview,
   };
 }
 
@@ -482,6 +498,14 @@ async function main(): Promise<void> {
   console.log(`  by category:`);
   for (const [c, n] of Object.entries(dist.byCategory)) console.log(`    ${c.padEnd(26)} ${n}`);
   console.log(`  languages                = ${JSON.stringify(dist.byLang)}`);
+  const pendingCases = fixture.cases.filter((c) => !isScoreable(c));
+  if (pendingCases.length > 0) {
+    // Loud, and above the metrics, because a reader who sees a case count and a Recall figure
+    // next to each other will assume the two describe the same set.
+    console.log(`  PENDING REVIEW           = ${pendingCases.length} case(s) EXCLUDED from every metric`);
+    console.log(`    proposed ground truth that no domain reviewer has judged yet.`);
+    console.log(`    promote with review_status: "reviewed" once judged.`);
+  }
   console.log(`  domains covered          = ${Object.keys(dist.byDomain).length}`);
   console.log(`  langfuse                 = ${langfuseStatus()}`);
   console.log(
