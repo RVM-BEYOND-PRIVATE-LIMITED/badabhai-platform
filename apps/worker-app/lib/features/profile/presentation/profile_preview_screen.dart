@@ -8,6 +8,7 @@ import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/education_label.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
@@ -271,7 +272,8 @@ class _ProfileView extends StatelessWidget {
 /// the preview row is omitted entirely. PII-free labels, never fabricated.
 String? _educationLabel(ProfileSummary s) {
   final List<String> parts = <String>[
-    if (s.educationLevel?.isNotEmpty ?? false) s.educationLevel!,
+    if (s.educationLevel?.isNotEmpty ?? false)
+      humanizeEducationLevel(s.educationLevel!),
     if (s.educationField?.isNotEmpty ?? false) s.educationField!,
   ];
   return parts.isEmpty ? null : parts.join(' • ');
