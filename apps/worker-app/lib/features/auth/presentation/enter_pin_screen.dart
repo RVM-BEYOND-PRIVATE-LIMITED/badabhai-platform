@@ -55,18 +55,34 @@ class _EnterPinViewState extends State<_EnterPinView> {
   /// a second dialog on top of the first.
   bool _dialogOpen = false;
 
-  void _onDigit(String d) {
+  /// True during the brief pop-beat after the 4th digit, before the buffer is
+  /// cleared and the PIN is submitted — input is frozen so a stray tap can't
+  /// corrupt the PIN mid-beat.
+  bool _submitting = false;
+
+  Future<void> _onDigit(String d) async {
+    if (_submitting) return;
     if (_pin.length >= kPinLength) return;
     setState(() => _pin += d);
-    if (_pin.length == kPinLength) {
-      final String pin = _pin;
-      // Clear the on-screen buffer immediately; the cubit holds nothing.
-      setState(() => _pin = '');
-      context.read<EnterPinCubit>().unlock(pin);
-    }
+    if (_pin.length < kPinLength) return;
+
+    // Let the 4th dot finish its fill-pop BEFORE clearing the buffer and
+    // submitting — clearing in the SAME frame drops `filled` back to 0 before
+    // the last dot ever renders full, so it never pops like the first three.
+    _submitting = true;
+    await Future<void>.delayed(BbPinView.fillPopSettle);
+    if (!mounted) return;
+    final String pin = _pin;
+    // Clear the on-screen buffer now; the cubit holds nothing.
+    setState(() {
+      _pin = '';
+      _submitting = false;
+    });
+    context.read<EnterPinCubit>().unlock(pin);
   }
 
   void _onBackspace() {
+    if (_submitting) return;
     if (_pin.isEmpty) return;
     setState(() => _pin = _pin.substring(0, _pin.length - 1));
   }

@@ -15,6 +15,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_blue_header.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_spinner.dart';
 import '../../../router.dart';
 import '../domain/auth_session_manager.dart';
 import '../domain/weak_pin.dart';
@@ -74,6 +75,16 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   String _newPin = ''; // the confirmed PIN, held only until the confirm call
 
   bool _busy = false;
+
+  /// True during the loader beat between the first PIN and the confirm step —
+  /// the keypad is swapped for a loader and input is ignored, so the worker
+  /// registers they have advanced to "confirm" instead of the step flipping
+  /// instantly. Mirrors the set-PIN screen.
+  bool _processing = false;
+
+  /// How long the loader shows before the confirm step (mirrors set-PIN). The
+  /// instant switch was too fast for a worker to register the change.
+  static const Duration _confirmDelay = Duration(seconds: 2);
 
   /// True while an alert dialog is open, so a rapid tap or a rebuild can't stack
   /// a second dialog on top of the first.
@@ -169,6 +180,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   // --- phase 3: choose a new PIN (enter + confirm) --------------------------
 
   void _onDigit(String d) {
+    if (_processing) return;
     if (_buffer.length >= kPinLength) return;
     setState(() {
       if (_pinStep == _PinStep.enter) {
@@ -181,6 +193,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   }
 
   void _onBackspace() {
+    if (_processing) return;
     setState(() {
       if (_pinStep == _PinStep.enter && _first.isNotEmpty) {
         _first = _first.substring(0, _first.length - 1);
@@ -190,17 +203,21 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     });
   }
 
-  void _advancePin() {
+  Future<void> _advancePin() async {
     if (_pinStep == _PinStep.enter) {
       // HARD client block: catch a guessable PIN HERE, before it reaches the
-      // confirm call the worker won't understand a rejection from.
+      // confirm call the worker won't understand a rejection from. Blocked
+      // immediately — no pop beat — so the dialog is instant.
       if (isWeakPin(_first)) {
         _blockWeakPin();
         return;
       }
-      setState(() => _pinStep = _PinStep.confirm);
+      _startConfirmTransition();
       return;
     }
+    // Confirm step filled — let the 4th dot pop before we act on it, then match.
+    await Future<void>.delayed(BbPinView.fillPopSettle);
+    if (!mounted || _confirm.length != kPinLength) return;
     if (_confirm != _first) {
       _mismatchPin();
       return;
@@ -212,6 +229,24 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       _confirm = '';
     });
     _confirmReset();
+  }
+
+  /// Enter step filled with a strong PIN: let the 4th dot finish its fill-pop,
+  /// hold a brief loader beat so the worker registers they've advanced, THEN
+  /// move to the confirm step. Input is frozen during the beat ([_processing]).
+  Future<void> _startConfirmTransition() async {
+    // The pop first — clearing/switching in the same frame masks the 4th dot.
+    await Future<void>.delayed(BbPinView.fillPopSettle);
+    // A backspace during that beat drops the buffer below full — abort and let
+    // the worker keep typing rather than advancing a partial PIN.
+    if (!mounted || _first.length != kPinLength) return;
+    setState(() => _processing = true);
+    await Future<void>.delayed(_confirmDelay);
+    if (!mounted) return;
+    setState(() {
+      _processing = false;
+      _pinStep = _PinStep.confirm;
+    });
   }
 
   /// Guessable PIN — block it, explain in a dialog, and stay on the enter step.
@@ -452,7 +487,17 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                     const Spacer(flex: 1),
                     BbPinView(length: kPinLength, filled: _buffer.length),
                     const SizedBox(height: AppSpacing.s6),
-                    BbPinKeypad(onDigit: _onDigit, onBackspace: _onBackspace),
+                    // During the processing beat the keypad is swapped for a
+                    // loader so the worker sees the step is advancing, not that
+                    // nothing happened.
+                    if (_processing)
+                      const Padding(
+                        padding:
+                            EdgeInsets.symmetric(vertical: AppSpacing.s6),
+                        child: BbSpinner(caption: 'PIN set kar rahe hain…'),
+                      )
+                    else
+                      BbPinKeypad(onDigit: _onDigit, onBackspace: _onBackspace),
                     const Spacer(flex: 2),
                   ],
                 ),

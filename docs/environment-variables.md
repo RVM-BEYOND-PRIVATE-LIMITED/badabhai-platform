@@ -76,6 +76,23 @@ NestJS boot assertion).
   of this same template), `ANTHROPIC_API_KEY` (optional fallback), `SARVAM_*` (STT/TTS),
   `AI_INTERNAL_TOKEN` (TD67 service bearer — unset keeps the historical internal-only open
   posture; see `docs/audit/24_RISK_REGISTER.md` R40).
+- **Offline corpus embed throughput** (ADR-0030 / TAX-3, ai-service) — `AI_EMBED_REQUEST_BATCH`
+  (texts per provider request, default 100), `AI_EMBED_TEXTS_PER_MINUTE` (pacing; **0 = unpaced,
+  the default**), `AI_EMBED_MAX_RETRIES` (default 2), `AI_EMBED_BACKOFF_BASE_SECONDS`,
+  `AI_EMBED_BACKOFF_MAX_SECONDS`, `AI_EMBED_RATE_LIMIT_COOLDOWN_SECONDS` (default 60 — a 429
+  waits out the rate window rather than backing off inside it), `AI_EMBED_RETRY_ON_READ_TIMEOUT`
+  (default `false`: the request was sent and its outcome is unknown, so retrying can pay for the
+  same texts twice), `AI_EMBED_MAX_PACING_WAIT_SECONDS`.
+  Two provider quotas pull in opposite directions and each has its own control. The per-DAY
+  REQUEST quota wants a LARGE batch (100 texts/request puts the 9,121-alias corpus at ~92
+  requests; one text per request needs 9,121 and takes ten days). The per-MINUTE TEXT quota
+  wants PACING, not a smaller batch — shrinking the batch spends the same text budget across
+  more requests, which is strictly worse for the daily quota. Measured on our own Phase 5
+  traces: request size does not predict failure (a 100-text request succeeded while a 50-text
+  one was refused); what predicts it is how many texts went out in the preceding minute, and
+  **refused attempts consume the quota too**. Free-tier operators should set
+  `AI_EMBED_TEXTS_PER_MINUTE=90`; leaving it at 0 preserves today's behaviour so a paid tier is
+  never throttled to a free-tier number.
 - **Payments** — `PAYMENTS_ENABLE_REAL` + the three Razorpay vars, all-or-nothing per
   `assertPaymentsConfig` above.
 - **Messaging / push** — `MESSAGING_ENABLE_REAL` (WhatsApp), `PUSH_ENABLE_REAL` (FCM, security
