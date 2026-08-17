@@ -27,9 +27,13 @@ import { randomUUID } from "node:crypto";
  *     anything else gets the SAME neutral 404, so a leaked token cannot impersonate a real
  *     payer even on a staging run with a live email provider.
  *
- * It reuses the ordinary account path (`createOrGet` + `ensureSoloOrg` + the free-tier
- * grant), so the minted session is a genuine `payers` row with a server-assigned id —
- * exactly what the unlock/credits/capacity spine keys on.
+ * It reuses the ordinary account path (`createOrGet` + `ensureSoloOrg`), so the minted
+ * session is a genuine `payers` row with a server-assigned id — exactly what the
+ * unlock/credits/capacity spine keys on. It does NOT run the free-tier grant: unlike
+ * `signup()`, `PayerAuthService.testLogin` never calls `freeTier.grantQuietly` (a
+ * pre-existing gap between that method's own doc comment and its code, tracked
+ * separately). A suite that needs starting credits must seed them explicitly, the way
+ * `payer-tenancy.e2e.test.ts` already does via the ops route.
  *
  * ROLE: `PayerAuthService.testLogin` ALWAYS mints `role: "employer"` — the seam is not a
  * signup API and does not accept a role. `MintPayerSessionOptions.role` exists only for
