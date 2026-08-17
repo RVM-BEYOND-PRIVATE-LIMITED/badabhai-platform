@@ -314,11 +314,17 @@ def test_real_per_item_failure_skips_item_keeps_paid_embeds(monkeypatch):
 
 def test_real_transient_failure_fails_the_chunk_without_retry_amplification(monkeypatch):
     # The deliberate other half of the isolation rule. A 5xx/429 hits every text in
-    # the request equally, so splitting would just multiply requests against a
+    # the request equally, so SPLITTING would just multiply requests against a
     # provider that is already refusing them — and the binding constraint on the
-    # corpus embed is a per-DAY REQUEST quota. The chunk fails as one, the rows stay
-    # NULL for the next resumable run, and exactly ONE request is spent.
-    _force_real(monkeypatch)
+    # corpus embed is a per-DAY REQUEST quota. The chunk fails as one and the rows
+    # stay NULL for the next resumable run.
+    #
+    # Phase 6 added a BOUNDED retry on top (ai_embed_max_retries, default 2), so the
+    # count is now 1 + max_retries rather than exactly 1. The invariant this test
+    # protects is unchanged and is the one that matters: every attempt carries the
+    # WHOLE chunk, so the request count is bounded by the retry cap and never grows
+    # with the batch size — which is what "amplification" meant.
+    real = _force_real(monkeypatch)
     calls: list[int] = []
 
     def unavailable(texts, settings):
@@ -326,6 +332,7 @@ def test_real_transient_failure_fails_the_chunk_without_retry_amplification(monk
         raise embeddings.ProviderEmbedError("skill_embedding provider HTTP 503", status=503)
 
     monkeypatch.setattr(embeddings, "_real_embedding_batch", unavailable)
+    monkeypatch.setattr(embeddings.time, "sleep", lambda _s: None)  # no real backoff in CI
     resp = client.post(
         "/embeddings/skill-alias",
         json={
@@ -340,4 +347,7 @@ def test_real_transient_failure_fails_the_chunk_without_retry_amplification(monk
     body = resp.json()
     assert body["results"] == []  # nothing embedded
     assert body["errors"] == 3  # all three reported for a later run, not "blocked"
-    assert calls == [3]  # ONE provider request; no bisection on a transient failure
+    # No BISECTION: every attempt is the full 3-text chunk, never 3 single-text calls.
+    assert set(calls) == {3}
+    # Bounded by the retry cap, NOT by the batch size.
+    assert len(calls) == 1 + real.ai_embed_max_retries
