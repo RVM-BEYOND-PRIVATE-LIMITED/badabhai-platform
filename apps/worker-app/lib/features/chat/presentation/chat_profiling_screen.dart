@@ -1594,26 +1594,27 @@ class _VoiceWaveform extends StatefulWidget {
 
 class _VoiceWaveformState extends State<_VoiceWaveform> {
   /// A ROLLING HISTORY of recent, eased mic levels — the ChatGPT recorder look.
-  /// A new sample is appended at the RIGHT and the oldest drops off the left, so
-  /// each bar HOLDS a real captured amplitude and the strip scrolls smoothly
-  /// instead of every bar wobbling via a synthetic ripple. That is the
-  /// "stability" the previous shimmer lacked. Sized generously; the painter draws
-  /// the newest N that fit the width.
+  /// A new sample enters at the RIGHT and the oldest scrolls off the left, so
+  /// each bar HOLDS a real captured amplitude and the strip scrolls smoothly.
+  ///
+  /// EFFICIENCY: a fixed RING BUFFER (O(1) push, no list shift), and the painter
+  /// repaints off [_rev] via `CustomPainter(super.repaint:)` — the widget itself
+  /// never rebuilds per frame (no setState), and a [RepaintBoundary] keeps the
+  /// repaints off the transcript.
   static const int _capacity = 96;
-  final List<double> _samples =
-      List<double>.filled(_capacity, 0, growable: true);
+  final List<double> _ring = List<double>.filled(_capacity, 0);
 
-  /// The eased, drawn level that tracks the live [widget.level] between samples.
+  /// Total samples pushed (monotonic). The newest bar is `_count - 1`; sample `j`
+  /// lives at `_ring[j % _capacity]`.
+  int _count = 0;
+
+  /// The eased, drawn level that tracks the live [widget.level].
   double _cur = 0;
 
-  /// Advance one history step every [_pushEvery] ticks (a ~60fps Ticker), so the
-  /// strip scrolls at a calm, ChatGPT-like pace rather than a bar per frame.
-  static const int _pushEvery = 2;
-  int _sincesPush = 0;
+  /// Repaint pulse — bumped each pushed sample; the painter listens to it so ONLY
+  /// paint() runs per frame (no widget rebuild).
+  final ValueNotifier<int> _rev = ValueNotifier<int>(0);
 
-  /// Bumped on every pushed sample so the painter repaints only when the strip
-  /// actually advanced.
-  int _rev = 0;
   Ticker? _ticker;
 
   @override
@@ -1636,56 +1637,63 @@ class _VoiceWaveformState extends State<_VoiceWaveform> {
 
   void _reset() {
     _cur = 0;
-    for (int i = 0; i < _samples.length; i++) {
-      _samples[i] = 0;
+    _count = 0;
+    for (int i = 0; i < _capacity; i++) {
+      _ring[i] = 0;
     }
+    _rev.value++;
   }
 
   void _onTick(Duration _) {
-    // Ease the drawn level toward the live target so a pushed sample is smooth,
-    // then advance the rolling window every few ticks.
+    // Snappy ease toward the live level, then push one sample per frame so the
+    // strip scrolls fast and smooth. No setState — bumping [_rev] repaints just
+    // the painter.
     final double target = widget.level.value.clamp(0.0, 1.0);
-    _cur += (target - _cur) * 0.35;
-    if (++_sincesPush < _pushEvery) return;
-    _sincesPush = 0;
-    _samples.removeAt(0);
-    _samples.add(_cur); // newest at the right → the strip scrolls left
-    _rev++;
-    setState(() {});
+    _cur += (target - _cur) * 0.5;
+    _ring[_count % _capacity] = _cur;
+    _count++;
+    _rev.value++;
   }
 
   @override
   void dispose() {
     _ticker?.dispose();
+    _rev.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      size: const Size(double.infinity, double.infinity),
-      painter: _WavePainter(
-        samples: _samples,
-        rev: _rev,
-        color: AppColors.textSecondary,
+    // RepaintBoundary: the per-frame waveform repaint never dirties the composer
+    // or the transcript above it.
+    return RepaintBoundary(
+      child: CustomPaint(
+        size: const Size(double.infinity, double.infinity),
+        painter: _WavePainter(
+          ring: _ring,
+          countOf: () => _count,
+          repaint: _rev,
+          color: AppColors.textSecondary,
+        ),
       ),
     );
   }
 }
 
-/// Draws the rolling amplitude strip: thin rounded vertical bars mirrored around
-/// the mid-line, RIGHT-aligned so new [samples] enter at the right and scroll
-/// left (ChatGPT recorder). Each bar's height is a real captured level (plus a
-/// small resting baseline), so the strip is stable — no per-frame ripple.
+/// Draws the rolling amplitude strip from the ring buffer: thin rounded bars
+/// mirrored around the mid-line, RIGHT-aligned so new samples enter at the right
+/// and scroll left (ChatGPT recorder). Repaints are driven by the [repaint]
+/// Listenable, so it never depends on a widget rebuild.
 class _WavePainter extends CustomPainter {
   _WavePainter({
-    required this.samples,
-    required this.rev,
+    required this.ring,
+    required this.countOf,
     required this.color,
-  });
+    required Listenable repaint,
+  }) : super(repaint: repaint);
 
-  final List<double> samples;
-  final int rev;
+  final List<double> ring;
+  final int Function() countOf;
   final Color color;
 
   /// Resting half-height as a fraction of the max — a short, calm baseline.
@@ -1693,24 +1701,27 @@ class _WavePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (size.width <= 0 || samples.isEmpty) return;
+    if (size.width <= 0) return;
+    final int cap = ring.length;
+    final int count = countOf();
     const double barW = 3;
     const double gap = 4;
     final int fit = ((size.width + gap) / (barW + gap)).floor();
-    final int n = fit.clamp(1, samples.length);
+    final int n = fit.clamp(1, cap);
     final double stripW = n * barW + (n - 1) * gap;
     // Right-align: the newest sample sits at the right edge and the wave travels
     // left as fresh samples arrive.
     double x = size.width - stripW + barW / 2;
     final double midY = size.height / 2;
     final double maxHalf = size.height / 2;
-    final int startIndex = samples.length - n;
+    final int firstSample = count - n; // may be < 0 early → those bars read flat
     final Paint paint = Paint()
       ..color = color
       ..strokeCap = StrokeCap.round
       ..strokeWidth = barW;
     for (int i = 0; i < n; i++) {
-      final double s = samples[startIndex + i].clamp(0.0, 1.0);
+      final int j = firstSample + i;
+      final double s = j < 0 ? 0.0 : ring[j % cap].clamp(0.0, 1.0);
       final double h = _idle + s * (1 - _idle);
       final double half = (h * maxHalf).clamp(1.0, maxHalf);
       canvas.drawLine(Offset(x, midY - half), Offset(x, midY + half), paint);
@@ -1718,7 +1729,9 @@ class _WavePainter extends CustomPainter {
     }
   }
 
+  // The [repaint] Listenable drives per-frame repaints; shouldRepaint only fires
+  // when the painter INSTANCE changes (a rare widget rebuild), where only the
+  // colour could differ.
   @override
-  bool shouldRepaint(_WavePainter oldDelegate) =>
-      oldDelegate.rev != rev || oldDelegate.color != color;
+  bool shouldRepaint(_WavePainter oldDelegate) => oldDelegate.color != color;
 }
