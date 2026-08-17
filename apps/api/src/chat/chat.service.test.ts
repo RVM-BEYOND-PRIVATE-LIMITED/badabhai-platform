@@ -1265,8 +1265,8 @@ describe("ChatService — tts_text, the read-aloud sibling (#896)", () => {
 
 describe("ChatService.listMessages — replayed questions read aloud too (#896)", () => {
   it("adds tts_text to OUTBOUND rows and never to inbound ones", async () => {
-    const { svc, chat, buffer } = make();
-    buffer.load.mockResolvedValue(null);
+    // `buffer: null` forces the POSTGRES branch — no buffer, so hydration reads rows.
+    const { svc, chat } = make({ buffer: null });
     chat.listMessages.mockResolvedValue([
       {
         direction: "outbound",
@@ -1282,7 +1282,7 @@ describe("ChatService.listMessages — replayed questions read aloud too (#896)"
       },
     ]);
 
-    const res = await svc.listMessages(WORKER, SESSION, CTX);
+    const res = await svc.listMessages(WORKER, SESSION);
     const [outbound, inbound] = res.messages as unknown as Record<string, unknown>[];
 
     expect(outbound!.tts_text).toBe("आपकी बात पूरी हो चुकी है। प्रोफ़ाइल तैयार हो रही है।");
@@ -1290,20 +1290,22 @@ describe("ChatService.listMessages — replayed questions read aloud too (#896)"
   });
 
   it("resolves from the BUFFER branch on the same rule", async () => {
-    const { svc, buffer } = make();
-    buffer.load.mockResolvedValue({
-      workerId: WORKER,
-      messages: [
-        {
-          role: "assistant",
-          text: "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
-          at: "2026-08-17T05:00:00.000Z",
-        },
-        { role: "worker", text: "haan", at: "2026-08-17T05:00:01.000Z" },
-      ],
+    // Through `make`, so the buffer is a REAL TranscriptBuffer (turnCount, captured, roleFamily,
+    // startedAt) rather than the two fields this assertion happens to read.
+    const { svc } = make({
+      buffer: {
+        messages: [
+          {
+            role: "assistant",
+            text: "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
+            at: "2026-08-17T05:00:00.000Z",
+          },
+          { role: "worker", text: "haan", at: "2026-08-17T05:00:01.000Z" },
+        ],
+      },
     });
 
-    const res = await svc.listMessages(WORKER, SESSION, CTX);
+    const res = await svc.listMessages(WORKER, SESSION);
     const [assistant, worker] = res.messages as unknown as Record<string, unknown>[];
 
     expect(assistant!.tts_text).toBe("आपकी बात पूरी हो चुकी है। प्रोफ़ाइल तैयार हो रही है।");
