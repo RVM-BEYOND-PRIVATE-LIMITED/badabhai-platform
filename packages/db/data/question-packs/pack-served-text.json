@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 102,
+  "pack_count": 142,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -13,6 +13,10 @@
     "qp_assemblers_other@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
+    },
+    "qp_assemblers_other@2": {
+      "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
+      "served_text_count": 12
     },
     "qp_assembly@1": {
       "served_text_sha256": "ed9616e6187796afa6da484d170afbd0123b5df19c571f7599c5667d166e376a",
@@ -29,6 +33,10 @@
     "qp_bar_service@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
+    },
+    "qp_bar_service@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
     },
     "qp_beauty@1": {
       "served_text_sha256": "fb8f9fa3c73338510853f3bd2a770a19bd1c3b1ac13c19c06310227c71e313d2",
@@ -50,9 +58,17 @@
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
     },
+    "qp_building_supervision@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
+    },
     "qp_bus_driving@1": {
       "served_text_sha256": "022525eb08ffedb26443c8293873dafa03f7341b4fa72e9f39693d8d827965a0",
       "served_text_count": 12
+    },
+    "qp_bus_driving@2": {
+      "served_text_sha256": "199509d4db3cac3a225c354a60e72abe5951616519a3c9537db5fbf4e39a5a60",
+      "served_text_count": 9
     },
     "qp_carpentry@1": {
       "served_text_sha256": "227ed09ca1f2e230ac01ab0a0e7ae8691fc711a90dcfa179824518387c9b7814",
@@ -66,13 +82,25 @@
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
     },
+    "qp_cashier@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
+    },
     "qp_chemical_plant@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
     },
+    "qp_chemical_plant@2": {
+      "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
+      "served_text_count": 12
+    },
     "qp_child_care@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
+    },
+    "qp_child_care@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
     },
     "qp_cleaning@1": {
       "served_text_sha256": "5cbe5ad8628b18ebb0aef7294c1aa980af22a38bcf7417cb684f813a99fd4186",
@@ -81,6 +109,10 @@
     "qp_cleaning_helpers@1": {
       "served_text_sha256": "ba6c15e3639cadfcc2e8bcde8372549f1ad836482501da2db1304b29d0655c09",
       "served_text_count": 12
+    },
+    "qp_cleaning_helpers@2": {
+      "served_text_sha256": "7180bc3eb633ccbbe7d4d825d037e9b770f8813c48a026c4917628c3a6d6eae2",
+      "served_text_count": 9
     },
     "qp_cobbler@1": {
       "served_text_sha256": "169381f2db7c8fefe6fb67b907f1786712f95e5b82cbe9050de5aeb56ab3e17e",
@@ -118,6 +150,10 @@
       "served_text_sha256": "022525eb08ffedb26443c8293873dafa03f7341b4fa72e9f39693d8d827965a0",
       "served_text_count": 12
     },
+    "qp_delivery_driving@2": {
+      "served_text_sha256": "199509d4db3cac3a225c354a60e72abe5951616519a3c9537db5fbf4e39a5a60",
+      "served_text_count": 9
+    },
     "qp_domestic@1": {
       "served_text_sha256": "b487982eea4b9f7dcb33c63fc922a85491941c1114bf0ba846a3a7c22ff44d0c",
       "served_text_count": 15
@@ -126,13 +162,25 @@
       "served_text_sha256": "1d5be43de9f3cf4431662715e0516ad109cd0db5ac6a531eb6e8b4c76af227e4",
       "served_text_count": 15
     },
+    "qp_driving_heavy@2": {
+      "served_text_sha256": "140e8f0a19da34c165641db6f59f2e3b7a065c761a5205aa50a2e2e624185fd9",
+      "served_text_count": 12
+    },
     "qp_driving_light@1": {
       "served_text_sha256": "f733ee35e52664c051834bc913cb77f758357f6b475414edb6c37bfc7b3a9246",
       "served_text_count": 18
     },
+    "qp_driving_light@2": {
+      "served_text_sha256": "ee5e99d25fb09ba82254b2e006f02e248b4baa20e0d714d095b16e7defa6618c",
+      "served_text_count": 15
+    },
     "qp_earthmoving@1": {
       "served_text_sha256": "ffb82ea7be9cd5ac2b52cf1c67031b39495e18dd1bfaeed2b8ac5929b19c4411",
       "served_text_count": 15
+    },
+    "qp_earthmoving@2": {
+      "served_text_sha256": "ce76aff85e730d81bac2394a7d9df0904ce200d4e2d312f183b3b10edc1737b5",
+      "served_text_count": 12
     },
     "qp_electrical@1": {
       "served_text_sha256": "ff6f61ecc67a9b912307dcd189202fd364260b4ac78a8ce17049076b7fe39515",
@@ -174,6 +222,10 @@
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
     },
+    "qp_food_processing@2": {
+      "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
+      "served_text_count": 12
+    },
     "qp_forestry@1": {
       "served_text_sha256": "b0cad98ec0b0f12590196e301d67c113fc8209b9a398d80079422d50da1e3259",
       "served_text_count": 12
@@ -181,6 +233,10 @@
     "qp_fuel_station@1": {
       "served_text_sha256": "b193c499f35e35d6e1fa5e42d0831d6fb70891df519255a97e68f81968abf2d5",
       "served_text_count": 12
+    },
+    "qp_fuel_station@2": {
+      "served_text_sha256": "9f33b4d356866a7a1090a88d29b176c738e954aeb524049a7646f79c6e8ae0f2",
+      "served_text_count": 9
     },
     "qp_furniture@1": {
       "served_text_sha256": "41e4e1871e61846870a642f73813c28d2130513cbabdd76396d39cef5788f5e8",
@@ -198,6 +254,10 @@
       "served_text_sha256": "ba6c15e3639cadfcc2e8bcde8372549f1ad836482501da2db1304b29d0655c09",
       "served_text_count": 12
     },
+    "qp_hand_cleaning@2": {
+      "served_text_sha256": "7180bc3eb633ccbbe7d4d825d037e9b770f8813c48a026c4917628c3a6d6eae2",
+      "served_text_count": 9
+    },
     "qp_handicraft@1": {
       "served_text_sha256": "5248a6728753db58a985fc6553e7b2b0f20735325948d00f13aa63591ca3b38a",
       "served_text_count": 15
@@ -205,6 +265,10 @@
     "qp_health_care_assist@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
+    },
+    "qp_health_care_assist@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
     },
     "qp_lineman@1": {
       "served_text_sha256": "8341ede962b173a30860840ae9825d17dcfc6d8c25a6972e280fcb6fcf742b9d",
@@ -226,6 +290,10 @@
       "served_text_sha256": "ba6c15e3639cadfcc2e8bcde8372549f1ad836482501da2db1304b29d0655c09",
       "served_text_count": 12
     },
+    "qp_manufacturing_labour@2": {
+      "served_text_sha256": "7180bc3eb633ccbbe7d4d825d037e9b770f8813c48a026c4917628c3a6d6eae2",
+      "served_text_count": 9
+    },
     "qp_masonry@1": {
       "served_text_sha256": "cc0e2312fe53e60b15f3ede95acb8172f2f167dfc46b22b37c6c910347917220",
       "served_text_count": 15
@@ -233,6 +301,10 @@
     "qp_metal_plant@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
+    },
+    "qp_metal_plant@2": {
+      "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
+      "served_text_count": 12
     },
     "qp_metal_processing@1": {
       "served_text_sha256": "1b98e98972bcdaab04c9726e6c52a5cb65671398cdc10d5e00116d8436d2b228",
@@ -242,6 +314,10 @@
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
     },
+    "qp_mining_plant@2": {
+      "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
+      "served_text_count": 12
+    },
     "qp_mixed_farming@1": {
       "served_text_sha256": "b0cad98ec0b0f12590196e301d67c113fc8209b9a398d80079422d50da1e3259",
       "served_text_count": 12
@@ -249,6 +325,10 @@
     "qp_mobile_plant@1": {
       "served_text_sha256": "022525eb08ffedb26443c8293873dafa03f7341b4fa72e9f39693d8d827965a0",
       "served_text_count": 12
+    },
+    "qp_mobile_plant@2": {
+      "served_text_sha256": "199509d4db3cac3a225c354a60e72abe5951616519a3c9537db5fbf4e39a5a60",
+      "served_text_count": 9
     },
     "qp_other_craft@1": {
       "served_text_sha256": "5248a6728753db58a985fc6553e7b2b0f20735325948d00f13aa63591ca3b38a",
@@ -258,17 +338,33 @@
       "served_text_sha256": "ba6c15e3639cadfcc2e8bcde8372549f1ad836482501da2db1304b29d0655c09",
       "served_text_count": 12
     },
+    "qp_other_elementary@2": {
+      "served_text_sha256": "7180bc3eb633ccbbe7d4d825d037e9b770f8813c48a026c4917628c3a6d6eae2",
+      "served_text_count": 9
+    },
     "qp_other_personal_service@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
+    },
+    "qp_other_personal_service@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
     },
     "qp_other_plant@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
     },
+    "qp_other_plant@2": {
+      "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
+      "served_text_count": 12
+    },
     "qp_other_sales@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
+    },
+    "qp_other_sales@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
     },
     "qp_packing@1": {
       "served_text_sha256": "c9285faf153003ec0af0202d89fbcdddef58e1fecbe1276d587d48d96271abc6",
@@ -290,25 +386,49 @@
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
     },
+    "qp_protective_service@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
+    },
     "qp_rail_operation@1": {
       "served_text_sha256": "022525eb08ffedb26443c8293873dafa03f7341b4fa72e9f39693d8d827965a0",
       "served_text_count": 12
+    },
+    "qp_rail_operation@2": {
+      "served_text_sha256": "199509d4db3cac3a225c354a60e72abe5951616519a3c9537db5fbf4e39a5a60",
+      "served_text_count": 9
     },
     "qp_refuse_work@1": {
       "served_text_sha256": "ba6c15e3639cadfcc2e8bcde8372549f1ad836482501da2db1304b29d0655c09",
       "served_text_count": 12
     },
+    "qp_refuse_work@2": {
+      "served_text_sha256": "7180bc3eb633ccbbe7d4d825d037e9b770f8813c48a026c4917628c3a6d6eae2",
+      "served_text_count": 9
+    },
     "qp_retail@1": {
       "served_text_sha256": "71d63f71d4ca12355e8c390ffe54ec89d959eb82daa3a3ad784f67d91b6ce89f",
       "served_text_count": 15
+    },
+    "qp_retail@2": {
+      "served_text_sha256": "9977c9646fb629a1951df544c66e1761ed43e36eb8139367c3a759c25f38db67",
+      "served_text_count": 12
     },
     "qp_rubber_plastic@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
     },
+    "qp_rubber_plastic@2": {
+      "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
+      "served_text_count": 12
+    },
     "qp_security@1": {
       "served_text_sha256": "21688567a633a38c5969e8a60067d0e5b3febf3e97b25db7b7fb29a9aa1d295d",
       "served_text_count": 18
+    },
+    "qp_security@2": {
+      "served_text_sha256": "3c7a2e7b881c102ce13b015751f93531c8a169006fe30c71448c3a6f398c93ea",
+      "served_text_count": 15
     },
     "qp_sewing_machine@1": {
       "served_text_sha256": "f48c68bd147a70602e084edaf628ccca88363338a2b304d42bc6778f97aaa8f4",
@@ -322,21 +442,41 @@
       "served_text_sha256": "022525eb08ffedb26443c8293873dafa03f7341b4fa72e9f39693d8d827965a0",
       "served_text_count": 12
     },
+    "qp_ship_crew@2": {
+      "served_text_sha256": "199509d4db3cac3a225c354a60e72abe5951616519a3c9537db5fbf4e39a5a60",
+      "served_text_count": 9
+    },
     "qp_shop_supervision@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
+    },
+    "qp_shop_supervision@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
     },
     "qp_street_sales@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
     },
+    "qp_street_sales@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
+    },
     "qp_street_service@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
     },
+    "qp_street_service@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
+    },
     "qp_street_vending@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
+    },
+    "qp_street_vending@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
     },
     "qp_structure_cleaning@1": {
       "served_text_sha256": "ba6c15e3639cadfcc2e8bcde8372549f1ad836482501da2db1304b29d0655c09",
@@ -366,6 +506,10 @@
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
     },
+    "qp_textile_machines@2": {
+      "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
+      "served_text_count": 12
+    },
     "qp_toolmaking@1": {
       "served_text_sha256": "9db40e5fea20a4389b189180a560373df69c85e2a6747ead288ac4380ae738ca",
       "served_text_count": 15
@@ -374,9 +518,17 @@
       "served_text_sha256": "ba6c15e3639cadfcc2e8bcde8372549f1ad836482501da2db1304b29d0655c09",
       "served_text_count": 12
     },
+    "qp_transport_labour@2": {
+      "served_text_sha256": "7180bc3eb633ccbbe7d4d825d037e9b770f8813c48a026c4917628c3a6d6eae2",
+      "served_text_count": 9
+    },
     "qp_travel_service@1": {
       "served_text_sha256": "147c2600c28b26d178b590ff206caf68f7641c2405e361bdb250ae7995dcf0f4",
       "served_text_count": 12
+    },
+    "qp_travel_service@2": {
+      "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
+      "served_text_count": 9
     },
     "qp_universal@1": {
       "served_text_sha256": "7cfe1a1ca090ae7568d587c5d3417c4adb678bbf267e766315eacfd9752ff4b2",
@@ -389,6 +541,10 @@
     "qp_waiter@1": {
       "served_text_sha256": "6e2ae88dd556ad028a20ed297d423a78d011c1e4772cc6dd76072caf43566292",
       "served_text_count": 15
+    },
+    "qp_waiter@2": {
+      "served_text_sha256": "b4d01bc18d478651c0687f62247569d8a6ff1831855bfce0115a3f01750dc251",
+      "served_text_count": 12
     },
     "qp_waste@1": {
       "served_text_sha256": "506f15655df6a80da4285b592078dcccdede6c1d7b2a1b3eedd3d20820082cfb",
@@ -405,6 +561,10 @@
     "qp_wood_plant@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
+    },
+    "qp_wood_plant@2": {
+      "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
+      "served_text_count": 12
     },
     "qp_wood_treating@1": {
       "served_text_sha256": "5248a6728753db58a985fc6553e7b2b0f20735325948d00f13aa63591ca3b38a",

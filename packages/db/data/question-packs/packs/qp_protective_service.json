@@ -4,8 +4,9 @@
   "version": 1,
   "family_id": "fam_protective_service",
   "locale": "hi-IN",
-  "status": "active",
-  "review_note": "Phase 6 tail authoring, first pass. Reviewer of record is git blame.",
+  "status": "deprecated",
+  "review_note": "Phase 6 tail authoring, first pass. Reviewer of record is git blame. DEPRECATED by v2 (2026-08-17), which removes tools_owned.",
+  "_deprecated": "KEPT ON DISK, NOT DELETED. A session can pin (pack_id, version) and `loadPinned` loads that exact version whatever its status — and the TTS reply-closure manifest is built from whatever this corpus holds, so a version that stops existing serves a mid-interview worker strings that were never rendered. On the voice form that is silence, at a question they cannot read. Retiring this line from _published-versions.jsonl is a separate, reviewable claim that no live session pins it any more.",
   "items": [
     {
       "question_key": "service_given",
