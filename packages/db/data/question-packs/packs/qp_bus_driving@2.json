@@ -1,0 +1,62 @@
+{
+  "_why": "Tail family for ISCO minor group 833 (Bus Driving). Bound at MINOR level (specificity 30) rather than per unit group: the 833x units are narrow industrial specialisations whose workers would get near-identical questions, and 158 near-duplicate packs would be padding that LOOKS like coverage. A unit-level family always wins over this one — that is what the six specificity levels are for.",
+  "_v2": "REMOVES `tools_owned`. The vehicle is the employer's, and 'apne auzaar' is not how a driver or a plant operator describes anything they own — the signal that matters here is the LICENCE, which this pack already asks for. Phase 6 (#615) stamped one shared block onto every cluster it could not differentiate; this is the row that block got wrong.",
+  "pack_id": "qp_bus_driving",
+  "version": 2,
+  "family_id": "fam_bus_driving",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v2 removes tools_owned (driving cluster). v1 is deprecated in the same commit — the corpus validator refuses a second ACTIVE pack for one family+locale, because the resolver must never have to choose.",
+  "items": [
+    {
+      "question_key": "vehicle_driven",
+      "prompt_text": "Aap kya chalate hain?",
+      "why_text": "Har gaadi ka licence alag hota hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "text",
+      "is_core": true,
+      "max_asks": 2
+    },
+    {
+      "question_key": "licence_held",
+      "prompt_text": "Kya aapke paas licence hai?",
+      "why_text": "Licence bina gaadi ka kaam nahi milta.",
+      "target_kind": "attribute",
+      "target_field": "licence_held",
+      "answer_type": "boolean",
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "field",
+          "label_text": "Bahar ya khet me",
+          "value_text": "field"
+        }
+      ]
+    }
+  ]
+}

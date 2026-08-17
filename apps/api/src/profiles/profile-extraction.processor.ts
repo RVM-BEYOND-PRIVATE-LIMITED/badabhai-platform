@@ -370,10 +370,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
         ...domain,
       });
 
-      // ── THE 77% ───────────────────────────────────────────────────────────────
+      // ── THE 75% ───────────────────────────────────────────────────────────────
       //
       // `attribute`-kind answers — `workplace_type`, `tools_owned`, `safety_training`,
-      // `shift_work` — are 359 of the 466 authored pack items, and they do not belong on
+      // `shift_work` — are 319 of the 426 active pack items, and they do not belong on
       // `worker_profiles`: they are MATCHING inputs, one row per (worker, key), filtered by the
       // matcher with a plain index. Migration 0071 built the table and V2 taught the projector to
       // fill the array; this is the write that was missing, and without it both were decoration.

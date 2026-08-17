@@ -1,0 +1,62 @@
+{
+  "_why": "Tail family for ISCO minor group 911 (Cleaning Helpers). Bound at MINOR level (specificity 30) rather than per unit group: the 911x units are narrow industrial specialisations whose workers would get near-identical questions, and 158 near-duplicate packs would be padding that LOOKS like coverage. A unit-level family always wins over this one — that is what the six specificity levels are for.",
+  "_v2": "REMOVES `tools_owned`. Elementary work is done with equipment the site supplies — jhadu, pocha, bucket, cart — so 'do you own your own' filters nobody and flatters nobody. Kept in the skilled trades next door, where a worker really does arrive with a kit and contractors really do choose on it. Phase 6 (#615) stamped one shared block onto every cluster it could not differentiate; this is the row that block got wrong.",
+  "pack_id": "qp_cleaning_helpers",
+  "version": 2,
+  "family_id": "fam_cleaning_helpers",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v2 removes tools_owned (elementary cluster). v1 is deprecated in the same commit — the corpus validator refuses a second ACTIVE pack for one family+locale, because the resolver must never have to choose.",
+  "items": [
+    {
+      "question_key": "work_done",
+      "prompt_text": "Aap kis tarah ka kaam karte hain?",
+      "why_text": "Kaam ke hisaab se jagah dhoondhte hain.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "text",
+      "is_core": true,
+      "max_asks": 2
+    },
+    {
+      "question_key": "heavy_lifting",
+      "prompt_text": "Kya aap bhaari saman utha sakte hain?",
+      "why_text": "Kai jagah bhaari kaam hota hai.",
+      "target_kind": "attribute",
+      "target_field": "heavy_lifting",
+      "answer_type": "boolean",
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "field",
+          "label_text": "Bahar ya khet me",
+          "value_text": "field"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "_why": "Trade pack for Retail and sales. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "_v2": "REMOVES `tools_owned`. 'Kya aapke paas apne auzaar hain?' has no referent in a service, sales, care or supervision role — a cashier, a ward attendant and a security guard do not carry a tool kit to work, and every one of them was asked anyway. The item was never authored FOR this pack: Phase 6 (#615) stamped one shared four-question block onto every cluster it could not differentiate, and this is the row that block got wrong. An irrelevant question costs a paid provider call, one of 24 engine asks, and the worker's trust that the interview knows what they do.",
+  "pack_id": "qp_retail",
+  "version": 2,
+  "family_id": "fam_retail",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v2 removes tools_owned (service cluster). v1 is deprecated in the same commit — the corpus validator refuses a second ACTIVE pack for one family+locale, because the resolver must never have to choose.",
+  "items": [
+    {
+      "question_key": "shop_type",
+      "prompt_text": "Aap kaunsi dukan par kaam karte hain?",
+      "why_text": "Har dukan ka kaam alag hota hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "kirana",
+          "label_text": "Kirana",
+          "value_text": "kirana"
+        },
+        {
+          "option_key": "clothing",
+          "label_text": "Kapde ki dukan",
+          "value_text": "clothing"
+        },
+        {
+          "option_key": "electronics",
+          "label_text": "Electronics",
+          "value_text": "electronics"
+        },
+        {
+          "option_key": "medical",
+          "label_text": "Medical store",
+          "value_text": "medical"
+        },
+        {
+          "option_key": "mall",
+          "label_text": "Mall ya showroom",
+          "value_text": "mall"
+        }
+      ]
+    },
+    {
+      "question_key": "billing_skill",
+      "prompt_text": "Kya aap billing machine chala lete hain?",
+      "why_text": "Billing wale ko counter milta hai.",
+      "target_kind": "attribute",
+      "target_field": "billing_skill",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "stock_handling",
+      "prompt_text": "Kya aap stock sambhalte hain?",
+      "why_text": "Stock wale ko store ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "stock_handling",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    }
+  ]
+}

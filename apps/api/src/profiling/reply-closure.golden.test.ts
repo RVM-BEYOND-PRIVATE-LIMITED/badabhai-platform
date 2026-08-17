@@ -73,6 +73,27 @@ function readPublishedVersions(): string[] {
     .filter((line) => line.length > 0 && !line.startsWith("#"));
 }
 
+/**
+ * The ledger's leading comment block, so `UPDATE_PACK_VERSIONS=1` cannot delete it.
+ *
+ * IT DID DELETE IT, WHICH IS WHY THIS EXISTS. The updater re-serialized whatever
+ * `readPublishedVersions` returned — and that reader strips `#` lines by design, so running the
+ * documented regeneration command silently dropped the 21-line header explaining what the ledger
+ * is for, how to add a version, and that retiring one means hand-deleting its line. A file whose
+ * own instructions are erased by following those instructions is a trap, and the header is the
+ * only place the retire-by-hand rule is written down.
+ *
+ * Reads the block verbatim rather than holding a copy: the header is prose under review like the
+ * rest of the corpus, and a second copy in a test file would drift from it.
+ */
+function readLedgerHeader(): string {
+  if (!existsSync(VERSIONS_PATH)) return "";
+  const lines = readFileSync(VERSIONS_PATH, "utf8").split(/\r?\n/);
+  const end = lines.findIndex((line) => line.trim().length > 0 && !line.trim().startsWith("#"));
+  const header = end === -1 ? lines : lines.slice(0, end);
+  return header.length > 0 ? `${header.join("\n")}\n` : "";
+}
+
 /** The corpus row shape → the contract shape `replyClosure` consumes. */
 function toQuestionPacks(): QuestionPack[] {
   const corpus = loadQuestionPackCorpus();
@@ -165,9 +186,11 @@ describe("the reply closure, over the REAL question-pack corpus", () => {
     const ledger = readPublishedVersions();
 
     if (process.env.UPDATE_PACK_VERSIONS === "1") {
+      // Header FIRST — see `readLedgerHeader`. Append-only over the union, never a replacement:
+      // a version that has shipped stays in the ledger until somebody deletes its line by hand.
       writeFileSync(
         VERSIONS_PATH,
-        `${[...new Set([...ledger, ...onDisk])].sort().join("\n")}\n`,
+        `${readLedgerHeader()}${[...new Set([...ledger, ...onDisk])].sort().join("\n")}\n`,
         "utf8",
       );
       return;
@@ -181,6 +204,16 @@ describe("the reply closure, over the REAL question-pack corpus", () => {
         "being served strings that were never checked and never rendered — silence, at a question " +
         "the worker cannot read",
     ).toEqual([]);
+  });
+
+  it("the ledger KEEPS its header — regenerating must not erase its own instructions", () => {
+    // The regression `readLedgerHeader` exists for. The retire-by-hand rule is written down in
+    // exactly one place, and the documented `UPDATE_PACK_VERSIONS=1` command used to delete it.
+    const header = readLedgerHeader();
+    expect(header.startsWith("#"), "the ledger has lost its comment header").toBe(true);
+    expect(header, "the retire-by-hand rule is written down nowhere else").toContain("RETIRING");
+    // And the header is not mistaken for an entry.
+    expect(readPublishedVersions().every((e) => /^qp_[a-z0-9_]+@\d+$/.test(e))).toBe(true);
   });
 
   it("the ledger bites — a vanished version is caught, a NEW one is not a failure", () => {
