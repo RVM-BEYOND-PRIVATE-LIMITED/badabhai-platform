@@ -183,6 +183,28 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(vitest@3.2.7(@types/node@22.19.20)(terser@5.48.0)(tsx@4.22.4))
 
+  apps/marketing-web:
+    dependencies:
+      next:
+        specifier: ^15.5.21
+        version: 15.5.22(@types/node@22.19.20)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.17)
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/node@22.19.20)(terser@5.48.0)(tsx@4.22.4)
+
   apps/payer-web:
     dependencies:
       '@badabhai/config':
@@ -5848,7 +5870,7 @@ snapshots:
 
   make-dir@4.0.0:
     dependencies:
-      semver: 7.8.2
+      semver: 7.8.5
 
   math-intrinsics@1.1.0: {}
 
@@ -6236,8 +6258,7 @@ snapshots:
 
   semver@7.8.2: {}
 
-  semver@7.8.5:
-    optional: true
+  semver@7.8.5: {}
 
   send@1.2.1:
     dependencies:
