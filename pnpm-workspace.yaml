@@ -132,7 +132,13 @@ overrides:
   brace-expansion@>=5.0.0 <5.0.9: "^5.0.9"
   fast-uri@<3.1.5: "^3.1.5"
   js-yaml@<4.3.1: "^4.3.1"
-  nanoid@<3.3.17: "^3.3.17"
+  # DEP-4 (2026-08-17). SUPERSEDES the DEP-3 floor above (was `<3.3.17: ^3.3.17`):
+  # GHSA-2v37-7h3g-55p8 (HIGH, custom generators can loop indefinitely when size is
+  # zero) is patched at 3.3.18, one patch version past the DEP-3 floor — `^3.3.17`
+  # is satisfied by 3.3.17 itself, so pnpm never bumped further. Pulled only
+  # transitively via vitest > @vitest/mocker/vite/vite-node > vite > postcss >
+  # nanoid — build/test tooling only, never shipped to any production runtime.
+  nanoid@<3.3.18: "^3.3.18"
   # SUPERSEDES the DEP-2 floor above (was `<8.5.10: >=8.5.10`): GHSA on <8.5.18 is newer
   # than that entry, and leaving both would be two rules for one package.
   postcss@<8.5.18: "^8.5.18"
