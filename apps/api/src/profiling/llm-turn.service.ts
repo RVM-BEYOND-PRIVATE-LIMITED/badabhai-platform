@@ -258,6 +258,21 @@ function wantsAnotherExperience(text: string): boolean {
  * telling us the first answer was wrong, and keeping the first would preserve a mistake the
  * conversation already fixed. Skills UNION rather than replace — they accumulate across the
  * skills stretch, and a turn that mentions two must not erase the three before it.
+ *
+ * AN EXPERIENCE ENTRY IS THE LAST ROLE FALLBACK. Both labels default to `null` and an entry may
+ * arrive on ANY turn, including the first — the composite opener actively invites it ("aap kaun
+ * sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?" answered in one sentence). The
+ * entry then opens the Yes/No gate, so a worker can be looking at "Aur koi experience jodna hai?"
+ * while the draft has no trade label at all: the conversation recorded a job but never named the
+ * work. #916 made that harmless by falling `trade` back to `occupation.label`, but that pin is
+ * the DOMAIN ("welder"), not the worker's own role ("pipe fitter welder").
+ *
+ * The entry already carries `role_label` — the same field, for the job just described — so there
+ * is nothing to infer and no extra turn to spend. LAST IN PRECEDENCE, below both the turn's own
+ * label and the label the draft already holds, so this fires only when Phase A would otherwise
+ * assert nothing; a model that named the role properly always wins. That ordering is also what
+ * keeps a SECOND entry from overwriting the first: by then `current.role_label` is set, so an
+ * earlier job ("pehle main helper tha") cannot rename the worker's trade.
  */
 function mergeDraft(
   current: LlmInterviewDraft,
@@ -277,7 +292,11 @@ function mergeDraft(
   }
   return {
     domain_label: out.domain_label?.trim() || current.domain_label,
-    role_label: out.role_label?.trim() || current.role_label,
+    role_label:
+      out.role_label?.trim() ||
+      current.role_label ||
+      out.experience_entry?.role_label.trim() ||
+      null,
     skills,
     experiences: out.experience_entry
       ? [...current.experiences, out.experience_entry]
