@@ -4,6 +4,18 @@
  *   pnpm db:eval:taxonomy --validate-fixture   # OFFLINE. Ground truth vs the corpus.
  *   pnpm db:eval:taxonomy --plan               # DB read-only. What would run, and on what.
  *   pnpm db:eval:taxonomy --run                # The measurement. REFUSES on mock vectors.
+ *   pnpm db:eval:taxonomy --run --fixture <p>  # Measure a specific dataset version.
+ *   pnpm db:eval:taxonomy --run --experiment EXP-... [--push-langfuse]
+ *                                              # ...and preserve it as an immutable record.
+ *
+ * ---------------------------------------------------------------------------
+ * EVALUATOR v2 (Phase 6) — THE NUMBERS ARE NOT COMPARABLE WITH v1 BY DEFAULT
+ * ---------------------------------------------------------------------------
+ * `must_not_return_skill_ids` is now judged as "must not OUTRANK the expected skill" rather
+ * than "must not appear in the top k", and the semantic and structural measures are reported
+ * separately. See taxonomy-retrieval-metrics.ts for why the v1 reading was unfalsifiable at
+ * this corpus size. Every record carries `evaluator_version`, and the Phase 5 baseline record
+ * carries 1, so the two can be told apart without reading a changelog.
  *
  * ---------------------------------------------------------------------------
  * IT NEVER EMBEDS THE CORPUS
@@ -83,17 +95,36 @@ import {
 import {
   evaluateCase,
   summarizeBy,
+  EVALUATOR_VERSION,
   type MetricSummary,
   type RetrievedRow,
   type ScoredCase,
 } from "./taxonomy-retrieval-metrics";
+import {
+  EXPERIMENTS,
+  isExperimentId,
+  pushExperimentToLangfuse,
+  writeExperimentRecord,
+  type ExperimentId,
+  type ExperimentRecord,
+} from "./taxonomy-experiments";
 import { loadTaxonomyCorpus, TAXONOMY_DATA_DIR } from "./taxonomy-corpus";
 
 config({ path: "../../.env" });
 
 const SCRIPT = "eval:taxonomy";
 export const EMBEDDING_DIMENSION = 768;
-export const DEFAULT_FIXTURE = join(TAXONOMY_DATA_DIR, "eval", "retrieval-v1.jsonl");
+/**
+ * The CURRENT fixture. v2 carries the Phase 6 DC-18 ground-truth correction.
+ *
+ * `retrieval-v1.jsonl` is deliberately still on disk and deliberately untouched: it is the
+ * instrument the Phase 5 baseline was measured with, and a baseline whose dataset has been
+ * edited underneath it is no longer a baseline. Running `--fixture <BASELINE_FIXTURE>` under
+ * the v2 evaluator is what separates "the metric changed" from "the ground truth changed".
+ */
+export const DEFAULT_FIXTURE = join(TAXONOMY_DATA_DIR, "eval", "retrieval-v2.jsonl");
+/** The Phase 5 baseline's dataset. Immutable. Kept reachable so the correction can be split. */
+export const BASELINE_FIXTURE = join(TAXONOMY_DATA_DIR, "eval", "retrieval-v1.jsonl");
 /** Categories excluded from headline Recall/MRR — they measure coverage, not ranking. */
 export const COVERAGE_ONLY_CATEGORIES = new Set(["unembedded_shipped"]);
 /** Sentinel written to `skill_alias.embedding_model` for a mock vector. */
@@ -257,8 +288,15 @@ export function langfuseStatus(env: NodeJS.ProcessEnv = process.env): LangfuseSt
  */
 export interface EvalRunRecord {
   run_id: string;
+  /** Which EVALUATOR SEMANTICS produced these numbers. v1 judged forbidden ids by top-k
+   *  membership; v2 by rank relative to the expected skill. A report that compares a v1
+   *  number with a v2 one is comparing two different questions, so the version travels
+   *  with the result rather than living in a changelog. */
+  evaluator_version: number;
   fixture_id: string;
   fixture_version: number;
+  /** The dataset FILE, not just its declared id — the two can disagree after a copy. */
+  fixture_path: string;
   corpus_batch: string;
   embedding_model: string | null;
   embedding_provenance: ProvenanceReport;
@@ -324,25 +362,62 @@ export function scoreCase(c: EvalCase, rows: readonly RetrievedRow[], k: number)
 // CLI
 // ===========================================================================
 
-function arg(argv: readonly string[], flag: string): string | null {
+/**
+ * Read `--flag value` or `--flag=value`. THROWS when the flag is present with no value.
+ *
+ * Returning null there would silently fall back to the default — so `--fixture` with a typo'd
+ * or trailing path would measure the DEFAULT dataset while the operator believed they had
+ * selected another one, and the run would be labelled with whichever fixture it happened to
+ * load. The identical defect in the embed runner turned a scoped run into a whole-table one;
+ * here it swaps the instrument out from under a comparison, which is quieter and just as bad.
+ */
+export function evalArg(argv: readonly string[], flag: string): string | null {
+  const eq = argv.find((a) => a.startsWith(`${flag}=`));
+  if (eq !== undefined) {
+    const v = eq.slice(flag.length + 1);
+    if (v.length === 0) throw new Error(`[${SCRIPT}] ${flag}= was given with no value.`);
+    return v;
+  }
   const i = argv.indexOf(flag);
-  return i >= 0 ? (argv[i + 1] ?? null) : null;
+  if (i < 0) return null;
+  const v = argv[i + 1];
+  if (v === undefined || v.startsWith("--")) {
+    throw new Error(
+      `[${SCRIPT}] ${flag} requires a value. Without one the run would silently use the default, ` +
+        `and the report would name a dataset that was not the one measured.`,
+    );
+  }
+  return v;
 }
 
 function printSummary(label: string, s: MetricSummary): void {
   const pct = (v: number | null): string => (v === null ? "  n/a" : `${(v * 100).toFixed(1)}%`);
+  // The two forbidden-id measures are printed as SEPARATE columns and never summed. `outrank`
+  // is semantic and carries its own denominator inline, because a rate over 11 asserting
+  // cases and a rate over 123 positives are different claims. `struct` is a count of scoping
+  // violations over negative cases — a regression guard, deliberately not rendered as a rate.
   console.log(
     `  ${label.padEnd(28)} n=${String(s.queries).padStart(3)} scored=${String(s.scored).padStart(3)} ` +
       `R@1=${pct(s.recall_at_1)} R@3=${pct(s.recall_at_3)} R@5=${pct(s.recall_at_5)} ` +
-      `MRR=${s.mrr === null ? " n/a" : s.mrr.toFixed(3)} leak=${pct(s.cross_domain_leakage_rate)} ` +
+      `MRR=${s.mrr === null ? " n/a" : s.mrr.toFixed(3)} ` +
+      `outrank=${pct(s.competitor_outranking_rate)}(${s.competitor_outranked_cases}/${s.competitor_asserting_cases}) ` +
+      `struct=${s.structural_isolation_violations}/${s.structural_isolation_cases} ` +
       `empty=${pct(s.no_result_rate)}`,
   );
 }
 
 async function main(): Promise<void> {
   const argv = process.argv;
-  const fixturePath = arg(argv, "--fixture") ?? DEFAULT_FIXTURE;
-  const kRaw = arg(argv, "--k");
+  const fixturePath = evalArg(argv, "--fixture") ?? DEFAULT_FIXTURE;
+  const experimentRaw = evalArg(argv, "--experiment");
+  if (experimentRaw !== null && !isExperimentId(experimentRaw)) {
+    throw new Error(
+      `[${SCRIPT}] --experiment ${experimentRaw} is not a known experiment. One of: ` +
+        `${Object.keys(EXPERIMENTS).join(", ")}`,
+    );
+  }
+  const experiment = experimentRaw as ExperimentId | null;
+  const kRaw = evalArg(argv, "--k");
   const k = kRaw === null ? 5 : Number(kRaw);
   if (!Number.isInteger(k) || k < 1) {
     // `--k abc` produced NaN, which reached the SQL as `LIMIT NaN`; `--k` trailing silently
@@ -360,6 +435,8 @@ async function main(): Promise<void> {
   const dist = fixtureDistribution(fixture);
 
   console.log(`[${SCRIPT}] fixture ${fixture.manifest.fixture_id} v${fixture.manifest.version}`);
+  console.log(`  fixture file             = ${fixturePath}`);
+  console.log(`  evaluator semantics      = v${EVALUATOR_VERSION}`);
   console.log(`  cases                    = ${fixture.cases.length}`);
   console.log(`  corpus_batch             = ${fixture.manifest.corpus_batch}`);
   console.log(`  ground-truth problems    = ${problems.length}`);
@@ -585,9 +662,11 @@ async function main(): Promise<void> {
     const record: EvalRunRecord = {
       // Unique per run. A constant id collides the moment two runs are stored or uploaded,
       // which is the one thing a run identifier exists to prevent.
-      run_id: `eval-${fixture.manifest.fixture_id}-v${fixture.manifest.version}-${new Date().toISOString()}`,
+      run_id: `eval-${fixture.manifest.fixture_id}-v${fixture.manifest.version}-e${EVALUATOR_VERSION}-${new Date().toISOString()}`,
+      evaluator_version: EVALUATOR_VERSION,
       fixture_id: fixture.manifest.fixture_id,
       fixture_version: fixture.manifest.version,
+      fixture_path: fixturePath,
       corpus_batch: fixture.manifest.corpus_batch,
       embedding_model: model,
       embedding_provenance: provenance,
@@ -615,6 +694,11 @@ async function main(): Promise<void> {
       provider_estimated_cost_inr: estimatedCostInr,
       embed_requests: attempted,
       notes: [
+        `evaluator_version=${EVALUATOR_VERSION}. Forbidden ids are judged by RANK RELATIVE TO ` +
+          `the expected skill, not by top-k membership, and the structural (negative-case, ` +
+          `out-of-scope) measure is reported separately from the semantic (positive-case, ` +
+          `in-scope competitor) one. Numbers from evaluator_version=1 answer a different ` +
+          `question and must not be diffed against these without saying so.`,
         "actual_cost_inr/actual_tokens are null: this harness does not meter providers. " +
           "provider_estimated_cost_inr is the ai-service's own ESTIMATE summed across query " +
           "embeds — an estimate, never presented as spend.",
@@ -641,9 +725,11 @@ async function main(): Promise<void> {
       printSummary(`  ${g}`, s);
       if (g === "cross_domain_isolation") {
         console.log(
-          `      ^ STRUCTURAL: every forbidden id here is out of scope, so the ` +
-            `job_domain_skill join makes a leak impossible. This is a regression guard on ` +
-            `scoping, NOT a measured leakage rate. Measured leakage lives in lexical_ambiguity.`,
+          `      ^ STRUCTURAL ONLY (struct column). Every forbidden id here is out of scope, ` +
+            `so the job_domain_skill join makes a hit impossible unless the SCOPING has ` +
+            `regressed. Zero violations is a passing guard on the query — it is NOT evidence ` +
+            `that the model separates domains, because no ranking decision was involved. The ` +
+            `semantic measure is the outrank column, and it lives on positive cases.`,
         );
       }
     }
@@ -655,6 +741,63 @@ async function main(): Promise<void> {
       for (const c of coverage) console.log(`    ${c.case_id} ${c.expected_skill_id} -> ${c.retrieved ? "reachable" : "NOT reachable"}`);
     }
     console.log(JSON.stringify(record, null, 2));
+
+    // ── preserve the run as an immutable experiment record ──────────────────
+    // Opt-in, because not every --run is an experiment worth keeping; but when it is, the
+    // record is written to the repository BEFORE any attempt to mirror it to Langfuse, so an
+    // unreachable or unconfigured observability backend can never cost us the measurement.
+    if (experiment !== null) {
+      const expRecord: ExperimentRecord = {
+        experiment,
+        run_id: record.run_id,
+        recorded_at: new Date().toISOString(),
+        purpose: EXPERIMENTS[experiment],
+        evaluator_version: EVALUATOR_VERSION,
+        fixture_id: record.fixture_id,
+        fixture_version: record.fixture_version,
+        corpus_batch: record.corpus_batch,
+        model: record.embedding_model,
+        embedding_model: record.embedding_model,
+        query_count: record.query_count,
+        failure_count: record.errors,
+        latency_ms: record.latency_ms,
+        recall_at_1: record.overall?.recall_at_1 ?? null,
+        recall_at_3: record.overall?.recall_at_3 ?? null,
+        recall_at_5: record.overall?.recall_at_5 ?? null,
+        mrr: record.overall?.mrr ?? null,
+        input_tokens: record.actual_tokens,
+        cost_inr_metered: record.actual_cost_inr,
+        cost_inr_estimated: record.provider_estimated_cost_inr,
+        ann: {
+          // The row count the ANN actually searched, so a recall number is never read
+          // without the corpus size that governs whether the index was even used.
+          corpus_rows: provenance.embedded,
+          // Left null on purpose: this path does not EXPLAIN its query, and inferring
+          // "an HNSW index exists, therefore it was used" is precisely the mistake the
+          // Phase 5 caveat was about. The scale harness measures it properly.
+          hnsw_used: null,
+          ef_search: efSearch === null ? null : Number(efSearch),
+          iterative_scan: null,
+          k,
+          alias_overfetch: ALIAS_OVERFETCH,
+        },
+        detail: {
+          by_category: record.by_category,
+          by_domain: record.by_domain,
+          competitor_outranking: record.overall?.competitor_outranking_rate ?? null,
+          structural_isolation_violations: record.overall?.structural_isolation_violations ?? null,
+          exact_alias_query_share: record.exact_alias_query_share,
+          coverage_probe: record.coverage_probe,
+        },
+        notes: record.notes,
+      };
+      const path = writeExperimentRecord(expRecord);
+      console.log(`[${SCRIPT}] experiment ${experiment} recorded -> ${path}`);
+      if (argv.includes("--push-langfuse")) {
+        const pushed = await pushExperimentToLangfuse(expRecord);
+        console.log(`[${SCRIPT}] langfuse mirror = ${JSON.stringify(pushed)}`);
+      }
+    }
 
     if (errors > 0) {
       // A run that measured a biased surviving subset must not exit 0. Failed queries
