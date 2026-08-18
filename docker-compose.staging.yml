@@ -677,18 +677,23 @@ services:
       # api/ai-service deploy down with it until a human sets an unrelated secret. That is
       # a strictly worse failure than the one it was guarding against.
       #
-      # The default matches this app's own port (`package.json`'s `next start -p 3002`)
-      # and mirrors the base file's api publish (`"3001:3001"`) — the repo's actual
-      # convention for a published port is a literal; no `${VAR:?}` port exists anywhere
-      # else here. Set PAYER_WEB_PORT (GitHub "staging" Environment secret, bridged in
-      # ci.yml) ONLY to override, e.g. if 3002 is already taken on the box.
+      # HOST SIDE IS 3333, NOT 3002 — an owner-confirmed fact about THIS box, not a
+      # guess: 3002 is already taken there, 3333 is free. The literal default follows the
+      # base file's api publish (`"3001:3001"`) — a literal published port is this repo's
+      # actual convention; no `${VAR:?}` port exists anywhere else. PAYER_WEB_PORT (GitHub
+      # "staging" Environment secret, bridged in ci.yml) survives purely as an override
+      # for a future box, so nothing has to be set for THIS one.
       #
-      # What is still a human step: confirming the chosen port is open in the box's
-      # security group. That failure mode is now correctly LOCALIZED — an unopened port
-      # makes payer-web unreachable, and a port already in use fails `up -d payer-web`
-      # loudly at the point it is actually relevant, AFTER api/ai-service have already
-      # deployed successfully. Neither can silently take the rest of the box's deploy down.
-      - "${PAYER_WEB_PORT:-3002}:3002"
+      # The CONTAINER side stays 3002 — this app's own port (`package.json`'s
+      # `next start -p 3002`), matching PORT/EXPOSE below. Only the host side was ever in
+      # contention; nothing outside this service dials the container port directly.
+      #
+      # What is still a human step: confirming 3333 is open in the box's security group.
+      # That failure mode is correctly LOCALIZED — an unopened port makes payer-web
+      # unreachable, and a port already in use fails `up -d payer-web` loudly at the point
+      # it is actually relevant, AFTER api/ai-service have already deployed successfully.
+      # Neither can silently take the rest of the box's deploy down.
+      - "${PAYER_WEB_PORT:-3333}:3002"
     environment:
       NODE_ENV: production
       PORT: "3002"

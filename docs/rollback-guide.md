@@ -46,10 +46,11 @@ Nothing is reverted in git; the box just points at older, already-built images.
    export AI_SERVICE_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-ai-service:sha-${SHORT_SHA}"
    export PAYER_WEB_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-payer-web:sha-${SHORT_SHA}"
    ```
-   `PAYER_WEB_PORT` is deliberately NOT in that list: it is `${PAYER_WEB_PORT:-3002}`
+   `PAYER_WEB_PORT` is deliberately NOT in that list: it is `${PAYER_WEB_PORT:-3333}`
    (defaulted, not fail-loud), precisely so a missing box-specific port can never brick an
-   api-only rollback the way the image gates above would. Export it only if this box
-   overrides the 3002 default.
+   api-only rollback the way the image gates above would. 3333 is the current box's free
+   port (3002 is taken there), so nothing needs exporting — override only on a box where
+   3333 is unavailable.
 
 4. **Log into GHCR** (the package is private; an expired/missing login 401s the pull):
    ```bash
@@ -71,7 +72,7 @@ Nothing is reverted in git; the box just points at older, already-built images.
    $COMPOSE up -d --no-deps api
    curl -sf http://localhost:3001/health  # must return 200
    $COMPOSE up -d --no-deps payer-web
-   curl -sf "http://localhost:${PAYER_WEB_PORT:-3002}/health"  # must return 200
+   curl -sf "http://localhost:${PAYER_WEB_PORT:-3333}/health"  # must return 200
    ```
    `--no-deps` on every `up` is deliberate: it is what keeps the compose-internal
    throwaway Postgres/Adminer from ever starting on this box — staging's `DATABASE_URL`

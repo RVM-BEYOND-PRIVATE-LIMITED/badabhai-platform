@@ -1092,10 +1092,12 @@ jobs:
           # box's own persistent shell state (the weaker path this file's own CD-1b
           # comment reserves for manual/rollback runs only).
           #
-          # OPTIONAL, an OVERRIDE only — this secret does not have to exist. Unset here
-          # arrives on the box as the empty string, and compose's `${PAYER_WEB_PORT:-3002}`
-          # (the `:-` form substitutes on empty as well as on unset) resolves it to 3002,
-          # the app's own port. It is deliberately NOT fail-loud: compose interpolates the
+          # OPTIONAL, an OVERRIDE only — this secret does not have to exist, and for the
+          # CURRENT box it should not: 3333 (the compose default) is the owner-confirmed
+          # free port there. Unset here arrives on the box as the empty string, and
+          # compose's `${PAYER_WEB_PORT:-3333}` (the `:-` form substitutes on empty as well
+          # as on unset) resolves it to 3333 either way. It is deliberately NOT fail-loud:
+          # compose interpolates the
           # whole staging file before filtering by service, so a `:?` here would fail
           # `$COMPOSE pull api` — taking the live api/ai-service deploy down over an
           # unrelated missing secret. See the service block in docker-compose.staging.yml
@@ -1379,14 +1381,14 @@ jobs:
             # comment) `PAYER_WEB_PORT`. ~30s budget (15 x 2s) — a Next.js standalone
             # server starts about as fast as the ai-service's uvicorn boot.
             #
-            # `:-3002` must match docker-compose.staging.yml's default EXACTLY: the secret
+            # `:-3333` must match docker-compose.staging.yml's default EXACTLY: the secret
             # is an optional override, so when it is unset this poll has to look at the
             # same port compose actually published, not at `http://localhost:/health`.
             echo "Waiting for payer-web to become healthy..."
             payer_web_healthy=0
             payer_web_crash_streak=0
             for i in $(seq 1 15); do
-              if curl -sf "http://localhost:${PAYER_WEB_PORT:-3002}/health" >/dev/null 2>&1; then
+              if curl -sf "http://localhost:${PAYER_WEB_PORT:-3333}/health" >/dev/null 2>&1; then
                 payer_web_healthy=1
                 echo "payer-web healthy after attempt ${i}"
                 break
