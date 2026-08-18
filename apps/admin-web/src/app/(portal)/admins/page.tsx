@@ -221,18 +221,19 @@ export default async function AdminsPage({
                 {admins.map((a) => (
                   <tr key={a.id}>
                     <td>
-                      {/* The same link shape every other entity uses for its event stream
-                          (`workers/[id]`, `jobs/[id]`, the payer detail header), and the same
-                          one `admin-row-actions.tsx` already points its result banner at.
-                          NOTE: `/events` currently reads only `subjectType` off the URL —
-                          `subjectId` is accepted by the backend DTO but not yet forwarded by
-                          `lib/events.ts`, so today this lands on the admin_session stream
-                          rather than this row's slice of it. That gap is shared by every
-                          entity link in the console and is not patched here. */}
+                      {/* Every OTHER entity now has a per-entity timeline route; admins do
+                          not, and deliberately so — `admin_session` is absent from
+                          ADMIN_TIMELINE_SUBJECT_TYPES (mirrored verbatim from the server in
+                          `lib/events.ts`), so a per-admin timeline would be a server-side
+                          400. This link is therefore subject-type-wide, and it says so: the
+                          id is the visible label, so without the title it would read as a
+                          promise of THIS admin's history. A `subjectId` param is not carried
+                          — `EventFilters` has no such field, so it would make that false
+                          promise and then quietly show every admin's events. */}
                       <Link
                         className="mono link"
-                        href={`/events?subjectType=admin_session&subjectId=${a.id}`}
-                        title={a.id}
+                        href="/events?subjectType=admin_session"
+                        title={`${a.id} — opens every admin_session event, not only this admin's`}
                       >
                         {shortId(a.id)}
                       </Link>

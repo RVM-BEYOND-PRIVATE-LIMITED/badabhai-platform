@@ -36,7 +36,15 @@ export function AdminRowActions({ admin }: { admin: AdminActionRow }) {
   const [role, setRole] = useState<AdminRole>(admin.role);
   const [outcome, setOutcome] = useState<AdminActionOutcome | null>(null);
   const roleId = useId();
-  const timelineHref = `/events?subjectType=admin_session&subjectId=${admin.id}`;
+  // Every other entity now has a per-entity timeline route; admins deliberately do NOT.
+  // `admin_session` is absent from ADMIN_TIMELINE_SUBJECT_TYPES (mirrored verbatim from the
+  // server in `lib/events.ts`), so /admin/entities/admin_session/:id/timeline would be a
+  // server-side 400. The honest destination is therefore the subject-type-wide stream: the
+  // action's own `admin.action_performed` lands there (subject_type `admin_session`, newest
+  // first), just not filtered to this row. Carrying a `subjectId` here would be worse than
+  // useless — `EventFilters` has no such field, so it would promise a per-admin slice and
+  // silently render every admin's events.
+  const timelineHref = "/events?subjectType=admin_session";
 
   if (admin.is_self) {
     return <span className="table__meta">Your own account</span>;

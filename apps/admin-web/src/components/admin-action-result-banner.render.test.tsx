@@ -14,19 +14,19 @@ describe("AdminActionResultBanner", () => {
     const out = html(
       <AdminActionResultBanner
         outcome={{ ok: true, changed: true, message: "Payer suspended." }}
-        timelineHref="/events?subjectType=payer&subjectId=p-1"
+        timelineHref="/companies/p-1/timeline"
       />,
     );
     expect(out).toContain("alert--success");
     expect(out).toContain("Payer suspended.");
-    expect(out).toContain("/events?subjectType=payer&amp;subjectId=p-1");
+    expect(out).toContain("/companies/p-1/timeline");
   });
 
   it("changed: false is STILL success-family, never the danger tone", () => {
     const out = html(
       <AdminActionResultBanner
         outcome={{ ok: true, changed: false, message: "Already suspended — no change." }}
-        timelineHref="/events?subjectType=payer&subjectId=p-1"
+        timelineHref="/companies/p-1/timeline"
       />,
     );
     expect(out).toContain("alert--info");
@@ -39,7 +39,7 @@ describe("AdminActionResultBanner", () => {
     const out = html(
       <AdminActionResultBanner
         outcome={{ ok: false, error: "Cannot demote the last active super_admin" }}
-        timelineHref="/events?subjectType=admin_session&subjectId=a-1"
+        timelineHref="/events?subjectType=admin_session"
       />,
     );
     expect(out).toContain("alert--danger");
@@ -51,9 +51,9 @@ describe("AdminActionResultBanner", () => {
     const out = html(
       <AdminActionResultBanner
         outcome={{ ok: true, changed: true, message: "Worker flagged." }}
-        timelineHref="/events?subjectType=worker&subjectId=w-9"
+        timelineHref="/workers/w-9/timeline"
       />,
     );
-    expect(out).toContain('href="/events?subjectType=worker&amp;subjectId=w-9"');
+    expect(out).toContain('href="/workers/w-9/timeline"');
   });
 });
