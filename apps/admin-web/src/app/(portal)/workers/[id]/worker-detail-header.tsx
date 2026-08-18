@@ -54,7 +54,12 @@ export function WorkerDetailHeader({
           </Link>
           {canFlag && (
             <>
-              <label className="field field--check">
+              {/* `.field`, not `.field--check`: that modifier is for an inline CHECKBOX
+                  filter and carries `align-self:end` + a `padding-bottom` sized for the
+                  filter grid, which in this flex action row pushed the select out of line
+                  with the buttons beside it. Every other select in the console is a plain
+                  `.field` + `.field__input`. */}
+              <label className="field">
                 <span className="field__label sr-only">Flag reason</span>
                 <select
                   className="field__input"
