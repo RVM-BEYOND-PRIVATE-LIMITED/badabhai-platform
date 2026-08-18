@@ -1,9 +1,20 @@
 # Phase 8 taxonomy decisions — DRAFT register
 
-**Status: DRAFT, except TD-01, TD-02 and TD-03 (see below), which are RATIFIED AND APPLIED.**
-No alias has been added or removed, no vector embedded, and every other entry (TD-04..TD-07,
-§3's alias add/remove list, §4's canonical-label writes) remains exactly as it was — nothing
-else has been applied.
+**Status: DRAFT, except TD-01, TD-02, TD-03, TD-04 and TD-06 (see below), which are RATIFIED
+AND APPLIED.** No alias has been added or removed, no vector embedded, and every other entry
+(TD-05, TD-07, §3's alias add/remove list, §4's canonical-label writes) remains exactly as it
+was — nothing else has been applied.
+
+**2026-08-18 (later still) — TD-04 and TD-06 ratified by Prakash (Backend Platform owner, TL)
+directly, confirming the JD/line-inspector conditions the register asked for are satisfied.**
+Both `skill_go_no_go_gauge_checking` (TD-04) and `skill_chassis_fitting` (TD-06) are
+**provisional, never-promoted** skills that live only in the growth corpus
+(`packages/db/data/taxonomy/skills.jsonl`), not in `SKILL_CORPUS` — a DIFFERENT mechanism from
+TD-01/02/03, which all dissolved an *active, shipped* `SKILL_CORPUS` skill. See §9 for the full
+application record, including why the TAX-9 `status: "deprecated"` + `replacedBy` pattern was
+extended to the growth corpus itself rather than reused as-is, and why the `domain-skills.jsonl`
+edges were (again) left unrepointed — for a stronger, mechanically-grounded reason than
+precedent alone this time.
 
 **2026-08-18 — TD-02 and TD-03 ratified by Prakash (Backend Platform owner, TL) for immediate
 application, scoped to `packages/taxonomy` + `packages/db` only.** Applied as a corpus
@@ -139,15 +150,21 @@ Lowest-risk merge on the list. `packages/taxonomy/src/match-skills.ts:454` alrea
 `skill_turning` is the skill that took GP-04 from `skill_coolant_management`; widening it
 slightly increases that pressure, so GP-04 was re-measured for this merge specifically — see §7.
 
-### TD-04 — `skill_go_no_go_gauge_checking` + `skill_measuring_instruments` · **DEFERRED**
+### TD-04 — `skill_go_no_go_gauge_checking` → `skill_measuring_instruments` · **RATIFIED AND APPLIED (2026-08-18)**
 
-Line-inspector / JD decision required. Not decided automatically.
+Line-inspector / JD condition (accepted as satisfied by the ratifying owner).
 
 - source: **provisional**, 2 aliases (2 embedded), 2 domains
 - target: active, 6 aliases, 9 domains
 
-Measured: `"गेज से जांच"` vs `"gauge"` at cosine **0.7933**. Note this interacts with the
-approved removal of the bare alias `gauge` — see §3.
+Measured: `"गेज से जांच"` vs `"gauge"` at cosine **0.7933**. This interacts with the approved-
+but-NOT-YET-applied removal of the bare alias `gauge` from `skill_measuring_instruments` — see
+§3 (untouched by this change; still gated on its own, separate authorization).
+
+**Applied as:** `skill_go_no_go_gauge_checking` in `packages/db/data/taxonomy/skills.jsonl` now
+carries `"status": "deprecated", "replaced_by": "skill_measuring_instruments"` — a NEW,
+growth-corpus-native form of the same TAX-9 crosswalk TD-01/02/03 used on `SKILL_CORPUS`. See
+§9 for why this shape (not deletion, not a hand-edited batch artifact) and the full record.
 
 ### TD-05 — `skill_fixture_setup` + `skill_tool_offset_setting` → `skill_cnc_setup` · **DEFERRED**
 
@@ -160,12 +177,17 @@ Only if RVM JDs do not distinguish workholding setup from tool-offset setting.
 ⚠️ **Blocks one approved alias addition**: `offset lagana → skill_tool_offset_setting` (§3)
 attaches vocabulary to a skill this decision may dissolve.
 
-### TD-06 — `skill_chassis_fitting` → `skill_mechanical_assembly` · **DEFERRED**
+### TD-06 — `skill_chassis_fitting` → `skill_mechanical_assembly` · **RATIFIED AND APPLIED (2026-08-18)**
 
-Confirm whether automotive JDs specifically require chassis-fitting experience.
+Condition — "confirm whether automotive JDs specifically require chassis-fitting experience" —
+accepted as satisfied by the ratifying owner.
 
 - source: **provisional**, 2 aliases (2 embedded), 1 domain
 - target: active, 2 aliases, 3 domains
+
+**Applied as:** `skill_chassis_fitting` in `packages/db/data/taxonomy/skills.jsonl` now carries
+`"status": "deprecated", "replaced_by": "skill_mechanical_assembly"` — same growth-corpus TAX-9
+crosswalk as TD-04. See §9.
 
 ### TD-07 — generic welding node · **GAP, not a merge**
 
@@ -233,6 +255,19 @@ of a skill that is about to be dissolved creates a row that then has to be migra
 
 **Writable set: 84 → 81**, pending the deferred decisions.
 
+**Update 2026-08-18 — TD-04 and TD-06 applied, so 2 of the 3 are now definitely moot,** the
+same way TD-01 made `skill_cad_interpretation`'s and `skill_gdt_reading`'s labels moot: neither
+`skill_go_no_go_gauge_checking` nor `skill_chassis_fitting` is a skill any canonical label
+should ever be written for now (both `status: "deprecated"`, both refused by
+`promote-skills.ts`'s `IS_PROVISIONAL` criterion by default — overridable only via an
+explicit, recorded `--waive IS_PROVISIONAL`, the same fail-closed-but-overridable posture
+already governing TD-01/02/03's deprecated `SKILL_CORPUS` rows — see §9). Their labels are not reassigned to `skill_measuring_instruments` /
+`skill_mechanical_assembly` either — both targets already have their own entries in the 84 (or
+don't; that recompute is still un-authorized, unchanged by this update). `skill_tool_offset_
+setting`'s label stays conditionally moot, unchanged, still gated on TD-05. **Writable set is
+unaffected by this update** — the 3 held-back labels are still held back, now for a permanent
+reason instead of a pending one for 2 of them.
+
 Three further labels already carrying a `REVIEW` verdict were also flagged as moot if their
 merge proceeded: `skill_cad_interpretation` ("CAD / technical drawing interpretation"),
 `skill_fixture_setup` ("Fixture / job setup"), `skill_gdt_reading` ("GD&T / drawing reading").
@@ -252,13 +287,14 @@ invalidates a queued alias, so running these concurrently would corrupt one with
 
 ```
 1  taxonomy freeze      TD-01..TD-07 ratified; TD-07 gap resolved
-                        — PARTIAL 2026-08-18: TD-01 + TD-02 + TD-03 ratified and applied (§7,
-                        §8; TD-01 in a different shape than drafted — a full merge, not a
-                        split, so its alias-split question is moot rather than answered).
-                        TD-04..TD-07 remain exactly as drafted; the "freeze" as a whole is
-                        still open.
+                        — PARTIAL 2026-08-18: TD-01 + TD-02 + TD-03 + TD-04 + TD-06 ratified
+                        and applied (§7, §8, §9; TD-01 in a different shape than drafted — a
+                        full merge, not a split; TD-04/TD-06 via a DIFFERENT mechanism than
+                        TD-01/02/03, see §9). TD-05 and TD-07 remain exactly as drafted; the
+                        "freeze" as a whole is still open.
 2  fixture repair       US-04 re-pointed in the same change as TD-02 — DONE 2026-08-18 (§7).
-                        No TD-01 fixture case existed to repair — checked, see §8.
+                        No TD-01, TD-04 or TD-06 fixture case existed to repair — checked,
+                        see §8, §9.
 3  alias update         13 additions minus any blocked; 2 demotions        [STOP — authorization]
 4  canonical labels     the 81, re-audited after the merges                [STOP — authorization]
 5  embed                approved set only, Gate B safeguards + fresh Langfuse
@@ -276,16 +312,20 @@ taxonomy, the aliases and the fixture at once cannot attribute its own result.
 
 ## 6. Unchanged
 
-Except for TD-01, TD-02 and TD-03's `status`/`replacedBy` corpus writes and TD-01's new-skill
-creation (§7, §8), **everything below still holds exactly as before**:
-`skill_canonicalize_enabled = false` · floor **0.75** · `NO_REGRESSION` enforced · no skill
-promoted · 4,071-domain generation NOT AUTHORIZED · the 33 provisional-skill aliases remain
-unembedded · `EXP-P8-BASELINE` and `EXP-P8-CANONICAL-LABEL` untouched · TD-04..TD-07 untouched ·
-the §3 alias add/remove list NOT applied · the §4 canonical-label writes NOT applied · no vector
-embedded (`skill_drawing_reading`'s aliases are inserted, on a future `db:seed:skills` run,
-exactly as unembedded as every other un-embedded row — nothing in this change calls a provider)
-· no live-database row moved (`pnpm db:retag:skills` was not run against any shared/remote
-database — that is a separate, later, explicitly-gated ops step).
+Except for TD-01, TD-02 and TD-03's `status`/`replacedBy` corpus writes, TD-01's new-skill
+creation (§7, §8), and TD-04/TD-06's growth-corpus `status`/`replaced_by` writes (§9),
+**everything below still holds exactly as before**: `skill_canonicalize_enabled = false` ·
+floor **0.75** · `NO_REGRESSION` enforced · no skill promoted (TD-04/TD-06 are now refused by
+`promote-skills.ts`'s default criteria, which is different from "promoted" — a recorded
+`--waive IS_PROVISIONAL` could still override it, same as any other deprecated row — see §9) ·
+4,071-domain generation NOT
+AUTHORIZED · the 33 provisional-skill aliases remain unembedded (TD-04/TD-06's own 4 aliases
+included — dissolving a skill's status does not embed it) · `EXP-P8-BASELINE` and
+`EXP-P8-CANONICAL-LABEL` untouched · TD-05 and TD-07 untouched · the §3 alias add/remove list
+NOT applied · the §4 canonical-label writes NOT applied · no vector embedded · no live-database
+row moved or created (`pnpm db:retag:skills` and `pnpm db:seed:domain-skills --apply` were not
+run against any shared/remote database — seeding this corpus, including its two now-deprecated
+rows, is a separate, later, explicitly-gated ops step).
 
 The measured GP-04 repair sits at **0.7509**, nine ten-thousandths above the floor. The floor
 does not move to accommodate it.
@@ -527,3 +567,184 @@ real and would have caught a forgotten entry.
 require a live `DATABASE_URL` + reachable `ai-service`; neither was available. No embedding, no
 retrieval re-measurement was performed for `skill_drawing_reading` specifically — it is
 un-embedded until a future Gate-B-safeguarded embed run, same as any newly-minted skill.
+
+---
+
+## 9. TD-04 / TD-06 application record (2026-08-18) — a DIFFERENT mechanism from TD-01/02/03
+
+**Why this is not "apply the TD-02/TD-03 pattern again."** TD-01/02/03 all dissolved an
+*active, shipped* `packages/taxonomy/src/skill-corpus.ts` (`SKILL_CORPUS`) skill — a row a
+worker or a job posting could already have a stored reference to. TD-04's source
+(`skill_go_no_go_gauge_checking`) and TD-06's source (`skill_chassis_fitting`) are neither:
+both live ONLY in the growth corpus (`packages/db/data/taxonomy/skills.jsonl`), confirmed by
+grep to be absent from `skill-corpus.ts` entirely, and both are **provisional** — per Phase 7
+Gate A, `SkillsRepository.canonicalAliasRows` only ever returns `status = 'active'` rows
+(`PRODUCTION_SKILL_STATUSES = ["active"]`, `taxonomy-retrieval-eval.ts`), so a provisional
+skill has never been retrievable, never been canonicalized to, and cannot have a stored
+worker-profile or job-posting reference. Re-applying TD-02/TD-03's exact recipe unmodified
+("edit the corpus id's `status` field in `skill-corpus.ts`") is not even available here —
+`taxonomy-corpus.ts`'s own header states **`SKILL_CORPUS` DOES NOT GROW**, in capitals, as a
+deliberate design boundary (new canonical skills live in the JSONL growth corpus specifically
+so they never need a hand-authored `match-skills.ts` bridge entry). Minting these two ids into
+`SKILL_CORPUS` purely to borrow its deprecation mechanism would violate that boundary for no
+reason — they were never promoted, so there is nothing "shipped" about them to record there.
+
+**Options considered, and why each losing one lost:**
+
+1. **Delete the two `skill` lines from `skills.jsonl` outright.** Rejected. `loadTaxonomyCorpus`
+   accumulates every `*.jsonl` file in the directory into one corpus and `SKILL_ID_DUPLICATE`
+   fires on any second record with the same `skill_id` ANYWHERE in it — which is what actually
+   protects a growth-corpus id from being re-minted for a different concept by a future batch
+   (SG-5: "`skill_id` is immutable and never reused"). Delete the line and that protection is
+   gone: a future generation batch proposing a JD-derived skill labelled "Chassis fitting"
+   again (`taxonomySkillIdFor` is a pure function of the label, so it re-derives the exact same
+   id) would sail through as a brand-new `CORRECT_NEW` candidate, silently re-litigating a
+   question this decision already answered.
+2. **Re-point the `domain-skills.jsonl` edges to the successor and THEN delete the source skill
+   record** (the task's own suggested reconsideration). Rejected, for a mechanical reason, not
+   merely "TD-01/02/03 didn't do it": `validateTaxonomyCorpus`'s `SKILL_ORPHAN` check requires
+   every corpus-declared skill to carry at least one `domain_skill` edge, and it is not a soft
+   warning — `resolveTaxonomyCorpus` (the seeder's gate) and `db:verify:taxonomy` both treat
+   ANY problem as a hard failure. Re-pointing the 3 edges away from a skill record we keep would
+   orphan it and break `db:verify:taxonomy` for the WHOLE 98-skill corpus, not just these two
+   rows. Combining re-pointing with deletion avoids the orphan but reintroduces option 1's
+   id-reuse gap. There is no combination of "re-point" + "keep the record" that passes the
+   corpus's own validator.
+3. **Hand-edit `batches/batch_2026-08-16T14-30-41Z-remediation/accepted-skills.jsonl`** to drop
+   both entries from the promotion candidate pool (`promote-skills.ts --batch <dir>` scopes
+   `GATE_ACCEPTED` to exactly that file). Rejected. That file is the committed record of what a
+   SPECIFIC quality-gate run (dedup/convergence checks — a different axis of judgment) accepted,
+   and it is factually still correct: both ids ARE well-formed, non-duplicate, non-fragmenting
+   skills by that gate's own criteria. TD-04/TD-06 are a JD-relevance call the quality gate never
+   measures. Editing the batch artifact after the fact would misattribute a later human business
+   decision as if it were an earlier quality-gate failure, and this repo's own convention for
+   correcting a batch is a NEW, clearly-labelled batch/remediation directory (see
+   `batch_2026-08-16T14-30-41Z` → `batch_2026-08-16T14-30-41Z-remediation` itself), never an
+   in-place edit of a committed one.
+4. **A new `promote-skills.ts` hard-coded exclusion list** (e.g. `WITHDRAWN_SKILL_IDS`, checked
+   before `GATE_ACCEPTED`). Considered and set aside — not wrong, but unnecessary once (5) below
+   makes the EXISTING `IS_PROVISIONAL` criterion do the job with zero new runner code, and a
+   parallel exclusion mechanism living beside the criteria it would duplicate is exactly the
+   kind of thing this file's own docstring warns against ("a second copy... is the copy that
+   drifts").
+5. **Extend the growth corpus with its OWN `status`/`replaced_by` fields, written through by
+   `seed-domain-skills.ts` instead of `seed-skills.ts`.** Chosen. `skill.status` and
+   `skill.replaced_by` are real, general `skill` table columns (migration 0039's TAX-9
+   crosswalk, `skill_replaced_by_chk`) — nothing about them is specific to which SEEDER writes
+   them. `promote-skills.ts`'s `IS_PROVISIONAL` criterion already refuses to promote a
+   `deprecated` row ("promoting a deprecated one would resurrect something a human retired") —
+   that logic is untouched, because it does not need to be. The only real gaps were (a)
+   `TaxonomySkillRecord` (the `skills.jsonl` schema) had no `status`/`replaced_by` fields at
+   all, and (b) `seed-domain-skills.ts` hard-coded `status: "provisional" as const` on every
+   INSERT. Both are now closed:
+   - `TaxonomySkillRecord` gained two optional fields, `status?: "deprecated"` and
+     `replaced_by?: string`, with `validateTaxonomyCorpus` enforcing: `status`, if present, must
+     be exactly `"deprecated"` (`SKILL_STATUS_INVALID` — promotion to `active` is
+     `promote-skills.ts`'s job, never a corpus author's); `replaced_by` requires
+     `status: "deprecated"` and vice versa is NOT required (`SKILL_REPLACED_BY_WITHOUT_STATUS`;
+     a deprecated-with-no-successor row is legal per `skill.ts`'s own comment, "retired, nothing
+     to re-tag to"); `replaced_by` must resolve to a SHIPPED `SKILL_CORPUS` id, never another
+     corpus-authored draft (`SKILL_REPLACED_BY_UNKNOWN`) — this seeder inserts every corpus
+     skill in one pass with no ordering guarantee between two draft rows, so only an
+     already-guaranteed-to-exist shipped id is a safe target; and neither field may combine
+     with `reuses_existing: true` (`SKILL_STATUS_ON_REUSE`) — a reuse record never gets its own
+     `skill` row, so a lifecycle override on it is meaningless.
+   - `seed-domain-skills.ts`'s `PlannedSkillRow`/`planSkillRows` now carry `status`/`replacedBy`
+     through (defaulting to `"provisional"`/`null` exactly as before when the fields are
+     absent), the `skill` INSERT writes them instead of the old hardcoded literal, and
+     `shippedDependencies` was extended to also treat a deprecated draft's shipped `replaced_by`
+     as a precondition dependency (belt-and-braces: both TD-04's and TD-06's targets already
+     have `domain-skills.jsonl` edges that independently trigger the same precondition today,
+     but the new general capability must not silently rely on that coincidence for the next
+     skill that uses it without one).
+   - Once seeded, a future `db:promote:skills --batch batches/batch_2026-08-16T14-30-41Z-
+     remediation --apply` run against these two ids would report `IS_PROVISIONAL: status =
+     deprecated` and refuse — the SAME code path, unmodified, that already refuses a deprecated
+     `SKILL_CORPUS` row. No new runner logic, no exclusion list to keep in sync, no reliance on
+     Gate B never having embedded them (which was the previous, accidental, non-durable reason
+     they could not be promoted TODAY).
+
+**`skills.jsonl` — exact change.** Both lines keep their `label_en`, `label_hi` and `aliases`
+untouched (SG-5: an id's own row is never rewritten, only annotated) and gain two fields:
+
+```json
+{"kind":"skill","skill_id":"skill_chassis_fitting", ... ,"status":"deprecated","replaced_by":"skill_mechanical_assembly"}
+{"kind":"skill","skill_id":"skill_go_no_go_gauge_checking", ... ,"status":"deprecated","replaced_by":"skill_measuring_instruments"}
+```
+
+**`domain-skills.jsonl` edges — left exactly as-is, reconsidered and reaffirmed, not merely
+copied from precedent.** The three edges (`jd_nco_7231_0400`→`skill_chassis_fitting`,
+`jd_nco_7313_2601`/`jd_nco_7543_2001`→`skill_go_no_go_gauge_checking`) still point at the
+now-deprecated source ids. The task explicitly asked this to be reconsidered rather than
+defaulted, because the TD-01/02/03 reasoning ("no stored-reference risk to protect") does not
+by itself argue AGAINST re-pointing the way it argued against re-pointing a formerly-active
+skill. Reconsidered on two independent grounds:
+  - **Mechanical:** re-pointing requires either orphaning the (kept) source record — a hard
+    `db:verify:taxonomy` failure — or deleting it, which reopens the SG-5 id-reuse gap (option 2
+    above). There is no way to re-point that passes the corpus's own validator without a cost
+    this decision was not asked to pay.
+  - **Reachability is unchanged either way.** `PRODUCTION_SKILL_STATUSES = ["active"]` excludes
+    BOTH `provisional` (today) and `deprecated` (after this change) from
+    `SkillsRepository.canonicalAliasRows`. The edge was already functionally inert before this
+    change (a provisional skill's own aliases have never been embedded or retrievable) and stays
+    exactly as inert after it — dissolution does not make anything newly unreachable that was
+    reachable a moment ago. Re-pointing to the ALREADY-ACTIVE successor would be the only way to
+    make the requirement reachable at all, but doing so is a `job_domain_skill` edge-ownership
+    decision this register was not asked to authorize (same boundary TD-01/02/03 drew), and here
+    it is additionally blocked by the mechanical point above unless the source record is also
+    deleted — which this decision explicitly rejected. Re-pointing `job_domain_skill` edges for
+    these three rows is therefore a known, named follow-up, not a defect this change introduced,
+    exactly like TD-01/02/03's edges.
+
+**Canonical labels.** §4 updated: `Chassis fitting` / `Go no-go gauge checking` move from
+"blocked, pending TD-06/TD-04" to "moot" — the same disposition TD-01 gave `skill_cad_
+interpretation` / `skill_gdt_reading`. Neither label is written for the successor either; that
+recompute stays un-authorized.
+
+**Fixture check — nothing to repoint.** Grepped `packages/db/data/taxonomy/eval/retrieval-v1.jsonl`
+and `retrieval-v2.jsonl` for both ids: zero matches in either file — no fixture case named
+either predecessor, so unlike TD-02's US-04, nothing needed correcting.
+
+**Cross-team boundary — confirmed, not crossed.** Grepped `apps/ai-service` and
+`apps/worker-app` for both skill ids: zero references in either tree, confirmed independently
+of the register's own prior claim to the same effect. This change is `packages/db` +
+`docs/registers` only; no companion AI or Mobile PR is needed for TD-04/TD-06.
+
+**Full verification run, this session:**
+
+```
+pnpm --filter @badabhai/db build                       clean
+pnpm --filter @badabhai/db typecheck                    clean
+pnpm --filter @badabhai/db test                         36 files, 897/897 passed
+                                                          (was 846 at the TD-02/TD-03 baseline;
+                                                          +13 of the delta is THIS change — 9 new
+                                                          cases in taxonomy-corpus.test.ts, 4 in
+                                                          seed-domain-skills.test.ts, file count
+                                                          unchanged for both — the remaining +38
+                                                          predates this session, from unrelated
+                                                          work landed on main since the TD-02/
+                                                          TD-03 baseline was recorded)
+pnpm --filter @badabhai/db exec tsx src/taxonomy-corpus.ts (db:verify:taxonomy)
+                                                          98 skills, 238 edges, 0 problems — PASS
+                                                          (unchanged counts: only metadata was
+                                                          added to 2 existing skill lines)
+pnpm --filter @badabhai/taxonomy test                    4 files, 46/46 passed — unchanged
+                                                          (skill-corpus.ts was NOT touched;
+                                                          TD-04/TD-06 never lived there)
+pnpm --filter @badabhai/match-engine test                9 files, 209/209 passed — unchanged
+```
+
+Mutation check on the new `SKILL_REPLACED_BY_UNKNOWN` guard specifically: the check was
+disabled in place (`if (false)` in place of the real condition), the suite re-run, and it
+produced EXACTLY the two expected failures (the two tests that assert this code fires) with
+every other test — including the 60 unrelated cases in the same file — still green; the check
+was then restored and the suite re-run clean. The guard is real, not vacuous.
+
+**Not run in this session (infra-gated, not code-gated, same as every prior TD):**
+`pnpm db:seed:domain-skills --apply` (would create the two `skill` rows as `deprecated` for the
+first time), `pnpm db:sweep:floor --run`, `pnpm db:eval:taxonomy --run` and
+`pnpm db:retag:skills` all require a live `DATABASE_URL` (the seed also needs `skill_measuring_
+instruments`/`skill_mechanical_assembly` already present via `pnpm db:seed:skills`, an existing,
+unrelated precondition); none was available. No live-database row was created, moved, or
+deprecated by this change — it is corpus-file-only, exactly like TD-01/02/03's own file-only
+scope.
