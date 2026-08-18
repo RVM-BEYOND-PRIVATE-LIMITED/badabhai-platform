@@ -43,15 +43,48 @@ function skill(overrides: Partial<TaxonomySkillRecord> = {}): TaxonomySkillRecor
 }
 
 describe("planSkillRows", () => {
-  it("maps a corpus skill to its row", () => {
+  it("maps a corpus skill to its row, defaulting status to provisional", () => {
     expect(planSkillRows([skill({ label_hi: "फैनुक" })])).toEqual([
-      { skillId: "skill_fanuc_cnc", labelEn: "Fanuc CNC", labelHi: "फैनुक" },
+      {
+        skillId: "skill_fanuc_cnc",
+        labelEn: "Fanuc CNC",
+        labelHi: "फैनुक",
+        status: "provisional",
+        replacedBy: null,
+      },
     ]);
   });
 
   it("EXCLUDES a reuses_existing record — seed-skills.ts owns that row", () => {
     const shipped = [...shippedSkillIds()][0] as string;
     expect(planSkillRows([skill({ skill_id: shipped, reuses_existing: true })])).toEqual([]);
+  });
+
+  it("TD-04/TD-06: carries status: deprecated + replacedBy through for a retired draft", () => {
+    const shippedTarget = [...shippedSkillIds()][0] as string;
+    expect(
+      planSkillRows([skill({ status: "deprecated", replaced_by: shippedTarget })]),
+    ).toEqual([
+      {
+        skillId: "skill_fanuc_cnc",
+        labelEn: "Fanuc CNC",
+        labelHi: null,
+        status: "deprecated",
+        replacedBy: shippedTarget,
+      },
+    ]);
+  });
+
+  it("ignores a stray replaced_by if status is not deprecated (validator's job to reject it)", () => {
+    // planSkillRows is the seeder's PLANNER, not the gate — validateTaxonomyCorpus refuses
+    // this shape before the seeder ever runs. This proves the planner still fails SAFE
+    // (never writes a successor pointer without the matching status) if it is ever called
+    // on unvalidated input.
+    expect(
+      planSkillRows([skill({ replaced_by: "skill_should_be_ignored" })]),
+    ).toEqual([
+      { skillId: "skill_fanuc_cnc", labelEn: "Fanuc CNC", labelHi: null, status: "provisional", replacedBy: null },
+    ]);
   });
 });
 
@@ -255,6 +288,25 @@ describe("shippedDependencies — the precondition the run refuses on", () => {
           source: "llm_bootstrap",
         },
       ],
+    });
+    expect(shippedDependencies(c)).toEqual([]);
+  });
+
+  it("names a shipped skill a deprecated corpus draft's replaced_by points at (TD-04/TD-06)", () => {
+    // The self-FK (`skill.replaced_by` REFERENCES `skill.skill_id`) needs the target to
+    // already exist. Even with no edge coincidentally pointing at it too, the precondition
+    // must still catch it — this is exactly the case neither TD-04 nor TD-06 hits in
+    // practice (their targets both already have edges), but the check must not depend on
+    // that coincidence.
+    const c = corpus({
+      skills: [skill({ status: "deprecated", replaced_by: shipped })],
+    });
+    expect(shippedDependencies(c)).toEqual([shipped]);
+  });
+
+  it("does NOT name a replaced_by that is itself corpus-authored (invalid shape, no-op here)", () => {
+    const c = corpus({
+      skills: [skill({ status: "deprecated", replaced_by: "skill_not_shipped_and_not_here" })],
     });
     expect(shippedDependencies(c)).toEqual([]);
   });

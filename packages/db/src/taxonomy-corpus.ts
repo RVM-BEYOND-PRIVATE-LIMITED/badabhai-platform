@@ -147,6 +147,32 @@ export interface TaxonomySkillRecord {
    * stays authoritative for its labels, kind, status, source and legacy `domain_id`.
    */
   reuses_existing?: boolean;
+  /**
+   * TAX-9-style retirement of a skill THIS CORPUS ITSELF MINTED, authored before it was
+   * ever promoted (TD-04/TD-06, 2026-08-18 — a `provisional`, never-`active` skill
+   * dissolved into a shipped one before Gate E ever ran on it).
+   *
+   * Mirrors `SkillSeed.status`/`replacedBy` on `SKILL_CORPUS` — same crosswalk shape, a
+   * DIFFERENT seeder (`seed-domain-skills.ts` writes it, not `seed-skills.ts`), because
+   * this id was never in `SKILL_CORPUS` to begin with (`SKILL_CORPUS DOES NOT GROW` — see
+   * this file's header). ABSENT means the row seeds as `provisional`, the corpus default:
+   * nothing machine-drafted is `active` until a human promotes it.
+   *
+   * `"active"` is not a legal value here for the same reason it is not the column
+   * default: promotion is `promote-skills.ts`'s job — an explicit, evidence-gated human
+   * action — never a corpus author's.
+   */
+  status?: "deprecated";
+  /**
+   * The immutable successor id. Only meaningful (and only validated) when `status` is
+   * `"deprecated"` — mirrors `skill.replaced_by`'s own CHECK (`skill_replaced_by_chk`): a
+   * successor pointer only ever exists on a deprecated row. MUST be a SHIPPED
+   * (`SKILL_CORPUS`) id, never another corpus-authored draft: this seeder inserts every
+   * corpus skill in one pass with no ordering guarantee between two draft rows, and a
+   * shipped id is guaranteed to already exist in `skill` before this corpus seeds
+   * (`shippedDependencies`'s existing precondition).
+   */
+  replaced_by?: string;
 }
 
 /**
@@ -270,6 +296,15 @@ export type TaxonomyProblemCode =
   /** `reuses_existing: true` on an id that is not in SKILL_CORPUS — the inverse claim. */
   | "SKILL_ID_REUSE_UNKNOWN"
   | "SKILL_ID_DUPLICATE"
+  // ── skill lifecycle (status / replaced_by) ───────────────────────────────
+  /** `status` present but not the one legal explicit value, `"deprecated"`. */
+  | "SKILL_STATUS_INVALID"
+  /** `status`/`replaced_by` set on a `reuses_existing` record — meaningless there. */
+  | "SKILL_STATUS_ON_REUSE"
+  /** `replaced_by` set without `status: "deprecated"` — mirrors `skill_replaced_by_chk`. */
+  | "SKILL_REPLACED_BY_WITHOUT_STATUS"
+  /** `replaced_by` does not resolve to a SHIPPED SKILL_CORPUS id. */
+  | "SKILL_REPLACED_BY_UNKNOWN"
   // ── skill text ────────────────────────────────────────────────────────────
   | "SKILL_LABEL_MISSING"
   | "SKILL_LABEL_TOO_LONG"
@@ -657,6 +692,57 @@ export function validateTaxonomyCorpus(
       continue;
     }
     corpusSkillIds.add(rawId);
+
+    // ── lifecycle override (status / replaced_by) ────────────────────────────
+    // Optional TAX-9-style retirement of a skill this corpus itself minted, before it was
+    // ever promoted — see the field docs on TaxonomySkillRecord.
+    if (s.status !== undefined && s.status !== "deprecated") {
+      problems.push(
+        problem(
+          where,
+          "SKILL_STATUS_INVALID",
+          `"status" is ${JSON.stringify(s.status)}; the only legal explicit value from this corpus is ` +
+            `"deprecated". Promotion to "active" is promote-skills.ts's job — an explicit, evidence` +
+            `-gated human action — never a corpus author's, and omitting the field already means ` +
+            `"provisional" (the seeder's default).`,
+        ),
+      );
+    }
+    if (s.reuses_existing === true && (s.status !== undefined || s.replaced_by !== undefined)) {
+      problems.push(
+        problem(
+          where,
+          "SKILL_STATUS_ON_REUSE",
+          `"status"/"replaced_by" set alongside "reuses_existing": true. A reuse record never gets ` +
+            `its own \`skill\` row — seed-skills.ts owns the shipped row's lifecycle — so a lifecycle ` +
+            `override here is meaningless. Drop "reuses_existing", or drop "status"/"replaced_by".`,
+        ),
+      );
+    }
+    if (s.replaced_by !== undefined && s.status !== "deprecated") {
+      problems.push(
+        problem(
+          where,
+          "SKILL_REPLACED_BY_WITHOUT_STATUS",
+          `"replaced_by" is set but "status" is not "deprecated". Mirrors \`skill_replaced_by_chk\` — ` +
+            `a successor pointer only ever exists on a deprecated row.`,
+        ),
+      );
+    }
+    if (s.status === "deprecated" && s.replaced_by !== undefined) {
+      if (typeof s.replaced_by !== "string" || s.replaced_by.length === 0 || !shipped.has(s.replaced_by)) {
+        problems.push(
+          problem(
+            where,
+            "SKILL_REPLACED_BY_UNKNOWN",
+            `"replaced_by" (${JSON.stringify(s.replaced_by)}) does not resolve to a shipped ` +
+              `@badabhai/taxonomy SKILL_CORPUS id. This seeder inserts every corpus skill in one pass ` +
+              `with no ordering guarantee between two draft rows, so a successor must already be a ` +
+              `shipped skill — never another corpus-authored draft.`,
+          ),
+        );
+      }
+    }
 
     // ── label_en ────────────────────────────────────────────────────────────
     if (typeof s.label_en !== "string" || s.label_en.trim().length === 0) {

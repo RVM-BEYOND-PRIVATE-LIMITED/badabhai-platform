@@ -169,6 +169,93 @@ describe("validateTaxonomyCorpus — skill identity", () => {
   });
 });
 
+describe("validateTaxonomyCorpus — skill lifecycle (status / replaced_by, TD-04/TD-06)", () => {
+  it("accepts a deprecated skill replaced_by a SHIPPED skill, edges left pointing at it", () => {
+    const shippedTarget = [...shippedSkillIds()][0] as string;
+    const problems = validateTaxonomyCorpus(
+      [skill({ status: "deprecated", replaced_by: shippedTarget })],
+      [edge()],
+      { domains: [domain()] },
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it("accepts status: deprecated with no replaced_by — retired, nothing to re-tag to", () => {
+    const problems = validateTaxonomyCorpus([skill({ status: "deprecated" })], [edge()], {
+      domains: [domain()],
+    });
+    expect(problems).toEqual([]);
+  });
+
+  it('rejects any "status" other than "deprecated" — promotion is promote-skills.ts\'s job', () => {
+    const problems = validateTaxonomyCorpus(
+      // @ts-expect-error — deliberately not the one legal literal, to prove the runtime guard
+      // catches what the compiler alone would not for hand-authored/generated JSONL.
+      [skill({ status: "active" })],
+      [edge()],
+      { domains: [domain()] },
+    );
+    expect(codes(problems)).toContain("SKILL_STATUS_INVALID");
+  });
+
+  it("rejects replaced_by set without status: deprecated", () => {
+    const shippedTarget = [...shippedSkillIds()][0] as string;
+    const problems = validateTaxonomyCorpus(
+      [skill({ replaced_by: shippedTarget })],
+      [edge()],
+      { domains: [domain()] },
+    );
+    expect(codes(problems)).toContain("SKILL_REPLACED_BY_WITHOUT_STATUS");
+  });
+
+  it("rejects replaced_by that does not resolve to a shipped SKILL_CORPUS id", () => {
+    const problems = validateTaxonomyCorpus(
+      [skill({ status: "deprecated", replaced_by: "skill_definitely_not_shipped" })],
+      [edge()],
+      { domains: [domain()] },
+    );
+    expect(codes(problems)).toContain("SKILL_REPLACED_BY_UNKNOWN");
+  });
+
+  it("rejects replaced_by pointing at ANOTHER corpus-authored draft, not a shipped id", () => {
+    // The seeder inserts every corpus skill in one pass with no ordering guarantee between
+    // two draft rows — the self-FK would risk failing mid-transaction. Only a shipped id,
+    // guaranteed to already exist, is a legal target.
+    const problems = validateTaxonomyCorpus(
+      [
+        skill({ skill_id: "skill_a", status: "deprecated", replaced_by: "skill_b" }),
+        skill({ skill_id: "skill_b", label_en: "Skill B" }),
+      ],
+      [edge({ skill_id: "skill_a" }), edge({ skill_id: "skill_b" })],
+      { domains: [domain()] },
+    );
+    expect(codes(problems)).toContain("SKILL_REPLACED_BY_UNKNOWN");
+  });
+
+  it("rejects status/replaced_by combined with reuses_existing — meaningless there", () => {
+    const shipped = [...shippedSkillIds()][0] as string;
+    const problems = validateTaxonomyCorpus(
+      [skill({ skill_id: shipped, reuses_existing: true, status: "deprecated", replaced_by: shipped })],
+      [edge({ skill_id: shipped })],
+      { domains: [domain()] },
+    );
+    expect(codes(problems)).toContain("SKILL_STATUS_ON_REUSE");
+  });
+
+  it("does NOT orphan a deprecated skill whose edges are left pointing at it", () => {
+    // TD-04/TD-06's own choice: leave domain_skill edges as-is rather than re-point them
+    // (mirrors TD-01/02/03) — so the deprecated skill must stay non-orphaned as long as at
+    // least one edge remains.
+    const shippedTarget = [...shippedSkillIds()][0] as string;
+    const problems = validateTaxonomyCorpus(
+      [skill({ status: "deprecated", replaced_by: shippedTarget })],
+      [edge()],
+      { domains: [domain()] },
+    );
+    expect(codes(problems)).not.toContain("SKILL_ORPHAN");
+  });
+});
+
 describe("validateTaxonomyCorpus — the synonym-as-canonical trap", () => {
   it("rejects two skills whose label_en normalizes identically", () => {
     const problems = validateTaxonomyCorpus(

@@ -2,9 +2,9 @@
 
 Third addendum to [`phase-8-taxonomy-decisions.md`](./phase-8-taxonomy-decisions.md), after
 [`phase-8-dependency-findings.md`](./phase-8-dependency-findings.md). No provider call has ever
-been made from this document. **Except for TD-01, TD-02 and TD-03 (§5, ratified and applied
-2026-08-18 — see `phase-8-taxonomy-decisions.md` §7/§8), nothing else in this document has been
-applied.**
+been made from this document. **Except for TD-01, TD-02, TD-03, TD-04 and TD-06 (§5, ratified
+and applied 2026-08-18 — see `phase-8-taxonomy-decisions.md` §7/§8/§9), nothing else in this
+document has been applied.**
 
 ---
 
@@ -179,7 +179,8 @@ the alias write is therefore behaviourally inert until the embed is authorized.
 | TD-02, TD-03 | **RATIFIED AND APPLIED (2026-08-18)** — see `phase-8-taxonomy-decisions.md` §7. AI (#935) is a no-op under this scope: zero live references to either id outside `packages/`, confirmed by grep. Mobile (#936, scoped to these two only) lands as a companion PR, sequenced per §3's merge order. |
 | TD-01 | **RATIFIED AND APPLIED (2026-08-18, later the same day)** — see `phase-8-taxonomy-decisions.md` §8. Ratified directly by Prakash in a DIFFERENT shape than drafted: a FULL merge (all 8 aliases of `skill_gdt_reading` + `skill_cad_interpretation` → the new `skill_drawing_reading`), not the originally-drafted per-alias split. `skill_cad_interpretation` ceases to exist as an active skill; no surviving "CAD software usage" skill. Backend's half (`packages/taxonomy`) applied and verified green; AI (#935) and Mobile (#936) are applying their halves in parallel, in this same session — their scope vs. this shape change is a cross-team follow-up, not resolved by this row. |
 | TD-01 `technical drawing` term | **RESOLVED 2026-08-18 — moot, not answered.** The alias-split question this row tracked no longer applies: TD-01's ratified shape is a full merge, so `technical drawing` (like all 8 aliases from both predecessors) simply moves to `skill_drawing_reading` with no side to assign it to. |
-| TD-04, TD-06, TD-07 | **PENDING HUMAN REVIEW** |
+| TD-04, TD-06 | **RATIFIED AND APPLIED (2026-08-18, later still)** — see `phase-8-taxonomy-decisions.md` §9. Ratified directly by Prakash; a DIFFERENT mechanism from TD-01/02/03 because both sources are **provisional, never-promoted** growth-corpus skills (never in `SKILL_CORPUS`) rather than active/shipped ones. Applied as a new `status`/`replaced_by` capability on `TaxonomySkillRecord` (`skills.jsonl`), written through by `seed-domain-skills.ts` — `skill_go_no_go_gauge_checking` → `skill_measuring_instruments`, `skill_chassis_fitting` → `skill_mechanical_assembly`. `domain-skills.jsonl` edges left unrepointed (reconsidered and reaffirmed, not merely copied from precedent — see §9). Corpus-file-only; no live DB row created or moved. AI/Mobile: zero references to either id outside `packages/`, confirmed by grep — no companion PR needed. |
+| TD-07 | **PENDING HUMAN REVIEW** (gap, not a merge — see the decisions register) |
 | 13 alias additions | **AWAITING AUTHORIZATION** — manifest above |
 | `fitting` / `gauge` demotion | **BLOCKED** — option C measured and reverted; needs a `skill_alias` normalizer first (§1) |
 | Fanuc model aliases | **DROPPED** |
