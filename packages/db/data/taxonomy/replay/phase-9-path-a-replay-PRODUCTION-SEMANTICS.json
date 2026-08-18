@@ -262,6 +262,112 @@
     "neitherResolved": 0,
     "agreementRate": 0.11538461538461539
   },
+  "td01_reachability_probe": {
+    "pre_merge": {
+      "probes": 96,
+      "familyReachable": 96,
+      "familyTop1": 94,
+      "winsInstead": [
+        {
+          "skillId": "skill_turning",
+          "count": 2
+        }
+      ]
+    },
+    "as_applied": {
+      "probes": 96,
+      "familyReachable": 0,
+      "familyTop1": 0,
+      "winsInstead": [
+        {
+          "skillId": "skill_measuring_instruments",
+          "count": 17
+        },
+        {
+          "skillId": "skill_gas_cutting",
+          "count": 11
+        },
+        {
+          "skillId": "skill_mechanical_assembly",
+          "count": 10
+        },
+        {
+          "skillId": "(nothing returned)",
+          "count": 8
+        },
+        {
+          "skillId": "skill_turning",
+          "count": 7
+        },
+        {
+          "skillId": "skill_cmm",
+          "count": 6
+        },
+        {
+          "skillId": "skill_bench_fitting",
+          "count": 5
+        },
+        {
+          "skillId": "skill_cnc_programming",
+          "count": 4
+        },
+        {
+          "skillId": "skill_fixture_setup",
+          "count": 4
+        },
+        {
+          "skillId": "skill_sheet_metal",
+          "count": 4
+        },
+        {
+          "skillId": "skill_tig_welding",
+          "count": 4
+        },
+        {
+          "skillId": "skill_arc_welding",
+          "count": 3
+        },
+        {
+          "skillId": "skill_grinding_ops",
+          "count": 3
+        },
+        {
+          "skillId": "skill_program_editing",
+          "count": 3
+        },
+        {
+          "skillId": "skill_quality_control",
+          "count": 2
+        },
+        {
+          "skillId": "skill_cam_software",
+          "count": 1
+        },
+        {
+          "skillId": "skill_deburring",
+          "count": 1
+        },
+        {
+          "skillId": "skill_drilling",
+          "count": 1
+        },
+        {
+          "skillId": "skill_milling",
+          "count": 1
+        },
+        {
+          "skillId": "skill_tapping_threading",
+          "count": 1
+        }
+      ]
+    },
+    "edges_repointed": {
+      "probes": 96,
+      "familyReachable": 96,
+      "familyTop1": 96,
+      "winsInstead": []
+    }
+  },
   "td_impact": {
     "unchanged": 85,
     "candidates_changed": 21,

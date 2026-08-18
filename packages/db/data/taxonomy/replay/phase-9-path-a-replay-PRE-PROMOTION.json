@@ -262,6 +262,160 @@
     "neitherResolved": 0,
     "agreementRate": 0.008620689655172414
   },
+  "td01_reachability_probe": {
+    "pre_merge": {
+      "probes": 96,
+      "familyReachable": 96,
+      "familyTop1": 94,
+      "winsInstead": [
+        {
+          "skillId": "skill_turning",
+          "count": 2
+        }
+      ]
+    },
+    "as_applied": {
+      "probes": 96,
+      "familyReachable": 0,
+      "familyTop1": 0,
+      "winsInstead": [
+        {
+          "skillId": "skill_measuring_instruments",
+          "count": 12
+        },
+        {
+          "skillId": "skill_sheet_metal_marking_and_layout",
+          "count": 11
+        },
+        {
+          "skillId": "skill_mechanical_assembly",
+          "count": 10
+        },
+        {
+          "skillId": "skill_gas_cutting",
+          "count": 7
+        },
+        {
+          "skillId": "skill_turning",
+          "count": 7
+        },
+        {
+          "skillId": "skill_cmm",
+          "count": 4
+        },
+        {
+          "skillId": "skill_cnc_programming",
+          "count": 4
+        },
+        {
+          "skillId": "skill_fixture_setup",
+          "count": 4
+        },
+        {
+          "skillId": "skill_visual_defect_identification",
+          "count": 4
+        },
+        {
+          "skillId": "skill_electrical_fault_finding",
+          "count": 3
+        },
+        {
+          "skillId": "skill_program_editing",
+          "count": 3
+        },
+        {
+          "skillId": "skill_tig_welding",
+          "count": 3
+        },
+        {
+          "skillId": "skill_arc_welding",
+          "count": 2
+        },
+        {
+          "skillId": "skill_assembly_line_sequencing",
+          "count": 2
+        },
+        {
+          "skillId": "skill_grinding_ops",
+          "count": 2
+        },
+        {
+          "skillId": "skill_quality_control",
+          "count": 2
+        },
+        {
+          "skillId": "skill_body_panel_alignment",
+          "count": 1
+        },
+        {
+          "skillId": "skill_cam_software",
+          "count": 1
+        },
+        {
+          "skillId": "skill_conduit_bending_and_laying",
+          "count": 1
+        },
+        {
+          "skillId": "skill_control_panel_wiring",
+          "count": 1
+        },
+        {
+          "skillId": "skill_distortion_control_in_weldments",
+          "count": 1
+        },
+        {
+          "skillId": "skill_drilling",
+          "count": 1
+        },
+        {
+          "skillId": "skill_earthing_and_bonding",
+          "count": 1
+        },
+        {
+          "skillId": "skill_hardness_testing",
+          "count": 1
+        },
+        {
+          "skillId": "skill_inspection_report_recording",
+          "count": 1
+        },
+        {
+          "skillId": "skill_insulation_resistance_testing",
+          "count": 1
+        },
+        {
+          "skillId": "skill_milling",
+          "count": 1
+        },
+        {
+          "skillId": "skill_motor_connection_and_starter_wiring",
+          "count": 1
+        },
+        {
+          "skillId": "skill_non_destructive_testing_of_castings",
+          "count": 1
+        },
+        {
+          "skillId": "skill_sheet_metal",
+          "count": 1
+        },
+        {
+          "skillId": "skill_tapping_threading",
+          "count": 1
+        },
+        {
+          "skillId": "skill_weld_bead_inspection",
+          "count": 1
+        }
+      ]
+    },
+    "edges_repointed": {
+      "probes": 96,
+      "familyReachable": 96,
+      "familyTop1": 96,
+      "winsInstead": []
+    }
+  },
   "td_impact": {
     "unchanged": 85,
     "candidates_changed": 31

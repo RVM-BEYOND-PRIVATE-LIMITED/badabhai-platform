@@ -53,6 +53,8 @@ import { loadTaxonomyCorpus } from "./taxonomy-corpus";
 import { argFlag, argValue } from "./match-v1-cli";
 import {
   LEGACY_ANCHOR_SKILL_DOMAIN,
+  findMintedSkillIds,
+  probeFamilyReachability,
   PRE_PROMOTION_STATUSES,
   RETRIEVABLE_SKILL_STATUSES,
   buildVariant,
@@ -351,6 +353,67 @@ function main(): void {
     console.log(`   ${d.padEnd(20)} cases=${String(e.cases).padStart(2)}  pre=${String(e.pre).padStart(3)}  applied=${String(e.app).padStart(3)}  repointed=${String(e.rep).padStart(3)}`);
   }
 
+  // ---- TD-01 reachability probe -------------------------------------------------------------
+  //
+  // WHY A PROBE AND NOT FIXTURE CASES. The obvious way to make the merged skill observable is
+  // to add fixture cases for it. That is impossible: `validateEvalFixture` rejects any case
+  // whose expected skill is not wired to the queried domain —
+  // `EXPECTED_SKILL_NOT_IN_SCOPE: ... unpassable by construction` — and `skill_drawing_reading`
+  // has no edges. The instrument cannot be extended to observe the defect while the defect
+  // exists, so the fixture-first ordering is circular. Verified, not assumed.
+  //
+  // This probe answers the same question through a different instrument. It asks each of the
+  // merged skill's own alias texts, in each domain its predecessors are wired to, and reports
+  // whether the surface is reachable at all.
+  //
+  // These are REACHABILITY probes, never ground truth. Every query is literally an alias of the
+  // expected skill, so its correctness is tautological — the DC-18 lesson. They are excluded
+  // from recall by construction (they are not in the fixture) and must stay that way. What they
+  // measure is not "does retrieval rank well" but "can retrieval see this at all", which is
+  // precisely the R19 question.
+  const probeResults: Record<string, unknown> = {};
+  const probeMinted = findMintedSkillIds(input);
+  if (probeMinted.length > 0) {
+    const mintedId = probeMinted[0]!;
+    const predecessors = input.skills.filter((s) => s.replacedBy === mintedId).map((s) => s.skillId);
+    const probeDomains = [
+      ...new Set(input.edges.filter((e) => predecessors.includes(e.skillId)).map((e) => e.jobDomainId)),
+    ].sort();
+    const probeTexts = input.aliases
+      .filter((a) => a.skillId === mintedId && a.vector !== null)
+      .map((a) => a.text);
+    const family = new Set([mintedId, ...predecessors]);
+
+    console.log(`\n=== TD-01 reachability probe (NOT ground truth, NOT counted in recall) ===`);
+    console.log(`  merged skill   ${mintedId}`);
+    console.log(`  predecessors   ${JSON.stringify(predecessors)}`);
+    console.log(`  probe domains  ${probeDomains.length} (the predecessors' own edges)`);
+    console.log(`  probe texts    ${probeTexts.length} (the merged skill's embedded aliases)`);
+    console.log(`  probes         ${probeDomains.length * probeTexts.length}`);
+    console.log(`  ${"variant".padEnd(17)} ${"family reachable".padStart(16)} ${"family top-1".padStart(13)} ${"probes".padStart(7)}`);
+
+    for (const variant of VARIANTS) {
+      const { corpus } = buildVariant(input, variant);
+      const r = probeFamilyReachability(corpus, {
+        family: [...family],
+        domains: probeDomains,
+        vectorsByText: vectors,
+        texts: probeTexts,
+        k,
+        statuses,
+      });
+      probeResults[variant] = r;
+      console.log(
+        `  ${variant.padEnd(17)} ${String(r.familyReachable).padStart(16)} ${String(r.familyTop1).padStart(13)} ${String(r.probes).padStart(7)}`,
+      );
+      if (r.winsInstead.length > 0) {
+        console.log(
+          `      wins instead: ${r.winsInstead.slice(0, 4).map((w) => `${w.skillId}×${w.count}`).join(", ")}`,
+        );
+      }
+    }
+  }
+
   if (reportPath !== undefined) {
     if (existsSync(reportPath)) {
       console.error(`\n[replay] refusing to overwrite ${reportPath} — evidence is never replaced.`);
@@ -375,6 +438,7 @@ function main(): void {
         VARIANTS.flatMap((v) => PATHS.map((p) => [`${v}|${p}`, summarizeReplay(get(v, p))])),
       ),
       agreement_as_applied: ag,
+      td01_reachability_probe: probeResults,
       td_impact: tally(tdImpact),
       edge_repoint_gain: tally(edgeGain),
     };

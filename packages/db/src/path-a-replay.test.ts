@@ -20,6 +20,7 @@ import {
   findMintedSkillIds,
   pathACandidates,
   pathBCandidates,
+  probeFamilyReachability,
   rankAliases,
   rankSkillsFromAliases,
   replayCase,
@@ -308,6 +309,63 @@ describe("diffCase precedence", () => {
     expect(diffCase(before, mk({ hit: false, top1SkillId: "z", expectedRank: null })).delta).toBe("top1_changed");
     expect(diffCase(before, mk({ hit: false, top1SkillId: "y", candidateCount: 7, expectedRank: null })).delta).toBe("candidates_changed");
     expect(diffCase(before, mk({ hit: false, top1SkillId: "y", expectedRank: null })).delta).toBe("unchanged");
+  });
+});
+
+describe("probeFamilyReachability", () => {
+  // A merged skill with an alias, no edges of its own, and a rival that DOES hold the edge.
+  const input: CorpusInput = {
+    skills: [
+      skill("merged", "active"),
+      skill("pred", "deprecated", { replacedBy: "merged", preMergeStatus: "active" }),
+      skill("rival", "active"),
+    ],
+    aliases: [
+      alias("merged", "gdt", "d", v(0.9)),
+      alias("pred", "gdt", "d", v(0.9)),
+      alias("rival", "unrelated", "d", v(0.1)),
+    ],
+    edges: [
+      { jobDomainId: "jd1", skillId: "pred" },
+      { jobDomainId: "jd1", skillId: "rival" },
+    ],
+  };
+  const vectors = new Map<string, readonly number[]>([["gdt", v(0.9)]]);
+  const args = { family: ["merged", "pred"], domains: ["jd1"], vectorsByText: vectors, texts: ["gdt"], k: 5 };
+
+  it("pre_merge: the family is reachable and wins", () => {
+    const r = probeFamilyReachability(buildVariant(input, "pre_merge").corpus, args);
+    expect(r).toMatchObject({ probes: 1, familyReachable: 1, familyTop1: 1 });
+    expect(r.winsInstead).toEqual([]);
+  });
+
+  it("as_applied: the family vanishes and something ELSE wins — the distinction that matters", () => {
+    // A surface returning nothing is a gap. A surface returning a confident unrelated skill is
+    // a misclassification. `winsInstead` is the only field that separates them, and this
+    // asserts it actually reports the usurper rather than an empty list.
+    const r = probeFamilyReachability(buildVariant(input, "as_applied").corpus, args);
+    expect(r).toMatchObject({ probes: 1, familyReachable: 0, familyTop1: 0 });
+    expect(r.winsInstead).toEqual([{ skillId: "rival", count: 1 }]);
+  });
+
+  it("edges_repointed: the counterfactual restores the family", () => {
+    const r = probeFamilyReachability(buildVariant(input, "edges_repointed").corpus, args);
+    expect(r).toMatchObject({ probes: 1, familyReachable: 1, familyTop1: 1 });
+  });
+
+  it("reports '(nothing returned)' rather than silently skipping an empty domain", () => {
+    const empty = buildVariant({ skills: [], aliases: [], edges: [] }, "as_applied").corpus;
+    const r = probeFamilyReachability(empty, args);
+    expect(r.probes).toBe(1);
+    expect(r.winsInstead).toEqual([{ skillId: "(nothing returned)", count: 1 }]);
+  });
+
+  it("skips a text with no vector instead of counting it as a miss", () => {
+    const r = probeFamilyReachability(buildVariant(input, "as_applied").corpus, {
+      ...args,
+      texts: ["gdt", "never-embedded"],
+    });
+    expect(r.probes).toBe(1);
   });
 });
 
