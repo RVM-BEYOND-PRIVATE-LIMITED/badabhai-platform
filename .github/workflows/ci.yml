@@ -958,6 +958,12 @@ jobs:
           # #813 — ZEPTOMAIL_API_URL was missing from this list entirely (compose declared
           # no pass-through for it either), so every real ZeptoMail send failed closed on
           # `sendViaZeptoMail`'s own `!apiUrl` guard, silently, on every box this ever ran on.
+          # Phase 9 / Path A. INERT: neither secret exists, so both render EMPTY here,
+          # export empty, and resolve to `false` at compose's `${VAR:-false}`. Landing the
+          # bridge before creating any secret is deliberate — it proves the three hops in
+          # isolation, with the deployed behaviour byte-identical to before.
+          DOMAIN_MATCH_ENABLED: ${{ secrets.DOMAIN_MATCH_ENABLED }}
+          SKILL_CANONICALIZE_ENABLED: ${{ secrets.SKILL_CANONICALIZE_ENABLED }}
           ZEPTOMAIL_API_URL: ${{ secrets.ZEPTOMAIL_API_URL }}
           ZEPTOMAIL_API_TOKEN: ${{ secrets.ZEPTOMAIL_API_TOKEN }}
           ZEPTOMAIL_MAIL_AGENT: ${{ secrets.ZEPTOMAIL_MAIL_AGENT }}
@@ -972,7 +978,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED
           script: |
             set -e
             # CD-1: never leave a registry credential (even an expired job token)
