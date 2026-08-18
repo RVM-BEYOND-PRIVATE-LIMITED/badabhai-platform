@@ -10,7 +10,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * Three properties carry real weight here:
  *  1. **`changed: false` is success, never an error** (Step 3 of the write-action plan).
  *  2. **The idempotency key is forwarded exactly as given** — this action never mints or
- *     mutates it; that is the caller's (`PayerCreditsPanel`'s) job, once per mount.
+ *     mutates it; that is the caller's (`PayerCreditsPanel`'s) job, one key per grant,
+ *     rotated only once the server confirms it (see `lib/credit-grant-outcome.ts`).
  *  3. **An out-of-range amount is rejected client-side before any network call**, matching
  *     the server's own `AdminGrantCreditsSchema` bound.
  */

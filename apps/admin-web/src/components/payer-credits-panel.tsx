@@ -12,16 +12,25 @@ import {
   type CreditGrantReason,
 } from "../lib/admin-action-vocabulary";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
+import { applyCreditGrantOutcome } from "../lib/credit-grant-outcome";
+
+/** One place the real key is minted; the transition that decides WHEN is pure and tested. */
+const mintIdempotencyKey = () => crypto.randomUUID();
 
 /**
  * The Grant credits panel (`grant_credits`).
  *
- * The idempotency key is minted ONCE per mount via `useState(() => crypto.randomUUID())` —
- * never regenerated on re-render or retry — so a genuine double-submit (a slow network, a
- * doubled click that slips past the confirm step) is exactly-once on the server's ledger
- * (ADMIN-3a H2). A NEW key is only ever minted by remounting this panel, i.e. navigating away
- * and back — there is deliberately no "grant another" affordance that reuses the component
- * without a fresh key.
+ * ── THE IDEMPOTENCY KEY IS PER GRANT, NOT PER MOUNT ─────────────────────────────────────
+ * The key is minted on mount and then rotated by {@link applyCreditGrantOutcome} the moment
+ * the server CONFIRMS it decided on the current one (any successful response, `changed` true
+ * or false) — never on a failure, where the response may simply have been lost after the
+ * server committed and a fresh key would risk a genuine double grant.
+ *
+ * That makes "grant another" a supported, safe affordance: this panel stays mounted across
+ * the `router.refresh()` that follows a grant (a refresh re-renders the SERVER tree; it does
+ * not remount client state), the amount field clears, and the next submit carries a new key.
+ * A retry after a failure still replays the SAME key, so a slow network or a doubled click
+ * remains exactly-once on the ledger (ADMIN-3a H2).
  */
 export function PayerCreditsPanel({
   payerId,
@@ -33,7 +42,7 @@ export function PayerCreditsPanel({
   timelineHref: string;
 }) {
   const router = useRouter();
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(mintIdempotencyKey);
   const [amount, setAmount] = useState("");
   const [reasonCode, setReasonCode] = useState<CreditGrantReason>(CREDIT_GRANT_REASONS[0]);
   const [outcome, setOutcome] = useState<AdminActionOutcome | null>(null);
@@ -49,10 +58,12 @@ export function PayerCreditsPanel({
 
   function handleSettled(o: AdminActionOutcome) {
     setOutcome(o);
-    if (o.ok) {
-      router.refresh();
-      if (o.changed) setAmount("");
-    }
+    // The whole key/amount decision lives in one tested transition — see the module doc for
+    // why rotating on failure would be the dangerous direction to get wrong.
+    const next = applyCreditGrantOutcome({ idempotencyKey, amount }, o, mintIdempotencyKey);
+    setIdempotencyKey(next.idempotencyKey);
+    setAmount(next.amount);
+    if (o.ok) router.refresh();
   }
 
   return (
