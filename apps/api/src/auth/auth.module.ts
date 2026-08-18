@@ -16,6 +16,7 @@ import { AccountDeletionService } from "./account-deletion.service";
 import { ErasureAuditRepository } from "./erasure-audit.repository";
 import { AccountDeletionSweepProcessor } from "./account-deletion-sweep.processor";
 import { WorkerAuthGuard } from "./worker-auth.guard";
+import { OptionalWorkerAuthGuard } from "./optional-worker-auth.guard";
 import { ConsentGuard, ConsentNotRevokedGuard } from "./consent.guard";
 import { TestLoginGuard } from "./test-login.guard";
 import { DevicesController } from "./devices.controller";
@@ -78,6 +79,12 @@ import { PinHasher } from "./pin-hasher.service";
     ErasureAuditRepository,
     AccountDeletionSweepProcessor,
     WorkerAuthGuard,
+    // Attribution-only sibling of WorkerAuthGuard: attaches `req.worker` when a valid token
+    // rides along and ALWAYS allows the request. Used by the PUBLIC interview-kit download
+    // so `interview_kit.downloaded` can carry an optional `worker_id` without the route
+    // ever requiring a session. Its only dependency is SessionService, which this module
+    // exports — so an importing module resolves it (see the exports note below).
+    OptionalWorkerAuthGuard,
     ConsentGuard,
     ConsentNotRevokedGuard,
     // D-3 — gates POST /auth/test-login (neutral 404 while TEST_LOGIN_ENABLED is
@@ -102,6 +109,13 @@ import { PinHasher } from "./pin-hasher.service";
   // its module unless exported, so without this line PushService's 4th ctor param resolves
   // to null and the API fails to BOOT (exactly the failure this comment block warns about;
   // it took down the E2E run for #417 while every unit suite stayed green).
-  exports: [WorkerAuthGuard, ConsentGuard, SessionService, ConsentModule, DevicesRepository],
+  exports: [
+    WorkerAuthGuard,
+    OptionalWorkerAuthGuard,
+    ConsentGuard,
+    SessionService,
+    ConsentModule,
+    DevicesRepository,
+  ],
 })
 export class AuthModule {}

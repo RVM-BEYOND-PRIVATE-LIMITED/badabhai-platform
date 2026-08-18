@@ -90,14 +90,60 @@ describe("InterviewKitService — render-once (Task 4)", () => {
     expect(emitted(events, "interview_kit.downloaded")).toBeUndefined();
   });
 
-  it("emits PII-FREE payloads (no worker id / name; only trade + version + kit id)", async () => {
+  it("emits PII-FREE payloads (only trade + version + kit id + the OPAQUE worker id)", async () => {
     const { svc, events } = setup({ exists: true });
     await svc.getDownload("cad_designer", CTX, { source: "web" });
     const dl = emitted(events, "interview_kit.downloaded")!;
+    // The payload's EXACT key set. `worker_id` was added deliberately (admin journey step 7);
+    // it is the same opaque internal UUID every `subject_id` already carries. Pinning the set
+    // is what stops a NAME or a phone being added beside it later.
     expect(Object.keys(dl.payload).sort()).toEqual(
-      ["cache_hit", "content_version", "kit_id", "source", "trade_key"].sort(),
+      ["cache_hit", "content_version", "kit_id", "source", "trade_key", "worker_id"].sort(),
     );
-    expect(JSON.stringify(dl.payload)).not.toMatch(/worker|name|phone/i);
+    // No identity PII, in any field. `worker_id` is exempted by NAME only — its VALUE is
+    // still asserted to be a bare uuid (or null) by the two tests below.
+    const withoutWorkerId = { ...dl.payload, worker_id: undefined };
+    expect(JSON.stringify(withoutWorkerId)).not.toMatch(/worker|name|phone/i);
+  });
+
+  // ── OPTIONAL worker attribution (admin journey step 7) ────────────────────────────────
+
+  it("emits worker_id NULL when no worker session rode along (the public, anonymous case)", async () => {
+    const { svc, events } = setup({ exists: true });
+    await svc.getDownload("cad_designer", CTX, { source: "web" });
+    expect(emitted(events, "interview_kit.downloaded")!.payload.worker_id).toBeNull();
+    // ...and the spine's actor stays id-less, rather than claiming a worker we cannot name.
+    const dl = emitted(events, "interview_kit.downloaded") as unknown as {
+      actor: { actor_type: string; actor_id?: string };
+    };
+    expect(dl.actor.actor_id).toBeUndefined();
+  });
+
+  it("emits the worker id (payload AND actor) when one was resolved from the session", async () => {
+    const workerId = "11111111-1111-4111-8111-111111111111";
+    const { svc, events } = setup({ exists: true });
+    await svc.getDownload("cad_designer", CTX, { source: "worker_app", workerId });
+    const dl = emitted(events, "interview_kit.downloaded") as unknown as {
+      payload: Record<string, unknown>;
+      actor: { actor_type: string; actor_id?: string };
+    };
+    expect(dl.payload.worker_id).toBe(workerId);
+    expect(dl.actor).toEqual({ actor_type: "worker", actor_id: workerId });
+  });
+
+  it("an OPS-sourced download never claims a worker actor, even with a token on the request", async () => {
+    // `source: "ops"` maps to an `ops` actor. Attaching the worker id to THAT actor would
+    // assert a worker performed an ops action — a false row on the audit spine. The payload
+    // still records who it was for, which is what the funnel reads.
+    const workerId = "11111111-1111-4111-8111-111111111111";
+    const { svc, events } = setup({ exists: true });
+    await svc.getDownload("cad_designer", CTX, { source: "ops", workerId });
+    const dl = emitted(events, "interview_kit.downloaded") as unknown as {
+      payload: Record<string, unknown>;
+      actor: { actor_type: string; actor_id?: string };
+    };
+    expect(dl.actor).toEqual({ actor_type: "ops" });
+    expect(dl.payload.worker_id).toBe(workerId);
   });
 });
 

@@ -619,6 +619,64 @@ describe("interview_kit events (per-trade, PII-free)", () => {
     };
     expect(validateEvent(evt).success).toBe(true);
   });
+
+  // ── OPTIONAL worker attribution (admin journey step 7) ────────────────────────────────
+  // Additive widen, no version bump — the `ai.cost_recorded` precedent (26ad1598). The
+  // three tests below pin the whole contract: the field defaults to null, an anonymous
+  // download is STILL valid, and a garbage id is rejected rather than stored.
+
+  it("interview_kit.downloaded defaults worker_id to null — an ANONYMOUS download stays valid", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: { trade_key: "cnc_operator", content_version: 1, kit_id: "cnc_operator:v1" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "interview_kit.downloaded") {
+      // The route is public. "No worker id" is the ordinary case, not a validation failure —
+      // if this ever fails, an unauthenticated download has become unrecordable.
+      expect(result.event.payload.worker_id).toBeNull();
+    }
+  });
+
+  it("interview_kit.downloaded carries worker_id when a valid worker session was present", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: {
+        trade_key: "cnc_operator",
+        content_version: 1,
+        kit_id: "cnc_operator:v1",
+        worker_id: UUID_B,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "interview_kit.downloaded") {
+      expect(result.event.payload.worker_id).toBe(UUID_B);
+    }
+  });
+
+  it("rejects a non-uuid worker_id (the field is an opaque id, never free text)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: {
+        trade_key: "cnc_operator",
+        content_version: 1,
+        kit_id: "cnc_operator:v1",
+        worker_id: "Ramesh Kumar 9876543210",
+      },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
 });
 
 describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {

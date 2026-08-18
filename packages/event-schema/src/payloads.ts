@@ -664,7 +664,14 @@ export const ResumeSharedPayload = z.object({
 //
 // PII-FREE BY CONSTRUCTION: kits are per-TRADE, not per-worker. Payloads carry a
 // trade slug, the content version, and the deterministic kit id only — never a
-// worker id, name, or any free text.
+// name, phone or any free text.
+//
+// ⚠ ONE EXCEPTION, ADDED DELIBERATELY: `interview_kit.downloaded.worker_id`. It is the
+// same opaque internal UUID every other event's `subject_id`/`actor_id` already carries
+// — not identity PII — and it exists because step 7 of the admin worker-journey funnel
+// ("did this worker take the interview kit?") had NO signal at all otherwise. The route
+// stays PUBLIC and unauthenticated; the id is attached only when a valid worker session
+// token happens to be present, so it is ATTRIBUTION, never an auth requirement.
 // ---------------------------------------------------------------------------
 /** Trade slug, e.g. "cnc_operator". Lowercase letters/digits/underscores only. */
 const tradeKeySchema = z
@@ -697,6 +704,24 @@ export const InterviewKitDownloadedPayload = z.object({
   kit_id: kitIdSchema,
   source: z.enum(["worker_app", "web", "ops", "other"]).default("worker_app"),
   cache_hit: z.boolean().default(true),
+  /**
+   * OPTIONAL attribution — who downloaded it, when we can tell (admin journey step 7).
+   *
+   * ADDITIVE WIDEN, NO VERSION BUMP (stays v1), following the `ai.cost_recorded` precedent
+   * (commit 26ad1598): `.nullable().default(null)` means every historical row and every
+   * existing consumer is unaffected, and the default preserves the old implicit reading —
+   * "we do not know who this was" — rather than inventing one.
+   *
+   * NULL IS THE NORMAL CASE AND MUST STAY THAT WAY. `GET /interview-kit/:tradeKey/download`
+   * is deliberately unauthenticated (the content is per-trade and PII-free), so an anonymous
+   * download is legitimate and emits exactly what it emits today. The id is filled in only
+   * when a VALID worker session token happened to ride along. Anything that starts REQUIRING
+   * this field has turned a public route into a private one.
+   *
+   * A zero count for a worker therefore means "no attributed download since this shipped",
+   * never "this worker never took a kit" — the admin funnel surfaces that caveat explicitly.
+   */
+  worker_id: uuidSchema.nullable().default(null),
 });
 
 // ---------------------------------------------------------------------------
