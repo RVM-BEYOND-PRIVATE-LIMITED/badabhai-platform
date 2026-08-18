@@ -19,6 +19,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # names the variable that is actually wrong.
 _REDIS_URL_SCHEMES = ("redis://", "rediss://", "unix://")
 
+# The shape a build id may have (see ``Settings.build_id``). Short/long hex shas, the
+# ``sha-<short7>`` image-tag form the deploy pins, and ordinary version tags all fit;
+# anything else is not a build id we injected, so it degrades to "unknown" rather than
+# being echoed verbatim into a public JSON response. Module-level (like the schemes
+# above) rather than a class attribute: a leading-underscore name inside a pydantic
+# model is a PRIVATE ATTRIBUTE, not a plain constant.
+_BUILD_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
+
 
 def _parse_csv(value: str) -> tuple[str, ...]:
     """Split a comma-separated setting into an ordered, de-duplicated tuple.
@@ -647,7 +655,50 @@ class Settings(BaseSettings):
     # version in main.py; a deploy should override it with a git sha.
     app_version: str = "0.1.0"
 
+    # WHICH BUILD IS RUNNING — the short git sha of the commit this image was built
+    # from, injected at IMAGE BUILD time (Dockerfile: `ARG GIT_COMMIT_SHA` promoted to
+    # `ENV GIT_COMMIT_SHA` so it survives into the running container) and surfaced on
+    # /health as `build`. There is NO runtime git lookup and there must never be one:
+    # the image carries no .git, so the build arg is the only source.
+    #
+    # DELIBERATELY NO VALIDATOR, AND DELIBERATELY NOT `str | None`. Every other
+    # misconfigurable setting in this file fails CLOSED at startup (the min_length on
+    # ai_internal_token, the scheme check on ai_spend_redis_url) because arming a
+    # half-configured GATE is worse than not booting. This field is the opposite case:
+    # it gates nothing, it is an observability nicety, and a service that refuses to
+    # boot — or a /health that 500s — because nobody wired a build arg turns a missing
+    # label into an OUTAGE. It fails OPEN, on purpose.
+    #
+    # EMPTY IS THE UNSET CASE, and that is not a stylistic choice. A GitHub Actions
+    # `build-args:` line referencing a variable that does not exist resolves to the
+    # EMPTY STRING, and Docker injects a declared ARG into the build environment
+    # PRESENT-AND-EMPTY rather than absent — the exact mechanism that failed a build on
+    # main on 2026-08-18 when a zod schema rejected "". So "" must mean the same thing
+    # as "never set", everywhere, and both must be readable. See ``build_id``.
+    git_commit_sha: str = ""
+
     ai_service_port: int = 8000
+
+    @property
+    def build_id(self) -> str:
+        """The running build's identifier for ``/health``, NEVER raising and NEVER empty.
+
+        Contract (shared with apps/api and apps/payer-web): the ``build`` key is always
+        present and always a non-empty string — the short sha, or the literal
+        ``"unknown"``. Never omitted, never null, never an error. A consumer must be
+        able to read it unconditionally, which is precisely what a service that cannot
+        report its own build cannot support.
+
+        Total by construction: strip, and anything that is not a plausible build id —
+        empty, whitespace-only, or shaped like something we did not inject — becomes
+        ``"unknown"``. There is no input to this function that produces an exception,
+        which is the property the test ``test_build_id_never_raises_for_any_input``
+        pins. A commit sha is public information; nothing else is ever put here.
+        """
+        candidate = (self.git_commit_sha or "").strip()
+        if not candidate or not _BUILD_ID_PATTERN.fullmatch(candidate):
+            return "unknown"
+        return candidate
 
     def real_calls_blocked_reason(self) -> str | None:
         """Return why real LLM calls are disabled, or None if allowed.

@@ -11,7 +11,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ---- Detect changed paths (CI-2: dorny/paths-filter) ----
+  # ---- Detect changed paths (CI-2: dorny/paths-filter) + derive the build id (#965) ----
+  #
+  # This job is ALSO the single derivation site for the short commit sha that every image
+  # build bakes in as `GIT_COMMIT_SHA` (#965). It lives here, and not once per image job,
+  # because it is already the common `needs:` ancestor of all three image jobs
+  # (`ai-service-image`, `payer-web-image`, `build-and-push-image`) — one derivation, three
+  # consumers, so the value a container reports on /health cannot drift from the value
+  # another job computed. See the `short-sha` step for why that equality is the feature.
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -22,7 +29,51 @@ jobs:
       payer-web: ${{ steps.filter.outputs.payer-web }}
       sast: ${{ steps.filter.outputs.sast }}
       deps: ${{ steps.filter.outputs.deps }}
+      # #965: the value baked into api / ai-service / payer-web as `GIT_COMMIT_SHA` and
+      # reported by each service's /health as `build`.
+      short-sha: ${{ steps.short-sha.outputs.short-sha }}
     steps:
+      # ---- #965: WHICH BUILD IS RUNNING ----
+      # /health used to answer only "am I up?", so a deploy that silently kept serving the
+      # PREVIOUS image was indistinguishable from a good one and we debugged code that was
+      # not deployed. The container carries no .git (every Dockerfile's .dockerignore strips
+      # it), so the commit sha is knowable ONLY at image-build time — hence a build arg, and
+      # hence this step.
+      #
+      # `cut -c1-7` IS THE SAME DERIVATION THE REST OF THE PIPELINE ALREADY USES, and that
+      # is the whole point rather than a coincidence:
+      #   * the ghcr tag  — docker/metadata-action `type=sha` with
+      #     DOCKER_METADATA_SHORT_SHA_LENGTH pinned to "7" (build-and-push-image below);
+      #   * the deploy pin — `echo '${{ github.sha }}' | cut -c1-7` inside deploy-lightsail's
+      #     remote script, which is what constructs `...:sha-<short7>`;
+      #   * this step    — the value the running process reports.
+      # If those three ever disagreed, /health would confidently name a build that is not the
+      # image on the box — strictly worse than the "unknown" it replaces, because it would be
+      # believed. `GITHUB_SHA` and `github.sha` are the same value; the env form is used here
+      # so nothing is interpolated into the shell.
+      #
+      # ASSERTED, NOT ASSUMED. If the derivation ever yields something that is not a 7-char
+      # lowercase hex sha, every image would ship a build arg the services reject as
+      # unrecognisable and all three would report `"unknown"` forever — the feature silently
+      # dead while CI stayed green. That is the "green check that gated nothing" failure mode,
+      # so it fails LOUD here, in the build pipeline, one hop before anything is pushed.
+      # NOTE the deliberate asymmetry: the BUILD asserts, the RUNTIME fails open. A service
+      # must never refuse to boot, and /health must never 500, over a missing build label —
+      # that would turn an observability nicety into an outage (see resolveBuildId in
+      # apps/api/src/health/health.service.ts and Settings.build_id in
+      # apps/ai-service/app/config.py).
+      - name: Derive the short commit sha (the build id baked into every image)
+        id: short-sha
+        run: |
+          set -euo pipefail
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          if ! printf '%s' "${SHORT_SHA}" | grep -Eq '^[0-9a-f]{7}$'; then
+            echo "::error::Refusing to build: derived build id '${SHORT_SHA}' is not a 7-char hex sha, so every image would report build=\"unknown\"."
+            exit 1
+          fi
+          echo "short-sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Build id for this run: ${SHORT_SHA} (images tag as sha-${SHORT_SHA})"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
@@ -473,6 +524,17 @@ jobs:
           file: apps/ai-service/Dockerfile
           push: false
           load: false
+          # #965: MUST mirror build-and-push-image's ai-service step's `build-args:`
+          # exactly — the same rule payer-web-image below already carries, for the same
+          # measured reason: a gate that builds something DIFFERENT from what ships is not
+          # a gate. That divergence is what let `NEXT_PUBLIC_API_URL: Invalid url` reach
+          # `main` green on 2026-08-18. If you change the build-args there, change them here.
+          #
+          # On a `pull_request` this is the MERGE commit's sha, not the head commit's — the
+          # image is never pushed and never deployed, so the value only has to exercise the
+          # same code path, which it does.
+          build-args: |
+            GIT_COMMIT_SHA=${{ needs.changes.outputs.short-sha }}
           cache-from: type=gha,scope=ai-service
           cache-to: type=gha,mode=max,scope=ai-service
 
@@ -518,9 +580,17 @@ jobs:
           # to the EMPTY STRING and Docker injects a declared ARG into the build env
           # (see apps/payer-web/Dockerfile's header). A gate that does not run the real
           # build is not a gate. If you change the build-args there, change them here.
+          #
+          # #965: GIT_COMMIT_SHA is the third arg and follows the same rule. It is declared
+          # ONLY in this Dockerfile's RUNTIME stage, so — unlike the two NEXT_PUBLIC_* args
+          # above — it is never injected into the `next build` RUN's environment and cannot
+          # reach @badabhai/config's zod schema, i.e. it is structurally incapable of
+          # reproducing the empty-build-arg failure. On a `pull_request` this is the merge
+          # commit's sha; the image is never pushed, so only the code path matters.
           build-args: |
             NEXT_PUBLIC_API_URL=${{ secrets.PAYER_WEB_NEXT_PUBLIC_API_URL }}
             NEXT_PUBLIC_SITE_URL=${{ secrets.PAYER_WEB_NEXT_PUBLIC_SITE_URL }}
+            GIT_COMMIT_SHA=${{ needs.changes.outputs.short-sha }}
           cache-from: type=gha,scope=payer-web
           cache-to: type=gha,mode=max,scope=payer-web
 
@@ -1013,6 +1083,19 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # #965: WHICH BUILD IS RUNNING. Baked into the image (apps/api/Dockerfile promotes
+          # this ARG to an ENV in the runtime stage) and reported by GET /health as `build`.
+          # It is THE SAME short sha the `type=sha` tag above is built from — one derivation
+          # in the `changes` job, so the container's self-report and the `sha-<short7>` tag
+          # the deploy pins can never disagree. See that job's `short-sha` step.
+          #
+          # The ARG is declared LAST in the runtime stage, below the expensive WeasyPrint
+          # apt+pip layer and below `COPY --from=builder`, so a per-commit value here
+          # invalidates only trailing metadata layers — the gha cache above still hits.
+          # Public by nature: a commit sha and nothing else. NEVER pass a secret as a build
+          # arg — build args are readable in `docker history`.
+          build-args: |
+            GIT_COMMIT_SHA=${{ needs.changes.outputs.short-sha }}
           # CD-5: GitHub Actions layer cache (needs the buildx docker-container
           # driver set up above). The expensive layer is the runtime stage's
           # WeasyPrint apt+pip install (Pango/cairo native stack in
@@ -1056,6 +1139,11 @@ jobs:
           push: true
           tags: ${{ steps.meta-ai.outputs.tags }}
           labels: ${{ steps.meta-ai.outputs.labels }}
+          # #965, same contract as the api build above and mirrored by the PR-only
+          # `ai-service-image` gate: one derivation in `changes`, so `build` on this
+          # service's /health equals the `sha-<short7>` tag the deploy pins.
+          build-args: |
+            GIT_COMMIT_SHA=${{ needs.changes.outputs.short-sha }}
           # CD-5: a DISTINCT gha cache scope. Two builds in one job sharing the
           # default scope would evict each other's layers every run, so the api's
           # expensive WeasyPrint layer would stop being cached the moment this
@@ -1107,9 +1195,16 @@ jobs:
           # PAYER_WEB_NEXT_PUBLIC_SITE_URL as repository secrets, then push a new commit
           # (or re-run this job) — a REBUILD, not just a redeploy, is required for either
           # to take effect.
+          #
+          # #965: GIT_COMMIT_SHA joins them, mirrored EXACTLY by the PR-only
+          # `payer-web-image` gate above. Unlike the two NEXT_PUBLIC_* args it is consumed
+          # in the RUNTIME stage only, so it never enters `next build`'s environment and
+          # cannot be validated by a zod schema — and `src/app/health/route.ts` maps an
+          # empty value to "unknown" rather than throwing.
           build-args: |
             NEXT_PUBLIC_API_URL=${{ secrets.PAYER_WEB_NEXT_PUBLIC_API_URL }}
             NEXT_PUBLIC_SITE_URL=${{ secrets.PAYER_WEB_NEXT_PUBLIC_SITE_URL }}
+            GIT_COMMIT_SHA=${{ needs.changes.outputs.short-sha }}
           # CD-5: a DISTINCT gha cache scope, same reasoning as ai-service's above — a
           # shared scope would evict the api's expensive WeasyPrint layer (or vice versa)
           # every run.

@@ -85,6 +85,30 @@ RUN useradd --system --create-home --uid 10001 --shell /usr/sbin/nologin aiservi
 COPY app ./app
 COPY scripts ./scripts
 
+# WHICH BUILD IS RUNNING — surfaced as `build` on /health (app/routers/health.py).
+# The container carries NO .git (see .dockerignore), so a runtime `git rev-parse` is
+# impossible BY CONSTRUCTION; the value can only arrive as a build arg, and an ARG must
+# be promoted to an ENV or it evaporates when the build ends.
+#
+# THE DEFAULT IS EMPTY, AND EMPTY IS HANDLED. A GitHub Actions `build-args:` line
+# referencing a variable that does not exist resolves to the EMPTY STRING, so Docker
+# receives `--build-arg GIT_COMMIT_SHA=` and the variable arrives PRESENT-AND-EMPTY
+# rather than absent. That is not hypothetical: it is how the payer-web build broke on
+# main on 2026-08-18, where a zod schema rejected "". So nothing in this image may
+# treat empty as invalid — `Settings.git_commit_sha` carries NO validator (unlike every
+# other setting in that file) and `Settings.build_id` maps "" to the string "unknown".
+# A missing build label must never stop the service booting or make /health fail: the
+# HEALTHCHECK below and the deploy's health gate both depend on that.
+#
+# DECLARED HERE, LAST, ON PURPOSE. An ENV instruction invalidates every layer beneath
+# it, and this value changes on EVERY commit. Placed above `RUN pip install` it would
+# rebuild the whole dependency layer for each new sha; placed after the COPYs it
+# invalidates only the trailing metadata layers, which cost nothing. It carries a
+# public commit sha and nothing else — a build arg is readable in `docker history`,
+# so no secret may ever be passed this way.
+ARG GIT_COMMIT_SHA=""
+ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA
+
 USER aiservice
 
 # The container port is FIXED at 8000. AI_SERVICE_PORT exists in app/config.py
