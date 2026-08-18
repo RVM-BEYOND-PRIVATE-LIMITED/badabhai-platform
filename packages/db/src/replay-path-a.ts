@@ -54,6 +54,7 @@ import { argFlag, argValue } from "./match-v1-cli";
 import {
   LEGACY_ANCHOR_SKILL_DOMAIN,
   findMintedSkillIds,
+  mergeFamilies,
   probeFamilyReachability,
   PRE_PROMOTION_STATUSES,
   RETRIEVABLE_SKILL_STATUSES,
@@ -259,6 +260,26 @@ function main(): void {
 
   const get = (v: CorpusVariant, p: RetrievalPath) => runs.get(`${v}|${p}`)!;
 
+  // ---- is the variant machinery still meaningful? -------------------------------------------
+  //
+  // `pre_merge` and `edges_repointed` are both defined relative to a MINTED successor — one that
+  // holds no edges. Once R19 is repaired that successor has edges, `findMintedSkillIds` returns
+  // nothing, and both variants silently degrade: `pre_merge` restores the predecessors to active
+  // WITHOUT removing the successor (so it reports a hybrid state that never existed), and
+  // `edges_repointed` has nothing left to move. Neither number means anything after the repair.
+  //
+  // Left unsaid, those two rows are exactly the kind of thing that gets quoted later. So the
+  // run says so itself, loudly, instead of printing three rows that look equally trustworthy.
+  const repaired = findMintedSkillIds(input).length === 0 && mergeFamilies(input).length > 0;
+  if (repaired) {
+    console.log(
+      `\n  ⚠ NOTE: every merge successor now holds its own edges, so there is no MINTED skill.\n` +
+        `    'pre_merge' and 'edges_repointed' are NO LONGER RECONSTRUCTIBLE from this corpus and\n` +
+        `    their rows below are meaningless — ignore them. Compare 'as_applied' here against the\n` +
+        `    committed PRE-repair artifact's 'edges_repointed' instead; they should match exactly.`,
+    );
+  }
+
   console.log(`\n=== corpus reconstruction (audit) ===`);
   for (const v of VARIANTS) {
     const p = provenances.get(v)!;
@@ -371,23 +392,37 @@ function main(): void {
   // from recall by construction (they are not in the fixture) and must stay that way. What they
   // measure is not "does retrieval rank well" but "can retrieval see this at all", which is
   // precisely the R19 question.
+  //
+  // The family is derived from `replacedBy` alone (`mergeFamilies`), NOT from the successor
+  // being edgeless. Gating on edgelessness would switch this probe off the instant R19 is
+  // repaired, so the very run that proves the repair worked would report nothing — and a probe
+  // that vanishes on success cannot be told apart from a probe that never ran. The domain set
+  // is likewise the UNION of the family's edges, so it stays the same 12 domains whether those
+  // edges sit on the predecessors (before) or on the successor (after), keeping the before/after
+  // comparison over an identical probe set.
   const probeResults: Record<string, unknown> = {};
-  const probeMinted = findMintedSkillIds(input);
-  if (probeMinted.length > 0) {
-    const mintedId = probeMinted[0]!;
-    const predecessors = input.skills.filter((s) => s.replacedBy === mintedId).map((s) => s.skillId);
+  const families = mergeFamilies(input);
+  // Only families whose successor was minted by the merge are the R19 shape worth probing; a
+  // successor that pre-existed with its own edges (skill_quality_control, skill_turning) never
+  // lost a surface. `successorHasEdges` is reported rather than used as a filter, because after
+  // the repair it flips to true and the family must remain in the report.
+  const R19_FAMILY_SUCCESSORS = new Set(["skill_drawing_reading"]);
+  for (const fam of families.filter((f) => R19_FAMILY_SUCCESSORS.has(f.successor))) {
+    const mintedId = fam.successor;
+    const predecessors = [...fam.predecessors];
+    const familyIds = [mintedId, ...predecessors];
     const probeDomains = [
-      ...new Set(input.edges.filter((e) => predecessors.includes(e.skillId)).map((e) => e.jobDomainId)),
+      ...new Set(input.edges.filter((e) => familyIds.includes(e.skillId)).map((e) => e.jobDomainId)),
     ].sort();
     const probeTexts = input.aliases
       .filter((a) => a.skillId === mintedId && a.vector !== null)
       .map((a) => a.text);
-    const family = new Set([mintedId, ...predecessors]);
+    const family = new Set(familyIds);
 
     console.log(`\n=== TD-01 reachability probe (NOT ground truth, NOT counted in recall) ===`);
-    console.log(`  merged skill   ${mintedId}`);
+    console.log(`  merged skill   ${mintedId}  (holds its own edges: ${String(fam.successorHasEdges)})`);
     console.log(`  predecessors   ${JSON.stringify(predecessors)}`);
-    console.log(`  probe domains  ${probeDomains.length} (the predecessors' own edges)`);
+    console.log(`  probe domains  ${probeDomains.length} (union of the family's edges)`);
     console.log(`  probe texts    ${probeTexts.length} (the merged skill's embedded aliases)`);
     console.log(`  probes         ${probeDomains.length * probeTexts.length}`);
     console.log(`  ${"variant".padEnd(17)} ${"family reachable".padStart(16)} ${"family top-1".padStart(13)} ${"probes".padStart(7)}`);

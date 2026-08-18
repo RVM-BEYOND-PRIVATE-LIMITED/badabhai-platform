@@ -173,6 +173,43 @@ export function findMintedSkillIds(input: CorpusInput): readonly string[] {
   return [...targets].filter((id) => !edged.has(id)).sort();
 }
 
+/** A merge as the corpus records it: one successor and everything dissolved into it. */
+export interface MergeFamily {
+  readonly successor: string;
+  readonly predecessors: readonly string[];
+  /** False = the R19 shape: the successor exists but retrieval cannot reach it. */
+  readonly successorHasEdges: boolean;
+}
+
+/**
+ * Every merge in the corpus, derived from `replacedBy` ALONE.
+ *
+ * Deliberately NOT gated on the successor being edgeless, unlike `findMintedSkillIds`. That
+ * distinction is the whole point: `findMintedSkillIds` answers "which successor was minted by
+ * a merge and is therefore absent from the pre-merge baseline", which is a question about
+ * reconstruction. This answers "which skills belong to the same merge", which is a question
+ * about identity — and identity must not change when the edges are repaired.
+ *
+ * Using the edgeless test here would make the diagnostic probe switch itself off the moment
+ * R19 is fixed, so the run that proves the fix worked would report nothing at all. A probe that
+ * vanishes on success cannot distinguish success from never having run.
+ */
+export function mergeFamilies(input: CorpusInput): readonly MergeFamily[] {
+  const edged = new Set(input.edges.map((e) => e.skillId));
+  const bySuccessor = new Map<string, string[]>();
+  for (const s of input.skills) {
+    if (s.replacedBy === null) continue;
+    bySuccessor.set(s.replacedBy, [...(bySuccessor.get(s.replacedBy) ?? []), s.skillId]);
+  }
+  return [...bySuccessor.entries()]
+    .map(([successor, predecessors]) => ({
+      successor,
+      predecessors: [...predecessors].sort(),
+      successorHasEdges: edged.has(successor),
+    }))
+    .sort((a, b) => a.successor.localeCompare(b.successor));
+}
+
 export function buildVariant(
   input: CorpusInput,
   variant: CorpusVariant,

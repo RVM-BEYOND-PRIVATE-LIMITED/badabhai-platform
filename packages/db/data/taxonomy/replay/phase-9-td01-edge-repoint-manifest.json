@@ -1,0 +1,293 @@
+{
+  "kind": "td01-edge-repoint-manifest",
+  "reason": "R19 — the merged skill held no edges while its deprecated predecessors held all of them",
+  "file": "packages/db/data/taxonomy/domain-skills.jsonl",
+  "successor_map": {
+    "skill_gdt_reading": "skill_drawing_reading",
+    "skill_cad_interpretation": "skill_drawing_reading"
+  },
+  "counts": {
+    "source_edges": 14,
+    "repointed": 12,
+    "absorbed_duplicates": 2,
+    "distinct_domains": 12
+  },
+  "before": [
+    {
+      "line": 14,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_8211_1200",
+      "skill_id": "skill_cad_interpretation",
+      "default_requirement": "preferred",
+      "relevance": 62,
+      "confidence": 0.7,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 38,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7231_0400",
+      "skill_id": "skill_cad_interpretation",
+      "default_requirement": "preferred",
+      "relevance": 60,
+      "confidence": 0.7,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 45,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7223_0701",
+      "skill_id": "skill_gdt_reading",
+      "default_requirement": "required",
+      "relevance": 82,
+      "confidence": 0.88,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 58,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7223_6002",
+      "skill_id": "skill_gdt_reading",
+      "default_requirement": "preferred",
+      "relevance": 76,
+      "confidence": 0.85,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 67,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7223_6003",
+      "skill_id": "skill_gdt_reading",
+      "default_requirement": "required",
+      "relevance": 86,
+      "confidence": 0.9,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 68,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7223_6003",
+      "skill_id": "skill_cad_interpretation",
+      "default_requirement": "required",
+      "relevance": 82,
+      "confidence": 0.88,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 104,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7412_0200",
+      "skill_id": "skill_cad_interpretation",
+      "default_requirement": "preferred",
+      "relevance": 62,
+      "confidence": 0.72,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 114,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_isco_7213",
+      "skill_id": "skill_cad_interpretation",
+      "default_requirement": "preferred",
+      "relevance": 66,
+      "confidence": 0.76,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 127,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7224_0102",
+      "skill_id": "skill_gdt_reading",
+      "default_requirement": "required",
+      "relevance": 80,
+      "confidence": 0.87,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 131,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7224_0102",
+      "skill_id": "skill_cad_interpretation",
+      "default_requirement": "preferred",
+      "relevance": 70,
+      "confidence": 0.8,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 179,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7126_0301",
+      "skill_id": "skill_gdt_reading",
+      "default_requirement": "preferred",
+      "relevance": 66,
+      "confidence": 0.76,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 189,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7313_2601",
+      "skill_id": "skill_gdt_reading",
+      "default_requirement": "preferred",
+      "relevance": 78,
+      "confidence": 0.85,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 192,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7543_2001",
+      "skill_id": "skill_gdt_reading",
+      "default_requirement": "required",
+      "relevance": 88,
+      "confidence": 0.91,
+      "source": "llm_bootstrap"
+    },
+    {
+      "line": 246,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7212_0301",
+      "skill_id": "skill_gdt_reading",
+      "default_requirement": "preferred",
+      "relevance": 66,
+      "confidence": 0.76,
+      "source": "llm_bootstrap"
+    }
+  ],
+  "after": [
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_8211_1200",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "preferred",
+      "relevance": 62,
+      "confidence": 0.7,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7231_0400",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "preferred",
+      "relevance": 60,
+      "confidence": 0.7,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7223_0701",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "required",
+      "relevance": 82,
+      "confidence": 0.88,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7223_6002",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "preferred",
+      "relevance": 76,
+      "confidence": 0.85,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7223_6003",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "required",
+      "relevance": 86,
+      "confidence": 0.9,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7412_0200",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "preferred",
+      "relevance": 62,
+      "confidence": 0.72,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_isco_7213",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "preferred",
+      "relevance": 66,
+      "confidence": 0.76,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7224_0102",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "required",
+      "relevance": 80,
+      "confidence": 0.87,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7126_0301",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "preferred",
+      "relevance": 66,
+      "confidence": 0.76,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7313_2601",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "preferred",
+      "relevance": 78,
+      "confidence": 0.85,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7543_2001",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "required",
+      "relevance": 88,
+      "confidence": 0.91,
+      "source": "llm_bootstrap"
+    },
+    {
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7212_0301",
+      "skill_id": "skill_drawing_reading",
+      "default_requirement": "preferred",
+      "relevance": 66,
+      "confidence": 0.76,
+      "source": "llm_bootstrap"
+    }
+  ],
+  "absorbed": [
+    {
+      "line": 68,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7223_6003",
+      "skill_id": "skill_cad_interpretation",
+      "default_requirement": "required",
+      "relevance": 82,
+      "confidence": 0.88,
+      "source": "llm_bootstrap",
+      "absorbed_into_line": 67
+    },
+    {
+      "line": 131,
+      "kind": "domain_skill",
+      "job_domain_id": "jd_nco_7224_0102",
+      "skill_id": "skill_cad_interpretation",
+      "default_requirement": "preferred",
+      "relevance": 70,
+      "confidence": 0.8,
+      "source": "llm_bootstrap",
+      "absorbed_into_line": 127
+    }
+  ],
+  "sha256_before": "9c28d7dbf507f245885077682e0a2c73328c80e2d39e3ef213cbac985a503876",
+  "sha256_after": "14ecef97b7a736892a1469583a79067267ebcfc90d19bc69db421f4c832f37ee"
+}

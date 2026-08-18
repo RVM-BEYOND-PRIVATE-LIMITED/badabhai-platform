@@ -1,11 +1,56 @@
-# TD-01 domain-edge condition (R19) — proposed decision, NOT authorized
+# TD-01 domain-edge condition (R19) — RATIFIED AND APPLIED
 
-> **Status: PROPOSED. Nothing has been applied.** No `job_domain_skill` row has been created,
-> moved or deleted. This document exists so the decision is made against measurement rather
-> than against a description, and so it is made by the person who owns it.
+> **Status: RATIFIED 2026-08-18 and APPLIED to the taxonomy corpus.** The 14 edges have been
+> re-pointed onto `skill_drawing_reading` in `packages/db/data/taxonomy/domain-skills.jsonl`.
+> **Corpus files only** — no database was seeded, nothing was embedded, both production flags
+> remain `false`.
 >
-> Evidence: [`phase-9-path-a-replay-*.json`](../../../packages/db/data/taxonomy/replay/),
-> produced by `pnpm db:replay:path-a` (read-only, zero provider calls) on **2026-08-18**.
+> Evidence: [`data/taxonomy/replay/`](../../../packages/db/data/taxonomy/replay/), produced by
+> `pnpm db:replay:path-a` (read-only, zero provider calls) on **2026-08-18**.
+>
+> **What decided it.** The reachability collapse alone was arguably survivable. What was not
+> was *what replaced it*: under production semantics, **88 of 96 probes returned a confident,
+> unrelated skill** — measuring instruments, gas cutting, mechanical assembly, turning, CMM,
+> bench fitting — rather than nothing. Silent misclassification, not a retrieval gap. Option C
+> (fixture-first) was then found to be **impossible**: `validateEvalFixture` refuses any case
+> whose expected skill has no edge (`EXPECTED_SKILL_NOT_IN_SCOPE ... unpassable by
+> construction`), so the fixture could not host coverage for the merged skill until the very
+> edges under debate existed. That removed the only argument for waiting.
+>
+> ## Application record
+>
+> | | |
+> |---|---|
+> | Manifest | [`phase-9-td01-edge-repoint-manifest.json`](../../../packages/db/data/taxonomy/replay/phase-9-td01-edge-repoint-manifest.json) |
+> | Source edges | 14 (8 `skill_gdt_reading` + 6 `skill_cad_interpretation`) |
+> | Re-pointed | 12 |
+> | Absorbed as duplicates | 2 — `jd_nco_7223_6003`, `jd_nco_7224_0102` were wired to **both** predecessors |
+> | Corpus edge total | 238 → **236** (required 146 → 145, preferred 92 → 91) |
+> | sha256 | `9c28d7db…3876` → `14ecef97…37ee` |
+>
+> **The absorbed pair is the only judgement in the change.** A naive rewrite would have emitted
+> the same `(job_domain_id, skill_id)` twice, which `validateTaxonomyCorpus` rejects as
+> `EDGE_DUPLICATE`. Survivors were chosen by strength — `required` beats `preferred`, then
+> relevance, then confidence — and `skill_gdt_reading`'s edge won both times. Taking the weaker
+> would have silently downgraded `jd_nco_7224_0102` from **required to preferred**, a real
+> change to what the platform asks of a worker hidden inside a mechanical re-point.
+>
+> **Verification.** Post-repair `as_applied` matches the pre-repair `edges_repointed`
+> counterfactual on **all ten metrics exactly** (cases, resolved, unresolved, scored, hits,
+> R@1, MRR, mean candidates, false positives, false negatives) — the change did what was
+> predicted and nothing else. Probe 0/96 → **96/96** reachable and top-1. `db:verify:taxonomy`
+> PASS, `db:verify:aliases` CLEAN on both production tables, db 1005/1005, taxonomy 46/46,
+> match-engine 209/209. `skill_drawing_reading` remains `active`; both predecessors remain
+> `deprecated` with their `replacedBy` intact and their own alias arrays untouched (SG-5).
+>
+> **Evidence boundary, restated because it is easy to lose.** The 96 probes are tautological
+> alias probes — diagnostic evidence only, never ground-truth recall. The supportable claim is:
+> *the zero-edge state caused systematic silent misclassification for the TD-01 alias surface,
+> and the re-point restores correct candidate reachability and top-1 selection across the
+> diagnostic probe set.* It is **not** a claim about production recall.
+>
+> Still open: the 11-case provider gap (§5), fixture coverage for drawing-reading (now
+> possible, since the edges exist), and every production activation gate.
 
 ---
 
