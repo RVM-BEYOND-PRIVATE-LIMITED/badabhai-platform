@@ -20,7 +20,7 @@ export async function PayerDetailRoute({
   id: string;
   kind: "Company" | "Agency";
 }) {
-  await requireCapability("read_entities");
+  const session = await requireCapability("read_entities");
 
   const expectedRole = kind === "Company" ? "employer" : "agent";
   const basePath = kind === "Company" ? "/companies" : "/agencies";
@@ -45,6 +45,12 @@ export async function PayerDetailRoute({
     .catch(() => null);
 
   return (
-    <PayerDetailView payer={payer} postings={postings} kind={kind} backHref={basePath} />
+    <PayerDetailView
+      payer={payer}
+      postings={postings}
+      kind={kind}
+      backHref={basePath}
+      capabilities={session.capabilities}
+    />
   );
 }

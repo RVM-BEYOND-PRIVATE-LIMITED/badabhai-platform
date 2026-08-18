@@ -70,6 +70,66 @@ export function isAdminRequestError(err: unknown): err is AdminRequestError {
   return err instanceof AdminRequestError;
 }
 
+/**
+ * The longest backend explanation shown verbatim. Beyond this it is TRUNCATED, never dropped:
+ * the first sentence of a refusal is the useful part, and silently swallowing a long message
+ * would leave the operator with "the admin API returned 409" and nothing to act on.
+ */
+const MAX_ERROR_MESSAGE_CHARS = 300;
+
+function capErrorMessage(message: string): string {
+  if (message.length <= MAX_ERROR_MESSAGE_CHARS) return message;
+  return `${message.slice(0, MAX_ERROR_MESSAGE_CHARS - 1).trimEnd()}…`;
+}
+
+/**
+ * Pull the backend's own explanation out of `AllExceptionsFilter`'s error envelope
+ * (`{ error: { message } }` — see apps/api/src/common/filters/all-exceptions.filter.ts) when
+ * there is one to pull. Falls back to the generic status-only text on any shape mismatch or
+ * unparseable body, so a change to the filter's envelope degrades to today's copy rather than
+ * throwing.
+ *
+ * This is the ONLY place a response body's text is read for an error case, and it is read,
+ * not trusted for display everywhere: the portal's own error boundary
+ * (`(portal)/error.tsx`) explicitly never renders `.message`, and the public login flows
+ * (`login/actions.ts`) ignore it entirely in favour of their own neutral, oracle-free copy.
+ * The governed-mutation Server Actions (companies/agencies, jobs, workers, admins) are the
+ * one place that DOES show it, because a 4xx from a route behind
+ * `AdminAuthGuard`/`AdminRolesGuard` is the server explaining a REFUSAL to an operator who is
+ * already authenticated and capable — not an oracle for an anonymous caller.
+ *
+ * ── ONE SHAPE IS DELIBERATELY NOT ACCEPTED: `{ "error": "<string>" }` ────────────────────
+ * The BadaBhai API cannot produce it. `AllExceptionsFilter` always writes an OBJECT
+ * (`error: typeof payload === "string" ? { message: payload } : payload`), so a bare string
+ * under `error` can only have come from something that is NOT this platform's API — an
+ * ingress, a service mesh, or a gateway error page sitting in front of it. Those are exactly
+ * the bodies that carry internal topology ("no healthy upstream for cluster admin-api…",
+ * upstream hostnames, pod IPs), and on a 4xx this string was rendered verbatim to the
+ * operator. It now falls through to the status-only text: an intermediary's error page is
+ * never the server explaining a refusal, so there is nothing there worth showing.
+ */
+async function describeErrorBody(res: Response): Promise<string> {
+  const fallback = `The admin API returned ${res.status}.`;
+  try {
+    // A non-JSON body (an HTML 404 from a proxy, an empty body) rejects here → fallback.
+    const body: unknown = await res.json();
+    if (typeof body !== "object" || body === null || !("error" in body)) return fallback;
+    const inner = (body as { error: unknown }).error;
+    if (
+      typeof inner === "object" &&
+      inner !== null &&
+      "message" in inner &&
+      typeof (inner as { message: unknown }).message === "string" &&
+      (inner as { message: string }).message.length > 0
+    ) {
+      return capErrorMessage((inner as { message: string }).message);
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 interface RequestOptions<T> {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
@@ -116,7 +176,7 @@ export async function adminFetch<T>(path: string, opts: RequestOptions<T> = {}):
   if (res.status === 403) throw new AdminForbiddenError();
 
   if (!res.ok) {
-    throw new AdminRequestError(res.status, `The admin API returned ${res.status}.`);
+    throw new AdminRequestError(res.status, await describeErrorBody(res));
   }
 
   if (!opts.schema) return undefined as T;
