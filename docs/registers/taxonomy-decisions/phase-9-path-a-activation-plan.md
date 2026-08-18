@@ -66,6 +66,52 @@ the previous one's exit criteria hold and are recorded.
 | **S0** | Offline shadow | nothing | — | n/a — **✅ DONE**, this replay |
 | **S1** | Close the fixture gap: reviewed cases for drawing-reading + the generic aliases | fixture data | trainer availability | revert the fixture commit; `retrieval-v1` is hash-pinned and untouched |
 | **S2** | Decide R19 (TD-01 edges) | `domain-skills.jsonl` + 14 rows, *if* option A | S1, and [`phase-9-td-01-edge-decision.md`](./phase-9-td-01-edge-decision.md) authorized | delete the 14 rows by captured id set |
+
+### S1 / S2 status — updated 2026-08-18
+
+**S2 is CLOSED, and it ran BEFORE S1 rather than after it.** The plan's own ordering put the
+fixture first; that turned out to be impossible, and the inversion is recorded here rather than
+quietly re-sequenced.
+
+| | |
+|---|---|
+| **S2 — R19** | ✅ **RATIFIED AND APPLIED** (#975, `286a4360`). 14 edges → 12 re-pointed + 2 absorbed as duplicates. Corpus edges 238 → 236. Manifest and both before/after replay artifacts committed under [`data/taxonomy/replay/`](../../../packages/db/data/taxonomy/replay/). |
+| Diagnostic probe | **0/96 → 96/96** reachable and top-1. Post-repair `as_applied` matches the pre-repair `edges_repointed` counterfactual on **all ten metrics exactly** — the change did what was predicted and nothing more. |
+| **S1 — fixture** | ⏳ **UNBLOCKED, NOT DONE.** Technically possible for the first time; ground truth still pending a trainer. |
+
+**Why S1 could not go first.** `validateEvalFixture` rejects any case whose expected skill has
+no `job_domain_skill` edge — `EXPECTED_SKILL_NOT_IN_SCOPE: ... unpassable by construction`. With
+`skill_drawing_reading` holding zero edges, the fixture could not host coverage for the defect
+until the very edges under debate existed. The dependency was circular, verified rather than
+assumed, and that is what moved R19 ahead of the fixture work. It is now proven broken in the
+right direction by two regression tests in `taxonomy-eval-fixture.test.ts`: a case in one of the
+skill's own domains validates, and one in a foreign domain still fails — so the check is not
+vacuous, and un-pointing the edges would break the build.
+
+**S1 deliverable prepared:**
+[`review-pack/td01-drawing-reading-trainer-pack.json`](../../../packages/db/data/taxonomy/eval/review-pack/td01-drawing-reading-trainer-pack.json)
+— 8 aliases, 12 domains (4 `required`), **2 mechanical cases and 5 EMPTY slots awaiting a
+trainer**, plus the evidence checklist. Built with the main review pack's own
+`mechanicalCases` / `paraphraseSlots` / `evidenceNeeded` functions, so the case format and slot
+convention are shared, not copied. **No ground truth was authored** — every paraphrase query is
+blank, per the DC-18 rule. The existing 26-skill pack and its 52 empty slots are untouched.
+
+**Still pending, and neither is unblocked by S2:**
+
+- **Trainer ground truth** for the 5 slots. Until then this skill contributes nothing to recall,
+  and any recall figure quoted remains blind to it — the same blindness that hid R19.
+- **Provider evidence** for the 11-case gap (12.5% of the scoreable set). Prepared and
+  documented in [`phase-9-provider-run-contract.md`](./phase-9-provider-run-contract.md);
+  **not executed** — no external call has been made from the sandbox, and the real-call guard
+  was not modified.
+
+**Unchanged by all of the above:** `SKILL_CANONICALIZE_ENABLED=false`,
+`DOMAIN_MATCH_ENABLED=false`, production taxonomy **not seeded** (still 51 skills / 98 aliases /
+0 edges / 0 `text_norm` / NULL `embedding_model`), legacy retrieval arm intact, nothing embedded.
+R19 was a **corpus-source-file** change; it moved no database row.
+
+**TD-07 remains GAP — product + trainer.** It is not resolved, and S3 must not resolve it
+implicitly (see the S3 checklist).
 | **S3** | Deploy the taxonomy corpus to production — additive only | `skill`, `skill_alias`, `job_domain_skill` | S2; TD-07 resolved or explicitly deferred with its aliases excluded | delete added rows by captured id set; **Path B's universe must be bit-identical before and after** |
 | **S4** | Normalize + elect `skill_alias` in production | `text_norm`, `is_searchable` | S3 verified; manifest + sha256 + in-transaction guards, as the dev write used | restore from the manifest's rollback id set |
 | **S5** | Embed the production alias corpus with provenance | `embedding`, `embedding_model` | S4; `--plan` output reviewed; quota confirmed | vectors are additive; re-embed or NULL by id set |
