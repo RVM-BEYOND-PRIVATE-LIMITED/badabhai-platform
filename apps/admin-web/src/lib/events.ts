@@ -127,6 +127,68 @@ export async function getTrace(correlationId: string) {
 }
 
 /**
+ * Subject types the per-entity timeline route (`GET /admin/entities/:type/:id/timeline`)
+ * accepts. Mirrors `ADMIN_TIMELINE_SUBJECT_TYPES` in `apps/api/src/admin/admin-events.dto.ts`
+ * verbatim, so an unsupported type is a compile-time error here rather than a runtime 400
+ * from the server's whitelist.
+ */
+export const ADMIN_TIMELINE_SUBJECT_TYPES = [
+  "worker",
+  "payer",
+  "job",
+  "job_posting",
+  "unlock",
+  "profile",
+  "resume",
+  "consent",
+  "chat_session",
+  "voice_note",
+  "ai_job",
+  "invite",
+  "agency_invite",
+] as const;
+export type AdminTimelineSubjectType = (typeof ADMIN_TIMELINE_SUBJECT_TYPES)[number];
+
+/** Exported so tests can parse a REAL captured payload through it, not around it. */
+export const entityTimelineSchema = z.object({
+  subject_type: z.string(),
+  subject_id: z.string(),
+  events: z.array(eventListItemSchema),
+  nextCursor: z.string().nullable(),
+});
+export type EntityTimeline = z.infer<typeof entityTimelineSchema>;
+
+export interface EntityTimelineQuery {
+  cursor?: string;
+  limit?: number;
+}
+
+function toTimelineQuery(query: EntityTimelineQuery): string {
+  const q = new URLSearchParams();
+  if (query.cursor) q.set("cursor", query.cursor);
+  if (query.limit) q.set("limit", String(query.limit));
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+/**
+ * Route #4 — every event recorded for one subject, keyset-paginated. The endpoint the
+ * per-entity "View event timeline" links were always meant to call, instead of the generic
+ * `/admin/events` filter (which has no `subjectId` filter and would show every entity's
+ * events, not just this one's).
+ */
+export async function getEntityTimeline(
+  type: AdminTimelineSubjectType,
+  id: string,
+  query: EntityTimelineQuery = {},
+): Promise<EntityTimeline> {
+  return adminFetch(
+    `/admin/entities/${type}/${encodeURIComponent(id)}/timeline${toTimelineQuery(query)}`,
+    { schema: entityTimelineSchema },
+  );
+}
+
+/**
  * The AUDIT read seam (D15).
  *
  * Deliberately a NARROW interface over the events spine rather than a pass-through: when

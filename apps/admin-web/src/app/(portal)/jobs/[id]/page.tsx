@@ -63,10 +63,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
               Owner account
             </Link>
           )}
-          <Link
-            className="btn btn--ghost"
-            href={`/events?subjectType=job_posting&subjectId=${job.id}`}
-          >
+          <Link className="btn btn--ghost" href={`/jobs/${job.id}/timeline`}>
             Event timeline
           </Link>
         </div>
@@ -237,10 +234,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                 : `It is ${job.status}, so it is out of the worker feed and cannot collect decisions in this state.`}
             </p>
             <div className="state__actions">
-              <Link
-                className="btn btn--ghost"
-                href={`/events?subjectType=job_posting&subjectId=${job.id}`}
-              >
+              <Link className="btn btn--ghost" href={`/jobs/${job.id}/timeline`}>
                 Event timeline
               </Link>
             </div>

@@ -11,6 +11,7 @@ import {
   formatTimestamp,
   healthTone,
   humanizeEventName,
+  packCodeLabel,
   shortId,
 } from "./format";
 
@@ -206,5 +207,20 @@ describe("creditReasonLabel", () => {
     // A code nobody recognises is a reason to look, not to render an empty cell.
     expect(creditReasonLabel("chargeback_hold")).toBe("chargeback hold");
     expect(creditReasonLabel("chargeback_hold")).not.toBe("");
+  });
+});
+
+describe("packCodeLabel", () => {
+  it("labels the five known pack codes", () => {
+    expect(packCodeLabel("pack_10")).toBe("10-credit pack");
+    expect(packCodeLabel("pack_25")).toBe("25-credit pack");
+    expect(packCodeLabel("pack_50")).toBe("50-credit pack");
+    expect(packCodeLabel("pack_200")).toBe("200-credit pack");
+    expect(packCodeLabel("pack_1000")).toBe("1,000-credit pack");
+  });
+
+  it("an UNKNOWN pack code is shown raw, never blank — mirrors creditReasonLabel's fallback", () => {
+    expect(packCodeLabel("pack_legacy_bulk")).toBe("pack legacy bulk");
+    expect(packCodeLabel("pack_legacy_bulk")).not.toBe("");
   });
 });

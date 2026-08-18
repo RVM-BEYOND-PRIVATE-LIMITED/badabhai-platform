@@ -6,6 +6,7 @@ import {
   formatRelative,
   formatRupees,
   formatTimestamp,
+  packCodeLabel,
   shortId,
 } from "../../../lib/format";
 import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payments-posture";
@@ -277,7 +278,7 @@ export default async function TransactionsPage({
                         {shortId(o.payer_id)}
                       </Link>
                     </td>
-                    <td>{o.pack_code}</td>
+                    <td>{packCodeLabel(o.pack_code)}</td>
                     <td className="mono ui-num">{formatRupees(o.amount_inr)}</td>
                     <td className="mono ui-num">{formatCount(o.credits_granted)}</td>
                     <td>

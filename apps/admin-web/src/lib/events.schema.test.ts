@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { eventListItemSchema, metricsSchema } from "./events";
+import { entityTimelineSchema, eventListItemSchema, metricsSchema } from "./events";
 
 /**
  * Response-shape parity with the admin API.
@@ -44,6 +44,16 @@ const REAL_EVENT = {
   occurred_at: "2026-08-04T09:40:29.000Z",
   correlation_id: "792aafca-1b9c-4f19-b75b-16892bc2e318",
   causation_id: null,
+};
+
+// Captured from GET /admin/entities/worker/:id/timeline — route #4, AdminEventsService.timeline().
+// Reuses the same list-item envelope as REAL_EVENT (the timeline row is the identical
+// AdminEventListItem projection), wrapped with the subject echo + keyset cursor.
+const REAL_ENTITY_TIMELINE = {
+  subject_type: "worker",
+  subject_id: "64660d27-091f-4105-accb-cd72eef62c35",
+  events: [REAL_EVENT],
+  nextCursor: null,
 };
 
 describe("event list item — parses the real API row", () => {
@@ -106,5 +116,34 @@ describe("metrics — the aggregates do NOT all share one bucket shape", () => {
       funnel: [{ event_name: "feed.shown", count: 0, distinct_subjects: 0 }],
     };
     expect(metricsSchema.safeParse(wrong).success).toBe(false);
+  });
+});
+
+describe("entity timeline — route #4, GET /admin/entities/:type/:id/timeline", () => {
+  /*
+   * `getEntityTimeline` is the route the per-entity "View event timeline" links call
+   * instead of the generic `/admin/events` filter. Its schema was never run against a
+   * captured shape before this — a real risk given `metrics` above already proved this
+   * file's schemas can drift from what `AdminEventsService` actually returns.
+   */
+  it("parses a captured /admin/entities/:type/:id/timeline response", () => {
+    const parsed = entityTimelineSchema.safeParse(REAL_ENTITY_TIMELINE);
+    expect(parsed.success).toBe(true);
+  });
+
+  it("REJECTS a payload missing nextCursor — keyset pagination cannot page without it", () => {
+    const { nextCursor: _omitted, ...without } = REAL_ENTITY_TIMELINE;
+    expect(entityTimelineSchema.safeParse(without).success).toBe(false);
+  });
+
+  it("REJECTS a malformed event inside `events` — missing correlation id, same as the list route", () => {
+    const { correlation_id: _omitted, ...malformedEvent } = REAL_EVENT;
+    const wrong = { ...REAL_ENTITY_TIMELINE, events: [malformedEvent] };
+    expect(entityTimelineSchema.safeParse(wrong).success).toBe(false);
+  });
+
+  it("REJECTS a payload missing subject_id — the caller cannot tell which entity this is", () => {
+    const { subject_id: _omitted, ...without } = REAL_ENTITY_TIMELINE;
+    expect(entityTimelineSchema.safeParse(without).success).toBe(false);
   });
 });

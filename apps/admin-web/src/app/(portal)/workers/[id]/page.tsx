@@ -56,7 +56,7 @@ export default async function WorkerDetailPage({
           </p>
         </div>
         <div className="page__actions">
-          <Link className="btn btn--ghost" href={`/events?subjectType=worker&subjectId=${worker.id}`}>
+          <Link className="btn btn--ghost" href={`/workers/${worker.id}/timeline`}>
             View event timeline
           </Link>
         </div>
