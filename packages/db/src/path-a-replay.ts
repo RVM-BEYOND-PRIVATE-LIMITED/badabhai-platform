@@ -555,6 +555,80 @@ export function summarizeReplay(rows: readonly ReplayCaseResult[]): ReplaySummar
   };
 }
 
+// ===========================================================================
+// Reachability probe — the instrument the fixture is not allowed to be
+// ===========================================================================
+
+/**
+ * Ask a skill family's own alias texts, in the domains it should serve, and report whether
+ * retrieval can see it at all.
+ *
+ * WHY THIS IS NOT FIXTURE CASES. `validateEvalFixture` rejects any case whose expected skill is
+ * not wired to the queried domain — `EXPECTED_SKILL_NOT_IN_SCOPE ... unpassable by
+ * construction`. `skill_drawing_reading` has no edges, so the fixture CANNOT host coverage for
+ * it until the edges exist. The instrument cannot be extended to observe the defect while the
+ * defect exists. This probe answers the same question from outside the fixture.
+ *
+ * These are REACHABILITY probes, never ground truth. Every query is literally an alias of the
+ * expected skill, so correctness is tautological — the DC-18 lesson, and the reason the result
+ * must never be folded into recall. What it measures is not "does retrieval rank well" but
+ * "can retrieval see this at all".
+ *
+ * `winsInstead` is the part that matters. A surface that returns NOTHING is a gap; a surface
+ * that returns a confident, unrelated skill is a misclassification, and only this field tells
+ * the two apart.
+ */
+export interface ProbeResult {
+  readonly probes: number;
+  /** Probes where some member of the family appeared anywhere in the top-k. */
+  readonly familyReachable: number;
+  /** Probes where a family member ranked first. */
+  readonly familyTop1: number;
+  /** What won when the family did not, most frequent first. */
+  readonly winsInstead: readonly { skillId: string; count: number }[];
+}
+
+export function probeFamilyReachability(
+  corpus: ReplayCorpus,
+  args: {
+    family: readonly string[];
+    domains: readonly string[];
+    vectorsByText: ReadonlyMap<string, readonly number[]>;
+    texts: readonly string[];
+    k: number;
+    statuses?: readonly SkillStatus[];
+  },
+): ProbeResult {
+  const family = new Set(args.family);
+  const winners = new Map<string, number>();
+  let probes = 0;
+  let reachable = 0;
+  let top1 = 0;
+
+  for (const domain of args.domains) {
+    const candidates = pathACandidates(corpus, domain, args.statuses);
+    for (const text of args.texts) {
+      const vec = args.vectorsByText.get(text);
+      if (vec === undefined) continue;
+      probes += 1;
+      const ranked = rankSkillsFromAliases(rankAliases(vec, candidates, args.k));
+      if (ranked.some((r) => family.has(r.skillId))) reachable += 1;
+      const winner = ranked[0]?.skillId ?? "(nothing returned)";
+      if (family.has(winner)) top1 += 1;
+      else winners.set(winner, (winners.get(winner) ?? 0) + 1);
+    }
+  }
+
+  return {
+    probes,
+    familyReachable: reachable,
+    familyTop1: top1,
+    winsInstead: [...winners.entries()]
+      .map(([skillId, count]) => ({ skillId, count }))
+      .sort((a, b) => b.count - a.count || a.skillId.localeCompare(b.skillId)),
+  };
+}
+
 /** Agreement between two paths on the same phrases — D0 Phase D's parity metric. */
 export interface AgreementSummary {
   readonly cases: number;
