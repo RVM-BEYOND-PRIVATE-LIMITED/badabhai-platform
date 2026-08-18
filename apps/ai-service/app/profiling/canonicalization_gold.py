@@ -199,7 +199,13 @@ _CORE: list[GoldCase] = [
         "role_vmc_operator",
         ("mach_vmc",),
         "core",
-        expected_skills=("skill_fanuc", "skill_gdt_reading"),
+        # TD-01 (phase-8 taxonomy decisions): `skill_gdt_reading` is dissolved into the new
+        # `skill_drawing_reading` (full merge, ratified 2026-08-18 — `skill_cad_interpretation`
+        # dissolves into it too, not just this one). The gold answer is repointed to the
+        # surviving id rather than left dangling on a retired one, same precedent as TD-02's
+        # US-04 fixture repair: a deferred fixture edit for a dissolved id is a defect, not a
+        # neutral no-op, because "correct" for this gate is defined by what the id resolves to.
+        expected_skills=("skill_fanuc", "skill_drawing_reading"),
     ),
     GoldCase(
         "vmc machine operator, tool offset setting karta hu",

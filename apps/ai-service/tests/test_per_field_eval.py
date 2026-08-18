@@ -74,7 +74,7 @@ def test_skills_use_subset_semantics_not_exact():
     class _P:
         canonical_trade_id = "dom_vmc_machining"
         canonical_role_id = "role_vmc_operator"
-        skills = ["skill_fanuc", "skill_gdt_reading", "extra_skill"]
+        skills = ["skill_fanuc", "skill_drawing_reading", "extra_skill"]
         machines = ["mach_vmc"]
         experience = None
 
