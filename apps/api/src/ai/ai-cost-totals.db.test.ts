@@ -104,11 +104,14 @@ describe.skipIf(!RUN)("worker/session/platform AI cost totals (migration 0077)",
     // and the events are namespaced/keyed and cleared explicitly.
     await client.db.delete(workers).where(eq(workers.id, WORKER));
     await client.db.delete(workers).where(eq(workers.id, WORKER_ERASED));
-    // BY PREFIX, NOT BY THIS RUN'S EXACT LABELS. The labels are namespaced with `process.pid`
-    // so the platform assertions can be exact; deleting only those two leaves every PREVIOUS
-    // run's `test-provider-<oldpid>` rows behind forever, in the ONE table with no cascade and
-    // no worker to erase. A developer who ran this suite a dozen times would accumulate a
-    // dozen fake providers in `platform_ai_cost_totals`, and CI's ephemeral database hides it.
+    // BY PREFIX, NOT BY THIS RUN'S EXACT LABELS — SO A PREVIOUS RUN'S DEBRIS IS RECOVERABLE.
+    // The labels are namespaced with `process.pid` so the platform assertions can be exact.
+    // A run that reaches `afterAll` cleans up after itself either way; one that does NOT — a
+    // crash, a `--bail`, a killed watch process — leaves `test-provider-<oldpid>` rows behind,
+    // and with an equality delete NO later run can ever remove them, because no later run
+    // knows that pid. `platform_ai_cost_totals` is the one table here with no cascade and no
+    // worker to erase, so those rows are permanent. Measured: seeded a `test-provider-99999`
+    // row, ran the suite — the equality version left it, the prefix version cleared it.
     await client.db
       .delete(platformAiCostTotals)
       .where(like(platformAiCostTotals.provider, "test-provider%"));
