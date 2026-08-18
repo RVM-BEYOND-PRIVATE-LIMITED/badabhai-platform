@@ -21,8 +21,8 @@ import { AiCostTotalsRepository } from "./ai-cost-totals.repository";
 /**
  * The running totals, against a REAL Postgres — the whole stack, no fakes.
  *
- * WHY IT HAS TO BE A REAL DATABASE. Three of the four guarantees in this change are
- * PROPERTIES OF POSTGRES, not of TypeScript, and a mocked drizzle handle asserts none of them:
+ * WHY IT HAS TO BE A REAL DATABASE. Four of the guarantees in this change are PROPERTIES OF
+ * POSTGRES, not of TypeScript, and a mocked drizzle handle asserts none of them:
  *   1. `ON CONFLICT DO UPDATE ... total + excluded` really sums across calls (and sums in
  *      `numeric`, not in a float that drifts).
  *   2. `ON DELETE CASCADE` really removes the rows when a worker is erased — which is the
@@ -31,6 +31,9 @@ import { AiCostTotalsRepository } from "./ai-cost-totals.repository";
  *      survives their erasure.
  *   3. The events table's `ON CONFLICT DO NOTHING` really reports "deduped", so a redelivered
  *      job accrues nothing.
+ *   4. The SAVEPOINT really keeps the `ai.cost_recorded` row when the accrual raises. Every
+ *      error aborts a Postgres transaction and a JS `catch` does not heal it, so this is the
+ *      one place the recorder's degrade-don't-destroy rule meets the engine that enforces it.
  * A unit test can only prove that the right SQL was ASKED for.
  *
  * ── HOW TO RUN ────────────────────────────────────────────────────────────────
@@ -298,5 +301,48 @@ describe.skipIf(!RUN)("worker/session/platform AI cost totals (migration 0077)",
     // subject remains, and the row carries no linkage back to them.
     const [p] = await platformRow(PROVIDER, "profiling_chat_turn");
     expect(Number(p!.totalCostInr)).toBeGreaterThan(0);
+  });
+
+  it("an FK-violating accrual leaves the ai.cost_recorded event COMMITTED (savepoint)", async () => {
+    // THE EXACT RACE, NOT AN ANALOGY. A BullMQ job can outlive its subject: the previous test
+    // just hard-deleted WORKER_ERASED, and a queued cost record for them is still in flight.
+    // `worker_ai_cost_totals.worker_id` is NOT NULL and cascaded, so the accrual raises 23503.
+    //
+    // In Postgres that error aborts the WHOLE transaction — a JS `catch` does not heal 25P02
+    // and the eventual COMMIT is executed as a ROLLBACK — so before the savepoint this deleted
+    // the audit-ledger row on its way out, through a `logger.warn` and a successful request.
+    // There is nothing to back-fill FROM once the event is gone.
+    const FK_CALL = uuid(0x7780);
+    const beforeWorker = (await workerRow())[0]!;
+    const [beforePlatform] = await platformRow(PROVIDER, "profiling_chat_turn");
+
+    await expect(
+      recorder.record(
+        meta({ ai_call_id: FK_CALL }),
+        "profiling_chat_turn",
+        null,
+        CORRELATION,
+        "req-6",
+        {
+          workerId: WORKER_ERASED, // erased one test ago — the FK no longer resolves
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    // THE LEDGER ROW IS ON THE SPINE.
+    const rows = await client.db
+      .select({ id: events.id })
+      .from(events)
+      .where(eq(events.idempotencyKey, `ai.cost_recorded:${FK_CALL}`));
+    expect(rows).toHaveLength(1);
+
+    // AND THE ACCRUAL WAS ALL-OR-NOTHING: the platform upsert runs AFTER the worker one and is
+    // unconditional, so a savepoint that only covered part of `accrue` would have let it
+    // through and made the platform total count a call no worker total did.
+    expect((await platformRow(PROVIDER, "profiling_chat_turn"))[0]!.totalCostInr).toBe(
+      beforePlatform!.totalCostInr,
+    );
+    // The surviving worker's total is untouched too.
+    expect((await workerRow())[0]!.totalCostInr).toBe(beforeWorker.totalCostInr);
   });
 });
