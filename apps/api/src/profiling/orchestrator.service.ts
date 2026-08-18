@@ -616,6 +616,20 @@ export class ProfilingOrchestrator {
         return unavailable();
       }
       const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+      // Same split as `decide` — see the note there. A reopened session must not report a
+      // different denominator from the turn loop it is about to hand back to.
+      const openSelectable = selectableEnginePacks(envelope, packs.engine);
+      const progressItems = [
+        ...(openSelectable.occupation?.items ?? []),
+        ...openSelectable.universal.items,
+      ];
+      // THE SAME SEAM `decide` APPLIES, and this reader needs it just as badly. A closed interview
+      // has no `servedQuestionKey` at all, so the re-serve below finds nothing and a cold start or
+      // resume-after-kill falls straight through to `nextQuestion` — which, without this, would
+      // open the screen on the very trade-pack question the turn loop has been declining to ask.
+      // `items` above is deliberately built from the full resolved pair, not from this: see
+      // {@link selectableEnginePacks}.
+      const engine = selectableEnginePacks(envelope, packs.engine);
       const answers = answersOf(envelope);
 
       // CHIPS ON SCREEN OUTRANK THE PACK QUESTION, before the re-serve below can find a stale key.
@@ -637,7 +651,7 @@ export class ProfilingOrchestrator {
           options: offer.options,
           whyText: null,
           answerType: "single_select",
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -664,7 +678,7 @@ export class ProfilingOrchestrator {
           // itself sends `options_only`, and a model turn that asked for one re-opens with the
           // keyboard available — which is what every shipped client does anyway.
           inputMode: envelope.llmGateOpen ? "options_only" : "text",
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -679,7 +693,17 @@ export class ProfilingOrchestrator {
       // session reopened after a re-ask hears the wording it last heard and not the opening
       // phrasing from two turns ago — the regression `servedText` exists to prevent, and one a
       // voice surface makes audible rather than merely visible.
-      const served = items.find((item) => item.question_key === envelope.servedQuestionKey);
+      // SEARCHED IN THE SELECTABLE SET, NOT THE FULL ONE. The note above says a closed interview
+      // has no `servedQuestionKey`, and that is true of every envelope THIS build writes. It is
+      // not true of one the previous build wrote: a session that finished Phase A before this
+      // shipped can be sitting on `machine_type` with the pack now suppressed, and re-serving it
+      // here would ask the one trade question the change exists to stop asking — after which the
+      // engine never offers it again, so the worker answers a question nothing will follow up.
+      // Bounded to one leftover question inside the deploy window, and zero today because the
+      // flag is default OFF, which is exactly why it is cheaper to close than to remember.
+      const served = progressItems.find(
+        (item) => item.question_key === envelope.servedQuestionKey,
+      );
       if (served) {
         const text = servedText(
           served,
@@ -693,7 +717,7 @@ export class ProfilingOrchestrator {
           questionKey: served.question_key,
           options: served.options,
           ...shapeOf(items, served.question_key),
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -706,7 +730,7 @@ export class ProfilingOrchestrator {
 
       // `buffer.turnCount` UNCHANGED, deliberately: `toEngineState`'s turn argument is what the
       // hard turn cap is judged against, and opening the screen is not a turn the worker spent.
-      const decision = nextQuestion(toEngineState(envelope, buffer.turnCount), packs.engine);
+      const decision = nextQuestion(toEngineState(envelope, buffer.turnCount), engine);
       const reply = decision.kind === "close" ? CLOSING_REPLY : decision.promptText;
       if (reply.trim().length === 0) {
         this.logger.error(
@@ -786,7 +810,7 @@ export class ProfilingOrchestrator {
           lookahead: computeLookahead({
             decision,
             state: toEngineState(next, buffer.turnCount),
-            packs: packs.engine,
+            packs: engine,
             items,
             nextTurn: buffer.turnCount + 1,
           }),
@@ -831,6 +855,24 @@ export class ProfilingOrchestrator {
     // `let`, because a MID-TURN RE-PIN replaces the pack this was built from. See the reassignment
     // below the identify step.
     let items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+    // ONE DENOMINATOR FOR THE WHOLE SESSION. `items` stays the FULL pinned universe, because
+    // settlement, `shapeOf` and `essentialsOf` all have to keep seeing the trade pack's rows —
+    // every `skills` question in the corpus lives in an occupation pack, and narrowing that list
+    // would take Phase A's skills out of `answer_map`. Progress is a different question and gets
+    // its own list: what the worker will actually BE ASKED.
+    //
+    // WITHOUT THIS SPLIT THE BAR MOVES BACKWARDS. `decision.progress` is computed over the
+    // narrowed packs, while every non-decision branch — silence, hardship, de-escalation, clarify
+    // — counted the full union, so a post-Phase-A machinist saw 1/8 on an ask turn and 1/12 the
+    // moment they went quiet or asked a question back, then 2/8 again. `progress.fraction` is a
+    // wire field both surfaces render, and this file calls it the single biggest lever on
+    // completion rate for low-literacy users; a bar that retreats when a worker hesitates is not
+    // a cost the pack skip was signed off with.
+    const selectable = selectableEnginePacks(envelope, packs.engine);
+    let progressItems = [
+      ...(selectable.occupation?.items ?? []),
+      ...selectable.universal.items,
+    ];
     const askedItem =
       items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null;
 
@@ -861,7 +903,7 @@ export class ProfilingOrchestrator {
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           ...shapeOf(items, envelope.servedQuestionKey),
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -904,7 +946,7 @@ export class ProfilingOrchestrator {
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           ...shapeOf(items, envelope.servedQuestionKey),
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -945,7 +987,7 @@ export class ProfilingOrchestrator {
           questionKey: envelope.servedQuestionKey,
           options: askedItem?.options ?? [],
           ...shapeOf(items, envelope.servedQuestionKey),
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -1054,7 +1096,7 @@ export class ProfilingOrchestrator {
         answerType: "single_select",
         // A disambiguation turn spends no ask, so it can never cross a checkpoint boundary.
         checkpointDue: false,
-        progress: progressOf(items, answers),
+        progress: progressOf(progressItems, answers),
         unansweredEssentials: essentialsOf(items, answers),
         complete: false,
         completionReason: null,
@@ -1080,6 +1122,12 @@ export class ProfilingOrchestrator {
         // `essentialsOf` read the same stale list, and reported the universal pack's mandatory
         // questions as the outstanding ones on exactly the turn the real pack arrived.
         items = [...(repinned.engine.occupation?.items ?? []), ...repinned.engine.universal.items];
+        // The re-pin changes which questions exist, so the denominator moves with it.
+        const repinnedSelectable = selectableEnginePacks(next, repinned.engine);
+        progressItems = [
+          ...(repinnedSelectable.occupation?.items ?? []),
+          ...repinnedSelectable.universal.items,
+        ];
       }
     }
 
@@ -1128,7 +1176,7 @@ export class ProfilingOrchestrator {
             answerType: options.length > 0 ? "single_select" : "text",
             whyText: null,
             inputMode: led.inputMode,
-            progress: progressOf(items, answers),
+            progress: progressOf(progressItems, answers),
             unansweredEssentials: essentialsOf(items, answers),
             complete: false,
             completionReason: null,
@@ -1157,6 +1205,14 @@ export class ProfilingOrchestrator {
     }
 
     // --- The decision -------------------------------------------------------
+    //
+    // REASSIGNED RATHER THAN PASSED, and that is the point: `engine` is read twice below — once by
+    // `nextQuestion` and once by `computeLookahead` — and narrowing only the first would have the
+    // client pre-render, and on the voice form SPEAK, a trade-pack question the engine will never
+    // actually serve. One assignment keeps the decision and its prediction in agreement by
+    // construction. AFTER the re-pin above, so the pack is still resolved and still pinned; see
+    // {@link selectableEnginePacks} for why an interview Phase A led stops selecting from it.
+    engine = selectableEnginePacks(next, engine);
     const decision = nextQuestion(toEngineState(next, turn), engine);
 
     // ADVANCING PAST A QUESTION IS WHAT RECORDS `unanswered`. Judged by comparing what the engine
@@ -1331,6 +1387,12 @@ export class ProfilingOrchestrator {
     const items = packs
       ? [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items]
       : [];
+    // Same split as `decide` — the review screen counts what the worker will be asked, while
+    // `items` stays whole for the rows it renders.
+    const viewSelectable = packs ? selectableEnginePacks(envelope, packs.engine) : null;
+    const progressItems = viewSelectable
+      ? [...(viewSelectable.occupation?.items ?? []), ...viewSelectable.universal.items]
+      : [];
     const answers = answersOf(envelope);
 
     // THE DISAMBIGUATION OFFER OUTRANKS THE PACK QUESTION — see {@link outstandingOffer}, which
@@ -1347,7 +1409,7 @@ export class ProfilingOrchestrator {
           answerType: "single_select",
           options: offer.options,
           whyText: null,
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
         },
       };
     }
@@ -1367,7 +1429,7 @@ export class ProfilingOrchestrator {
           answerType: asked.answerType,
           options: asked.options,
           whyText: null,
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
         },
       };
     }
@@ -1387,7 +1449,7 @@ export class ProfilingOrchestrator {
             answerType: item.answer_type,
             options: item.options,
             whyText: item.why_text ?? null,
-            progress: progressOf(items, answers),
+            progress: progressOf(progressItems, answers),
           }
         : null,
     };
@@ -2195,6 +2257,102 @@ function outstandingLlmAsk(
   const last = envelope.lastTurn;
   if (!last || last.reply.trim().length === 0) return null;
   return { prompt: last.reply, options: last.options, answerType: last.answerType };
+}
+
+/**
+ * The packs the engine may still SELECT a question from, once Phase A has had its turn.
+ *
+ * THE SYMPTOM THIS EXISTS TO REMOVE. A worker finished the LLM-led interview — the model asked
+ * about their trade, their jobs and their skills, the experience gate opened, they answered
+ * "Nahi" — and the very next thing on screen was `machine_type`, then `programming`, then
+ * `drawing_reading`, then `measuring_tools`: the whole of `qp_machining`, asked one authored row
+ * at a time about a conversation that had just covered it. That is not a bug in either engine.
+ * Phase A closing FALLS THROUGH to `nextQuestion` on the same turn, and `nextQuestion` serves the
+ * occupation pack strictly before the universal tail — so "the model led this interview" and "the
+ * worker is re-interrogated by their trade pack" were, by construction, the same turn. The ruling
+ * is that an LLM-led interview goes from the model's close straight to the universal tail and then
+ * closes: keep the LLM interview only, for now.
+ *
+ * THIS FUNCTION IS THE WHOLE SEAM, deliberately — "for now" ends with a revert of it and its two
+ * call sites, not with an archaeology of scattered conditions. It suppresses SELECTION and nothing
+ * else, and each of the three things it leaves alone is load-bearing:
+ *
+ *  - THE PIN. `resolvePacks` derives `packId`/`packVersion` from the occupation pack it resolved,
+ *    and the obvious place to null the pack — next to the "universal pack resolved as the
+ *    occupation pack" line inside it — is two lines above that derivation. A session with no pin
+ *    writes ZERO `worker_pack_answer` rows (`toPackAnswerRows` returns early without one), the
+ *    universal tail's included, never emits `profile.pack_pinned`, and gives `viewSettled` nothing
+ *    to correct against. The pack stays pinned; only the questions stop being asked.
+ *  - `items`, the flat union both `decide` and `openTurn` build. It is what `settleFromLlmDraft`
+ *    writes the model's skills onto — every `skills` item in the shipped corpus lives in an
+ *    occupation pack, so narrowing it would silently drop Phase A's skills out of `answer_map`
+ *    and out of the matching inputs behind it. It is also what `shapeOf` resolves an in-flight
+ *    question against and what the review screen names its stored answers from.
+ *  - `clarify`, which looks the on-screen question up rather than choosing one. A worker asking
+ *    "kyun?" about a question they are looking at still gets an answer.
+ *
+ * KEYED ON `llmStage === "done"` — PERSISTED PER-SESSION STATE, NOT THE ENV FLAG.
+ * `CHAT_LLM_INTERVIEW_ENABLED` is parsed once at boot while the envelope lives in Redis behind a
+ * 24 h idle TTL, so a restart routinely puts a session that DID run Phase A in front of a process
+ * where the flag reads off — and keying on the flag would re-interrogate exactly the worker this
+ * exists to protect. `llmAsks > 0` fails on the reported session itself: the turn that opens the
+ * experience gate deliberately does not increment it, so an interview of one `experience_entry`,
+ * the gate, and "Nahi" ends Phase A with `llmAsks === 0`. `phase` cannot carry it either, because
+ * `nextQuestion` rewrites `phase` on every decision — the same reason `LlmTurnService.leads` reads
+ * the stage. The stage is the model's REPORT and the API's record; the rule applied to it here is
+ * ours, which is the §3 line: the model says when its own turn-taking ended, deterministic code
+ * decides what that means for the questions a worker is asked.
+ *
+ * A SESSION THE MODEL ABANDONED IS COVERED BY THE SAME SINGLE TEST, by construction rather than by
+ * luck. `take()` runs only while `leads()` is true, which already requires `llmStage !== "done"`,
+ * and the fallback branch writes only `llmFallback`/`llmGateOpen` — so a fallen-back interview can
+ * never reach `"done"` and still gets its occupation pack. That is the right answer for it:
+ * `settleFromLlmDraft` never ran, so its trade, experience and skills exist nowhere but the
+ * transcript, and skipping the pack would leave the worker with neither.
+ *
+ * WHAT IT COSTS, stated here rather than discovered later. For an LLM-led session the engine's own
+ * `progress` is now computed over the universal tail alone, while the orchestrator's
+ * `progressOf(items, …)` — what a clarify, silent or hardship turn reports — still counts the
+ * pinned pack's rows, so the two disagree by exactly the questions that are no longer asked, and a
+ * mandatory occupation question (only `qp_welding/welding_process` in the corpus) stays in
+ * `unansweredEssentials`. Narrowing `items` to match would close both at the price of the model's
+ * skills never reaching `answer_map` at all, and a matching signal is worth more than a
+ * denominator.
+ */
+function selectableEnginePacks(envelope: ProfilingEnvelope, resolved: EnginePacks): EnginePacks {
+  // THE BRANCH THAT PRESERVES EVERY DETERMINISTIC INTERVIEW — an identity return, so the engine is
+  // handed the very object it is handed today. `emptyProfilingEnvelope` seeds `llmStage: "domain"`
+  // and `LlmTurnService.take` is the only writer that ever moves it, so with
+  // `CHAT_LLM_INTERVIEW_ENABLED` at its default OFF `leads()` is false for every session, `take()`
+  // is never called, and nothing on the majority path can reach `"done"`.
+  if (envelope.llmStage !== "done") return resolved;
+
+  // ...AND A DETERMINISTIC FLOOR UNDER IT, BECAUSE THE MODEL MUST NOT OWN THIS (§3).
+  //
+  // Three writers move `llmStage` to `done`, and two of them are decisions this service makes:
+  // the worker tapping Nahi on the experience gate (`llm-turn.service.ts:131`, which is the
+  // reported case), and the ask/entry caps (`:149`). The third is `out.phase_a_done` (`:217`) —
+  // the MODEL's boolean. Its own comment calls it advice, and that was accurate while advice
+  // merely handed the turn to an engine that still asked everything. Once reaching `done`
+  // DELETES the worker's whole trade pack, honouring that boolean unconditionally would let the
+  // LLM decide which authored business questions a worker is asked — precisely what §3 forbids,
+  // and it would do so silently, on the one signal here that nothing deterministic backs.
+  //
+  // THE FLOOR IS RECORDED EVIDENCE, NOT A SECOND OPINION ABOUT THE MODEL. An interview that
+  // captured at least one experience entry demonstrably did the job the pack would otherwise
+  // repeat: it asked the worker about their work and structured the answer. An interview that
+  // captured NONE has learned nothing the pack would duplicate, so there is nothing to suppress
+  // and the trade questions are the only thing that will describe this worker at all. Concretely
+  // the case this refuses: a welder's first message is answered with `phase_a_done` and an empty
+  // draft, and without this line qp_welding — including `welding_process`, the only mandatory
+  // occupation item in the corpus — is deleted on the model's say-so and the worker finishes on
+  // the eight universal-tail questions alone.
+  //
+  // It costs the intended case nothing: the reported machinist reached the gate WITH an entry
+  // recorded (HCL, six months, CNC), which is what opened the gate in the first place.
+  if (envelope.llmDraft.experiences.length === 0) return resolved;
+
+  return { occupation: null, universal: resolved.universal };
 }
 
 function unavailable(): TurnResult {
