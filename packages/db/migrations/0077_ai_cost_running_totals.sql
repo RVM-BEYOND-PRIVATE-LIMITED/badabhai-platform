@@ -7,12 +7,27 @@
 -- FULLY ADDITIVE. Three NEW tables, empty on arrival. Nothing is dropped, nothing is
 -- renamed, no shipped column changes meaning, and no existing read or write touches
 -- them. An app deployed against an UNMIGRATED database keeps working in every respect
--- except that `AiCostRecorder.record()` cannot write a total — and that path already
--- swallows its own failures by design (cost observability must never fail the work it
--- observes), so the failure mode is a logged warning, not a broken request.
+-- except that `AiCostRecorder.record()` cannot write a total.
 --
--- ORDER: this is NOT apply-before-deploy. Apply it whenever; the sooner it applies, the
--- less spend goes uncounted. Deploying the app first only costs accuracy, never uptime.
+-- ORDER: this is NOT apply-before-deploy — BECAUSE OF THE SAVEPOINT, not because the
+-- write is optional. `AiCostRecorder.record()` runs the accrual inside a SAVEPOINT on the
+-- event's transaction and catches its failure, so against an unmigrated database the
+-- upsert's `relation "platform_ai_cost_totals" does not exist` rolls back to the
+-- savepoint and the `ai.cost_recorded` row still COMMITS. Without it the error would
+-- abort the enclosing transaction, Postgres would execute the eventual COMMIT as a
+-- ROLLBACK, and EVERY cost event on every surface would vanish silently for as long as
+-- the app ran ahead of this file. If that savepoint is ever removed, this migration
+-- becomes apply-before-deploy. Apply it whenever; the sooner it applies, the less spend
+-- goes uncounted. Deploying the app first costs accuracy, not uptime and not the ledger.
+--
+-- TIMING (the DDL itself, as distinct from deploy ORDER). The three ADD CONSTRAINT ...
+-- FOREIGN KEY statements below take SHARE ROW EXCLUSIVE on `workers` (twice) and
+-- `chat_sessions`, which CONFLICTS with the ROW EXCLUSIVE every ordinary write holds.
+-- Validation is instant — the new tables are empty — but the lock request queues behind
+-- any in-flight transaction on those two hot tables, and every writer that arrives while
+-- it waits queues behind IT. `0073` set this precedent, so it is guidance rather than a
+-- blocker: run under `SET lock_timeout = '3s';` and retry on 55P03 (lock_not_available)
+-- instead of letting the worker write path stall behind a long-running reader.
 --
 -- WHY MATERIALIZED AND NOT SUMMED ON READ — see the header of
 -- packages/db/src/schema/ai-cost.ts. Short version: the only expression index on
@@ -35,12 +50,17 @@
 -- at all and is locked anyway, because the posture in this database is table-DEFAULT
 -- rather than opt-in (see the note on the pack tables in tests/e2e/rls-spine.e2e.test.ts).
 --
--- ROLLBACK. Drop the three tables, in any order — nothing references them, and their FKs
--- and indexes go with them. The event spine is unaffected, so a later re-apply plus a
--- backfill reconstructs every figure exactly:
+-- ROLLBACK. Drop the three tables, in any order — no other table has an FK to them, no
+-- view or function selects from them, and their own FKs and indexes go with them. Safe
+-- with the app LIVE: the only code that touches them is `AiCostTotalsRepository`, whose
+-- single caller runs inside the savepoint above, so a drop degrades cost accrual to one
+-- warn per AI call and changes nothing else. The event spine is unaffected, so a later
+-- re-apply plus a backfill reconstructs every figure exactly:
 --   DROP TABLE IF EXISTS "worker_ai_cost_totals";
 --   DROP TABLE IF EXISTS "session_ai_cost_totals";
 --   DROP TABLE IF EXISTS "platform_ai_cost_totals";
+-- All three are also listed in LOCKED_TABLES in tests/e2e/rls-spine.e2e.test.ts, which
+-- asserts RLS+FORCE+no-grants per NAME — remove those entries in the same change.
 --
 -- MIGRATION SLOT. 0077 is the head of the `0077`-`0079` block MIGRATIONS.md reserves for
 -- Prakash. Claimed in this same change (see the table in MIGRATIONS.md), per that file's
@@ -89,7 +109,6 @@ ALTER TABLE "session_ai_cost_totals" ADD CONSTRAINT "session_ai_cost_totals_chat
 ALTER TABLE "session_ai_cost_totals" ADD CONSTRAINT "session_ai_cost_totals_worker_id_workers_id_fk" FOREIGN KEY ("worker_id") REFERENCES "public"."workers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "worker_ai_cost_totals" ADD CONSTRAINT "worker_ai_cost_totals_worker_id_workers_id_fk" FOREIGN KEY ("worker_id") REFERENCES "public"."workers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "session_ai_cost_totals_worker_idx" ON "session_ai_cost_totals" USING btree ("worker_id");--> statement-breakpoint
-CREATE INDEX "worker_ai_cost_totals_cost_idx" ON "worker_ai_cost_totals" USING btree ("total_cost_inr" DESC NULLS LAST);--> statement-breakpoint
 -- HAND-APPENDED (see the RLS note in this file's header). FORCE + REVOKE ALL for all
 -- three tables, so the lock is a real denial on every PostgREST Data-API role rather
 -- than an ENABLE the owner walks straight through.

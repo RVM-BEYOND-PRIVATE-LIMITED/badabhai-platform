@@ -111,9 +111,15 @@ export const workerAiCostTotals = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // "Most expensive workers" — the admin list read. Descending because that is the only
-    // direction the question is ever asked in.
-    index("worker_ai_cost_totals_cost_idx").on(t.totalCostInr.desc()),
+    // NO INDEX ON `total_cost_inr`, DELIBERATELY. It is the one column every accrual changes,
+    // and an index on it makes a HOT update impossible: each of the millions of upserts here
+    // would write a new heap tuple AND a new index tuple, plus the vacuum debt behind them.
+    // The two sibling tables avoid this by construction (their only indexes are the PK and an
+    // FK column, neither of which an accrual touches), and this one should too. The read it
+    // would serve — "most expensive workers, descending" — ships in no query in this phase;
+    // the dashboard PR that needs it can add it back alongside the `SELECT` that justifies it,
+    // when the row count and the sort direction are known rather than guessed.
+    //
     // Spend never decreases: `record()` only ever adds a non-negative `estimated_cost_inr`
     // (the payload's own `z.number().nonnegative()`). A negative total here would mean a
     // subtraction path exists, and none may.

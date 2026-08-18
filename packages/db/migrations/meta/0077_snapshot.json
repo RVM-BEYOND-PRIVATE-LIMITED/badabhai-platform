@@ -1,5 +1,5 @@
 {
-  "id": "0532ff0b-4821-4c39-a332-db51f91e8d47",
+  "id": "abbe63c8-d30d-4a57-84e2-4ee54a31910d",
   "prevId": "8be990d6-8386-4320-b634-937a536836a4",
   "version": "7",
   "dialect": "postgresql",
@@ -10719,23 +10719,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "worker_ai_cost_totals_cost_idx": {
-          "name": "worker_ai_cost_totals_cost_idx",
-          "columns": [
-            {
-              "expression": "total_cost_inr",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "worker_ai_cost_totals_worker_id_workers_id_fk": {
           "name": "worker_ai_cost_totals_worker_id_workers_id_fk",
