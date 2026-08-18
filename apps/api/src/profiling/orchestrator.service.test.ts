@@ -603,6 +603,25 @@ describe("pack resolution", () => {
     expect(registry.resolveForOccupation).not.toHaveBeenCalled();
   });
 
+  it("asks the worker's own trade its questions — an interview the model never led is untouched", async () => {
+    // THE SCOPE BOUNDARY of the Phase A trade-pack skip, asserted from the majority side. The skip
+    // reads `llmStage === "done"`, and `CHAT_LLM_INTERVIEW_ENABLED` is default OFF — so `leads()`
+    // is false, `LlmTurnService.take` (the only writer of the stage) never runs, and every session
+    // in this file keeps the `"domain"` its envelope was created with. Occupation-specific
+    // selection therefore has to be bit-for-bit what it was before the skip existed; a failure
+    // here is a regression on nearly every interview, not a fixture that needs updating.
+    const { orchestrator, store } = makeWorld({
+      packs: { occupation: OCCUPATION_PACK, universal: UNIVERSAL_PACK },
+    });
+    seed(store, { packId: "qp_welding", packVersion: 1 });
+    const result = await orchestrator.takeTurn(say("main pune me rehta hu"));
+
+    expect(result.questionKey).toBe("q_process");
+    const saved = store.get(SESSION)?.profiling;
+    expect(saved?.phase).toBe("occupation_specific");
+    expect(saved?.llmStage).toBe("domain");
+  });
+
   it("does not run the universal block twice when it IS the resolved pack", async () => {
     // The universal pack resolving as the "occupation" pack is not an occupation pack.
     const { orchestrator, store } = makeWorld({

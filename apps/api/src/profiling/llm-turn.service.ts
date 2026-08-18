@@ -223,7 +223,35 @@ export class LlmTurnService {
       reply: out.reply_text,
       chips: out.suggested_answers,
       inputMode: out.input_mode,
-      patch: { ...closeGate, llmDraft: draft, llmStage: out.stage, llmAsks: asks + 1 },
+      // `out.stage` IS THE MODEL'S, AND IT MAY NOT SAY `done` HERE (§3). `done` is a legal member
+      // of `LLM_INTERVIEW_STAGES`, so the model can return it on a turn that is still ASKING a
+      // question — `experience_entry: null`, `phase_a_done: false`, a normal `reply_text` — and
+      // this line used to write it through verbatim. That made `llmStage: "done"` reachable on a
+      // branch which, being an ask, never runs `settleFromLlmDraft`: the draft was then never
+      // settled on this turn, and never on a later one either, because `leads()` is false once
+      // the stage reads `done` and Phase A is skipped entirely from then on.
+      //
+      // Harmless while the engine went on to ask the trade pack anyway. Not harmless now that
+      // `selectableEnginePacks` DELETES that pack for a finished interview: the pair produced a
+      // worker with no trade signal anywhere — nothing in `answer_map`, nothing in
+      // `worker_pack_answer`, nothing in the matching inputs — because the interview was declared
+      // over by a field the model controls, before anything it had gathered was written down.
+      // The §3 floor two calls away cannot catch it: the experience entries are real and were
+      // recorded on earlier turns; it is the SETTLEMENT that never happens.
+      //
+      // THIS RESTORES A CLAIM THE CONTRACT ALREADY MAKES rather than inventing a rule. The
+      // ai-service router says so in as many words (`apps/ai-service/app/routers/profiling.py`):
+      // "the API owns progression regardless: `LlmTurnService` decides `done` from its own caps,
+      // never from this". It decides `done` at exactly three places above — the answered gate,
+      // the caps, and `phase_a_done` under those caps — and an ask turn is none of them. Clamped
+      // to `experience`, the last non-terminal rung, so a model that jumps the ladder advances
+      // the interview instead of silently ending it.
+      patch: {
+        ...closeGate,
+        llmDraft: draft,
+        llmStage: out.stage === "done" ? "experience" : out.stage,
+        llmAsks: asks + 1,
+      },
     };
   }
 }

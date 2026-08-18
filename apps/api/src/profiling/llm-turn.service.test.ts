@@ -116,6 +116,29 @@ describe("the flag and the fallback", () => {
 });
 
 describe("the caps — the API owns termination, never the model", () => {
+  it("refuses the model's own `stage: \"done\"` on a turn that is still asking (§3)", async () => {
+    // THE FOURTH WRITER OF `done`, and the only one with nothing deterministic behind it.
+    // `"done"` is a legal member of LLM_INTERVIEW_STAGES, so the model can return it while also
+    // returning a question to ask — and this service used to write it straight into the envelope.
+    // Because the turn is an ASK, `settleFromLlmDraft` never runs on it; and because `leads()`
+    // then reads `done`, Phase A is skipped from that point on, so it never runs later either.
+    // Everything the interview had gathered stayed in the draft and was never written down.
+    //
+    // That was survivable while the engine still asked the trade pack afterwards. It is not
+    // survivable now `selectableEnginePacks` suppresses that pack for a finished interview: the
+    // two together produce a worker with no trade signal anywhere. The ai-service router already
+    // documents the rule this restores — "the API owns progression regardless: `LlmTurnService`
+    // decides `done` from its own caps, never from this".
+    const { svc } = make({ turn: TURN({ stage: "done" }) });
+
+    const out = await svc.take(env(), "abhi bhi kaam chal raha hai", [], CTX);
+
+    // Still an ask — the model gave a question, so the worker gets it.
+    expect(out?.kind).toBe("ask");
+    // ...but the interview is NOT over, and the stage says so.
+    expect(out?.patch?.llmStage).toBe("experience");
+  });
+
   it("ends Phase A at the ask cap WITHOUT spending a call", async () => {
     // A runaway must cost nothing. The cap is checked before the call, not enforced through it.
     const { svc, ai } = make();
