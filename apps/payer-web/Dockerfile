@@ -52,10 +52,19 @@
 #     wired here anyway because it IS part of the public config schema
 #     (`@badabhai/config/public`) and a future client call site should not silently
 #     inherit a wrong value nobody thought to set.
-# Both `ARG`s default to UNSET (not empty-string — see the "declared-empty is not
-# unset" trap this repo has hit before with server env vars): when no build-arg is
-# supplied, the build behaves EXACTLY as it does outside Docker today (the
-# `@badabhai/config` schema's own defaults apply), never a hard build failure.
+# Both `ARG`s must reach `next build` genuinely UNSET when no real value exists —
+# NOT as an empty string. This is the "declared-empty is not unset" trap, and it
+# took down a deploy: `@badabhai/config`'s zod schema rejects "" with
+# `NEXT_PUBLIC_API_URL: Invalid url` and fails the whole build, where unset would
+# have used the schema default.
+#
+# The subtlety that bit us: an `ARG` is NOT inert. Docker injects every declared
+# ARG into each RUN's environment automatically, so `--build-arg NEXT_PUBLIC_API_URL=`
+# (which is exactly what a GitHub Actions `build-args:` line resolves to when the
+# referenced secret does not exist) makes the variable PRESENT-AND-EMPTY inside the
+# build. A guard that only decides whether to `export` cannot help: Docker already
+# exported it. The RUN below therefore `unset`s each empty one — that, not the ARG
+# declaration, is what actually produces "unset".
 # Set them by exporting `PAYER_WEB_NEXT_PUBLIC_API_URL` / `PAYER_WEB_NEXT_PUBLIC_SITE_URL`
 # as repository secrets — non-sensitive config values (an IP:port / origin string),
 # stored as GitHub *secrets* only for consistency with every other value this repo's
@@ -78,17 +87,22 @@ WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile
 
-# See the file header: UNSET by default (never an empty string) so a build with no
-# build-args behaves identically to a build outside Docker.
+# Declaring these does NOT keep them unset — Docker injects a declared ARG into every
+# RUN's environment, and a `--build-arg NAME=` from an absent CI secret injects it as
+# the EMPTY STRING. See the file header; the `unset` in the RUN below is the real guard.
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_SITE_URL
 # Build @badabhai/payer-web AND its workspace deps (the `...` selector; pnpm runs
 # them in topological order — @badabhai/config, @badabhai/pricing,
 # @badabhai/validators, and validators' own @badabhai/types dependency, each via
 # their own `tsc` build script, before `next build` runs).
+# `unset` (not a conditional `export`): turn a present-but-empty ARG back into a
+# genuinely absent variable, so `@badabhai/config`'s schema applies its own default
+# instead of validating "" and failing the build. A non-empty value is left exactly
+# as Docker injected it, and is baked into the client bundle by `next build`.
 RUN set -e; \
-    if [ -n "$NEXT_PUBLIC_API_URL" ]; then export NEXT_PUBLIC_API_URL; fi; \
-    if [ -n "$NEXT_PUBLIC_SITE_URL" ]; then export NEXT_PUBLIC_SITE_URL; fi; \
+    [ -n "$NEXT_PUBLIC_API_URL" ] || unset NEXT_PUBLIC_API_URL; \
+    [ -n "$NEXT_PUBLIC_SITE_URL" ] || unset NEXT_PUBLIC_SITE_URL; \
     pnpm --filter @badabhai/payer-web... build
 
 # ---- runtime: minimal Node + the standalone server output ----

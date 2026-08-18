@@ -510,6 +510,17 @@ jobs:
           file: apps/payer-web/Dockerfile
           push: false
           load: false
+          # MUST mirror build-and-push-image's payer-web step's `build-args:` exactly,
+          # including when the referenced secrets do not exist. This gate previously
+          # passed NO build-args while the push job passed two, so the two jobs built
+          # DIFFERENT things: the PR went green and the push job then failed on `main`
+          # with `NEXT_PUBLIC_API_URL: Invalid url`, because an absent secret resolves
+          # to the EMPTY STRING and Docker injects a declared ARG into the build env
+          # (see apps/payer-web/Dockerfile's header). A gate that does not run the real
+          # build is not a gate. If you change the build-args there, change them here.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.PAYER_WEB_NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_SITE_URL=${{ secrets.PAYER_WEB_NEXT_PUBLIC_SITE_URL }}
           cache-from: type=gha,scope=payer-web
           cache-to: type=gha,mode=max,scope=payer-web
 
