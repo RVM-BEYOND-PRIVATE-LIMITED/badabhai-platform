@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCapability } from "../../../../lib/auth";
+import { can } from "../../../../lib/auth/capabilities";
 import { getWorker, listApplications } from "../../../../lib/entities";
 import { isAdminRequestError } from "../../../../lib/admin-http";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
 import { DetailList } from "../../../../components/detail-list";
+import { WorkerDetailHeader } from "./worker-detail-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Worker" };
@@ -22,7 +24,7 @@ export default async function WorkerDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireCapability("read_entities");
+  const session = await requireCapability("read_entities");
   const { id } = await params;
 
   let worker: Awaited<ReturnType<typeof getWorker>>;
@@ -39,28 +41,30 @@ export default async function WorkerDetailPage({
   // Their decisions. Non-fatal: a failure here must not blank the whole worker page.
   const apps = await listApplications({ workerId: id, limit: 10 }).catch(() => null);
 
+  const timelineHref = `/workers/${worker.id}/timeline`;
+  const title = (
+    <div>
+      <p className="page__eyebrow">
+        <Link className="link" href="/workers">
+          Workers
+        </Link>
+      </p>
+      <h1 className="page__title mono">{shortId(worker.id)}</h1>
+      <p className="page__sub">
+        One worker account as this portal sees it — what they did, never who they are.
+        Registered {formatRelative(worker.created_at)} · {formatTimestamp(worker.created_at)}.
+      </p>
+    </div>
+  );
+
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href="/workers">
-              Workers
-            </Link>
-          </p>
-          <h1 className="page__title mono">{shortId(worker.id)}</h1>
-          <p className="page__sub">
-            One worker account as this portal sees it — what they did, never who they are.
-            Registered {formatRelative(worker.created_at)} ·{" "}
-            {formatTimestamp(worker.created_at)}.
-          </p>
-        </div>
-        <div className="page__actions">
-          <Link className="btn btn--ghost" href={`/workers/${worker.id}/timeline`}>
-            View event timeline
-          </Link>
-        </div>
-      </header>
+      <WorkerDetailHeader
+        title={title}
+        workerId={worker.id}
+        canFlag={can(session.capabilities, "flag_worker")}
+        timelineHref={timelineHref}
+      />
 
       {worker.deletion_scheduled_at && (
         <section className="notice notice--bad" role="status">
