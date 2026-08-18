@@ -84,6 +84,13 @@ import { config } from "dotenv";
 import { sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
+import {
+  CORPUS_FINGERPRINT_SQL,
+  PRODUCTION_RETRIEVAL_SEMANTICS,
+  toFingerprint,
+  type CorpusFingerprint,
+  type RetrievalSemantics,
+} from "./corpus-fingerprint";
 import { parseEmbedResponse } from "./embed-response";
 import {
   fixtureDistribution,
@@ -327,6 +334,27 @@ export interface EvalRunRecord {
   /** The dataset FILE, not just its declared id — the two can disagree after a copy. */
   fixture_path: string;
   corpus_batch: string;
+  /**
+   * WHAT CORPUS THIS RUN ACTUALLY MEASURED — schema v3.
+   *
+   * `corpus_batch` names the batch a FIXTURE was authored against; it says nothing about the
+   * live tables at run time. This is the missing half, and it is what `promote-skills.ts`
+   * compares to decide whether a record is still current.
+   *
+   * Before this field, freshness was `recorded_at > max(embedded_at)`, which is blind to
+   * text_norm, is_searchable, alias add/remove, skill status, domain edges and domain
+   * aliases. Election moves none of those timestamps, so a pre-election record would have
+   * looked current for the change it could not have seen.
+   *
+   * Null when the run could not read it (never fabricated). A null here cannot clear a
+   * freshness gate, which is the correct failure direction.
+   */
+  corpus_fingerprint: CorpusFingerprint | null;
+  /**
+   * WHICH PREDICATES PRODUCTION APPLIED at run time, so a number measured before the
+   * retrieval predicate landed is never silently compared with one measured after.
+   */
+  retrieval_semantics: RetrievalSemantics;
   embedding_model: string | null;
   embedding_provenance: ProvenanceReport;
   langfuse: LangfuseStatus;
@@ -732,6 +760,17 @@ async function main(): Promise<void> {
       throw e;
     }
 
+    // Read AFTER the queries, so the fingerprint describes the corpus the run actually saw
+    // rather than one it might have raced. A failure here is recorded as null and never
+    // fabricated — a null fingerprint cannot clear a freshness gate, which is correct.
+    let corpusFingerprint: CorpusFingerprint | null = null;
+    try {
+      const fpRows = (await db.execute(CORPUS_FINGERPRINT_SQL)) as unknown as Record<string, unknown>[];
+      corpusFingerprint = fpRows[0] ? toFingerprint(fpRows[0]) : null;
+    } catch (e) {
+      console.log(`[${SCRIPT}] WARN could not read the corpus fingerprint: ${String(e)}`);
+    }
+
     const executed = scoredCases.length;
     const record0ExactShare =
       scored.length === 0 ? 0 : scored.filter(isExactAliasQuery).length / scored.length;
@@ -746,6 +785,8 @@ async function main(): Promise<void> {
       fixture_version: fixture.manifest.version,
       fixture_path: fixturePath,
       corpus_batch: fixture.manifest.corpus_batch,
+      corpus_fingerprint: corpusFingerprint,
+      retrieval_semantics: PRODUCTION_RETRIEVAL_SEMANTICS,
       embedding_model: model,
       embedding_provenance: provenance,
       langfuse: langfuseStatus(),
