@@ -1163,11 +1163,31 @@ jobs:
     permissions:
       contents: read
       packages: read
-    # CD-1 / Gate D1: scopes environment secrets + makes the deploy target explicit
-    # in the Actions UI. Named "staging" per the current D1 default — if the owner
-    # rules this box is PRODUCTION, rename AND add a required reviewer to the
-    # environment (protection rules; repo is now PUBLIC so they are available on Free).
-    environment: staging
+    # CD-1 / Gate D1 — RESOLVED 2026-08-18 (owner: Prakash). This box IS production, so
+    # the job now binds the `production` environment. The previous revision of this
+    # comment named the exact condition ("if the owner rules this box is PRODUCTION,
+    # rename AND add a required reviewer"); both halves are done — `production` carries
+    # a required_reviewers rule (kpdagrt22, divyuuu), so every run of this job, INCLUDING
+    # A ROLLBACK, now waits on a human approval. Budget for that during an incident.
+    #
+    # THE COMPOSE FILENAME STILL SAYS "staging" AND THAT IS DELIBERATELY NOT CHANGED HERE.
+    # `docker-compose.staging.yml` is the real production overlay for this box and has been
+    # for months; renaming it is a separate, purely cosmetic change, and bundling it with a
+    # secret-scope switch would make the diff that moved 26 credentials unreviewable.
+    #
+    # WHAT THIS LINE ACTUALLY CHANGES: `${{ secrets.X }}` below resolves environment scope
+    # FIRST and repo scope only as a fallback, so flipping this word re-points every one of
+    # the 26 bridged names. Ten of them now resolve from a different scope than they did
+    # yesterday — see the audit in the PR body. Two consequences worth stating inline:
+    #   * DATABASE_URL exists in BOTH scopes, so this line swaps which database the box is
+    #     told to serve. It is the single highest-risk name in the list.
+    #   * AI_ENABLE_REAL_CALLS is now `true` in the production environment, on purpose
+    #     (owner, 2026-08-18). Combined with the GEMINI_FLASH_API_KEY that production scope
+    #     also holds, this arms REAL provider calls for `profiling_chat_turn` — the one task
+    #     docker-compose.staging.yml's `AI_REAL_CALL_TASKS` default allowlists. The two
+    #     taxonomy gates stay `false` in that same scope; Phase-9 activation is unrelated
+    #     to this change and is not authorized.
+    environment: production
     steps:
       - name: Deploy via SSH
         # SHA-pinned (was the mutable v1.0.3 tag): 12 production secrets now flow
