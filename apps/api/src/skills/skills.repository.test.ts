@@ -523,3 +523,77 @@ describe("SkillsRepository.isSelectableDomain — the last hallucination wall", 
     expect(await new SkillsRepository(db as never).isSelectableDomain("invented")).toBe(false);
   });
 });
+
+describe("SkillsRepository.recordUnresolved — the widened upsert (S3-C / migration 0078)", () => {
+  const RECORD_ROW = [{ id: "33333333-3333-4333-8333-333333333333", count: 4 }];
+
+  /**
+   * THE ASSERTION THAT MATTERS MOST IN THIS FILE, because getting it wrong is silent.
+   *
+   * `ON CONFLICT (...)` must name the unique index's EXACT column set. 0078 widened
+   * `unresolved_phrase_scope_uq` to five columns; an upsert still targeting the old four
+   * does not "fall back" to some other index — Postgres raises 42P10 (no matching unique
+   * constraint), and it does so only at runtime, on the first miss, in production.
+   *
+   * The inverse mistake is worse and quieter: keeping the four-column TARGET while the
+   * index is five columns would be a hard error, but keeping a four-column INDEX while
+   * writing five columns of data means two canonical misses in different domains merge
+   * into one row with a summed count. No error, wrong data, and the wrong direction —
+   * Path A looks like it has fewer distinct gaps than it does.
+   */
+  it("targets all five columns of the widened unique index", async () => {
+    const { db, captured } = makeCapturingDb(RECORD_ROW);
+    const repo = new SkillsRepository(db as never);
+    await repo.recordUnresolved("[EMPLOYER_1] x", "cnc-machining", "en");
+    const text = sqlText(captured.sql);
+    expect(text).toContain("on conflict (scope, phrase, domain_id, job_domain_id, lang)");
+    expect(text).toContain(
+      "insert into unresolved_phrase (scope, phrase, domain_id, job_domain_id, lang)",
+    );
+    // The count increment + last_seen bump are what make this an upsert rather than an
+    // insert-or-fail; they are the growth signal the whole queue exists to accumulate.
+    expect(text).toContain("count = unresolved_phrase.count + 1");
+    expect(text).toContain("last_seen = now()");
+  });
+
+  it("binds a legacy call with job_domain_id NULL — behaviour identical to pre-0078", async () => {
+    const { db, captured } = makeCapturingDb(RECORD_ROW);
+    const repo = new SkillsRepository(db as never);
+    const out = await repo.recordUnresolved("[EMPLOYER_1] x", "cnc-machining", "en");
+    expect(out).toEqual({ id: "33333333-3333-4333-8333-333333333333", count: 4 });
+    const params = render(captured.sql).params;
+    expect(params).toContain("cnc-machining");
+    expect(params).toContain(null);
+  });
+
+  it("binds a canonical call with domain_id NULL and the jd_* id present", async () => {
+    const { db, captured } = makeCapturingDb(RECORD_ROW);
+    const repo = new SkillsRepository(db as never);
+    await repo.recordUnresolved("[EMPLOYER_1] x", null, "hi", "skill", "jd_nco_7223_0100");
+    expect(render(captured.sql).params).toContain("jd_nco_7223_0100");
+  });
+
+  it("keeps the occupation scope writing BOTH domains null (legal since 0070)", async () => {
+    const { db, captured } = makeCapturingDb(RECORD_ROW);
+    const repo = new SkillsRepository(db as never);
+    await repo.recordUnresolved("fitter", null, "en", "occupation");
+    const params = render(captured.sql).params;
+    expect(params).toContain("occupation");
+    // Two nulls: domain_id and job_domain_id. NULLS NOT DISTINCT still dedupes them.
+    expect(params.filter((p) => p === null)).toHaveLength(2);
+  });
+
+  /**
+   * The repository is the last layer that can see both arguments, so it is where a
+   * both-set call gets a message naming the mistake. Without it the failure is a 23514
+   * check violation surfacing as an opaque 500 several frames from the caller.
+   */
+  it("refuses a both-scopes call BEFORE touching the database", async () => {
+    const { db } = makeCapturingDb(RECORD_ROW);
+    const repo = new SkillsRepository(db as never);
+    await expect(
+      repo.recordUnresolved("x", "cnc-machining", "en", "skill", "jd_nco_7223_0100"),
+    ).rejects.toThrow(/mutually exclusive/);
+    expect(db.execute).not.toHaveBeenCalled();
+  });
+});

@@ -2377,6 +2377,52 @@ export const SkillPhraseUnresolvedPayload = z
   .strict();
 export type SkillPhraseUnresolvedPayload = z.infer<typeof SkillPhraseUnresolvedPayload>;
 
+/**
+ * `skill.phrase_unresolved` VERSION 2 (S3-C / D-6) — the canonical-scope counterpart.
+ *
+ * WHY A SECOND PAYLOAD RATHER THAN A FIELD ON v1, which is the obvious cheaper move and is
+ * what the original D-6 note proposed ("an ADDITIVE optional field — additive is not a
+ * mutation"). That reasoning does not survive contact with v1's actual shape: `domain_id`
+ * is `z.string().min(1)`, REQUIRED. A canonical-scoped miss has no legacy slug to put
+ * there, so making the path work through v1 needs `domain_id` RELAXED to nullable — and
+ * relaxing a required field is exactly the mutation CLAUDE.md §3 forbids, because every
+ * shipped consumer that reads `payload.domain_id` without a null check breaks on the first
+ * such event. Adding an optional field alongside a still-required `domain_id` would not
+ * unblock anything.
+ *
+ * The repo has already answered this twice, the same way both times:
+ *   - `feed.shown_v2` — "a SECOND registry entry, not a mutation of `feed.shown`", because
+ *     `validateEvent` allows exactly one version per NAME and a bump in place invalidates
+ *     every shipped emitter the moment it deploys;
+ *   - `OccupationPhraseUnresolvedPayload` — a separate payload precisely because "the skill
+ *     payload's `min(1)` on that field" did not fit.
+ * v1 stays below, byte-for-byte, and keeps emitting for legacy-scoped misses (invariant #8:
+ * the registry is history, not current state).
+ *
+ * EXACTLY ONE SCOPE IS CARRIED, mirroring the table's `unresolved_phrase_one_domain_chk`.
+ * The refine makes the illegal both-set / neither-set event unconstructible rather than
+ * merely discouraged — an event that cannot say which vocabulary failed is not worth
+ * emitting, and the growth loop would have to guess.
+ *
+ * PII-FREE BY CONSTRUCTION, unchanged from v1: sha256 hex of the already-pseudonymized
+ * phrase, never the text. `.strict()` blocks smuggling it back in.
+ */
+export const SkillPhraseUnresolvedV2Payload = z
+  .object({
+    phrase_hash: z.string().regex(/^[0-9a-f]{64}$/),
+    /** Legacy skill-domain slug (Path B). Null when the miss was canonical-scoped. */
+    domain_id: z.string().min(1).max(64).nullable().default(null),
+    /** Canonical `jd_*` domain (Path A). Null when the miss was legacy-scoped. */
+    job_domain_id: z.string().min(1).max(64).nullable().default(null),
+    lang: z.string().min(2).max(8),
+    count: z.number().int().positive(),
+  })
+  .strict()
+  .refine((v) => (v.domain_id === null) !== (v.job_domain_id === null), {
+    message: "exactly one of domain_id (legacy slug) or job_domain_id (canonical jd_*)",
+  });
+export type SkillPhraseUnresolvedV2Payload = z.infer<typeof SkillPhraseUnresolvedV2Payload>;
+
 // ---------------------------------------------------------------------------
 // referral.* — the WORKER-referral activation bonus (blocker B4 / §X.6).
 //

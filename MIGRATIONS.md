@@ -26,7 +26,7 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0077_ai_cost_running_totals`** (journal has 78 entries, `idx` 0–77).
+**`0078_unresolved_phrase_job_domain_id`** (journal has 79 entries, `idx` 0–78).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
@@ -40,8 +40,44 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0075`        | Divyanshu | **MERGED** — `job_postings` state for `GET /jobs/search` (#822, #856) |
 | `0076`        | Prakash   | **ON `main`** — canonical Domain→Skill taxonomy, Phase 1 (`fca0ef9c`; see notes below) |
 | `0077`        | Prakash   | **CLAIMED** — AI cost attribution: three running-total tables (admin Phase 4) |
-| `0078`–`0079` | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
+| `0078`        | Prakash   | **CLAIMED** — S3-C / D-6: `unresolved_phrase.job_domain_id` (see notes below) |
+| `0079`        | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
 | `0080`+       | unclaimed | claim in a PR of its own, so the claim is reviewable          |
+
+### `0078` — additive, no ordering constraint, no backfill — 2026-08-18
+
+**It takes the second slot of the OIE block**, exactly as `0077` took the head, and for the same
+reason: the block was reserved before either workstream existed, and leaving a hole to preserve a
+stale reservation costs more than re-recording it. `0079` remains OIE's.
+
+**NOT apply-before-deploy, and here that is unconditional rather than conditional.** Unlike `0077`
+— whose safety rests on a SAVEPOINT catching a missing table — nothing in the shipped application
+reads or writes `unresolved_phrase.job_domain_id` unless a caller sends `job_domain_id` to
+`POST /skills/unresolved`, and nothing does: the canonical read switch is a REQUEST SHAPE that no
+production caller populates today (`job_postings.job_domain_id` is unwritten). Deploying the code
+ahead of the migration changes no behaviour on any live path. Applying the migration ahead of the
+code is equally safe — the column is nullable with no default.
+
+**What it does, and the one part that is easy to get wrong:**
+
+| statement | note |
+|---|---|
+| `ADD COLUMN job_domain_id text` + FK to `job_domain` | nullable, defaultless → catalogue-only on PG11+, no rewrite |
+| `DROP` + re-`CREATE` `unresolved_phrase_scope_uq` with `job_domain_id` | **the load-bearing statement.** Without it two canonical misses of one phrase in different domains both carry `domain_id IS NULL`, collide on the old 4-column key, and merge into a single row with a summed `count`. No error; the data is simply wrong, and wrong in the direction that makes Path A look healthier than it is |
+| `NULLS NOT DISTINCT` re-appended BY HAND | fourth time in this schema (`0037`, `0067`, `0072`, `0076`). `db:generate`'s output for THIS migration omitted it again — verified, not assumed. Dropping it is an active regression: the occupation scope has written `domain_id = NULL` since `0070` and depends on NULLs deduping onto one row. Pinned by `unresolved-phrase-job-domain.test.ts` |
+| `unresolved_phrase_one_domain_chk` | at most one vocabulary per row. Three legal shapes (legacy / canonical / occupation-both-null); only both-set is refused |
+
+**Index rebuild lock:** DROP + CREATE, not CONCURRENTLY — drizzle wraps each migration in a
+transaction and `CREATE INDEX CONCURRENTLY` cannot run in one. `unresolved_phrase` held **9 rows**
+in production when this was authored (measured), so the window is sub-millisecond. Re-measure
+before applying if that has changed by orders of magnitude.
+
+**Rollback** is written into the migration's own footer, and is lossy only once canonical misses
+exist — after that, re-derive from `skill.phrase_unresolved_v2` on the event spine before dropping.
+
+**Event contract:** adds `skill.phrase_unresolved_v2`; `skill.phrase_unresolved` v1 is untouched
+and still emits for legacy-scoped misses. A second registry entry rather than relaxing v1's
+required `domain_id`, which would break every consumer reading the field without a null check.
 
 ### `0077` — additive, no ordering constraint, no backfill — 2026-08-18
 
@@ -92,7 +128,7 @@ SET lock_timeout = '3s';   -- fail fast rather than stall the write path
 
 **It takes the head of the OIE block.** `0077`–`0079` was reserved for Occupation Intelligence;
 that workstream has not minted `0077` on any branch, and this file's own rule is that the claim is
-recorded in the change that takes it. OIE's remaining slots are `0078`–`0079`.
+recorded in the change that takes it. OIE's remaining slot is `0079` (`0078` went to S3-C).
 
 ### `0076` deploy ordering and rollback — 2026-08-16
 

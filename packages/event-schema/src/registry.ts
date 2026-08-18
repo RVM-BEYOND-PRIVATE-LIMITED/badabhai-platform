@@ -820,6 +820,20 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileSubmissionDuplicatedPayload,
   },
+
+  // S3-C / D-6 — `skill.phrase_unresolved` VERSION 2. The v1 entry above KEEPS its
+  // definition, unmodified, as history (invariant #8), and keeps emitting for
+  // legacy-scoped misses. Same reasoning as `feed.shown_v2`: `validateEvent` allows
+  // exactly one version per NAME, so relaxing v1's REQUIRED `domain_id` in place — which
+  // is what a canonical-scoped miss would need, having no legacy slug — would invalidate
+  // every shipped consumer that reads the field without a null check. v2 carries exactly
+  // one of `domain_id` (Path B) or `job_domain_id` (Path A), enforced by the payload's own
+  // refine and mirrored by `unresolved_phrase_one_domain_chk` in the database.
+  "skill.phrase_unresolved_v2": {
+    version: 2,
+    domain: "skill",
+    payload: p.SkillPhraseUnresolvedV2Payload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

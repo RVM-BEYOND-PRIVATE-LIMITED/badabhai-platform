@@ -92,34 +92,43 @@ export const RecordUnresolvedDtoSchema = z.object({
       message: "phrase contains a residual numeric sequence (pseudonymize first)",
     }),
   /**
-   * STAYS NON-NULL, and the reason is the EVENT contract rather than this table.
+   * LEGACY skill-domain slug (Path B). OPTIONAL as of S3-C — supply this or
+   * `job_domain_id`, never both, never neither (the refine below).
    *
-   * The column itself is nullable and always has been (the occupation scope has written
-   * null since migration 0070, and the unique index is NULLS NOT DISTINCT so nulls still
-   * dedupe onto one row). Phase 1.5 briefly relaxed this DTO to match — then reverted,
-   * because `SkillsService.recordUnresolved` emits `skill.phrase_unresolved`, whose v1
-   * payload declares `domain_id: z.string().min(1)`. Accepting null here would either
-   * force a v1 event-schema mutation (CLAUDE.md §3: never) or write the row and THEN fail
-   * validation, leaving a queued phrase with no event — an Event-First violation that is
-   * strictly worse than refusing the write.
+   * HISTORY, because the constraint that used to live here was an EVENT constraint and
+   * not a table one, and the distinction is what took a migration to resolve. The column
+   * has always been nullable (the occupation scope has written null since 0070). What
+   * forced this field to stay non-null was `SkillsService.recordUnresolved` emitting
+   * `skill.phrase_unresolved`, whose v1 payload declares `domain_id: z.string().min(1)`:
+   * accepting null would have written the row and THEN failed validation, leaving a queued
+   * phrase with no event — an Event-First violation strictly worse than refusing the write.
    *
-   * SO THE CANONICAL-SCOPED MISS PATH IS CLOSED, DELIBERATELY, AND ONLY THE MISS PATH:
-   * a `job_domain_id`-scoped canonicalization that MATCHES works fine — this route is
-   * reached only when nothing cleared the floor. The ai-service skips the call rather
-   * than firing a doomed request (see `canonicalize.py`), and its record path is
-   * fail-soft, so nothing blocks a worker's turn or a posting write.
-   *
-   * Reachable today: never. Nothing writes `job_postings.job_domain_id`, so no caller
-   * produces a canonical-scoped miss.
-   *
-   * UNBLOCKED BY: adding `job_domain_id` to `unresolved_phrase` (+ widening the unique
-   * index, + teaching the growth runner the second scope, + an ADDITIVE optional field on
-   * the event payload — additive is not a mutation). That migration is already a hard
-   * prerequisite of the payer domain picker.
+   * Migration 0078 + `skill.phrase_unresolved_v2` close that gap without touching v1: the
+   * table now models `job_domain_id`, the unique index includes it, and the service picks
+   * the payload GENERATION by scope. See the v2 payload for why relaxing v1 in place was
+   * not an option.
    */
-  domain_id: z.string().min(1).max(64),
+  domain_id: z.string().min(1).max(64).optional(),
+  /**
+   * CANONICAL domain (Path A), the `jd_*` id. The counterpart this DTO existed without.
+   *
+   * A canonical-scoped canonicalization that MISSES now has somewhere to record WHICH
+   * domain it missed in. Until 0078 that path was closed by construction, which would have
+   * made Path A's failures invisible in `unresolved_phrase` — the one table built to catch
+   * failures — the moment the read switch flipped. This field is the S3-C prerequisite
+   * `phase-9-s3-deployment-plan.md` names.
+   */
+  job_domain_id: z.string().min(1).max(64).optional(),
   lang: z.string().min(2).max(8).default("en"),
-});
+})
+  // Mirrors `NearestAliasesDtoSchema`'s refine above and the DB's
+  // `unresolved_phrase_one_domain_chk`. Same rule stated at all three layers on purpose:
+  // the boundary gives a 400 with a readable message, the database makes the illegal row
+  // unrepresentable for every future writer that never reads this file.
+  .refine((v) => (v.domain_id === undefined) !== (v.job_domain_id === undefined), {
+    message:
+      "exactly one of domain_id (legacy skill-domain slug) or job_domain_id (canonical jd_*) is required",
+  });
 export type RecordUnresolvedDto = z.infer<typeof RecordUnresolvedDtoSchema>;
 
 /** One nearest-alias candidate: the CLOSED-set skill id + cosine similarity score. */

@@ -390,10 +390,27 @@ describe("notifications allowlist — validity + faceless copy", () => {
    * shape cannot be read, so the caller can fail loud instead of silently passing.
    */
   function payloadShapeKeys(name: string): string[] | null {
-    const payload = (EVENT_REGISTRY as Record<string, { payload?: unknown }>)[name]?.payload as
-      | { shape?: unknown; _def?: { shape?: unknown } }
-      | undefined;
-    const shape = payload?.shape ?? payload?._def?.shape;
+    type Node = { shape?: unknown; _def?: { shape?: unknown; schema?: unknown } } | undefined;
+    let node = (EVENT_REGISTRY as Record<string, { payload?: unknown }>)[name]?.payload as Node;
+
+    // UNWRAP EFFECT WRAPPERS BEFORE READING THE SHAPE. `.refine()` / `.superRefine()`
+    // return a ZodEffects that holds the real object at `_def.schema` and exposes no
+    // `.shape` of its own — so a refined payload would read as unreadable and, before this
+    // loop existed, took the whole suite red (S3-C's `skill.phrase_unresolved_v2` is the
+    // first registry entry to use a cross-field refine, for its exactly-one-scope rule).
+    //
+    // Unwrapping rather than merely tolerating it is the point: a ZodEffects that returned
+    // null here would be a payload the PII ban below silently stops inspecting. The ban has
+    // to see through the wrapper or a future refined payload could smuggle `payer_id` past
+    // it. Duck-typed for the same dual-package reason the docstring above gives, and bounded
+    // so a cyclic `_def` cannot hang the run.
+    for (let depth = 0; node && node.shape === undefined && depth < 10; depth += 1) {
+      const inner = node._def?.schema;
+      if (inner === undefined) break;
+      node = inner as Node;
+    }
+
+    const shape = node?.shape ?? node?._def?.shape;
     const resolved = typeof shape === "function" ? (shape as () => unknown)() : shape;
     return resolved && typeof resolved === "object"
       ? Object.keys(resolved as Record<string, unknown>)

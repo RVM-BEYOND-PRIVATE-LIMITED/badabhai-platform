@@ -50,24 +50,67 @@ export class SkillsService {
    * the event spine. Idempotency key = the content triple, so an at-least-once retry
    * of the SAME miss occurrence doesn't double-emit.
    *
-   * `domainId` IS NON-NULL, and that is an EVENT-CONTRACT constraint, not a table one.
-   * The write below would accept null (the column and the repository signature both do,
-   * for the occupation scope), but the emit that follows would not: the v1
-   * `skill.phrase_unresolved` payload declares `domain_id: z.string().min(1)`, and
-   * mutating a shipped event schema is a CLAUDE.md §3 non-negotiable. Accepting null
-   * here would write the row and then throw on validation — a queued phrase with no
-   * event, which is a worse failure than not queueing it. The DTO refuses it at the
-   * boundary instead; see the long note on `RecordUnresolvedDtoSchema.domain_id` for the
-   * migration that reopens the path.
+   * EXACTLY ONE SCOPE, and the event GENERATION follows from which one (S3-C / D-6).
+   *
+   * A legacy-scoped miss still emits v1, byte-identical to before this method learned the
+   * second scope — no shipped consumer sees any change. A canonical-scoped miss emits
+   * `skill.phrase_unresolved_v2`, which is a second registry entry rather than a relaxed
+   * v1: v1's `domain_id` is `z.string().min(1)` and a canonical miss has no legacy slug to
+   * put there, so the only way through v1 would be relaxing a required field on a shipped
+   * schema (CLAUDE.md §3: never). The `feed.shown_v2` precedent is the same call.
+   *
+   * ORDER IS DELIBERATE AND UNCHANGED: the row is written first, then the event. An emit
+   * that throws after a successful write leaves a queued phrase with no event, which is
+   * why the scope is validated at the DTO boundary and again in the repository BEFORE the
+   * insert — by the time we are here, the payload cannot fail validation on scope.
    */
-  async recordUnresolved(phrase: string, domainId: string, lang: string): Promise<void> {
-    const { id, count } = await this.repo.recordUnresolved(phrase, domainId, lang);
+  async recordUnresolved(
+    phrase: string,
+    domainId: string | null,
+    lang: string,
+    jobDomainId: string | null = null,
+  ): Promise<void> {
+    const { id, count } = await this.repo.recordUnresolved(
+      phrase,
+      domainId,
+      lang,
+      "skill",
+      jobDomainId,
+    );
     const phraseHash = createHash("sha256").update(phrase, "utf8").digest("hex");
+    // The ai-service is the (guarded) caller; no user principal exists on this path.
+    const actor = { actor_type: "ai_service", actor_id: null } as const;
+    const subject = { subject_type: "skill_phrase", subject_id: id } as const;
+
+    if (jobDomainId !== null) {
+      await this.events.emit({
+        event_name: "skill.phrase_unresolved_v2",
+        actor,
+        subject,
+        payload: {
+          phrase_hash: phraseHash,
+          domain_id: null,
+          job_domain_id: jobDomainId,
+          lang,
+          count,
+        },
+        // Keyed on the same (row, count) pair as v1 so an at-least-once retry of the SAME
+        // miss occurrence does not double-emit. The event NAME is part of the key space,
+        // so v1 and v2 keys cannot collide even for the same row id.
+        idempotencyKey: `skill.phrase_unresolved_v2:${id}:${count}`,
+      });
+      return;
+    }
+
+    if (domainId === null) {
+      throw new Error(
+        "recordUnresolved: a skill-scoped miss must carry either domainId or jobDomainId",
+      );
+    }
     await this.events.emit({
       event_name: "skill.phrase_unresolved",
-      // The ai-service is the (guarded) caller; no user principal exists on this path.
-      actor: { actor_type: "ai_service", actor_id: null },
-      subject: { subject_type: "skill_phrase", subject_id: id },
+      actor,
+      subject,
       payload: {
         phrase_hash: phraseHash,
         domain_id: domainId,

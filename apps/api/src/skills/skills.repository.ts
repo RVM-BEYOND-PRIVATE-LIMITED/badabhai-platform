@@ -348,11 +348,31 @@ export class SkillsRepository {
     domainId: string | null,
     lang: string,
     scope: UnresolvedPhraseScope = "skill",
+    // S3-C / D-6 — the Path A counterpart of `domainId`, TRAILING and DEFAULTED so every
+    // existing call site keeps its exact previous behaviour without being edited. Mutually
+    // exclusive with `domainId` (DB CHECK `unresolved_phrase_one_domain_chk`); the caller
+    // is responsible for passing at most one, which `RecordUnresolvedDtoSchema`'s refine
+    // already guarantees at the HTTP boundary.
+    jobDomainId: string | null = null,
   ): Promise<{ id: string; count: number }> {
+    // Belt-and-braces ahead of the DB CHECK: a 23514 surfaces as an opaque 500 several
+    // layers from the mistake, whereas this names it at the call site. Cheap, and the
+    // repository is the last place that can still see both arguments.
+    if (domainId !== null && jobDomainId !== null) {
+      throw new Error(
+        "recordUnresolved: domainId and jobDomainId are mutually exclusive — a row must " +
+          "record which ONE vocabulary the phrase failed to resolve in",
+      );
+    }
+    // `job_domain_id` joined the conflict target in 0078 and MUST be listed here: the
+    // ON CONFLICT target has to name the index's exact column set, and omitting it would
+    // fail to match `unresolved_phrase_scope_uq` at all (42P10), not silently pick the old
+    // one. Two canonical misses of the same phrase in different domains are now distinct
+    // rows, which is the entire point of the widening.
     const rows = await this.db.execute(sql`
-      INSERT INTO unresolved_phrase (scope, phrase, domain_id, lang)
-      VALUES (${scope}, ${phrase}, ${domainId}, ${lang})
-      ON CONFLICT (scope, phrase, domain_id, lang)
+      INSERT INTO unresolved_phrase (scope, phrase, domain_id, job_domain_id, lang)
+      VALUES (${scope}, ${phrase}, ${domainId}, ${jobDomainId}, ${lang})
+      ON CONFLICT (scope, phrase, domain_id, job_domain_id, lang)
       DO UPDATE SET count = unresolved_phrase.count + 1, last_seen = now()
       RETURNING id, count
     `);
