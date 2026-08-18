@@ -20,7 +20,8 @@ abstract interface class ChatRepository {
   /// [submissionId] is the per-submission id (#870), forwarded to the wire body
   /// when non-null. Minted once per physical send and re-sent verbatim on a
   /// retry, so the server can tell a retried POST from a worker repeating the
-  /// same words. Null on the voice-merge path, which does not carry one.
+  /// same words. Both callers now supply one — the chat composer (#870) and the
+  /// voice-merge path (#944); it stays optional so the contract does not force it.
   Future<ChatTurn> sendMessage(String text, {String? submissionId});
 
   /// The persisted transcript for the CURRENT session, oldest-first, as
