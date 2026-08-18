@@ -18,9 +18,9 @@
     { "keyword": "g-code", "label": "G-code/M-code editing", "id": "skill_program_editing" },
     { "keyword": "m code", "label": "G-code/M-code editing", "id": "skill_program_editing" },
     { "keyword": "program", "label": "program editing", "id": "skill_program_editing" },
-    { "keyword": "gd&t", "label": "drawing reading", "id": "skill_gdt_reading" },
-    { "keyword": "gdt", "label": "drawing reading", "id": "skill_gdt_reading" },
-    { "keyword": "drawing", "label": "drawing reading", "id": "skill_gdt_reading" },
+    { "keyword": "gd&t", "label": "drawing reading", "id": "skill_drawing_reading" },
+    { "keyword": "gdt", "label": "drawing reading", "id": "skill_drawing_reading" },
+    { "keyword": "drawing", "label": "drawing reading", "id": "skill_drawing_reading" },
     { "keyword": "fixture", "label": "fixture setup", "id": "skill_fixture_setup" },
     { "keyword": "mastercam", "label": "CAM software", "id": "skill_cam_software" },
     { "keyword": "fusion", "label": "CAM software", "id": "skill_cam_software" }

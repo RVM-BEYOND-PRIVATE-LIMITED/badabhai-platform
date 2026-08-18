@@ -17,13 +17,15 @@ describe("WEDGE_ALIASES — TAX-5 vernacular aliases (RVM-ratified 2026-07-16, g
   it("is FULLY RATIFIED — the RVM owner ratified all 22 entries on 2026-07-16 (gate d closed)", () => {
     // The ratification GATE in executable form: this diff IS the visible human decision.
     // Owner rulings: Q-A chhilai → skill_deburring (shop-floor sense = finishing);
-    // Q-B "drawing padhna" → skill_cad_interpretation (reading CAD/digital models).
+    // Q-B "drawing padhna" → skill_cad_interpretation (reading CAD/digital models), REPOINTED
+    // 2026-08-18 to skill_drawing_reading when TD-01 (Phase 8 taxonomy register, RATIFIED)
+    // fully merged skill_cad_interpretation into it — the Q-B mapping judgment is unchanged.
     const ratified = ratifiedWedgeAliases();
     expect(ratified).toHaveLength(22);
     expect(ratified).toHaveLength(WEDGE_ALIASES.length); // every entry — none held back
     expect(ratified.find((w) => w.alias.text === "chhilai")?.skillId).toBe("skill_deburring");
     expect(ratified.find((w) => w.alias.text === "drawing padhna")?.skillId).toBe(
-      "skill_cad_interpretation",
+      "skill_drawing_reading",
     );
   });
 
