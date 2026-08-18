@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { fakeAiCostTotals } from "../ai/ai-cost-totals.fake";
 import { VoiceTranscriptionProcessor } from "./voice-transcription.processor";
 import { VoiceTranscriptionService } from "./voice-transcription.service";
 import type { VoiceTranscriptionJobData } from "../queue/queue.constants";
@@ -17,10 +18,18 @@ const JOB = {
   requestId: "req-1",
 } satisfies VoiceTranscriptionJobData;
 
+/**
+ * The interview this clip was spoken into. NOT on `VoiceTranscriptionJobData` and never was —
+ * it lives on the `voice_notes` row (`session_id`, NOT NULL), which is the same authority the
+ * ownership guard already reads. Cost attribution takes it from there for the same reason.
+ */
+const SESSION_ID = "66666666-6666-4666-8666-666666666666";
+
 /** The `voice_notes` row for [JOB] — the AUTHORITY for storage path, owner and duration. */
 const ROW = {
   id: JOB.voiceNoteId,
   workerId: JOB.workerId,
+  sessionId: SESSION_ID,
   storagePath: JOB.storagePath,
   durationSeconds: JOB.durationSeconds,
 };
@@ -59,6 +68,7 @@ function make(
         ? {
             id: JOB.voiceNoteId,
             workerId: JOB.workerId,
+            sessionId: SESSION_ID,
             storagePath: JOB.storagePath,
             durationSeconds: JOB.durationSeconds,
             transcriptText: null,
@@ -73,7 +83,17 @@ function make(
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
   };
-  const events = { emit: vi.fn().mockResolvedValue(undefined) };
+  // `emitOnce` is what `AiCostRecorder` calls — it needs the "written or deduped" bit to
+  // decide whether to move the running totals. Routed through the SAME `emit` spy so the cost
+  // assertions below still read a real emit rather than passing against nothing.
+  const emit = vi.fn().mockResolvedValue(undefined);
+  const events = {
+    emit,
+    emitOnce: vi.fn(async (params: unknown) => {
+      await emit(params);
+      return { event: params, written: true };
+    }),
+  };
   const ai = {
     transcribe: opts.transcribeThrows
       ? vi.fn().mockRejectedValue(new Error("boom"))
@@ -101,6 +121,7 @@ function make(
   // it. Every behavioural case below still drives through `proc.process(...)` ON PURPOSE — that
   // is what makes this suite a regression proof that the extraction changed no behaviour, rather
   // than a rewritten suite testing the new shape and quietly forgiving a drift.
+  const totals = fakeAiCostTotals();
   const service = new VoiceTranscriptionService(
     voice as never,
     aiJobs as never,
@@ -108,10 +129,10 @@ function make(
     ai as never,
     // The REAL recorder over the same fake events service, so the cost assertions below are
     // about an event that was actually built rather than about a stub being called (#738).
-    new AiCostRecorder(events as never),
+    new AiCostRecorder(events as never, totals.repo),
   );
   const proc = new VoiceTranscriptionProcessor(service);
-  return { proc, service, voice, aiJobs, events, ai };
+  return { proc, service, voice, aiJobs, events, ai, totals };
 }
 
 describe("VoiceTranscriptionProcessor", () => {
@@ -146,9 +167,14 @@ describe("VoiceTranscriptionProcessor", () => {
       0.9,
       MOCK_ENGLISH,
     );
-    expect(aiJobs.markCompleted).toHaveBeenCalledWith(JOB.aiJobId, {
-      voice_note_id: JOB.voiceNoteId,
-    });
+    // `undefined` usage on the MOCK path (`ai_metadata` is null here) — the columns stay NULL
+    // rather than recording a zero cost that cannot be told apart from a real free call. The
+    // real-metadata case is locked in "STT cost recording" below.
+    expect(aiJobs.markCompleted).toHaveBeenCalledWith(
+      JOB.aiJobId,
+      { voice_note_id: JOB.voiceNoteId },
+      undefined,
+    );
     expect(events.emit.mock.calls[0]![0].event_name).toBe("voice_note.transcription_completed");
   });
 
@@ -618,5 +644,63 @@ describe("STT cost recording", () => {
     const dump = JSON.stringify(costEvents(events as never));
     expect(dump).not.toContain(MOCK_TRANSCRIPT);
     expect(dump).not.toContain(MOCK_ENGLISH);
+  });
+
+  it("the cost event names the WORKER and the SESSION, both taken from the row", async () => {
+    // Both ids come from `voice_notes`, not from the job payload — the same authority the
+    // ownership guard uses, so a caller that named someone else's worker id cannot also
+    // misfile the spend. `session_id` makes a voice-led interview's STT land on the same
+    // per-session total as its model turns, which is what "cost per profile" means.
+    const { proc, events } = make({ aiMetadata: REAL_META });
+    await proc.process(makeJob());
+    const [cost] = costEvents(events as never);
+    expect(cost!.payload.worker_id).toBe(JOB.workerId);
+    expect(cost!.payload.session_id).toBe(SESSION_ID);
+  });
+
+  it("a real call now populates ai_jobs usage/cost — it stayed NULL for every STT job", async () => {
+    // THE HOLE THIS CLOSES. `markCompleted` has taken an optional `usage` since extraction
+    // needed it; the transcription call site passed none, so `ai_jobs.cost_inr` was NULL for
+    // `job_type = 'transcription'` forever — while the very same call's cost was on the event
+    // spine. A per-job cost query answered "free" for the whole STT surface.
+    const { proc, aiJobs } = make({ aiMetadata: REAL_META });
+    await proc.process(makeJob());
+    expect(aiJobs.markCompleted).toHaveBeenCalledWith(
+      JOB.aiJobId,
+      { voice_note_id: JOB.voiceNoteId },
+      {
+        modelName: REAL_META.model_name,
+        realCall: true,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        costInr: 0.25,
+      },
+    );
+  });
+
+  it("a real call accrues EXACTLY ONE running total, on the emit's own transaction", async () => {
+    // The accrual is bound to the event insert actually writing a row — see `AiCostRecorder`.
+    // The fake throws if `accrue` arrives on any handle other than the one `withTransaction`
+    // handed out, so this also proves the two writes share a transaction.
+    const { proc, totals } = make({ aiMetadata: REAL_META });
+    await proc.process(makeJob());
+    expect(totals.accrued).toEqual([
+      {
+        workerId: JOB.workerId,
+        sessionId: SESSION_ID,
+        provider: "sarvam",
+        taskType: "stt_transcription",
+        costInr: 0.25,
+        realCall: true,
+      },
+    ]);
+  });
+
+  it("the mock path accrues NOTHING — no metadata, no money, no row", async () => {
+    const { proc, totals } = make();
+    await proc.process(makeJob());
+    expect(totals.accrued).toHaveLength(0);
+    expect(totals.transactions).toBe(0);
   });
 });
