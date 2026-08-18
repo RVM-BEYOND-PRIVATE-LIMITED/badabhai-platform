@@ -149,6 +149,20 @@ h3 {
 .btn--block {
   width: 100%;
 }
+/* Phase 2 — governed admin actions. The CONFIRM step of a two-click destructive action
+   (suspend, force-close, flag, suspend admin). Uses the same danger tokens `.notice--bad` /
+   `.pill--bad` / `.state--error` already carry — no new colour is introduced. */
+.btn--danger {
+  background: var(--danger);
+  color: var(--text-inverse);
+  border-color: var(--danger-press);
+}
+.btn--danger:hover:not(:disabled) {
+  background: var(--danger-press);
+}
+.btn--danger:active:not(:disabled) {
+  background: var(--danger-press);
+}
 
 .field {
   display: flex;
@@ -1599,6 +1613,35 @@ textarea.field__input {
   .attention__item {
     flex-wrap: wrap;
   }
+}
+
+/* ==================================================================
+ * Phase 2 · GOVERNED ADMIN ACTIONS — AdminActionButton + per-row action clusters.
+ * Additions only; the result banner reuses the existing `.alert` primitive above.
+ * ================================================================== */
+.admin-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.admin-action__error {
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+/* A table cell holding more than one action (e.g. the admins directory's per-row Change
+   role / Reset MFA / Suspend). Stacked, not a row: a `.field__input` select at width:100%
+   fighting a flex row's shrink-to-fit sizing is the wrong problem to solve for three
+   infrequently-used controls. */
+.row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 12rem;
+}
+.row-actions .field {
+  gap: var(--space-1);
 }
 
 /* ==================================================================

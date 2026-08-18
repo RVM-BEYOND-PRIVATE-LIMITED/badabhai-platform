@@ -70,6 +70,44 @@ export function isAdminRequestError(err: unknown): err is AdminRequestError {
   return err instanceof AdminRequestError;
 }
 
+/**
+ * Pull the backend's own explanation out of `AllExceptionsFilter`'s error envelope
+ * (`{ error: { message } }` — see apps/api/src/common/filters/all-exceptions.filter.ts) when
+ * there is one to pull. Falls back to the generic status-only text on any shape mismatch or
+ * unparseable body, so a change to the filter's envelope degrades to today's copy rather than
+ * throwing.
+ *
+ * This is the ONLY place a response body's text is read for an error case, and it is read,
+ * not trusted for display everywhere: the portal's own error boundary
+ * (`(portal)/error.tsx`) explicitly never renders `.message`, and the public login flows
+ * (`login/actions.ts`) ignore it entirely in favour of their own neutral, oracle-free copy.
+ * The governed-mutation Server Actions (companies/agencies, jobs, workers, admins) are the
+ * one place that DOES show it, because a 4xx from a route behind
+ * `AdminAuthGuard`/`AdminRolesGuard` is the server explaining a REFUSAL to an operator who is
+ * already authenticated and capable — not an oracle for an anonymous caller.
+ */
+async function describeErrorBody(res: Response): Promise<string> {
+  const fallback = `The admin API returned ${res.status}.`;
+  try {
+    const body: unknown = await res.json();
+    if (typeof body !== "object" || body === null || !("error" in body)) return fallback;
+    const inner = (body as { error: unknown }).error;
+    if (typeof inner === "string" && inner.length > 0) return inner;
+    if (
+      typeof inner === "object" &&
+      inner !== null &&
+      "message" in inner &&
+      typeof (inner as { message: unknown }).message === "string" &&
+      (inner as { message: string }).message.length > 0
+    ) {
+      return (inner as { message: string }).message;
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 interface RequestOptions<T> {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
@@ -116,7 +154,7 @@ export async function adminFetch<T>(path: string, opts: RequestOptions<T> = {}):
   if (res.status === 403) throw new AdminForbiddenError();
 
   if (!res.ok) {
-    throw new AdminRequestError(res.status, `The admin API returned ${res.status}.`);
+    throw new AdminRequestError(res.status, await describeErrorBody(res));
   }
 
   if (!opts.schema) return undefined as T;
