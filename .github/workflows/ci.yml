@@ -19,6 +19,7 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       worker-app: ${{ steps.filter.outputs.worker-app }}
       payer-app: ${{ steps.filter.outputs.payer-app }}
+      payer-web: ${{ steps.filter.outputs.payer-web }}
       sast: ${{ steps.filter.outputs.sast }}
       deps: ${{ steps.filter.outputs.deps }}
     steps:
@@ -66,6 +67,22 @@ jobs:
             payer-app:
               - 'apps/payer-app/**'
               - '.github/workflows/payer-app.yml'
+              - '.github/workflows/ci.yml'
+            # GAP-XC-06 (#920): gates ONLY the payer-web-image job below — the TS
+            # lint/typecheck/test/build for apps/payer-web already runs UNCONDITIONALLY
+            # inside the `node` job (turbo covers the whole workspace, no path filter),
+            # so this filter's one job is "does the Dockerfile still produce an image?",
+            # mirroring ai-service-image's relationship to the (unconditional) node job's
+            # own coverage of apps/api. The three workspace packages payer-web's Dockerfile
+            # actually builds (@badabhai/config, @badabhai/pricing, @badabhai/validators)
+            # plus validators' own @badabhai/types dependency are listed explicitly — a
+            # change to any of them can break the image even with zero payer-web edits.
+            payer-web:
+              - 'apps/payer-web/**'
+              - 'packages/config/**'
+              - 'packages/pricing/**'
+              - 'packages/validators/**'
+              - 'packages/types/**'
               - '.github/workflows/ci.yml'
             # SAST (#773). Mirrors the filter security-scan.yml used while the job lived
             # there, plus the two workflow files that now decide whether it runs at all —
@@ -459,6 +476,43 @@ jobs:
           cache-from: type=gha,scope=ai-service
           cache-to: type=gha,mode=max,scope=ai-service
 
+  # ---- payer-web image builds AT ALL (GAP-XC-06, #920) ----
+  # Same reasoning as ai-service-image immediately above, for the same reason: without this
+  # job a broken apps/payer-web/Dockerfile is first discovered on a `main` push, where it
+  # also fails `deploy-lightsail` — a green PR hiding an untested artifact.
+  #
+  # BUILD ONLY, never push: no registry credentials, no `packages: write`, no tags, and
+  # DELIBERATELY no NEXT_PUBLIC_* build-args (see the Dockerfile header) — a PR build must
+  # prove the Dockerfile still produces an image without needing any repository secret, the
+  # same bar ai-service-image holds. It reuses the SAME gha cache scope as the push job, so a
+  # PR build warms the layers `build-and-push-image` then reuses on merge.
+  #
+  # Deliberately NOT a `needs:` of anything: an independent signal that must be able to fail
+  # without masking the `node` job's own typecheck/build coverage of this app.
+  # CI-2: path-gated — see the `payer-web` filter's own comment in the `changes` job above.
+  payer-web-image:
+    name: payer-web (image builds)
+    if: needs.changes.outputs.payer-web == 'true'
+    needs: [changes]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build the payer-web image (no push)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: apps/payer-web/Dockerfile
+          push: false
+          load: false
+          cache-from: type=gha,scope=payer-web
+          cache-to: type=gha,mode=max,scope=payer-web
+
   # ---- Flutter worker app ----
   # Moved to its own path-filtered, BLOCKING workflow: .github/workflows/worker-app.yml
   # (runs only on changes under apps/worker-app; pinned Flutter; no continue-on-error).
@@ -817,11 +871,22 @@ jobs:
   # owner must flip branch protection to require only `ci-required` for this to work.
   ci-required:
     if: always()
-    # worker-app / payer-app added in #718, sast in #773, deps-audit in #788. A path-filtered
-    # job that does not run reports `skipped`, which this check treats as fine — only
-    # `failure`/`cancelled` fail it.
+    # worker-app / payer-app added in #718, sast in #773, deps-audit in #788, payer-web-image
+    # in #920 (GAP-XC-06). A path-filtered job that does not run reports `skipped`, which this
+    # check treats as fine — only `failure`/`cancelled` fail it.
     needs:
-      [changes, node, ai-service, ai-service-image, e2e, worker-app, payer-app, sast, deps-audit]
+      [
+        changes,
+        node,
+        ai-service,
+        ai-service-image,
+        payer-web-image,
+        e2e,
+        worker-app,
+        payer-app,
+        sast,
+        deps-audit,
+      ]
     runs-on: ubuntu-latest
     steps:
       - name: Check for CI failures
@@ -991,6 +1056,55 @@ jobs:
           cache-from: type=gha,scope=ai-service
           cache-to: type=gha,mode=max,scope=ai-service
 
+      # ---- GAP-XC-06 (#920): the payer-web Next.js portal image ----
+      # Same registry, same tag scheme, same immutability contract as the two images
+      # above — `type=sha` gives the `sha-<short7>` tag the deploy pins.
+      - name: Extract metadata (tags, labels) for the payer-web image
+        id: meta-payer-web
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        env:
+          DOCKER_METADATA_SHORT_SHA_LENGTH: "7"
+        with:
+          images: ghcr.io/${{ github.repository }}/badabhai-payer-web
+          tags: |
+            type=ref,event=branch
+            type=sha
+
+      - name: Build and push the payer-web Docker image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          # CONTEXT IS the repo root, matching apps/api above (NOT apps/ai-service's
+          # convention) — payer-web depends on @badabhai/config, @badabhai/pricing and
+          # @badabhai/validators (workspace packages), so it needs the monorepo in
+          # context. See the header of apps/payer-web/Dockerfile.
+          context: .
+          file: apps/payer-web/Dockerfile
+          push: true
+          tags: ${{ steps.meta-payer-web.outputs.tags }}
+          labels: ${{ steps.meta-payer-web.outputs.labels }}
+          # THE ONLY PLACE THESE TWO NON-SECRET, BOX-SPECIFIC VALUES ARE SUPPLIED —
+          # baked into the image at THIS build step, never read at container start (see
+          # apps/payer-web/Dockerfile's header for the full explanation). Both resolve to
+          # an EMPTY STRING if the repository secret does not exist, which is SAFE, not a
+          # build failure: the Dockerfile's own ARG handling treats an empty value as
+          # "unset" and falls back to `@badabhai/config`'s existing schema defaults —
+          # exactly the behaviour this app already has outside Docker today. Repository
+          # secrets (not the `staging` GitHub Environment) because this job declares no
+          # `environment:` block, and retrofitting one purely to scope two non-sensitive
+          # URLs is out of scope for this change — see the Dockerfile header for the full
+          # reasoning. To set a real value: add PAYER_WEB_NEXT_PUBLIC_API_URL and/or
+          # PAYER_WEB_NEXT_PUBLIC_SITE_URL as repository secrets, then push a new commit
+          # (or re-run this job) — a REBUILD, not just a redeploy, is required for either
+          # to take effect.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.PAYER_WEB_NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_SITE_URL=${{ secrets.PAYER_WEB_NEXT_PUBLIC_SITE_URL }}
+          # CD-5: a DISTINCT gha cache scope, same reasoning as ai-service's above — a
+          # shared scope would evict the api's expensive WeasyPrint layer (or vice versa)
+          # every run.
+          cache-from: type=gha,scope=payer-web
+          cache-to: type=gha,mode=max,scope=payer-web
+
   # ---- AWS Lightsail Deployment ----
   deploy-lightsail:
     name: Deploy to AWS Lightsail
@@ -1098,6 +1212,26 @@ jobs:
           ZEPTOMAIL_MAIL_AGENT: ${{ secrets.ZEPTOMAIL_MAIL_AGENT }}
           EMAIL_FROM_ADDRESS: ${{ secrets.EMAIL_FROM_ADDRESS }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+
+          # ---- GAP-XC-06 (#920): payer-web's external port, box-specific and NOT a
+          # secret in the confidentiality sense — bridged through `secrets.*` anyway,
+          # for the SAME reason CORS_ALLOWED_ORIGINS above is: consistency with the one
+          # mechanism this job already has for getting a box-specific value from GitHub
+          # into the remote session, and so a CI-triggered deploy does not depend on the
+          # box's own persistent shell state (the weaker path this file's own CD-1b
+          # comment reserves for manual/rollback runs only).
+          #
+          # OPTIONAL, an OVERRIDE only — this secret does not have to exist, and for the
+          # CURRENT box it should not: 3333 (the compose default) is the owner-confirmed
+          # free port there. Unset here arrives on the box as the empty string, and
+          # compose's `${PAYER_WEB_PORT:-3333}` (the `:-` form substitutes on empty as well
+          # as on unset) resolves it to 3333 either way. It is deliberately NOT fail-loud:
+          # compose interpolates the
+          # whole staging file before filtering by service, so a `:?` here would fail
+          # `$COMPOSE pull api` — taking the live api/ai-service deploy down over an
+          # unrelated missing secret. See the service block in docker-compose.staging.yml
+          # for the measured proof.
+          PAYER_WEB_PORT: ${{ secrets.PAYER_WEB_PORT }}
         with:
           host: ${{ secrets.LIGHTSAIL_HOST }}
           username: ${{ secrets.LIGHTSAIL_USER }}
@@ -1107,7 +1241,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,PAYER_WEB_PORT
           script: |
             set -e
             # CD-1: never leave a registry credential (even an expired job token)
@@ -1137,8 +1271,15 @@ jobs:
             # would fail EVERY command below — including `pull api` — if it were
             # missing. Same reason a rollback must export both (docs/rollback-guide.md).
             export AI_SERVICE_IMAGE="$(echo "ghcr.io/${{ github.repository }}/badabhai-ai-service:sha-$(echo '${{ github.sha }}' | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+            # GAP-XC-06 (#920): the payer-web image, same commit, same immutability
+            # rule. Also NOT optional even for an api-only concern, for the identical
+            # reason AI_SERVICE_IMAGE above is not: compose interpolates the WHOLE
+            # overlay before filtering by service/profile, so docker-compose.staging.yml's
+            # `${PAYER_WEB_IMAGE:?}` would fail EVERY command below if it were missing.
+            export PAYER_WEB_IMAGE="$(echo "ghcr.io/${{ github.repository }}/badabhai-payer-web:sha-$(echo '${{ github.sha }}' | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
             echo "Deploying image: $API_IMAGE"
             echo "Deploying image: $AI_SERVICE_IMAGE"
+            echo "Deploying image: $PAYER_WEB_IMAGE"
 
             # CD-0: base + staging overlay. The overlay pins NODE_ENV=production and
             # makes every production-required secret a fail-loud ${VAR:?} — a box
@@ -1210,6 +1351,11 @@ jobs:
             # "explicitly-named service enables its profile" behaviour — the box's
             # compose version is not verified.
             $COMPOSE pull ai-service
+            # GAP-XC-06 (#920): same `--profile api` reasoning as ai-service above —
+            # payer-web declares `profiles: ["api"]` directly on its own service block
+            # (docker-compose.staging.yml), since it has no base-file counterpart to
+            # inherit the profile from.
+            $COMPOSE pull payer-web
 
             # CD-1a: Redis IS box-local (owner decision) — it runs as this compose
             # project's `redis` service, so unlike postgres it MUST start here. The
@@ -1349,4 +1495,49 @@ jobs:
               $COMPOSE logs --tail=100 api
               exit 1
             fi
+
+            # ---- GAP-XC-06 (#920): payer-web, started AFTER the api's own health gate
+            # passes. Not a hard dependency in compose (no depends_on — see the service
+            # block's own comment for why), but ordering it last here means a broken
+            # payer-web image never gets a chance to serve a request while the api is
+            # still coming up, and a payer-web failure below does not block the api
+            # (already healthy and serving) from having been deployed successfully.
+            $COMPOSE up -d --no-deps payer-web
+            $COMPOSE ps
+
+            # Same CD-3 pattern as ai-service/api above, reached via the box-published
+            # (NOT loopback-only — CD-1a does not apply here, see the service block's own
+            # comment) `PAYER_WEB_PORT`. ~30s budget (15 x 2s) — a Next.js standalone
+            # server starts about as fast as the ai-service's uvicorn boot.
+            #
+            # `:-3333` must match docker-compose.staging.yml's default EXACTLY: the secret
+            # is an optional override, so when it is unset this poll has to look at the
+            # same port compose actually published, not at `http://localhost:/health`.
+            echo "Waiting for payer-web to become healthy..."
+            payer_web_healthy=0
+            payer_web_crash_streak=0
+            for i in $(seq 1 15); do
+              if curl -sf "http://localhost:${PAYER_WEB_PORT:-3333}/health" >/dev/null 2>&1; then
+                payer_web_healthy=1
+                echo "payer-web healthy after attempt ${i}"
+                break
+              fi
+              if container_crashed payer-web; then
+                payer_web_crash_streak=$((payer_web_crash_streak + 1))
+              else
+                payer_web_crash_streak=0
+              fi
+              if [ "$payer_web_crash_streak" -ge 2 ]; then
+                echo "::error::payer-web container crashed during boot (not just slow) — dumping container logs"
+                $COMPOSE logs --tail=100 payer-web
+                exit 1
+              fi
+              sleep 2
+            done
+            if [ "$payer_web_healthy" -ne 1 ]; then
+              echo "::error::payer-web never became healthy — dumping container logs"
+              $COMPOSE logs --tail=100 payer-web
+              exit 1
+            fi
+
             echo "Deployment finished successfully!"

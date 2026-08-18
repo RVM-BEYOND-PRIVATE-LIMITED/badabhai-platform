@@ -629,3 +629,97 @@ services:
       # ci.yml in the SAME change that creates the secret, or arm it from the box.
       # Half-flipping it (one side only) 401s every api→ai call and silently
       # degrades the API to mock — TD81's own failure class, re-created.
+
+  # ---- GAP-XC-06 (#920): apps/payer-web — the external payer/agency portal, ON THE BOX ----
+  #
+  # v1 SCOPE, deliberately: get this BUILDING and REACHABLE via the box's IP + a published
+  # port. No TLS, no domain, no CORS hardening beyond wiring the mechanism (see
+  # CORS_ALLOWED_ORIGINS on the api service above) — deferred until the badabhai.ai domain
+  # is provisioned (owner decision, not an oversight).
+  #
+  # DEFINED ONLY HERE, NOT in the base docker-compose.yml. Unlike api (WeasyPrint's native
+  # Pango/cairo stack needs a Linux container even locally) payer-web is pure Next.js/Node —
+  # `pnpm dev` already runs it on any OS, so there is no local-Docker use case to add.
+  # Because it has NO base-file counterpart, `profiles: ["api"]` is declared directly on
+  # this block: a service that exists only in an overlay has no base definition to merge a
+  # `profiles:` list from (unlike the `api`/`ai-service` blocks above, which inherit theirs
+  # from docker-compose.yml). Same profile as api/ai-service, so `--profile api pull/up
+  # payer-web` resolves without depending on any newer compose "auto-enable" behaviour — the
+  # box's compose version stays unverified, same caveat as ai-service above.
+  #
+  # NO depends_on, matching ai-service's own reasoning: this container's own boot does not
+  # need api to be up (Next's standalone server starts and serves `/health` regardless of
+  # whether a downstream Server Action call would currently succeed), so a missing/unhealthy
+  # api must never block THIS container from starting. The api's readiness is instead
+  # enforced by ORDER in the deploy script — payer-web is started only after the api's own
+  # health gate passes — not by a depends_on edge.
+  payer-web:
+    profiles: ["api"]
+    # CD-4, mirroring api/ai-service: pin the IMMUTABLE per-commit ghcr `sha-<short7>` tag
+    # exported by build-and-push-image / deploy-lightsail. Rollback = export the previous
+    # sha tag and re-run `up` (docs/rollback-guide.md).
+    image: ${PAYER_WEB_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-payer-web:sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
+    restart: unless-stopped
+    ports:
+      # BOX-SPECIFIC, deliberately NOT loopback-bound (unlike redis/ai-service above,
+      # CD-1a): the entire point of this v1 is reachability from OUTSIDE the box (real
+      # browser traffic), so a loopback bind would defeat it outright.
+      #
+      # `:-` (DEFAULTED), never `:?` (fail-loud) — and this is load-bearing, not a style
+      # choice. Compose interpolates the ENTIRE merged file BEFORE it filters by service
+      # or profile, so a `${PAYER_WEB_PORT:?}` here does not fail "the payer-web command",
+      # it fails EVERY command this file is used for. MEASURED, not reasoned: with every
+      # other required var satisfied, `docker compose -f docker-compose.yml -f
+      # docker-compose.staging.yml --profile api config api` — resolving ONLY the api
+      # service, naming payer-web nowhere — still died with "required variable
+      # PAYER_WEB_PORT is missing a value". A fail-loud port here therefore bricks
+      # deploy-lightsail's very first command (`$COMPOSE pull api`) and takes the LIVE
+      # api/ai-service deploy down with it until a human sets an unrelated secret. That is
+      # a strictly worse failure than the one it was guarding against.
+      #
+      # HOST SIDE IS 3333, NOT 3002 — an owner-confirmed fact about THIS box, not a
+      # guess: 3002 is already taken there, 3333 is free. The literal default follows the
+      # base file's api publish (`"3001:3001"`) — a literal published port is this repo's
+      # actual convention; no `${VAR:?}` port exists anywhere else. PAYER_WEB_PORT (GitHub
+      # "staging" Environment secret, bridged in ci.yml) survives purely as an override
+      # for a future box, so nothing has to be set for THIS one.
+      #
+      # The CONTAINER side stays 3002 — this app's own port (`package.json`'s
+      # `next start -p 3002`), matching PORT/EXPOSE below. Only the host side was ever in
+      # contention; nothing outside this service dials the container port directly.
+      #
+      # What is still a human step: confirming 3333 is open in the box's security group.
+      # That failure mode is correctly LOCALIZED — an unopened port makes payer-web
+      # unreachable, and a port already in use fails `up -d payer-web` loudly at the point
+      # it is actually relevant, AFTER api/ai-service have already deployed successfully.
+      # Neither can silently take the rest of the box's deploy down.
+      - "${PAYER_WEB_PORT:-3333}:3002"
+    environment:
+      NODE_ENV: production
+      PORT: "3002"
+      HOSTNAME: "0.0.0.0"
+      # ---- The api, over the COMPOSE NETWORK — A LITERAL, not ${VAR:?}, mirroring
+      # AI_SERVICE_URL's own reasoning on the api service above: payer-web and api run in
+      # the SAME compose project on the SAME box, so there is exactly one correct value
+      # here — the compose service name — and making it a required secret would add a way
+      # to get it wrong (e.g. pointing it back out through the box's own public IP, which
+      # may not even be reachable from inside the box's own network depending on NAT) for
+      # nothing gained. Every Server Action / route handler in payer-web that calls the API
+      # reads PAYER_API_URL (apps/payer-web/src/lib/server-config.ts) at RUNTIME — never
+      # NEXT_PUBLIC_API_URL, which has no live browser-fetch call site in this app today
+      # (verified by reading every call site before this block was written) and is instead
+      # a Dockerfile BUILD ARG (see apps/payer-web/Dockerfile's header) — setting it here
+      # would have zero effect on an already-built image.
+      PAYER_API_URL: http://api:3001
+      # ---- Same class of bug this file has hit three times before (VOICE_NOTES_BUCKET,
+      # WORKER_PHOTOS_BUCKET #794, CHAT_LLM_INTERVIEW_ENABLED #798): payer-web reads its OWN
+      # copy of these two flags from ITS OWN process environment
+      # (apps/payer-web/src/lib/server-config.ts) — compose does not share env between
+      # services, so declaring them on the api service above gives payer-web NO path to see
+      # them. Declared here too, `:-false`, so a box operator exporting one export arms (or
+      # confirms OFF on) BOTH containers together instead of one silently staying stale.
+      # Both stay `false` by default — payer-web ships MOCK-only (payments) and
+      # SUPPLY-PARKED (agency) exactly as today; this line only makes those flags REACHABLE
+      # if a human ever exports them, it does not change what they currently read.
+      PAYMENTS_ENABLE_REAL: ${PAYMENTS_ENABLE_REAL:-false}
+      AGENCY_SUPPLY_ENABLED: ${AGENCY_SUPPLY_ENABLED:-false}

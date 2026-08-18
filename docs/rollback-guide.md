@@ -16,11 +16,11 @@ previous working image, no action needed).
 ## What "rollback" actually means here
 
 Every deploy pins **immutable per-commit images** —
-`ghcr.io/<owner>/badabhai-platform/badabhai-api:sha-<short7>` and the `badabhai-ai-service`
-equivalent, both built from the same commit's first 7 sha characters. A rollback is:
-**export the previous commit's sha tag for BOTH images and re-run the same `compose up`
-sequence the deploy job runs.** Nothing is reverted in git; the box just points at an
-older, already-built image.
+`ghcr.io/<owner>/badabhai-platform/badabhai-api:sha-<short7>`, the `badabhai-ai-service`
+equivalent, and (as of GAP-XC-06, #920) the `badabhai-payer-web` equivalent — all three built
+from the same commit's first 7 sha characters. A rollback is: **export the previous commit's
+sha tag for ALL THREE images and re-run the same `compose up` sequence the deploy job runs.**
+Nothing is reverted in git; the box just points at older, already-built images.
 
 ## Procedure
 
@@ -34,16 +34,23 @@ older, already-built image.
      `sha-` tags (disk-reclaim prunes anything older, see the deploy job's CD-6 comment),
      so a recent-enough rollback target is likely already local and needs no re-pull.
 
-3. **Export BOTH image variables — never just one.** `docker-compose.staging.yml`
+3. **Export ALL THREE image variables — never just one or two.** `docker-compose.staging.yml`
    interpolates the *whole* file before filtering by service, so a compose command that
-   only sets `API_IMAGE` still fails on the ai-service's `${AI_SERVICE_IMAGE:?}` gate,
-   even for an api-only rollback:
+   only sets `API_IMAGE` still fails on the ai-service's `${AI_SERVICE_IMAGE:?}` gate (and,
+   as of GAP-XC-06, payer-web's `${PAYER_WEB_IMAGE:?}` gate too), even for an api-only
+   rollback:
    ```bash
    cd ~/deployments/badabhai-platform
    SHORT_SHA=<the previous good commit's first 7 chars>
    export API_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-api:sha-${SHORT_SHA}"
    export AI_SERVICE_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-ai-service:sha-${SHORT_SHA}"
+   export PAYER_WEB_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-payer-web:sha-${SHORT_SHA}"
    ```
+   `PAYER_WEB_PORT` is deliberately NOT in that list: it is `${PAYER_WEB_PORT:-3333}`
+   (defaulted, not fail-loud), precisely so a missing box-specific port can never brick an
+   api-only rollback the way the image gates above would. 3333 is the current box's free
+   port (3002 is taken there), so nothing needs exporting — override only on a box where
+   3333 is unavailable.
 
 4. **Log into GHCR** (the package is private; an expired/missing login 401s the pull):
    ```bash
@@ -58,19 +65,24 @@ older, already-built image.
    COMPOSE="docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api"
    $COMPOSE pull api
    $COMPOSE pull ai-service
+   $COMPOSE pull payer-web
    $COMPOSE up -d --no-deps redis        # box-local; must be started explicitly
    $COMPOSE up -d --no-deps ai-service
    curl -sf http://localhost:8000/health  # must return 200 before continuing
    $COMPOSE up -d --no-deps api
    curl -sf http://localhost:3001/health  # must return 200
+   $COMPOSE up -d --no-deps payer-web
+   curl -sf "http://localhost:${PAYER_WEB_PORT:-3333}/health"  # must return 200
    ```
    `--no-deps` on every `up` is deliberate: it is what keeps the compose-internal
    throwaway Postgres/Adminer from ever starting on this box — staging's `DATABASE_URL`
    is the real (Supabase) Postgres, never the compose-internal one.
 
-6. **Verify.** Both `/health` endpoints 200, and `$COMPOSE ps` shows both containers
-   `Up`/`healthy`. `/health` on both checks connectivity only (`SELECT 1` + Redis
-   `PING`) — it does NOT prove the rolled-back code is correct, only that it booted.
+6. **Verify.** All three `/health` endpoints 200, and `$COMPOSE ps` shows all three
+   containers `Up`/`healthy`. api's and ai-service's `/health` check connectivity
+   (`SELECT 1` + Redis `PING`); payer-web's `/health` is a bare liveness probe
+   (`apps/payer-web/src/app/health/route.ts` — no upstream call). None of the three
+   proves the rolled-back code is *correct*, only that it booted.
 
 7. **Log out of GHCR** when done (`docker logout ghcr.io`) — never leave a registry
    credential on the box, matching the deploy job's own `trap ... EXIT` discipline.
@@ -101,5 +113,7 @@ locally-cached image.
 
 Rolling back a `staging-cd.yml` deploy (a different, `workflow_dispatch`-only pipeline
 for a *persistent* staging host — see that workflow's own header comments); provisioning
-a new box from scratch; anything about `apps/web`/`apps/payer-web`/`apps/admin-web` —
-see `docs/operations/COMMANDS.md` (BL-1): none of the three is deployed yet.
+a new box from scratch; anything about `apps/web`/`apps/admin-web` — see
+`docs/operations/COMMANDS.md` (BL-1): neither is deployed anywhere as of this writing.
+`apps/payer-web` IS now deployed by this same `deploy-lightsail` job (GAP-XC-06, #920) —
+see the rollback steps above, which now cover all three images.
