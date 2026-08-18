@@ -603,3 +603,75 @@ describe("evalArg — selecting a dataset must not fail open", () => {
     expect(() => evalArg(["--fixture="], "--fixture")).toThrow(/no value/);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────
+// R19 — the merged skill is now a LEGAL fixture target
+// ─────────────────────────────────────────────────────────────────────────────────────
+
+describe("skill_drawing_reading is in scope for fixture authorship (R19)", () => {
+  const TARGET = "skill_drawing_reading";
+
+  it("has job_domain_skill edges, so a case naming it is not unpassable by construction", () => {
+    // Before the R19 re-point this skill held ZERO edges, and `validateEvalFixture` rejected
+    // every case for it with EXPECTED_SKILL_NOT_IN_SCOPE ("unpassable by construction"). That
+    // made the fixture-first ordering circular: coverage could not be written for the defect
+    // until the defect was fixed. This is the assertion that the circle is broken — and the
+    // regression guard if anyone ever un-points those edges.
+    const corpus = loadTaxonomyCorpus();
+    const edges = corpus.edges.filter((e) => e.skill_id === TARGET);
+    expect(edges.length).toBeGreaterThan(0);
+  });
+
+  it("validateEvalFixture ACCEPTS a case expecting it in one of its own domains", () => {
+    const corpus = loadTaxonomyCorpus();
+    const authored = new Set(corpus.skills.map((s) => s.skill_id));
+    const shipped = new Set(corpus.edges.map((e) => e.skill_id).filter((id) => !authored.has(id)));
+    const domain = corpus.edges.find((e) => e.skill_id === TARGET)!.job_domain_id;
+
+    const probe = {
+      manifest: { fixture_id: "probe", version: 99, description: "probe", corpus_batch: "x" },
+      cases: [
+        {
+          case_id: "R19-SCOPE",
+          query: "GD&T",
+          lang: "en",
+          category: "exact_alias",
+          job_domain_id: domain,
+          expected_skill_id: TARGET,
+          provenance: `corpus_alias:${TARGET}/en`,
+          review_status: "mechanical",
+        },
+      ],
+    } as unknown as Parameters<typeof validateEvalFixture>[0];
+
+    expect(validateEvalFixture(probe, corpus, shipped)).toEqual([]);
+  });
+
+  it("still REJECTS a domain the skill is not wired to, so the check is not vacuous", () => {
+    const corpus = loadTaxonomyCorpus();
+    const authored = new Set(corpus.skills.map((s) => s.skill_id));
+    const shipped = new Set(corpus.edges.map((e) => e.skill_id).filter((id) => !authored.has(id)));
+    const own = new Set(corpus.edges.filter((e) => e.skill_id === TARGET).map((e) => e.job_domain_id));
+    const foreign = corpus.domains.map((d) => d.job_domain_id).find((d) => !own.has(d))!;
+
+    const probe = {
+      manifest: { fixture_id: "probe", version: 99, description: "probe", corpus_batch: "x" },
+      cases: [
+        {
+          case_id: "R19-OUT",
+          query: "GD&T",
+          lang: "en",
+          category: "exact_alias",
+          job_domain_id: foreign,
+          expected_skill_id: TARGET,
+          provenance: `corpus_alias:${TARGET}/en`,
+          review_status: "mechanical",
+        },
+      ],
+    } as unknown as Parameters<typeof validateEvalFixture>[0];
+
+    expect(validateEvalFixture(probe, corpus, shipped).map((p) => p.code)).toContain(
+      "EXPECTED_SKILL_NOT_IN_SCOPE",
+    );
+  });
+});
