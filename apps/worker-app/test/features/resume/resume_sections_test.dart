@@ -87,6 +87,27 @@ Expected salary: 20000 per month''';
     ));
   }
 
+  testWidgets(
+      'education level is humanized — a raw `below_10` token never reaches the '
+      'screen', (WidgetTester tester) async {
+    // The deterministic template carries the raw scalar the extractor emits.
+    const String withToken = '''WORKER PROFILE (DRAFT)
+
+Role: CNC Operator
+Education level: below_10
+Current location: Faridabad''';
+
+    await pumpSections(tester, withToken);
+
+    // The friendly label shows…
+    expect(
+      find.textContaining('Education level: 10th se kam', findRichText: true),
+      findsOneWidget,
+    );
+    // …and the raw DB token is nowhere on the screen.
+    expect(find.textContaining('below_10', findRichText: true), findsNothing);
+  });
+
   testWidgets('night-shift readiness renders as a Yes/No row under Location',
       (WidgetTester tester) async {
     await pumpWithNightShift(tester, true);
