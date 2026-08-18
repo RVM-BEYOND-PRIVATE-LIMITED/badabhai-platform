@@ -57,7 +57,7 @@ export function PayerDetailView({
           </p>
         </div>
         <div className="page__actions">
-          <Link className="btn btn--ghost" href={`/events?subjectType=payer&subjectId=${payer.id}`}>
+          <Link className="btn btn--ghost" href={`${backHref}/${payer.id}/timeline`}>
             View event timeline
           </Link>
         </div>
@@ -178,10 +178,7 @@ export function PayerDetailView({
               normal shape of an abandoned signup — the event timeline shows how far it got.
             </p>
             <div className="state__actions">
-              <Link
-                className="btn btn--ghost"
-                href={`/events?subjectType=payer&subjectId=${payer.id}`}
-              >
+              <Link className="btn btn--ghost" href={`${backHref}/${payer.id}/timeline`}>
                 View event timeline
               </Link>
             </div>

@@ -152,3 +152,28 @@ export function creditReasonLabel(reason: string): string {
       return reason.replace(/_/g, " ");
   }
 }
+
+/**
+ * Human label for a credit-pack code (`packages/db/src/credit-packs.ts` — the §3A offered
+ * packs plus the two legacy codes retained for `credit_ledger` history). Kept local rather
+ * than importing that package: this is a display label, not a pricing rule, and admin-web
+ * must not gain a dependency on the pricing package for it.
+ */
+export function packCodeLabel(code: string): string {
+  switch (code) {
+    case "pack_10":
+      return "10-credit pack";
+    case "pack_25":
+      return "25-credit pack";
+    case "pack_50":
+      return "50-credit pack";
+    case "pack_200":
+      return "200-credit pack";
+    case "pack_1000":
+      return "1,000-credit pack";
+    default:
+      // An unmapped pack code is shown RAW rather than hidden — mirrors creditReasonLabel's
+      // fallback, so a future pack code degrades gracefully instead of rendering blank.
+      return code.replace(/_/g, " ");
+  }
+}
