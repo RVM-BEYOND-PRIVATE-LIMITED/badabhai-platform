@@ -46,14 +46,22 @@ class BbChatBubble extends StatelessWidget {
     const Radius soft = Radius.circular(AppRadii.md);
     const Radius tail = Radius.circular(AppRadii.bubbleTail);
 
+    // Owner request: the WORKER's own (outgoing) bubbles are a FADED theme blue
+    // with WHITE text; bada bhai's replies stay exactly as they were (white card,
+    // dark text). A failed send stays the crimson warning tint.
+    final bool workerFilled = fromWorker && !failed;
     final Color background = failed
         ? AppColors.red50
-        : (fromWorker ? AppColors.blueTintChat : AppColors.surfaceCard);
-    // Outgoing bubble is borderless in the Josh system, so its border matches the
-    // fill; incoming keeps the hairline; a failed send stays crimson-outlined.
+        : (fromWorker ? AppColors.blueChatOut : AppColors.surfaceCard);
+    // Outgoing bubble is borderless (border matches the fill); incoming keeps the
+    // hairline; a failed send stays crimson-outlined.
     final Color borderColor = failed
         ? AppColors.red600
-        : (fromWorker ? AppColors.blueTintChat : AppColors.borderSubtle);
+        : (fromWorker ? AppColors.blueChatOut : AppColors.borderSubtle);
+    // White on the filled blue bubble; dark ink everywhere else (incoming, and a
+    // failed worker bubble sits on the light crimson tint so it keeps dark text).
+    final Color textColor =
+        workerFilled ? AppColors.onBlue : AppColors.textPrimary;
 
     final Widget bubble = Container(
       // Bubbles never span the full column — cap at ~78% so the speaker side is
@@ -90,7 +98,7 @@ class BbChatBubble extends StatelessWidget {
             // easily-legible size; the composer/CTA below keep their tap targets.
             style: AppTypography.body(
               size: AppTypography.sizeSm,
-              color: AppColors.textPrimary,
+              color: textColor,
             ),
           ),
           if (failed) ...<Widget>[
