@@ -1,0 +1,250 @@
+{
+  "kind": "td01-trainer-review-pack",
+  "generated_against": "authoritative corpus source files on main (no database)",
+  "why_now": "Before R19 this pack was impossible: validateEvalFixture rejects any case whose expected skill has no job_domain_skill edge (EXPECTED_SKILL_NOT_IN_SCOPE, 'unpassable by construction'), and skill_drawing_reading had none. The edge re-point made it valid.",
+  "ground_truth_status": "NOT AUTHORED. Every paraphrase slot has an empty query and awaits a trainer.",
+  "existing_fixture_coverage_for_this_skill": 0,
+  "domain_detail": [
+    {
+      "job_domain_id": "jd_nco_7543_2001",
+      "default_requirement": "required",
+      "relevance": 88,
+      "slot_opened": true
+    },
+    {
+      "job_domain_id": "jd_nco_7223_6003",
+      "default_requirement": "required",
+      "relevance": 86,
+      "slot_opened": true
+    },
+    {
+      "job_domain_id": "jd_nco_7223_0701",
+      "default_requirement": "required",
+      "relevance": 82,
+      "slot_opened": true
+    },
+    {
+      "job_domain_id": "jd_nco_7224_0102",
+      "default_requirement": "required",
+      "relevance": 80,
+      "slot_opened": true
+    },
+    {
+      "job_domain_id": "jd_nco_7313_2601",
+      "default_requirement": "preferred",
+      "relevance": 78,
+      "slot_opened": false
+    },
+    {
+      "job_domain_id": "jd_nco_7223_6002",
+      "default_requirement": "preferred",
+      "relevance": 76,
+      "slot_opened": false
+    },
+    {
+      "job_domain_id": "jd_isco_7213",
+      "default_requirement": "preferred",
+      "relevance": 66,
+      "slot_opened": false
+    },
+    {
+      "job_domain_id": "jd_nco_7126_0301",
+      "default_requirement": "preferred",
+      "relevance": 66,
+      "slot_opened": false
+    },
+    {
+      "job_domain_id": "jd_nco_7212_0301",
+      "default_requirement": "preferred",
+      "relevance": 66,
+      "slot_opened": false
+    },
+    {
+      "job_domain_id": "jd_nco_8211_1200",
+      "default_requirement": "preferred",
+      "relevance": 62,
+      "slot_opened": false
+    },
+    {
+      "job_domain_id": "jd_nco_7412_0200",
+      "default_requirement": "preferred",
+      "relevance": 62,
+      "slot_opened": false
+    },
+    {
+      "job_domain_id": "jd_nco_7231_0400",
+      "default_requirement": "preferred",
+      "relevance": 60,
+      "slot_opened": false
+    }
+  ],
+  "slots_awaiting_trainer": 5,
+  "mechanical_cases": 2,
+  "entries": [
+    {
+      "skill_id": "skill_drawing_reading",
+      "label_en": "Drawing reading (GD&T / technical drawing)",
+      "label_hi": null,
+      "status": "active",
+      "domains": [
+        "jd_nco_7543_2001",
+        "jd_nco_7223_6003",
+        "jd_nco_7223_0701",
+        "jd_nco_7224_0102",
+        "jd_nco_7313_2601",
+        "jd_nco_7223_6002",
+        "jd_isco_7213",
+        "jd_nco_7126_0301",
+        "jd_nco_7212_0301",
+        "jd_nco_8211_1200",
+        "jd_nco_7412_0200",
+        "jd_nco_7231_0400"
+      ],
+      "existing_aliases": [
+        {
+          "text": "drawing reading",
+          "lang": "en"
+        },
+        {
+          "text": "GD&T",
+          "lang": "en"
+        },
+        {
+          "text": "geometric dimensioning and tolerancing",
+          "lang": "en"
+        },
+        {
+          "text": "blueprint reading",
+          "lang": "en"
+        },
+        {
+          "text": "CAD",
+          "lang": "en"
+        },
+        {
+          "text": "technical drawing",
+          "lang": "en"
+        },
+        {
+          "text": "read engineering drawings",
+          "lang": "en"
+        },
+        {
+          "text": "drawing padhna",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [
+        {
+          "skill_id": "skill_cam_software",
+          "label": "CAM software (Mastercam/Fusion/etc.)",
+          "alias": "CAM software",
+          "similarity": 0.6811617231752203
+        },
+        {
+          "skill_id": "skill_tig_welding",
+          "label": "TIG welding",
+          "alias": "GTAW",
+          "similarity": 0.669184106025224
+        },
+        {
+          "skill_id": "skill_cmm",
+          "label": "CMM operation",
+          "alias": "coordinate measuring machine",
+          "similarity": 0.6642824141522381
+        },
+        {
+          "skill_id": "skill_fixture_setup",
+          "label": "Fixture / job setup",
+          "alias": "workholding",
+          "similarity": 0.6427257545560601
+        }
+      ],
+      "proposed_cases": [
+        {
+          "case_id": "MX-drawing_reading-1",
+          "query": "drawing reading",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7543_2001",
+          "expected_skill_id": "skill_drawing_reading",
+          "provenance": "corpus_alias:skill_drawing_reading/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-drawing_reading-2",
+          "query": "GD&T",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7543_2001",
+          "expected_skill_id": "skill_drawing_reading",
+          "provenance": "corpus_alias:skill_drawing_reading/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-drawing_reading-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7543_2001",
+          "expected_skill_id": "skill_drawing_reading",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-drawing_reading-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7543_2001",
+          "expected_skill_id": "skill_drawing_reading",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-drawing_reading-jd_nco_7223_6003",
+          "query": "",
+          "lang": "en",
+          "category": "multi_domain_reach",
+          "job_domain_id": "jd_nco_7223_6003",
+          "expected_skill_id": "skill_drawing_reading",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — jd_nco_7223_6003 marks this skill \"required\", so it is not optional work there. Write how a worker in THIS domain would describe it without reusing an alias verbatim, then set review_status to \"reviewed\". Left blank on purpose."
+        },
+        {
+          "case_id": "PR-drawing_reading-jd_nco_7223_0701",
+          "query": "",
+          "lang": "en",
+          "category": "multi_domain_reach",
+          "job_domain_id": "jd_nco_7223_0701",
+          "expected_skill_id": "skill_drawing_reading",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — jd_nco_7223_0701 marks this skill \"required\", so it is not optional work there. Write how a worker in THIS domain would describe it without reusing an alias verbatim, then set review_status to \"reviewed\". Left blank on purpose."
+        },
+        {
+          "case_id": "PR-drawing_reading-jd_nco_7224_0102",
+          "query": "",
+          "lang": "en",
+          "category": "multi_domain_reach",
+          "job_domain_id": "jd_nco_7224_0102",
+          "expected_skill_id": "skill_drawing_reading",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — jd_nco_7224_0102 marks this skill \"required\", so it is not optional work there. Write how a worker in THIS domain would describe it without reusing an alias verbatim, then set review_status to \"reviewed\". Left blank on purpose."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Drawing reading (GD&T / technical drawing)\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Is \"CAM software\" (skill_cam_software, cosine 0.6812) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Is \"GTAW\" (skill_tig_welding, cosine 0.6692) a DIFFERENT skill or the same work under another name? If the same, this is a taxonomy merge, not an eval case. If different, say what distinguishes them so the paraphrase can be written to separate them.",
+        "Reachable in 12 domains (jd_nco_7543_2001, jd_nco_7223_6003, jd_nco_7223_0701, jd_nco_7224_0102, jd_nco_7313_2601, jd_nco_7223_6002, jd_isco_7213, jd_nco_7126_0301, jd_nco_7212_0301, jd_nco_8211_1200, jd_nco_7412_0200, jd_nco_7231_0400). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ]
+    }
+  ]
+}
