@@ -14,7 +14,7 @@ reference, not a transcript of a deleted document.
 
 | File | Trigger | Blocking? | What it does |
 |---|---|---|---|
-| `ci.yml` | `push`/`pull_request` → `main` | **Yes — `ci-required` is the sole required check on `main`** | Lint/typecheck/test/build, ai-service pytest/ruff, E2E onboarding, Flutter gates, SAST, dependency audit, Docker build+push, Lightsail deploy |
+| `ci.yml` | `push`/`pull_request` → `main` | **Yes — `ci-required` is the sole required check on `main`** | Lint/typecheck/test/build, ai-service pytest/ruff, E2E onboarding, Flutter gates, SAST, dependency audit, Docker build+push, Lightsail deploy, worker APK build+release |
 | `worker-app.yml` | `workflow_call` only (called from `ci.yml`) | Yes, via `ci.yml`'s `worker-app` job | Flutter `analyze` + `test` for `apps/worker-app`, pinned Flutter 3.35.7/Dart 3.9.2 |
 | `payer-app.yml` | `workflow_call` only (called from `ci.yml`) | Yes, via `ci.yml`'s `payer-app` job | Same as above for `apps/payer-app` |
 | `sast.yml` | `workflow_call` (called from `ci.yml` per-PR **and** `security-scan.yml` weekly) | Yes on the `ci.yml` call | Semgrep OSS (`p/default`, `p/typescript`, `p/python`, `p/secrets`) |

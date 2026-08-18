@@ -117,6 +117,135 @@ jobs:
     if: needs.changes.outputs.payer-app == 'true'
     uses: ./.github/workflows/payer-app.yml
 
+  # ---- Worker app: build + publish the release APK (#920) ----
+  #
+  # `worker-app.yml`'s `analyze-test` job (called just above) is a PR gate — it never
+  # produces an artifact. Per #920: "CI never builds or distributes the worker
+  # APK... an app fix can be merged, green, and on main, while every tester's device
+  # runs a build from days earlier." This job closes that gap: on every push to `main`
+  # that touches `apps/worker-app`, it builds the release APK and publishes it as a
+  # GitHub Release asset — a stable, direct, public download link with zero new
+  # infrastructure (no box config, no storage bucket, no new secret).
+  #
+  # PUSH-TO-MAIN ONLY, NOT in `ci-required` — same shape as `build-and-push-image` /
+  # `deploy-lightsail` further below: this is a publish action, not a PR gate, so a PR
+  # cannot merge on it and it must not be able to block one. Lives HERE rather than as
+  # a second job inside `worker-app.yml` because that file is a pure `workflow_call`
+  # PR gate (see its own header comment) with no push-vs-PR awareness of its own — the
+  # push-vs-PR decision belongs at the caller, exactly where `build-and-push-image`
+  # already makes the identical decision for the Docker images.
+  #
+  # `needs: [changes, worker-app]` lists `changes` DIRECTLY, not only transitively
+  # through `worker-app` — see `build-and-push-image`'s comment further below for the
+  # measured reason: an `always()` job's implicit-success absorption at one hop does
+  # not "cleanse" a `changes` failure or cancellation for a job two hops downstream.
+  #
+  # `needs.worker-app.result == 'success'` — deliberately NOT tolerant of `skipped`,
+  # unlike `build-and-push-image`'s tolerance of `ai-service`/`e2e` being skipped.
+  # `worker-app` IS path-filtered by `changes.outputs.worker-app`, and BOTH its
+  # outcomes are legitimate (skipped = nothing under apps/worker-app changed; success
+  # = it changed and the analyze/test gate passed) — but only `success` means there is
+  # a new APK worth publishing. A skipped `worker-app` correctly skips this job too:
+  # the most recent Release is still current, and a failed `worker-app` must not ship.
+  #
+  # NO NEW SIGNING SECRET. `apps/worker-app/android/app/build.gradle` already signs
+  # release builds with the Flutter debug keystore (`signingConfig =
+  # signingConfigs.debug`, "so `flutter run --release` works") — the same ratified,
+  # deliberate decision that already covers `assetlinks.json` on this same issue
+  # thread: ship the debug fingerprint for sideload QA now, swap in the real Play App
+  # Signing key only at Play launch. `flutter build apk --release` in CI therefore
+  # produces the SAME artifact a developer already gets locally today.
+  worker-app-apk:
+    name: Worker app (build + release APK)
+    needs: [changes, worker-app]
+    if: >-
+      always() &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.changes.result == 'success' &&
+      needs.worker-app.result == 'success'
+    runs-on: ubuntu-latest
+    # Only scope granted: the Releases API (create release + upload asset) needs
+    # contents:write. No packages:*, no id-token — narrower than build-and-push-image.
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: apps/worker-app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Pinned identically to worker-app.yml's analyze-test job — see that file's
+      # comment for why the pin exists and what breaks below it (Dart >=3.9.0 floor).
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.35.7"
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      # First job in this repo to actually invoke the Android/Gradle build (analyze-test
+      # above runs no native build) — `ubuntu-latest` ships a preinstalled, license-
+      # accepted Android SDK, which is what `flutter build apk` needs beyond Flutter
+      # itself.
+      - name: Build release APK
+        run: flutter build apk --release
+
+      # Rename with the commit's short SHA so the artifact carries its own provenance
+      # in the filename — trivial, obviously-correct traceability. Does not attempt
+      # #966's separate in-app build-id work.
+      - name: Stage the APK
+        id: vars
+        run: |
+          set -euo pipefail
+          SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-7)"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          cp build/app/outputs/flutter-apk/app-release.apk "worker-app-sha-${SHORT_SHA}.apk"
+
+      # `worker-app-sha-<short7>` (not the bare `sha-<short7>` the ghcr images use):
+      # GitHub Release tags are repo-wide, and this monorepo also ships
+      # apps/payer-app — an eventual identical pipeline for it would collide with a
+      # bare `sha-<short7>` tag on the same commit. Prefixed once, here, to avoid that
+      # collision pre-emptively.
+      - name: Publish GitHub Release with the APK asset
+        id: release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: worker-app-sha-${{ steps.vars.outputs.short_sha }}
+          name: Worker app — sha-${{ steps.vars.outputs.short_sha }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Automated build from commit ${{ github.sha }}.
+            Debug-signed release APK (sideload QA build — see
+            apps/worker-app/android/app/build.gradle). Enable "install from unknown
+            sources" to sideload; this is not a Play Store build.
+          files: apps/worker-app/worker-app-sha-${{ steps.vars.outputs.short_sha }}.apk
+          # Fail loud, not silent, if `flutter build apk` didn't produce the file
+          # this step expects (e.g. a future Flutter bump moves the output path).
+          fail_on_unmatched_files: true
+
+      # The direct download link #920 asked for. A GitHub release-asset URL is a
+      # deterministic function of the tag and the asset filename — constructed
+      # directly here rather than parsed out of the action's JSON `assets` output, so
+      # this step's correctness does not depend on that output's exact schema.
+      - name: Job summary
+        run: |
+          SHORT_SHA="${{ steps.vars.outputs.short_sha }}"
+          TAG="worker-app-sha-${SHORT_SHA}"
+          ASSET="worker-app-sha-${SHORT_SHA}.apk"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${ASSET}"
+          {
+            echo "### Worker app APK published"
+            echo ""
+            echo "Commit: \`${{ github.sha }}\`"
+            echo ""
+            echo "Direct download: ${DOWNLOAD_URL}"
+            echo ""
+            echo "Release page: ${{ steps.release.outputs.url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # ---- SAST, INSIDE the aggregator (#773) ----
   #
   # Same structural fix as the two Flutter jobs above, for the same reason. semgrep lived in
