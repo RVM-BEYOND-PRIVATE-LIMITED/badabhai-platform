@@ -33,9 +33,12 @@ export interface AiCostAccrual {
  * subtract would be a repository someone could use to make a number look better.
  *
  * ALWAYS RUNS ON A CALLER-SUPPLIED TRANSACTION. The `tx` parameter is required, not optional,
- * because the ONE thing that makes these numbers trustworthy is that they move in the same
- * commit as the `ai.cost_recorded` row they are derived from. An overload that opened its own
- * transaction would make the drifting version the easy one to call.
+ * because on the success path these numbers move in the SAME commit as the `ai.cost_recorded`
+ * row they are derived from. An overload that opened its own transaction would make the
+ * drifting version the easy one to call. (The recorder runs this inside a {@link
+ * AiCostTotalsRepository.withSavepoint} so that a FAILED accrual costs only the accrual — see
+ * `AiCostRecorder.record`. Success is atomic with the event; failure degrades to "the totals
+ * trail the spine", never to "the ledger row was destroyed".)
  *
  * NO BUSINESS LOGIC HERE (CLAUDE.md §4): the decision of WHETHER to accrue — only when the
  * event row was actually inserted, never on a deduplicated redelivery — belongs to
@@ -143,5 +146,25 @@ export class AiCostTotalsRepository {
    */
   async withTransaction<T>(work: (tx: Database) => Promise<T>): Promise<T> {
     return this.db.transaction(work as (tx: unknown) => Promise<T>);
+  }
+
+  /**
+   * Run `work` inside a SAVEPOINT on an ALREADY-OPEN transaction, so a failure inside it
+   * rolls back only what `work` did and leaves the enclosing transaction committable.
+   *
+   * WHY THIS EXISTS AND WHY IT IS HERE. In Postgres ANY error aborts the whole transaction —
+   * catching it in JavaScript does not heal it, the connection stays in `25P02` and the eventual
+   * `COMMIT` silently becomes a `ROLLBACK`. So a caller that wants "the ledger row commits even
+   * if its materialization fails" cannot get it with a try/catch; it needs a savepoint. Drizzle
+   * spells that as a nested `transaction()` on a transaction handle (`SAVEPOINT sp1` /
+   * `ROLLBACK TO SAVEPOINT sp1`), which is knowledge about how a `Database` handle behaves —
+   * i.e. this layer's, not the recorder's.
+   *
+   * NO POLICY HERE (CLAUDE.md §4). This method decides nothing about WHEN degrading is
+   * acceptable; it only makes degrading expressible. `AiCostRecorder` owns the rule that a
+   * totals failure must not take the `ai.cost_recorded` row down with it.
+   */
+  async withSavepoint<T>(tx: Database, work: (sp: Database) => Promise<T>): Promise<T> {
+    return tx.transaction(work as (sp: unknown) => Promise<T>);
   }
 }

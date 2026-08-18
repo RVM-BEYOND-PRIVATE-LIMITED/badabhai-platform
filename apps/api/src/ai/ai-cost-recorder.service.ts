@@ -6,18 +6,26 @@ import { EventsService } from "../events/events.service";
 import { AiCostTotalsRepository } from "./ai-cost-totals.repository";
 
 /**
- * WHO THIS SPEND BELONGS TO. Both fields are OPTIONAL and both may legitimately be absent —
- * payer-side calls have no worker, and an inline call has no interview behind it.
+ * WHO THIS SPEND BELONGS TO. Absent attribution is legitimate — payer-side calls have no
+ * worker, and an inline call has no interview behind it.
+ *
+ * A SESSION IMPLIES A WORKER, IN THE TYPE. `session_ai_cost_totals.worker_id` is NOT NULL (it
+ * is the second cascade path to DSAR erasure), so `accrue` can only write the per-session row
+ * when it has BOTH ids. With two independently-optional fields, a future call site that knew
+ * only the session id would compile, emit a perfectly valid event, and silently accrue no
+ * session total — no throw, no warning, nothing to grep for. Making the pair the only
+ * session-carrying shape moves that from "a defect someone reports in a dashboard six weeks
+ * later" to "a type error at the call site". The three variants below are the only ones that
+ * exist: nothing, a worker, or a worker and their session.
  *
  * IDS ONLY, AND ONLY OPAQUE INTERNAL ONES (§2). These are the same UUIDs `subject_id` and
  * `ai_jobs.input_ref` already carry. Nothing derived from what a worker said, typed, or is
  * called may ever be added to this shape — the whole point of attributing cost by id is that
  * the ledger never has to hold identity to answer "whose spend was this".
  */
-export interface AiCostAttribution {
-  readonly workerId?: string | null;
-  readonly sessionId?: string | null;
-}
+export type AiCostAttribution =
+  | { readonly workerId?: null; readonly sessionId?: null }
+  | { readonly workerId: string; readonly sessionId?: string | null };
 
 /**
  * THE ONE PLACE `ai.cost_recorded` IS EMITTED, FOR EVERY PROVIDER SURFACE.
@@ -34,8 +42,9 @@ export interface AiCostAttribution {
  * model name, int counts, rupees and closed-set reason codes — never a prompt, a completion, a
  * transcript or anything a worker said.
  *
- * IT NOW ALSO MAINTAINS THE RUNNING TOTALS (migration 0077), in the SAME transaction as the
- * event. See {@link record} for why atomicity is the point rather than a detail.
+ * IT NOW ALSO MAINTAINS THE RUNNING TOTALS (migration 0077), on the same transaction as the
+ * event but inside a SAVEPOINT. See {@link record} for why the two directions of failure are
+ * not symmetric: the event must commit, the derived total may be rebuilt.
  */
 @Injectable()
 export class AiCostRecorder {
@@ -90,11 +99,33 @@ export class AiCostRecorder {
    * — is what makes a retried job idempotent here, and it is the same rule
    * `AdminActionsRepository.grantCredits` uses to bind a balance move to a NEW ledger row.
    *
-   * ATOMIC, SO THE TOTAL CANNOT DISAGREE WITH THE LEDGER IT IS DERIVED FROM. If the totals
-   * write fails the event insert rolls back with it. That is the deliberate trade: a totals
-   * table that silently trails the spine is wrong in a way nobody can see, whereas a missing
-   * cost event leaves BOTH sides consistent and re-derivable — the spine remains the source of
-   * truth and a backfill over it reconstructs the totals exactly.
+   * ATOMIC ON SUCCESS, DEGRADING ON FAILURE — AND THE ASYMMETRY IS THE POINT. The accrual runs
+   * inside a SAVEPOINT on the event's transaction, so:
+   *   - accrual succeeds → both rows commit together, and the total cannot disagree with the
+   *     ledger row it was derived from;
+   *   - accrual fails → the savepoint rolls back, the `ai.cost_recorded` row still COMMITS, and
+   *     the totals trail the spine until a backfill over `events` repairs them.
+   * That second line is the only recoverable failure of the two, and the earlier version of this
+   * method had it backwards. Without the savepoint, ANY error inside `accrue` aborts the whole
+   * transaction in Postgres — a JS `catch` does not heal `25P02`, the eventual `COMMIT` becomes a
+   * `ROLLBACK` — so a totals failure DESTROYED the audit-ledger row, and the `catch` below turned
+   * that into one `warn` line and a successful request. There is nothing to back-fill FROM once
+   * the event is gone: the spine is the source of truth, so the direction of the trade must be
+   * "lose the derived number, keep the ledger", never the reverse.
+   *
+   * IT IS NOT HYPOTHETICAL, AND THAT IS WHY IT IS A SAVEPOINT AND NOT A COMMENT. Three reachable
+   * triggers, none of them exotic:
+   *   1. DEPLOY ORDER — this code live against a database without 0077 makes the unconditional
+   *      `platform_ai_cost_totals` upsert raise `relation does not exist`, i.e. 100% of
+   *      `ai.cost_recorded` lost on EVERY surface, silently. (This is also what makes the
+   *      migration genuinely "not apply-before-deploy" rather than merely inconvenient.)
+   *   2. FK VIOLATION — a queued job can outlive its subject. `AccountDeletionService` hard-
+   *      deletes `workers` (cascading `chat_sessions`) while BullMQ jobs for that worker are
+   *      still in flight, and both totals FKs are NOT NULL.
+   *   3. LOCK CONTENTION — deadlock, lock timeout or statement timeout on the hot
+   *      `platform_ai_cost_totals(provider, task_type)` row, which the schema header names as a
+   *      known contention point by construction.
+   * All three now cost the derived number and nothing else.
    */
   async record(
     meta: AICallMetadata | null,
@@ -145,19 +176,36 @@ export class AiCostRecorder {
         // attempt that stored the event.
         if (!written) return;
 
-        await this.totals.accrue(
-          {
-            workerId,
-            sessionId,
-            // Defaulted to the SAME literal the payload carries, so the totals table and the
-            // event agree about an unlabelled call instead of dropping it.
-            provider: meta.provider || "unknown",
-            taskType,
-            costInr: meta.estimated_cost_inr,
-            realCall: meta.real_call,
-          },
-          tx,
-        );
+        // INSIDE A SAVEPOINT, AND CAUGHT SEPARATELY FROM THE EMIT. Everything above this line
+        // is the audit ledger and must reach COMMIT; everything below is a derived number that
+        // a backfill can rebuild. The savepoint is what lets one fail without the other, and
+        // the inner catch is what stops the failure from unwinding past it.
+        try {
+          await this.totals.withSavepoint(tx, (sp) =>
+            this.totals.accrue(
+              {
+                workerId,
+                sessionId,
+                // Defaulted to the SAME literal the payload carries, so the totals table and
+                // the event agree about an unlabelled call instead of dropping it.
+                provider: meta.provider || "unknown",
+                taskType,
+                costInr: meta.estimated_cost_inr,
+                realCall: meta.real_call,
+              },
+              sp,
+            ),
+          );
+        } catch (err) {
+          // The event row survives this. Logged distinctly from the emit failure below,
+          // because the two mean opposite things: "the ledger is missing a row" versus "the
+          // ledger has the row and the derived total is behind by one call".
+          this.logger.warn(
+            `ai cost totals accrual failed for call ${meta.ai_call_id} task=${taskType} — ` +
+              `the ai.cost_recorded event is COMMITTED and the totals now trail the spine ` +
+              `(repairable by backfill): ${String(err)}`,
+          );
+        }
       });
     } catch (err) {
       this.logger.warn(

@@ -199,15 +199,18 @@ describe("AiCostRecorder — the running totals", () => {
     expect(totals.accrued.reduce((sum, a) => sum + a.costInr, 0)).toBeCloseTo(1.5, 10);
   });
 
-  it("accrues on the SAME transaction the event insert rode", async () => {
-    // The fake throws if `accrue` arrives on any other handle. Atomicity is the only reason
-    // these numbers can be trusted: a total that can commit without its event is a total that
-    // silently disagrees with the ledger it claims to summarize.
+  it("accrues in a SAVEPOINT on the transaction the event insert rode", async () => {
+    // The fake throws if the savepoint is opened on any other handle, or if `accrue` arrives
+    // on anything but that savepoint. Both halves matter: same transaction is why a successful
+    // total cannot disagree with its ledger row, and the savepoint is why a FAILED total
+    // cannot delete that ledger row (see ai-cost-recorder.atomicity.test.ts).
     const { rec, emitOnce, totals } = make();
     await rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", {
       workerId: WORKER,
     });
     expect((emitOnce.mock.calls[0]![0] as { tx: unknown }).tx).toBe(FAKE_TX);
+    expect(totals.transactions).toBe(1);
+    expect(totals.savepoints).toBe(1);
     expect(totals.accrued).toHaveLength(1);
   });
 
@@ -241,14 +244,36 @@ describe("AiCostRecorder — it never fails the work it observes", () => {
   });
 
   it("swallows a failed TOTALS write — a cost row must not take an interview down", async () => {
-    // And the event rolls back with it (one transaction), which is the deliberate trade: the
-    // spine stays the source of truth and a backfill over it reconstructs the total exactly,
-    // whereas a total that quietly trails the spine is wrong in a way nobody can see.
+    // …and the event does NOT roll back with it: the accrual runs in a savepoint, so a totals
+    // failure costs the derived number and leaves the ledger row committed. That the ROW
+    // survives is a transaction property, proved in ai-cost-recorder.atomicity.test.ts; what
+    // this asserts is the caller-visible half — no throw, and nothing accrued.
     const { rec, totals } = make();
     totals.failNext = true;
     await expect(
       rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", { workerId: WORKER }),
     ).resolves.toBeUndefined();
     expect(totals.accrued).toHaveLength(0);
+    expect(totals.savepoints).toBe(1);
+  });
+
+  it("a failed totals write does not stop the NEXT call from accruing", async () => {
+    // The degraded path must be per-call, not sticky: one FK violation or lock timeout may
+    // cost one call's total, never the rest of the process's.
+    const { rec, totals } = make();
+    totals.failNext = true;
+    await rec.record(META, "profiling_chat_turn", null, CORRELATION, "req-1", {
+      workerId: WORKER,
+    });
+    totals.failNext = false;
+    await rec.record(
+      { ...META, ai_call_id: "66666666-6666-4666-8666-666666666666" },
+      "profiling_chat_turn",
+      null,
+      CORRELATION,
+      "req-2",
+      { workerId: WORKER },
+    );
+    expect(totals.accrued).toHaveLength(1);
   });
 });
