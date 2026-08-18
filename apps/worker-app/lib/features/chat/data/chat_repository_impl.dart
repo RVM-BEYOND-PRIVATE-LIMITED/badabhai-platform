@@ -92,7 +92,8 @@ class ChatRepositoryImpl implements ChatRepository {
         authToken: token,
         text: text,
         // #870 — rides the /chat/message body only when non-null; the api client
-        // adds the key conditionally, so a null (the voice-merge path) is absent.
+        // adds the key conditionally. Both callers now pass one (chat composer +
+        // the voice-merge path, #944); a null would simply be omitted.
         submissionId: submissionId,
       );
       // Carry the backend's tap-to-answer suggestions through to the UI. A

@@ -76,7 +76,8 @@ void main() {
     api = MockApiClient();
     chat = MockChatRepository();
     when(() => chat.ensureSession()).thenAnswer((_) async => null);
-    when(() => chat.sendMessage(any()))
+    when(() => chat.sendMessage(any(),
+            submissionId: any(named: 'submissionId')))
         .thenAnswer((_) async => const ChatTurn(reply: 'bhai reply'));
     when(() => api.uploadVoiceNote(
           authToken: any(named: 'authToken'),
@@ -147,7 +148,8 @@ void main() {
     // THE POINT OF THE SPLIT (Persona sheet #05): the transcript is returned for
     // the worker to confirm, and nothing has become their answer yet. A
     // sendMessage here is the exact bug the confirm turn exists to prevent.
-    verifyNever(() => chat.sendMessage(any()));
+    verifyNever(() => chat.sendMessage(any(),
+        submissionId: any(named: 'submissionId')));
   });
 
   test(
@@ -164,8 +166,42 @@ void main() {
     expect(outcome.transcript, 'CNC machine par 4 saal ka anubhav.');
     expect(outcome.reply, 'bhai reply');
     // The only text on the wire is the transcript — no raw phone/name.
-    verify(() => chat.sendMessage('CNC machine par 4 saal ka anubhav.'))
-        .called(1);
+    verify(() => chat.sendMessage('CNC machine par 4 saal ka anubhav.',
+        submissionId: any(named: 'submissionId'))).called(1);
+  });
+
+  test(
+      '#944: sendConfirmedTranscript carries a per-submission id, and a NEW '
+      'confirm mints a NEW id (a repeated answer is not a replay)', () async {
+    final VoiceNoteRepositoryImpl repo = buildRepo(
+      uploader: _FakeUploader(),
+      resolver: _FakeResolver(),
+    );
+
+    // Two identical confirmed answers — the exact short, repeatable input the
+    // server's inbound-hash fallback cannot disambiguate (#931).
+    await repo.sendConfirmedTranscript('haan');
+    await repo.sendConfirmedTranscript('haan');
+
+    final List<String?> ids = verify(
+      () => chat.sendMessage(any(),
+          submissionId: captureAny(named: 'submissionId')),
+    ).captured.cast<String?>();
+
+    expect(ids, hasLength(2));
+    // Every physical send carries a NON-NULL v4 UUID — the shape the server
+    // validates with `uuidSchema` — never the null that used to drop this path
+    // to the timing heuristic.
+    final RegExp v4 = RegExp(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-'
+        r'[0-9a-f]{12}$');
+    for (final String? id in ids) {
+      expect(id, isNotNull);
+      expect(v4.hasMatch(id!), isTrue, reason: 'not a v4 uuid: $id');
+    }
+    // Two DISTINCT actions → distinct ids, so the server never mistakes the
+    // second "haan" for a transport retry of the first.
+    expect(ids.first, isNot(ids.last));
   });
 
   test(
@@ -180,14 +216,17 @@ void main() {
         await repo.sendConfirmedTranscript('VMC operator, 4 saal.');
 
     expect(outcome.transcript, 'VMC operator, 4 saal.');
-    verify(() => chat.sendMessage('VMC operator, 4 saal.')).called(1);
+    verify(() => chat.sendMessage('VMC operator, 4 saal.',
+        submissionId: any(named: 'submissionId'))).called(1);
     // The resolver's string never reached the server — the worker corrected it.
-    verifyNever(
-        () => chat.sendMessage('CNC machine par 4 saal ka anubhav.'));
+    verifyNever(() => chat.sendMessage('CNC machine par 4 saal ka anubhav.',
+        submissionId: any(named: 'submissionId')));
   });
 
   test('sendConfirmedTranscript maps a transport error to a Failure', () async {
-    when(() => chat.sendMessage(any())).thenThrow(const NetworkFailure());
+    when(() => chat.sendMessage(any(),
+            submissionId: any(named: 'submissionId')))
+        .thenThrow(const NetworkFailure());
     final VoiceNoteRepositoryImpl repo = buildRepo(
       uploader: _FakeUploader(),
       resolver: _FakeResolver(),
@@ -231,7 +270,8 @@ void main() {
           storagePath: any(named: 'storagePath'),
           durationSeconds: any(named: 'durationSeconds'),
         ));
-    verifyNever(() => chat.sendMessage(any()));
+    verifyNever(() => chat.sendMessage(any(),
+        submissionId: any(named: 'submissionId')));
   });
 
   test(
@@ -300,6 +340,7 @@ void main() {
       repo.stopAndTranscribe(),
       throwsA(isA<VoiceUnavailableFailure>()),
     );
-    verifyNever(() => chat.sendMessage(any()));
+    verifyNever(() => chat.sendMessage(any(),
+        submissionId: any(named: 'submissionId')));
   });
 }
