@@ -113,6 +113,19 @@ export class ResumeRenderProcessor extends WorkerHost {
       displayName,
       resume.templateId,
       photoDataUri,
+      // #947 — the worker's OWN "Night shift ke liye taiyaar" answer. Off the worker row
+      // already loaded above for the name and the photo, so this costs no extra query.
+      //
+      // FROM THE WORKER ROW, NOT THE SNAPSHOT, AND THAT IS THE POINT. The snapshot only ever
+      // held the model's guess at a shift; this is the toggle the worker set themselves on the
+      // Edit-Resume screen, and it lives on `workers` precisely so it survives every profile
+      // regeneration and re-extraction. Reading it here is what finally puts their own answer
+      // on their own PDF.
+      //
+      // A MISSING ROW DEGRADES TO `false` — i.e. to saying nothing, never to printing "No".
+      // The same degrade the name and the photo take three lines up, and for the same reason:
+      // an infrastructure miss must not put a claim on the résumé.
+      worker?.resumeNightShiftReady ?? false,
       // The worker's OWN copy — real name, their photo, and their expected salary. The
       // payer-facing disclosure passes "employer" and gets none of the three.
       "worker",

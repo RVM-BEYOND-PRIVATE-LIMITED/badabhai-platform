@@ -524,12 +524,43 @@ describe("WorkersService.updateResumePrefs", () => {
     );
   });
 
-  it("TD77: an UNCHANGED show_photo does not re-render (no wasted render)", async () => {
-    // night-shift changed; show_photo is identical before and after.
+  it("#947: flipping night_shift_ready re-renders — it now decides PDF content", async () => {
+    // THIS TEST USED TO ASSERT THE OPPOSITE, and asserting the opposite was correct until #947:
+    // `resume_night_shift_ready` changed nothing on the page, so re-rendering for it would have
+    // burned a render that could not alter a byte. Now the toggle rides the `{{availability}}`
+    // line, and the old assertion had become the defect — a worker who already had a résumé has
+    // `render_status: "rendered"`, `ResumeRenderProcessor` skips those without `force`, so the
+    // line they had just asked for reached them never. The payer disclosure renders fresh every
+    // time, so the employer would have seen it while the worker still could not.
     const updated = { ...WORKER_WITH_PHOTO, resumeNightShiftReady: true };
     const { svc, renderQueue } = resumeFieldsSetup(WORKER_WITH_PHOTO, updated);
 
     await svc.updateResumePrefs("w-1", { night_shift_ready: true }, CTX);
+
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      expect.anything(),
+      // `force`, or the processor skips an already-rendered résumé and the flip is stranded.
+      // `failClosed: false` — unlike hiding a photo, nothing here erases PII from a document, so
+      // a failed re-render costs a stale line and never a leak.
+      expect.objectContaining({ force: true, failClosed: false }),
+    );
+  });
+
+  it("TD77: a PATCH that changes neither pref does not re-render (no wasted render)", async () => {
+    // The no-waste guarantee the test above used to carry, kept and made honest: both prefs are
+    // byte-identical before and after, so the PDF cannot change and no render may be spent. The
+    // gate compares before-vs-after rather than reading which keys the body happened to carry,
+    // which is what makes a re-PATCH of the same values free.
+    const { svc, renderQueue } = resumeFieldsSetup(WORKER_WITH_PHOTO, { ...WORKER_WITH_PHOTO });
+
+    await svc.updateResumePrefs(
+      "w-1",
+      {
+        show_photo: WORKER_WITH_PHOTO.resumeShowPhoto,
+        night_shift_ready: WORKER_WITH_PHOTO.resumeNightShiftReady,
+      },
+      CTX,
+    );
 
     expect(renderQueue.add).not.toHaveBeenCalled();
   });
