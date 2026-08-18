@@ -1188,25 +1188,6 @@ export class ProfileExtractionProcessor extends WorkerHost {
   }
 
   /**
-   * Emit the dedicated `ai.cost_recorded` observability event for ONE AI call.
-   *
-   * No-ops on the mock/AI-down path (no metadata = no real call to record), and swallows any
-   * emit/validation error so it can never fail the extraction. Carries operational fields only
-   * — never prompts, completions, or PII.
-   *
-   * `taskType` IS A PARAMETER NOW, AND IT USED TO BE THE STRING `"profile_extraction"`, HARD-CODED.
-   * That was accurate while extraction was the only call this job made. The Phase 8 cutover added
-   * a second — `/profile/parse`, which is the ONLY LLM call left in the whole interview — and a
-   * hard-coded task type is not something a compiler can notice is now wrong.
-   *
-   * KEYED ON `ai_call_id`, NOT ON THE JOB. One job now makes two billable calls, and a
-   * per-job key silently deduped the second away: the extraction record landed, the parse record
-   * was dropped as a duplicate, and the interview's model spend disappeared into a dedup. The
-   * call id is what this event is actually about, so it is what exactly-once should mean here.
-   * (Across the deploy that changes this, an in-flight job redelivered mid-flight can write one
-   * duplicate extraction row. Observability only, and `ai_call_id` lets a reader collapse it.)
-   */
-  /**
    * Phase C — read the whole conversation once, for what the answer map cannot hold.
    *
    * BEHIND THE SAME FLAG AS THE INTERVIEW. Off, and this returns null before touching the
@@ -1282,6 +1263,12 @@ export class ProfileExtractionProcessor extends WorkerHost {
   }
 
   /**
+   * Ledger ONE AI call's spend. A thin delegate to {@link AiCostRecorder.record}, which owns
+   * the whole contract — the `null`-metadata no-op, the `ai_call_id` idempotency key, the
+   * never-throws rule and the savepointed totals accrual. (The duplicate copy of that contract
+   * that used to sit here was left dangling above `interviewOverlay` by an earlier extraction;
+   * one description, on the method that implements it.)
+   *
    * @param attribution Whose spend this is. REQUIRED here, unlike on the recorder itself,
    * because every call this processor makes has both a worker and (except on the escape-hatch
    * path, where it is genuinely null) a session in scope. An optional parameter would let a
