@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
+import { can } from "../../../lib/auth/capabilities";
 import { listAdmins } from "../../../lib/entities";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
+import { InviteAdminForm } from "./invite-admin-form";
+import { AdminRowActions } from "./admin-row-actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin users" };
@@ -32,7 +35,8 @@ export default async function AdminsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireCapability("manage_admins");
+  const session = await requireCapability("manage_admins");
+  const canManage = can(session.capabilities, "manage_admins");
 
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) =>
@@ -189,6 +193,7 @@ export default async function AdminsPage({
                   <th scope="col">Second factor</th>
                   <th scope="col">Last sign-in</th>
                   <th scope="col">Added</th>
+                  {canManage && <th scope="col">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -247,30 +252,27 @@ export default async function AdminsPage({
                         {formatRelative(a.created_at)}
                       </time>
                     </td>
+                    {canManage && (
+                      <td>
+                        <AdminRowActions
+                          admin={{
+                            id: a.id,
+                            role: a.role,
+                            status: a.status,
+                            is_self: a.is_self,
+                          }}
+                        />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-
-        {/* Why this screen has no buttons. `.field__help` is the FORM caption class and was
-            carrying a page-level limit; `.alert--info` is the primitive for a statement the
-            operator needs before they go looking for a control that is not here. */}
-        <div className="alert alert--info">
-          <div className="alert__text">
-            <p className="alert__title">This portal is read-only</p>
-            <p className="alert__body">
-              Inviting an admin, changing a role, resetting a second factor and suspending
-              an account are governed actions that happen elsewhere and emit an audited{" "}
-              <Link className="link" href="/events?eventName=admin.action_performed">
-                admin.action_performed
-              </Link>{" "}
-              event.
-            </p>
-          </div>
-        </div>
       </section>
+
+      {canManage && <InviteAdminForm />}
     </div>
   );
 }
