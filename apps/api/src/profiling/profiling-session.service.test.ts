@@ -270,7 +270,12 @@ describe("the server maps option keys to labels — never the client", () => {
 
     await service.answer(
       WORKER,
-      { ...chips("stainless"), submission_id: "cccccccc-3333-4333-8333-cccccccccccc" } as never,
+      {
+        session_id: SESSION,
+        question_key: "q_material",
+        answer: { kind: "chips" as const, option_keys: ["stainless"] },
+        submission_id: "cccccccc-3333-4333-8333-cccccccccccc",
+      } as never,
       CTX,
     );
 
