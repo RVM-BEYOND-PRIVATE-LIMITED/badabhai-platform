@@ -58,6 +58,38 @@ export const ProfilingAnswerSchema = z.object({
     .regex(/^[a-z_]+$/)
     .max(40)
     .nullable(),
+  /**
+   * The client's id for THIS physical submission — one per send, re-sent verbatim on a retry.
+   *
+   * WHAT IT FIXES (#931). The reply cache keys on `sha256(session, rev, text)` stamped against
+   * `rev + 1`, so a worker who answers the FOLLOWING question with the SAME word produces a
+   * byte-identical key and has their answer DISCARDED and the question re-served. On device,
+   * qp_machining: "Kya aap programme feed kar lete hain?" → "haan" captured and the engine
+   * advances, then "Kya aap drawing padh lete hain?" → "haan" thrown away. 236 of 466 authored
+   * items are `boolean` with zero options and the packs place them back to back, so two
+   * consecutive yes/no questions answered with one word is the NORMAL case here, not an edge one.
+   * The server can only separate "the network delivered this twice" from "the worker answered
+   * again" by guessing from a clock; the client already knows, and this is it telling us.
+   *
+   * ABSENT IS LEGAL AND IS NOT THE SAME AS MALFORMED. Absent means an app build that predates the
+   * field — those stay in the field for a long time — and the server falls back to the hash and
+   * the time windows for that submission, exactly as it behaves today. A present-but-malformed id
+   * is REJECTED (400 through `ZodValidationPipe`, §3 fail closed): silently ignoring it would
+   * leave a broken client suffering the original defect with nothing anywhere saying so, which is
+   * precisely the failure `x-correlation-id`'s silent-replace behaviour is on record for causing.
+   *
+   * TOP-LEVEL, NEVER INSIDE `answer`. `ProfilingAnswerSchema.shape.answer` is reused verbatim by
+   * `ProfilingCorrectionSchema`, and a field added inside the union would silently appear on
+   * `POST /correct` — a route that never touches the reply cache and whose client sends no id.
+   *
+   * OPAQUE AND NOT PII: a client-minted v4 UUID, validated as one before it is stored or logged.
+   * It never becomes an event payload field — only an idempotency key. NOT a header: this repo's
+   * fail-closed validation idiom is a Zod schema on the BODY, every header it reads is either a
+   * secret compared inside a guard or unvalidated pass-through, and the Flutter transport encodes
+   * the body ONCE outside its retry closure while rebuilding headers per attempt — so the body is
+   * the half that is byte-stable across exactly the retry this id has to survive.
+   */
+  submission_id: uuidSchema.optional(),
   answer: z.discriminatedUnion("kind", [
     /** Free text — including "Nahi pata", which the ENGINE maps to declined. No client skip. */
     z.object({ kind: z.literal("text"), text: safeTextSchema(4000).pipe(z.string().min(1)) }),

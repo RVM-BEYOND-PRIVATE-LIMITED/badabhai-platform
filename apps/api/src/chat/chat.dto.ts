@@ -14,6 +14,15 @@ export const PostMessageSchema = z.object({
   session_id: uuidSchema,
   // non-empty and bounded; the AI service pseudonymizes before any LLM call.
   text: nonEmptyMessageSchema.pipe(safeTextSchema(4000)),
+  /**
+   * The client's id for THIS physical send — the reply cache's evidence, not its guess (#931).
+   *
+   * See `ProfilingAnswerSchema.submission_id` for the defect, the on-device symptom and why an
+   * absent id is legal while a malformed one is not. The rule is identical on both submission
+   * routes because both funnel through `ChatService.runTurn`, and a rule that held on only one of
+   * them would be a second reply cache wearing the first one's name.
+   */
+  submission_id: uuidSchema.optional(),
 });
 export type PostMessageDto = z.infer<typeof PostMessageSchema>;
 
