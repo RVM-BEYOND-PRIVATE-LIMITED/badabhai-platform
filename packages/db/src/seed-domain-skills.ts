@@ -41,10 +41,10 @@
  * IS DISTINCT FROM discipline `seed-job-domains.ts` uses for its parent-link pass.
  *
  *   `skill`             ON CONFLICT (skill_id) — the immutable PK. Only the labels
- *                       propagate; `kind`, `status`, `source`, `domain_id` and
- *                       `industry_id` are INSERT-ONLY, so re-seeding can never re-domain
- *                       or reactivate a row (ADR-0030 SG-5: a re-domain is deprecate +
- *                       recreate, never an UPDATE).
+ *                       propagate; `kind`, `status`, `replaced_by`, `source`, `domain_id`
+ *                       and `industry_id` are INSERT-ONLY, so re-seeding can never
+ *                       re-domain, reactivate, or un-deprecate a row (ADR-0030 SG-5: a
+ *                       re-domain is deprecate + recreate, never an UPDATE).
  *   `skill_alias`       ON CONFLICT (id), where the id is DETERMINISTIC in
  *                       (skill_id, text, lang) — `deterministicAliasId`, the same function
  *                       `seed-skills.ts` uses. `embedding`, `embedding_model` and
@@ -130,6 +130,16 @@ export interface PlannedSkillRow {
   skillId: string;
   labelEn: string;
   labelHi: string | null;
+  /**
+   * TAX-9-style retirement of a skill this corpus itself minted (TD-04/TD-06,
+   * 2026-08-18). `"provisional"` is the corpus default — nothing machine-drafted is
+   * `active` until a human promotes it (`promote-skills.ts`). Insert-only, same as every
+   * other lifecycle column this seed writes — see the INSERT comment below.
+   */
+  status: "provisional" | "deprecated";
+  /** The immutable successor id. Non-null only when `status` is `"deprecated"` —
+   *  validated by `validateTaxonomyCorpus` (`SKILL_REPLACED_BY_WITHOUT_STATUS`). */
+  replacedBy: string | null;
 }
 
 /** A `skill_alias` row this seed would insert. */
@@ -153,7 +163,13 @@ export interface PlannedAliasRow {
 export function planSkillRows(corpus: readonly TaxonomySkillRecord[]): PlannedSkillRow[] {
   return corpus
     .filter((s) => s.reuses_existing !== true)
-    .map((s) => ({ skillId: s.skill_id, labelEn: s.label_en, labelHi: s.label_hi }));
+    .map((s) => ({
+      skillId: s.skill_id,
+      labelEn: s.label_en,
+      labelHi: s.label_hi,
+      status: s.status === "deprecated" ? "deprecated" : "provisional",
+      replacedBy: s.status === "deprecated" ? (s.replaced_by ?? null) : null,
+    }));
 }
 
 /**
@@ -291,6 +307,12 @@ export function planEdgeRows(
 /**
  * Every SHIPPED skill id the corpus depends on being already seeded — the ids it
  * references but does not create. Split out so the precondition message can name them.
+ *
+ * Three sources of a dependency: a `reuses_existing` record (hangs aliases on a shipped
+ * row), an edge pointing at a shipped skill with no corpus record of its own, and — since
+ * TD-04/TD-06 — a deprecated corpus skill's `replaced_by` self-FK (`skill.replaced_by`
+ * REFERENCES `skill.skill_id`; the validator already requires it be a shipped id, but the
+ * INSERT would otherwise fail on the live FK with no friendly precondition message).
  */
 export function shippedDependencies(corpus: TaxonomyCorpus): string[] {
   const shipped = shippedSkillIds();
@@ -298,7 +320,12 @@ export function shippedDependencies(corpus: TaxonomyCorpus): string[] {
     corpus.skills.filter((s) => s.reuses_existing !== true).map((s) => s.skill_id),
   );
   const needed = new Set<string>();
-  for (const s of corpus.skills) if (s.reuses_existing === true) needed.add(s.skill_id);
+  for (const s of corpus.skills) {
+    if (s.reuses_existing === true) needed.add(s.skill_id);
+    if (s.status === "deprecated" && typeof s.replaced_by === "string" && shipped.has(s.replaced_by)) {
+      needed.add(s.replaced_by);
+    }
+  }
   for (const e of corpus.edges) if (!created.has(e.skill_id) && shipped.has(e.skill_id)) needed.add(e.skill_id);
   return [...needed].sort();
 }
@@ -501,22 +528,34 @@ async function main(): Promise<void> {
             skillId: s.skillId,
             labelEn: s.labelEn,
             labelHi: s.labelHi,
-            // DESCRIPTIVE, PROVISIONAL, NO LEGACY DOMAIN, FIRST-PARTY. Each of these is
-            // insert-only (see the ON CONFLICT set below) and each is deliberate:
-            //   kind      — `attribute`; the matchable vocabulary is closed (invariant #4).
-            //   status    — `provisional`; nothing machine-drafted is `active` until a
-            //               human promotes it. Same discipline as a promoted unresolved
-            //               phrase.
-            //   domainId  — NULL; the 11 legacy slugs are a disjoint id space and picking
-            //               one would be inventing a fact. The canonical domain lives in
-            //               `job_domain_skill`. Nullable since 0076 exactly for this.
-            //   source    — `rvm`; first-party. Claiming esco/onet/nco would assert a
-            //               provenance we cannot show.
+            // DESCRIPTIVE, PROVISIONAL (UNLESS RETIRED), NO LEGACY DOMAIN, FIRST-PARTY.
+            // Each of these is insert-only (see the ON CONFLICT set below) and each is
+            // deliberate:
+            //   kind       — `attribute`; the matchable vocabulary is closed (invariant #4).
+            //   status     — `s.status`, `provisional` by default: nothing machine-drafted
+            //                is `active` until a human promotes it. The ONE exception is a
+            //                corpus author retiring their OWN draft before it is ever
+            //                promoted (`replaced_by` set, TD-04/TD-06, 2026-08-18) — that
+            //                seeds straight to `deprecated` so `promote-skills.ts`'s
+            //                IS_PROVISIONAL criterion refuses it forever, the same way it
+            //                already refuses a SKILL_CORPUS row a human deprecated.
+            //   replacedBy — `s.replacedBy`; NULL unless `status` is `deprecated`
+            //                (`skill_replaced_by_chk`). Validated to be a shipped id by
+            //                `validateTaxonomyCorpus`, and to already exist in `skill` by
+            //                `shippedDependencies`'s precondition — this seeder never
+            //                inserts two corpus-authored rows in an order that could break
+            //                the self-FK.
+            //   domainId   — NULL; the 11 legacy slugs are a disjoint id space and picking
+            //                one would be inventing a fact. The canonical domain lives in
+            //                `job_domain_skill`. Nullable since 0076 exactly for this.
+            //   source     — `rvm`; first-party. Claiming esco/onet/nco would assert a
+            //                provenance we cannot show.
             //   industryId is left to its column DEFAULT: it scopes the MATCHABLE read
             //               (`skill_industry_kind_idx` on (industry_id, kind)), which never
             //               selects an attribute row, so any value here is noise.
             kind: "attribute" as const,
-            status: "provisional" as const,
+            status: s.status,
+            replacedBy: s.replacedBy,
             domainId: null,
             source: "rvm" as const,
             updatedAt: now,
