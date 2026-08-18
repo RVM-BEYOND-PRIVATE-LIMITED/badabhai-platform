@@ -35,7 +35,17 @@ export interface ResumeRenderInput {
   location: string | null;
   /** `{{experience_years}}`. */
   experienceYears: number | null;
-  /** `{{availability}}` (human-readable). */
+  /**
+   * `{{availability}}` (human-readable) — the ONE line carrying every "when, and which shift"
+   * answer the résumé has: the availability status, the model's extracted shift, and the
+   * worker's own night-shift toggle (#947), composed into clauses joined with " · ".
+   *
+   * THEY SHARE A SLOT BECAUSE A SHIPPED LAYOUT IS IMMUTABLE (registry contract). Twelve
+   * `<id>.v<n>.html` files carry `{{availability}}`; none carries a shift or night-shift token,
+   * and an unknown token collapses to nothing — so this is the only slot a shift statement can
+   * reach without four new layouts. `buildResumeRenderInput` owns the composition; the renderer
+   * prints whatever string arrives.
+   */
   availability: string | null;
   /** `{{summary}}` — short professional summary. */
   summary: string | null;
@@ -44,7 +54,11 @@ export interface ResumeRenderInput {
   machines: string[];
   controllers: string[];
   /**
-   * Highest academic level (`{{education_level}}`, e.g. "12th") and stream
+   * Highest academic level (e.g. "12th") and stream. NEITHER IS A TEMPLATE TOKEN — this
+   * comment named `{{education_level}}` for a long time and no such token has ever existed in
+   * any layout; both values are joined into the `{{#education_headline}}` region below. Left
+   * corrected rather than copied onward, because a v4 layout written on the strength of the
+   * old wording would render an empty slot and never error.
    * (`{{education_field}}`, e.g. "Electronics"). Rendered as a single leading
    * line in the Education section when present. DISTINCT from the `education`
    * list (ITI/diploma mentions) + `certifications`. Null → the slot collapses

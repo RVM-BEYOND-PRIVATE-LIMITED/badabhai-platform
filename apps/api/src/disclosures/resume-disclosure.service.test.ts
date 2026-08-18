@@ -36,6 +36,7 @@ interface SetupOpts {
   dailyCount?: number;
   weeklyPayers?: number;
   renderNull?: boolean; // renderPdf degrades to null
+  nightShiftReady?: boolean; // #947 — the worker's own toggle, as the column stores it
   existing?: Record<string, unknown>; // existing disclosure row for idempotency
 }
 
@@ -85,7 +86,14 @@ function setup(opts: SetupOpts = {}) {
 
   const workers = {
     findById: vi.fn(async () =>
-      workerExists ? { id: WORKER, fullName: "enc:" + REAL_NAME, deletionScheduledAt } : undefined,
+      workerExists
+        ? {
+            id: WORKER,
+            fullName: "enc:" + REAL_NAME,
+            deletionScheduledAt,
+            resumeNightShiftReady: opts.nightShiftReady ?? false,
+          }
+        : undefined,
     ),
   };
 
@@ -164,6 +172,31 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
     const t = setup();
     await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
     expect(t.pii.decrypt).toHaveBeenCalledOnce();
+  });
+
+  it("#947: the worker's night-shift toggle DOES reach the payer — it is a preference, not identity", async () => {
+    // THE AUDIENCE CALL, PINNED HERE BECAUSE THIS IS WHERE IT COULD GO WRONG QUIETLY. The three
+    // things this path withholds — the real name (masked two assertions up), the photo
+    // (structurally null) and the expected salary — are identity and negotiating position.
+    // Willingness to work nights is neither: it is the signal that puts the worker in front of a
+    // night-shift posting, and `fromResumeProfile` already settled the same question the same
+    // way for the model-extracted `shift`. It crosses only when the worker deliberately ticked
+    // it, so the only thing a payer can ever see here is a claim its author actually made.
+    const t = setup({ nightShiftReady: true });
+    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    expect(t.getRenderInput()?.availability).toBe("Night shift ke liye taiyaar");
+    // The masking around it is untouched — the toggle crossing is not a hole in the gate.
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect(t.getRenderInput()?.photoDataUri).toBeNull();
+  });
+
+  it("#947: a worker on the column default has nothing said about them either way", async () => {
+    // `notNull().default(false)` means "never answered" and "answered No" are one byte. Printing
+    // a No onto a PAYER-facing document would be the worst version of that mistake: a refusal
+    // the worker never gave, read by the person deciding whether to call them.
+    const t = setup();
+    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    expect(t.getRenderInput()?.availability).toBeNull();
   });
 });
 
