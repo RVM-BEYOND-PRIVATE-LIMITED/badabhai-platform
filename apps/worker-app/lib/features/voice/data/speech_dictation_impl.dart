@@ -5,8 +5,17 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import '../domain/speech_dictation.dart';
 
-/// Real [SpeechDictation] over the `speech_to_text` plugin — the device's own
-/// recogniser, no network of ours involved.
+/// Real [SpeechDictation] over the `speech_to_text` plugin — the platform's OWN
+/// speech recogniser (Android SpeechRecognizer / iOS Speech). No BadaBhai server
+/// and no `/voice/*` endpoint are involved.
+///
+/// PRIVACY — WHERE THE AUDIO GOES: [listen] requests `onDevice: true`, so on a
+/// device/locale that has a local model the audio is transcribed ON-DEVICE and
+/// leaves nowhere. Where no local model exists the plugin falls back to the
+/// platform recogniser, which on most Android devices routes the audio to
+/// GOOGLE's cloud speech service — i.e. voice can be shared with Google as a
+/// third party. That must stay disclosed to the worker + declared on the Play
+/// Data Safety form; it is NOT "no network involved".
 ///
 /// CONTINUOUS-WHILE-HELD. The platform recogniser stops itself on its own
 /// silence/idle timeout (Android fires `ERROR_SPEECH_TIMEOUT` after a few
@@ -135,6 +144,14 @@ class RealSpeechDictation implements SpeechDictation {
         listenOptions: SpeechListenOptions(
           // Partial results fill the composer live as the worker speaks.
           partialResults: true,
+          // PREFER ON-DEVICE recognition so the worker's spoken answers are NOT
+          // sent to Google's cloud speech service where the device can transcribe
+          // locally. The plugin checks SpeechRecognizer.isOnDeviceRecognitionAvailable
+          // (Android 12+) and only uses the on-device recogniser when present; on
+          // an older device or a locale with no local model it falls back to the
+          // platform recogniser automatically, so dictation never breaks — it just
+          // keeps audio on-device wherever the device allows.
+          onDevice: true,
           listenFor: _session,
           pauseFor: _session,
           localeId: _localeId,
