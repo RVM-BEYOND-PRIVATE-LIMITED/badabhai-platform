@@ -1,9 +1,9 @@
 # Phase 8 taxonomy decisions — DRAFT register
 
-**Status: DRAFT, except TD-02 and TD-03 (see below), which are RATIFIED AND APPLIED.** No
-alias has been added or removed, no vector embedded, and every other entry (TD-01, TD-04..
-TD-07, §3's alias add/remove list, §4's canonical-label writes) remains exactly as it was —
-nothing else has been applied.
+**Status: DRAFT, except TD-01, TD-02 and TD-03 (see below), which are RATIFIED AND APPLIED.**
+No alias has been added or removed, no vector embedded, and every other entry (TD-04..TD-07,
+§3's alias add/remove list, §4's canonical-label writes) remains exactly as it was — nothing
+else has been applied.
 
 **2026-08-18 — TD-02 and TD-03 ratified by Prakash (Backend Platform owner, TL) for immediate
 application, scoped to `packages/taxonomy` + `packages/db` only.** Applied as a corpus
@@ -11,9 +11,22 @@ application, scoped to `packages/taxonomy` + `packages/db` only.** Applied as a 
 established non-destructive retire pattern: the row and its immutable `skill_id` are kept
 forever per SG-5, nothing is deleted, and `pnpm db:retag:skills` is the separate, later,
 explicitly-gated step that moves any *stored* worker/job-posting references and re-homes the
-alias rows onto the terminal skill in a live database). TD-01 stays exactly as drafted below —
-its per-alias split of `skill_cad_interpretation` is still undecided and nothing about it was
-touched. See §7 for exactly what shipped.
+alias rows onto the terminal skill in a live database). At the time, TD-01 stayed exactly as
+drafted below — its per-alias split of `skill_cad_interpretation` was still undecided and
+nothing about it was touched. See §7 for exactly what shipped.
+
+**2026-08-18 (later the same day) — TD-01 also ratified by Prakash (Backend Platform owner,
+TL), directly, in a DIFFERENT SHAPE than drafted below.** The register's original TD-01 was a
+*split*: "CAD software usage stays a separate skill", blocked on assigning each of
+`skill_cad_interpretation`'s 4 aliases to a reading-vs-CAD-usage side. Prakash's direct
+ratification supersedes that framing: **a FULL merge, not a split.** All 8 aliases of both
+`skill_gdt_reading` and `skill_cad_interpretation` move to the new `skill_drawing_reading`, and
+`skill_cad_interpretation` ceases to exist as an active skill — there is no surviving "CAD
+software usage" skill from this decision. Applied the same way as TD-02/TD-03 (TAX-9
+`status: "deprecated"` + `replacedBy`, plus the new skill itself). See §8 for exactly what
+shipped, including the `match-skills.ts` and `wedge-aliases.ts` consequences this merge has
+that TD-02/TD-03 did not (a brand-new `skill_id` requires a new `ATTRIBUTE_TO_MATCH_SKILLS`
+entry, and one TAX-5 wedge alias had to move).
 
 Every entry requires RVM trade-trainer / ops ratification before it becomes actionable. This
 register exists so that ratification happens against measured impact rather than against a
@@ -35,33 +48,47 @@ be manufacturing exactly the ground truth this phase exists to avoid.
 | The drafted paraphrases | All 52 slots remain empty and `pending_review`. |
 | "Appropriate Devanagari transliterations where specified in the review sheet" | Only the transliterations given explicitly in the instruction are recorded below. |
 | "Appropriate Fanuc model aliases" | **Not recorded.** Controller model numbers are factual claims about hardware; Mitsubishi (`M70`, `M80`) and Siemens (`828D`, `840D`) were given explicitly, Fanuc's were not, and guessing them would put fabricated model numbers into a worker-facing taxonomy. |
-| TD-01's per-alias split of `skill_cad_interpretation` | Which of its 4 aliases are *reading* and which are *CAD usage* is undecided — see TD-01. |
+| TD-01's per-alias split of `skill_cad_interpretation` | **SUPERSEDED 2026-08-18.** Which of its 4 aliases are *reading* and which are *CAD usage* was undecided — but Prakash's direct ratification changed the shape from a split to a FULL merge, so the split question no longer applies. See TD-01, §8. |
 
 ---
 
 ## 2. Taxonomy decisions
 
-### TD-01 — `skill_gdt_reading` + reading portion of `skill_cad_interpretation` → `skill_drawing_reading` · **DECIDED**
+### TD-01 — `skill_gdt_reading` + `skill_cad_interpretation` → `skill_drawing_reading` · **RATIFIED AND APPLIED (2026-08-18)**
 
-CAD *software usage* stays a separate skill.
+**Shape changed from the original draft, by direct owner ratification.** This entry originally
+proposed a SPLIT — "CAD *software usage* stays a separate skill" — blocked on assigning each of
+`skill_cad_interpretation`'s 4 aliases to a reading-vs-CAD-usage side. Prakash (Backend Platform
+owner, TL) ratified a different, simpler shape directly, not via the missing reviewer sheet:
+**a FULL merge, not a split.** All 8 aliases from both skills move to the new
+`skill_drawing_reading`, and **`skill_cad_interpretation` ceases to exist as an active skill** —
+there is no surviving "CAD software usage" skill from this decision.
 
-- `skill_gdt_reading` — active, 4 aliases (4 embedded), **8 domains**, 0 fixture cases
-- `skill_cad_interpretation` — 4 aliases, 6 domains, **must be split, not merged**
-- `skill_drawing_reading` — **does not exist**; requires creation
+- `skill_gdt_reading` — was active, 4 aliases (4 embedded), **8 domains**, 0 fixture cases
+- `skill_cad_interpretation` — was active, **4 aliases** (3 in `skill-corpus.ts` + 1 TAX-5 wedge
+  alias, `drawing padhna` — see §8's alias-count note, the same pattern TD-02 found for
+  `skill_quality_control`), 6 domains, 0 fixture cases
+- `skill_drawing_reading` — **created**: 7 aliases in `skill-corpus.ts` + the 1 moved wedge
+  alias = 8 total, matching both predecessors combined with zero overlap/dedup needed (no two
+  of the 8 alias texts collide, even across languages)
 
-**Blocked on a reviewer decision the sheet does not contain**: each `skill_cad_interpretation`
-alias must be assigned to one side of the split.
+Historical alias-split table — **SUPERSEDED, kept for the record.** The ratified shape is a
+full merge, so no alias was ever actually assigned a side; every alias below went to the same
+place:
 
-| alias | reading? | CAD usage? |
-|---|---|---|
-| `read engineering drawings` | ? | ? |
-| `drawing padhna` (hi) | ? | ? |
-| `technical drawing` | ? | ? |
-| `CAD` | ? | ? |
+| alias | destination |
+|---|---|
+| `read engineering drawings` | `skill_drawing_reading` (full merge) |
+| `drawing padhna` (hi) | `skill_drawing_reading` (full merge — wedge alias, repointed) |
+| `technical drawing` | `skill_drawing_reading` (full merge) |
+| `CAD` | `skill_drawing_reading` (full merge) |
 
 Measured support for the merge: `"read engineering drawings"` (cad) and `"blueprint reading"`
 (gdt) sit at cosine **0.7985**, and `"drawing padhna"` vs `"drawing reading"` likewise at
 **0.7985** — among the closest cross-skill pairs in the corpus.
+
+**Applied as:** see §8 for the full application record (new-skill shape, `match-skills.ts` and
+`wedge-aliases.ts` consequences, and the verification run).
 
 ### TD-02 — `skill_dimensional_inspection` → `skill_quality_control` · **RATIFIED AND APPLIED (2026-08-18)**
 
@@ -206,10 +233,15 @@ of a skill that is about to be dissolved creates a row that then has to be migra
 
 **Writable set: 84 → 81**, pending the deferred decisions.
 
-Three further labels already carrying a `REVIEW` verdict are also moot if their merge proceeds:
-`skill_cad_interpretation` ("CAD / technical drawing interpretation"), `skill_fixture_setup`
-("Fixture / job setup"), `skill_gdt_reading` ("GD&T / drawing reading"). All three are compound
-labels, which is consistent with them naming skills that turned out to be two skills.
+Three further labels already carrying a `REVIEW` verdict were also flagged as moot if their
+merge proceeded: `skill_cad_interpretation` ("CAD / technical drawing interpretation"),
+`skill_fixture_setup` ("Fixture / job setup"), `skill_gdt_reading` ("GD&T / drawing reading").
+All three are compound labels, which is consistent with them naming skills that turned out to
+be two skills. **Update 2026-08-18:** TD-01 applied, so two of the three — `skill_cad_
+interpretation` and `skill_gdt_reading` — are now definitely moot (both `status: "deprecated"`;
+their canonical label, if ever written, belongs to `skill_drawing_reading` instead, and that
+recompute is still un-authorized — see §4's `84 → 81` note, itself unrevised by this change).
+`skill_fixture_setup` stays conditionally moot, unchanged, still gated on TD-05.
 
 ---
 
@@ -219,11 +251,14 @@ Each arrow is a stop. The sequencing is not bureaucracy — TD-02 breaks a fixtu
 invalidates a queued alias, so running these concurrently would corrupt one with the other.
 
 ```
-1  taxonomy freeze      TD-01..TD-07 ratified; TD-01 alias split assigned; TD-07 gap resolved
-                        — PARTIAL 2026-08-18: TD-02 + TD-03 ratified and applied in isolation
-                        (see §7). TD-01/TD-04..TD-07 remain exactly as drafted; the "freeze"
-                        as a whole is still open.
-2  fixture repair       US-04 re-pointed in the same change as TD-02 — DONE 2026-08-18 (§7)
+1  taxonomy freeze      TD-01..TD-07 ratified; TD-07 gap resolved
+                        — PARTIAL 2026-08-18: TD-01 + TD-02 + TD-03 ratified and applied (§7,
+                        §8; TD-01 in a different shape than drafted — a full merge, not a
+                        split, so its alias-split question is moot rather than answered).
+                        TD-04..TD-07 remain exactly as drafted; the "freeze" as a whole is
+                        still open.
+2  fixture repair       US-04 re-pointed in the same change as TD-02 — DONE 2026-08-18 (§7).
+                        No TD-01 fixture case existed to repair — checked, see §8.
 3  alias update         13 additions minus any blocked; 2 demotions        [STOP — authorization]
 4  canonical labels     the 81, re-audited after the merges                [STOP — authorization]
 5  embed                approved set only, Gate B safeguards + fresh Langfuse
@@ -241,14 +276,16 @@ taxonomy, the aliases and the fixture at once cannot attribute its own result.
 
 ## 6. Unchanged
 
-Except for TD-02 and TD-03's `status`/`replacedBy` corpus write (§7), **everything below still
-holds exactly as before**: `skill_canonicalize_enabled = false` · floor **0.75** ·
-`NO_REGRESSION` enforced · no skill promoted · 4,071-domain generation NOT AUTHORIZED · the 33
-provisional-skill aliases remain unembedded · `EXP-P8-BASELINE` and `EXP-P8-CANONICAL-LABEL`
-untouched · TD-01 and TD-04..TD-07 untouched · the §3 alias add/remove list NOT applied · the
-§4 canonical-label writes NOT applied · no vector embedded · no live-database row moved
-(`pnpm db:retag:skills` was not run against any shared/remote database — that is a separate,
-later, explicitly-gated ops step).
+Except for TD-01, TD-02 and TD-03's `status`/`replacedBy` corpus writes and TD-01's new-skill
+creation (§7, §8), **everything below still holds exactly as before**:
+`skill_canonicalize_enabled = false` · floor **0.75** · `NO_REGRESSION` enforced · no skill
+promoted · 4,071-domain generation NOT AUTHORIZED · the 33 provisional-skill aliases remain
+unembedded · `EXP-P8-BASELINE` and `EXP-P8-CANONICAL-LABEL` untouched · TD-04..TD-07 untouched ·
+the §3 alias add/remove list NOT applied · the §4 canonical-label writes NOT applied · no vector
+embedded (`skill_drawing_reading`'s aliases are inserted, on a future `db:seed:skills` run,
+exactly as unembedded as every other un-embedded row — nothing in this change calls a provider)
+· no live-database row moved (`pnpm db:retag:skills` was not run against any shared/remote
+database — that is a separate, later, explicitly-gated ops step).
 
 The measured GP-04 repair sits at **0.7509**, nine ten-thousandths above the floor. The floor
 does not move to accommodate it.
@@ -340,3 +377,153 @@ it already was.
 reachable `ai-service`; neither was available. `pnpm --filter @badabhai/taxonomy test`,
 `pnpm --filter @badabhai/db test`, `pnpm --filter @badabhai/match-engine test`, and
 `typecheck`/`build` for all three packages were run and are green (see above).
+
+---
+
+## 8. TD-01 application record (2026-08-18)
+
+Scope: `packages/taxonomy/src/skill-corpus.ts`, `packages/taxonomy/src/match-skills.ts`,
+`packages/taxonomy/src/wedge-aliases.ts`, `packages/taxonomy/src/wedge-aliases.test.ts` (one
+hardcoded assertion pinned the old target id — see below), this register, and
+`phase-8-execution-state.md`. Confirmed by grep that nothing in `apps/ai-service` or
+`apps/worker-app` was touched — both are explicitly out of scope for this change (AI and
+Mobile are executing their own halves of TD-01 in parallel, per
+[`phase-8-dependency-findings.md`](./phase-8-dependency-findings.md) §2, which already
+identified this as a three-ownership-boundary change and opened #935/#936 for it).
+
+**Corpus (`skill-corpus.ts`).** `skill_gdt_reading` and `skill_cad_interpretation` both moved
+to `status: "deprecated"`, `replacedBy: "skill_drawing_reading"` — same TAX-9 pattern as
+TD-02/TD-03. `skill_gdt_reading` is one of the 9 LEGACY placeholder ids (`LEGACY_SKILL_IDS`,
+`index.ts` `SKILLS`) and the "stays present/stable regardless of status" invariant was checked
+live: `skill-corpus.test.ts`'s "preserves the 9 legacy placeholder skill_* ids" case is
+unchanged and still passes (see the full run below) because that test only requires the id to
+remain IN `SKILL_CORPUS`, never that it stay `active` — deprecation does not violate it. Both
+rows, their immutable ids, and their own `aliases` arrays are untouched, so every existing FK
+(`job_domain_skill.skill_id`; 8 edges on `skill_gdt_reading`, 6 on `skill_cad_interpretation`,
+14 total, re-verified by grepping `domain-skills.jsonl` directly rather than trusting the
+register's prior count) stays valid, left as-is per the TD-02/TD-03 precedent (re-pointing them
+is a separate, un-authorized `job_domain_skill` decision).
+
+**New skill, `skill_drawing_reading` — exact shape:**
+
+```ts
+{
+  skillId: "skill_drawing_reading",
+  labelEn: "Drawing reading (GD&T / technical drawing)",
+  labelHi: null,
+  domainId: "cnc-machining",
+  source: "rvm",
+  status: "active",
+  aliases: [
+    en("drawing reading", "rvm"),
+    en("GD&T", "rvm"),
+    en("geometric dimensioning and tolerancing", "esco"),
+    en("blueprint reading", "onet"),
+    en("CAD", "esco"),
+    en("technical drawing", "esco"),
+    en("read engineering drawings", "esco"),
+  ],
+}
+```
+
+Plus the 8th alias, the moved TAX-5 wedge alias (`wedge-aliases.ts`):
+`{ skillId: "skill_drawing_reading", alias: hi("drawing padhna"), ratified: true }`.
+
+- **`domainId: "cnc-machining"`** — follows `skill_gdt_reading`, not `skill_cad_interpretation`
+  (`cnc-programming`). Chosen on measured weight, not a coin flip: `skill_gdt_reading` carries
+  8 `job_domain_skill` edges to `skill_cad_interpretation`'s 6, and several of
+  `skill_gdt_reading`'s edges are `default_requirement: "required"` at relevance ≥80 (e.g.
+  `jd_nco_7543_2001` relevance 88, `jd_nco_7223_6003` relevance 86), where
+  `skill_cad_interpretation`'s edges top out at `preferred`/relevance 70. `SkillSeed.domainId`
+  is a single field (no array), so one had to be picked; `skill-corpus.ts`'s own convention for
+  this decision (used nowhere else yet, since TD-02/TD-03 pointed at *existing* skills rather
+  than minting new ones) does not prescribe an algorithm, so this is a judgment call, recorded
+  as one.
+- **`source: "rvm"`** — follows the file's OWN established convention for a first-party,
+  RVM-curated skill whose alias vocabulary mixes pillars: every one of the other 7 "legacy
+  placeholder" entries in this block (`skill_program_editing`, `skill_fanuc`, `skill_siemens`,
+  `skill_mitsubishi`, `skill_measuring_instruments`, `skill_fixture_setup`,
+  `skill_cam_software`, and `skill_gdt_reading` itself before this change) is `source: "rvm"`
+  while carrying `onet`/`esco`-sourced aliases — the top-level `source` records who curated the
+  CONCEPT, not where every alias's text came from. `skill_drawing_reading` is exactly this
+  shape, so it follows the same rule rather than inventing a new one.
+- **`labelEn`** combines both predecessors' labels ("GD&T / drawing reading" +
+  "CAD / technical drawing interpretation") without dropping either concept.
+- **Alias dedup: none needed.** All 8 alias texts (7 English + 1 Hindi) are distinct after
+  normalization — verified by inspection, not merely asserted: no two of `drawing reading`,
+  `GD&T`, `geometric dimensioning and tolerancing`, `blueprint reading`, `CAD`,
+  `technical drawing`, `read engineering drawings`, `drawing padhna` collide.
+
+**`match-skills.ts` — required a NEW key, unlike TD-02/TD-03.** TD-02/TD-03 dissolved existing
+ids into existing successors, so `ATTRIBUTE_TO_MATCH_SKILLS`'s existing entries for both were
+already correct and untouched. TD-01 **mints** a new corpus id, and the map's exhaustiveness
+(`Object.keys(ATTRIBUTE_TO_MATCH_SKILLS).sort()` must equal `SKILL_CORPUS.map(id).sort()`,
+`match-skills.test.ts`) is a runtime — not compile-time — invariant (the type is
+`Record<string, readonly MatchSkillId[]>`, not `Record<SkillId, …>`). Measured, not assumed: the
+key was temporarily removed and the suite re-run, producing exactly one failure —
+`bridge — ATTRIBUTE_TO_MATCH_SKILLS > is EXHAUSTIVE over SKILL_CORPUS`, diffing in
+`skill_drawing_reading` as the missing key — then the key was restored and the suite went green
+again (46/46). Added as `skill_drawing_reading: []`, matching both predecessors' `[]`: reading a
+drawing (GD&T or CAD) is a near-universal shop-floor attribute and does not, alone, claim a
+programmer's or an inspector's chair — the same "empty is the point" reasoning the file already
+states for `skill_gdt_reading` and `skill_cad_interpretation`.
+
+**`wedge-aliases.ts` — one wedge alias moved.** `skill_cad_interpretation` (not
+`skill_gdt_reading`) carries a TAX-5 vernacular alias: `hi("drawing padhna")`, RATIFIED 2026-07-16
+under ruling Q-B. This is the source of the register's TD-01 alias-count ("4 aliases") not
+matching `skill-corpus.ts`'s 3 — the same discrepancy shape TD-02 found and documented for
+`skill_quality_control`'s "3rd alias". Repointed `skillId: "skill_cad_interpretation"` →
+`skillId: "skill_drawing_reading"` on that entry, appended a note explaining the repoint without
+erasing the original Q-B ratification text (SG-5-style: append, never silently rewrite a
+ratification record). This broke a hardcoded assertion in `wedge-aliases.test.ts` —
+`ratified.find(w => w.alias.text === "drawing padhna")?.skillId` was pinned to
+`"skill_cad_interpretation"` — verified live (the test failed with `expected
+'skill_drawing_reading' to be 'skill_cad_interpretation'` before the fix) and updated in the same
+change.
+
+**Fixture check — nothing to repoint.** Grepped `packages/db/data/taxonomy/eval/retrieval-v1.jsonl`
+and `retrieval-v2.jsonl` for both source skill ids: zero matches in either file, so unlike TD-02's
+US-04, TD-01 has no fixture case naming either predecessor and nothing needed correcting.
+
+**`domain-skills.jsonl` edges — left as-is,** per the TD-02/TD-03 precedent: the 14 edges to the
+two now-deprecated ids remain structurally legal (deprecated ids are legal edge targets by
+design), and re-pointing them to `skill_drawing_reading` is a separate `job_domain_skill`
+decision this register does not authorize.
+
+**Cross-team boundary — confirmed, not crossed.** `phase-8-dependency-findings.md` §2 already
+found this merge touches three owners: `apps/ai-service/app/profiling/{signals.py,
+canonicalization_gold.py, miss_attribution.py}` + `lexicon_data/skills.json` (AI), and
+`apps/worker-app/lib/core/util/taxonomy_labels.dart` (Mobile). Per this task's explicit
+instruction and CLAUDE.md §6, neither was touched here; AI and Mobile are applying their own
+halves of TD-01 in parallel, in the same working session. Issues #935 (AI) / #936 (Mobile),
+opened for the TD-02/TD-03 cluster, already cover the `skill_gdt_reading` cluster's file list —
+whether their scope needs a TD-01-specific update is a cross-team follow-up, not resolved here.
+
+**Full verification run, this session:**
+
+```
+pnpm --filter @badabhai/taxonomy test    4 files, 46/46 passed   (was 45/46 before the
+                                          wedge-aliases.test.ts fix — the one real failure,
+                                          reproduced live, not hypothesized)
+pnpm --filter @badabhai/db test          35 files, 846/846 passed   (same count as the
+                                          TD-02/TD-03 baseline — no regression)
+pnpm --filter @badabhai/match-engine test   9 files, 209/209 passed
+pnpm --filter @badabhai/db exec tsx src/taxonomy-corpus.ts (db:verify:taxonomy)
+                                          98 skills, 238 edges, 0 problems — PASS
+                                          (unchanged from TD-02/TD-03: this validates the
+                                          growth-corpus jsonl files, which do not reference
+                                          skill_drawing_reading)
+pnpm --filter @badabhai/taxonomy build + typecheck     clean
+pnpm --filter @badabhai/db build + typecheck           clean
+pnpm --filter @badabhai/match-engine build + typecheck clean
+```
+
+Mutation check on the new `ATTRIBUTE_TO_MATCH_SKILLS` key specifically (see above): removed,
+observed the single expected failure, restored, observed green — the exhaustiveness gate is
+real and would have caught a forgotten entry.
+
+**Not run in this session (infra-gated, not code-gated, same as TD-02/TD-03):**
+`pnpm db:sweep:floor --run`, `pnpm db:eval:taxonomy --run` and `pnpm db:retag:skills` all
+require a live `DATABASE_URL` + reachable `ai-service`; neither was available. No embedding, no
+retrieval re-measurement was performed for `skill_drawing_reading` specifically — it is
+un-embedded until a future Gate-B-safeguarded embed run, same as any newly-minted skill.

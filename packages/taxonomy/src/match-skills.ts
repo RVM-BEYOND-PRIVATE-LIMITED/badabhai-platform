@@ -460,6 +460,11 @@ export const ATTRIBUTE_TO_MATCH_SKILLS: Record<string, readonly MatchSkillId[]> 
   skill_cnc_programming: ["mskill_cnc_programmer"],
   // Reading a drawing is not designing one.
   skill_cad_interpretation: [],
+  // TD-01 (Phase 8 taxonomy register, RATIFIED 2026-08-18): the skill_gdt_reading +
+  // skill_cad_interpretation merge target. Same triage as both predecessors — reading a
+  // drawing (GD&T or CAD) is nearly universal on the shop floor and does not, by itself,
+  // claim a programmer's or a quality inspector's chair.
+  skill_drawing_reading: [],
   skill_dimensional_inspection: ["mskill_quality_inspector"],
   skill_cmm: ["mskill_quality_inspector"],
   skill_quality_control: ["mskill_quality_inspector"],
