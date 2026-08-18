@@ -270,9 +270,23 @@ class _ResumeViewState extends State<_ResumeView> {
                 // otherwise fall back to the raw text so an unexpected shape is
                 // shown in full rather than as a blank card (nothing is lost).
                 child: parsed.isEmpty
-                    ? Text(
-                        replaceTaxonomyIds(resumeText),
-                        style: AppTypography.body(size: AppTypography.sizeMd),
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            replaceTaxonomyIds(resumeText),
+                            style:
+                                AppTypography.body(size: AppTypography.sizeMd),
+                          ),
+                          // Night-shift readiness is a worker PREF carried OUTSIDE
+                          // the resume text (workers.resumeNightShiftReady), so it
+                          // must show even when the body falls back to raw prose —
+                          // never dropped just because the text did not parse into
+                          // sections. In the template path it lives in the Location
+                          // section; here it stands on its own so it is NEVER lost.
+                          const SizedBox(height: AppSpacing.s4),
+                          _nightShiftRow(nightShiftReady),
+                        ],
                       )
                     : ResumeSectionsView(parsed: parsed),
               ),
@@ -300,6 +314,34 @@ class _ResumeViewState extends State<_ResumeView> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Night-shift readiness rendered as a standalone `Label: Yes/No` line for the
+  /// PROSE fallback (a resume body that did not parse into the template sections).
+  /// The template path shows the same fact inside the Location section; here it
+  /// carries on its own so the worker's answer is NEVER dropped from the tab.
+  Widget _nightShiftRow(bool ready) {
+    return Text.rich(
+      TextSpan(
+        children: <InlineSpan>[
+          TextSpan(
+            text: '$kNightShiftLabel: ',
+            style: AppTypography.body(
+              size: AppTypography.sizeMd,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          TextSpan(
+            text: ready ? 'Yes' : 'No',
+            style: AppTypography.body(
+              size: AppTypography.sizeMd,
+              weight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
