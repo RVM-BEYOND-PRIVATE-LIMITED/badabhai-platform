@@ -156,7 +156,8 @@ export class JobsRepository {
    * DETERMINISTIC ORDER, NO AI (CLAUDE.md §3). Relevance is a computed SQL rank, not a model:
    * a title prefix match outranks a title substring, which outranks a skill-phrase hit. Ties
    * break on `published_at DESC, id ASC`, so the same query returns the same page every time
-   * and paging cannot drop or repeat a row between requests.
+   * and paging cannot drop or repeat a row between requests. With no `q` there is nothing to
+   * rank by, so the relevance key is ABSENT from the sort rather than constant — see below.
    *
    * PII: the projection is explicit and never selects `org_label`, `payer_id`, `created_by` or
    * `location_label` — employer identity stays off the worker path entirely (ADR-0024), and
@@ -199,14 +200,32 @@ export class JobsRepository {
         AND a.action IN ('applied', 'skipped')
     )`);
 
-    // The relevance ladder, as a plain integer. Lower sorts first.
+    // The relevance ladder, as a plain integer. Lower sorts first. It exists ONLY when the
+    // worker typed a term — with no `q` every open posting is equally relevant, so the key is
+    // dropped from the sort instead of being pinned to a constant.
+    //
+    // #974: a relevance key must never degrade to a BARE INTEGER. Postgres reads a lone integer
+    // constant in `ORDER BY` as an OUTPUT-COLUMN ORDINAL, not as a value to sort by, so the
+    // previous `sql`0`` on this path rendered `ORDER BY 0, ...` and every title-less search —
+    // the whole location-only case, "jobs in Jaipur" — died on `ORDER BY position 0 is not in
+    // select list`: a 500 on a shipped screen. Only this branch broke, because the `q` branch
+    // emits a `CASE … END` EXPRESSION, which Postgres sorts by rather than resolves as a
+    // position. Dropping the key removes the class of bug; `(0)` would only have hidden it.
     const relevance = args.q
       ? sql<number>`CASE
           WHEN ${jobPostings.roleTitle} ILIKE ${`${args.q}%`} THEN 0
           WHEN ${jobPostings.roleTitle} ILIKE ${`%${args.q}%`} THEN 1
           ELSE 2
         END`
-      : sql<number>`0`;
+      : null;
+
+    // `id` LAST is what makes the order TOTAL: without it two postings published in the same
+    // transaction tie, and page 2 can repeat or drop a row page 1 already showed.
+    const orderBy = [
+      ...(relevance ? [relevance] : []),
+      sql`${jobPostings.publishedAt} DESC NULLS LAST`,
+      jobPostings.id,
+    ];
 
     const rows = await this.db
       .select({
@@ -221,7 +240,7 @@ export class JobsRepository {
       })
       .from(jobPostings)
       .where(and(...conditions))
-      .orderBy(relevance, sql`${jobPostings.publishedAt} DESC NULLS LAST`, jobPostings.id)
+      .orderBy(...orderBy)
       .limit(args.limit + 1)
       .offset(args.offset);
 

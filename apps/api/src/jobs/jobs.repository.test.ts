@@ -304,6 +304,51 @@ describe("searchOpenPostings — deterministic order and paging (§3: AI must no
     expect(order).not.toMatch(/random|score|embedding|similarity/i);
   });
 
+  it("#974 — a no-`q` search sorts by published_at/id ONLY, with no relevance key", async () => {
+    // A location-only search ("jobs in Jaipur") is the common case on Jobs dhoondein, and it
+    // 500ed in production: with nothing to rank by, relevance collapsed to `sql`0`` and the
+    // statement went out as `ORDER BY 0, ...`. There is no relevance to express here, so the
+    // key must be ABSENT — two terms, not three.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, city: "Jaipur" });
+    const order = queries[0]!.orderBy!.map((o) => compile(o).sql);
+
+    expect(order).toHaveLength(2);
+    expect(order[0]).toMatch(/"published_at" DESC NULLS LAST/i);
+    expect(order[1]).toMatch(/"id"/);
+  });
+
+  it("#974 — NO sort term is ever a bare integer, which Postgres reads as a column ORDINAL", async () => {
+    // The actual invariant, stated once for every filter combination. In `ORDER BY`, a lone
+    // integer constant is an output-column POSITION (1-based), not a value: `ORDER BY 0` is
+    // `ERROR: ORDER BY position 0 is not in select list`, and any bare int here would silently
+    // re-point the sort at whichever projected column sits at that position. An expression —
+    // a column, a `CASE … END`, `(0)` — is always safe. This is the assertion the suite lacked:
+    // it renders the ORDER BY, which no test did, so `sql`0`` shipped with CI green.
+    const cases = [
+      { label: "no filters", args: SEARCH_ARGS },
+      { label: "city only", args: { ...SEARCH_ARGS, city: "Jaipur" } },
+      { label: "state only", args: { ...SEARCH_ARGS, state: "Rajasthan" } },
+      { label: "city + state, no title", args: { ...SEARCH_ARGS, city: "Jaipur", state: "RJ" } },
+      { label: "title", args: { ...SEARCH_ARGS, q: "welder" } },
+      { label: "title + city", args: { ...SEARCH_ARGS, q: "welder", city: "Jaipur" } },
+    ];
+
+    for (const { label, args } of cases) {
+      const { repo, queries } = makeSearchDb();
+      await repo.searchOpenPostings(args);
+      const order = queries[0]!.orderBy!.map((o) => compile(o).sql.trim());
+
+      expect(order.length, `${label}: the sort must not be empty`).toBeGreaterThan(0);
+      for (const term of order) {
+        expect(
+          term,
+          `${label}: "${term}" is a bare integer — Postgres reads it as an ordinal`,
+        ).not.toMatch(/^\d+$/);
+      }
+    }
+  });
+
   it("probes limit+1 to learn has_more, and returns only `limit` rows", async () => {
     // 21 rows back for a limit of 20: the 21st exists ONLY to answer "is there another page?"
     const rows = Array.from({ length: 21 }, (_, i) => ({ id: `job-${i}` }));
