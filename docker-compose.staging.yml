@@ -457,6 +457,31 @@ services:
       GEMINI_FLASH_API_KEY: ${GEMINI_FLASH_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
+      # ---- Phase 9 / Path A retrieval flags. INERT: no secret exists for either name, so
+      # both resolve to `false` here and the deployed behaviour is byte-identical to before
+      # this block existed. Declared now so the flags become CONTROLLABLE when they are
+      # eventually wanted, and so the bridge can be proved in isolation from any activation.
+      #
+      # `:-` AND NEVER `:?`. These are capability gates, not credentials, so every failure
+      # mode of the bridge — secret absent, secret empty, `envs:` entry forgotten — must land
+      # on "off" rather than failing the deploy. (`${VAR:-false}` substitutes when the
+      # variable is unset OR empty, which covers all three.) The `${VAR:?}` form would be
+      # correct for a credential and is wrong here.
+      #
+      # DOMAIN_MATCH_ENABLED gates ONLY the embedding-based ANN fallback in
+      # `domain_match.match_domain`. The lexical interview pin short-circuits BEFORE that
+      # check, so production already produces deterministic `jd_*` scopes with this false —
+      # both live `worker_profiles` rows carry `matched_lexical` with a score. Path A does
+      # not require this flag; turning it on is a coverage improvement for unpinned workers.
+      #
+      # SKILL_CANONICALIZE_ENABLED gates `/skills/canonicalize` outright — the route returns
+      # `unresolved` before reaching EITHER retrieval path. It stays false through the whole
+      # parity programme: the shadow comparison runs offline against captured
+      # (phrase, job_domain_id) pairs, so switching this on is the activation itself rather
+      # than a step toward it.
+      DOMAIN_MATCH_ENABLED: ${DOMAIN_MATCH_ENABLED:-false}
+      SKILL_CANONICALIZE_ENABLED: ${SKILL_CANONICALIZE_ENABLED:-false}
+
       # ---- V8 VOICE STORAGE — the change the previous revision of this block deferred.
       #
       # `VOICE_NOTES_BUCKET` is read by BOTH the api (which mints the signed upload URL) and
