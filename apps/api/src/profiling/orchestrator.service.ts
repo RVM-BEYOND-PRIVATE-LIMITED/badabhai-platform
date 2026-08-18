@@ -1180,6 +1180,9 @@ export class ProfilingOrchestrator {
     if (this.llm.leads(next)) {
       const led = await this.llm.take(next, input.text, transcriptOf(buffer), {
         workerId: input.workerId,
+        // The turn's spend is attributed to THIS session — the same `chat_sessions.id` the
+        // extraction job records — so per-interview cost is one indexed row, not a scan.
+        sessionId: input.sessionId,
         correlationId: input.ctx.correlationId,
         requestId: input.ctx.requestId,
       });

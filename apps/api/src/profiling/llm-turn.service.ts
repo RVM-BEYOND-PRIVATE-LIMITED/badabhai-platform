@@ -87,7 +87,15 @@ export class LlmTurnService {
     // `ai.cost_recorded` events — the ai-service logged them into its own ledger and the
     // platform's cost spine never heard. That is the same defect #738 fixed for STT and #745 for
     // the payer chat turn, on the one path whose entire economic argument is per-profile cost.
-    private readonly cost: AiCostRecorder,
+    //
+    // NAMED `aiCost`, MATCHING THE OTHER FIVE CALL SITES, AND THE RENAME IS A BUG FIX. It was
+    // `cost`, and `ai-cost-coverage.test.ts` matches emitter call sites by RECEIVER NAME — so
+    // `this.cost.record(...)` matched nothing, this emitter was invisible to the coverage
+    // check, and `profiling_chat_turn` sat in its `KNOWN_UNLEDGERED` list under a comment
+    // asserting "no apps/api caller". Wrong since #785 shipped this service. The regex is
+    // widened in the same change so a future rename cannot repeat it; the consistent name is
+    // the belt to that pair of braces.
+    private readonly aiCost: AiCostRecorder,
   ) {}
 
   /** Is the LLM path armed at all? Read by the orchestrator before anything else. */
@@ -118,6 +126,16 @@ export class LlmTurnService {
     history: readonly TranscriptLine[],
     ctx: {
       readonly workerId: string;
+      /**
+       * The interview this turn belongs to — `chat_sessions.id`, the same id
+       * `ai_jobs.input_ref->>'session_id'` carries for the extraction of the same interview.
+       *
+       * REQUIRED, not optional, and that is the point. This is the platform's dominant
+       * per-profile cost and it is the ONE surface where "what did this profile cost" has an
+       * exact answer; an optional field here would let a future caller drop it silently and
+       * the number would go quietly wrong rather than loudly missing.
+       */
+      readonly sessionId: string;
       readonly correlationId: string;
       readonly requestId: string;
     },
@@ -175,12 +193,18 @@ export class LlmTurnService {
     // NO `ai_job` ID: an interview turn is synchronous and has no async job behind it. The
     // recorder takes null by design — see its own note on the payer chat turn — rather than
     // minting a row in a table every dashboard reads to describe a job that never existed.
-    await this.cost.record(
+    //
+    // WHICH IS EXACTLY WHY THE ATTRIBUTION IS PASSED EXPLICITLY. A null `ai_job_id` means
+    // there is no `ai_jobs.input_ref` to join through, so before this pair travelled on the
+    // event, the single largest line item in a worker's cost — a dozen capable calls per
+    // interview — belonged to nobody. "Cost per profile" summed to zero and read as free.
+    await this.aiCost.record(
       out?.ai_metadata ?? null,
       "profiling_chat_turn",
       null,
       ctx.correlationId,
       ctx.requestId,
+      { workerId: ctx.workerId, sessionId: ctx.sessionId },
     );
 
     if (out === null) {
