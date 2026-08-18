@@ -11,7 +11,7 @@
 {"kind":"domain_skill","job_domain_id":"jd_nco_8211_1200","skill_id":"skill_wiring_harness_routing","default_requirement":"required","relevance":82,"confidence":0.85,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_8211_1200","skill_id":"skill_assembly_line_sequencing","default_requirement":"required","relevance":85,"confidence":0.86,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_8211_1200","skill_id":"skill_fastener_selection_and_tightening","default_requirement":"required","relevance":84,"confidence":0.88,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_8211_1200","skill_id":"skill_cad_interpretation","default_requirement":"preferred","relevance":62,"confidence":0.7,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_8211_1200","skill_id":"skill_drawing_reading","default_requirement":"preferred","relevance":62,"confidence":0.7,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_8211_1200","skill_id":"skill_bench_fitting","default_requirement":"preferred","relevance":68,"confidence":0.75,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_8211_1200","skill_id":"skill_sub_assembly_quality_checking","default_requirement":"preferred","relevance":70,"confidence":0.8,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_8212_0100","skill_id":"skill_battery_cell_stacking","default_requirement":"required","relevance":94,"confidence":0.9,"source":"llm_bootstrap"}
@@ -35,14 +35,14 @@
 {"kind":"domain_skill","job_domain_id":"jd_nco_7231_0400","skill_id":"skill_bench_fitting","default_requirement":"required","relevance":84,"confidence":0.88,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7231_0400","skill_id":"skill_torque_wrench_operation","default_requirement":"required","relevance":82,"confidence":0.9,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7231_0400","skill_id":"skill_suspension_and_steering_repair","default_requirement":"preferred","relevance":74,"confidence":0.82,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7231_0400","skill_id":"skill_cad_interpretation","default_requirement":"preferred","relevance":60,"confidence":0.7,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7231_0400","skill_id":"skill_drawing_reading","default_requirement":"preferred","relevance":60,"confidence":0.7,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7231_0400","skill_id":"skill_measuring_instruments","default_requirement":"preferred","relevance":68,"confidence":0.78,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7231_0400","skill_id":"skill_body_panel_alignment","default_requirement":"preferred","relevance":70,"confidence":0.8,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_0701","skill_id":"skill_turning","default_requirement":"required","relevance":96,"confidence":0.96,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_0701","skill_id":"skill_lathe_chuck_mounting","default_requirement":"required","relevance":88,"confidence":0.84,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_0701","skill_id":"skill_cutting_tool_selection","default_requirement":"required","relevance":84,"confidence":0.85,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_0701","skill_id":"skill_measuring_instruments","default_requirement":"required","relevance":90,"confidence":0.93,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7223_0701","skill_id":"skill_gdt_reading","default_requirement":"required","relevance":82,"confidence":0.88,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7223_0701","skill_id":"skill_drawing_reading","default_requirement":"required","relevance":82,"confidence":0.88,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_0701","skill_id":"skill_tapping_threading","default_requirement":"preferred","relevance":74,"confidence":0.82,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_0701","skill_id":"skill_drilling","default_requirement":"preferred","relevance":72,"confidence":0.8,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_0701","skill_id":"skill_boring","default_requirement":"preferred","relevance":70,"confidence":0.8,"source":"llm_bootstrap"}
@@ -55,7 +55,7 @@
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6002","skill_id":"skill_fixture_setup","default_requirement":"required","relevance":84,"confidence":0.89,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6002","skill_id":"skill_measuring_instruments","default_requirement":"required","relevance":86,"confidence":0.92,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6002","skill_id":"skill_program_editing","default_requirement":"preferred","relevance":78,"confidence":0.86,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7223_6002","skill_id":"skill_gdt_reading","default_requirement":"preferred","relevance":76,"confidence":0.85,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7223_6002","skill_id":"skill_drawing_reading","default_requirement":"preferred","relevance":76,"confidence":0.85,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6002","skill_id":"skill_siemens","default_requirement":"preferred","relevance":58,"confidence":0.7,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6002","skill_id":"skill_coolant_management","default_requirement":"preferred","relevance":62,"confidence":0.78,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6002","skill_id":"skill_first_piece_approval","default_requirement":"required","relevance":80,"confidence":0.83,"source":"llm_bootstrap"}
@@ -64,8 +64,7 @@
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6003","skill_id":"skill_program_editing","default_requirement":"required","relevance":92,"confidence":0.93,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6003","skill_id":"skill_cam_software","default_requirement":"required","relevance":88,"confidence":0.9,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6003","skill_id":"skill_fanuc","default_requirement":"required","relevance":84,"confidence":0.9,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7223_6003","skill_id":"skill_gdt_reading","default_requirement":"required","relevance":86,"confidence":0.9,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7223_6003","skill_id":"skill_cad_interpretation","default_requirement":"required","relevance":82,"confidence":0.88,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7223_6003","skill_id":"skill_drawing_reading","default_requirement":"required","relevance":86,"confidence":0.9,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6003","skill_id":"skill_cutting_tool_selection","default_requirement":"required","relevance":80,"confidence":0.85,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6003","skill_id":"skill_tool_offset_setting","default_requirement":"preferred","relevance":76,"confidence":0.85,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_6003","skill_id":"skill_siemens","default_requirement":"preferred","relevance":64,"confidence":0.74,"source":"llm_bootstrap"}
@@ -101,7 +100,7 @@
 {"kind":"domain_skill","job_domain_id":"jd_nco_7412_0200","skill_id":"skill_electrical_fault_finding","default_requirement":"required","relevance":88,"confidence":0.9,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7412_0200","skill_id":"skill_insulation_resistance_testing","default_requirement":"preferred","relevance":74,"confidence":0.82,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7412_0200","skill_id":"skill_conduit_bending_and_laying","default_requirement":"preferred","relevance":72,"confidence":0.84,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7412_0200","skill_id":"skill_cad_interpretation","default_requirement":"preferred","relevance":62,"confidence":0.72,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7412_0200","skill_id":"skill_drawing_reading","default_requirement":"preferred","relevance":62,"confidence":0.72,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7412_0200","skill_id":"skill_switchgear_installation","default_requirement":"preferred","relevance":76,"confidence":0.84,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_isco_7213","skill_id":"skill_sheet_metal","default_requirement":"required","relevance":96,"confidence":0.96,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_isco_7213","skill_id":"skill_sheet_metal_marking_and_layout","default_requirement":"required","relevance":88,"confidence":0.87,"source":"llm_bootstrap"}
@@ -111,7 +110,7 @@
 {"kind":"domain_skill","job_domain_id":"jd_isco_7213","skill_id":"skill_arc_welding","default_requirement":"preferred","relevance":76,"confidence":0.85,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_isco_7213","skill_id":"skill_measuring_instruments","default_requirement":"required","relevance":80,"confidence":0.88,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_isco_7213","skill_id":"skill_deburring","default_requirement":"preferred","relevance":68,"confidence":0.78,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_isco_7213","skill_id":"skill_cad_interpretation","default_requirement":"preferred","relevance":66,"confidence":0.76,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_isco_7213","skill_id":"skill_drawing_reading","default_requirement":"preferred","relevance":66,"confidence":0.76,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_2400","skill_id":"skill_sheet_metal","default_requirement":"required","relevance":92,"confidence":0.94,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_2400","skill_id":"skill_shearing_machine_operation","default_requirement":"required","relevance":90,"confidence":0.84,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7223_2400","skill_id":"skill_press_brake_bending","default_requirement":"required","relevance":88,"confidence":0.86,"source":"llm_bootstrap"}
@@ -124,11 +123,10 @@
 {"kind":"domain_skill","job_domain_id":"jd_nco_7224_0102","skill_id":"skill_arc_welding","default_requirement":"required","relevance":90,"confidence":0.92,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7224_0102","skill_id":"skill_gas_cutting","default_requirement":"required","relevance":84,"confidence":0.88,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7224_0102","skill_id":"skill_bench_fitting","default_requirement":"required","relevance":86,"confidence":0.9,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7224_0102","skill_id":"skill_gdt_reading","default_requirement":"required","relevance":80,"confidence":0.87,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7224_0102","skill_id":"skill_drawing_reading","default_requirement":"required","relevance":80,"confidence":0.87,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7224_0102","skill_id":"skill_grinding_ops","default_requirement":"preferred","relevance":74,"confidence":0.83,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7224_0102","skill_id":"skill_sheet_metal_marking_and_layout","default_requirement":"required","relevance":82,"confidence":0.87,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7224_0102","skill_id":"skill_measuring_instruments","default_requirement":"preferred","relevance":76,"confidence":0.85,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7224_0102","skill_id":"skill_cad_interpretation","default_requirement":"preferred","relevance":70,"confidence":0.8,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_isco_7127","skill_id":"skill_refrigerant_charging","default_requirement":"required","relevance":94,"confidence":0.94,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_isco_7127","skill_id":"skill_brazing_of_copper_lines","default_requirement":"required","relevance":88,"confidence":0.91,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_isco_7127","skill_id":"skill_vacuum_pump_evacuation","default_requirement":"required","relevance":84,"confidence":0.89,"source":"llm_bootstrap"}
@@ -176,7 +174,7 @@
 {"kind":"domain_skill","job_domain_id":"jd_nco_7126_0301","skill_id":"skill_tapping_threading","default_requirement":"required","relevance":84,"confidence":0.88,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7126_0301","skill_id":"skill_gas_cutting","default_requirement":"preferred","relevance":72,"confidence":0.82,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7126_0301","skill_id":"skill_arc_welding","default_requirement":"preferred","relevance":74,"confidence":0.83,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7126_0301","skill_id":"skill_gdt_reading","default_requirement":"preferred","relevance":66,"confidence":0.76,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7126_0301","skill_id":"skill_drawing_reading","default_requirement":"preferred","relevance":66,"confidence":0.76,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7126_0301","skill_id":"skill_leak_repair_in_water_lines","default_requirement":"preferred","relevance":76,"confidence":0.88,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7313_2601","skill_id":"skill_dimensional_inspection","default_requirement":"required","relevance":95,"confidence":0.95,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7313_2601","skill_id":"skill_measuring_instruments","default_requirement":"required","relevance":92,"confidence":0.94,"source":"llm_bootstrap"}
@@ -186,10 +184,10 @@
 {"kind":"domain_skill","job_domain_id":"jd_nco_7313_2601","skill_id":"skill_rejection_tagging_and_segregation","default_requirement":"required","relevance":82,"confidence":0.82,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7313_2601","skill_id":"skill_quality_control","default_requirement":"required","relevance":88,"confidence":0.9,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7313_2601","skill_id":"skill_surface_finish_inspection","default_requirement":"preferred","relevance":74,"confidence":0.8,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7313_2601","skill_id":"skill_gdt_reading","default_requirement":"preferred","relevance":78,"confidence":0.85,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7313_2601","skill_id":"skill_drawing_reading","default_requirement":"preferred","relevance":78,"confidence":0.85,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7543_2001","skill_id":"skill_dimensional_inspection","default_requirement":"required","relevance":96,"confidence":0.96,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7543_2001","skill_id":"skill_measuring_instruments","default_requirement":"required","relevance":92,"confidence":0.94,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7543_2001","skill_id":"skill_gdt_reading","default_requirement":"required","relevance":88,"confidence":0.91,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7543_2001","skill_id":"skill_drawing_reading","default_requirement":"required","relevance":88,"confidence":0.91,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7543_2001","skill_id":"skill_cmm","default_requirement":"preferred","relevance":76,"confidence":0.85,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7543_2001","skill_id":"skill_go_no_go_gauge_checking","default_requirement":"required","relevance":86,"confidence":0.86,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7543_2001","skill_id":"skill_visual_defect_identification","default_requirement":"required","relevance":84,"confidence":0.88,"source":"llm_bootstrap"}
@@ -243,4 +241,4 @@
 {"kind":"domain_skill","job_domain_id":"jd_nco_7212_0301","skill_id":"skill_gas_cutting","default_requirement":"preferred","relevance":74,"confidence":0.84,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7212_0301","skill_id":"skill_grinding_ops","default_requirement":"preferred","relevance":72,"confidence":0.82,"source":"llm_bootstrap"}
 {"kind":"domain_skill","job_domain_id":"jd_nco_7212_0301","skill_id":"skill_distortion_control_in_weldments","default_requirement":"preferred","relevance":74,"confidence":0.78,"source":"llm_bootstrap"}
-{"kind":"domain_skill","job_domain_id":"jd_nco_7212_0301","skill_id":"skill_gdt_reading","default_requirement":"preferred","relevance":66,"confidence":0.76,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7212_0301","skill_id":"skill_drawing_reading","default_requirement":"preferred","relevance":66,"confidence":0.76,"source":"llm_bootstrap"}

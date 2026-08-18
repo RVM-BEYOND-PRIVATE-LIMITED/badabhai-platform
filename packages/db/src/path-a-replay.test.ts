@@ -18,6 +18,7 @@ import {
   cosine,
   diffCase,
   findMintedSkillIds,
+  mergeFamilies,
   pathACandidates,
   pathBCandidates,
   probeFamilyReachability,
@@ -309,6 +310,36 @@ describe("diffCase precedence", () => {
     expect(diffCase(before, mk({ hit: false, top1SkillId: "z", expectedRank: null })).delta).toBe("top1_changed");
     expect(diffCase(before, mk({ hit: false, top1SkillId: "y", candidateCount: 7, expectedRank: null })).delta).toBe("candidates_changed");
     expect(diffCase(before, mk({ hit: false, top1SkillId: "y", expectedRank: null })).delta).toBe("unchanged");
+  });
+});
+
+describe("mergeFamilies", () => {
+  it("groups every predecessor under its successor, from replacedBy alone", () => {
+    const fams = mergeFamilies(merged);
+    expect(fams.map((f) => f.successor)).toEqual(["new", "survivor"]);
+    expect(fams[0]!.predecessors).toEqual(["pred_a", "pred_b"]);
+    expect(fams[1]!.predecessors).toEqual(["growth"]);
+  });
+
+  it("reports successorHasEdges instead of filtering on it", () => {
+    const fams = mergeFamilies(merged);
+    expect(fams.find((f) => f.successor === "new")!.successorHasEdges).toBe(false);
+    expect(fams.find((f) => f.successor === "survivor")!.successorHasEdges).toBe(true);
+  });
+
+  it("SURVIVES THE REPAIR: the family is unchanged once the successor gains edges", () => {
+    // The reason this function exists separately from `findMintedSkillIds`. If family identity
+    // were gated on edgelessness, the diagnostic probe would switch itself off the moment R19
+    // was fixed — and the run that proves the fix worked would report nothing, which is
+    // indistinguishable from never having run.
+    const repaired: CorpusInput = {
+      ...merged,
+      edges: [...merged.edges, { jobDomainId: "jd1", skillId: "new" }],
+    };
+    expect(findMintedSkillIds(repaired)).toEqual([]); // correctly no longer "minted"
+    const fam = mergeFamilies(repaired).find((f) => f.successor === "new")!;
+    expect(fam.predecessors).toEqual(["pred_a", "pred_b"]); // identity unchanged
+    expect(fam.successorHasEdges).toBe(true);
   });
 });
 
