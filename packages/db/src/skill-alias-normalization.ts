@@ -408,50 +408,62 @@ export function projectElection(
 // THE RETRIEVAL-PREDICATE INVARIANT
 // ─────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Why a row is allowed to be invisible. Every value is a RECORDED claim from an election
+ * decision manifest — never something derived from the table's own contents.
+ */
+export type AliasVisibilityDecision = "elected" | "intentionally_demoted" | "duplicate_loser";
+
 export interface PredicateReadiness {
-  /** True when NEITHER blocker list below is populated. */
+  /** True when none of the three blocker lists below is populated. */
   readonly safe: boolean;
   /**
    * BLOCKER 1 — never processed. `active` + embedded + not searchable + `text_norm IS NULL`.
    *
    * Adding `AND sa.is_searchable` while this is non-empty removes a live, paid-for vector
    * from retrieval for a reason nobody chose. On 2026-08-18 this set was all 98
-   * active-catalogue aliases.
+   * active-catalogue aliases; after the normalization write it is empty.
    */
   readonly hiddenByMissingNormalization: readonly string[];
   /**
-   * BLOCKER 2 — normalized, but nothing in its `(skill_id, text_norm, lang)` group is
-   * searchable, and nobody declared the demotion.
+   * BLOCKER 2 — hidden, and no decision record says why.
    *
-   * THIS CATEGORY EXISTS BECAUSE THE FIRST DRAFT OF THIS CHECK WAS WRONG. It treated any
-   * populated `text_norm` as proof of intent, so the rolled-back rehearsal reported SAFE
-   * at the exact midpoint where all 98 active aliases were normalized and none had been
-   * elected — the same total blackout the check was written to prevent, one step later.
+   * THIS CATEGORY EXISTS BECAUSE THE FIRST DRAFT OF THIS CHECK WAS WRONG, TWICE.
    *
-   * `text_norm` records that a row was PROCESSED. It says nothing about whether anyone
-   * decided it should be invisible, and no column does: a not-yet-elected row and a
-   * deliberately retired one are byte-identical. So intent has to be supplied from
-   * outside, via `intentionallyDemoted`, and absent that this fails closed.
+   * Draft one treated any populated `text_norm` as proof of intent, so the rolled-back
+   * rehearsal reported SAFE at the exact midpoint where all 98 active aliases were
+   * normalized and none had been elected — the same total blackout, one step later.
+   *
+   * Draft two fixed that but still inferred safety for a "losing duplicate" whenever some
+   * sibling row happened to be searchable. That is inference from table state again, just
+   * a subtler kind: it answers "is this form reachable?" when the question is "did anyone
+   * DECIDE this row should be invisible?". A group whose winner was elected by accident,
+   * or by a half-finished pass, reads identically.
+   *
+   * So nothing in the table counts as evidence. `text_norm IS NOT NULL` never does, and
+   * neither does a searchable sibling. Every hidden active embedded alias must be NAMED in
+   * `decisions`, and absent that this fails closed.
    */
-  readonly hiddenWithoutElection: readonly string[];
+  readonly hiddenWithoutDecision: readonly string[];
   /**
-   * Fine. A losing duplicate: some OTHER row in its `(skill_id, text_norm, lang)` group is
-   * searchable, so the normalized form is still reachable and this row is the redundant
-   * spelling that election set aside. Exactly what duplicate election is supposed to leave
-   * behind, and never a reason to block.
+   * BLOCKER 3 — the record and the table disagree.
+   *
+   * A row recorded `elected` that is not searchable, or recorded hidden that is. Blocking
+   * on the second case is deliberate even though nothing is hidden by omission there: a
+   * decision record that misdescribes the rows it covers cannot be trusted about the rows
+   * it claims are safely hidden either. Fail closed (CLAUDE.md §3).
    */
-  readonly hiddenAsLosingDuplicate: readonly string[];
-  /** Fine. Named in `intentionallyDemoted` — a recorded taxonomy decision. */
-  readonly hiddenByDecision: readonly string[];
+  readonly contradictedDecisions: readonly string[];
+  /** Fine — hidden, and a decision record says exactly why. Grouped by reason. */
+  readonly hiddenByRecordedDecision: Readonly<Record<AliasVisibilityDecision, readonly string[]>>;
 }
 
 export interface PredicateReadinessOptions {
   /**
-   * Alias ids a human has decided should not be retrievable — the `fitting` / `gauge`
-   * class of bare-token demotion. Supplied by the caller because it is a taxonomy
-   * decision, and deliberately NOT inferred: inferring it is the bug documented above.
+   * The election decision manifest, as `alias_id -> reason`. Supplied by the caller
+   * because visibility is a taxonomy decision, and deliberately never inferred.
    */
-  readonly intentionallyDemoted?: readonly string[];
+  readonly decisions?: Readonly<Record<string, AliasVisibilityDecision>>;
 }
 
 /**
@@ -467,42 +479,49 @@ export function retrievalPredicateReadiness(
   rows: readonly SkillAliasNormalizationRow[],
   options: PredicateReadinessOptions = {},
 ): PredicateReadiness {
-  const demoted = new Set(options.intentionallyDemoted ?? []);
-
-  // Which `(skill_id, text_norm, lang)` groups have a searchable representative? Computed
-  // over ALL rows, not just active ones: election is per group, and a group's winner is
-  // whatever row won it.
-  const electedGroups = new Set<string>();
-  for (const r of rows) {
-    if (!r.isSearchable) continue;
-    const norm = effectiveTextNorm(r);
-    if (norm !== null) electedGroups.add(groupKey([r.skillId, norm, r.lang]));
-  }
+  const decisions = options.decisions ?? {};
 
   const hiddenByMissingNormalization: string[] = [];
-  const hiddenWithoutElection: string[] = [];
-  const hiddenAsLosingDuplicate: string[] = [];
-  const hiddenByDecision: string[] = [];
+  const hiddenWithoutDecision: string[] = [];
+  const contradictedDecisions: string[] = [];
+  const byReason: Record<AliasVisibilityDecision, string[]> = {
+    elected: [],
+    intentionally_demoted: [],
+    duplicate_loser: [],
+  };
 
   for (const r of rows) {
-    if (r.skillStatus !== "active" || !r.hasEmbedding || r.isSearchable) continue;
+    if (r.skillStatus !== "active" || !r.hasEmbedding) continue;
+    const decision = Object.prototype.hasOwnProperty.call(decisions, r.id)
+      ? decisions[r.id]
+      : undefined;
+
+    if (r.isSearchable) {
+      // Visible. Only a record claiming it is hidden is a problem.
+      if (decision !== undefined && decision !== "elected") contradictedDecisions.push(r.id);
+      continue;
+    }
+
     if (r.textNorm === null) {
       hiddenByMissingNormalization.push(r.id);
-    } else if (electedGroups.has(groupKey([r.skillId, r.textNorm, r.lang]))) {
-      hiddenAsLosingDuplicate.push(r.id);
-    } else if (demoted.has(r.id)) {
-      hiddenByDecision.push(r.id);
+    } else if (decision === undefined) {
+      hiddenWithoutDecision.push(r.id);
+    } else if (decision === "elected") {
+      contradictedDecisions.push(r.id); // record says elected, table says hidden
     } else {
-      hiddenWithoutElection.push(r.id);
+      byReason[decision].push(r.id);
     }
   }
 
   return {
-    safe: hiddenByMissingNormalization.length === 0 && hiddenWithoutElection.length === 0,
+    safe:
+      hiddenByMissingNormalization.length === 0 &&
+      hiddenWithoutDecision.length === 0 &&
+      contradictedDecisions.length === 0,
     hiddenByMissingNormalization,
-    hiddenWithoutElection,
-    hiddenAsLosingDuplicate,
-    hiddenByDecision,
+    hiddenWithoutDecision,
+    contradictedDecisions,
+    hiddenByRecordedDecision: byReason,
   };
 }
 
@@ -515,10 +534,10 @@ export function assertRetrievalPredicateSafe(
   if (r.safe) return;
   throw new Error(
     "Refusing the skill-alias retrieval predicate: " +
-      `${r.hiddenByMissingNormalization.length} active embedded alias(es) have text_norm IS NULL ` +
-      `(never normalized) and ${r.hiddenWithoutElection.length} are normalized but have no searchable ` +
-      "row for their text_norm and no recorded demotion. Both are hidden by omission, not by a " +
-      "decision. Run `pnpm db:normalize:skill-aliases --apply`, elect is_searchable, record any " +
-      "deliberate demotions, then re-check.",
+      `${r.hiddenByMissingNormalization.length} active embedded alias(es) were never normalized, ` +
+      `${r.hiddenWithoutDecision.length} are hidden with no decision record naming them, and ` +
+      `${r.contradictedDecisions.length} contradict the record. Nothing in the table counts as ` +
+      "evidence of election — not text_norm, not a searchable sibling. Run the election, record " +
+      "every hidden active embedded alias in the decision manifest, then re-check.",
   );
 }

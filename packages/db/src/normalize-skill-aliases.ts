@@ -32,7 +32,7 @@
  * PRIVACY: the reference catalogue only. Every line printed is ids + counts.
  */
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { config } from "dotenv";
 import { sql as dsql } from "drizzle-orm";
@@ -50,6 +50,7 @@ import {
   planSkillAliasNormalization,
   projectElection,
   retrievalPredicateReadiness,
+  type AliasVisibilityDecision,
   type SkillAliasNormalizationPlan,
   type SkillAliasNormalizationRow,
 } from "./skill-alias-normalization";
@@ -201,6 +202,32 @@ function canonicalJson(value: unknown): string {
  * `sha256` over the canonical body, so the digest is a function of CONTENT, not key order.
  * Stored beside the body, never inside it — a structure cannot contain its own hash.
  */
+/**
+ * Write an evidence artifact, REFUSING to overwrite one that already exists.
+ *
+ * Learned the hard way during the verification stage: re-running a dry run with
+ * `--manifest=<committed path>` silently replaced the committed 131-row PRE-WRITE manifest
+ * with a 0-row one, because the write had already happened and the plan was now empty. The
+ * artifact whose entire job is to record what the corpus looked like BEFORE a mutation is
+ * exactly the file that must never be regenerated in place. It was recovered from git, and
+ * this guard is why it cannot happen twice. A caller that genuinely wants a fresh artifact
+ * picks a fresh path.
+ */
+function writeArtifact(path: string, body: object, label: string): string {
+  if (existsSync(path)) {
+    throw new Error(
+      `[${SCRIPT}] refusing to overwrite an existing ${label}: ${path}\n` +
+        "  These artifacts are immutable evidence. Write to a new path, or delete the old file\n" +
+        "  deliberately if it is genuinely obsolete.",
+    );
+  }
+  const digest = createHash("sha256").update(canonicalJson(body)).digest("hex");
+  writeFileSync(path, `${JSON.stringify({ ...body, sha256: digest }, null, 2)}\n`);
+  console.log(`[${SCRIPT}] ${label} written: ${path}`);
+  console.log(`[${SCRIPT}] sha256(${label}) = ${digest}`);
+  return digest;
+}
+
 function manifestDigest(m: Manifest): string {
   return createHash("sha256").update(canonicalJson(m)).digest("hex");
 }
@@ -283,19 +310,21 @@ function printPlan(plan: SkillAliasNormalizationPlan, rows: readonly SkillAliasN
  */
 function printReadiness(
   rows: readonly SkillAliasNormalizationRow[],
-  intentionallyDemoted: readonly string[] = [],
+  decisions: Readonly<Record<string, AliasVisibilityDecision>> = {},
 ): void {
-  const r = retrievalPredicateReadiness(rows, { intentionallyDemoted });
+  const r = retrievalPredicateReadiness(rows, { decisions });
+  const rec = r.hiddenByRecordedDecision;
   console.log(
     `[${SCRIPT}] retrieval-predicate readiness: ${r.safe ? "SAFE" : "NOT SAFE"} — active embedded ` +
-      `aliases hidden by: not_normalized=${r.hiddenByMissingNormalization.length} ` +
-      `not_elected=${r.hiddenWithoutElection.length} ` +
-      `losing_duplicate=${r.hiddenAsLosingDuplicate.length} decision=${r.hiddenByDecision.length}`,
+      `aliases: not_normalized=${r.hiddenByMissingNormalization.length} ` +
+      `hidden_without_decision=${r.hiddenWithoutDecision.length} ` +
+      `contradicted=${r.contradictedDecisions.length} | recorded: ` +
+      `duplicate_loser=${rec.duplicate_loser.length} demoted=${rec.intentionally_demoted.length}`,
   );
   if (!r.safe) {
     console.log(
-      `[${SCRIPT}] => \`AND sa.is_searchable\` must NOT be added to any skill-alias retrieval path ` +
-        "yet. The first two categories are hidden by omission, not by a decision.",
+      `[${SCRIPT}] => \`AND sa.is_searchable\` must NOT be added to any skill-alias retrieval path. ` +
+        "Nothing in the table counts as evidence of election — not text_norm, not a searchable sibling.",
     );
   }
 }
@@ -368,6 +397,265 @@ function buildManifest(
   };
 }
 
+/**
+ * THE POST-NORMALIZATION VERIFICATION RECORD — read-only evidence, independently recomputed.
+ *
+ * Deliberately NOT a copy of what the apply run printed. It re-derives every figure from
+ * the table as it stands now, so it can disagree with the write's own report. Its sha256
+ * is over the canonical body, making it quotable and tamper-evident.
+ */
+interface VerificationRecord {
+  script: string;
+  stage: string;
+  source_manifest: string | null;
+  source_manifest_sha256: string | null;
+  findings: Record<string, number | string>;
+  contested_groups: Array<Record<string, unknown>>;
+  cross_skill_collisions: Array<Record<string, unknown>>;
+  invariants_held: Record<string, string>;
+}
+
+function buildVerificationRecord(
+  rows: readonly SkillAliasNormalizationRow[],
+  plan: SkillAliasNormalizationPlan,
+  checksum: string,
+  collisions: CollisionCounts,
+  manifestPath: string | undefined,
+): VerificationRecord {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const projection = new Map(projectElection(rows).map((e) => [e.id, e]));
+  const gateB = rows.filter((r) => r.skillStatus === "active" && r.hasEmbedding);
+
+  let sourceSha: string | null = null;
+  if (manifestPath !== undefined) {
+    const m = JSON.parse(readFileSync(manifestPath, "utf8")) as { sha256?: string };
+    sourceSha = m.sha256 ?? null;
+  }
+
+  return {
+    script: SCRIPT,
+    stage: "post-normalization verification — READ ONLY, nothing written",
+    source_manifest: manifestPath ?? null,
+    source_manifest_sha256: sourceSha,
+    findings: {
+      corpus_row_count: rows.length,
+      text_norm_populated: rows.filter((r) => r.textNorm !== null).length,
+      text_norm_null: rows.filter((r) => r.textNorm === null).length,
+      active_normalized: rows.filter((r) => r.skillStatus === "active" && r.textNorm !== null).length,
+      active_total: rows.filter((r) => r.skillStatus === "active").length,
+      provisional_normalized: rows.filter((r) => r.skillStatus === "provisional" && r.textNorm !== null).length,
+      provisional_total: rows.filter((r) => r.skillStatus === "provisional").length,
+      elected_projection: rows.filter((r) => projection.get(r.id)?.election === "winner").length,
+      duplicate_losers: rows.filter((r) => projection.get(r.id)?.election === "loser").length,
+      cross_skill_collisions: plan.crossSkillCollisions.length,
+      is_searchable_true_actual: rows.filter((r) => r.isSearchable).length,
+      embeddings_present: rows.filter((r) => r.hasEmbedding).length,
+      gate_b_total: gateB.length,
+      gate_b_normalized: gateB.filter((r) => r.textNorm !== null).length,
+      gate_b_elected_projection: gateB.filter((r) => projection.get(r.id)?.election === "winner").length,
+      gate_b_duplicate_losers: gateB.filter((r) => projection.get(r.id)?.election === "loser").length,
+      gate_b_actually_searchable: gateB.filter((r) => r.isSearchable).length,
+      immutable_columns_checksum: checksum,
+      db_same_skill_duplicate_groups: collisions.same_skill_groups,
+      db_cross_skill_collision_groups: collisions.cross_skill_groups,
+    },
+    contested_groups: plan.uniqueKeyConflicts.map((c) => ({
+      skill_id: c.skillId,
+      lang: c.lang,
+      text_norm: c.textNorm,
+      members: c.ids.map((id) => ({
+        alias_id: id,
+        text: byId.get(id)?.text ?? null,
+        skill_status: byId.get(id)?.skillStatus ?? null,
+        has_embedding: byId.get(id)?.hasEmbedding ?? false,
+        current_is_searchable: byId.get(id)?.isSearchable ?? false,
+        projected_outcome: projection.get(id)?.election ?? "unknown",
+      })),
+    })),
+    cross_skill_collisions: plan.crossSkillCollisions.map((c) => ({
+      text_norm: c.textNorm,
+      lang: c.lang,
+      skill_ids: c.skillIds,
+      members: c.ids.map((id) => ({
+        alias_id: id,
+        skill_id: byId.get(id)?.skillId ?? null,
+        text: byId.get(id)?.text ?? null,
+        skill_status: byId.get(id)?.skillStatus ?? null,
+        has_embedding: byId.get(id)?.hasEmbedding ?? false,
+      })),
+      status: "UNRESOLVED — reported, not settled",
+    })),
+    invariants_held: {
+      is_searchable: "UNCHANGED — no election has run",
+      retrieval_predicate: "OFF — no skill-alias path filters is_searchable",
+      retrieval_behaviour: "UNCHANGED — no query path reads skill_alias.text_norm",
+      embeddings: "UNCHANGED — no provider call in this workstream",
+      floor: "0.75",
+      no_regression: "enforced",
+      canonicalization: "OFF",
+      promotion: "none",
+      exp_p8_baseline: "immutable",
+      domain_generation_4071: "not authorized",
+    },
+  };
+}
+
+/**
+ * THE PROPOSED ELECTION — computed, never applied.
+ *
+ * One row per alias the election would touch or must account for: every row whose
+ * `is_searchable` would change, UNIONED with every active embedded alias. The union is
+ * what makes Gate B explicit — an active alias that election leaves alone still gets a
+ * line saying so, rather than being absent and therefore unexamined.
+ *
+ * `decision_source` records WHERE the outcome came from, so the guard can distinguish a
+ * mechanical duplicate election from a human taxonomy decision. Nothing here is derived
+ * from a row already being searchable; that is the inference the guard now refuses.
+ */
+interface ElectionManifestRow {
+  alias_id: string;
+  skill_id: string;
+  text_norm: string;
+  lang: string | null;
+  skill_status: string;
+  has_embedding: boolean;
+  current_is_searchable: boolean;
+  proposed_is_searchable: boolean;
+  winner_id: string;
+  loser_reason: string | null;
+  decision_source: string;
+}
+
+interface ElectionManifest {
+  script: string;
+  status: string;
+  scope: string;
+  statement: string;
+  totals: Record<string, number>;
+  gate_b: Record<string, number>;
+  contested_groups: Array<Record<string, unknown>>;
+  cross_skill_collisions: Array<Record<string, unknown>>;
+  rows: ElectionManifestRow[];
+  rollback_sql: string;
+  immutable_columns_checksum: string;
+}
+
+function buildElectionManifest(
+  rows: readonly SkillAliasNormalizationRow[],
+  plan: SkillAliasNormalizationPlan,
+  checksum: string,
+): ElectionManifest {
+  const projection = new Map(projectElection(rows).map((e) => [e.id, e]));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+
+  // Group members, so a loser can name the winner that displaced it.
+  const groups = new Map<string, SkillAliasNormalizationRow[]>();
+  for (const r of rows) {
+    if (r.textNorm === null) continue;
+    const k = JSON.stringify([r.skillId, r.textNorm, r.lang]);
+    const b = groups.get(k);
+    if (b === undefined) groups.set(k, [r]);
+    else b.push(r);
+  }
+  const winnerOf = new Map<string, string>();
+  for (const [k, members] of groups) {
+    const w = members.find((m) => projection.get(m.id)?.election === "winner");
+    if (w !== undefined) winnerOf.set(k, w.id);
+  }
+
+  const manifestRows: ElectionManifestRow[] = [];
+  for (const r of rows) {
+    if (r.textNorm === null) continue;
+    const p = projection.get(r.id);
+    const proposed = p?.election === "winner";
+    const isGateB = r.skillStatus === "active" && r.hasEmbedding;
+    if (proposed === r.isSearchable && !isGateB) continue; // unchanged and not Gate B
+
+    const key = JSON.stringify([r.skillId, r.textNorm, r.lang]);
+    const winner = winnerOf.get(key) ?? r.id;
+    manifestRows.push({
+      alias_id: r.id,
+      skill_id: r.skillId,
+      text_norm: r.textNorm,
+      lang: r.lang,
+      skill_status: r.skillStatus,
+      has_embedding: r.hasEmbedding,
+      current_is_searchable: r.isSearchable,
+      proposed_is_searchable: proposed,
+      winner_id: winner,
+      loser_reason: proposed
+        ? null
+        : `displaced by ${winner} in (skill_id, text_norm, lang) — tie-break: embedded first, ` +
+          "then shortest text, then lowest id",
+      decision_source: proposed ? "duplicate_election:rn=1" : "duplicate_election:rn>1",
+    });
+  }
+
+  const gateB = rows.filter((r) => r.skillStatus === "active" && r.hasEmbedding);
+  const changed = manifestRows.filter((r) => r.current_is_searchable !== r.proposed_is_searchable);
+
+  return {
+    script: SCRIPT,
+    status: "PROPOSED — NOT EXECUTED. No is_searchable value has been written.",
+    scope: "is_searchable only; text_norm, embedding and provenance untouched",
+    statement:
+      'UPDATE "skill_alias" SET "is_searchable" = $1 WHERE "id" = $2 -- one row per manifest entry',
+    totals: {
+      rows_in_manifest: manifestRows.length,
+      rows_that_would_change: changed.length,
+      would_become_searchable: changed.filter((r) => r.proposed_is_searchable).length,
+      would_become_hidden: changed.filter((r) => !r.proposed_is_searchable).length,
+      unique_key_conflict_groups: plan.uniqueKeyConflicts.length,
+      cross_skill_collision_groups: plan.crossSkillCollisions.length,
+      intentional_demotions: 0,
+    },
+    gate_b: {
+      active_embedded_total: gateB.length,
+      proposed_elected: gateB.filter((r) => projection.get(r.id)?.election === "winner").length,
+      proposed_duplicate_losers: gateB.filter((r) => projection.get(r.id)?.election === "loser").length,
+      // Every Gate-B alias must appear in `rows`, or the guard would have nothing to read
+      // for it and would (correctly) refuse the predicate.
+      covered_by_manifest: gateB.filter((r) => manifestRows.some((m) => m.alias_id === r.id)).length,
+      unintentionally_unreachable: 0,
+    },
+    contested_groups: plan.uniqueKeyConflicts.map((c) => ({
+      skill_id: c.skillId,
+      text_norm: c.textNorm,
+      lang: c.lang,
+      members: c.ids.map((id) => ({
+        alias_id: id,
+        text: byId.get(id)?.text ?? null,
+        has_embedding: byId.get(id)?.hasEmbedding ?? false,
+        outcome: projection.get(id)?.election ?? "unknown",
+      })),
+    })),
+    cross_skill_collisions: plan.crossSkillCollisions.map((c) => ({
+      text_norm: c.textNorm,
+      lang: c.lang,
+      skill_ids: c.skillIds,
+      members: c.ids.map((id) => ({
+        alias_id: id,
+        skill_id: byId.get(id)?.skillId ?? null,
+        skill_status: byId.get(id)?.skillStatus ?? null,
+        has_embedding: byId.get(id)?.hasEmbedding ?? false,
+      })),
+      resolution: "UNRESOLVED — taxonomy/retrieval decision, deliberately not settled here",
+      note:
+        "Legal under skill_alias_skill_norm_lang_uq (partitioned by skill_id). The hazard is L0: " +
+        "an exact-equality probe on this text_norm matches two skills with nothing to rank them. " +
+        "Election does not and must not resolve it.",
+    })),
+    rows: manifestRows,
+    rollback_sql:
+      "-- inverse of the proposed election, per row:\n" +
+      manifestRows
+        .filter((r) => r.current_is_searchable !== r.proposed_is_searchable)
+        .map((r) => `UPDATE "skill_alias" SET "is_searchable" = ${r.current_is_searchable} WHERE "id" = '${r.alias_id}';`)
+        .join("\n"),
+    immutable_columns_checksum: checksum,
+  };
+}
+
 /** Write `text_norm` for the planned rows, in batches. Returns rows written. */
 async function writeTextNorm(
   db: ReturnType<typeof createDbClient>["db"],
@@ -407,6 +695,8 @@ async function main(): Promise<void> {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   const manifestPath = argValue("manifest");
+  const verificationPath = argValue("verification-record");
+  const electionPath = argValue("election-manifest");
 
   printHeader(SCRIPT, opts);
   if (rollback && !opts.apply) {
@@ -444,13 +734,55 @@ async function main(): Promise<void> {
       cross_skill_groups: 0,
     };
 
-    if (manifestPath !== undefined && !opts.apply) {
+    // ── READ-ONLY ARTIFACTS. Both refuse to coexist with --apply, so a run that produces
+    //    an evidence record can never also be the run that mutates the thing it describes.
+    if ((verificationPath !== undefined || electionPath !== undefined) && opts.apply) {
+      throw new Error(
+        `[${SCRIPT}] --verification-record and --election-manifest are read-only artifacts and ` +
+          "cannot be combined with --apply. Produce the evidence in its own run.",
+      );
+    }
+
+    if (verificationPath !== undefined) {
+      const record = buildVerificationRecord(rows, plan, checksumBefore, collisionsBefore, manifestPath);
+      writeArtifact(verificationPath, record, "verification record");
+      printCounts(SCRIPT, record.findings);
+    }
+
+    if (electionPath !== undefined) {
+      const election = buildElectionManifest(rows, plan, checksumBefore);
+      writeArtifact(electionPath, election, "election manifest (PROPOSED, NOT EXECUTED)");
+      printCounts(SCRIPT, { ...election.totals, ...election.gate_b });
+
+      // Prove the manifest is sufficient: replay it through the guard against the state it
+      // WOULD produce. If the guard still refuses, the manifest is incomplete and saying so
+      // now is the whole point of preparing it separately from executing it.
+      const decisions: Record<string, AliasVisibilityDecision> = {};
+      for (const r of election.rows) {
+        decisions[r.alias_id] = r.proposed_is_searchable ? "elected" : "duplicate_loser";
+      }
+      const afterElection = rows.map((r) => {
+        const m = election.rows.find((x) => x.alias_id === r.id);
+        return m === undefined ? r : { ...r, isSearchable: m.proposed_is_searchable };
+      });
+      console.log(`[${SCRIPT}] guard replay against the state this manifest would produce:`);
+      printReadiness(afterElection, decisions);
+      console.log(
+        `[${SCRIPT}] guard replay against TODAY's state (election not run) — must still refuse:`,
+      );
+      printReadiness(rows, decisions);
+    }
+
+    // A pre-write manifest is only GENERATED when it does not exist. Once it does, the
+    // same flag means "audit --apply against this one", never "regenerate it".
+    if (manifestPath !== undefined && !opts.apply && !existsSync(manifestPath)) {
       const manifest = buildManifest(plan, rows, checksumBefore, collisionsBefore);
-      const digest = manifestDigest(manifest);
-      writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, sha256: digest }, null, 2)}\n`);
-      console.log(`[${SCRIPT}] manifest written: ${manifestPath}`);
-      console.log(`[${SCRIPT}] sha256(manifest) = ${digest}`);
+      writeArtifact(manifestPath, manifest, "pre-write manifest");
       printCounts(SCRIPT, { ...manifest.totals, ...manifest.projected });
+    } else if (manifestPath !== undefined && !opts.apply) {
+      console.log(
+        `[${SCRIPT}] pre-write manifest already exists and was NOT regenerated: ${manifestPath}`,
+      );
     }
 
     if (!opts.apply) {
@@ -671,13 +1003,19 @@ async function rehearse(
       }
 
       const demoted = toPlannerRows((await tx.execute(FETCH_ROWS)) as unknown as RawRow[]);
-      // Naming the alias on the command line IS the record of intent, so those ids are
-      // passed as `intentionallyDemoted`. Printed both ways to show the difference the
-      // register makes — without it, a demotion is indistinguishable from an oversight.
-      console.log(`[${SCRIPT}] after REHEARSED demotion, WITHOUT the demotion register:`);
+      // The decision record the guard requires: the election's own outcomes, plus the
+      // demotions named on the command line — naming them IS the record of intent.
+      // Printed both ways to show what the record buys: without it, every hidden row is
+      // indistinguishable from an oversight, which is exactly the guard's point.
+      const decisions: Record<string, AliasVisibilityDecision> = {};
+      for (const e of projectElection(demoted)) {
+        decisions[e.id] = e.election === "winner" ? "elected" : "duplicate_loser";
+      }
+      for (const id of demotedIds) decisions[id] = "intentionally_demoted";
+      console.log(`[${SCRIPT}] after REHEARSED demotion, WITHOUT a decision record:`);
       printReadiness(demoted);
-      console.log(`[${SCRIPT}] after REHEARSED demotion, WITH the demotion register:`);
-      printReadiness(demoted, demotedIds);
+      console.log(`[${SCRIPT}] after REHEARSED demotion, WITH the decision record:`);
+      printReadiness(demoted, decisions);
 
       throw new Error(SENTINEL);
     });

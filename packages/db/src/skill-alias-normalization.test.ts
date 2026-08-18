@@ -306,7 +306,7 @@ describe("retrievalPredicateReadiness — the invariant that guards `AND sa.is_s
     const readiness = retrievalPredicateReadiness([activeEmbeddedHidden]);
     expect(readiness.safe).toBe(false);
     expect(readiness.hiddenByMissingNormalization).toEqual(["gateB"]);
-    expect(readiness.hiddenWithoutElection).toEqual([]);
+    expect(readiness.hiddenWithoutDecision).toEqual([]);
   });
 
   it("reproduces the live 2026-08-18 corpus shape: 98 active aliases block the predicate", () => {
@@ -339,32 +339,30 @@ describe("retrievalPredicateReadiness — the invariant that guards `AND sa.is_s
     const midpoint = retrievalPredicateReadiness(normalized);
     expect(midpoint.safe).toBe(false);
     expect(midpoint.hiddenByMissingNormalization).toEqual([]);
-    expect(midpoint.hiddenWithoutElection).toHaveLength(98);
+    expect(midpoint.hiddenWithoutDecision).toHaveLength(98);
 
     const elected = normalized.map((r) => ({ ...r, isSearchable: true }));
     expect(retrievalPredicateReadiness(elected).safe).toBe(true);
   });
 
-  it("does not block on a LOSING DUPLICATE — its normalized form is still reachable", () => {
-    // Measured in the rehearsal: `kharad` / `kharad ka kaam` both normalize to `kharad`,
-    // election keeps one. The loser keeps its row and its paid embedding and stops being
-    // retrievable, which is what election is FOR.
-    const readiness = retrievalPredicateReadiness([
+  it("a SEARCHABLE SIBLING is not evidence either — a losing duplicate must be RECORDED", () => {
+    // Draft two of this guard passed a hidden row whenever some sibling in its
+    // (skill_id, text_norm, lang) group was searchable. That is still inference from table
+    // state: it answers "is this form reachable?" when the question is "did anyone DECIDE
+    // this row should be invisible?". A group whose winner was elected by a half-finished
+    // pass reads exactly the same.
+    const group = [
       row({ id: "winner", skillId: "skill_turning", textNorm: "kharad", lang: "hi", skillStatus: "active", hasEmbedding: true, isSearchable: true }),
       row({ id: "loser", skillId: "skill_turning", textNorm: "kharad", lang: "hi", skillStatus: "active", hasEmbedding: true, isSearchable: false }),
-    ]);
-    expect(readiness.safe).toBe(true);
-    expect(readiness.hiddenAsLosingDuplicate).toEqual(["loser"]);
-    expect(readiness.hiddenWithoutElection).toEqual([]);
-  });
+    ];
+    expect(retrievalPredicateReadiness(group).safe).toBe(false);
+    expect(retrievalPredicateReadiness(group).hiddenWithoutDecision).toEqual(["loser"]);
 
-  it("a winner in a DIFFERENT group does not excuse an unelected row", () => {
-    const readiness = retrievalPredicateReadiness([
-      row({ id: "other", skillId: "skill_turning", textNorm: "kharad", lang: "hi", skillStatus: "active", hasEmbedding: true, isSearchable: true }),
-      row({ id: "orphan", skillId: "skill_turning", textNorm: "lathe", lang: "en", skillStatus: "active", hasEmbedding: true, isSearchable: false }),
-    ]);
-    expect(readiness.safe).toBe(false);
-    expect(readiness.hiddenWithoutElection).toEqual(["orphan"]);
+    const recorded = retrievalPredicateReadiness(group, {
+      decisions: { winner: "elected", loser: "duplicate_loser" },
+    });
+    expect(recorded.safe).toBe(true);
+    expect(recorded.hiddenByRecordedDecision.duplicate_loser).toEqual(["loser"]);
   });
 
   it("a DELIBERATE demotion clears the invariant only when it is RECORDED", () => {
@@ -375,28 +373,55 @@ describe("retrievalPredicateReadiness — the invariant that guards `AND sa.is_s
       row({ id: "fitting", skillId: "skill_bench_fitting", skillStatus: "active", text: "fitting", textNorm: "fitting", hasEmbedding: true, isSearchable: false }),
       row({ id: "gauge", skillId: "skill_measuring_instruments", skillStatus: "active", text: "gauge", textNorm: "gauge", hasEmbedding: true, isSearchable: false }),
     ];
+    const decisions = {
+      fitting: "intentionally_demoted",
+      gauge: "intentionally_demoted",
+    } as const;
 
-    // Unrecorded: fails closed.
     expect(retrievalPredicateReadiness(demoted).safe).toBe(false);
-    expect(retrievalPredicateReadiness(demoted).hiddenWithoutElection).toEqual(["fitting", "gauge"]);
+    expect(retrievalPredicateReadiness(demoted).hiddenWithoutDecision).toEqual(["fitting", "gauge"]);
 
-    // Recorded: accepted, and reported as a decision rather than an omission.
-    const recorded = retrievalPredicateReadiness(demoted, {
-      intentionallyDemoted: ["fitting", "gauge"],
-    });
+    const recorded = retrievalPredicateReadiness(demoted, { decisions });
     expect(recorded.safe).toBe(true);
-    expect(recorded.hiddenByDecision).toEqual(["fitting", "gauge"]);
-    expect(() => assertRetrievalPredicateSafe(demoted, { intentionallyDemoted: ["fitting", "gauge"] })).not.toThrow();
+    expect(recorded.hiddenByRecordedDecision.intentionally_demoted).toEqual(["fitting", "gauge"]);
+    expect(() => assertRetrievalPredicateSafe(demoted, { decisions })).not.toThrow();
   });
 
-  it("the register does NOT excuse a row that was never normalized", () => {
+  it("BLOCKS when the record and the table contradict each other", () => {
+    // Recorded `elected`, actually hidden — the half-applied election.
+    const stale = [
+      row({ id: "a", skillStatus: "active", hasEmbedding: true, textNorm: "turning", isSearchable: false }),
+    ];
+    const r1 = retrievalPredicateReadiness(stale, { decisions: { a: "elected" } });
+    expect(r1.safe).toBe(false);
+    expect(r1.contradictedDecisions).toEqual(["a"]);
+
+    // Recorded hidden, actually visible. Nothing is hidden by omission here, but a record
+    // that misdescribes the rows it covers cannot be trusted about the rest. Fail closed.
+    const r2 = retrievalPredicateReadiness(
+      [row({ id: "b", skillStatus: "active", hasEmbedding: true, textNorm: "turning", isSearchable: true })],
+      { decisions: { b: "intentionally_demoted" } },
+    );
+    expect(r2.safe).toBe(false);
+    expect(r2.contradictedDecisions).toEqual(["b"]);
+  });
+
+  it("the record does NOT excuse a row that was never normalized", () => {
     // Recording intent cannot substitute for processing: an un-normalized row has no L0
     // key at all, so "we meant to hide it" is not the same claim.
     const readiness = retrievalPredicateReadiness([activeEmbeddedHidden], {
-      intentionallyDemoted: ["gateB"],
+      decisions: { gateB: "intentionally_demoted" },
     });
     expect(readiness.safe).toBe(false);
     expect(readiness.hiddenByMissingNormalization).toEqual(["gateB"]);
+  });
+
+  it("ignores a decision key that is not a row, and a prototype-polluting key", () => {
+    // `decisions` is a plain object built from JSON, so a `__proto__`/`constructor` key
+    // must not resolve through the prototype chain into an accidental pass.
+    const hidden = [row({ id: "constructor", skillStatus: "active", hasEmbedding: true, textNorm: "x", isSearchable: false })];
+    expect(retrievalPredicateReadiness(hidden, { decisions: {} }).safe).toBe(false);
+    expect(retrievalPredicateReadiness(hidden, { decisions: {} }).hiddenWithoutDecision).toEqual(["constructor"]);
   });
 
   it("ignores non-active and unembedded rows — neither is reachable by these paths", () => {

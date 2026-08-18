@@ -1,0 +1,116 @@
+{
+  "script": "normalize:skill-aliases",
+  "stage": "post-normalization verification — READ ONLY, nothing written",
+  "source_manifest": "data/taxonomy/normalization/skill-alias-text-norm-manifest.json",
+  "source_manifest_sha256": "ef00c22992b85d0f93ac51b7d59302734eeee390d45d93fb73fcd1a43ba66bbb",
+  "findings": {
+    "corpus_row_count": 328,
+    "text_norm_populated": 328,
+    "text_norm_null": 0,
+    "active_normalized": 98,
+    "active_total": 98,
+    "provisional_normalized": 230,
+    "provisional_total": 230,
+    "elected_projection": 326,
+    "duplicate_losers": 2,
+    "cross_skill_collisions": 1,
+    "is_searchable_true_actual": 197,
+    "embeddings_present": 295,
+    "gate_b_total": 98,
+    "gate_b_normalized": 98,
+    "gate_b_elected_projection": 96,
+    "gate_b_duplicate_losers": 2,
+    "gate_b_actually_searchable": 0,
+    "immutable_columns_checksum": "4eeaa6d8f93e0b93aaa0cf05bf475d7e",
+    "db_same_skill_duplicate_groups": 2,
+    "db_cross_skill_collision_groups": 1
+  },
+  "contested_groups": [
+    {
+      "skill_id": "skill_turning",
+      "lang": "hi",
+      "text_norm": "kharad",
+      "members": [
+        {
+          "alias_id": "0a5c26ef-768a-5195-80f7-eb9fee608b23",
+          "text": "kharad ka kaam",
+          "skill_status": "active",
+          "has_embedding": true,
+          "current_is_searchable": false,
+          "projected_outcome": "loser"
+        },
+        {
+          "alias_id": "0c884ffb-9327-5f8b-83b0-4ef9799de7c5",
+          "text": "kharad",
+          "skill_status": "active",
+          "has_embedding": true,
+          "current_is_searchable": false,
+          "projected_outcome": "winner"
+        }
+      ]
+    },
+    {
+      "skill_id": "skill_grinding_ops",
+      "lang": "hi",
+      "text_norm": "ghisai",
+      "members": [
+        {
+          "alias_id": "0df8284e-aaf6-558c-8d5b-be43d13a992b",
+          "text": "ghisai",
+          "skill_status": "active",
+          "has_embedding": true,
+          "current_is_searchable": false,
+          "projected_outcome": "winner"
+        },
+        {
+          "alias_id": "6b489ae8-0f01-5947-83c4-3f2ce316a9d1",
+          "text": "ghisai ka kaam",
+          "skill_status": "active",
+          "has_embedding": true,
+          "current_is_searchable": false,
+          "projected_outcome": "loser"
+        }
+      ]
+    }
+  ],
+  "cross_skill_collisions": [
+    {
+      "text_norm": "finishing",
+      "lang": "en",
+      "skill_ids": [
+        "skill_deburring",
+        "skill_furniture_finishing"
+      ],
+      "members": [
+        {
+          "alias_id": "4b9511dc-cd94-5204-8b2f-3f0da0050874",
+          "skill_id": "skill_deburring",
+          "text": "finishing",
+          "skill_status": "active",
+          "has_embedding": true
+        },
+        {
+          "alias_id": "be1851ac-ae8d-58af-8be0-7bd8a5290e85",
+          "skill_id": "skill_furniture_finishing",
+          "text": "finishing",
+          "skill_status": "provisional",
+          "has_embedding": false
+        }
+      ],
+      "status": "UNRESOLVED — reported, not settled"
+    }
+  ],
+  "invariants_held": {
+    "is_searchable": "UNCHANGED — no election has run",
+    "retrieval_predicate": "OFF — no skill-alias path filters is_searchable",
+    "retrieval_behaviour": "UNCHANGED — no query path reads skill_alias.text_norm",
+    "embeddings": "UNCHANGED — no provider call in this workstream",
+    "floor": "0.75",
+    "no_regression": "enforced",
+    "canonicalization": "OFF",
+    "promotion": "none",
+    "exp_p8_baseline": "immutable",
+    "domain_generation_4071": "not authorized"
+  },
+  "sha256": "428fa209db3cfbaca5a9f814465dd3320316531bac26302ab8c1c1bbb4b0ad4d"
+}
