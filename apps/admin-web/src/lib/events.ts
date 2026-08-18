@@ -149,7 +149,8 @@ export const ADMIN_TIMELINE_SUBJECT_TYPES = [
 ] as const;
 export type AdminTimelineSubjectType = (typeof ADMIN_TIMELINE_SUBJECT_TYPES)[number];
 
-const entityTimelineSchema = z.object({
+/** Exported so tests can parse a REAL captured payload through it, not around it. */
+export const entityTimelineSchema = z.object({
   subject_type: z.string(),
   subject_id: z.string(),
   events: z.array(eventListItemSchema),
