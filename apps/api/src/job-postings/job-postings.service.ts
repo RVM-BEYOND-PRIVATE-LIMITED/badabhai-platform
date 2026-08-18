@@ -171,6 +171,14 @@ export class JobPostingsService {
       //
       // `aiJobId` is null: canonicalization runs inline inside a posting write, and minting
       // an `ai_jobs` row per skill phrase to satisfy a signature would be worse than a null.
+      //
+      // AND NO WORKER ATTRIBUTION, DELIBERATELY. This is PAYER-side spend: an employer typed
+      // skill phrases onto a job posting and each one bought an embed. No worker is involved
+      // in any sense — not as the subject, not as the beneficiary — so passing one would file
+      // an employer's spend against a candidate and make "cost per worker" a fiction. There is
+      // no payer dimension on the totals either, and that is a scope line, not an oversight:
+      // this call still lands in full on `platform_ai_cost_totals`, which is exactly why that
+      // table accrues unconditionally rather than being summed from worker rows.
       await this.aiCost.record(
         res?.ai_metadata ?? null,
         "skill_embedding",

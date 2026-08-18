@@ -310,6 +310,101 @@ describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
     }
   });
 
+  // ── Phase 4 attribution: worker_id / session_id ────────────────────────────────────────
+  //
+  // The reason these exist at all: `ai_job_id` is null on four spending surfaces by design
+  // (an interview turn, a résumé, a skill embed and a payer chat turn have no async job), so
+  // there was no `ai_jobs.input_ref` to join through and no field either. "What did this
+  // worker cost?" summed to ₹0 and read as free rather than as unattributed.
+  it("ai.cost_recorded carries worker_id + session_id when the surface knows them", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: null },
+      payload: {
+        ai_call_id: UUID_A,
+        // Null on purpose: the interview turn this shape describes has no `ai_jobs` row, and
+        // the attribution is exactly what replaces the join it cannot make.
+        ai_job_id: null,
+        worker_id: UUID_B,
+        session_id: UUID_C,
+        task_type: "profiling_chat_turn",
+        model: "claude-haiku-4-5",
+        provider: "anthropic",
+        estimated_cost_inr: 0.157,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.cost_recorded") {
+      expect(result.event.payload.worker_id).toBe(UUID_B);
+      expect(result.event.payload.session_id).toBe(UUID_C);
+    }
+  });
+
+  it("ai.cost_recorded still validates with NEITHER field — every historical row stays valid", () => {
+    // BACKWARD COMPATIBILITY IS THE ASSERTION. Both default to null, so a row written before
+    // these fields existed parses identically, and no consumer of the old shape breaks. This
+    // is the same additive discipline BL-23 used; the registry stays at version 1.
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_A,
+        task_type: "profile_extraction",
+        model: "m",
+        provider: "p",
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.cost_recorded") {
+      expect(result.event.payload.worker_id).toBeNull();
+      expect(result.event.payload.session_id).toBeNull();
+    }
+  });
+
+  it("ai.cost_recorded accepts an explicitly UNATTRIBUTED payer-side call", () => {
+    // `skill_embedding` on a job-posting write and `job_posting_chat_turn` are employer spend
+    // with no worker in any sense. Nulls are the honest answer, and inventing a worker to
+    // satisfy the field would file an employer's money against a candidate.
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: null },
+      payload: {
+        ai_call_id: UUID_A,
+        ai_job_id: null,
+        worker_id: null,
+        session_id: null,
+        task_type: "skill_embedding",
+        model: "text-embedding-004",
+        provider: "google",
+      },
+    };
+    expect(validateEvent(evt).success).toBe(true);
+  });
+
+  it("rejects a non-uuid worker_id — the attribution is an id, never a name", () => {
+    // §2. The ONLY thing that makes attributing cost by identifier safe is that the
+    // identifier is opaque. A payload that accepted free text here is one prompt-debugging
+    // session away from carrying a worker's name into the events table.
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: null },
+      payload: {
+        ai_call_id: UUID_A,
+        worker_id: "Ramesh Kumar",
+        task_type: "profiling_chat_turn",
+        model: "m",
+        provider: "p",
+      },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
+
   it("rejects ai.cost_recorded with an unknown task_type", () => {
     const evt = {
       ...workerCreatedEvent(),

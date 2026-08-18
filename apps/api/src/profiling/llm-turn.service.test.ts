@@ -21,6 +21,8 @@ import { emptyProfilingEnvelope, type ProfilingEnvelope } from "./conversation-s
 
 const CTX = {
   workerId: "11111111-1111-4111-8111-111111111111",
+  // The interview this turn belongs to — carried so the turn's spend lands on a session total.
+  sessionId: "22222222-2222-4222-8222-222222222222",
   correlationId: "44444444-4444-4444-8444-444444444444",
   requestId: "req_1",
 };
@@ -486,6 +488,10 @@ describe("every Phase A turn is a billable call, and the ledger has to say so", 
       null,
       CTX.correlationId,
       CTX.requestId,
+      // THE ATTRIBUTION IS THE POINT OF THIS ARGUMENT, not decoration. With `ai_job_id` null
+      // there is no `ai_jobs.input_ref` to join through, so without this pair the dominant
+      // per-profile cost on the platform belongs to nobody and "cost per worker" reads ₹0.
+      { workerId: CTX.workerId, sessionId: CTX.sessionId },
     );
   });
 
@@ -500,6 +506,7 @@ describe("every Phase A turn is a billable call, and the ledger has to say so", 
       null,
       CTX.correlationId,
       CTX.requestId,
+      { workerId: CTX.workerId, sessionId: CTX.sessionId },
     );
   });
 

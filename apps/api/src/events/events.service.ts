@@ -52,6 +52,27 @@ export class EventsService {
   ) {}
 
   async emit<N extends EventName>(params: EmitParams<N>): Promise<BadaBhaiEvent<N>> {
+    const { event } = await this.emitOnce(params);
+    return event;
+  }
+
+  /**
+   * {@link emit}, plus the ONE fact `emit` throws away: whether a row was actually written or
+   * the idempotency key deduped it.
+   *
+   * WHY A CALLER NEEDS IT. A materialization derived from an event — a running total, a
+   * balance — must move exactly once per logical event, and `emit` returns the built event
+   * whether or not it was stored, so a caller that increments after `emit` double-counts every
+   * at-least-once redelivery. Binding the increment to `written` is the same rule
+   * `AdminActionsRepository.grantCredits` uses to bind a balance move to a NEW ledger row: the
+   * dedup authority is the insert, not the caller's memory of having called.
+   *
+   * ADDITIVE. `emit` delegates here and its behaviour — including the log lines — is
+   * unchanged, so no existing caller sees a difference.
+   */
+  async emitOnce<N extends EventName>(
+    params: EmitParams<N>,
+  ): Promise<{ event: BadaBhaiEvent<N>; written: boolean }> {
     const { event, idempotencyKey } = this.build(params);
 
     const written = await this.repo.insert(event, idempotencyKey, params.tx);
@@ -66,7 +87,7 @@ export class EventsService {
         `event=${event.event_name} DEDUPED (idempotency_key=${idempotencyKey}) correlation=${event.correlation_id}`,
       );
     }
-    return event;
+    return { event, written };
   }
 
   /**

@@ -255,6 +255,13 @@ export class JobPostingChatService {
     // is only worth anything if what is wired is right.
     //
     // `aiJobId` is null: a payer turn is a synchronous reply, not an `ai_jobs` row.
+    //
+    // NO WORKER AND NO SESSION ATTRIBUTION. `session.id` here is a
+    // `payer_job_posting_chat_sessions` row, NOT a `chat_sessions` row — a DIFFERENT table
+    // with a different id space — so passing it as `sessionId` would violate the FK on
+    // `session_ai_cost_totals` and, worse, could collide with a worker interview's id space if
+    // that FK ever went away. The worker is absent for the same reason as the skill-embedding
+    // fan-out: this is an employer composing a posting. It still counts in full platform-wide.
     await this.aiCost.record(
       aiResult.ai_metadata ?? null,
       "job_posting_chat_turn",

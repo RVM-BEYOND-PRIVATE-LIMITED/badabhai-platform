@@ -26,7 +26,7 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0076_canonical_domain_skill_taxonomy`** (journal has 77 entries, `idx` 0–76).
+**`0077_ai_cost_running_totals`** (journal has 78 entries, `idx` 0–77).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
@@ -39,8 +39,60 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0074`        | Prakash   | **MERGED** — `.enableRLS()` model markers, 31 tables (BL-26, #839) |
 | `0075`        | Divyanshu | **MERGED** — `job_postings` state for `GET /jobs/search` (#822, #856) |
 | `0076`        | Prakash   | **ON `main`** — canonical Domain→Skill taxonomy, Phase 1 (`fca0ef9c`; see notes below) |
-| `0077`–`0079` | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
+| `0077`        | Prakash   | **CLAIMED** — AI cost attribution: three running-total tables (admin Phase 4) |
+| `0078`–`0079` | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
 | `0080`+       | unclaimed | claim in a PR of its own, so the claim is reviewable          |
+
+### `0077` — additive, no ordering constraint, no backfill — 2026-08-18
+
+**NOT apply-before-deploy — BUT ONLY BECAUSE OF THE SAVEPOINT.** It creates three empty tables
+(`worker_ai_cost_totals`, `session_ai_cost_totals`, `platform_ai_cost_totals`) that nothing reads
+yet. Deploying the app before applying it does not break a request, and does not lose an event
+either: the only writer is `AiCostRecorder.record()`, which runs the accrual inside a `SAVEPOINT`
+on the event's transaction and catches its failure, so the `ai.cost_recorded` row still commits.
+The cost is accuracy (uncounted spend), not uptime and not the ledger.
+
+That qualifier is the whole claim. Without the savepoint this line was **false**: the accrual's
+unconditional `platform_ai_cost_totals` upsert raises `relation "platform_ai_cost_totals" does
+not exist`, which aborts the enclosing transaction, and Postgres executes the eventual `COMMIT`
+as a `ROLLBACK` — so every `ai.cost_recorded` event on every surface would have been silently
+dropped for as long as the app ran ahead of the migration, one `warn` line each. If anyone ever
+removes the savepoint, this migration becomes apply-before-deploy and this row must change with
+it. Staging CD already migrates before it deploys (`.github/workflows/staging-cd.yml`), so the
+exposure was never staging's normal path — it is the rollback path, a hand-run deploy, and any
+environment whose migration step is separate from its deploy step.
+
+**No backfill ships with it.** The tables accrue from the moment they exist; spend already on the
+event spine is not counted, so every figure derived from them means "since 0077" until a backfill
+is separately authorised and run against `events WHERE event_name = 'ai.cost_recorded'`.
+
+**Rollback is three `DROP TABLE`s** in any order — no other table has an FK to them, no view or
+function selects from them, and the only code that touches them is `AiCostTotalsRepository`, whose
+single caller runs in that savepoint. So dropping them **while the app is live** degrades cost
+accrual to a warn per AI call and changes nothing else; the event spine they are derived from is
+untouched, and a re-apply plus a backfill reconstructs every figure exactly. Dropping the *code*
+first is optional, not required.
+
+One thing a rollback must not forget: all three tables are listed in `LOCKED_TABLES` in
+`tests/e2e/rls-spine.e2e.test.ts`. That gate asserts RLS + FORCE + no grants on each name, so it
+fails on a table that no longer exists — remove those three entries in the same change that drops
+the tables.
+
+**Time the DDL under a `lock_timeout`.** The `ADD CONSTRAINT ... FOREIGN KEY` statements take
+`SHARE ROW EXCLUSIVE` on `workers` (twice) and `chat_sessions` — the two hottest worker-side
+tables — which conflicts with the `ROW EXCLUSIVE` every ordinary write holds. Validation itself is
+instant (the new tables are empty), but the request queues behind any in-flight transaction on
+those tables and every writer arriving after it queues behind the request. `0073` set the same
+precedent, so this is timing guidance, not a blocker:
+
+```sql
+SET lock_timeout = '3s';   -- fail fast rather than stall the write path
+-- run the migration; on 55P03 (lock_not_available) wait and retry
+```
+
+**It takes the head of the OIE block.** `0077`–`0079` was reserved for Occupation Intelligence;
+that workstream has not minted `0077` on any branch, and this file's own rule is that the claim is
+recorded in the change that takes it. OIE's remaining slots are `0078`–`0079`.
 
 ### `0076` deploy ordering and rollback — 2026-08-16
 

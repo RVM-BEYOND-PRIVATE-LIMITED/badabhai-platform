@@ -92,12 +92,20 @@ export class ResumeService {
     // `aiJobId` is null BY CONSTRUCTION: résumé generation runs inline here, and the BullMQ
     // path (`ResumeGenerateProcessor`) is a queue job with no `ai_jobs` row either. The
     // subject the spend belongs to is on the payload's `ai_call_id`, not a job row.
+    //
+    // ATTRIBUTED TO THE WORKER, WITH NO SESSION. `dto.worker_id` is the ownership-checked id
+    // this method already gated on above (the controller derives it from the session; the
+    // queue processor passes its own job's), so this is the same authority the write uses —
+    // not a second, weaker one. There is deliberately no `sessionId`: a résumé is generated
+    // from a CONFIRMED PROFILE, which may be days and several interviews later, so naming one
+    // interview as the buyer of this call would be a guess dressed as a fact.
     await this.aiCost.record(
       result.ai_metadata ?? null,
       "resume_generation",
       null,
       ctx.correlationId,
       ctx.requestId,
+      { workerId: dto.worker_id },
     );
 
     // TD21: put the worker's real name on the resume — decrypted SERVER-SIDE and

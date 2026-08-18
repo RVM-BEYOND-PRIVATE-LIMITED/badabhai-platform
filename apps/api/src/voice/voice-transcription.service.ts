@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import { EventsService } from "../events/events.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { toAiJobUsage } from "../ai/ai-job-usage";
 import { AiService } from "../ai/ai.service";
 import { AiJobsRepository } from "../profiles/ai-jobs.repository";
 import { VoiceRepository } from "./voice.repository";
@@ -248,12 +249,18 @@ export class VoiceTranscriptionService {
       // the throw would drop precisely that spend: money spent on a call that then broke, which
       // is the spend most worth having a record of. It never throws, so it cannot convert a
       // transcription into a failure.
+      //
+      // BOTH IDS COME FROM THE ROW, NOT THE PAYLOAD — the same authority every other decision
+      // in this method takes (see the note above `ownerId`). `note.sessionId` is NOT NULL on
+      // `voice_notes`, so a clip always names the interview it was spoken into, and a
+      // voice-led interview's STT spend lands on the same session total as its model turns.
       await this.aiCost.record(
         result.ai_metadata ?? null,
         "stt_transcription",
         aiJobId,
         correlationId,
         requestId,
+        { workerId: ownerId, sessionId: note.sessionId },
       );
 
       // A DEGRADED RESULT IS A FAILURE, AND IT USED TO BE RECORDED AS A SUCCESS.
@@ -288,7 +295,24 @@ export class VoiceTranscriptionService {
         result.confidence,
         result.english_text ?? "",
       );
-      await this.aiJobs.markCompleted(aiJobId, { voice_note_id: voiceNoteId });
+      // USAGE ON THE JOB ROW, AND IT WAS MISSING FOR EVERY TRANSCRIPTION EVER RUN.
+      //
+      // `markCompleted` has taken an optional `usage` since the extraction path needed it;
+      // this call site passed none, so `ai_jobs.cost_inr` / `model_name` / the three token
+      // columns stayed permanently NULL for `job_type = 'transcription'` — while the cost of
+      // the SAME call was being emitted to the event spine eleven lines above. Anything asking
+      // the jobs table "what did transcription cost?" got NULL, which reads as free.
+      //
+      // The mapper is shared (`ai/ai-job-usage.ts`) rather than re-implemented: it used to be
+      // private to `ProfileExtractionProcessor`, and being unreachable from here is precisely
+      // why this line was written without it. It returns `undefined` on null metadata, so the
+      // mock / blocked / unreachable paths still leave the columns null rather than writing a
+      // zero that cannot be told apart from a real free call.
+      await this.aiJobs.markCompleted(
+        aiJobId,
+        { voice_note_id: voiceNoteId },
+        toAiJobUsage(result.ai_metadata ?? null),
+      );
 
       await this.events.emit({
         event_name: "voice_note.transcription_completed",

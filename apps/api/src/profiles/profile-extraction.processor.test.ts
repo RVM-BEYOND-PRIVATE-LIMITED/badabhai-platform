@@ -8,6 +8,7 @@ import {
 } from "@badabhai/ai-contracts";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { fakeAiCostTotals } from "../ai/ai-cost-totals.fake";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
 import type { ProfileExtractionJobData } from "../queue/queue.constants";
 
@@ -120,7 +121,18 @@ function make(
       ? vi.fn().mockRejectedValue(new Error("redis down"))
       : vi.fn().mockResolvedValue(opts.buffered ?? null),
   };
-  const events = { emit: vi.fn().mockResolvedValue(undefined) };
+  // `emitOnce` is what `AiCostRecorder` calls — it needs the "was a row written or deduped"
+  // bit to decide whether to move the running totals. Routed through the SAME `emit` spy so
+  // every assertion in this file that reads `events.emit.mock.calls` still sees the cost
+  // events; a separate spy would have made all of them pass while recording nothing.
+  const emit = vi.fn().mockResolvedValue(undefined);
+  const events = {
+    emit,
+    emitOnce: vi.fn(async (params: unknown) => {
+      await emit(params);
+      return { event: params, written: true };
+    }),
+  };
   // R32 — full_name is stored ENCRYPTED (TD21); the plaintext lives only behind decrypt.
   const workers = {
     findById: vi.fn().mockResolvedValue({
@@ -214,7 +226,7 @@ function make(
     // The REAL recorder over the fake events service, not a stub — the emit assertions below
     // are about what actually reaches `events.emit`, and a stubbed recorder would make every
     // one of them pass without an event ever being built (#738).
-    new AiCostRecorder(events as never),
+    new AiCostRecorder(events as never, fakeAiCostTotals().repo),
     { CHAT_LLM_INTERVIEW_ENABLED: opts.llmInterview ?? false } as never,
   );
   return {

@@ -33,6 +33,7 @@ import type { NewWorkerProfile } from "@badabhai/db";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { EventsService } from "../events/events.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { toAiJobUsage } from "../ai/ai-job-usage";
 import { AiService } from "../ai/ai.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import { ChatRepository } from "../chat/chat.repository";
@@ -43,7 +44,7 @@ import { redactKnownName } from "../common/redact-known-name";
 import { WorkerSkillsService } from "../match/worker-skills.service";
 import { SkillsRepository } from "../skills/skills.repository";
 import { ProfilesRepository } from "./profiles.repository";
-import { AiJobsRepository, type AiJobUsageMetadata } from "./ai-jobs.repository";
+import { AiJobsRepository } from "./ai-jobs.repository";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
 import {
@@ -480,7 +481,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
 
       // Record AI usage/cost on the dedicated observability event. Guarded: an
       // observability emit must never turn a SUCCESSFUL extraction into a failure.
-      await this.recordAiCost(aiMeta, "profile_extraction", aiJobId, correlationId, requestId);
+      await this.recordAiCost(aiMeta, "profile_extraction", aiJobId, correlationId, requestId, {
+        workerId,
+        sessionId,
+      });
 
       // #745: THE CANONICALIZATION PASS'S EMBEDS — a SECOND set of billable calls on this
       // same job, and the one this issue's first cut missed.
@@ -503,7 +507,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // here, so these attribute to it. Sequential and awaited to match the sibling calls;
       // `record` never throws and no-ops on an empty list.
       for (const embedMeta of result.skill_embedding_metadata) {
-        await this.recordAiCost(embedMeta, "skill_embedding", aiJobId, correlationId, requestId);
+        await this.recordAiCost(embedMeta, "skill_embedding", aiJobId, correlationId, requestId, {
+          workerId,
+          sessionId,
+        });
       }
 
       // TD27: if the gateway BLOCKED a real call because a spend cap / circuit
@@ -780,6 +787,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
       job.aiJobId,
       job.correlationId ?? "",
       job.requestId ?? "",
+      { workerId: job.workerId, sessionId: job.sessionId },
     );
 
     // ── THE SECOND WALL ────────────────────────────────────────────────────────────────
@@ -1180,25 +1188,6 @@ export class ProfileExtractionProcessor extends WorkerHost {
   }
 
   /**
-   * Emit the dedicated `ai.cost_recorded` observability event for ONE AI call.
-   *
-   * No-ops on the mock/AI-down path (no metadata = no real call to record), and swallows any
-   * emit/validation error so it can never fail the extraction. Carries operational fields only
-   * — never prompts, completions, or PII.
-   *
-   * `taskType` IS A PARAMETER NOW, AND IT USED TO BE THE STRING `"profile_extraction"`, HARD-CODED.
-   * That was accurate while extraction was the only call this job made. The Phase 8 cutover added
-   * a second — `/profile/parse`, which is the ONLY LLM call left in the whole interview — and a
-   * hard-coded task type is not something a compiler can notice is now wrong.
-   *
-   * KEYED ON `ai_call_id`, NOT ON THE JOB. One job now makes two billable calls, and a
-   * per-job key silently deduped the second away: the extraction record landed, the parse record
-   * was dropped as a duplicate, and the interview's model spend disappeared into a dedup. The
-   * call id is what this event is actually about, so it is what exactly-once should mean here.
-   * (Across the deploy that changes this, an in-flight job redelivered mid-flight can write one
-   * duplicate extraction row. Observability only, and `ai_call_id` lets a reader collapse it.)
-   */
-  /**
    * Phase C — read the whole conversation once, for what the answer map cannot hold.
    *
    * BEHIND THE SAME FLAG AS THE INTERVIEW. Off, and this returns null before touching the
@@ -1217,6 +1206,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
   private async interviewOverlay(
     job: {
       workerId: string;
+      // Carried for cost attribution only — this method's caller already passes its own `job`,
+      // which has it. Null on the "make the profile anyway" escape hatch, where there is no
+      // interview record at all.
+      sessionId: string | null;
       aiJobId: string;
       correlationId?: string | null;
       requestId?: string | null;
@@ -1251,6 +1244,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
       job.aiJobId,
       job.correlationId ?? "",
       job.requestId ?? "",
+      { workerId: job.workerId, sessionId: job.sessionId },
     );
 
     if (out === null || out.blocked) {
@@ -1268,17 +1262,33 @@ export class ProfileExtractionProcessor extends WorkerHost {
     return out;
   }
 
+  /**
+   * Ledger ONE AI call's spend. A thin delegate to {@link AiCostRecorder.record}, which owns
+   * the whole contract — the `null`-metadata no-op, the `ai_call_id` idempotency key, the
+   * never-throws rule and the savepointed totals accrual. (The duplicate copy of that contract
+   * that used to sit here was left dangling above `interviewOverlay` by an earlier extraction;
+   * one description, on the method that implements it.)
+   *
+   * @param attribution Whose spend this is. REQUIRED here, unlike on the recorder itself,
+   * because every call this processor makes has both a worker and (except on the escape-hatch
+   * path, where it is genuinely null) a session in scope. An optional parameter would let a
+   * future call site quietly omit the one thing that makes the cost attributable — and this is
+   * the class where attribution used to work, by joining `ai_jobs.input_ref`. Now it travels
+   * on the event too, so the extraction path and the four surfaces with no `ai_jobs` row are
+   * read the SAME way, rather than one dashboard query per surface.
+   */
   private async recordAiCost(
     meta: AICallMetadata | null,
     taskType: AiCostTaskType,
     aiJobId: string,
     correlationId: string,
     requestId: string,
+    attribution: { workerId: string; sessionId: string | null },
   ): Promise<void> {
     // The body moved to `AiCostRecorder` unchanged (#738). Kept as a one-line delegate rather
     // than inlined at both call sites so this class's two callers, and the tests that drive
     // them, stay exactly as they were — the change is WHO ELSE can emit, not what this emits.
-    await this.aiCost.record(meta, taskType, aiJobId, correlationId, requestId);
+    await this.aiCost.record(meta, taskType, aiJobId, correlationId, requestId, attribution);
   }
 
   /**
@@ -1430,23 +1440,6 @@ export class ProfileExtractionProcessor extends WorkerHost {
     if (p.availability.status !== "unknown") n += 1;
     return n;
   }
-}
-
-/**
- * Map the AI router's `ai_metadata` to the PII-free operational columns stored on
- * the `ai_jobs` row. Returns `undefined` when there is no metadata (mock/AI-down),
- * leaving the columns null. Only usage/cost scalars are forwarded.
- */
-function toAiJobUsage(meta: AICallMetadata | null): AiJobUsageMetadata | undefined {
-  if (!meta) return undefined;
-  return {
-    modelName: meta.model_name || null,
-    realCall: meta.real_call,
-    inputTokens: meta.input_tokens,
-    outputTokens: meta.output_tokens,
-    totalTokens: meta.input_tokens + meta.output_tokens,
-    costInr: meta.estimated_cost_inr,
-  };
 }
 
 /**

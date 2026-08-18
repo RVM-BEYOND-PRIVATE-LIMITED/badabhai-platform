@@ -540,6 +540,13 @@
       "when": 1786873547157,
       "tag": "0076_canonical_domain_skill_taxonomy",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1787052403952,
+      "tag": "0077_ai_cost_running_totals",
+      "breakpoints": true
     }
   ]
 }

@@ -797,19 +797,31 @@ jobs:
       #                    re-interviewed worker entered the payer pool twice. Every claim
       #                    is a property of an ORDER BY / DISTINCT ON, so a fake db can only
       #                    show the expression is present, never that it evaluates.
+      #   * ai-cost-totals.db — migration 0077's three load-bearing claims, none of which
+      #                    any other running test can reach. (a) ON DELETE CASCADE is the
+      #                    ENTIRE DPDP erasure story for the two worker-linked totals
+      #                    tables: `WorkersRepository.hardDelete` enumerates no table
+      #                    names, so if either FK is wrong an erased worker's spend row
+      #                    survives them and nothing else notices. (b) the running sum is
+      #                    `numeric`, not a float that drifts (0.1 x 3 = "0.300000", not
+      #                    0.30000000000000004). (c) a redelivered BullMQ job accrues
+      #                    nothing, which is a property of the events table's real
+      #                    ON CONFLICT DO NOTHING reporting "deduped" — a fake db can only
+      #                    show the clause was asked for.
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
-      # this job's service container gets the whole chain (0000–0059, journal-driven)
-      # applied from scratch on every run, so these gates are independent of which
+      # this job's service container gets the whole chain (journal-driven, 0000 → head —
+      # which is what puts 0077 in place for the cost gate) applied from scratch on every
+      # run, so these gates are independent of which
       # migrations any deployed database has seen. Each suite seeds its own PII-free
       # fixtures and deletes them in afterAll, and neither needs the API process — hence
       # running here, before the API boots.
       #
       # RUN_DB_TESTS is scoped to THIS STEP. The `node` job runs the same apps/api suite
-      # with no database and must keep skipping these three files (TD126).
+      # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
-      # `node` job, and a three-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile)
+      # `node` job, and a five-file run cannot meet them.
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -818,15 +830,15 @@ jobs:
           # `test -- rank-parity` runs `vitest run -- rank-parity`, where vitest
           # ignores the filter and reruns the whole 2820-test suite. Measured, not
           # assumed — that is what the first push of this branch actually did.
-          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
           #     exit 0 reporting "16 skipped" — precisely how these gates sat green for
           #     their whole life while proving nothing. Assert per FILE, because a
           #     suite-wide "some test passed" check is satisfied by unrelated tests.
-          for f in rank-parity boost-fences apply-freeze current-profile-order; do
-            line=$(grep -E "src/(match|profiles)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db; do
+            line=$(grep -E "src/(ai|match|profiles)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -843,8 +855,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +4 passed \(4\)' db-gates.log; then
-            echo "::error::Expected exactly the 4 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +5 passed \(5\)' db-gates.log; then
+            echo "::error::Expected exactly the 5 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
