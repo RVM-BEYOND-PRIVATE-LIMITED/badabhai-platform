@@ -213,11 +213,19 @@ function seed(store: Map<string, TranscriptBuffer>, envelope: Partial<ProfilingE
 }
 
 const CTX = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req_1" };
+/**
+ * An inbound turn, with NO client submission id (#931) — the legacy shape, deliberately.
+ *
+ * Every assertion in this file is about the model-led opening, not about the reply cache, and an
+ * inbound with no id takes the hash + window path exactly as it did before that field existed.
+ * The id's own behaviour is pinned in `orchestrator.service.test.ts`, where the cache lives.
+ */
 const say = (text: string, at: Date = T0) => ({
   sessionId: SESSION,
   workerId: WORKER,
   text,
   now: at,
+  submissionId: null,
   ctx: CTX as never,
 });
 

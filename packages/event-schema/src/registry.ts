@@ -807,6 +807,19 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileLlmInterviewFallbackPayload,
   },
+
+  // One physical submission arrived twice and the second copy was served from the reply cache
+  // (#931). Structurally invisible otherwise — a duplicate returns before the engine is consulted,
+  // so it writes no `chat_messages` row and emits no `chat.message_received`; the only prior
+  // evidence was one warn log on one of the three branches that absorb it. Also the rollout gate
+  // for retiring the four reply-cache clocks: `absorbed_as: "client_id"` is a duplicate the
+  // client's own submission id settled with no clock consulted. Keyed on the submission id, so a
+  // retry storm collapses to one row. Ids, one pack key, two enums, two counts. v1.
+  "profile.submission_duplicated": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileSubmissionDuplicatedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

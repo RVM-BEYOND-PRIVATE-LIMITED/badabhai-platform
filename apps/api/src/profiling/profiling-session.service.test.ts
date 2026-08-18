@@ -248,7 +248,44 @@ describe("the server maps option keys to labels — never the client", () => {
 
     // A label is the worker's answer of record verbatim. If the client sent it, the client would
     // be choosing what gets stored.
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Stainless steel", CTX);
+    //
+    // THE TRAILING `null` IS THE SUBMISSION ID (#931). None of the DTOs in this file carry one, so
+    // every turn they drive reaches the reply gate as "no id" and is judged by the hash and the
+    // time windows exactly as it was before that argument existed — which is the legacy path this
+    // whole file already pins, now stated rather than implied.
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Stainless steel", CTX, null);
+  });
+
+  it("carries the client submission id from the DTO through to the reply gate (#931)", async () => {
+    // WHAT THIS PINS, AND WHY IT IS NOT COVERED BY ANYTHING ABOVE. Every other assertion in this
+    // file asserts the trailing `null`, so the server could accept `submission_id`, validate it,
+    // and then drop it on the floor — the exact pre-#931 behaviour — with this whole suite green.
+    // It was measured: replacing the argument with a literal `null` at all three service call
+    // sites left 4592 tests passing. The on-device defect would be back for every worker while
+    // CI reported success, and the telemetry would read `inbound_had_id: false` universally,
+    // which looks like `the client has not rolled out` rather than `the server is dropping it`.
+    // That is the same silent-strip failure that already happened once, when neither Zod schema
+    // declared the key.
+    const { service, chatService } = makeWorld();
+
+    await service.answer(
+      WORKER,
+      {
+        session_id: SESSION,
+        question_key: "q_material",
+        answer: { kind: "chips" as const, option_keys: ["stainless"] },
+        submission_id: "cccccccc-3333-4333-8333-cccccccccccc",
+      } as never,
+      CTX,
+    );
+
+    expect(chatService.runTurn).toHaveBeenCalledWith(
+      WORKER,
+      SESSION,
+      "Stainless steel",
+      CTX,
+      "cccccccc-3333-4333-8333-cccccccccccc",
+    );
   });
 
   it("joins several labels for a multi-select, in the order they were tapped", async () => {
@@ -261,6 +298,7 @@ describe("the server maps option keys to labels — never the client", () => {
       SESSION,
       "Mild steel, Stainless steel",
       CTX,
+      null,
     );
   });
 
@@ -313,7 +351,7 @@ describe("the server maps option keys to labels — never the client", () => {
         } as never,
         CTX,
       );
-      expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, expected, CTX);
+      expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, expected, CTX, null);
     }
   });
 
@@ -331,7 +369,7 @@ describe("the server maps option keys to labels — never the client", () => {
       CTX,
     );
 
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Nahi pata", CTX);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Nahi pata", CTX, null);
   });
 });
 
@@ -887,7 +925,7 @@ describe("a spoken answer", () => {
     await service.answer(WORKER, spoken(), CTX);
 
     expect(transcription.transcribeNow).toHaveBeenCalledOnce();
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, null);
   });
 
   it("caps the clip at 30 seconds, which is what keeps it a single provider call", async () => {
@@ -974,7 +1012,7 @@ describe("a spoken answer", () => {
 
     const { step } = await service.answer(WORKER, spoken(), CTX);
 
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, null);
     expect(step).toMatchObject({ kind: "question" });
   });
 

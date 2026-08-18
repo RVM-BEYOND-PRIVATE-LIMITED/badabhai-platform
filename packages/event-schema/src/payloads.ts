@@ -3050,3 +3050,80 @@ export const ProfileLlmInterviewFallbackPayload = z
 export type ProfileLlmInterviewFallbackPayload = z.infer<
   typeof ProfileLlmInterviewFallbackPayload
 >;
+
+/**
+ * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache
+ * instead of being taken as a new answer (#931).
+ *
+ * WHY THIS NEEDS AN EVENT RATHER THAN THE LOG LINE IT REPLACES. A duplicate is structurally
+ * invisible everywhere else: the orchestrator returns before the engine is consulted, so there is
+ * no `chat_messages` row, no `chat.message_received`, and no counter anywhere that moves. The only
+ * evidence today is one `retry storm absorbed` warn — and it fires on ONE of the three branches
+ * that absorb a duplicate, into stdout, in a repo with no log shipping, retention or search. A log
+ * line answers "did this session duplicate"; only a queryable event answers "is this getting
+ * worse", which is the question a client-side retry defect is diagnosed by.
+ *
+ * IT IS ALSO THE ROLLOUT GATE for retiring the four reply-cache clocks (#931 step 4, deliberately
+ * NOT done here). `absorbed_as` says which rule served each duplicate: `client_id` means the
+ * client's own per-submission id decided it and no clock was consulted; `budget`, `storm` and
+ * `stale` mean the server was still inferring intent from elapsed time because one of the two
+ * sides carried no id. The clocks may only be retired once the last three go to zero in the field,
+ * and `inbound_had_id` is what says whether that is because the app rolled out or because nothing
+ * duplicated.
+ *
+ * BOUNDED BY THE IDEMPOTENCY KEY, not by sampling. The emitter keys on the submission id (or, with
+ * no id, the rev the duplicate was read at), so a client posting one submission fifty times
+ * collapses to ONE row — the volume ceiling is per duplicated SUBMISSION, not per POST.
+ *
+ * PII-FREE BY CONSTRUCTION, not by trust: two uuids, a pack-authored `^[a-z_]+$` key, two closed
+ * enums and two bounded ints. Never the worker's words, never the reply, never the option labels —
+ * the utterance lives in the transcript, which is the one place it belongs (§2). The submission id
+ * itself is deliberately NOT a field: it is client-supplied, it is already persisted verbatim in
+ * `events.idempotency_key`, and a payload field would be a second, unvalidated copy in the audit
+ * spine. `.strict()` stops a later field arriving with the text beside them.
+ */
+export const ProfileSubmissionDuplicatedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /**
+     * The question that was on screen when the duplicate landed, or null when nothing was.
+     *
+     * Pack question keys are `^[a-z_]+$` by validator construction — the same field the warn log
+     * this event supersedes already printed. A duplicate rate concentrating on one key is the
+     * cheapest available signal that a question's affordance is making workers tap twice.
+     */
+    question_key: z
+      .string()
+      .min(1)
+      .max(40)
+      .regex(/^[a-z_]+$/)
+      .nullable(),
+    /**
+     * WHICH RULE absorbed it — the one field step 4 is gated on.
+     *
+     * `client_id`: the inbound and the stamp carried the SAME client submission id. Certain, and
+     * no clock was consulted.
+     * `budget`: matched by hash inside the fresh window, served from the replay budget (a write).
+     * `storm`: matched by hash with the budget already spent, inside the retry-storm floor.
+     * `stale`: matched by hash out past the fresh window but inside the stale one (#869).
+     */
+    absorbed_as: z.enum(["client_id", "budget", "storm", "stale"]),
+    /**
+     * Whether the INBOUND carried a submission id at all — the unbiased rollout signal.
+     *
+     * Distinct from `absorbed_as === "client_id"`, and that difference is the point: a build that
+     * sends an id still falls to a clock branch when the STAMP predates it (the deploy straddle,
+     * and the chat/voice-form mix). Counting `absorbed_as` alone would read that as "the app has
+     * not rolled out" forever after it has.
+     */
+    inbound_had_id: z.boolean(),
+    /** How many times this stamp had already been replayed before this duplicate. */
+    replays: z.number().int().nonnegative(),
+    /** Milliseconds between the reply being stamped and this duplicate arriving. */
+    elapsed_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileSubmissionDuplicatedPayload = z.infer<
+  typeof ProfileSubmissionDuplicatedPayload
+>;

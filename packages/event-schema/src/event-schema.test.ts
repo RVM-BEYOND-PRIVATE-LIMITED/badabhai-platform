@@ -2534,8 +2534,14 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 159 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned)", () => {
-    expect(EVENT_NAMES).toHaveLength(159);
+  it("exposes all 160 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned + the duplicate submission)", () => {
+    expect(EVENT_NAMES).toHaveLength(160);
+    // #931 — one physical submission arriving twice. Invisible on the spine otherwise: a
+    // duplicate returns before the engine is consulted, so it writes no `chat_messages` row and
+    // emits no `chat.message_received`, and everything downstream looks like a healthy session
+    // precisely because the damage was absorbed. Also the rollout gate for retiring the four
+    // reply-cache clocks.
+    expect(isEventName("profile.submission_duplicated")).toBe(true);
     // The LLM-led opening handed back to the deterministic engine. Designed to be invisible to
     // the worker, so this event is the only place a degraded ai-service becomes visible at all.
     expect(isEventName("profile.llm_interview_fallback")).toBe(true);
@@ -3240,5 +3246,83 @@ describe("OIE cutover payloads (Phase 8) — ids, codes and counts, never worker
       }),
     );
     expect(bad.success).toBe(false);
+  });
+});
+
+describe("profile.submission_duplicated (#931) — the countable half of a duplicate submit", () => {
+  const UUID_A = "11111111-1111-4111-8111-111111111111";
+
+  function dupEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "profile.submission_duplicated",
+      actor: { actor_type: "worker", actor_id: UUID_A },
+      subject: { subject_type: "chat_session", subject_id: UUID_B },
+      payload,
+    };
+  }
+
+  const DUPLICATE = {
+    worker_id: UUID_A,
+    session_id: UUID_B,
+    question_key: "q_drawing",
+    absorbed_as: "client_id",
+    inbound_had_id: true,
+    replays: 0,
+    elapsed_ms: 1_200,
+  };
+
+  it("validates the id-matched duplicate", () => {
+    const result = validateEvent(dupEvent(DUPLICATE));
+    expect(result.success).toBe(true);
+  });
+
+  it("validates all four branches that can absorb a duplicate", () => {
+    // The three clock branches are what #931 step 4 is gated on: the four reply-cache constants
+    // may only be retired once they go to zero in the field.
+    for (const absorbed_as of ["client_id", "budget", "storm", "stale"]) {
+      const result = validateEvent(dupEvent({ ...DUPLICATE, absorbed_as, inbound_had_id: false }));
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("rejects a branch outside the closed set", () => {
+    // A fifth reading arriving without a schema change would report into a value no dashboard
+    // counts, and the rollout gate would read as met while a whole branch went unseen.
+    expect(validateEvent(dupEvent({ ...DUPLICATE, absorbed_as: "probably" })).success).toBe(false);
+  });
+
+  it("accepts a null question_key — a close has none on screen", () => {
+    const result = validateEvent(dupEvent({ ...DUPLICATE, question_key: null }));
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a question_key that is not a pack slug", () => {
+    // The `^[a-z_]+$` shape is what makes this field structurally incapable of carrying a
+    // worker's words. A free-form key would make it the one place they could arrive.
+    expect(validateEvent(dupEvent({ ...DUPLICATE, question_key: "Kya aap?" })).success).toBe(false);
+  });
+
+  it("rejects the worker's utterance riding along (.strict)", () => {
+    // THE TEMPTING FIELD. "Which words were duplicated" is the first thing anyone debugging a
+    // retry storm wants, and it is the one thing that must never reach the audit spine — the
+    // words are in the transcript, which is where they belong.
+    const bad = validateEvent(dupEvent({ ...DUPLICATE, text: "haan" }));
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects the raw submission id as a payload field", () => {
+    // It is client-supplied and it is already persisted verbatim in `events.idempotency_key`.
+    // A payload copy would be an unvalidated client string in the audit spine for no new fact.
+    const bad = validateEvent(
+      dupEvent({ ...DUPLICATE, submission_id: "3f8b2c1a-7d64-4e2f-9a51-0c9d5b7e4a12" }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects a negative elapsed_ms or replay count", () => {
+    expect(validateEvent(dupEvent({ ...DUPLICATE, elapsed_ms: -1 })).success).toBe(false);
+    expect(validateEvent(dupEvent({ ...DUPLICATE, replays: -1 })).success).toBe(false);
   });
 });
