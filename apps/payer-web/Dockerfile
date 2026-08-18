@@ -125,6 +125,32 @@ COPY --from=builder /app/apps/payer-web/.next/static ./apps/payer-web/.next/stat
 # docker-compose.staging.yml's `payer-web` service block for that wiring; nothing
 # box-specific needs to be baked into this image beyond the two NEXT_PUBLIC_* build
 # args above.
+
+# ---- build identity (#965): which build is actually running? ----
+# `/health` answered only "am I up?", so a deploy that silently kept serving the
+# PREVIOUS image looked identical to a good one. The commit sha is knowable only at
+# image-build time (the runtime container has no .git — .dockerignore strips it, and
+# nothing here shells out to git), so it is threaded in as a build arg and promoted to
+# an ENV so it survives into the running process; `src/app/health/route.ts` reads
+# `process.env.GIT_COMMIT_SHA` per request and reports it as `"build"`.
+#
+# DELIBERATELY IN THE RUNTIME STAGE, NOT THE BUILDER: this is a server-side runtime read,
+# NOT a NEXT_PUBLIC_* value baked by `next build`. The builder stage does not declare this
+# ARG, so it is never injected into the `next build` RUN's environment and cannot
+# participate in @badabhai/config's schema validation — i.e. it is structurally incapable
+# of reproducing the empty-build-arg failure that took this build down once already.
+#
+# An unset or empty build arg is SAFE and expected: `--build-arg GIT_COMMIT_SHA=` (what a
+# GitHub Actions `build-args:` line resolves to when the referenced value does not exist)
+# bakes ENV GIT_COMMIT_SHA="" — and the route maps "" to the string "unknown" rather than
+# failing. No `unset` dance is needed here (unlike the NEXT_PUBLIC_* args above), because
+# nothing validates this value; the route fails OPEN on it by design.
+#
+# PLACED AFTER THE COPYs ON PURPOSE: this value changes on every commit, and a changed ENV
+# invalidates every layer below it. Keeping it last means a new sha re-runs only this
+# instruction, never the expensive COPY layers.
+ARG GIT_COMMIT_SHA
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
 EXPOSE 3002
 USER node
 CMD ["node", "apps/payer-web/server.js"]

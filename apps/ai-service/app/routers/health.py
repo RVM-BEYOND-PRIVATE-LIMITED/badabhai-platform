@@ -18,11 +18,27 @@ async def health() -> dict:
     # posture boolean ONLY — spend telemetry / caps / provider posture are recon data
     # on a shared network (the full snapshot stays available on the token-gated
     # /ai/spend). With auth off (dev default), the full payload is unchanged.
+    #
+    # WHICH BUILD IS ANSWERING. Present in BOTH branches on purpose: the contract
+    # shared with apps/api and apps/payer-web is that `build` is ALWAYS readable —
+    # never omitted, never null — so a consumer can ask "is the box running the commit
+    # I think it is?" without first knowing which posture the service is in. Safe under
+    # the TD67 trim, unlike the spend/provider fields below: a commit sha is public (it
+    # is in the ghcr image tag), so it is not the recon data that branch withholds.
+    # `build_id` cannot raise and cannot be empty — an unwired build arg reads
+    # "unknown", it never fails this probe (the deploy's health gate consumes it).
+    build = get_settings().build_id
     if get_settings().ai_internal_token is not None:
-        return {"status": "ok", "service": "ai-service", "service_auth_enabled": True}
+        return {
+            "status": "ok",
+            "service": "ai-service",
+            "service_auth_enabled": True,
+            "build": build,
+        }
     return {
         "status": "ok",
         "service": "ai-service",
+        "build": build,
         "real_calls_enabled": settings.real_calls_enabled,
         # TD67: whether the service-level bearer is enforced (true once
         # AI_INTERNAL_TOKEN is set in the service env). Boolean only — never the value.

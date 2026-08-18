@@ -9,6 +9,18 @@ interface HealthResponse {
   status: "ok" | "error";
   service: "api";
   environment: string;
+  /**
+   * #965 — WHICH BUILD is answering. `environment` says WHERE this process runs; without
+   * this field nothing said WHAT it is running, so an operator could (and did) debug code
+   * that was never deployed. The short git sha baked into the image at build time, or the
+   * literal string `"unknown"`.
+   *
+   * ALWAYS PRESENT AND ALWAYS A STRING — never omitted, never null. A consumer reads it
+   * unconditionally; the absence of a build id is expressed as `"unknown"`, not as a
+   * missing key. It is informational only: it does NOT participate in the 200/503 gate,
+   * and a missing build id can never fail this endpoint (see `resolveBuildId`).
+   */
+  build: string;
   timestamp: string;
   checks: HealthChecks;
 }
@@ -114,6 +126,10 @@ export class HealthController {
       status: healthy ? "ok" : "error",
       service: "api",
       environment: this.config.NODE_ENV,
+      // #965 — purely additive, and deliberately OUTSIDE the gate above: this endpoint
+      // must never fail, and must never change its status code, because the build id is
+      // missing. An unset/empty build arg reads as "unknown".
+      build: this.health.buildId(),
       timestamp: new Date().toISOString(),
       checks,
     };

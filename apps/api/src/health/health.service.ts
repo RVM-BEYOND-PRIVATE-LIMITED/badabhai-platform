@@ -139,6 +139,53 @@ export interface HealthChecks {
   storage_config: StorageConfigChecks;
 }
 
+/**
+ * The value reported for `build` when this container has no usable build identity.
+ * NEVER omitted, never null — a consumer (an operator, the CD gate, an uptime check)
+ * must always be able to read the field and get a string.
+ */
+export const UNKNOWN_BUILD = "unknown";
+
+/**
+ * What a build identity is allowed to look like: a short/full git sha, or a tag-shaped
+ * label (`sha-a1b2c3d`, `v1.2.3`). Anchored, single-pass, length-bounded — it cannot
+ * backtrack and it cannot admit a control character or a newline into a public HTTP body.
+ * Anything else is not a build id anyone can act on, so it reads as `unknown`.
+ */
+const BUILD_ID_SHAPE = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
+
+/**
+ * #965 — WHICH BUILD is this process? The deploy pins immutable ghcr images tagged
+ * `sha-<short7>`, so the answer is knowable at image-build time; the Dockerfile takes it as
+ * `ARG GIT_COMMIT_SHA` and promotes it to `ENV GIT_COMMIT_SHA` so it survives into the
+ * running container. This is the only source: the container has NO `.git`, so there is
+ * nothing to shell out to and nothing to derive at runtime.
+ *
+ * IT FAILS OPEN, DELIBERATELY, and that is the whole design of this function:
+ *
+ *   - It reads the RAW env instead of going through the validated `ServerConfig` (the
+ *     normal convention for everything else in this app, and the right one for real
+ *     configuration). Build identity is not configuration — nothing branches on it. Putting
+ *     it in the Zod schema would put a debugging aid on the boot path, where a bad or empty
+ *     value could crash the process. An observability nicety must never become an outage.
+ *   - EMPTY IS TREATED AS UNSET. This is not hypothetical: a GitHub Actions `build-args:`
+ *     line referencing a secret/var that does not exist resolves to the EMPTY STRING, so
+ *     Docker receives `--build-arg GIT_COMMIT_SHA=`. An ARG is not inert — Docker injects
+ *     every declared ARG into the build environment — so the variable arrives
+ *     PRESENT-AND-EMPTY rather than absent. That exact mechanism broke a sibling image's
+ *     build on main (a Zod schema rejected `""`). Here, `""` is simply `unknown`.
+ *   - It never throws, for any input. `undefined`, empty, whitespace, or garbage all
+ *     resolve to `unknown`, so neither boot nor /health can fail because a build id is
+ *     missing.
+ *
+ * The value is public by nature (a commit sha) and is the ONLY thing added to the body —
+ * no branch name, no build user, no image digest, nothing that describes the box.
+ */
+export function resolveBuildId(raw: string | undefined): string {
+  const value = (raw ?? "").trim();
+  return BUILD_ID_SHAPE.test(value) ? value : UNKNOWN_BUILD;
+}
+
 /** Cap each probe so a stuck socket can never hang the /health response. */
 const PROBE_TIMEOUT_MS = 2000;
 
@@ -232,6 +279,19 @@ export class HealthService {
       ai_posture: aiService.posture,
       storage_config: this.readStorageConfig(),
     };
+  }
+
+  /**
+   * #965 — the build identity of this container, for the `build` field of the /health
+   * body. Synchronous, no I/O, never throws; see `resolveBuildId` for why it reads the raw
+   * env rather than `ServerConfig`, and why an empty value is the same as an unset one.
+   *
+   * Read per call rather than cached at construction, matching the controller's per-request
+   * `isDevEnv()` read: an env lookup plus a bounded regex is far cheaper than the four
+   * network probes this endpoint already performs, and nothing can then go stale.
+   */
+  buildId(): string {
+    return resolveBuildId(process.env.GIT_COMMIT_SHA);
   }
 
   /** Lightweight `SELECT 1` over the pooled Drizzle connection. */
