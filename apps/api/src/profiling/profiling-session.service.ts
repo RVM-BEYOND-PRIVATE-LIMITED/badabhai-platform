@@ -157,7 +157,13 @@ export class ProfilingSessionService {
     }
 
     const text = this.textFor(dto.answer, served?.options ?? [], served?.answerType ?? null);
-    const outcome = await this.chatService.runTurn(workerId, dto.session_id, text, ctx);
+    const outcome = await this.chatService.runTurn(
+      workerId,
+      dto.session_id,
+      text,
+      ctx,
+      dto.submission_id,
+    );
     return { step: this.stepOfOutcome(outcome) };
   }
 
@@ -229,7 +235,18 @@ export class ProfilingSessionService {
       return { step: { kind: "unavailable", reply: UNAVAILABLE_REPLY } };
     }
 
-    const outcome = await this.chatService.runTurn(workerId, dto.session_id, transcribed.text, ctx);
+    // THE SPOKEN PATH IS THE ONE THIS BUYS THE MOST FOR (#931). The turn below runs only AFTER a
+    // synchronous transcription, so the round trip a client is waiting on here is measured in tens
+    // of seconds against a 150 s budget — an ordinary 2G retry lands well outside the 30 s
+    // `STALE_RESPONSE_WINDOW_MS` that was sized against the CHAT client's 15 s deadline. The id is
+    // what lets the cache recognise it anyway.
+    const outcome = await this.chatService.runTurn(
+      workerId,
+      dto.session_id,
+      transcribed.text,
+      ctx,
+      dto.submission_id,
+    );
     return { step: this.stepOfOutcome(outcome) };
   }
 

@@ -613,6 +613,33 @@ describe("ChatService.postMessage — degradation is a true no-op", () => {
     expect(res.suggested_options.filter((o) => o.is_none_of_above)).toHaveLength(1);
   });
 
+  it("hands the client's submission_id to the reply cache, and omits the key when there is none (#931)", async () => {
+    // THE WHOLE POINT OF #931 IS THIS ONE HOP. The shipped chat client has posted `submission_id`
+    // since #870/#893, `PostMessageSchema` is non-strict so an undeclared key was STRIPPED here in
+    // silence, and the cache went on inferring "retry or real turn?" from a clock. If this
+    // forwarding is ever dropped again the failure is invisible: no error, no 4xx, just workers
+    // whose repeated "haan" stops being heard.
+    const withId = make();
+    await withId.svc.postMessage(
+      WORKER,
+      { ...DTO, submission_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } as never,
+      CTX as never,
+    );
+    expect(withId.orchestrator.takeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ submissionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }),
+    );
+
+    // AND ABSENT MEANS ABSENT, not `undefined`. An older app build sends no id, and the key must
+    // not appear at all — `LastTurn.submissionId`'s fallback is "there is nothing to compare",
+    // which is a different fact from "the client named this submission `undefined`".
+    const withoutId = make();
+    await withoutId.svc.postMessage(WORKER, DTO as never, CTX as never);
+    const [input] = withoutId.orchestrator.takeTurn.mock.calls[0] as unknown as [
+      Record<string, unknown>,
+    ];
+    expect(input).not.toHaveProperty("submissionId");
+  });
+
   it("a degraded turn is `ask` with nothing to tap — the worker retries into a live session", async () => {
     const { res } = await run({ turn: { unavailable: true, reply: "Abhi thodi dikkat" } });
     expect(res.question_kind).toBe("ask");
@@ -1122,7 +1149,10 @@ describe("ChatService — the lookahead reaches the client (#765)", () => {
       workerName: null,
       turn: {
         lookahead: {
-          a: entry({ promptText: "{{worker_name}} ji, kitna tajurba?", whyText: "{{unknown}} ji." }),
+          a: entry({
+            promptText: "{{worker_name}} ji, kitna tajurba?",
+            whyText: "{{unknown}} ji.",
+          }),
           b: entry({ promptText: "Kaam kahan karte ho?" }),
         },
       },

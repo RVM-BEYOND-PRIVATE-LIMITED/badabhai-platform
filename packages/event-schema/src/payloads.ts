@@ -3047,6 +3047,56 @@ export const ProfileLlmInterviewFallbackPayload = z
     asks: z.number().int().nonnegative(),
   })
   .strict();
-export type ProfileLlmInterviewFallbackPayload = z.infer<
-  typeof ProfileLlmInterviewFallbackPayload
->;
+export type ProfileLlmInterviewFallbackPayload = z.infer<typeof ProfileLlmInterviewFallbackPayload>;
+
+/**
+ * One submission arrived twice and the second copy was served from the reply cache (#931).
+ *
+ * WHY THIS NEEDS AN EVENT AT ALL. Until now the ONLY evidence that a client duplicates
+ * submissions was a `logger.warn` on the retry-storm branch — which fires on one of the three
+ * replay paths, so the ordinary duplicate was invisible by construction and everything downstream
+ * of it looked like a healthy session precisely because the damage had been absorbed. That makes
+ * the duplicate rate unmeasurable, and the duplicate rate is the number that decides whether
+ * `STALE_RESPONSE_WINDOW_MS` and its three companions can be retired (#931 step 4).
+ *
+ * `basis` IS THE FIELD THE RETIREMENT DECISION TURNS ON. `submission_id` means the client named
+ * the submission and the cache KNEW; `content_hash` means it guessed from (session, rev, text)
+ * and a clock. The constants may only be retired once the second is empty in the field — which is
+ * a question about deployed app builds that no other signal answers.
+ *
+ * IDS, SLUGS, COUNTERS AND BOOLEANS ONLY — never the worker's words. The duplicated text is the
+ * one thing this event does NOT carry: it lives in the transcript, which is where it belongs
+ * (§2). `submission_id` is a client-minted v4 UUID, as free of the worker as the session id.
+ */
+export const ProfileDuplicateSubmissionPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /**
+     * HOW the duplicate was recognised — the closed set of things the cache can key on.
+     *
+     * `submission_id`: the client sent an id and it matched the stamped one. Certain.
+     * `content_hash`: no id on one side or the other, so `(session, rev, text)` plus a clock
+     * decided — the inference this whole mechanism is trying to stop making.
+     */
+    basis: z.enum(["submission_id", "content_hash"]),
+    /** The question the replayed reply put on screen. Null on a close or a disambiguation. */
+    question_key: z
+      .string()
+      .regex(/^[a-z_]+$/)
+      .max(40)
+      .nullable()
+      .default(null),
+    /** Milliseconds since the ORIGINAL turn — the retry cadence, and the constants' evidence. */
+    age_ms: z.number().int().nonnegative().default(0),
+    /** How many times this stamp had already been replayed BEFORE this one. */
+    replays: z.number().int().nonnegative().default(0),
+    /**
+     * Whether serving it spent a unit of the replay budget, which is the same thing as whether it
+     * wrote. False for every `submission_id` duplicate by design — a confirmed retry needs no
+     * bookkeeping — so a true here alongside `content_hash` is the cache paying for its guess.
+     */
+    consumed_budget: z.boolean().default(false),
+  })
+  .strict();
+export type ProfileDuplicateSubmissionPayload = z.infer<typeof ProfileDuplicateSubmissionPayload>;

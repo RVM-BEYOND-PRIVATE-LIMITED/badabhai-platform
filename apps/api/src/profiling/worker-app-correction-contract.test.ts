@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { ProfilingCorrectionResponseSchema, ProfilingCorrectionSchema } from "./profiling.dto";
+import {
+  ProfilingAnswerSchema,
+  ProfilingCorrectionResponseSchema,
+  ProfilingCorrectionSchema,
+} from "./profiling.dto";
 
 /**
  * THE DART CLIENT'S WIRE KEYS FOR `POST /profiling/correct`, CHECKED AGAINST THE SCHEMAS THAT
@@ -96,6 +100,7 @@ function keysRead(body: string, receiver: "json" | "row"): string[] {
 
 const PARSE_BODY = methodBody(GATEWAY, "VoiceCorrectionOutcome _parseCorrection(");
 const CORRECT_BODY = methodBody(GATEWAY, "Future<VoiceCorrectionOutcome> correct(");
+const SUBMIT_BODY = methodBody(GATEWAY, "Future<VoiceFormStep> submit(");
 
 describe("the worker app's /profiling/correct wire keys exist on this side (#700)", () => {
   it("reads only response keys the correction response actually carries", () => {
@@ -116,6 +121,21 @@ describe("the worker app's /profiling/correct wire keys exist on this side (#700
     const sent = [...CORRECT_BODY.matchAll(/'([a-z_]+)':/g)].map((m) => m[1]!);
     expect(sent.length).toBeGreaterThan(2);
     expect(Object.keys(ProfilingCorrectionSchema.shape)).toEqual(expect.arrayContaining(sent));
+  });
+
+  it("sends only ANSWER body keys the request schema accepts (#931)", () => {
+    // THE GUARD THAT WOULD HAVE CAUGHT #931 ON THE DAY #870 SHIPPED. The correction path had this
+    // check and the answer path did not, so when the Dart started sending `submission_id` here,
+    // nothing noticed that no server schema declared it — and a non-strict `z.object` STRIPS an
+    // unknown key rather than rejecting it. No exception, no 4xx, a green suite on both sides,
+    // and the reply cache went on guessing from a clock for every answer a worker spoke.
+    //
+    // A stripped key is the same silent-blank failure mode this file was written after (#707),
+    // arriving from the request direction instead of the response direction.
+    const sent = [...SUBMIT_BODY.matchAll(/'([a-z_]+)':/g)].map((m) => m[1]!);
+    expect(sent.length).toBeGreaterThan(2);
+    expect(sent).toContain("submission_id");
+    expect(Object.keys(ProfilingAnswerSchema.shape)).toEqual(expect.arrayContaining(sent));
   });
 
   it("tests `status` against a value the row's status enum can actually hold", () => {

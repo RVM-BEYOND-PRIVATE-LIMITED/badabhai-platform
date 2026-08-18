@@ -268,7 +268,7 @@ export class ChatService {
     dto: PostMessageDto,
     ctx: RequestContext,
   ): Promise<PostMessageResponse> {
-    const outcome = await this.runTurn(workerId, dto.session_id, dto.text, ctx);
+    const outcome = await this.runTurn(workerId, dto.session_id, dto.text, ctx, dto.submission_id);
     switch (outcome.kind) {
       case "session_over":
         return this.terminalResponse(dto.session_id);
@@ -368,6 +368,16 @@ export class ChatService {
     sessionId: string,
     text: string,
     ctx: RequestContext,
+    /**
+     * The client's id for this physical submission, when it sent one (#931) — passed straight
+     * through to the reply cache, which is the only thing that reads it. See
+     * `LastTurn.submissionId`.
+     *
+     * TRAILING AND OPTIONAL so the one caller that has no id says nothing: `finalize` reaches
+     * this method with `FINALIZE_MARKER`, a server-authored sentinel no worker typed and no
+     * client retried, and there is no submission for it to name.
+     */
+    submissionId?: string,
   ): Promise<ChatTurnOutcome> {
     const dto = { session_id: sessionId, text };
     const session = await this.chat.findSession(dto.session_id);
@@ -457,6 +467,11 @@ export class ChatService {
       text: dto.text,
       now,
       ctx,
+      // SPREAD RATHER THAN ASSIGNED, so an absent id is an ABSENT KEY and not a present
+      // `undefined`. The two are the same to a reader of the object and are not the same to
+      // `exactOptionalPropertyTypes`, and the distinction the cache draws is exactly "did the
+      // client name this submission at all".
+      ...(submissionId === undefined ? {} : { submissionId }),
     });
 
     // 3. Nothing was written and the worker should retry — a lost CAS after two attempts,

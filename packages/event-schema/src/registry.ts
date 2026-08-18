@@ -807,6 +807,18 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileLlmInterviewFallbackPayload,
   },
+
+  // One physical submission arrived twice and the duplicate was served from the reply cache.
+  // A NEW event rather than a field on an existing one: nothing here reports a duplicate today,
+  // and the only evidence was a warn log on ONE of the three replay branches — so the duplicate
+  // rate, which is what decides whether the cache's four timing constants can be retired (#931),
+  // was structurally unmeasurable. `basis` says whether the client's id or a hash-plus-clock
+  // guess recognised it, which is the retirement decision's actual input. v1.
+  "profile.duplicate_submission": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileDuplicateSubmissionPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

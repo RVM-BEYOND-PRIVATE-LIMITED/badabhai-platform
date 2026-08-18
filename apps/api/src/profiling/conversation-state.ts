@@ -189,7 +189,62 @@ export interface LastTurn {
    * what it says it is: how many times a stamp may be replayed, not how long.
    */
   readonly replays: number;
+  /**
+   * THE CLIENT'S OWN NAME FOR THIS SUBMISSION — a v4 UUID minted once per PHYSICAL send and
+   * re-sent verbatim on a transport retry. `null` for a stamp written by a client that sent none,
+   * or by a deploy older than this field.
+   *
+   * WHY IT EXISTS, AND WHAT IT ANSWERS. Everything above this line — the fresh window, the outer
+   * window, the budget, the storm floor — exists because {@link inboundHash} cannot tell "a
+   * network retry of the message that just landed" from "the worker's next, genuinely different
+   * turn that happens to use the same words". Four constants and three defects (#857, #858, #869)
+   * later the ambiguity was still there, because the server was inferring intent that the CLIENT
+   * KNOWS FOR CERTAIN: it minted one id for the send, and re-used that same id for the retry.
+   *
+   * IT ONLY EVER NARROWS THE CACHE, NEVER WIDENS IT — see `replayOf`. A hit still requires the
+   * hash to match; the id is an ADDITIONAL test a candidate has to pass, never a substitute for
+   * that one. So the only thing it can do is REFUSE a replay the hash would have granted, which
+   * is precisely the defect (#931): two consecutive "haan"s are one hash and two ids, and the
+   * second one is now heard. It can never grant a replay the hash would have refused, so there is
+   * no cache hit reachable through this field that was not already reachable without it.
+   *
+   * OPTIONAL ON THE WIRE, AND NOT PROVISIONALLY SO. Old app builds stay in the field for a long
+   * time and send nothing; whenever either side of the comparison is `null` the hash decides
+   * alone, byte for byte as it does today. That is a rollout requirement, not a nicety.
+   *
+   * A UUID AND NOT THE WORKER'S WORDS, so it is exactly as safe to log and to put on the event
+   * spine as the session id beside it (§2).
+   */
+  readonly submissionId: string | null;
 }
+
+/**
+ * Every key of {@link LastTurn}, as a value — the same mechanical guard
+ * {@link PROFILING_ENVELOPE_KEYS} puts on the envelope, one level down.
+ *
+ * WHY THIS LEVEL NEEDED ITS OWN. The envelope's guard makes an un-narrowed envelope field a BUILD
+ * failure, and its doc calls that "the mechanical closure of the plan's ⚠ risk #6". `lastTurn` is
+ * a single key to that guard, so every field INSIDE it was outside the closure: a new `LastTurn`
+ * field that {@link narrowLastTurn} forgets compiles, lints, and is silently destroyed on every
+ * load from Redis. Nothing would fail — the cache would just quietly fall back to its older
+ * behaviour in production, with a green suite. `submissionId` is exactly such a field, and its
+ * silent loss would restore the #931 defect it exists to close, so the guard is added with it.
+ */
+export const LAST_TURN_KEYS = {
+  inboundHash: true,
+  reply: true,
+  kind: true,
+  questionKey: true,
+  at: true,
+  options: true,
+  progress: true,
+  whyText: true,
+  answerType: true,
+  lookahead: true,
+  inputMode: true,
+  replays: true,
+  submissionId: true,
+} satisfies Record<keyof LastTurn, true>;
 
 /**
  * The reply-cache key: `sha256(sessionId + rev + text)`.
@@ -732,6 +787,19 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     // `askCount` clamps at 0 — a negative or non-finite value read back from Redis must not buy a
     // replay budget the field's own type says cannot exist.
     replays: Number.isInteger(v.replays) && (v.replays as number) >= 0 ? (v.replays as number) : 0,
+    // ABSENT NARROWS TO `null`, which is the same "degrade to today's behaviour" rule every field
+    // above follows — and here it degrades to something exact rather than merely tolerable: a
+    // `null` id means `replayOf` compares hashes alone, which IS today's behaviour. So a stamp
+    // written by the previous deploy, sitting in Redis behind the 24 h TTL right now, keeps
+    // matching exactly as it did before this shipped instead of being discarded to protect a new
+    // field.
+    //
+    // A NON-STRING NARROWS TO `null` TOO, rather than being coerced. The only use of this value is
+    // an equality test against the id on the next submission, and a coerced `"[object Object]"`
+    // would be a value that can compare EQUAL to another coerced one — which is a replay granted
+    // on the strength of two malformed records agreeing. Unusable narrows to absent, and absent
+    // falls back to the hash.
+    submissionId: typeof v.submissionId === "string" && v.submissionId ? v.submissionId : null,
   };
 }
 

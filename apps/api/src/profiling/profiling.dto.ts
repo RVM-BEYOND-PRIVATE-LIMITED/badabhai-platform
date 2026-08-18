@@ -83,6 +83,23 @@ export const ProfilingAnswerSchema = z.object({
      */
     z.object({ kind: z.literal("spoken"), voice_note_id: uuidSchema }),
   ]),
+  /**
+   * The client's id for this PHYSICAL answer — see `PostMessageSchema.submission_id`, which this
+   * mirrors field-for-field on purpose: one contract, two routes, so a client that learns it on
+   * one surface does not have to learn a second shape for the other.
+   *
+   * IT MATTERS MOST HERE, of the two. `question_key` above is the primary duplicate defence on
+   * this route and it fires FIRST, 409ing a retry whose first attempt already landed. What it
+   * cannot do is the opposite direction — recognise that two answers with the SAME words against
+   * the SAME still-on-screen question are two real answers — and this route is where that hurts:
+   * a spoken answer is transcribed in-request against a 150 s budget, so the retry that reaches
+   * the reply cache here arrives far later than the chat client's own 15 s deadline, which is
+   * what `STALE_RESPONSE_WINDOW_MS` was sized against.
+   *
+   * The voice form has sent this since #870 and the server has discarded it at this schema (a
+   * non-strict `z.object` strips unknown keys silently) on every answer since.
+   */
+  submission_id: uuidSchema.optional(),
 });
 export type ProfilingAnswerDto = z.infer<typeof ProfilingAnswerSchema>;
 

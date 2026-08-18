@@ -18,6 +18,16 @@ const OTHER_SESSION = "33333333-3333-4333-8333-333333333333";
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const INTRUDER = "44444444-4444-4444-8444-444444444444";
 const CTX = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req_1" } as never;
+/**
+ * The client's id for one physical answer (#931), carried by every body below.
+ *
+ * ON THE BODIES RATHER THAN OMITTED, because the voice form has sent it on EVERY answer since
+ * #870 — a fixture without it would be testing a client that no longer exists. The `runTurn`
+ * assertions name it explicitly for the same reason: this route reaches the reply cache through
+ * `ChatService.runTurn`, and if the id is dropped anywhere along the way the cache silently falls
+ * back to guessing from a clock, which is the whole defect.
+ */
+const SUBMISSION = "77777777-7777-4777-8777-777777777777";
 
 const option = (option_key: string, label_text: string): QuestionPackOption => ({
   option_key,
@@ -199,6 +209,7 @@ const chips = (...option_keys: string[]) =>
     session_id: SESSION,
     question_key: "q_material",
     answer: { kind: "chips" as const, option_keys },
+    submission_id: SUBMISSION,
   }) as never;
 
 describe("start — reattach, never restart", () => {
@@ -248,7 +259,13 @@ describe("the server maps option keys to labels — never the client", () => {
 
     // A label is the worker's answer of record verbatim. If the client sent it, the client would
     // be choosing what gets stored.
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Stainless steel", CTX);
+    expect(chatService.runTurn).toHaveBeenCalledWith(
+      WORKER,
+      SESSION,
+      "Stainless steel",
+      CTX,
+      SUBMISSION,
+    );
   });
 
   it("joins several labels for a multi-select, in the order they were tapped", async () => {
@@ -261,6 +278,7 @@ describe("the server maps option keys to labels — never the client", () => {
       SESSION,
       "Mild steel, Stainless steel",
       CTX,
+      SUBMISSION,
     );
   });
 
@@ -310,10 +328,11 @@ describe("the server maps option keys to labels — never the client", () => {
           session_id: SESSION,
           question_key: "q_cert",
           answer: { kind: "boolean", value },
+          submission_id: SUBMISSION,
         } as never,
         CTX,
       );
-      expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, expected, CTX);
+      expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, expected, CTX, SUBMISSION);
     }
   });
 
@@ -327,11 +346,12 @@ describe("the server maps option keys to labels — never the client", () => {
         session_id: SESSION,
         question_key: "q_material",
         answer: { kind: "text", text: "Nahi pata" },
+        submission_id: SUBMISSION,
       } as never,
       CTX,
     );
 
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Nahi pata", CTX);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Nahi pata", CTX, SUBMISSION);
   });
 });
 
@@ -876,6 +896,7 @@ const spoken = (voice_note_id = "55555555-5555-4555-8555-555555555555") =>
     session_id: SESSION,
     question_key: "q_material",
     answer: { kind: "spoken" as const, voice_note_id },
+    submission_id: SUBMISSION,
   }) as never;
 
 describe("a spoken answer", () => {
@@ -887,7 +908,7 @@ describe("a spoken answer", () => {
     await service.answer(WORKER, spoken(), CTX);
 
     expect(transcription.transcribeNow).toHaveBeenCalledOnce();
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, SUBMISSION);
   });
 
   it("caps the clip at 30 seconds, which is what keeps it a single provider call", async () => {
@@ -974,7 +995,7 @@ describe("a spoken answer", () => {
 
     const { step } = await service.answer(WORKER, spoken(), CTX);
 
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, SUBMISSION);
     expect(step).toMatchObject({ kind: "question" });
   });
 

@@ -8,6 +8,7 @@ import {
   inboundHash,
   narrowProfilingEnvelope,
   PROFILING_ENVELOPE_KEYS,
+  LAST_TURN_KEYS,
   toConversationStatePatch,
   toEngineState,
   withAnswers,
@@ -96,6 +97,13 @@ const FULL: ProfilingEnvelope = {
     // NON-DEFAULT for the same reason as everything else here: 0 is what a `narrow` that dropped
     // the field would default to (see `MAX_REPLAYS_PER_TURN`'s narrowing).
     replays: 1,
+    // NON-DEFAULT, and this one is the reason the rule above is worth restating rather than
+    // assumed: `null` is what a `narrowLastTurn` that forgot `submissionId` entirely would
+    // produce, and a `null` here would make the round trip agree with a narrower that silently
+    // destroys the field on every load from Redis. That failure is invisible in production — the
+    // cache would simply fall back to hashing and the #931 defect would return — so THIS
+    // assertion is the only thing standing between it and a green suite.
+    submissionId: "6b1f6a1e-2c5e-4a3b-9d7f-1c0e8a2b4d61",
   },
   // Every bucket distinct and non-zero, for the same reason as every other field here: a
   // zeroed histogram would round-trip identically through a `narrow` that dropped it entirely.
@@ -148,6 +156,62 @@ describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () =
     const reloaded = narrowProfilingEnvelope(JSON.parse(JSON.stringify(withStale)));
     expect(reloaded).not.toHaveProperty("legacyTopicIds");
     expect(reloaded).not.toHaveProperty("captured");
+  });
+
+  it("the `lastTurn` fixture covers EVERY key too — the trap has a second floor", () => {
+    // THE ENVELOPE GUARD ABOVE DOES NOT REACH INSIDE `lastTurn`. To it, `lastTurn` is ONE key, so
+    // every field within it was outside the closure: a new `LastTurn` field that `narrowLastTurn`
+    // forgets compiles, lints, round-trips the envelope assertion above, and is silently destroyed
+    // on every load from Redis. Nothing goes red — the reply cache just quietly reverts to its
+    // older behaviour in production.
+    //
+    // `submissionId` is exactly such a field, and losing it silently restores the #931 defect it
+    // exists to close, so `LAST_TURN_KEYS` was added alongside it: compile-time exhaustive over
+    // the interface, linked to the fixture here.
+    expect(Object.keys(FULL.lastTurn as object).sort()).toEqual(Object.keys(LAST_TURN_KEYS).sort());
+  });
+
+  it("narrowLastTurn returns exactly those keys — no extras, no omissions", () => {
+    const reloaded = narrowProfilingEnvelope(JSON.parse(JSON.stringify(FULL)));
+    expect(Object.keys(reloaded?.lastTurn as object).sort()).toEqual(
+      Object.keys(LAST_TURN_KEYS).sort(),
+    );
+  });
+});
+
+describe("the reply cache's per-submission id survives Redis (#931)", () => {
+  const stampedWith = (submissionId: unknown) =>
+    narrowProfilingEnvelope(
+      JSON.parse(JSON.stringify({ ...FULL, lastTurn: { ...FULL.lastTurn, submissionId } })),
+    )?.lastTurn;
+
+  it("round-trips a real id verbatim, because equality against it is what decides a replay", () => {
+    expect(stampedWith("6b1f6a1e-2c5e-4a3b-9d7f-1c0e8a2b4d61")?.submissionId).toBe(
+      "6b1f6a1e-2c5e-4a3b-9d7f-1c0e8a2b4d61",
+    );
+  });
+
+  it("narrows an ABSENT id to null — a stamp from before this field existed", () => {
+    // The live-deploy case. Sessions are mid-interview behind a 24 h TTL when this ships, and
+    // `null` is not a degradation for them: it means "compare hashes alone", which is exactly the
+    // behaviour their stamp was written under.
+    const { submissionId: _dropped, ...withoutId } = FULL.lastTurn as unknown as Record<
+      string,
+      unknown
+    >;
+    const reloaded = narrowProfilingEnvelope(
+      JSON.parse(JSON.stringify({ ...FULL, lastTurn: withoutId })),
+    );
+    expect(reloaded?.lastTurn?.submissionId).toBeNull();
+  });
+
+  it("narrows an unusable id to null rather than coercing it", () => {
+    // A coerced `"[object Object]"` is a value that can compare EQUAL to another coerced one —
+    // i.e. a replay granted because two malformed records agreed, which would discard a worker's
+    // real answer. Unusable narrows to absent, and absent falls back to the hash.
+    for (const bad of [null, undefined, 7, "", {}, [], true]) {
+      expect(stampedWith(bad)?.submissionId).toBeNull();
+    }
   });
 });
 

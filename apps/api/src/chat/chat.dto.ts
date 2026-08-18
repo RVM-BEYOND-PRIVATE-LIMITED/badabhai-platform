@@ -14,6 +14,23 @@ export const PostMessageSchema = z.object({
   session_id: uuidSchema,
   // non-empty and bounded; the AI service pseudonymizes before any LLM call.
   text: nonEmptyMessageSchema.pipe(safeTextSchema(4000)),
+  /**
+   * The client's id for this PHYSICAL submission — one v4 UUID minted when the worker commits
+   * the words to the wire, re-sent verbatim if the transport retries (#870/#931).
+   *
+   * WHAT IT IS FOR. It lets the reply cache tell a network retry from the worker's next answer
+   * without inferring either from a clock — see `LastTurn.submissionId`.
+   *
+   * `.optional()` IS PERMANENT, not a migration step. App builds without it stay in the field for
+   * a long time, and the schema is non-strict, so those bodies validate exactly as they do today
+   * and the cache falls back to hashing. Making it required would 400 every shipped older build.
+   *
+   * VALIDATED ANYWAY, THOUGH IT IS OPTIONAL, and `uuidSchema` rather than `z.string()`: this
+   * value is compared for equality against a stored one to decide whether a worker's answer is
+   * recorded or discarded, so a malformed id must fail the request closed (§3) rather than become
+   * a cache key that happens to collide. Absent is legal; present-but-malformed is a 400.
+   */
+  submission_id: uuidSchema.optional(),
 });
 export type PostMessageDto = z.infer<typeof PostMessageSchema>;
 

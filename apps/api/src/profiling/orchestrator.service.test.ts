@@ -18,6 +18,7 @@ import {
   RETRY_STORM_FLOOR_MS,
   REPLY_CACHE_WINDOW_MS,
   STALE_RESPONSE_WINDOW_MS,
+  MAX_REPLAYS_PER_TURN,
   type ProfilingEnvelope,
 } from "./conversation-state";
 import { DISAMBIGUATION_PROMPT, toPackOption } from "./identify.service";
@@ -237,6 +238,23 @@ const say = (text: string, at: Date = T0) => ({
   now: at,
   ctx: CTX as never,
 });
+
+/**
+ * The same submission, NAMED — what a client that sends `submission_id` posts (#931).
+ *
+ * A SEPARATE HELPER rather than an optional argument on `say`, so that every test above keeps
+ * posting a body with NO id at all. That is not tidiness: those tests are the contract for app
+ * builds already in the field, and an id silently defaulted into them would stop testing the
+ * fallback the whole rollout depends on.
+ */
+const sayAs = (text: string, submissionId: string, at: Date = T0) => ({
+  ...say(text, at),
+  submissionId,
+});
+
+/** Two ids, so a test can say "a different physical send" without inventing a UUID inline. */
+const SUB_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SUB_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 describe("the first turn", () => {
   it("serves the first question and records the ask", async () => {
@@ -912,6 +930,9 @@ describe("LAYER A — the reply cache", () => {
         lookahead: null,
         inputMode: "text" as const,
         replays: 0,
+        // The hash path, which is what this test is about — see the id twin below, which pins
+        // that a confirmed submission does not buy its way past a skewed clock either.
+        submissionId: null,
       },
     });
     const result = await orchestrator.takeTurn(say("main pune me rehta hu"));
@@ -1061,6 +1082,362 @@ describe("the stale-response window — a client timeout retry never answers the
 
     expect(secondThought.replayed).toBe(false);
     expect(answersFor(w, "q_shift")).toHaveLength(1);
+  });
+});
+
+/**
+ * THE PER-SUBMISSION CLIENT ID (#931) — the evidence the three defects above were guessing at.
+ *
+ * #857, #858 and #869 are one ambiguity wearing three faces: `inboundHash` is `(session, rev,
+ * text)`, so "a network retry of the message that just landed" and "the worker's next answer,
+ * which happens to use the same word" are byte-identical to it. Four constants were added to
+ * arbitrate between them from a clock. The client never had to guess — it mints one id when the
+ * worker commits words to the wire and re-sends that same id if the transport retries.
+ *
+ * THE DIRECTION MATTERS, and most of what is pinned below is that direction. The id can only
+ * REFUSE a replay the hash granted; it never grants one the hash refused. So there is no new way
+ * for a stale reply to reach a worker — only a new way to stop suppressing a real turn.
+ *
+ * The `q_tools` pack is the #857 repro deliberately reused: a `boolean`, `max_asks: 1` item is
+ * where the defect is worst, because once it is settled it is never re-servable and the loss is
+ * permanent.
+ */
+describe("the per-submission client id (#931)", () => {
+  const boolPack = () => ({
+    packs: {
+      occupation: pack("qp_bool", [
+        item({
+          question_key: "q_tools",
+          prompt_text: "Kya aapke paas apne auzaar hain?",
+          answer_type: "boolean",
+          max_asks: 1,
+        }),
+        item({
+          question_key: "q_licence",
+          prompt_text: "Kya aapke paas licence hai?",
+          answer_type: "boolean",
+          max_asks: 1,
+        }),
+      ]),
+      universal: UNIVERSAL_PACK,
+    },
+  });
+
+  const boolWorld = () => {
+    const w = makeWorld(boolPack());
+    seed(w.store, {
+      servedQuestionKey: null,
+      engineAsks: 0,
+      askCounts: {},
+      packId: "qp_bool",
+      packVersion: 1,
+    });
+    return w;
+  };
+
+  const answersOf = (w: ReturnType<typeof makeWorld>) =>
+    w.store.get(SESSION)?.profiling?.answerMap ?? [];
+
+  it("captures BOTH answers when two consecutive questions are answered with the same word", async () => {
+    // THE ACCEPTANCE CRITERION, and the on-device defect: a worker taps Haan, taps Haan again for
+    // the next question, and the second tap is discarded as a replay of the first. Two boolean
+    // questions in a row is not a corner case — it is what a `boolean`-heavy pack looks like.
+    const w = boolWorld();
+
+    // Open the first question, then answer it. Same word, twice, milliseconds apart — inside
+    // every window and floor the four constants define.
+    await w.orchestrator.takeTurn(sayAs("shuru", SUB_A));
+    const first = await w.orchestrator.takeTurn(sayAs("haan", SUB_B, new Date(T0.getTime() + 500)));
+    const second = await w.orchestrator.takeTurn(
+      sayAs("haan", "cccccccc-cccc-4ccc-8ccc-cccccccccccc", new Date(T0.getTime() + 1_000)),
+    );
+
+    expect(first.replayed).toBe(false);
+    // THE FIX. Byte-identical text, 500 ms apart, and heard — because the id says it is a second
+    // physical send. On the hash path this is a replay and the answer is gone.
+    expect(second.replayed).toBe(false);
+    const keys = answersOf(w).map((a) => a.question_key);
+    expect(keys).toContain("q_tools");
+    expect(keys).toContain("q_licence");
+  });
+
+  it("still replays a genuine retry — the SAME id — and writes nothing at all", async () => {
+    // The other half of the contract: the cache must keep doing its job. A retry gets the
+    // byte-identical response, and — unlike the hash path, which spends a unit of budget to make
+    // its own guess go stale — it costs no write, because there is no guess to bound.
+    const { orchestrator, store, buffer } = makeWorld();
+    seed(store);
+
+    const first = await orchestrator.takeTurn(sayAs("main pune me rehta hu", SUB_A));
+    const writesAfterFirst = buffer.saveWithCas.mock.calls.length;
+    const revAfterFirst = store.get(SESSION)?.profiling?.rev;
+
+    const retry = await orchestrator.takeTurn(
+      sayAs("main pune me rehta hu", SUB_A, new Date(T0.getTime() + 3_000)),
+    );
+
+    expect(retry.replayed).toBe(true);
+    expect(retry.reply).toBe(first.reply);
+    // NOTHING WROTE. No CAS, no rev bump, no budget spent — see `Replay.consumesBudget`.
+    expect(buffer.saveWithCas).toHaveBeenCalledTimes(writesAfterFirst);
+    expect(store.get(SESSION)?.profiling?.rev).toBe(revAfterFirst);
+    expect(store.get(SESSION)?.profiling?.lastTurn?.replays).toBe(0);
+  });
+
+  it("replays a confirmed retry that arrives PAST the stale window — the voice-form case", async () => {
+    // `STALE_RESPONSE_WINDOW_MS` is 30 s because it was sized at 2x the CHAT client's 15 s
+    // deadline (#869). The voice form waits 150 s, because a spoken answer is transcribed
+    // in-request — so its ORDINARY retry lands out here, where the hash path runs a real turn and
+    // captures the words against whatever the first attempt already advanced to. That is #869 on
+    // the surface built for workers who cannot type.
+    const { orchestrator, store } = makeWorld();
+    seed(store);
+
+    const first = await orchestrator.takeTurn(sayAs("main pune me rehta hu", SUB_A));
+    const late = await orchestrator.takeTurn(
+      sayAs("main pune me rehta hu", SUB_A, new Date(T0.getTime() + 90_000)),
+    );
+
+    expect(late.replayed).toBe(true);
+    expect(late.reply).toBe(first.reply);
+  });
+
+  it("replays a confirmed retry even once the replay budget is spent and the storm floor has passed", async () => {
+    // The hash-path twin of this test (`still runs a REAL turn for a spent budget once the storm
+    // floor has passed`) is the correct behaviour for an AMBIGUOUS match and the wrong one for a
+    // known retry: running the turn captures a duplicate's words against the question the FIRST
+    // copy advanced to. With the id there is nothing to arbitrate.
+    const { orchestrator, store } = makeWorld();
+    seed(store, {
+      lastTurn: {
+        inboundHash: inboundHash(SESSION, 1, "main pune me rehta hu"),
+        reply: "cached reply",
+        kind: "ask" as const,
+        questionKey: "q_city",
+        at: T0.toISOString(),
+        options: [],
+        progress: { answered: 0, total: 0 },
+        whyText: null,
+        answerType: null,
+        lookahead: null,
+        inputMode: "text" as const,
+        // Budget spent, and the submission below lands well past RETRY_STORM_FLOOR_MS.
+        replays: MAX_REPLAYS_PER_TURN,
+        submissionId: SUB_A,
+      },
+    });
+
+    const retry = await orchestrator.takeTurn(
+      sayAs("main pune me rehta hu", SUB_A, new Date(T0.getTime() + 5_000)),
+    );
+
+    expect(retry.replayed).toBe(true);
+    expect(retry.reply).toBe("cached reply");
+  });
+
+  it("does NOT replay when the id matches but the words differ", async () => {
+    // The id never WIDENS the cache. A client that reused one id across two different messages is
+    // a client bug the server cannot rule out, and the recoverable mistake is to hear the worker
+    // twice rather than to drop what they said — `inboundHash`'s own doc makes the same argument
+    // for why the text is part of the key at all.
+    const { orchestrator, store } = makeWorld();
+    seed(store);
+
+    await orchestrator.takeTurn(sayAs("main pune me rehta hu", SUB_A));
+    const different = await orchestrator.takeTurn(
+      sayAs("main mumbai me rehta hu", SUB_A, new Date(T0.getTime() + 1_000)),
+    );
+
+    expect(different.replayed).toBe(false);
+  });
+
+  it("refuses a NEGATIVE age even for a matching id, so clock skew is never buyable", async () => {
+    // The id twin of the clock-skew test above. `sameSubmission` skips the two BOUNDS, which
+    // arbitrate between readings of an ambiguous match; it does not skip this one, which rejects
+    // an impossible input. An entry stamped in the future is not a record two agreeing ids make
+    // trustworthy. Fail closed (§3).
+    const { orchestrator, store } = makeWorld();
+    seed(store, {
+      lastTurn: {
+        inboundHash: inboundHash(SESSION, 1, "main pune me rehta hu"),
+        reply: "stale",
+        kind: "ask" as const,
+        questionKey: "q_city",
+        at: new Date(T0.getTime() + 60_000).toISOString(),
+        options: [],
+        progress: { answered: 0, total: 0 },
+        whyText: null,
+        answerType: null,
+        lookahead: null,
+        inputMode: "text" as const,
+        replays: 0,
+        submissionId: SUB_A,
+      },
+    });
+
+    const result = await orchestrator.takeTurn(sayAs("main pune me rehta hu", SUB_A));
+    expect(result.replayed).toBe(false);
+  });
+
+  it("fails closed on a chipless disambiguation offer even when the ids agree", async () => {
+    // The §3 guard sits AFTER the timing checks deliberately, and an id match must not vault over
+    // it: serving a `disambiguate` with no options tells the client to draw a single-select with
+    // nothing in it, which on the voice form is a question a worker who cannot type cannot answer
+    // at all. Re-running the turn costs one turn; serving this costs the session.
+    const { orchestrator, store } = makeWorld();
+    seed(store, {
+      lastTurn: {
+        inboundHash: inboundHash(SESSION, 1, "welder"),
+        reply: "Aap kya kaam karte hain?",
+        kind: "disambiguate" as const,
+        questionKey: null,
+        at: T0.toISOString(),
+        options: [],
+        progress: { answered: 0, total: 0 },
+        whyText: null,
+        answerType: null,
+        lookahead: null,
+        inputMode: "text" as const,
+        replays: 0,
+        submissionId: SUB_A,
+      },
+    });
+
+    const result = await orchestrator.takeTurn(
+      sayAs("welder", SUB_A, new Date(T0.getTime() + 500)),
+    );
+    expect(result.replayed).toBe(false);
+  });
+
+  describe("the rollout — an id on one side only changes nothing", () => {
+    it("falls back to the hash when the CLIENT sends no id, exactly as it does today", async () => {
+      // Old app builds stay in the field for a long time. This is the same assertion the very
+      // first Layer A test above makes, restated here as a rollout guarantee rather than as a
+      // property of the cache: nothing about their behaviour may move.
+      const { orchestrator, store, buffer } = makeWorld();
+      seed(store);
+
+      const first = await orchestrator.takeTurn(say("main pune me rehta hu"));
+      const retry = await orchestrator.takeTurn(
+        say("main pune me rehta hu", new Date(T0.getTime() + 3_000)),
+      );
+
+      expect(retry.replayed).toBe(true);
+      expect(retry.reply).toBe(first.reply);
+      // The hash path SPENDS budget, which is exactly what today's behaviour is — a rev bump and
+      // a second CAS. Contrast the id path above, which writes nothing.
+      expect(store.get(SESSION)?.profiling?.lastTurn?.replays).toBe(1);
+      expect(buffer.saveWithCas).toHaveBeenCalledTimes(2);
+    });
+
+    it("falls back to the hash when the STAMP predates the field — the deploy case", async () => {
+      // A session mid-interview when this deploys has a `lastTurn` in Redis behind a 24 h TTL with
+      // no `submissionId`, and its client may well be sending one. There is nothing to compare, so
+      // the hash decides alone and that worker's next submission behaves as it did an hour ago.
+      const { orchestrator, store } = makeWorld();
+      seed(store, {
+        lastTurn: {
+          inboundHash: inboundHash(SESSION, 1, "main pune me rehta hu"),
+          reply: "cached reply",
+          kind: "ask" as const,
+          questionKey: "q_city",
+          at: T0.toISOString(),
+          options: [],
+          progress: { answered: 0, total: 0 },
+          whyText: null,
+          answerType: null,
+          lookahead: null,
+          inputMode: "text" as const,
+          replays: 0,
+          // Narrowed from a record written before the field existed.
+          submissionId: null,
+        },
+      });
+
+      const retry = await orchestrator.takeTurn(
+        sayAs("main pune me rehta hu", SUB_A, new Date(T0.getTime() + 3_000)),
+      );
+
+      expect(retry.replayed).toBe(true);
+      expect(retry.reply).toBe("cached reply");
+    });
+  });
+
+  describe("profile.duplicate_submission — the duplicate rate becomes measurable", () => {
+    const dupEvents = (w: ReturnType<typeof makeWorld>) =>
+      w.events.emit.mock.calls
+        .map(([params]) => params as { event_name: string; payload: Record<string, unknown> })
+        .filter((e) => e.event_name === "profile.duplicate_submission");
+
+    it("records a confirmed duplicate with basis submission_id, and no budget spent", async () => {
+      const w = makeWorld();
+      seed(w.store);
+
+      await w.orchestrator.takeTurn(sayAs("main pune me rehta hu", SUB_A));
+      await w.orchestrator.takeTurn(
+        sayAs("main pune me rehta hu", SUB_A, new Date(T0.getTime() + 2_000)),
+      );
+
+      const [event] = dupEvents(w);
+      expect(event).toBeDefined();
+      expect(event?.payload).toMatchObject({
+        session_id: SESSION,
+        worker_id: WORKER,
+        basis: "submission_id",
+        // THE QUESTION THE REPLAYED REPLY PUTS BACK ON SCREEN, not the one the duplicate was
+        // answering. `q_city` was on screen when the words were sent; the reply that send produced
+        // asked `q_years`, and that reply is what is being served again — so `q_years` is what the
+        // worker is looking at, and it is the value an analyst needs to read this event against.
+        question_key: "q_years",
+        age_ms: 2_000,
+        replays: 0,
+        // A confirmed retry never writes, so this is false by construction — a `true` here beside
+        // `submission_id` would mean the cache paid for a guess it did not have to make.
+        consumed_budget: false,
+      });
+    });
+
+    it("records a guessed duplicate with basis content_hash, which is the retirement signal", async () => {
+      // The number step 4 of #931 is gated on: while any of these are still arriving, some
+      // deployed build is not naming its submissions and the four constants cannot be retired.
+      const w = makeWorld();
+      seed(w.store);
+
+      await w.orchestrator.takeTurn(say("main pune me rehta hu"));
+      await w.orchestrator.takeTurn(say("main pune me rehta hu", new Date(T0.getTime() + 2_000)));
+
+      const [event] = dupEvents(w);
+      expect(event?.payload).toMatchObject({ basis: "content_hash", consumed_budget: true });
+    });
+
+    it("emits NOTHING on an ordinary turn — this counts duplicates, not messages", async () => {
+      const w = makeWorld();
+      seed(w.store);
+
+      await w.orchestrator.takeTurn(sayAs("main pune me rehta hu", SUB_A));
+
+      expect(dupEvents(w)).toHaveLength(0);
+    });
+
+    it("never carries the worker's words", async () => {
+      // §2: the transcript is where a worker's words live. This payload is ids, a slug, counters
+      // and a boolean — the same rule the `retry storm absorbed` log it replaces already followed.
+      const w = makeWorld();
+      seed(w.store);
+
+      await w.orchestrator.takeTurn(sayAs("mera naam Ramesh hai aur main pune me rehta hu", SUB_A));
+      await w.orchestrator.takeTurn(
+        sayAs(
+          "mera naam Ramesh hai aur main pune me rehta hu",
+          SUB_A,
+          new Date(T0.getTime() + 1_000),
+        ),
+      );
+
+      const serialized = JSON.stringify(dupEvents(w));
+      expect(serialized).not.toContain("Ramesh");
+      expect(serialized).not.toContain("rehta");
+    });
   });
 });
 
@@ -1321,6 +1698,10 @@ describe("the mid-interview checkpoint boundary (Phase 9, risk #10)", () => {
         lookahead: null,
         inputMode: "text" as const,
         replays: 0,
+        // Nothing about the checkpoint rule depends on how the duplicate was recognised, so this
+        // stays on the hash path — the id changes which submissions ARE replays, never what a
+        // replay costs once it is one.
+        submissionId: null,
       },
     });
 

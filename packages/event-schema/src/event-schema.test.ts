@@ -2534,8 +2534,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 159 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned)", () => {
-    expect(EVENT_NAMES).toHaveLength(159);
+  it("exposes all 160 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned + the reply cache duplicate)", () => {
+    expect(EVENT_NAMES).toHaveLength(160);
     // The LLM-led opening handed back to the deterministic engine. Designed to be invisible to
     // the worker, so this event is the only place a degraded ai-service becomes visible at all.
     expect(isEventName("profile.llm_interview_fallback")).toBe(true);
@@ -2553,6 +2553,11 @@ describe("registry", () => {
     // ...and how much the six-gate wall discarded. The gates always worked; the RATE is what
     // says the model started inventing spans or reading our own questions back to us.
     expect(isEventName("profile.parse_gates_rejected")).toBe(true);
+    // #931 — one physical submission arrived twice. Its predecessor was a warn log on ONE of
+    // three replay branches, so the ordinary duplicate produced no signal at all and the
+    // duplicate rate — which is what decides whether the reply cache's four timing constants
+    // can be retired — was structurally unmeasurable.
+    expect(isEventName("profile.duplicate_submission")).toBe(true);
     // #643 — the worker's push toggle. Emitted because the flag GATES the ADR-0034
     // fan-out; the Alerts read watermark shipped with it emits nothing (a read
     // position is not a business action, §1) and deliberately has no name here.
@@ -3240,5 +3245,61 @@ describe("OIE cutover payloads (Phase 8) — ids, codes and counts, never worker
       }),
     );
     expect(bad.success).toBe(false);
+  });
+});
+
+describe("profile.duplicate_submission payload (#931) — how the duplicate was RECOGNISED, strict", () => {
+  function dupEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "profile.duplicate_submission",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "chat_session", subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  const MINIMAL = { worker_id: UUID_B, session_id: UUID_A, basis: "submission_id" };
+
+  it("validates the minimal shape and defaults the observational fields", () => {
+    const result = validateEvent(dupEvent(MINIMAL));
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "profile.duplicate_submission") {
+      expect(result.event.payload.question_key).toBeNull();
+      expect(result.event.payload.age_ms).toBe(0);
+      expect(result.event.payload.replays).toBe(0);
+      expect(result.event.payload.consumed_budget).toBe(false);
+    }
+  });
+
+  it("accepts both bases and nothing else — this enum IS the retirement signal", () => {
+    // Step 4 of #931 retires four timing constants once no deployed build is still leaving the
+    // server to guess. `content_hash` is that guess; a third member invented later would make
+    // "are we still guessing?" a question the spine can no longer answer with one filter.
+    expect(validateEvent(dupEvent({ ...MINIMAL, basis: "content_hash" })).success).toBe(true);
+    expect(validateEvent(dupEvent({ ...MINIMAL, basis: "timing" })).success).toBe(false);
+  });
+
+  it("REJECTS the duplicated text riding along (.strict)", () => {
+    // THE tempting field, and the same one `profile.occupation_identified` refuses above: "what
+    // did they actually send twice" is the most useful thing for debugging a duplicate and the
+    // most forbidden thing to put on the spine. The worker's words live in the transcript (§2) —
+    // this event carries the sha256-derived stamp's IDENTITY only, never its contents.
+    for (const smuggled of [{ text: "haan" }, { inbound_text: "haan" }, { reply: "…" }]) {
+      const bad = validateEvent(dupEvent({ ...MINIMAL, ...smuggled }));
+      expect(bad.success).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
+
+  it("rejects a negative age or replay count — neither can run backwards", () => {
+    expect(validateEvent(dupEvent({ ...MINIMAL, age_ms: -1 })).success).toBe(false);
+    expect(validateEvent(dupEvent({ ...MINIMAL, replays: -1 })).success).toBe(false);
+  });
+
+  it("holds question_key to the pack's closed slug vocabulary", () => {
+    expect(validateEvent(dupEvent({ ...MINIMAL, question_key: "q_city" })).success).toBe(true);
+    // Free text here would be a second channel for whatever the caller happened to hold.
+    expect(validateEvent(dupEvent({ ...MINIMAL, question_key: "Aap kahan?" })).success).toBe(false);
   });
 });
