@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import type { AdminActionOutcome } from "../lib/admin-action-result";
 
 interface AdminActionButtonProps {
@@ -13,7 +13,12 @@ interface AdminActionButtonProps {
   /** The tone of the CONFIRMING click. The first click always renders as a quiet ghost button. */
   variant?: "danger" | "primary";
   disabled?: boolean;
-  /** Called with the full outcome once the action settles, success or failure. */
+  /**
+   * Called with the full outcome once the action settles, success or failure.
+   *
+   * This is the ONLY channel for the result. The button renders no success or failure copy
+   * of its own — see the component doc for why there is exactly one owner of it.
+   */
   onSettled?: (outcome: AdminActionOutcome) => void;
 }
 
@@ -28,6 +33,14 @@ interface AdminActionButtonProps {
  * click only arms the control, swapping its label for `confirmLabel` and revealing Cancel;
  * only a SECOND click while still armed invokes `action`. Disabled the whole time a request is
  * in flight (`useTransition`), so a double-click cannot fire it twice.
+ *
+ * ── ONE OWNER FOR THE RESULT COPY ───────────────────────────────────────────────────────
+ * This button reports the outcome through `onSettled` and renders NOTHING about it itself.
+ * It used to also keep its own `error` state and print the failure inline, while every one of
+ * its six callers ALSO renders `AdminActionResultBanner` from the same outcome — so a single
+ * 409 appeared twice on screen, once beside the button and once in the danger banner. The
+ * banner is the owner (it is the only one that can also express a SUCCESS and link to the
+ * event timeline), so failure copy lives there and only there.
  */
 export function AdminActionButton({
   label,
@@ -39,21 +52,16 @@ export function AdminActionButton({
 }: AdminActionButtonProps) {
   const [armed, setArmed] = useState(false);
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const errorId = useId();
 
   function handleClick() {
     if (pending) return;
     if (!armed) {
       setArmed(true);
-      setError(null);
       return;
     }
-    setError(null);
     startTransition(async () => {
       const outcome = await action();
       setArmed(false);
-      if (!outcome.ok) setError(outcome.error);
       onSettled?.(outcome);
     });
   }
@@ -65,7 +73,6 @@ export function AdminActionButton({
         className={`btn btn--sm ${armed ? `btn--${variant}` : "btn--ghost"}`}
         onClick={handleClick}
         disabled={disabled || pending}
-        aria-describedby={error ? errorId : undefined}
       >
         {pending ? "Working…" : armed ? confirmLabel : label}
       </button>
@@ -73,18 +80,10 @@ export function AdminActionButton({
         <button
           type="button"
           className="btn btn--ghost btn--sm"
-          onClick={() => {
-            setArmed(false);
-            setError(null);
-          }}
+          onClick={() => setArmed(false)}
         >
           Cancel
         </button>
-      )}
-      {error && (
-        <span className="admin-action__error" id={errorId} role="alert">
-          {error}
-        </span>
       )}
     </span>
   );

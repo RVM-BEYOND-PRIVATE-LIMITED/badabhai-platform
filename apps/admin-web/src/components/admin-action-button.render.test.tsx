@@ -12,7 +12,8 @@ import { AdminActionButton } from "./admin-action-button";
  *   - the label shown is `label`, never `confirmLabel`
  *   - it starts as a quiet ghost button, never pre-armed in the destructive tone
  *   - `disabled` is honoured
- *   - no Cancel control or error text exists until something has actually happened
+ *   - no Cancel control exists until the button has been armed
+ *   - it renders NO result copy of its own, in any state (the banner owns that)
  *
  * The arm → confirm → fire sequence is exercised by hand in the running app and is the one
  * gap flagged in the PR description; it would benefit from `@testing-library/react` + jsdom,
@@ -54,7 +55,7 @@ describe("AdminActionButton — initial render", () => {
     expect(out).toContain("disabled=\"\"");
   });
 
-  it("renders no Cancel control and no error text before any interaction", () => {
+  it("renders no Cancel control before any interaction", () => {
     const out = html(
       <AdminActionButton
         label="Suspend"
@@ -63,7 +64,24 @@ describe("AdminActionButton — initial render", () => {
       />,
     );
     expect(out).not.toContain(">Cancel<");
+  });
+
+  it("owns NO result copy — no alert region for a failure to be printed into", () => {
+    // The button reports through `onSettled` only; `AdminActionResultBanner` (rendered by
+    // every caller) is the single owner of both success and failure copy. When the button
+    // also kept its own `error` state, a 409 rendered twice — inline AND in the banner.
+    // There is no state of this component that produces an alert, so this holds in all of
+    // them and fails the moment an inline error is reintroduced.
+    const out = html(
+      <AdminActionButton
+        label="Suspend"
+        confirmLabel="Confirm suspend?"
+        action={async () => ({ ok: false, error: "Cannot suspend yourself" })}
+      />,
+    );
+    expect(out).not.toContain('role="alert"');
     expect(out).not.toContain("admin-action__error");
+    expect(out).not.toContain("aria-describedby");
   });
 
   it("is wrapped in a live region, so the arm→confirm label swap is announced", () => {

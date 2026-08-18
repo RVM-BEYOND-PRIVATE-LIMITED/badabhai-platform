@@ -1625,10 +1625,10 @@ textarea.field__input {
   gap: var(--space-2);
   flex-wrap: wrap;
 }
-.admin-action__error {
-  color: var(--danger);
-  font-size: var(--text-sm);
-}
+/* `.admin-action__error` used to live here for the button's own inline failure text. That
+   text is gone: every caller renders `AdminActionResultBanner` from the same outcome, so a
+   409 was printed twice. The banner is the single owner of result copy, and this rule had no
+   markup left behind it. */
 /* A table cell holding more than one action (e.g. the admins directory's per-row Change
    role / Reset MFA / Suspend). Stacked, not a row: a `.field__input` select at width:100%
    fighting a flex row's shrink-to-fit sizing is the wrong problem to solve for three
