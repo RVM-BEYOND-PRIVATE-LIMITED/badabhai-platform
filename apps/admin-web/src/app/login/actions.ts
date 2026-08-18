@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { emailSchema, otpDigitsSchema } from "@badabhai/validators";
 import { adminFetch, AdminRequestError } from "../../lib/admin-http";
 import { writeAdminToken } from "../../lib/auth/session-cookie";
 import {
@@ -25,9 +26,8 @@ import {
  * gets an attacker to "mfa_required" and no further.
  */
 
-const emailSchema = z.string().trim().toLowerCase().email().max(254);
-const otpSchema = z.string().trim().regex(/^\d{4,8}$/);
-const totpSchema = z.string().trim().regex(/^\d{6}$/);
+const otpSchema = otpDigitsSchema({ min: 4, max: 8 });
+const totpSchema = otpDigitsSchema(6);
 
 const codeSentSchema = z.object({
   status: z.literal("code_sent"),

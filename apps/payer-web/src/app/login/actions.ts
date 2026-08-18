@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { e164PhoneSchema } from "@badabhai/validators";
+import { e164PhoneSchema, emailSchema, otpDigitsSchema } from "@badabhai/validators";
 import { payerAuth } from "../../lib/auth";
 import type { PayerRole } from "../../lib/auth";
 import { NEUTRAL_SEND_ERROR, NEUTRAL_VERIFY_ERROR } from "./messages";
@@ -17,8 +17,7 @@ import { NEUTRAL_SEND_ERROR, NEUTRAL_VERIFY_ERROR } from "./messages";
  * logged.
  */
 
-const emailSchema = z.string().trim().toLowerCase().email().max(254);
-const codeSchema = z.string().trim().regex(/^\d{4,8}$/);
+const codeSchema = otpDigitsSchema({ min: 4, max: 8 });
 const roleSchema = z.enum(["employer", "agent"]);
 // org_name: trimmed 1..200 — matches the backend `PayerSignupSchema` exactly.
 const orgNameSchema = z.string().trim().min(1).max(200);
