@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
-import { can } from "../../../lib/auth/capabilities";
 import { listAdmins } from "../../../lib/entities";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
@@ -28,15 +27,29 @@ export const metadata = { title: "Admin users" };
  *   - who is still `pending` long after being invited
  *
  * The admin id is the join to everything else — it is the `actor_id` on every
- * `admin.action_performed` event, so "what has this account actually done" is one click away.
+ * `admin.action_performed` event — so the id cell links straight to that account's slice of
+ * the audit spine, and the header links to the whole `admin.action_performed` stream.
+ *
+ * ── WHY THERE IS NO IN-PAGE `can(...)` GATE HERE ────────────────────────────────────────
+ * `session.ts` guides page-level `requireCapability` for whole pages and `can(...)` for
+ * in-page controls, so that an operator who may READ a screen sees it without the controls
+ * they may not use. That split does not apply on this page: the backend's own read route,
+ * `GET /admin/admins`, is `@RequireAdminRole("manage_admins")` (see
+ * `apps/api/src/admin/admin-directory.controller.ts` — the directory is deliberately scoped
+ * to the role that can act on it, not to the read floor). So "can view but cannot manage" is
+ * not a state that exists: anyone who can load this list holds `manage_admins` by
+ * construction. A `canManage` flag computed after the gate would be unconditionally `true`
+ * and would read like a real permission check while deciding nothing.
+ *
+ * If that backend requirement is ever relaxed to `read_entities`, the controls below become
+ * genuinely conditional and this is where `can(session.capabilities, "manage_admins")` goes.
  */
 export default async function AdminsPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const session = await requireCapability("manage_admins");
-  const canManage = can(session.capabilities, "manage_admins");
+  await requireCapability("manage_admins");
 
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) =>
@@ -74,6 +87,14 @@ export default async function AdminsPage({
             Who holds access to this portal. Names and emails are encrypted at rest and are
             deliberately not shown — the id is the handle, and it appears on every audit event.
           </p>
+        </div>
+        {/* The way back to the audit spine. Every governed admin action emits an
+            `admin.action_performed`, and without this the page states that fact and then
+            offers no way to go and read them. */}
+        <div className="page__actions">
+          <Link className="btn btn--ghost" href="/events?eventName=admin.action_performed">
+            View all admin actions
+          </Link>
         </div>
       </header>
 
@@ -193,16 +214,28 @@ export default async function AdminsPage({
                   <th scope="col">Second factor</th>
                   <th scope="col">Last sign-in</th>
                   <th scope="col">Added</th>
-                  {canManage && <th scope="col">Actions</th>}
+                  <th scope="col">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {admins.map((a) => (
                   <tr key={a.id}>
                     <td>
-                      <span className="mono" title={a.id}>
+                      {/* The same link shape every other entity uses for its event stream
+                          (`workers/[id]`, `jobs/[id]`, the payer detail header), and the same
+                          one `admin-row-actions.tsx` already points its result banner at.
+                          NOTE: `/events` currently reads only `subjectType` off the URL —
+                          `subjectId` is accepted by the backend DTO but not yet forwarded by
+                          `lib/events.ts`, so today this lands on the admin_session stream
+                          rather than this row's slice of it. That gap is shared by every
+                          entity link in the console and is not patched here. */}
+                      <Link
+                        className="mono link"
+                        href={`/events?subjectType=admin_session&subjectId=${a.id}`}
+                        title={a.id}
+                      >
                         {shortId(a.id)}
-                      </span>
+                      </Link>
                       {a.is_self && <span className="table__meta">you</span>}
                     </td>
                     <td>
@@ -252,18 +285,16 @@ export default async function AdminsPage({
                         {formatRelative(a.created_at)}
                       </time>
                     </td>
-                    {canManage && (
-                      <td>
-                        <AdminRowActions
-                          admin={{
-                            id: a.id,
-                            role: a.role,
-                            status: a.status,
-                            is_self: a.is_self,
-                          }}
-                        />
-                      </td>
-                    )}
+                    <td>
+                      <AdminRowActions
+                        admin={{
+                          id: a.id,
+                          role: a.role,
+                          status: a.status,
+                          is_self: a.is_self,
+                        }}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -272,7 +303,7 @@ export default async function AdminsPage({
         )}
       </section>
 
-      {canManage && <InviteAdminForm />}
+      <InviteAdminForm />
     </div>
   );
 }
