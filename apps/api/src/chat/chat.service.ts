@@ -268,7 +268,16 @@ export class ChatService {
     dto: PostMessageDto,
     ctx: RequestContext,
   ): Promise<PostMessageResponse> {
-    const outcome = await this.runTurn(workerId, dto.session_id, dto.text, ctx);
+    // `?? null` AND NOT `?? undefined`: absent on the wire is the supported legacy case — an app
+    // build that predates the field — and it has to arrive at the replay gate as the explicit
+    // "this submission carries no id" that makes it take the hash + window path (#931).
+    const outcome = await this.runTurn(
+      workerId,
+      dto.session_id,
+      dto.text,
+      ctx,
+      dto.submission_id ?? null,
+    );
     switch (outcome.kind) {
       case "session_over":
         return this.terminalResponse(dto.session_id);
@@ -368,6 +377,17 @@ export class ChatService {
     sessionId: string,
     text: string,
     ctx: RequestContext,
+    /**
+     * The client's id for this physical submission, or `null` when there is no client submission
+     * behind this turn (#931).
+     *
+     * REQUIRED RATHER THAN OPTIONAL, at the cost of one explicit `null` at the finalize re-drive.
+     * A caller that forgets an optional id gets today's hash-and-clock behaviour silently — which
+     * is the defect this parameter exists to close, reappearing as an omission no test would
+     * catch. Made required, forgetting it is a build failure, and the one caller with nothing
+     * honest to pass has to say so in as many words.
+     */
+    submissionId: string | null,
   ): Promise<ChatTurnOutcome> {
     const dto = { session_id: sessionId, text };
     const session = await this.chat.findSession(dto.session_id);
@@ -456,6 +476,7 @@ export class ChatService {
       workerId,
       text: dto.text,
       now,
+      submissionId,
       ctx,
     });
 

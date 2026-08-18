@@ -68,10 +68,12 @@ import {
   narrowAnswerRecords,
   recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
+  ID_REPLAY_MAX_AGE_MS,
   STALE_RESPONSE_WINDOW_MS,
   TURN_KINDS,
   toEngineState,
   withAnswers,
+  type LastTurn,
   type ProfilingEnvelope,
   type TurnKind,
 } from "./conversation-state";
@@ -270,6 +272,21 @@ export interface TurnInput {
   readonly text: string;
   readonly now: Date;
   /**
+   * The client's id for THIS physical submission, or `null` when the caller has none (#931).
+   *
+   * The one fact that tells a transport retry from the worker's next answer without guessing at
+   * it from a clock — see {@link LastTurn.submissionId} for the defect and the on-device symptom.
+   * The client mints it once where the answer commits to the wire and re-sends the same value
+   * verbatim on a retry, so equality means "the same submission", not "the same words".
+   *
+   * REQUIRED AND NULLABLE, never optional. The failure mode of forgetting it at a new call site
+   * is silent and it is the original defect: a client that DOES send an id would have it dropped
+   * here and be judged by the hash again, with nothing anywhere saying so. Required makes the
+   * omission a BUILD failure; `null` is how a caller with no submission behind it — `openTurn`,
+   * the finalize re-drive — says so in as many words.
+   */
+  readonly submissionId: string | null;
+  /**
    * Correlation for the two occupation events this turn may emit. Threaded through rather than
    * synthesised so a placement can be traced back to the HTTP request that produced it.
    */
@@ -428,13 +445,38 @@ export class ProfilingOrchestrator {
         // submissions at all — everything downstream of it looks like a healthy session precisely
         // because the damage was absorbed here. Ids and counters only: the worker's words live in
         // the transcript, which is the one place they belong (§2).
+        //
+        // THE LOG IS NO LONGER THE ONLY EVIDENCE (#931 step 5). A duplicate is invisible on the
+        // event spine — this method returns before `decide()` is consulted, so it writes no
+        // `chat_messages` row and emits no `chat.message_received` — and this repo ships, retains
+        // and searches no logs at all, so the warn below diagnoses ONE incident and can never
+        // answer "is this getting worse". `recordDuplicate` emits the countable half, keyed so a
+        // storm collapses to one row.
         if (!replay.consumesBudget) {
-          this.logger.warn(
-            `retry storm absorbed session=${input.sessionId} rev=${envelope.rev} ` +
-              `replays=${envelope.lastTurn.replays} question=${envelope.servedQuestionKey ?? "-"}; ` +
-              `duplicate served from cache and NOT captured — the client is posting one ` +
-              `submission more than once`,
-          );
+          // THE WARN IS FOR THE CLOCK BRANCHES ONLY, and it is unchanged for them (#931). An
+          // id-matched replay is a client doing exactly the right thing — re-sending one
+          // submission it has no confirmation for — so calling it a storm would train a reader to
+          // ignore the line that means a client really is broken. `log`, not `warn`, and it names
+          // the id as the decider so a reader can tell "the clock guessed" from "the client knew".
+          if (replay.absorbedAs === "client_id") {
+            this.logger.log(
+              `submission replayed session=${input.sessionId} rev=${envelope.rev} ` +
+                `question=${envelope.servedQuestionKey ?? "-"}; the client re-sent the SAME ` +
+                `submission id, so the previous reply is served verbatim and nothing is written`,
+            );
+          } else {
+            this.logger.warn(
+              `retry storm absorbed session=${input.sessionId} rev=${envelope.rev} ` +
+                `replays=${envelope.lastTurn.replays} question=${envelope.servedQuestionKey ?? "-"}; ` +
+                `duplicate served from cache and NOT captured — the client is posting one ` +
+                `submission more than once`,
+            );
+          }
+          // AFTER the log and BEFORE the return, on a branch that writes nothing to Redis: there
+          // is no CAS here whose outcome could make this fact untrue. It never throws — a worker
+          // whose duplicate was correctly absorbed must not lose the reply because an audit
+          // INSERT failed.
+          await this.recordDuplicate(envelope, envelope.lastTurn, replay, input);
           return replay.result;
         }
 
@@ -457,6 +499,12 @@ export class ProfilingOrchestrator {
         // `REPLY_CACHE_WINDOW_MS` regardless of how many retries land inside it — refreshing it
         // here would let each consume buy the window another `REPLY_CACHE_WINDOW_MS`, which is the
         // unbounded-loop failure this whole mechanism exists to close.
+        //
+        // THE SPREAD CARRIES `submissionId` FORWARD UNTOUCHED (#931), which is correct rather than
+        // incidental: this stamp still describes the ORIGINAL real turn and the submission that
+        // produced it. Re-stamping it with the duplicate's own id would make the stamp claim the
+        // retry was the real turn, and — where the two ids differ — would hand the NEXT retry of
+        // the first submission a stamp it no longer matches.
         const last = envelope.lastTurn;
         const consumed: TranscriptBuffer = {
           ...buffer,
@@ -470,7 +518,15 @@ export class ProfilingOrchestrator {
           },
         };
         const held = await this.buffer.saveWithCas(input.sessionId, consumed, envelope.rev);
-        if (held) return replay.result;
+        if (held) {
+          // AFTER THE CAS, NEVER BEFORE — the same rule `persistPin` follows below. This branch is
+          // the one duplicate path that WRITES, and an attempt that loses the write did not
+          // happen: emitting before it would record a duplicate for a decision that was then
+          // thrown away and re-evaluated from the winner's state, double-counting the one real
+          // event the loop eventually emits.
+          await this.recordDuplicate(envelope, last, replay, input);
+          return replay.result;
+        }
         // Lost the race — someone else already wrote (a real turn, or another caller consuming the
         // same replay slot). Reload and re-evaluate against whatever landed, exactly as a lost CAS
         // does below.
@@ -693,6 +749,10 @@ export class ProfilingOrchestrator {
           workerId: input.workerId,
           text: "",
           now: input.now,
+          // NO SUBMISSION BEHIND THIS ONE (#931). `openTurn` puts the first question on screen
+          // without a worker having sent anything, so there is no client id to carry and
+          // inventing one would stamp a submission that never happened.
+          submissionId: null,
           ctx: input.ctx,
         });
         return {
@@ -1570,6 +1630,105 @@ export class ProfilingOrchestrator {
     }
   }
 
+  /**
+   * ONE PHYSICAL SUBMISSION ARRIVED TWICE — the countable half of that fact (#931 step 5).
+   *
+   * WHY A LOG LINE WAS NOT ENOUGH, given one already exists. A duplicate is invisible on the event
+   * spine by construction: `takeTurn` returns before `decide()` runs, so there is no
+   * `chat_messages` row, no `chat.message_received`, and no counter anywhere that moves —
+   * everything downstream looks like a healthy session precisely because the damage was absorbed.
+   * The only prior evidence was the `retry storm absorbed` warn, and it covers ONE of the three
+   * clock branches (the ordinary first flaky-link retry logged nothing at all), into stdout, in a
+   * repo that ships, retains and searches no logs. A log answers "what happened in this session";
+   * only a queryable event answers "is this getting worse", which is the shape of every question a
+   * client-side retry defect is diagnosed by.
+   *
+   * IT IS ALSO THE ROLLOUT TELEMETRY #931 STEP 4 IS GATED ON. `absorbed_as` says which rule served
+   * each duplicate and `inbound_had_id` says whether the client sent an id at all; the four
+   * reply-cache clocks may only be retired once the clock branches go to zero in the field, and
+   * until then they stay exactly as they are for every build that has not shipped the id.
+   *
+   * ONE ROW PER DUPLICATED SUBMISSION, NOT PER POST. The idempotency key is the submission id when
+   * there is one, so a client hammering one submission fifty times collapses to a single row —
+   * which is what keeps this from becoming the per-turn event volume the architecture rules out.
+   * With no id it falls back to the rev the duplicate was READ at, which is equally stable across
+   * a storm (a storm writes nothing, so the rev does not move).
+   *
+   * ON THE ROUND TRIPS IT DOES COST: this is one keyed INSERT on a path that already performs a
+   * Postgres SELECT per POST (`runTurn`'s session-ownership read), so it is not a new class of
+   * cost on the path a broken client hammers — unlike the CAS write the storm branch deliberately
+   * refuses, which would buy nothing at all.
+   *
+   * NEVER THROWS. A worker whose duplicate was correctly absorbed must not lose the reply because
+   * an audit INSERT failed — the reply is already in hand and nothing about it depends on this.
+   */
+  private async recordDuplicate(
+    envelope: ProfilingEnvelope,
+    last: LastTurn,
+    replay: Replay,
+    input: TurnInput,
+  ): Promise<void> {
+    try {
+      // CLAMPED, NOT TRUSTED. `at` is rehydrated from Redis and the id path deliberately consults
+      // no clock at all, so a skewed or drifted stamp can produce a negative or non-finite age
+      // here — neither of which the payload's `int().nonnegative()` accepts. Reporting 0 costs one
+      // observability field; letting it throw costs the emit, on the branch that exists to make
+      // this visible.
+      const rawAge = input.now.getTime() - new Date(last.at).getTime();
+      const elapsedMs = Number.isFinite(rawAge) ? Math.max(0, Math.trunc(rawAge)) : 0;
+      await this.events.emit({
+        event_name: "profile.submission_duplicated",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          // FILTERED AT THE BOUNDARY, not trusted — the same wall `chat.service.ts` puts in front
+          // of `answered_topics`. The `^[a-z_]+$` shape is what makes this field structurally
+          // incapable of carrying a worker's words, and "pack keys are slugs by construction" is a
+          // property of today's corpus rather than of this mechanism. A key that fails it is
+          // reported as null, which costs one field; passing it through would fail the payload
+          // schema and cost the whole event.
+          question_key: eventQuestionKey(envelope.servedQuestionKey),
+          absorbed_as: replay.absorbedAs,
+          // THE INBOUND'S OWN id, not the match. A build that sends an id still lands on a clock
+          // branch when the STAMP predates the deploy, and counting `absorbed_as` alone would read
+          // that as "the app has not rolled out" long after it has.
+          inbound_had_id: input.submissionId !== null,
+          replays: last.replays,
+          elapsed_ms: elapsedMs,
+        },
+        // KEYED ON THE SUBMISSION, so N copies of ONE physical send are one row. The raw id is
+        // NOT a payload field: it is client-supplied, this key already persists it verbatim in
+        // `events.idempotency_key`, and a second copy inside the payload would be an unvalidated
+        // client string in the audit spine. Namespaced with the event name because the unique
+        // index is on the key COLUMN alone, platform-wide.
+        idempotencyKey:
+          `profile.submission_duplicated:${input.sessionId}:` +
+          // KEYED ON THE STAMP, NEVER ON THE INBOUND. Keyed on `input.submissionId` this row
+          // was writable at will: the asymmetric case (inbound has an id, stamp does not) falls
+          // to the clock branches, which write nothing to Redis and never refresh `last.at`, so
+          // an authenticated worker re-POSTing identical text with a FRESH uuid each time — on
+          // routes with no rate limiter — minted a unique key per request and appended without
+          // bound to the `events` audit spine. `last.inboundHash` is sha256(session, rev, text):
+          // stable across a whole storm, so the documented one-row-per-duplicated-submission
+          // ceiling holds, and not client-supplied, so it cannot be rotated. It also survives a
+          // lost Redis buffer, which `rev` does not — `rev` restarts at 0 and would collide a
+          // post-restore duplicate with a pre-loss row, silently undercounting exactly the clock
+          // branches whose falling to zero is the signal to retire the four constants (step 4).
+          `${last.inboundHash}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the duplicate submission on session ${input.sessionId} was not recorded; the worker's ` +
+          `reply was served correctly but the duplicate is now invisible to the rollout ` +
+          `telemetry #931 step 4 reads: ${(error as Error).message}`,
+      );
+    }
+  }
+
   private async persistPin(
     before: ProfilingEnvelope,
     after: ProfilingEnvelope | null | undefined,
@@ -1666,6 +1825,12 @@ export class ProfilingOrchestrator {
         // bumps the rev, so the retrying reader computes a different key and takes a second real
         // turn on the same words — the exact failure Layer A exists to prevent.
         inboundHash: inboundHash(input.sessionId, envelope.rev + 1, input.text),
+        // THE SUBMISSION THAT PRODUCED THIS REPLY (#931). Stamped beside the hash rather than
+        // instead of it: the hash still proves the TEXT is identical, and the id decides the
+        // VERDICT — see `replayOf`. `null` when this caller had no client submission behind it
+        // (an old app build, or the finalize re-drive), which is exactly what makes the stamp
+        // fall back to the hash + window path for that turn.
+        submissionId: input.submissionId,
         reply: result.reply,
         kind: result.kind,
         questionKey: result.questionKey,
@@ -1745,6 +1910,79 @@ interface Replay {
    * is `RETRY_STORM_FLOOR_MS` running out on the wall clock rather than a counter running down.
    */
   readonly consumesBudget: boolean;
+  /**
+   * WHICH RULE decided this was a duplicate — the label `profile.submission_duplicated` carries.
+   *
+   * RETURNED RATHER THAN RE-DERIVED, for the reason stated above: `stale` and `storm` are both
+   * `consumesBudget: false`, so the caller cannot tell them apart from what it is already given,
+   * and a `takeTurn` that re-tested `replays` and the clock to label the event would be the second
+   * copy of the budget rule this interface exists to prevent.
+   *
+   * It is not the same fact as `consumesBudget`, even though `budget` is exactly the branch that
+   * writes today: one is a control-flow decision the caller must obey, the other is an
+   * observability label whose value set grows every time a new rule is added here — as
+   * `client_id` just did.
+   */
+  readonly absorbedAs: "client_id" | "budget" | "storm" | "stale";
+}
+
+/**
+ * The cached response, rebuilt as a turn result.
+ *
+ * EXTRACTED SO THE TWO RETURN SITES CANNOT DRIFT (#931). The id branch and the clock branch below
+ * must serve the BYTE-IDENTICAL previous response — that is the whole promise of this cache — and
+ * two hand-written copies of a fourteen-field literal is how one of them quietly stops carrying
+ * the chips, the lookahead or the input mode that a worker on a flaky link needs most.
+ */
+function replayResultOf(last: LastTurn): TurnResult {
+  return {
+    reply: last.reply,
+    // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
+    // link is an ordinary event, and re-deriving `ask` here would turn the second delivery of a
+    // disambiguation offer into an ordinary question with a chip scroller — the byte-identical
+    // replay this cache promises, silently downgraded on exactly the connections that need it.
+    kind: last.kind,
+    questionKey: last.questionKey,
+    // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
+    // replay a strictly WORSE response than the one it claims to repeat: same words, no chips,
+    // no progress. On chat that costs a scroller and a progress bar; on the voice form it
+    // strands a worker who cannot type in front of a question only answerable by tapping.
+    options: last.options,
+    progress: last.progress,
+    whyText: last.whyText,
+    answerType: last.answerType,
+    inputMode: last.inputMode,
+    unansweredEssentials: [],
+    complete: false,
+    completionReason: null,
+    replayed: true,
+    excludeFromParse: false,
+    unavailable: false,
+    // FROM THE CACHE, like the four above and for the identical reason (#766 item 2). The
+    // lookahead is part of what the client draws — it renders the next question from it on the
+    // tap — so replaying the words without it is the same silent downgrade `options` and
+    // `progress` used to suffer here. `null` on a record written before the field existed,
+    // which is simply the round trip the client already falls back to.
+    lookahead: last.lookahead,
+    // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
+    // client retrying on a flaky connection drive one Postgres UPDATE per retry.
+    checkpointDue: false,
+  };
+}
+
+/**
+ * The closed shape a pack question key has, re-checked before one crosses into an event.
+ *
+ * THE SHAPE IS THE PRIVACY GUARANTEE, which is why it is enforced here and not assumed. A key that
+ * matches `^[a-z_]+$` and is at most 40 characters cannot carry a worker's words; "pack keys are
+ * slugs by construction" is a property of today's corpus and of a validator that runs somewhere
+ * else, not of this call site. Anything else reports as `null` — one lost observability field
+ * rather than a rejected payload, on a path whose only job is to make something visible.
+ */
+const EVENT_QUESTION_KEY = /^[a-z_]{1,40}$/;
+
+function eventQuestionKey(value: string | null): string | null {
+  return value !== null && EVENT_QUESTION_KEY.test(value) ? value : null;
 }
 
 /** Layer A: the same message, at the same rev, inside the window. */
@@ -1752,6 +1990,102 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
   const last = envelope.lastTurn;
   if (!last) return null;
   if (last.inboundHash !== inboundHash(input.sessionId, envelope.rev, input.text)) return null;
+
+  // ─── THE CLIENT'S OWN VERDICT, WHEN BOTH SIDES HAVE ONE (#931) ────────────────────────────
+  //
+  // THE DEFECT. Everything below this block decides "retry or next answer?" from elapsed time,
+  // because the hash — `(sessionId, rev, text)`, stamped against `rev + 1` — cannot tell them
+  // apart: a worker who answers the FOLLOWING question with the SAME word produces a byte-
+  // identical key and has their answer discarded and the question re-served. Measured on device
+  // on qp_machining: "Kya aap programme feed kar lete hain?" → "haan" captured and the engine
+  // advances, then "Kya aap drawing padh lete hain?" → "haan" DISCARDED. 236 of 466 authored pack
+  // items are `boolean` with zero options and the packs place them back to back, so this is the
+  // normal case for a voice-first UI, not an edge one.
+  //
+  // WHY THE ID BEATS THE CLOCK. A clock is a guess about intent — a fast worker and a slow retry
+  // produce the same number, which is why four constants and three defects (#857, #858, #869)
+  // have not resolved the ambiguity and cannot. The client is not guessing: it mints one id per
+  // PHYSICAL send and re-sends that same id verbatim on a transport retry, so id equality is a
+  // FACT about which submission this is. Facts do not expire, which is why no window, budget or
+  // floor is consulted on this path.
+  //
+  // AND THAT IS NOT AN UNBOUNDED REPLAY. The hash test one line above still stands in front of
+  // this, so the branch is reachable only while (session, rev, text) are all unchanged — i.e.
+  // only while NOTHING has happened since the reply was stamped. The worker's next answer carries
+  // a different id (a real turn, immediately), and any turn at all moves `rev` and the hash misses.
+  //
+  // THE HASH TEST STAYS IN FRONT, DELIBERATELY. Tested id-first, a client bug that reused one id
+  // across two DIFFERENT utterances would discard the second one — a brand-new way to lose a
+  // worker's words, worse than the defect being fixed. Behind the hash, that case fails the text
+  // comparison and falls through to a real turn, which captures what they said. No second rule.
+  // AN OFFER THAT LOST ITS CHIPS IS NOT A REPLAY, IT IS A DEAD END — fail closed (§3).
+  //
+  // `narrowLastTurn` parses cached options all-or-nothing, so any chip the contract rejects
+  // empties the list, while `kind` narrows independently and survives. Serving that pair tells
+  // the client to draw a single-select with nothing in it: on chat a scroller with no chips, on
+  // the voice form a question a worker who cannot type has no way at all to answer. Returning
+  // null re-runs the turn, which costs one turn; serving it costs the session.
+  //
+  // IT SITS ABOVE EVERY BRANCH THAT CAN SERVE THIS STAMP, AND THAT POSITION IS THE POINT. Empty
+  // chips are a property of the CACHED REPLY — they are empty however this call arrived — not of
+  // the rule that matched it. Written below the id branch (#931) it silently stopped covering the
+  // path that had just become the PRIMARY one: every shipped client sends an id, so an id-carrying
+  // retry was handed the dead end this guard exists to refuse — and handed it on every retry,
+  // because that branch consults no window and never ages out. Two independent reviewers
+  // reproduced it from the existing `FAILS CLOSED when a cached offer comes back without its
+  // chips` test by adding nothing but a submission id.
+  if (last.kind === "disambiguate" && last.options.length === 0) return null;
+
+  const incomingId = input.submissionId;
+  const stampedId = last.submissionId;
+  if (incomingId !== null && stampedId !== null) {
+    // DIFFERENT ID ⇒ A REAL TURN, ALWAYS — even byte-identical text at the matching rev. This
+    // single line is the fix.
+    if (incomingId !== stampedId) return null;
+    // SAME ID ⇒ the same physical submission arriving again. NOTHING IS WRITTEN: the budget
+    // exists only because a stamp that never goes stale traps the worker's NEXT answer (#857),
+    // and their next answer carries a different id and can never match this stamp, so there is
+    // nothing left for a budget to protect. It also takes one CAS round trip off exactly the
+    // flaky links that produce retries.
+    // SAME ID, AND STILL BOUNDED BY THE OUTER WINDOW. This bound is not a hedge against the id;
+    // it is the fail-closed reading of an id the server does not control (§3, client input is
+    // untrusted). `Facts do not expire` holds for a CORRECT client. A client that reuses one id
+    // across two physical sends is not misreporting a fact, it is broken — and unbounded, every
+    // later send it makes matches this stamp and writes nothing, so `rev` never moves, the stamp
+    // never ages, and the interview DEADLOCKS for the whole 24 h buffer TTL while the worker
+    // answers a question that will not advance. The code this replaces self-cleared in ≤10 s.
+    // Trading a bounded old failure for an unbounded new one is not a fix.
+    //
+    // THE BOUND IS `ID_REPLAY_MAX_AGE_MS`, NOT THE STALE WINDOW, and the difference matters.
+    // `STALE_RESPONSE_WINDOW_MS` is 30 s, but `POST /profiling/answer` transcribes a spoken answer
+    // in-request and the shipped client waits 150 s for it, so a GENUINE retry on that route lands
+    // far outside 30 s. Bounding there would run the turn for real and capture a worker's spoken
+    // answer against the question their first submission had already advanced past — #869's silent
+    // corruption, reintroduced sideways. 180 s clears the longest deadline a shipped client has, so
+    // every real retry replays and only a wedged one ages out. See the constant for the full case.
+    //
+    // THE DEFECT #931 FIXES IS UNTOUCHED BY THIS. The on-device bug is the DIFFERENT-id case one
+    // line above, which returns null with no clock consulted at all and cannot be re-broken here.
+    const idAge = input.now.getTime() - new Date(last.at).getTime();
+    if (!Number.isFinite(idAge) || idAge < 0 || idAge > ID_REPLAY_MAX_AGE_MS) return null;
+    return { consumesBudget: false, absorbedAs: "client_id", result: replayResultOf(last) };
+  }
+  // ASYMMETRIC AND ABSENT CASES BOTH FALL THROUGH TO THE CLOCK, and must. An id can only be
+  // compared with an id: "inbound has one, the stamp does not" is the deploy straddle (an
+  // envelope stamped by the previous build, alive in Redis behind a 24 h TTL) and the mixed-surface
+  // case (there is no mode-lock — a worker may start in chat and continue in the voice form);
+  // "the stamp has one, the inbound does not" is an old app build, or `openTurn`/finalize, which
+  // have no client submission behind them at all. Neither is comparable, so both are judged by
+  // exactly the rules below, which is what makes the rollout requirement mechanical rather than
+  // promised. A straddling session self-heals on its next real turn, which stamps an id.
+  //
+  // ⚠ THE FOUR CLOCKS BELOW ARE DELIBERATELY LEFT IN PLACE (#931 step 4, NOT done here).
+  // `REPLY_CACHE_WINDOW_MS`, `STALE_RESPONSE_WINDOW_MS`, `MAX_REPLAYS_PER_TURN` and
+  // `RETRY_STORM_FLOOR_MS` are byte-identical to what they were, and they remain the WHOLE of the
+  // behaviour for any inbound with no id on either side. Retiring them is gated on telemetry
+  // proving the id is universally present in the field — `profile.submission_duplicated`'s
+  // `absorbed_as` is that telemetry — because old app builds stay in the field for a long time and
+  // shortening these now would regress #857/#858/#869 for every one of them (#930 rollout).
   const age = input.now.getTime() - new Date(last.at).getTime();
   // A NEGATIVE age is not a hit. Clock skew between instances would otherwise make a stale entry
   // look arbitrarily fresh, and replaying an old reply is worse than spending a turn.
@@ -1795,15 +2129,6 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
   // the spent stamp would run the turn for real and capture the stale retry against the question
   // it was never meant for, which is the whole bug.
   if (spent && age >= RETRY_STORM_FLOOR_MS && !stale) return null;
-  // AN OFFER THAT LOST ITS CHIPS IS NOT A REPLAY, IT IS A DEAD END — fail closed (§3).
-  //
-  // `narrowLastTurn` parses cached options all-or-nothing, so any chip the contract rejects empties
-  // the list, while `kind` narrows independently and survives. Serving that pair tells the client to
-  // draw a single-select with nothing in it: on chat a scroller with no chips, on the voice form a
-  // question a worker who cannot type has no way at all to answer. Returning null re-runs the turn,
-  // which costs one turn; serving it costs the session. All-or-nothing is kept deliberately over
-  // per-chip narrowing — a PARTIAL offer would hide the same failure behind a plausible screen.
-  if (last.kind === "disambiguate" && last.options.length === 0) return null;
   return {
     // A STORM REPLAY WRITES NOTHING, and it is the clock that makes that safe. `last.at` is the
     // ORIGINAL real turn and no replay ever refreshes it, so `age` only grows: the floor above
@@ -1814,39 +2139,11 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
     // duplicate of a retry storm — the same reason a spent storm replay writes nothing — and would
     // buy nothing, since out there the budget no longer gates anything (see the check above).
     consumesBudget: !spent && !stale,
-    result: {
-      reply: last.reply,
-      // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
-      // link is an ordinary event, and re-deriving `ask` here would turn the second delivery of a
-      // disambiguation offer into an ordinary question with a chip scroller — the byte-identical
-      // replay this cache promises, silently downgraded on exactly the connections that need it.
-      kind: last.kind,
-      questionKey: last.questionKey,
-      // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
-      // replay a strictly WORSE response than the one it claims to repeat: same words, no chips,
-      // no progress. On chat that costs a scroller and a progress bar; on the voice form it
-      // strands a worker who cannot type in front of a question only answerable by tapping.
-      options: last.options,
-      progress: last.progress,
-      whyText: last.whyText,
-      answerType: last.answerType,
-      inputMode: last.inputMode,
-      unansweredEssentials: [],
-      complete: false,
-      completionReason: null,
-      replayed: true,
-      excludeFromParse: false,
-      unavailable: false,
-      // FROM THE CACHE, like the four above and for the identical reason (#766 item 2). The
-      // lookahead is part of what the client draws — it renders the next question from it on the
-      // tap — so replaying the words without it is the same silent downgrade `options` and
-      // `progress` used to suffer here. `null` on a record written before the field existed,
-      // which is simply the round trip the client already falls back to.
-      lookahead: last.lookahead,
-      // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
-      // client retrying on a flaky connection drive one Postgres UPDATE per retry.
-      checkpointDue: false,
-    },
+    // NAMED WHERE `spent` AND `stale` LIVE, because this is the only place both are in scope —
+    // see `Replay.absorbedAs`. `stale` wins the label over `storm`: out past the fresh window the
+    // budget is not what served it (#869), whatever `replays` happens to say.
+    absorbedAs: stale ? "stale" : spent ? "storm" : "budget",
+    result: replayResultOf(last),
   };
 }
 

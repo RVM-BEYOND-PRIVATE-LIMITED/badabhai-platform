@@ -213,7 +213,12 @@ export const SKILL_CORPUS: readonly SkillSeed[] = [
     labelHi: null,
     domainId: "cnc-machining",
     source: "onet",
-    status: "active",
+    // TD-03 (Phase 8 taxonomy register, RATIFIED): dissolved into skill_turning. 1 alias,
+    // 0 fixture cases, ATTRIBUTE_TO_MATCH_SKILLS already maps this to no master-skill — no
+    // matching signal is lost. Row + id kept forever (SG-5); `pnpm db:retag:skills` moves
+    // any stored references + the alias row to the terminal.
+    status: "deprecated",
+    replacedBy: "skill_turning",
     aliases: [en("boring", "onet")],
   },
   {
@@ -273,7 +278,12 @@ export const SKILL_CORPUS: readonly SkillSeed[] = [
     labelHi: null,
     domainId: "metrology-quality",
     source: "esco",
-    status: "active",
+    // TD-02 (Phase 8 taxonomy register, RATIFIED): dissolved into skill_quality_control at
+    // current blue-collar JD granularity. Row + id kept forever (SG-5); `pnpm db:retag:skills`
+    // moves any stored worker/job-posting references and re-homes this skill's alias rows
+    // (embedding preserved) onto the terminal.
+    status: "deprecated",
+    replacedBy: "skill_quality_control",
     aliases: [en("inspection", "esco"), en("dimensional inspection", "esco"), en("quality check", "esco")],
   },
   {

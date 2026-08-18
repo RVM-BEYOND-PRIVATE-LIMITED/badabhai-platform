@@ -25,7 +25,10 @@ class AppColors {
   static const Color haldiTint = Color(0xFFFFF3CC); // soft haldi wash
   static const Color blue = Color(0xFF123D8C); // structure, trust, links
   static const Color bluePressed = Color(0xFF0D2D68);
-  static const Color blueTintChat = Color(0xFFE9F0FB); // outgoing chat bubble
+  static const Color blueTintChat = Color(0xFFE9F0FB); // outgoing chat bubble (legacy tint)
+  // Outgoing (worker) chat bubble — a FADED theme blue that carries WHITE text
+  // (~5.7:1 contrast). Softer than the deep header [blue] so the two don't merge.
+  static const Color blueChatOut = Color(0xFF3E64B0);
   static const Color onHaldi = blue; // text on yellow is ALWAYS deep blue
   static const Color onBlue = Color(0xFFFFFFFF);
   static const Color onBlueMuted = Color(0xFFB9C8E6);

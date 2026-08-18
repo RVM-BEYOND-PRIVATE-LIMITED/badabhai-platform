@@ -157,7 +157,16 @@ export class ProfilingSessionService {
     }
 
     const text = this.textFor(dto.answer, served?.options ?? [], served?.answerType ?? null);
-    const outcome = await this.chatService.runTurn(workerId, dto.session_id, text, ctx);
+    // THE CLIENT'S SUBMISSION ID, FORWARDED UNCHANGED (#931). Absent — an app build that predates
+    // the field — arrives at the replay gate as `null` and is judged by the hash and the windows
+    // exactly as it is today.
+    const outcome = await this.chatService.runTurn(
+      workerId,
+      dto.session_id,
+      text,
+      ctx,
+      dto.submission_id ?? null,
+    );
     return { step: this.stepOfOutcome(outcome) };
   }
 
@@ -229,7 +238,17 @@ export class ProfilingSessionService {
       return { step: { kind: "unavailable", reply: UNAVAILABLE_REPLY } };
     }
 
-    const outcome = await this.chatService.runTurn(workerId, dto.session_id, transcribed.text, ctx);
+    // THE ID MATTERS MOST ON THIS BRANCH. The text here is a TRANSCRIPT, so a re-recorded answer
+    // produces different words and the hash misses every time — the reply cache cannot see a
+    // spoken retry at all. The id is minted per physical submission and survives that, so a
+    // duplicate delivery of ONE recording is finally recognisable as one (#931).
+    const outcome = await this.chatService.runTurn(
+      workerId,
+      dto.session_id,
+      transcribed.text,
+      ctx,
+      dto.submission_id ?? null,
+    );
     return { step: this.stepOfOutcome(outcome) };
   }
 
@@ -528,7 +547,12 @@ export class ProfilingSessionService {
     // The re-drive. `runTurn` sees `completedAt` on the buffer and re-runs the flush — the same
     // branch, the same transaction, the same events. The text is never captured: that branch
     // returns before the engine is consulted.
-    const outcome = await this.chatService.runTurn(workerId, sessionId, FINALIZE_MARKER, ctx);
+    //
+    // AND NO SUBMISSION ID (#931), for the same reason the text is never captured: there is no
+    // worker submission behind this call. `FINALIZE_MARKER` is server-synthesised, and attaching
+    // an id "for consistency" would make it a stampable turn carrying a client's id for something
+    // the client never sent.
+    const outcome = await this.chatService.runTurn(workerId, sessionId, FINALIZE_MARKER, ctx, null);
     const committed =
       outcome.kind === "reflushed" ? outcome.flushed : outcome.kind === "session_over";
     if (!committed) {

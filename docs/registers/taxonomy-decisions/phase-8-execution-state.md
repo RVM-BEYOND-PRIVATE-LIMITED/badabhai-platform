@@ -174,7 +174,8 @@ the alias write is therefore behaviourally inert until the embed is authorized.
 | Retrieval-predicate change (authorized) | **REVERTED** — would hide all 98 active-catalogue aliases; see §1 |
 | `skill_alias` text_norm / is_searchable normalizer | **NOT STARTED** — prerequisite for the predicate |
 | TD-05 | **PENDING HUMAN REVIEW** — kept split; keyword-table evidence recorded |
-| TD-01, TD-02, TD-03 | **AWAITING AUTHORIZATION** — blocked on #935 + #936 landing together |
+| TD-02, TD-03 | **RATIFIED AND APPLIED (2026-08-18)** — see `phase-8-taxonomy-decisions.md` §7. AI (#935) is a no-op under this scope: zero live references to either id outside `packages/`, confirmed by grep. Mobile (#936, scoped to these two only) lands as a companion PR, sequenced per §3's merge order. |
+| TD-01 | **AWAITING AUTHORIZATION** — split from TD-02/TD-03; still blocked on the same unresolved alias-split (next line) and #935/#936's TD-01 portions |
 | TD-01 `technical drawing` term | **BLOCKED** — unresolved, not guessed |
 | TD-04, TD-06, TD-07 | **PENDING HUMAN REVIEW** |
 | 13 alias additions | **AWAITING AUTHORIZATION** — manifest above |

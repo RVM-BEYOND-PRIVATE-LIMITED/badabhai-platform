@@ -567,7 +567,7 @@ services:
       # RESTATED WITH A DEFAULT, not passed through empty — the SARVAM_TTS_MODEL lesson
       # eight lines up: both are non-optional `str` with real defaults, so a bare
       # `${VAR:-}` would overwrite them with "" and point the exporter at nothing.
-      LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}"
+      LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-https://us.cloud.langfuse.com}"
       # THE DEFAULT HERE IS `staging`, NOT the Settings default of `development`. An
       # unset deployment tracing into `development` silently mixes staging traffic into
       # the dashboards, cost totals and evaluator inputs that describe dev — this file
