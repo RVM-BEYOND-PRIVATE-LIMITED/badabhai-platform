@@ -1960,7 +1960,7 @@ def detect(text: str) -> Signals:
         if kw in lower:
             _append_unique(sig.skills, label)
             _append_unique(sig.skill_ids, skill_id)
-            if skill_id == "skill_gdt_reading":
+            if skill_id == "skill_drawing_reading":
                 sig.drawing_reading = True
             if skill_id == "skill_program_editing" and sig.programming_knowledge == "unknown":
                 sig.programming_knowledge = _level_near(lower, kw)
