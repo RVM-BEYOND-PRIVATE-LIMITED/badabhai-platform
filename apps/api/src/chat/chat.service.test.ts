@@ -78,6 +78,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmStage: "domain",
     llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
     llmAsks: 0,
+    llmLedTurns: 0,
     llmFallback: false,
     llmGateOpen: false,
     ...over,

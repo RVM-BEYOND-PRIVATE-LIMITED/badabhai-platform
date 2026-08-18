@@ -540,6 +540,27 @@ export interface ProfilingEnvelope {
    */
   readonly llmAsks: number;
   /**
+   * How many turns Phase A ACTUALLY PUT IN FRONT OF THIS WORKER — the deterministic record that
+   * the platform conducted a conversational interview here, and the evidence
+   * `selectableEnginePacks` decides the worker's trade pack on.
+   *
+   * WHY IT IS NOT `llmAsks`, WHICH LOOKS LIKE THE SAME NUMBER AND IS NOT. `llmAsks` is the
+   * RUNAWAY BUDGET's counter, and it is deliberately NOT incremented by the turn that opens the
+   * experience gate: the model's reply is discarded in favour of the gate, so charging a worker's
+   * budget for a question they never saw would be wrong. That makes it an UNDERCOUNT of what
+   * happened. The shortest real interview — one composite opener answered with a whole job
+   * ("welder hu, HCL me 6 mahine"), the gate, "Nahi" — ends Phase A with `llmAsks === 0` having
+   * asked the worker about their trade and structured the answer. A pack skip keyed on
+   * `llmAsks > 0` would re-interrogate precisely that worker. Two counters, because there are two
+   * questions: how much budget the model has spent, and whether Phase A happened at all.
+   *
+   * WRITTEN BY `LlmTurnService` AND BY NOTHING ELSE, one increment per turn it actually served.
+   * That is the §3 property this field exists for: no field on the wire moves it, the model cannot
+   * inflate it, and the model cannot zero it. Contrast `llmDraft`, every member of which is the
+   * model's own output.
+   */
+  readonly llmLedTurns: number;
+  /**
    * The model went away and the deterministic engine took over. STICKY for the rest of the
    * interview rather than per-turn: an interview that flips between an LLM voice and an
    * authored one every few turns reads as two different people talking to the worker, and the
@@ -646,6 +667,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmStage: true,
   llmDraft: true,
   llmAsks: true,
+  llmLedTurns: true,
   llmFallback: true,
   llmGateOpen: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
@@ -680,6 +702,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmStage: "domain",
     llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
     llmAsks: 0,
+    llmLedTurns: 0,
     llmFallback: false,
     llmGateOpen: false,
   };
@@ -912,6 +935,12 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     llmStage: narrowLlmStage(v.llmStage),
     llmDraft: narrowLlmDraft(v.llmDraft),
     llmAsks: nonNegativeInt(v.llmAsks),
+    // ZERO ON ANYTHING ELSE, ABSENT INCLUDED — and absent is the state of every envelope in
+    // flight across the deploy that adds this field. Zero reads as "Phase A never led a turn
+    // here", which hands those sessions their trade pack exactly as the build that wrote them
+    // did. The other default would delete a worker's authored questions on the strength of a
+    // field nothing ever wrote.
+    llmLedTurns: nonNegativeInt(v.llmLedTurns),
     llmFallback: v.llmFallback === true,
     // FALSE ON ANYTHING BUT A LITERAL `true`, which is what makes a lost or corrupted envelope
     // resume with the gate CLOSED. The alternative failure — resuming with it open — leaves the
