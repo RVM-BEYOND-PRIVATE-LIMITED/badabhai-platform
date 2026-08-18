@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import {
   chatSessions,
   createDbClient,
@@ -36,6 +36,12 @@ import { AiCostTotalsRepository } from "./ai-cost-totals.repository";
  * ── HOW TO RUN ────────────────────────────────────────────────────────────────
  *   pnpm db:migrate                       # 0077 must be applied
  *   RUN_DB_TESTS=1 pnpm --filter @badabhai/api run test ai-cost-totals.db
+ *
+ * RUN IT WHOLE — NOT WITH `-t`. The suite is deliberately ORDER-DEPENDENT: the accumulation
+ * IS the property under test (three calls summing to exactly "0.300000" in `numeric`), so
+ * tests 2-5 read the state test 1 built and every one of them throws on a `-t`-filtered run
+ * that skips it. It also runs in CI as one of the five DB-backed gates in `ci.yml`, which
+ * invokes it by FILE for the same reason.
  */
 
 const RUN = process.env.RUN_DB_TESTS === "1";
@@ -95,10 +101,14 @@ describe.skipIf(!RUN)("worker/session/platform AI cost totals (migration 0077)",
     // and the events are namespaced/keyed and cleared explicitly.
     await client.db.delete(workers).where(eq(workers.id, WORKER));
     await client.db.delete(workers).where(eq(workers.id, WORKER_ERASED));
-    await client.db.delete(platformAiCostTotals).where(eq(platformAiCostTotals.provider, PROVIDER));
+    // BY PREFIX, NOT BY THIS RUN'S EXACT LABELS. The labels are namespaced with `process.pid`
+    // so the platform assertions can be exact; deleting only those two leaves every PREVIOUS
+    // run's `test-provider-<oldpid>` rows behind forever, in the ONE table with no cascade and
+    // no worker to erase. A developer who ran this suite a dozen times would accumulate a
+    // dozen fake providers in `platform_ai_cost_totals`, and CI's ephemeral database hides it.
     await client.db
       .delete(platformAiCostTotals)
-      .where(eq(platformAiCostTotals.provider, PROVIDER_B));
+      .where(like(platformAiCostTotals.provider, "test-provider%"));
     // THE EVENTS TOO, AND THIS IS NOT TIDINESS. The accrual is bound to the event insert
     // actually writing a row, so a leftover `ai.cost_recorded:<ai_call_id>` from a previous
     // run makes every emit here DEDUPE and every total stay at zero — the suite would pass
