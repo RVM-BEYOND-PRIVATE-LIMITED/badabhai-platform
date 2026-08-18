@@ -56,6 +56,37 @@ import { SERVER_CONFIG } from "../config/config.module";
 const PROFILE_JOB_TIMEOUT_MS = 25_000;
 
 /**
+ * The transport budget for ONE Phase A interview turn.
+ *
+ * ABOVE THE FAR SIDE'S OWN DEADLINE (10 s — `profiling_turn_deadline_seconds`), which is the same
+ * discipline `parseProfile` states for itself (25 s over 20 s) and the opposite of what this call
+ * did. It passed no `timeoutMs` at all, so it took `post`'s 8 s default and ABORTED TWO SECONDS
+ * BEFORE the ai-service's own deadline could ever fire — making the far side's deadline
+ * unreachable from here by construction.
+ *
+ * WHY THAT INVERSION IS EXPENSIVE ON THIS ROUTE IN PARTICULAR. A `null` from a Phase A turn is
+ * not "retry it": `decide()` writes `llmFallback: true`, which `LlmTurnService.leads` treats as
+ * STICKY for the rest of the interview. So one turn that happened to take 8.5 s — a provider
+ * retry chain behind a 429, a cold model, a long transcript late in the conversation — ends the
+ * conversational interview permanently and hands the worker back to the deterministic pack, for a
+ * call that would have answered at 9 s. Every other consequence follows from that one: the
+ * fallback, the trade pack re-interrogating a worker the model had already interviewed, and the
+ * unsettled draft behind both.
+ *
+ * 13 s = the far side's 10 s deadline plus 3 s for request serialisation, the privacy gate, prompt
+ * resolution, `_parse_turn` and both HTTP hops. It is the SAME ratio `parseProfile` uses. IF
+ * `profiling_turn_deadline_seconds` MOVES, THIS MOVES WITH IT — a bound that drops back below it
+ * silently restores the inversion, and the only symptom is interviews that quietly stop being
+ * interviews.
+ *
+ * A WORKER IS WAITING ON THIS ONE, unlike the extraction bounds above. Thirteen seconds is a long
+ * chat turn; it is not longer than losing the interview, which is what the 8 s abort bought
+ * instead. The far side's 10 s deadline is what actually bounds the wait in the common case,
+ * because it degrades to a reply this client can read.
+ */
+const PROFILING_TURN_TIMEOUT_MS = 13_000;
+
+/**
  * TD81 — what the api can learn about the ai-service from ITS `GET /health`.
  *
  * Deliberately ONE field. The ai-service's health payload is rich (spend, caps,
@@ -467,7 +498,13 @@ export class AiService {
   async llmTurn(input: LlmTurnInput, ctx?: AiRequestContext): Promise<LlmTurnOutput | null> {
     // BL-19: without the caller's ctx every turn of ONE interview minted its own id, so a
     // twelve-turn conversation landed as twelve unrelated traces on the far side.
-    const out = await this.post("/profiling/turn", input, LlmTurnOutputSchema, undefined, ctx);
+    const out = await this.post(
+      "/profiling/turn",
+      input,
+      LlmTurnOutputSchema,
+      PROFILING_TURN_TIMEOUT_MS,
+      ctx,
+    );
     if (out === null || !out.reply_text.trim()) return null;
     return out;
   }

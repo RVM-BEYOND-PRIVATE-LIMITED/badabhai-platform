@@ -852,4 +852,65 @@ describe("AiService", () => {
       }
     });
   });
+
+  // ---------------------------------------------------------------
+  //  Phase A turn budget
+  // ---------------------------------------------------------------
+  /**
+   * THE TRANSPORT BUDGET FOR A PHASE A TURN SITS ABOVE THE FAR SIDE'S OWN DEADLINE.
+   *
+   * THE DEFECT THIS PINS. `llmTurn` passed no `timeoutMs`, so it took `post()`'s 8 s default while
+   * `profiling_turn_deadline_seconds` on the ai-service is 10 s — the API aborted two seconds
+   * before the far side's deadline could ever fire, making it unreachable by construction. That
+   * matters more here than on any other route because a `null` from a Phase A turn is not "retry":
+   * the orchestrator writes `llmFallback: true`, which is STICKY, so one 8.5 s turn ends the
+   * conversational interview permanently and hands the worker back to the authored pack.
+   *
+   * ASSERTED ON THE ABORT SIGNAL RATHER THAN ON THE CONSTANT, so it fails if the argument is
+   * dropped again, if `post()`'s default changes underneath it, or if a refactor stops threading
+   * the bound through — none of which a `toBe(13_000)` on an exported number would catch.
+   *
+   * ⚠ COUPLED TO `apps/ai-service/app/config.py:profiling_turn_deadline_seconds`. If that moves
+   * up, this must move with it, or the inversion is silently restored.
+   */
+  describe("the Phase A turn budget outlives the ai-service's own deadline", () => {
+    beforeEach(() => {
+      config = mockConfig();
+      ai = new AiService(config);
+      vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    });
+
+    it("does NOT abort /profiling/turn at post()'s 8 s default", async () => {
+      vi.useFakeTimers();
+      try {
+        let signal: AbortSignal | undefined;
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(
+            (_url: string, init: { signal: AbortSignal }) =>
+              new Promise((_resolve, reject) => {
+                signal = init.signal;
+                init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+              }),
+          ),
+        );
+
+        const pending = ai.llmTurn({} as never);
+
+        // Past the old default, and past the far side's 10 s deadline: still in flight, so the
+        // ai-service's own degraded reply is reachable from here.
+        await vi.advanceTimersByTimeAsync(10_500);
+        expect(signal?.aborted).toBe(false);
+
+        // ...and still bounded. A budget with no ceiling is a worker staring at a spinner.
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(signal?.aborted).toBe(true);
+
+        expect(await pending).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

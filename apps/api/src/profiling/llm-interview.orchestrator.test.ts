@@ -24,7 +24,11 @@ import {
   type ProfilingEnvelope,
 } from "./conversation-state";
 import type { LlmTurnResult } from "./llm-turn.service";
-import { ProfilingOrchestrator } from "./orchestrator.service";
+import {
+  DE_ESCALATION_REPLY,
+  HARDSHIP_REPLIES,
+  ProfilingOrchestrator,
+} from "./orchestrator.service";
 
 const SESSION = "22222222-2222-4222-8222-222222222222";
 const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -167,6 +171,15 @@ const MACHINIST_PIN = {
   isco_unit_code: "7223",
 };
 
+/**
+ * EVERY FIXTURE HERE CARRIES `llmLedTurns`, and the stub is exactly why it has to.
+ *
+ * `LlmTurnService` is the only writer of that counter in production — one increment per turn it
+ * actually served — and this suite replaces the service with `opts.take`. A fixture that omitted
+ * it would model a turn the model led while the envelope recorded that Phase A never ran, which
+ * is a state the real writer cannot produce, and every trade-pack assertion built on it would be
+ * asserting the wrong branch of {@link selectableEnginePacks}.
+ */
 const ASK: LlmTurnResult = {
   kind: "ask",
   reply: "Aap kaunsi cuisine banate hain?",
@@ -175,35 +188,31 @@ const ASK: LlmTurnResult = {
   patch: {
     llmStage: "skills",
     llmAsks: 1,
+    llmLedTurns: 1,
     llmDraft: { domain_label: "cooking", role_label: null, skills: [], experiences: [] },
   },
 };
 
+/** The gate turn — `llmAsks` deliberately unspent, `llmLedTurns` deliberately counted. */
 const GATE: LlmTurnResult = {
   kind: "ask",
   reply: "Aur koi experience jodna hai?",
   chips: ["Haan", "Nahi"],
   inputMode: "options_only",
-  patch: { llmStage: "experience", llmGateOpen: true },
+  patch: { llmStage: "experience", llmGateOpen: true, llmLedTurns: 1 },
 };
 
 /**
- * Phase A closing on an interview that actually did its job.
+ * The draft a FINISHED Phase A leaves behind — the machinist session, as it actually happened.
  *
- * THE EXPERIENCE ENTRY IS LOAD-BEARING, NOT DECORATION. `selectableEnginePacks` suppresses the
- * trade pack only for an interview that recorded at least one — see the floor there for why the
- * model's `phase_a_done` may not delete a worker's authored questions on its own (§3). This
- * fixture used to carry an empty draft, i.e. it modelled the exact interview the floor now
- * refuses, and every test built on it would have been asserting the suppression on the one input
- * that must not get it.
- */
-/**
- * The draft a FINISHED Phase A leaves behind. Seeded by the tests that resume a session after
- * the interview rather than driving it, because `llmStage: "done"` alone no longer means the
- * trade pack is suppressed — `selectableEnginePacks` requires the interview to have recorded at
- * least one experience entry, so that the model's `phase_a_done` cannot delete a worker's
- * authored questions on its own (§3). An envelope carrying `done` with an empty draft is a real
- * state and it is deliberately NOT this one; see the refusal test above.
+ * IT IS NO LONGER LOAD-BEARING FOR THE PACK SKIP, and that is the whole point of the change this
+ * fixture survived. The first version of `selectableEnginePacks` required
+ * `llmDraft.experiences.length > 0`, so this array WAS the suppression's trigger — and
+ * `experience_entry` is the model's own output, which made the model the thing deciding whether a
+ * worker's authored trade questions were asked. A model that simply never filled it re-armed the
+ * whole pack: the reported welder. The trigger is now `llmLedTurns`, a counter this platform
+ * increments, so the draft is back to being what it always should have been — the interview's
+ * FINDINGS, asserted on where settlement is under test and irrelevant to selection.
  */
 const FINISHED_DRAFT = {
   domain_label: "machining",
@@ -224,7 +233,29 @@ const DONE: LlmTurnResult = {
   patch: {
     llmStage: "done",
     llmAsks: 6,
+    llmLedTurns: 6,
     llmDraft: FINISHED_DRAFT,
+  },
+};
+
+/**
+ * THE WELDER. Phase A led the interview and closed having structured NOTHING.
+ *
+ * Reported from a real device: the model ran the experience stretch conversationally, wrote its
+ * own gate-shaped question ("aur koi kaam jode?" — note "kaam", where the engine's
+ * `EXPERIENCE_GATE_PROMPT` says "experience"), never emitted an `experience_entry`, and returned
+ * `phase_a_done` on the worker's "Nahi". Identical on screen to the machinist session above, and
+ * under the old `experiences.length > 0` floor it got the entire `qp_welding` pack asked back at
+ * it. `llmAsks`/`llmLedTurns` are non-zero because the turns HAPPENED; the draft is empty because
+ * the model chose not to fill it, which is precisely the thing that must not decide this.
+ */
+const DONE_EMPTY_HANDED: LlmTurnResult = {
+  kind: "done",
+  patch: {
+    llmStage: "done",
+    llmAsks: 5,
+    llmLedTurns: 5,
+    llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
   },
 };
 
@@ -721,18 +752,17 @@ describe("an interview the model led never re-interrogates the trade pack", () =
     expect(silent.progress.total).toBe(asked.progress.total);
   });
 
-  it("REFUSES to skip when the model closed Phase A having recorded nothing (§3)", async () => {
-    // THE LINE BETWEEN `the interview covered this` AND `the model said so`. Two of the three
-    // writers of `llmStage: "done"` are decisions this service makes — the worker tapping Nahi
-    // on the gate, and the ask/entry caps. The third is the model's own `phase_a_done`, and once
-    // reaching `done` DELETES the worker's trade pack, honouring that boolean unconditionally
-    // would let an LLM choose which authored business questions a worker is asked.
+  it("REFUSES to skip for a session where Phase A never led a turn — the pre-field envelope", async () => {
+    // AN ENVELOPE WRITTEN BEFORE `llmLedTurns` EXISTED reads it back as 0, and there are a great
+    // many of them in flight behind the 24 h Redis TTL on the day this deploys. Zero has to mean
+    // "Phase A never ran here", because the alternative default deletes a worker's authored trade
+    // questions on the strength of a field nothing ever wrote — for a welder that would drop
+    // `welding_process`, the only mandatory occupation item in the corpus.
     //
-    // Concretely refused here: the model bails on the first turn with an empty draft. Without the
-    // floor, qp_machining is deleted on its say-so and the worker finishes on the universal tail
-    // alone — for a welder that would drop `welding_process`, the only mandatory occupation item
-    // in the corpus. With nothing recorded there is also nothing the pack would duplicate, so
-    // suppressing it buys the worker nothing and costs them their whole trade profile.
+    // `llmStage: "done"` WITHOUT `llmLedTurns` is otherwise unreachable: every `done` the real
+    // `LlmTurnService` writes either increments the counter on the same patch or is a cap that
+    // could not have fired at zero. This test is therefore about the deploy window and about the
+    // narrower's default, not about a live control-flow branch.
     const { orchestrator, store } = makeWorld({
       occupation: MACHINING_PACK,
       take: { kind: "done", patch: { llmStage: "done", llmAsks: 1 } },
@@ -744,6 +774,89 @@ describe("an interview the model led never re-interrogates the trade pack", () =
     expect(result.questionKey).toBe("machine_type");
     // The pack is not merely present, it is what the worker is looking at.
     expect(result.reply).toBe("Aap kaunsi machine chalate hain?");
+  });
+
+  it("skips the pack for the WELDER: Phase A led, then closed having structured nothing", async () => {
+    // THE REPORTED REGRESSION, and the reason the suppression's trigger moved off the draft.
+    //
+    // The old floor was `llmDraft.experiences.length > 0`. It was added as a §3 guard and it read
+    // the wrong field: `experiences` is filled from `out.experience_entry`, WHICH IS THE MODEL'S
+    // OWN OUTPUT. So the floor did not take the decision away from the model, it handed the model
+    // the same decision with the polarity flipped — never emit an entry and the entire trade pack
+    // comes back. On a real device that produced a welder who talked through their jobs in Hindi
+    // and was then asked `welding_process` from the top.
+    //
+    // Five turns were led here. That is the fact the platform owns and this is what it now
+    // decides on.
+    const { orchestrator, store } = makeWorld({
+      occupation: MACHINING_PACK,
+      take: DONE_EMPTY_HANDED,
+    });
+    seed(store, { occupation: MACHINIST_PIN });
+
+    const result = await orchestrator.takeTurn(say("nahi"));
+
+    expect(result.questionKey).toBe("q_city");
+    expect(result.reply).not.toBe("Aap kaunsi machine chalate hain?");
+  });
+
+  it("skips the pack for the SHORTEST real interview, whose `llmAsks` never left zero", async () => {
+    // WHY THE OBVIOUS EXISTING COUNTER IS NOT THE SIGNAL. `llmAsks` is the runaway budget, and the
+    // turn that opens the experience gate deliberately does not spend it — the model's reply is
+    // discarded in favour of the gate, so charging a worker for a question they never saw would
+    // be wrong. An interview of one composite opener answered with a whole job, the gate, and
+    // "Nahi" therefore ends Phase A having asked about the worker's trade and recorded the answer,
+    // with `llmAsks === 0`. Keyed on `llmAsks > 0` this worker gets the full trade pack: the
+    // reported bug, reintroduced from the other side.
+    const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seed(store, {
+      occupation: MACHINIST_PIN,
+      packId: "qp_machining",
+      packVersion: 1,
+      llmStage: "done",
+      llmAsks: 0,
+      llmLedTurns: 1,
+      llmDraft: FINISHED_DRAFT,
+      servedQuestionKey: null,
+    });
+
+    const result = await orchestrator.takeTurn(say("theek hai"));
+
+    expect(result.questionKey).toBe("q_city");
+  });
+
+  it("decides on the record that Phase A RAN, never on what the model put in its draft (§3)", async () => {
+    // THE INVARIANT, ASSERTED AS ONE. Two sessions identical in everything the platform recorded
+    // — same pin, same pack, same `llmLedTurns`, same closed stage — differing only in a field the
+    // MODEL controls. §3 says the model does not decide which authored questions a worker is
+    // asked, so the two must be indistinguishable here. Under the old floor they were opposites.
+    const full = makeWorld({ occupation: MACHINING_PACK, take: DONE });
+    seed(full.store, { occupation: MACHINIST_PIN });
+    const withDraft = await full.orchestrator.takeTurn(say("bas itna hi"));
+
+    const empty = makeWorld({ occupation: MACHINING_PACK, take: DONE_EMPTY_HANDED });
+    seed(empty.store, { occupation: MACHINIST_PIN });
+    const withoutDraft = await empty.orchestrator.takeTurn(say("bas itna hi"));
+
+    expect(withoutDraft.questionKey).toBe(withDraft.questionKey);
+    expect(withDraft.questionKey).toBe("q_city");
+  });
+
+  it("predicts the tail too — the lookahead never SPEAKS a question the engine will not serve", async () => {
+    // THE AMPLIFIER. `computeLookahead` is handed the same narrowed pair `nextQuestion` is, and on
+    // the voice form each prediction is pre-resolved to a `tts_clip_id` and SPOKEN before the real
+    // turn lands. A lookahead computed over the un-narrowed pair would say `machine_type` out loud
+    // to a worker the engine has stopped asking it — worse than the round trip it exists to save,
+    // because there is no correction the worker can hear.
+    const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, take: DONE });
+    seed(store, { occupation: MACHINIST_PIN });
+
+    const result = await orchestrator.takeTurn(say("bas itna hi"));
+
+    const predicted = Object.values(result.lookahead ?? {}).map((entry) => entry.questionKey);
+    expect(predicted.length).toBeGreaterThan(0);
+    expect(predicted).not.toContain("machine_type");
+    expect(predicted).not.toContain("programming");
   });
 
   it("hands Phase A's close straight to the universal tail", async () => {
@@ -795,6 +908,8 @@ describe("an interview the model led never re-interrogates the trade pack", () =
     seed(store, {
       occupation: MACHINIST_PIN,
       llmGateOpen: true,
+      // The gate cannot be on screen unless a turn put it there, and that turn incremented this.
+      llmLedTurns: 1,
       llmDraft: {
         domain_label: "machining",
         role_label: null,
@@ -823,6 +938,7 @@ describe("an interview the model led never re-interrogates the trade pack", () =
       packId: "qp_machining",
       packVersion: 1,
       llmStage: "done",
+      llmLedTurns: 6,
       llmDraft: FINISHED_DRAFT,
       servedQuestionKey: null,
     });
@@ -846,6 +962,7 @@ describe("an interview the model led never re-interrogates the trade pack", () =
       packId: "qp_machining",
       packVersion: 1,
       llmStage: "done",
+      llmLedTurns: 6,
       llmDraft: FINISHED_DRAFT,
       servedQuestionKey: null,
     });
@@ -867,13 +984,16 @@ describe("the fallback is a fall-through, not a second engine", () => {
     expect(store.get(SESSION)?.profiling?.llmFallback).toBe(true);
   });
 
-  it("still serves the TRADE pack, because Phase A settled nothing for a session it abandoned", async () => {
-    // THE OTHER HALF OF THE TRADE-PACK SKIP, and the reason it is keyed on `llmStage === "done"`
-    // rather than on "the flag was on". `settleFromLlmDraft` runs only on the `done` branch, so a
-    // fallen-back interview's trade, experience and skills exist nowhere but the transcript.
-    // Skipping its pack would leave the worker with neither the model's answers nor the pack's
-    // questions — and a fallback can never reach `"done"`, because `take()` is only called while
-    // `leads()` is true and that already requires the stage not to be done.
+  it("still serves the TRADE pack when the model was never there — Phase A led NOTHING", async () => {
+    // THE FLOOR UNDER THE FALLBACK, and it is the same one test as everywhere else:
+    // `llmLedTurns === 0`. The model was unreachable on turn one, so no question was ever put to
+    // this worker conversationally, nothing was gathered, and the trade pack is the only thing
+    // that will describe them. Suppressing it here would leave them with neither the model's
+    // answers nor the pack's questions.
+    //
+    // Distinguish this from the test below, where the model DID lead several turns before it went
+    // away. Those two used to be one case (all fallbacks kept their pack, because none could reach
+    // `llmStage: "done"`); they are now separated by the fact the platform recorded.
     vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, take: null });
     seed(store, { occupation: MACHINIST_PIN });
@@ -881,6 +1001,51 @@ describe("the fallback is a fall-through, not a second engine", () => {
 
     expect(store.get(SESSION)?.profiling?.llmFallback).toBe(true);
     expect(result.questionKey).toBe("machine_type");
+    // AND NOTHING WAS SETTLED FROM A DRAFT THAT DOES NOT EXIST. `settleFromLlmDraft` falls `trade`
+    // back to the retrieval PIN when the draft has no label, so running it here would have filled
+    // `primary_trade` from a guess this interview never got to test — an answer for a conversation
+    // that never happened.
+    expect(store.get(SESSION)?.profiling?.answerMap).toEqual([]);
+  });
+
+  it("SKIPS the trade pack when the model went away MID-interview, and settles what it gathered", async () => {
+    // THE SECOND CARVE-OUT, CLOSED. `llmFallback` is sticky and `leads()` requires
+    // `llmStage !== "done"`, so a fallen-back interview could never reach the stage the skip was
+    // keyed on — which meant a worker who spent five turns describing their welding to a model
+    // that then timed out got `welding_process` asked from the top, exactly as though the
+    // conversation had not happened. Indistinguishable on screen from the welder bug above, and
+    // impossible to tell apart from the repo, so both are closed.
+    //
+    // THE SETTLE IS WHAT PAYS FOR IT. The pack is only suppressed because the draft is now written
+    // into `answer_map` on this branch too, under the same `llmLedTurns > 0` test — so the trade,
+    // the skills and the experience survive the model's disappearance instead of living only in
+    // the transcript.
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, take: null });
+    seed(store, {
+      occupation: MACHINIST_PIN,
+      llmStage: "experience",
+      llmLedTurns: 3,
+      llmDraft: {
+        domain_label: "machining",
+        role_label: "CNC operator",
+        skills: ["VMC"],
+        experiences: [],
+      },
+    });
+
+    const result = await orchestrator.takeTurn(say("uske baad kuch nahi"));
+
+    expect(store.get(SESSION)?.profiling?.llmFallback).toBe(true);
+    expect(result.questionKey).toBe("q_city");
+
+    const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+    // The worker's own role, not the pin's label — Phase A's finding, kept.
+    expect(map.find((a) => a.question_key === "primary_trade")?.value_normalized).toBe(
+      "CNC operator",
+    );
+    // ...onto the SUPPRESSED pack's own row, which is why `items` stays the full union.
+    expect(map.find((a) => a.question_key === "machine_type")?.value_normalized).toEqual(["vmc"]);
   });
 
   it("records the switch, because nothing else about it is visible", async () => {
@@ -958,5 +1123,162 @@ describe("reopening mid-Phase-A", () => {
     });
     expect(opened.reply).toBe(CITY.prompt_text);
     expect(store.get(SESSION)?.profiling?.engineAsks).toBe(1);
+  });
+});
+
+/**
+ * EVERY OTHER DOOR ONTO THE TRADE PACK, held shut.
+ *
+ * `selectableEnginePacks` narrows what `nextQuestion` may CHOOSE, and for a while that was read as
+ * "the trade pack is off the table". It was not. Five readers resolve a question WITHOUT asking
+ * the engine to choose one — they look up `servedQuestionKey` and put it back on screen — and
+ * every one of them was resolving it against the full pinned union. The owner's requirement is
+ * total: no occupation question served, re-served, predicted or spoken after Phase A.
+ *
+ * THE STATE THEY ALL SHARE. A session carrying a suppressed occupation key in
+ * `servedQuestionKey` — which is what an envelope written by the PREVIOUS build resumes as, since
+ * that build served `machine_type` and this one will not. Bounded to a deploy window and cheaper
+ * to close than to remember, and the lookup is identical whatever put the key there.
+ */
+describe("no reader can put a suppressed trade question back on screen", () => {
+  /** A post-Phase-A session sitting on a trade question this build will never serve again. */
+  const seedStale = (store: Map<string, TranscriptBuffer>) =>
+    seed(store, {
+      occupation: MACHINIST_PIN,
+      packId: "qp_machining",
+      packVersion: 1,
+      llmStage: "done",
+      llmLedTurns: 6,
+      llmDraft: FINISHED_DRAFT,
+      servedQuestionKey: "machine_type",
+      engineAsks: 1,
+      askCounts: { machine_type: 1 },
+    });
+
+  const MACHINE_TYPE_PROMPT = "Aap kaunsi machine chalate hain?";
+
+  it("a worker who asks back does not get it re-served under a why-text", async () => {
+    // `clarify` was handed `packs.engine`, the UN-narrowed pair, so "sir job milegi kya?" answered
+    // the question and then RE-ASKED it. Handed the narrowed pair it finds nothing, the branch
+    // falls through, and the interview moves on — which is the honest answer for a question that
+    // is not on screen.
+    const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seedStale(store);
+
+    const result = await orchestrator.takeTurn(say("sir job milegi kya?"));
+
+    expect(result.reply).not.toContain(MACHINE_TYPE_PROMPT);
+    expect(result.questionKey).toBe("q_city");
+  });
+
+  it("a silent turn does not re-serve it", async () => {
+    const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seedStale(store);
+
+    const result = await orchestrator.takeTurn(say("."));
+
+    expect(result.reply).not.toContain(MACHINE_TYPE_PROMPT);
+    expect(result.questionKey).toBe("q_city");
+  });
+
+  it("an abusive turn de-escalates ABOVE nothing, rather than above the trade question", async () => {
+    const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seedStale(store);
+
+    const result = await orchestrator.takeTurn(say("chutiya"));
+
+    // The de-escalation line still lands — this branch is about the worker, not about the pack.
+    expect(result.reply).toBe(DE_ESCALATION_REPLY);
+    // But it names no question, because the one it used to name is not on screen.
+    expect(result.questionKey).toBeNull();
+    expect(result.options).toEqual([]);
+  });
+
+  it("a hardship turn acknowledges without re-asking it", async () => {
+    const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seedStale(store);
+
+    const result = await orchestrator.takeTurn(say("ghar chalana mushkil hai"));
+
+    expect(HARDSHIP_REPLIES as readonly string[]).toContain(result.reply);
+    expect(result.questionKey).toBeNull();
+  });
+
+  it("`viewSession` and `openTurn` agree that it is not on screen", async () => {
+    // THE ONE THAT IS NOT A DISPLAY ARTEFACT. `ProfilingSessionService.answer` guards on
+    // `served?.questionKey !== dto.question_key`, so this lookup decides whether a voice form's
+    // answer is ACCEPTED. `openTurn` was narrowed when the pack skip shipped and this reader was
+    // not, so the two readers of one reopened session disagreed — the exact class of bug
+    // `outstandingOffer` was written to close.
+    const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seedStale(store);
+    const later = new Date(T0.getTime() + 60_000);
+
+    const view = await orchestrator.viewSession(SESSION, later);
+    const opened = await orchestrator.openTurn({
+      sessionId: SESSION,
+      workerId: WORKER,
+      now: later,
+      ctx: CTX as never,
+    });
+
+    expect(view?.served).toBeNull();
+    expect(opened.questionKey).toBe("q_city");
+  });
+});
+
+/**
+ * THE MAJORITY PATH, PINNED.
+ *
+ * `CHAT_LLM_INTERVIEW_ENABLED` is default OFF and most interviews are wholly deterministic. Every
+ * narrowing above must be an identity for them: `llmLedTurns` is 0, so `selectableEnginePacks`
+ * returns the object it was handed and the trade pack behaves exactly as it did before any of this
+ * existed. These are the tests that fail if a narrowing is applied one condition too widely.
+ */
+describe("a deterministic interview is untouched", () => {
+  const seedDeterministic = (store: Map<string, TranscriptBuffer>) =>
+    seed(store, {
+      occupation: MACHINIST_PIN,
+      packId: "qp_machining",
+      packVersion: 1,
+      servedQuestionKey: "machine_type",
+      engineAsks: 1,
+      askCounts: { machine_type: 1 },
+    });
+
+  it("opens on the trade pack", async () => {
+    const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seed(store, { occupation: MACHINIST_PIN });
+
+    const result = await orchestrator.takeTurn(say("cnc chalata hu"));
+
+    expect(result.questionKey).toBe("machine_type");
+  });
+
+  it("still re-serves the trade question after a clarify, a silence and a hardship", async () => {
+    const clarified = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seedDeterministic(clarified.store);
+    const back = await clarified.orchestrator.takeTurn(say("sir job milegi kya?"));
+
+    const quiet = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seedDeterministic(quiet.store);
+    const silent = await quiet.orchestrator.takeTurn(say("."));
+
+    const hard = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seedDeterministic(hard.store);
+    const hardship = await hard.orchestrator.takeTurn(say("ghar chalana mushkil hai"));
+
+    expect(back.questionKey).toBe("machine_type");
+    expect(silent.questionKey).toBe("machine_type");
+    expect(hardship.questionKey).toBe("machine_type");
+  });
+
+  it("`viewSession` still reports the trade question as the one on screen", async () => {
+    const { orchestrator, store } = makeWorld({ occupation: MACHINING_PACK, leads: false });
+    seedDeterministic(store);
+
+    const view = await orchestrator.viewSession(SESSION, new Date(T0.getTime() + 60_000));
+
+    expect(view?.served?.questionKey).toBe("machine_type");
   });
 });

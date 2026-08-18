@@ -123,6 +123,10 @@ const FULL: ProfilingEnvelope = {
     ],
   },
   llmAsks: 5,
+  // NON-DEFAULT, and this one earns its place twice over: it is the field the trade-pack skip
+  // decides on, so a narrower that dropped it would silently re-interrogate every worker whose
+  // envelope had round-tripped through Redis once.
+  llmLedTurns: 6,
   llmFallback: true,
   llmGateOpen: true,
 };

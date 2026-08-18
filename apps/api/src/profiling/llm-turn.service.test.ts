@@ -276,6 +276,88 @@ describe("the experience loop gate is engine-served", () => {
   });
 });
 
+/**
+ * `llmLedTurns` — the record that Phase A RAN, and the §3 floor under the trade-pack skip.
+ *
+ * WHAT DEPENDS ON THIS BEING RIGHT. `selectableEnginePacks` in the orchestrator deletes a worker's
+ * entire occupation pack once Phase A is over, and `llmLedTurns > 0` is the evidence it demands
+ * before doing so. It has to be a fact this platform owns: §3 forbids letting an LLM decide which
+ * authored business questions a worker is asked, and the field the first version read
+ * (`llmDraft.experiences.length`) was the MODEL'S OWN OUTPUT, so a model that simply never emitted
+ * an `experience_entry` re-armed the whole pack. That shipped, and it re-interrogated a welder.
+ *
+ * THIS SERVICE IS THE ONLY WRITER. These tests pin both halves of that: every turn it actually put
+ * in front of a worker counts, and every outcome where the worker saw nothing does not.
+ */
+describe("`llmLedTurns` — what the platform recorded, not what the model claimed", () => {
+  it("counts an ordinary ask turn", async () => {
+    const { svc } = make();
+    const out = await svc.take(env({ llmLedTurns: 2 }), "cook hu", [], CTX);
+    expect(out?.patch.llmLedTurns).toBe(3);
+  });
+
+  it("counts the GATE turn, which `llmAsks` deliberately does not", async () => {
+    // THE DIVERGENCE THAT MAKES TWO COUNTERS NECESSARY. The gate discards the model's question, so
+    // spending a worker's ask budget on it would be charging them for something they never saw —
+    // but the turn absolutely happened: the worker described a job and it was structured. This is
+    // the single most substantive turn Phase A takes, and it is the one `llmAsks` cannot see.
+    const { svc } = make({ turn: TURN({ experience_entry: ENTRY }) });
+    const out = await svc.take(env({ llmAsks: 0, llmLedTurns: 0 }), "3 saal tandoor pe", [], CTX);
+    expect(out?.kind).toBe("ask");
+    expect(out?.patch.llmAsks).toBeUndefined();
+    expect(out?.patch.llmLedTurns).toBe(1);
+  });
+
+  it("counts the turn that closes Phase A on the model's advice", async () => {
+    const { svc } = make({ turn: TURN({ phase_a_done: true }) });
+    const out = await svc.take(env({ llmLedTurns: 4 }), "bas itna hi", [], CTX);
+    expect(out?.kind).toBe("done");
+    expect(out?.patch.llmLedTurns).toBe(5);
+  });
+
+  it("THE SHORTEST REAL INTERVIEW ends with `llmAsks` at zero and `llmLedTurns` at one", async () => {
+    // WHY THE TRADE-PACK SKIP CANNOT BE KEYED ON `llmAsks > 0`. Driven end to end through the real
+    // service: one composite opener answered with a whole job, the engine's gate, "Nahi". Phase A
+    // is over, the worker has been asked about their work and the answer is structured — and the
+    // budget counter never moved. A skip keyed on it would serve this worker their full trade pack.
+    const { svc } = make({ turn: TURN({ experience_entry: ENTRY }) });
+
+    const gate = await svc.take(env(), "welder hu, HCL me 6 mahine", [], CTX);
+    const after = env({ ...gate?.patch });
+    const closed = await svc.take(after, "Nahi", [], CTX);
+
+    expect(gate?.kind === "ask" && gate.reply).toBe(EXPERIENCE_GATE_PROMPT);
+    expect(closed?.patch.llmStage).toBe("done");
+    expect(after.llmAsks).toBe(0);
+    expect(after.llmLedTurns).toBe(1);
+  });
+
+  it("counts NOTHING when the model was unavailable — the worker saw no Phase A turn", async () => {
+    // `null` is the fallback trigger, and a fallback on turn one must leave the record at zero:
+    // the orchestrator reads exactly this to decide whether the worker keeps their trade pack.
+    const { svc } = make({ turn: null });
+    expect(await svc.take(env(), "cook hu", [], CTX)).toBeNull();
+  });
+
+  it("counts nothing when a cap ended Phase A without a call", async () => {
+    // No call, no question, nothing on screen. The counter is already past zero by construction —
+    // the cap could not have fired otherwise — so leaving it alone is both correct and honest.
+    const { svc, ai } = make();
+    const out = await svc.take(env({ llmAsks: MAX_LLM_ASKS, llmLedTurns: 20 }), "haan", [], CTX);
+    expect(ai.llmTurn).not.toHaveBeenCalled();
+    expect(out?.patch.llmLedTurns).toBeUndefined();
+  });
+
+  it("counts nothing for the tap that answers the gate, which costs no model turn", async () => {
+    // The gate is engine-served and engine-read. The turn that OPENED it was already counted; the
+    // "Nahi" that closes it is a worker's tap, not a question anyone asked.
+    const { svc } = make();
+    const out = await svc.take(env({ llmGateOpen: true, llmLedTurns: 1 }), "Nahi", [], CTX);
+    expect(out?.kind).toBe("done");
+    expect(out?.patch.llmLedTurns).toBeUndefined();
+  });
+});
+
 describe("the draft accumulates rather than overwrites", () => {
   it("unions skills across turns so a later turn cannot erase earlier ones", async () => {
     const { svc } = make({ turn: TURN({ skills: ["tandoor", "naan"] }) });

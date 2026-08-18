@@ -193,19 +193,39 @@ export class LlmTurnService {
 
     const draft = mergeDraft(envelope.llmDraft, out);
 
+    // THE TURN LANDED, SO PHASE A HAS NOW LED THIS SESSION — recorded here, once, on the far
+    // side of the null check so that a turn we could not use is not counted as one the worker saw.
+    //
+    // WHY THIS COUNTER AND NOT `llmAsks`. `llmAsks` is the runaway budget and skips the
+    // gate-opening turn on purpose (see branch 3). `llmLedTurns` answers the different question
+    // `selectableEnginePacks` actually asks — "did the platform already interview this worker
+    // about their work?" — so it counts EVERY turn Phase A put on screen, the gate included. It is
+    // incremented by this service and by nothing else, which is what keeps the trade-pack decision
+    // deterministic under §3: the model can shorten Phase A, but it cannot manufacture, inflate or
+    // erase the record that Phase A ran.
+    const ledTurns = envelope.llmLedTurns + 1;
+
     // 3. A COMPLETED EXPERIENCE ENTRY HANDS THE NEXT TURN TO THE GATE — unless the entry cap is
     //    now full, in which case there is nothing to offer and Phase A ends here.
     //
     //    `llmAsks` IS NOT INCREMENTED. The model's reply is discarded in favour of the gate, so
     //    the question it wrote was never asked, and counting it would spend a worker's budget on
-    //    a question they never saw.
+    //    a question they never saw. `llmLedTurns` IS, and the difference between the two is the
+    //    point of having both: the worker was asked about a job and answered — this is the single
+    //    most substantive turn Phase A takes — and an interview that consisted of exactly this
+    //    turn plus "Nahi" must not be treated as an interview that never ran.
     if (out.experience_entry !== null && draft.experiences.length < MAX_EXPERIENCE_ENTRIES) {
       return {
         kind: "ask",
         reply: EXPERIENCE_GATE_PROMPT,
         chips: [GATE_YES, GATE_NO],
         inputMode: "options_only",
-        patch: { llmDraft: draft, llmStage: "experience", llmGateOpen: true },
+        patch: {
+          llmDraft: draft,
+          llmStage: "experience",
+          llmGateOpen: true,
+          llmLedTurns: ledTurns,
+        },
       };
     }
 
@@ -214,7 +234,13 @@ export class LlmTurnService {
     if (out.phase_a_done || draft.experiences.length >= MAX_EXPERIENCE_ENTRIES) {
       return {
         kind: "done",
-        patch: { ...closeGate, llmDraft: draft, llmStage: "done", llmAsks: asks + 1 },
+        patch: {
+          ...closeGate,
+          llmDraft: draft,
+          llmStage: "done",
+          llmAsks: asks + 1,
+          llmLedTurns: ledTurns,
+        },
       };
     }
 
@@ -251,6 +277,7 @@ export class LlmTurnService {
         llmDraft: draft,
         llmStage: out.stage === "done" ? "experience" : out.stage,
         llmAsks: asks + 1,
+        llmLedTurns: ledTurns,
       },
     };
   }

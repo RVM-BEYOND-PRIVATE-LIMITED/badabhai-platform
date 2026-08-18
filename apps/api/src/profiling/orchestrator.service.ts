@@ -875,6 +875,26 @@ export class ProfilingOrchestrator {
     ];
     const askedItem =
       items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null;
+    // THE SAME QUESTION, BUT ONLY IF THE ENGINE WOULD STILL SERVE IT — the re-serve twin of
+    // `askedItem`, and the two are deliberately different objects.
+    //
+    // `askedItem` is resolved from the FULL pinned union because it is what CAPTURES the worker's
+    // answer, and an answer must never be dropped because the question behind it went out of
+    // scope. But three branches below (de-escalation, silence, hardship) do not capture anything
+    // — they PUT THE QUESTION BACK ON SCREEN — and a suppressed trade question re-served there is
+    // the exact thing {@link selectableEnginePacks} exists to stop, arriving through the one door
+    // it does not guard. Reachable whenever a session written by the previous build resumes with
+    // `servedQuestionKey` naming a pack row this build will no longer select: bounded to the
+    // deploy window, and cheaper to close than to remember.
+    //
+    // Null here does NOT mean "say nothing". The silence branch falls through to the engine (its
+    // guard is already "is there text to re-serve"), and the other two serve their line above a
+    // question key of null — the same shape they already return for a brand-new session with
+    // nothing on screen yet.
+    const reservableItem =
+      askedItem && progressItems.some((item) => item.question_key === askedItem.question_key)
+        ? askedItem
+        : null;
 
     // THE TURN CAP OUTRANKS EVERY NON-ADVANCING BRANCH BELOW, and the order is the whole point:
     // clarify, silence and hardship all return early WITHOUT consulting the engine, so testing the
@@ -898,11 +918,12 @@ export class ProfilingOrchestrator {
         return this.turn(buffer, next, input, {
           reply: DE_ESCALATION_REPLY,
           // The question on screen is unchanged and still answered the ordinary way; only the
-          // words above it differ.
+          // words above it differ. NARROWED — see {@link reservableItem}: a question the engine
+          // has stopped selecting is not on screen, so naming it here would put it back.
           kind: "ask",
-          questionKey: envelope.servedQuestionKey,
-          options: askedItem?.options ?? [],
-          ...shapeOf(items, envelope.servedQuestionKey),
+          questionKey: reservableItem?.question_key ?? null,
+          options: reservableItem?.options ?? [],
+          ...shapeOf(items, reservableItem?.question_key ?? null),
           progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -923,8 +944,14 @@ export class ProfilingOrchestrator {
       // `prompt_text` directly walked the interview BACKWARDS to the opening wording after the
       // retry wording had already been served — the exact regression `servedText` exists to
       // prevent, and one a voice session makes audible rather than merely visible.
-      const reserved = askedItem
-        ? servedText(askedItem, askCount(toEngineState(next, turn), askedItem.question_key))
+      // NARROWED (see {@link reservableItem}). A suppressed trade question yields "" here and
+      // the guard below falls through to the engine, which is the right answer: the interview
+      // moves on rather than re-serving a question it has stopped asking.
+      const reserved = reservableItem
+        ? servedText(
+            reservableItem,
+            askCount(toEngineState(next, turn), reservableItem.question_key),
+          )
         : "";
       // A RE-SERVE NEEDS SOMETHING TO RE-SERVE. With no question on screen — the state of every
       // NEW session — there was nothing, and the old `?? ""` COMMITTED a blank assistant bubble:
@@ -943,9 +970,9 @@ export class ProfilingOrchestrator {
           reply: reserved,
           // A re-serve of the same question — same kind it had.
           kind: "ask",
-          questionKey: envelope.servedQuestionKey,
-          options: askedItem?.options ?? [],
-          ...shapeOf(items, envelope.servedQuestionKey),
+          questionKey: reservableItem?.question_key ?? null,
+          options: reservableItem?.options ?? [],
+          ...shapeOf(items, reservableItem?.question_key ?? null),
           progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -982,11 +1009,12 @@ export class ProfilingOrchestrator {
           // Indexed by TURN, never at random: the engine has no randomness by construction, so
           // the same conversation must always produce the same words.
           reply: HARDSHIP_REPLIES[turn % HARDSHIP_REPLIES.length] as string,
-          // An acknowledgement above the question that is still on screen.
+          // An acknowledgement above the question that is still on screen. NARROWED — see
+          // {@link reservableItem}.
           kind: "ask",
-          questionKey: envelope.servedQuestionKey,
-          options: askedItem?.options ?? [],
-          ...shapeOf(items, envelope.servedQuestionKey),
+          questionKey: reservableItem?.question_key ?? null,
+          options: reservableItem?.options ?? [],
+          ...shapeOf(items, reservableItem?.question_key ?? null),
           progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -1003,7 +1031,14 @@ export class ProfilingOrchestrator {
 
     if (capture.turnClass === "question_back") {
       const state = toEngineState({ ...next, silentTurns: 0 }, turn);
-      const clarified = clarify(state, packs.engine);
+      // `selectable`, NOT `packs.engine`. `clarify` looks the on-screen question up in the pair
+      // it is given and then RE-SERVES IT under its own why-text, so handing it the full union
+      // was a second door onto the suppressed trade pack. Handed the narrowed pair it returns
+      // null for a question the engine no longer selects, and the branch falls through to
+      // `nextQuestion` — the worker's "kyun?" moves the interview on instead of re-asking a
+      // question that is not on screen. It also fixes the progress `clarify` reports, which is
+      // computed over the very pair passed here.
+      const clarified = clarify(state, selectable);
       if (clarified) {
         // NEVER counts as an ask. The worker asked a reasonable question and deserves an answer,
         // not a spent budget — `why_text` first, then the same question again on the same turn.
@@ -1011,8 +1046,8 @@ export class ProfilingOrchestrator {
         return this.turn(buffer, next, input, {
           reply: joinClarify(
             clarified,
-            askedItem,
-            askedItem ? askCount(state, askedItem.question_key) : 0,
+            reservableItem,
+            reservableItem ? askCount(state, reservableItem.question_key) : 0,
           ),
           // `ask`, NOT the wire enum's `clarify`. The explanation and the question arrive in one
           // bubble, and the question is answered exactly as it was before the worker asked why —
@@ -1155,8 +1190,49 @@ export class ProfilingOrchestrator {
         // engine is about to replace.
         next = { ...next, llmFallback: true, llmGateOpen: false };
         await this.recordFallback(next, input);
-        // ...and FALL THROUGH. `nextQuestion` below serves the next pack question, which is the
-        // whole design: one branch, not a second engine to keep in step.
+        // AND SETTLE WHAT PHASE A ALREADY LEARNED, on the way out.
+        //
+        // THE DEFECT THIS CLOSES. `settleFromLlmDraft` used to run on the `done` branch only, so
+        // an interview that spent five turns on a worker's welding and THEN lost the model kept
+        // its trade, its skills and its experience nowhere but the transcript — and the engine
+        // opened the tail by asking `primary_trade` ("Aap kaunsa kaam karte hain?") to a worker
+        // who had just spent five turns answering it. The fallback is a fall-through, and a
+        // fall-through that discards everything gathered so far is a restart wearing its costume.
+        //
+        // IT IS ALSO WHAT MAKES THE PACK SKIP SAFE FOR THIS BRANCH. {@link selectableEnginePacks}
+        // now suppresses the occupation pack for a fallen-back interview too, and its previous
+        // refusal to do so rested entirely on this settlement not existing. Same `llmLedTurns > 0`
+        // test on both sides, so the two cannot drift: a session whose draft is settled is exactly
+        // the session whose pack is suppressed.
+        //
+        // GUARDED ON `llmLedTurns`, NOT ON THE DRAFT BEING NON-EMPTY, because `settleFromLlmDraft`
+        // falls `trade` back to the RETRIEVAL PIN when the draft has no label. On a first-turn
+        // fallback that would settle `primary_trade` from a pin the worker has not confirmed and
+        // that Phase A never got to test — filling in an answer for an interview that never
+        // happened. Zero led turns means zero settlement, and the pack asks the questions.
+        if (next.llmLedTurns > 0) {
+          answers = settleFromLlmDraft(
+            answers,
+            next.llmDraft,
+            next.occupation?.label ?? null,
+            items,
+            turn,
+          );
+          next = withAnswers(next, answers);
+          // COUNTS ONLY — no draft text, no transcript, no worker identity beyond the session
+          // (§3 Privacy First). This is the line that separates "the model was never there" from
+          // "the model left mid-interview", which is the distinction the fallback EVENT cannot
+          // carry: its payload is `.strict()` at v1 and `asks` undercounts by exactly the gate
+          // turn. Without it the two cases are indistinguishable in production, and they now have
+          // opposite consequences for the worker's trade pack.
+          this.logger.log(
+            `Phase A fell back after leading session=${input.sessionId} ` +
+              `led=${next.llmLedTurns} asks=${next.llmAsks} stage=${envelope.llmStage}; ` +
+              `its draft was settled and the occupation pack will not be re-asked`,
+          );
+        }
+        // ...and FALL THROUGH. `nextQuestion` below serves the next question, which is the whole
+        // design: one branch, not a second engine to keep in step.
       } else {
         next = { ...next, ...led.patch };
         if (led.kind === "ask") {
@@ -1434,7 +1510,17 @@ export class ProfilingOrchestrator {
       };
     }
 
-    const item = items.find((candidate) => candidate.question_key === envelope.servedQuestionKey);
+    // SEARCHED IN THE SELECTABLE SET, NOT THE FULL ONE — the same narrowing `openTurn` applies,
+    // and for the same reason plus one more. `openTurn` was narrowed when the pack skip shipped
+    // and this reader was not, so the two readers of one reopened session disagreed again about
+    // what the worker is looking at — the precise class of bug `outstandingOffer` was written to
+    // close. This one is not a display artefact: `ProfilingSessionService.answer` guards on
+    // `served?.questionKey !== dto.question_key`, so this lookup is what decides whether a voice
+    // form's answer is accepted, and `review`/`finalize` read it too. Reporting a suppressed
+    // trade question here would accept an answer to a question the turn loop has stopped asking.
+    const item = progressItems.find(
+      (candidate) => candidate.question_key === envelope.servedQuestionKey,
+    );
     return {
       buffer,
       envelope,
@@ -2273,8 +2359,8 @@ function outstandingLlmAsk(
  * is that an LLM-led interview goes from the model's close straight to the universal tail and then
  * closes: keep the LLM interview only, for now.
  *
- * THIS FUNCTION IS THE WHOLE SEAM, deliberately — "for now" ends with a revert of it and its two
- * call sites, not with an archaeology of scattered conditions. It suppresses SELECTION and nothing
+ * THIS FUNCTION IS THE WHOLE SEAM, deliberately — "for now" ends with a revert of it and its call
+ * sites, not with an archaeology of scattered conditions. It suppresses SELECTION and nothing
  * else, and each of the three things it leaves alone is load-bearing:
  *
  *  - THE PIN. `resolvePacks` derives `packId`/`packVersion` from the occupation pack it resolved,
@@ -2288,69 +2374,112 @@ function outstandingLlmAsk(
  *    occupation pack, so narrowing it would silently drop Phase A's skills out of `answer_map`
  *    and out of the matching inputs behind it. It is also what `shapeOf` resolves an in-flight
  *    question against and what the review screen names its stored answers from.
- *  - `clarify`, which looks the on-screen question up rather than choosing one. A worker asking
- *    "kyun?" about a question they are looking at still gets an answer.
+ *  - The CAPTURE half of a stale `servedQuestionKey`. A worker looking at a trade question this
+ *    build will never serve again — the state a session written by the PREVIOUS build resumes in
+ *    — still has their answer recorded, because `askedItem` is resolved from the full union. It
+ *    is the RE-SERVE that is narrowed, not the capture: losing a question is recoverable, losing
+ *    the answer a worker already typed is not.
  *
- * KEYED ON `llmStage === "done"` — PERSISTED PER-SESSION STATE, NOT THE ENV FLAG.
- * `CHAT_LLM_INTERVIEW_ENABLED` is parsed once at boot while the envelope lives in Redis behind a
- * 24 h idle TTL, so a restart routinely puts a session that DID run Phase A in front of a process
- * where the flag reads off — and keying on the flag would re-interrogate exactly the worker this
- * exists to protect. `llmAsks > 0` fails on the reported session itself: the turn that opens the
- * experience gate deliberately does not increment it, so an interview of one `experience_entry`,
- * the gate, and "Nahi" ends Phase A with `llmAsks === 0`. `phase` cannot carry it either, because
- * `nextQuestion` rewrites `phase` on every decision — the same reason `LlmTurnService.leads` reads
- * the stage. The stage is the model's REPORT and the API's record; the rule applied to it here is
- * ours, which is the §3 line: the model says when its own turn-taking ended, deterministic code
- * decides what that means for the questions a worker is asked.
+ * ─── THE RULE ───────────────────────────────────────────────────────────────────────────────
  *
- * A SESSION THE MODEL ABANDONED IS COVERED BY THE SAME SINGLE TEST, by construction rather than by
- * luck. `take()` runs only while `leads()` is true, which already requires `llmStage !== "done"`,
- * and the fallback branch writes only `llmFallback`/`llmGateOpen` — so a fallen-back interview can
- * never reach `"done"` and still gets its occupation pack. That is the right answer for it:
- * `settleFromLlmDraft` never ran, so its trade, experience and skills exist nowhere but the
- * transcript, and skipping the pack would leave the worker with neither.
+ * TWO DETERMINISTIC FACTS, BOTH OWNED BY THIS SERVICE. The occupation pack is off the table when
+ * both hold:
  *
- * WHAT IT COSTS, stated here rather than discovered later. For an LLM-led session the engine's own
- * `progress` is now computed over the universal tail alone, while the orchestrator's
- * `progressOf(items, …)` — what a clarify, silent or hardship turn reports — still counts the
- * pinned pack's rows, so the two disagree by exactly the questions that are no longer asked, and a
- * mandatory occupation question (only `qp_welding/welding_process` in the corpus) stays in
- * `unansweredEssentials`. Narrowing `items` to match would close both at the price of the model's
- * skills never reaching `answer_map` at all, and a matching signal is worth more than a
- * denominator.
+ *   1. PHASE A ACTUALLY RAN — `llmLedTurns > 0`, a counter `LlmTurnService` increments once per
+ *      turn it put in front of the worker.
+ *   2. PHASE A IS OVER — `llmStage === "done"` (the answered gate, the caps, or `phase_a_done`
+ *      under those caps) or `llmFallback` (the model stopped answering; sticky by design).
+ *
+ * Phase A ran and is finished ⟹ nothing from the worker's trade pack is served, re-served,
+ * predicted or spoken for the rest of the interview. Phase A never ran ⟹ this returns the very
+ * object it was handed, and every deterministic interview behaves exactly as it did before this
+ * function existed. That second branch is the majority path and it is an identity return.
+ *
+ * ─── §3: WHY THE MODEL IS NOT WHAT DECIDES THIS ─────────────────────────────────────────────
+ *
+ * WHAT THE PREVIOUS FLOOR GOT WRONG, stated plainly because it shipped and it broke a real
+ * worker. The first version of this function required `llmDraft.experiences.length > 0`, added in
+ * review as a §3 guard against the model's `phase_a_done` deleting a worker's authored questions.
+ * The intent was right and the field was the wrong one: `experiences` is populated from
+ * `out.experience_entry`, WHICH IS THE MODEL'S OWN OUTPUT, filled or left null at the model's
+ * discretion on any turn. So that floor did not take the decision away from the model. It handed
+ * the model a second lever with the polarity reversed — a model that simply never emits an
+ * `experience_entry` re-arms the entire trade pack — and that is what the reported welder session
+ * looked like: a conversational experience stretch, a gate-shaped question the model wrote itself
+ * ("aur koi kaam jode?" — not `EXPERIENCE_GATE_PROMPT`, which says "experience"), "Nahi", and then
+ * `qp_welding` from the top. A floor the model can walk under by omission is not a floor.
+ *
+ * WHY `llmLedTurns` IS ONE. It is written by `LlmTurnService` and by nothing else, one increment
+ * per turn it served. No field on the wire moves it; the model cannot inflate it and cannot zero
+ * it. What it records is not an opinion about the interview's quality — it is the fact that the
+ * platform put N conversational questions to this worker and read N answers back. That is the
+ * business fact the rule needs, and deterministic code is what establishes it.
+ *
+ * WHAT THE MODEL STILL INFLUENCES, AND WHY THAT IS INSIDE §3. `phase_a_done` can still END Phase
+ * A early. That is advice about the model's own turn-taking, and acting on it is this service's
+ * decision to stop spending money on an interview the model says it has finished — the same class
+ * of decision as the caps. It can only SHORTEN Phase A. It cannot conjure the `llmLedTurns`
+ * evidence, and it cannot bring the pack back. Combined with #949's clamp on `out.stage` (which
+ * stopped the model writing `"done"` on an ask turn), every path from the model's output to
+ * "which authored questions this worker is asked" now runs through a counter the model cannot
+ * touch.
+ *
+ * WHY NOT `llmAsks > 0`, THE OBVIOUS EXISTING COUNTER. It is API-owned, so §3 is satisfied — but
+ * it is the runaway BUDGET's counter and is deliberately not incremented by the turn that opens
+ * the experience gate, because the model's reply is discarded there in favour of the gate. The
+ * shortest real interview — the composite opener answered with a whole job, the gate, "Nahi" —
+ * therefore ends Phase A with `llmAsks === 0`. Keying on it would serve the full trade pack to a
+ * worker who had just described their job in their own words: the reported bug, reintroduced from
+ * the other side. See the field's own note in `conversation-state.ts`.
+ *
+ * ─── WHY A FALLEN-BACK INTERVIEW IS COVERED TOO ─────────────────────────────────────────────
+ *
+ * The first version excluded it, and said so: `settleFromLlmDraft` ran only on the `done` branch,
+ * so a fallen-back interview's trade, experience and skills existed nowhere but the transcript,
+ * and suppressing its pack would have left the worker with neither the model's answers nor the
+ * pack's questions. That reasoning was sound and its premise has been removed — `decide` now
+ * settles the draft on the fallback branch as well, under the same `llmLedTurns > 0` test used
+ * here, so the two move together by construction. What is left is a worker who spent five turns
+ * describing their welding to a model that then timed out, and the honest answer for them is the
+ * universal tail, not `welding_process` asked from the top as though the conversation had not
+ * happened. A fallback on the FIRST turn is untouched: nothing was led, `llmLedTurns` is 0, and
+ * the pack is served exactly as it is today.
+ *
+ * ─── WHAT IT COSTS, AND WHAT IT STILL DOES NOT COVER ────────────────────────────────────────
+ *
+ * THE DENOMINATOR SPLIT. For an LLM-led session the engine's `progress` counts the universal tail
+ * alone, while `progressOf(items, …)` on the non-advancing branches would count the pinned pack's
+ * rows — so the two would disagree by exactly the questions no longer asked. Every reader that
+ * reports progress is therefore handed the NARROWED list; `items` stays whole for settlement and
+ * shape. A mandatory occupation question (only `qp_welding/welding_process` in the corpus) still
+ * shows up in `unansweredEssentials`, which is wire-only and gates nothing.
+ *
+ * A LOST REDIS BUFFER IS NOT COVERED, and cannot be closed here. `restorePin` rebuilds an empty
+ * envelope carrying only `packId`/`packVersion`, so `llmLedTurns` comes back 0 — but so do
+ * `answerMap` and `llmDraft` and the whole interview, and Phase A simply starts again from the top
+ * and suppresses again at ITS close. The residue is a session that loses its buffer while
+ * `CHAT_LLM_INTERVIEW_ENABLED` reads off, which then gets the deterministic interview it would
+ * have had all along. Making the fact durable means a new member on `ConversationState` — the
+ * FROZEN cross-language contract mirrored in `apps/ai-service/app/contracts.py` — or a new column
+ * under the held CD-2 migration gate. Both are joint changes with another owner (§16), so this is
+ * recorded rather than smuggled in.
  */
 function selectableEnginePacks(envelope: ProfilingEnvelope, resolved: EnginePacks): EnginePacks {
   // THE BRANCH THAT PRESERVES EVERY DETERMINISTIC INTERVIEW — an identity return, so the engine is
-  // handed the very object it is handed today. `emptyProfilingEnvelope` seeds `llmStage: "domain"`
-  // and `LlmTurnService.take` is the only writer that ever moves it, so with
-  // `CHAT_LLM_INTERVIEW_ENABLED` at its default OFF `leads()` is false for every session, `take()`
-  // is never called, and nothing on the majority path can reach `"done"`.
-  if (envelope.llmStage !== "done") return resolved;
+  // handed the very object it is handed today. `emptyProfilingEnvelope` seeds `llmLedTurns: 0`,
+  // `narrowProfilingEnvelope` reads an absent field as 0, and `LlmTurnService` is the only writer
+  // that ever moves it — so with `CHAT_LLM_INTERVIEW_ENABLED` at its default OFF, `leads()` is
+  // false for every session, `take()` is never called, and nothing on the majority path can get
+  // past this line. FIRST because it is the majority path, and because it is the one branch whose
+  // correctness has to be obvious at a glance.
+  if (envelope.llmLedTurns === 0) return resolved;
 
-  // ...AND A DETERMINISTIC FLOOR UNDER IT, BECAUSE THE MODEL MUST NOT OWN THIS (§3).
-  //
-  // Three writers move `llmStage` to `done`, and two of them are decisions this service makes:
-  // the worker tapping Nahi on the experience gate (`llm-turn.service.ts:131`, which is the
-  // reported case), and the ask/entry caps (`:149`). The third is `out.phase_a_done` (`:217`) —
-  // the MODEL's boolean. Its own comment calls it advice, and that was accurate while advice
-  // merely handed the turn to an engine that still asked everything. Once reaching `done`
-  // DELETES the worker's whole trade pack, honouring that boolean unconditionally would let the
-  // LLM decide which authored business questions a worker is asked — precisely what §3 forbids,
-  // and it would do so silently, on the one signal here that nothing deterministic backs.
-  //
-  // THE FLOOR IS RECORDED EVIDENCE, NOT A SECOND OPINION ABOUT THE MODEL. An interview that
-  // captured at least one experience entry demonstrably did the job the pack would otherwise
-  // repeat: it asked the worker about their work and structured the answer. An interview that
-  // captured NONE has learned nothing the pack would duplicate, so there is nothing to suppress
-  // and the trade questions are the only thing that will describe this worker at all. Concretely
-  // the case this refuses: a welder's first message is answered with `phase_a_done` and an empty
-  // draft, and without this line qp_welding — including `welding_process`, the only mandatory
-  // occupation item in the corpus — is deleted on the model's say-so and the worker finishes on
-  // the eight universal-tail questions alone.
-  //
-  // It costs the intended case nothing: the reported machinist reached the gate WITH an entry
-  // recorded (HCL, six months, CNC), which is what opened the gate in the first place.
-  if (envelope.llmDraft.experiences.length === 0) return resolved;
+  // STILL RUNNING. Phase A is mid-interview, so the engine is not selecting anything this turn
+  // anyway — but `openTurn` and `viewSession` read this too, and a worker who reopens the app
+  // mid-Phase-A must be shown the same denominator the turn loop is about to use. `llmStage` is
+  // written only by `LlmTurnService` and `llmFallback` only by `decide`; neither is reachable
+  // from the wire.
+  if (envelope.llmStage !== "done" && !envelope.llmFallback) return resolved;
 
   return { occupation: null, universal: resolved.universal };
 }
