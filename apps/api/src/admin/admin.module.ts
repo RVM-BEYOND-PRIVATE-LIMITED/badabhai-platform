@@ -39,6 +39,9 @@ import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminDashboardRepository } from "./admin-dashboard.repository";
 import { AdminDashboardService } from "./admin-dashboard.service";
 import { AdminDashboardController } from "./admin-dashboard.controller";
+import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
+import { AdminWorkerJourneyService } from "./admin-worker-journey.service";
+import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -116,6 +119,7 @@ import { AdminDashboardController } from "./admin-dashboard.controller";
     AdminFinanceController,
     AdminDirectoryController,
     AdminDashboardController,
+    AdminWorkerJourneyController,
   ],
   providers: [
     AdminRepository,
@@ -164,6 +168,16 @@ import { AdminDashboardController } from "./admin-dashboard.controller";
     // one admin reader (build-blocked in `admin-static-guards.test.ts`).
     AdminDashboardRepository,
     AdminDashboardService,
+    // Phase 6: the per-worker JOURNEY — the 7-step funnel plus the interview session reads
+    // (list + detail, with the derived stuck question). Behind `read_entities`, SELECT-ONLY,
+    // explicit column projections, keyset-paginated. It returns NO transcript text of any
+    // kind: `chat_messages.body_text` and `voice_notes.transcript_text` are stored unmasked
+    // and are deliberately outside this surface's projection (see the DTO header).
+    //
+    // Its three event-spine reads live on `AdminEventsRepository`, not here, for the same
+    // single-reader reason BP-5's cap-breach split does.
+    AdminWorkerJourneyRepository,
+    AdminWorkerJourneyService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

@@ -54,6 +54,7 @@ import { ReferralBonusController } from "../referrals/referral-bonus.controller"
 import { AdminDirectoryController } from "../admin/admin-directory.controller";
 import { AdminEntitiesController } from "../admin/admin-entities.controller";
 import { AdminFinanceController } from "../admin/admin-finance.controller";
+import { AdminWorkerJourneyController } from "../admin/admin-worker-journey.controller";
 import { AdminKillSwitchController } from "../admin/admin-kill-switch.controller";
 import { AdminDashboardController } from "../admin/admin-dashboard.controller";
 import { DevicesController } from "../auth/devices.controller";
@@ -543,7 +544,18 @@ const CONTRACT: ControllerContract[] = [
     ctor: AdminDashboardController,
     routes: { summary: [A, AR] },
   },
-  // PHASE6-PLACEHOLDER
+  // Phase 6 — the per-worker journey reads. Same [A, AR] as every other admin controller;
+  // the capability (`read_entities`) is asserted in admin-worker-journey.authz.test.ts, since
+  // role scoping is not this contract's concern.
+  {
+    name: "AdminWorkerJourney",
+    ctor: AdminWorkerJourneyController,
+    routes: {
+      getJourneySummary: [A, AR],
+      listChatSessions: [A, AR],
+      getChatSession: [A, AR],
+    },
+  },
   // super_admin-only via @RequireAdminRole (role scoping isn't this contract's concern — it
   // asserts guard CLASSES, the same [A, AR] every admin controller carries).
   {
