@@ -164,8 +164,9 @@ pnpm test            # NOTE: `pnpm test -- <filter>` runs the WHOLE suite — th
 pnpm build
 ```
 
-`RUN_DB_TESTS=1` enables 4 DB-backed gate suites. `RUN_E2E=1` enables the e2e suites that are not
-hard-skipped.
+`RUN_DB_TESTS=1` enables 6 DB-backed gate suites (`rank-parity`, `boost-fences`, `apply-freeze`,
+`current-profile-order`, `ai-cost-totals.db`, `jobs-search-sql`) — they need a migrated Postgres
+and skip silently without one. `RUN_E2E=1` enables the e2e suites that are not hard-skipped.
 
 ---
 

@@ -52,7 +52,7 @@ Reading migration `0004_workers_force_rls_revoke.sql`'s own comment against `ci.
 
 ### 3.2 A working precedent for un-gating exists in the same file
 
-`ci.yml`'s `e2e` job's "Matching V1 DB-backed release gates" step shows the exact fix pattern the 5 permanently-skipped suites need: those gates were also `skipIf(RUN_DB_TESTS !== "1")` with `RUN_DB_TESTS` unset anywhere (TD122) until PR #538 armed it **and** added an explicit assertion that the expected test-file count actually ran (`grep -qE 'Test Files +4 passed \(4\)'`), specifically to prevent the "vacuous pass" failure mode where a broken filter makes zero tests run and the step still exits 0. That discipline is not yet applied to `tests/e2e/`'s own skipped files.
+The `RUN_DB_TESTS` step in `ci.yml`'s `e2e` job shows the exact fix pattern the 5 permanently-skipped `tests/e2e/` suites need: those gates were also `skipIf(RUN_DB_TESTS !== "1")` with `RUN_DB_TESTS` unset anywhere (TD122) until PR #538 armed it **and** added an explicit assertion that the expected test-file count actually ran (`grep -qE 'Test Files +4 passed \(4\)'` as #538 wrote it — the count moves with the gate list, and #984 and #982 took it to six), specifically to prevent the "vacuous pass" failure mode where a broken filter makes zero tests run and the step still exits 0. That discipline is not yet applied to `tests/e2e/`'s own skipped files.
 
 ## 4. Critical business flow coverage matrix
 

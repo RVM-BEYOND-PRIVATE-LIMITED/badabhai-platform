@@ -100,9 +100,11 @@ agreement is a continuously-checked property, not a one-time launch gate.
 ## What this runbook does not cover
 
 The ADR-0036 product/ranking design itself (see `docs/decisions/0036-matching-algorithm-v1.md`);
-the DB-backed release gates (`rank-parity`, `boost-fences`, `apply-freeze`,
+the DB-backed *ranking* release gates (`rank-parity`, `boost-fences`, `apply-freeze`,
 `current-profile-order`) that separately protect the *ranking* behavior once V1 is live — those
-are `RUN_DB_TESTS=1` vitest suites, not part of this migration/seed sequence (see
+are `RUN_DB_TESTS=1` vitest suites, not part of this migration/seed sequence (the same CI step
+also runs gates that are nothing to do with ranking — `ai-cost-totals.db` and `jobs-search-sql`;
+see
 `docs/github-actions.md`'s CI job reference); rolling migrations back (see
 `docs/rollback-guide.md`'s Migrations section — the same "additive migrations are safe to leave
 applied, destructive ones are not" rule applies here).

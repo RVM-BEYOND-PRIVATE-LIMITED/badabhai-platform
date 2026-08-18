@@ -770,7 +770,7 @@ jobs:
       - name: Verify Matching V1 schema + vocabulary (db:verify:match-v1)
         run: pnpm --filter @badabhai/db db:verify:match-v1
 
-      # ---- Matching V1 DB-backed release gates (ADR-0036) ----
+      # ---- DB-backed release gates (Matching V1 / ADR-0036, plus B-8b and #982) ----
       # These suites exist, are correct, and until #538 NEVER RAN in CI: each is
       # `describe.skipIf(process.env.RUN_DB_TESTS !== "1")`, and RUN_DB_TESTS was set
       # nowhere under .github/ (TD122). A skipped gate is a disclosed gap, not a pass.
@@ -808,6 +808,21 @@ jobs:
       #                    nothing, which is a property of the events table's real
       #                    ON CONFLICT DO NOTHING reporting "deduped" — a fake db can only
       #                    show the clause was asked for.
+      #   * jobs-search-sql — #982, the follow-up to #974. `GET /jobs/search` 500'd on every
+      #                    title-less search ("jobs in Jaipur") because the no-`q` relevance
+      #                    key rendered as a BARE `0`, and Postgres reads a lone integer in
+      #                    ORDER BY as an output-column ORDINAL: `ORDER BY position 0 is not
+      #                    in select list`. Every test on that path was statement-level —
+      #                    compile the Drizzle node, assert on the rendered string — so the
+      #                    oracle was "the text looks right to us", never "the server accepts
+      #                    it", and the defect shipped with CI fully green. This gate EXECUTES
+      #                    the real repository against a real Postgres on six of the eight
+      #                    (q, city, state) filter combinations the DTO can produce — none,
+      #                    city, state, city+state, q, q+city; q+state and q+city+state are
+      #                    a stated gap, documented in the file header — and pins the parts a
+      #                    fake db also cannot judge: the relevance ladder, DESC NULLS LAST,
+      #                    the id tiebreak, the limit+1 has_more probe, and that the
+      #                    already-decided anti-join EVALUATES.
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (journal-driven, 0000 → head —
@@ -820,8 +835,8 @@ jobs:
       # RUN_DB_TESTS is scoped to THIS STEP. The `node` job runs the same apps/api suite
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
-      # `node` job, and a five-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals)
+      # `node` job, and a six-file run cannot meet them.
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -830,15 +845,19 @@ jobs:
           # `test -- rank-parity` runs `vitest run -- rank-parity`, where vitest
           # ignores the filter and reruns the whole 2820-test suite. Measured, not
           # assumed — that is what the first push of this branch actually did.
-          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
           #     exit 0 reporting "16 skipped" — precisely how these gates sat green for
           #     their whole life while proving nothing. Assert per FILE, because a
           #     suite-wide "some test passed" check is satisfied by unrelated tests.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db; do
-            line=$(grep -E "src/(ai|match|profiles)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          # The directory alternation must list EVERY directory a gate file lives in:
+          # `ai-cost-totals.db` sits under src/ai and `jobs-search-sql` under src/jobs, and
+          # against a regex missing either one this loop reports "did not run at all" on a
+          # perfectly good run. Widen it whenever a gate lands in a new directory.
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql; do
+            line=$(grep -E "src/(ai|match|profiles|jobs)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -855,8 +874,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +5 passed \(5\)' db-gates.log; then
-            echo "::error::Expected exactly the 5 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +6 passed \(6\)' db-gates.log; then
+            echo "::error::Expected exactly the 6 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
