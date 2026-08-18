@@ -31,6 +31,9 @@
  *
  * PRIVACY: the reference catalogue only. Every line printed is ids + counts.
  */
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+
 import { config } from "dotenv";
 import { sql as dsql } from "drizzle-orm";
 
@@ -45,6 +48,7 @@ import {
 } from "./match-v1-cli";
 import {
   planSkillAliasNormalization,
+  projectElection,
   retrievalPredicateReadiness,
   type SkillAliasNormalizationPlan,
   type SkillAliasNormalizationRow,
@@ -103,6 +107,103 @@ const REHEARSE_ELECT_SEARCHABLE = dsql`
    WHERE t."id" = r."id"
      AND t."is_searchable" IS DISTINCT FROM (r.rn = 1)
 `;
+
+/**
+ * A checksum over EVERY column this runner promises not to touch.
+ *
+ * Taken before and after the write, inside the same transaction, and compared. This is the
+ * proof — not the assertion — that `embedding`, `embedding_model`, `embedded_at`,
+ * `is_searchable`, `text`, `skill_id`, `lang` and `source` came through unchanged. A
+ * `SET text_norm = ...` obviously cannot alter them, but a trigger, a rule, or a future
+ * edit to the statement can, and "obviously" is what this class of bug hides behind.
+ *
+ * `md5(embedding::text)` rather than the vector itself: 295 x 768 floats is megabytes of
+ * string_agg, and a digest of the text form is equally sensitive to any change.
+ */
+const IMMUTABLE_COLUMNS_CHECKSUM = dsql`
+  SELECT md5(string_agg(
+           "id"::text || chr(1) ||
+           "skill_id" || chr(1) ||
+           "text" || chr(1) ||
+           coalesce("lang", '~') || chr(1) ||
+           "source" || chr(1) ||
+           "is_searchable"::text || chr(1) ||
+           coalesce("embedding_model", '~') || chr(1) ||
+           coalesce("embedded_at"::text, '~') || chr(1) ||
+           coalesce(md5("embedding"::text), '~'),
+           '|' ORDER BY "id"
+         )) AS checksum
+    FROM "skill_alias"
+`;
+
+/** Same-skill `(text_norm, lang)` groups with >1 member, and cross-skill ones, from the DB. */
+const COLLISION_COUNTS = dsql`
+  SELECT (SELECT count(*)::int FROM (
+            SELECT 1 FROM "skill_alias" WHERE "text_norm" IS NOT NULL
+             GROUP BY "skill_id", "text_norm", "lang" HAVING count(*) > 1
+          ) g)                                            AS same_skill_groups,
+         (SELECT count(*)::int FROM (
+            SELECT 1 FROM "skill_alias" WHERE "text_norm" IS NOT NULL
+             GROUP BY "text_norm", "lang" HAVING count(DISTINCT "skill_id") > 1
+          ) g)                                            AS cross_skill_groups
+`;
+
+interface CollisionCounts {
+  same_skill_groups: number;
+  cross_skill_groups: number;
+}
+
+interface ManifestRow {
+  id: string;
+  skill_id: string;
+  skill_status: string;
+  lang: string | null;
+  old_text_norm: string | null;
+  new_text_norm: string;
+  election: string;
+  duplicate_classification: string;
+}
+
+interface Manifest {
+  script: string;
+  scope: string;
+  statement: string;
+  totals: Record<string, number>;
+  /**
+   * PROJECTIONS, not applied state. Election is a separate gated step and this runner does
+   * not perform it; these fields say what it WOULD produce from the post-write table.
+   */
+  projected: Record<string, number>;
+  rows: ManifestRow[];
+  rollback_ids: string[];
+  rollback_sql: string;
+  immutable_columns_checksum: string;
+  collisions_before: CollisionCounts;
+}
+
+/**
+ * Canonical JSON: keys sorted at EVERY depth, arrays left in order.
+ *
+ * Deliberately not `JSON.stringify(m, Object.keys(m).sort())` — the second argument is an
+ * allow-list applied recursively, so that form silently drops every nested key absent from
+ * the top-level list and digests a truncated document.
+ */
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
+}
+
+/**
+ * `sha256` over the canonical body, so the digest is a function of CONTENT, not key order.
+ * Stored beside the body, never inside it — a structure cannot contain its own hash.
+ */
+function manifestDigest(m: Manifest): string {
+  return createHash("sha256").update(canonicalJson(m)).digest("hex");
+}
 
 interface RawRow {
   id: string;
@@ -199,6 +300,74 @@ function printReadiness(
   }
 }
 
+/**
+ * Build the pre-write manifest: every row that will change, what it will change to, and
+ * the projected election outcome so the write can be audited against a fixed expectation.
+ */
+function buildManifest(
+  plan: SkillAliasNormalizationPlan,
+  rows: readonly SkillAliasNormalizationRow[],
+  checksum: string,
+  collisions: CollisionCounts,
+): Manifest {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  // Project election over the POST-write table: every planned write applied, nothing else.
+  const applied = rows.map((r) => {
+    const w = plan.writes.find((x) => x.id === r.id);
+    return w === undefined ? r : { ...r, textNorm: w.textNorm };
+  });
+  const election = new Map(projectElection(applied).map((e) => [e.id, e]));
+
+  const manifestRows: ManifestRow[] = plan.writes.map((w) => {
+    const row = byId.get(w.id);
+    const e = election.get(w.id);
+    return {
+      id: w.id,
+      skill_id: w.skillId,
+      skill_status: row?.skillStatus ?? "unknown",
+      lang: row?.lang ?? null,
+      old_text_norm: row?.textNorm ?? null,
+      new_text_norm: w.textNorm,
+      election: e?.election ?? "unknown",
+      duplicate_classification: e?.duplicateClassification ?? "unknown",
+    };
+  });
+
+  const ids = manifestRows.map((r) => r.id);
+  const activeRows = manifestRows.filter((r) => r.skill_status === "active");
+  const gateB = applied.filter((r) => r.skillStatus === "active" && r.hasEmbedding);
+
+  return {
+    script: SCRIPT,
+    scope: "text_norm only, on rows WHERE text_norm IS NULL",
+    statement: 'UPDATE "skill_alias" SET "text_norm" = $1 WHERE "id" = $2 AND "text_norm" IS NULL',
+    totals: {
+      total_rows_to_update: manifestRows.length,
+      active_rows: activeRows.length,
+      provisional_rows: manifestRows.filter((r) => r.skill_status === "provisional").length,
+      cross_skill_collisions: plan.crossSkillCollisions.length,
+      unique_key_conflict_groups: plan.uniqueKeyConflicts.length,
+    },
+    projected: {
+      duplicate_winners: manifestRows.filter((r) => r.election === "winner").length,
+      duplicate_losers: manifestRows.filter((r) => r.election === "loser").length,
+      gate_b_active_embedded_total: gateB.length,
+      gate_b_projected_elected: gateB.filter((r) => election.get(r.id)?.election === "winner").length,
+      gate_b_projected_losers: gateB.filter((r) => election.get(r.id)?.election === "loser").length,
+    },
+    rows: manifestRows,
+    rollback_ids: ids,
+    // Every `old_text_norm` in this manifest is NULL by construction (the plan only ever
+    // selects `text_norm IS NULL`), so a blanket re-NULL over the captured id set is an
+    // exact inverse, not an approximation.
+    rollback_sql: `UPDATE "skill_alias" SET "text_norm" = NULL WHERE "id" IN (${ids
+      .map((i) => `'${i}'`)
+      .join(", ")});`,
+    immutable_columns_checksum: checksum,
+    collisions_before: collisions,
+  };
+}
+
 /** Write `text_norm` for the planned rows, in batches. Returns rows written. */
 async function writeTextNorm(
   db: ReturnType<typeof createDbClient>["db"],
@@ -237,6 +406,7 @@ async function main(): Promise<void> {
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+  const manifestPath = argValue("manifest");
 
   printHeader(SCRIPT, opts);
   if (rollback && !opts.apply) {
@@ -265,6 +435,24 @@ async function main(): Promise<void> {
       console.log(`[${SCRIPT}] --assert-predicate-safe: PASS.`);
     }
 
+    const checksumBefore = String(
+      ((await db.execute(IMMUTABLE_COLUMNS_CHECKSUM)) as unknown as Array<{ checksum: string }>)[0]
+        ?.checksum ?? "",
+    );
+    const collisionsBefore = ((await db.execute(COLLISION_COUNTS)) as unknown as CollisionCounts[])[0] ?? {
+      same_skill_groups: 0,
+      cross_skill_groups: 0,
+    };
+
+    if (manifestPath !== undefined && !opts.apply) {
+      const manifest = buildManifest(plan, rows, checksumBefore, collisionsBefore);
+      const digest = manifestDigest(manifest);
+      writeFileSync(manifestPath, `${JSON.stringify({ ...manifest, sha256: digest }, null, 2)}\n`);
+      console.log(`[${SCRIPT}] manifest written: ${manifestPath}`);
+      console.log(`[${SCRIPT}] sha256(manifest) = ${digest}`);
+      printCounts(SCRIPT, { ...manifest.totals, ...manifest.projected });
+    }
+
     if (!opts.apply) {
       printFooter(SCRIPT, opts, plan.writes.length);
       return;
@@ -279,18 +467,139 @@ async function main(): Promise<void> {
       return;
     }
 
-    const written = await writeTextNorm(db, plan, opts.batchSize);
+    // ── APPLY. Single transaction, fail-closed on every deviation from the manifest. ──
+    if (manifestPath === undefined) {
+      throw new Error(
+        `[${SCRIPT}] --apply requires --manifest=<path> pointing at a manifest produced by a dry ` +
+          "run of this same script. The write is audited against it row by row.",
+      );
+    }
+    const expected = JSON.parse(readFileSync(manifestPath, "utf8")) as Manifest & { sha256: string };
+    const { sha256: recordedDigest, ...body } = expected;
+    const recomputed = manifestDigest(body as Manifest);
+    if (recomputed !== recordedDigest) {
+      throw new Error(
+        `[${SCRIPT}] manifest digest mismatch — recorded ${recordedDigest}, recomputed ${recomputed}. ` +
+          "The manifest was edited after it was generated. Refusing to write.",
+      );
+    }
+    console.log(`[${SCRIPT}] manifest verified: ${manifestPath} (sha256 ${recordedDigest})`);
+
+    const started = Date.now();
+    const result = await applyGuarded(db, plan, expected, opts.batchSize, checksumBefore, collisionsBefore);
+    const elapsedMs = Date.now() - started;
+
     const after = toPlannerRows((await db.execute(FETCH_ROWS)) as unknown as RawRow[]);
     printCounts(SCRIPT, {
-      text_norm_written: written,
+      rows_updated: result.written,
+      rows_skipped: plan.writes.length - result.written,
+      elapsed_ms: elapsedMs,
       text_norm_still_null_after: after.filter((r) => r.textNorm === null).length,
       is_searchable_changed: 0,
     });
     printReadiness(after);
-    printFooter(SCRIPT, opts, written);
+    printFooter(SCRIPT, opts, result.written);
   } finally {
     await sql.end({ timeout: 5 });
   }
+}
+
+/**
+ * THE AUTHORIZED WRITE. One transaction, four fail-closed checks, no partial state.
+ *
+ * Every check aborts by throwing, which unwinds the transaction — there is no code path
+ * that reports a problem and commits anyway.
+ *
+ *  1. SCOPE. The plan built from the live table must match the manifest exactly, id for id
+ *     and value for value. A row that appeared, vanished or normalizes differently since
+ *     the manifest was generated means the corpus moved underneath it.
+ *  2. ROW COUNT. `rows_updated` must equal the manifest length. Fewer means a concurrent
+ *     writer took a row (the `AND text_norm IS NULL` guard fired); more is impossible by
+ *     construction and is checked anyway.
+ *  3. IMMUTABLE COLUMNS. The checksum over `embedding`, `embedding_model`, `embedded_at`,
+ *     `is_searchable`, `text`, `skill_id`, `lang`, `source` must be byte-identical before
+ *     and after. This is what makes "no other column may change" a measurement.
+ *  4. COLLISION GROWTH. Same-skill duplicate groups and cross-skill collision groups must
+ *     match the manifest's projection. Unexpected growth means the normalizer collapsed
+ *     two aliases nobody predicted it would, and that is a taxonomy event, not a backfill.
+ */
+async function applyGuarded(
+  db: ReturnType<typeof createDbClient>["db"],
+  plan: SkillAliasNormalizationPlan,
+  manifest: Manifest,
+  batchSize: number,
+  checksumBefore: string,
+  collisionsBefore: CollisionCounts,
+): Promise<{ written: number }> {
+  // CHECK 1 — scope, before opening the transaction.
+  const planned = new Map(plan.writes.map((w) => [w.id, w.textNorm]));
+  const expected = new Map(manifest.rows.map((r) => [r.id, r.new_text_norm]));
+  if (planned.size !== expected.size) {
+    throw new Error(
+      `scope check failed: the live table plans ${planned.size} write(s), the manifest records ` +
+        `${expected.size}. Regenerate the manifest.`,
+    );
+  }
+  for (const [id, value] of planned) {
+    const want = expected.get(id);
+    if (want === undefined) throw new Error(`scope check failed: ${id} is not in the manifest.`);
+    if (want !== value) {
+      throw new Error(`scope check failed: ${id} would be written a value the manifest does not record.`);
+    }
+  }
+  if (checksumBefore !== manifest.immutable_columns_checksum) {
+    throw new Error(
+      "scope check failed: the immutable-column checksum has moved since the manifest was " +
+        "generated. Another writer touched skill_alias. Regenerate the manifest.",
+    );
+  }
+
+  let written = 0;
+  await db.transaction(async (tx) => {
+    const inner = tx as unknown as typeof db;
+    written = await writeTextNorm(inner, plan, batchSize);
+
+    // CHECK 2 — row count.
+    if (written !== manifest.rows.length) {
+      throw new Error(
+        `row-count check failed: updated ${written}, manifest records ${manifest.rows.length}. ` +
+          "Rolling back.",
+      );
+    }
+
+    // CHECK 3 — immutable columns.
+    const after = String(
+      ((await inner.execute(IMMUTABLE_COLUMNS_CHECKSUM)) as unknown as Array<{ checksum: string }>)[0]
+        ?.checksum ?? "",
+    );
+    if (after !== checksumBefore) {
+      throw new Error(
+        "immutable-column check FAILED: a column outside text_norm changed during the write. " +
+          "Rolling back.",
+      );
+    }
+
+    // CHECK 4 — collision growth.
+    const collisions = ((await inner.execute(COLLISION_COUNTS)) as unknown as CollisionCounts[])[0];
+    const wantSame = manifest.totals.unique_key_conflict_groups ?? 0;
+    const wantCross = manifest.totals.cross_skill_collisions ?? 0;
+    if (collisions === undefined) throw new Error("collision check failed: no counts returned.");
+    if (collisions.same_skill_groups !== wantSame || collisions.cross_skill_groups !== wantCross) {
+      throw new Error(
+        `collision check FAILED: same-skill groups ${collisionsBefore.same_skill_groups} -> ` +
+          `${collisions.same_skill_groups} (expected ${wantSame}), cross-skill ` +
+          `${collisionsBefore.cross_skill_groups} -> ${collisions.cross_skill_groups} ` +
+          `(expected ${wantCross}). Rolling back.`,
+      );
+    }
+
+    console.log(
+      `[${SCRIPT}] all four guards passed inside the transaction — scope, row count, ` +
+        "immutable columns, collision growth. Committing.",
+    );
+  });
+
+  return { written };
 }
 
 /**

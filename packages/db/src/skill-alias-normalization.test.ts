@@ -460,6 +460,32 @@ function sqlBodyOf(site: RetrievalSite): string {
   return src.slice(open + 1, close);
 }
 
+describe("source hygiene — no invisible control characters in SQL", () => {
+  // THE SECOND OCCURRENCE OF THIS BUG IN THIS PACKAGE. `taxonomy-label-audit.ts` once built
+  // its cache key with a literal NUL inside a template, which made grep report the file as
+  // binary and every lookup miss in silence. Here a literal U+0001 landed between the two
+  // quotes of what reads as `''`, so the immutable-column checksum was concatenating with
+  // an SOH separator instead of an empty string. Harmless to the guard's meaning — a real
+  // separator is in fact better than none — but it made the constant produce a different
+  // digest from a hand-typed copy of the same SQL, which cost an hour of chasing a
+  // corruption that never happened. The separator is now an explicit `chr(1)`.
+  //
+  // Machine-checked rather than trusted to review: this class of defect is invisible in a
+  // diff, in a terminal, and in a code review.
+  it.each([
+    "skill-alias-normalization.ts",
+    "normalize-skill-aliases.ts",
+    "skill-alias-normalization.test.ts",
+  ])("%s contains no control characters outside tab/newline", (file) => {
+    const src = readFileSync(join(__dirname, file), "utf8");
+    const found = [...src].filter((ch) => {
+      const c = ch.codePointAt(0) ?? 0;
+      return (c < 0x20 && ch !== "\n" && ch !== "\r" && ch !== "\t") || c === 0x7f;
+    });
+    expect(found.map((c) => `U+${(c.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`)).toEqual([]);
+  });
+});
+
 describe("skill-alias retrieval paths — the predicate is not enabled, and cannot diverge", () => {
   it.each(SKILL_ALIAS_RETRIEVAL_SITES)(
     "$method does not filter on is_searchable",

@@ -314,6 +314,97 @@ export function findCrossSkillCollisions(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────
+// ELECTION PROJECTION — what election WOULD do, computed without doing it
+// ─────────────────────────────────────────────────────────────────────────────────────
+
+/** Which of a `(skill_id, text_norm, lang)` group would survive election. */
+export type ElectionOutcome = "winner" | "loser";
+
+/**
+ * How a row relates to others sharing its normalized form. Precedence matters: a row can
+ * be BOTH a same-skill duplicate and part of a cross-skill collision, and the same-skill
+ * relation is reported because that is the one the unique index acts on.
+ */
+export type DuplicateClassification = "unique" | "same_skill_duplicate" | "cross_skill_collision";
+
+export interface ElectionProjectionRow {
+  readonly id: string;
+  readonly election: ElectionOutcome;
+  readonly duplicateClassification: DuplicateClassification;
+}
+
+/**
+ * Project the duplicate election WITHOUT performing it.
+ *
+ * Mirrors the ranked CTE in `normalize-skill-aliases.ts`: an embedded row wins (never
+ * strand paid work), then the shortest raw text, then the lowest id. `lang` NULLs group as
+ * equal, matching the index's `NULLS NOT DISTINCT`.
+ *
+ * WHY THE TIE-BREAK DIFFERS FROM `seed-domain-skills.ts`. That seeder elects among rows it
+ * is about to INSERT from a corpus file, and its docstring explains it has no embedding
+ * tier because `deterministicAliasId` hashes the raw text — so an existing embedded row IS
+ * the planned row, not a rival. Here the rows already exist and were embedded by separate
+ * runs, so an embedded rival is real and outranking it would strand paid work. Same
+ * ordering as `normalize-job-domain-aliases.ts`, which faces the same situation.
+ *
+ * Length is counted in CODE POINTS, not UTF-16 units, because the SQL tie-break uses
+ * Postgres `length()`, which counts characters. Identical for the Devanagari and Latin in
+ * this corpus (all BMP), and pinned so a future non-BMP alias cannot make the projection
+ * disagree with the statement it is predicting.
+ */
+export function projectElection(
+  rows: readonly SkillAliasNormalizationRow[],
+): ElectionProjectionRow[] {
+  const bySkillGroup = new Map<string, SkillAliasNormalizationRow[]>();
+  const byNormGroup = new Map<string, Set<string>>();
+
+  for (const r of rows) {
+    const norm = effectiveTextNorm(r);
+    if (norm === null) continue;
+    const sk = groupKey([r.skillId, norm, r.lang]);
+    const bucket = bySkillGroup.get(sk);
+    if (bucket === undefined) bySkillGroup.set(sk, [r]);
+    else bucket.push(r);
+
+    const nk = groupKey([norm, r.lang]);
+    const skills = byNormGroup.get(nk);
+    if (skills === undefined) byNormGroup.set(nk, new Set([r.skillId]));
+    else skills.add(r.skillId);
+  }
+
+  const winners = new Set<string>();
+  for (const bucket of bySkillGroup.values()) {
+    const ranked = [...bucket].sort(
+      (a, b) =>
+        Number(b.hasEmbedding) - Number(a.hasEmbedding) ||
+        [...a.text].length - [...b.text].length ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+    const top = ranked[0];
+    if (top !== undefined) winners.add(top.id);
+  }
+
+  const out: ElectionProjectionRow[] = [];
+  for (const r of rows) {
+    const norm = effectiveTextNorm(r);
+    if (norm === null) continue;
+    const sameSkill = bySkillGroup.get(groupKey([r.skillId, norm, r.lang]))?.length ?? 1;
+    const skillsSharingNorm = byNormGroup.get(groupKey([norm, r.lang]))?.size ?? 1;
+    out.push({
+      id: r.id,
+      election: winners.has(r.id) ? "winner" : "loser",
+      duplicateClassification:
+        sameSkill > 1
+          ? "same_skill_duplicate"
+          : skillsSharingNorm > 1
+            ? "cross_skill_collision"
+            : "unique",
+    });
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────
 // THE RETRIEVAL-PREDICATE INVARIANT
 // ─────────────────────────────────────────────────────────────────────────────────────
 
