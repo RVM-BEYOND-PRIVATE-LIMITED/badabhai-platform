@@ -37,6 +37,7 @@
     "db:embed:domains": "tsx src/embed-job-domain-aliases.ts",
     "db:verify:domains": "tsx src/verify-job-domains.ts",
     "db:normalize:aliases": "tsx src/normalize-job-domain-aliases.ts",
+    "db:verify:aliases": "tsx src/verify-alias-lifecycle.ts",
     "db:normalize:skill-aliases": "tsx src/normalize-skill-aliases.ts",
     "db:eval:occupation": "tsx src/eval-occupation-retrieval.ts",
     "db:seed:packs": "tsx src/seed-question-packs.ts",
