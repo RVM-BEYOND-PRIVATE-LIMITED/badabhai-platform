@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/build_info.dart';
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
@@ -223,11 +224,25 @@ class _SettingsView extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.s5),
-          Text(
-            'BadaBhai · v1.0 · Made in India',
-            textAlign: TextAlign.center,
-            style: AppTypography.body(
-                size: AppTypography.sizeXs, color: AppColors.textFaint),
+          // Version + BUILD id (#966). The build id is shown inline so a tester
+          // can READ and quote exactly which build their device runs — the only
+          // in-app way to tell a real bug from a stale APK — and a LONG-PRESS
+          // copies it to the clipboard for a bug report. `kAppBuild` is a
+          // PII-free commit SHA / build number ("dev" in a debug build).
+          GestureDetector(
+            onLongPress: () {
+              Clipboard.setData(const ClipboardData(text: kAppBuild));
+              ScaffoldMessenger.of(context)
+                ..clearSnackBars()
+                ..showSnackBar(
+                    const SnackBar(content: Text('Build id copy ho gaya')));
+            },
+            child: Text(
+              'BadaBhai · v1.0 · build $kAppBuild · Made in India',
+              textAlign: TextAlign.center,
+              style: AppTypography.body(
+                  size: AppTypography.sizeXs, color: AppColors.textFaint),
+            ),
           ),
         ],
       ),

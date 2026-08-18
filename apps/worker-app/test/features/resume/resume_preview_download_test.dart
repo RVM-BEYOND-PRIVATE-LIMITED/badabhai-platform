@@ -41,6 +41,7 @@ void main() {
     WidgetTester tester, {
     String? name,
     bool throwOnLoad = false,
+    bool nightShiftReady = false,
     String resume = 'MOCK RESUME BODY',
   }) async {
     GoogleFonts.config.allowRuntimeFetching = false;
@@ -54,7 +55,7 @@ void main() {
         (_) async => ResumeSafeFields(
           displayName: name ?? '',
           showPhoto: false,
-          nightShiftReady: false,
+          nightShiftReady: nightShiftReady,
         ),
       );
     }
@@ -141,6 +142,31 @@ Current location: Faridabad''';
 
     // The old plain blob is gone — the body is structured now.
     expect(find.text(templated), findsNothing);
+  });
+
+  testWidgets(
+      'night-shift readiness survives the PROSE fallback — shown as a Yes/No '
+      'line even when the body does not parse into sections',
+      (WidgetTester tester) async {
+    // A non-template body (no `Label: value` lines) → parsed.isEmpty → the raw
+    // prose fallback. Night-shift is a worker PREF carried outside the resume
+    // text, so it must STILL render (the regression the owner reported).
+    const String prose = 'Mehnti CNC worker, 8 saal ka tajurba.';
+    await pumpScreen(
+      tester,
+      name: 'Sita Devi',
+      resume: prose,
+      nightShiftReady: true,
+    );
+
+    // Prose shown in full…
+    expect(find.text(prose), findsOneWidget);
+    // …and the night-shift answer stands on its own, never dropped.
+    expect(
+      find.textContaining('Night shift ke liye taiyaar: Yes',
+          findRichText: true),
+      findsOneWidget,
+    );
   });
 
   testWidgets(

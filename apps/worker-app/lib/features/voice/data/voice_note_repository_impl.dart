@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:uuid/uuid.dart';
+
 import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
@@ -166,13 +168,26 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
   @override
   Future<VoiceNoteOutcome> sendConfirmedTranscript(String text) async {
     try {
+      // #944 / #870 — mint the per-submission id HERE, once per physical send.
+      // This is the sole commit point of the voice-merge action: confirm() calls
+      // this exactly once per approved transcript, and a failure resets to idle
+      // (a retry re-records → a NEW action → a NEW id, which is correct). A
+      // transport-level retry (the 401 renewal inside the api client's `_post`)
+      // replays the SAME encoded body, so the id is reused across HTTP attempts,
+      // never minted per attempt. Without it the server falls back to the
+      // inbound-hash heuristic and #931's reply-cache fix never reaches this
+      // path — and a short, repeatable confirmed answer ("haan", a trade name)
+      // is exactly the input that hash cannot disambiguate.
+      final String submissionId = const Uuid().v4();
+
       // Merge into the profiling chat like a typed message. `sendMessage`
       // re-opens the session lazily if it lapsed while the worker was reading
       // the confirm turn, so no separate ensureSession is needed here.
       //
       // [text] is the CONFIRMED string — possibly edited by the worker on the
       // "Sudhaarna hai" path — never a re-read of the raw recogniser output.
-      final ChatTurn turn = await _chat.sendMessage(text);
+      final ChatTurn turn =
+          await _chat.sendMessage(text, submissionId: submissionId);
       return VoiceNoteOutcome(
         transcript: text,
         reply: turn.reply,

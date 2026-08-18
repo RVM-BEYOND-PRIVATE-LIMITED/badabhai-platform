@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/util/education_label.dart';
 
 /// One `Label: value` line parsed out of the deterministic resume text.
 class ResumeEntry {
@@ -44,6 +45,12 @@ class ParsedResume {
 /// carried OUTSIDE the deterministic text body, so it is injected here.
 const String kNightShiftLabel = 'Night shift ke liye taiyaar';
 
+/// The template's education-level label. Its VALUE is a raw scalar the extractor
+/// writes (e.g. `below_10`), so it is humanized at this display edge — a raw
+/// token must never reach a low-literacy worker's screen (see the no-raw-ids
+/// rule; the same [humanizeEducationLevel] already used by the profile tab).
+const String kEducationLevelLabel = 'Education level';
+
 ParsedResume parseResumeText(String text, {bool? nightShiftReady}) {
   bool isDraft = false;
   final List<ResumeEntry> entries = <ResumeEntry>[];
@@ -67,8 +74,14 @@ ParsedResume parseResumeText(String text, {bool? nightShiftReady}) {
     final int colon = line.indexOf(':');
     if (colon <= 0) continue; // no label → not a field line
     final String label = line.substring(0, colon).trim();
-    final String value = line.substring(colon + 1).trim();
-    if (value.isEmpty) continue;
+    final String rawValue = line.substring(colon + 1).trim();
+    if (rawValue.isEmpty) continue;
+    // The education-level field carries a raw scalar (`below_10`); humanize it
+    // here so the tab shows "10th se kam", never the token. Every other field is
+    // free text / already-resolved taxonomy and passes through untouched.
+    final String value = label.toLowerCase() == kEducationLevelLabel.toLowerCase()
+        ? humanizeEducationLevel(rawValue)
+        : rawValue;
     entries.add(ResumeEntry(label, value));
   }
 
