@@ -20,7 +20,7 @@ import {
  * Executes the complete flow in a single ordered test and fails if ANY stage
  * breaks:
  *
- *   Mock OTP Login → DPDP Consent → Chat Profiling → Profile Extraction
+ *   D-3 Test-Login Mint → DPDP Consent → Chat Profiling → Profile Extraction
  *     → Profile Confirmation → Resume Generation
  *
  * Unlike `phase1-flow.e2e.test.ts` (which splits the flow across several `it`s
@@ -38,16 +38,21 @@ import {
  * Opt-in (requires a running API + Postgres + Redis):
  *   1. docker compose up -d postgres redis
  *   2. pnpm db:migrate
- *   3. pnpm --filter @badabhai/api start        # (or `dev`) in another terminal
- *   4. RUN_E2E=1 pnpm --filter @badabhai/e2e test
- *      (PowerShell:  $env:RUN_E2E=1; pnpm --filter @badabhai/e2e test)
+ *   3. TEST_LOGIN_ENABLED=true TEST_LOGIN_TOKEN=<32+ chars> pnpm --filter @badabhai/api start
+ *      (or `dev`) in another terminal — the D-3 test-login mint seam (see loginWorker
+ *      below) is how this suite authenticates; worker OTP is real-only in every env.
+ *   4. RUN_E2E=1 TEST_LOGIN_TOKEN=<same value> pnpm --filter @badabhai/e2e test
+ *      (PowerShell:  $env:RUN_E2E=1; $env:TEST_LOGIN_TOKEN=<same value>; pnpm --filter @badabhai/e2e test)
  *
  * The FastAPI AI service is NOT required: the API falls back to safe mocks, so
  * the flow (status transitions, events, persisted outputs) completes either way.
  * This test therefore asserts structure/transitions, never AI-generated content.
  */
 
-const RUN = process.env.RUN_E2E === "1";
+// D-3 test-login gate secret. Without it the seam answers a neutral 404 and no worker
+// session can be minted — see loginWorker() for why OTP is not an option here.
+const TEST_LOGIN_TOKEN = process.env.TEST_LOGIN_TOKEN ?? "";
+const RUN = process.env.RUN_E2E === "1" && TEST_LOGIN_TOKEN.length > 0;
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
 const DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
@@ -58,11 +63,35 @@ const DATABASE_URL =
 // here AND on the API, those routes deny (fail closed) and the round-trip 401s.
 const SERVICE_TOKEN = process.env.INTERNAL_SERVICE_TOKEN ?? "";
 
-// Unique phone per run so we always exercise the new-worker path in isolation.
-const PHONE = `+9194${String(Date.now()).slice(-8)}`;
+/**
+ * A phone in the ONLY range the D-3 mint will serve: SYNTHETIC_TEST_PHONE_PATTERN
+ * (`/^\+910{5}\d{5}$/`, i.e. `+9100000` + 5 digits) — the reserved, unassignable block.
+ * `AuthService.testLogin` refuses anything else before finding or creating a worker.
+ * Randomised (not `Date.now()`-derived) so a re-run of this suite in the same process
+ * cannot collide with a worker a prior run already minted.
+ */
+const PHONE = `+9100000${String(Math.floor(Math.random() * 100_000)).padStart(5, "0")}`;
 const NATIONAL = PHONE.slice(1); // digits only, no leading "+"
 const CONSENT_VERSION = "2026-06-01";
 const PURPOSES = ["profiling", "resume_generation"] as const;
+
+/**
+ * Filler answers for turns beyond the 6 scripted messages below (BL-18/#857). A
+ * SINGLE repeated literal here would collide with the reply-dedup cache's replay
+ * budget: two CONSECUTIVE identical submissions are indistinguishable from a
+ * flaky-link retry of the same turn, which is exactly the shape #857 fixed a
+ * production bug on (a real interview asked a question, got a generic
+ * affirmative back, and never advanced). Cycling through equivalent affirmative
+ * phrases means no two consecutive turns repeat, so this test drives genuinely
+ * distinct turns the way a real worker's answers naturally would, instead of
+ * accidentally depending on -- or fighting -- the replay mechanic.
+ */
+const FILLERS = [
+  "haan bhai, theek hai",
+  "haan ji, sahi hai",
+  "theek hai bhai, chalega",
+  "haan bilkul, thik hai",
+];
 
 interface Resp {
   status: number;
@@ -70,7 +99,13 @@ interface Resp {
 }
 
 /** Call the API; throw loudly (with body) on any non-2xx so a broken stage fails. */
-async function call(method: string, path: string, body?: unknown, token?: string): Promise<Resp> {
+async function call(
+  method: string,
+  path: string,
+  body?: unknown,
+  token?: string,
+  opts: { testLogin?: boolean } = {},
+): Promise<Resp> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["content-type"] = "application/json";
   // Harmless on open routes; required by the guarded resume routes.
@@ -78,6 +113,8 @@ async function call(method: string, path: string, body?: unknown, token?: string
   // Bearer session token: required by the worker-authenticated chat/profile/voice
   // routes (P0 auth+consent gate). The worker comes from this token, not the body.
   if (token) headers["authorization"] = `Bearer ${token}`;
+  // D-3 test-login mint seam (see loginWorker() below) — invisible/404 without it.
+  if (opts.testLogin) headers["x-test-login-token"] = TEST_LOGIN_TOKEN;
   const res = await fetch(`${API_URL}${path}`, {
     method,
     headers: Object.keys(headers).length > 0 ? headers : undefined,
@@ -107,12 +144,14 @@ async function pollAutoExtraction(
   attempts = 60,
   delayMs = 250,
 ): Promise<{ aiJobId: string; profileId: string }> {
+  let lastJobs: typeof aiJobs.$inferSelect[] = [];
   for (let i = 0; i < attempts; i++) {
     const jobs = (await client.db.select().from(aiJobs)).filter(
       (j) =>
         j.jobType === "profile_extraction" &&
         (j.inputRef as { worker_id?: string } | null)?.worker_id === workerId,
     );
+    lastJobs = jobs;
     const done = jobs.find((j) => j.status === "completed");
     const profileId = (done?.outputRef as { profile_id?: string } | null)?.profile_id;
     if (done && profileId) return { aiJobId: done.id, profileId };
@@ -120,7 +159,14 @@ async function pollAutoExtraction(
     if (failed) throw new Error(`auto extraction failed: ${failed.errorMessage}`);
     await new Promise((r) => setTimeout(r, delayMs));
   }
-  throw new Error(`auto extraction did not complete for worker ${workerId} in time`);
+  // BL-18 diagnostic: distinguish "no job was ever queued" from "a job exists but is
+  // stuck in some other status" -- the generic message alone cannot tell those apart,
+  // and they point at completely different root causes (the enqueue call vs. the worker).
+  const statuses = lastJobs.map((j) => `${j.id}:${j.status}`).join(", ") || "(none found)";
+  throw new Error(
+    `auto extraction did not complete for worker ${workerId} in time; ` +
+      `profile_extraction jobs seen for this worker: ${statuses}`,
+  );
 }
 
 describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)", () => {
@@ -134,31 +180,33 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     await client?.sql.end({ timeout: 5 });
   });
 
-  // SKIPPED — real OTP provider required: login cannot complete without a real Fast2SMS
-  // code (worker OTP is real-only; the dev_otp echo was removed). The full onboarding
-  // journey starts with OTP login, so it cannot run here. Logic kept intact for a future
-  // staging run that can supply a real provider. The RLS test below does NOT log in and
-  // still runs under the RUN_E2E gate.
-  it.skip("logs in → consents → chats → extracts → confirms → generates a resume, asserting every stage", async () => {
-    // ───────────────────────── STAGE 1 — Real OTP login ─────────────────────────
-    // (Was: the console SMS provider echoed dev_otp so the harness could log in. Worker
-    // OTP is now REAL-ONLY, so this stage — and the whole journey — needs a real code.)
-    const reqOtp = await call("POST", "/auth/otp/request", { phone: PHONE });
-    expect(reqOtp.status).toBe(200);
-    expect(reqOtp.body).toMatchObject({ success: true, channel: "sms" });
-    expect(reqOtp.body.dev_otp).toMatch(/^\d{4,8}$/);
-
-    const verify = await call("POST", "/auth/otp/verify", {
-      phone: PHONE,
-      otp: reqOtp.body.dev_otp,
+  // BL-18: un-skipped. Worker OTP is real-only (no dev_otp echo), so login now goes
+  // through the D-3 test-login mint seam instead — the same pattern
+  // referral-round-trip.e2e.test.ts and contact-unlock.e2e.test.ts already use
+  // successfully in CI. The RLS test below does not log in and still runs unconditionally
+  // under the RUN_E2E gate.
+  it("logs in → consents → chats → extracts → confirms → generates a resume, asserting every stage", async () => {
+    // ───────────────────────── STAGE 1 — D-3 test-login mint ─────────────────────────
+    // (Was: OTP request/verify against the console-echoed dev_otp. That echo does not
+    // exist at any boundary any more — SMS_PROVIDER is real-only — so the OTP route
+    // cannot authenticate a test worker in CI at all. POST /auth/test-login is the seam
+    // built for exactly this: gated behind TEST_LOGIN_ENABLED + a server-secret header,
+    // structurally impossible to arm in production (assertAuthConfig), and it returns
+    // the SAME LoginResponse shape OTP verify does — so every assertion below still holds.)
+    const login = await call("POST", "/auth/test-login", { phone: PHONE }, undefined, {
+      testLogin: true,
     });
-    expect(verify.status).toBe(200);
-    expect(verify.body.worker_id).toBeTruthy();
-    expect(verify.body.is_new_worker).toBe(true); // state transition: worker absent → created
-    expect(verify.body.status).toBe("active");
-    const workerId = verify.body.worker_id as string;
-    // Bearer token minted at OTP verify — required by the worker AI routes below.
-    const token = verify.body.access_token as string;
+    expect(
+      login.status,
+      "POST /auth/test-login must be armed: set TEST_LOGIN_ENABLED=true and a >=32-char " +
+        "TEST_LOGIN_TOKEN on BOTH the API process and this test runner",
+    ).toBe(200);
+    expect(login.body.worker_id).toBeTruthy();
+    expect(login.body.is_new_worker).toBe(true); // state transition: worker absent → created
+    expect(login.body.status).toBe("active");
+    const workerId = login.body.worker_id as string;
+    // Bearer token minted at test-login — required by the worker AI routes below.
+    const token = login.body.access_token as string;
     expect(token).toBeTruthy();
 
     // DB: the worker row exists; PII (the phone) lives ONLY in this table, and
@@ -218,12 +266,16 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     const sentTexts: string[] = [];
     const askedIds: (string | null)[] = [];
     let ready = false;
-    // 17, not 12: the engine's blind-run worst case is 16 asks (4 essentials x 2
-    // re-asks + 8 ask-once topics) since `certifications` joined the bank, and the
-    // wrap-up turn is the 17th. A bound below that would time the loop out before
-    // readiness and read as a product failure rather than a too-small budget.
-    for (let i = 0; i < 17 && !ready; i++) {
-      const text = scriptedMessages[i] ?? "haan bhai, theek hai";
+    // BL-18: the old "17, not 12" bound was measured against a stale reading of the
+    // engine's own worst case. next-question.ts's CURRENT MAX_ENGINE_ASKS is 24, not
+    // 16 — that constant is the engine's own derived, test-pinned backstop
+    // (next-question.ts's own comment: "the test suite pins that arithmetic against
+    // the constant rather than restating the number"), so restating a smaller number
+    // here is exactly the staleness that constant exists to prevent. 30 turns gives
+    // headroom above 24 asks for the rare clarify/silence turn that consumes a turn
+    // without consuming an ask, without approaching MAX_ENGINE_TURNS' blind-run ceiling.
+    for (let i = 0; i < 30 && !ready; i++) {
+      const text = scriptedMessages[i] ?? FILLERS[i % FILLERS.length]!;
       const msg = await call(
         "POST",
         "/chat/message",
@@ -239,24 +291,46 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
       sentTexts.push(text);
       askedIds.push(msg.body.asked_question_id ?? null);
       ready = msg.body.extraction_ready === true;
+      // Diagnostic only (no assertion) — if this loop ever exhausts again, the CI log
+      // shows exactly which question got stuck instead of a bare "expected true, got
+      // false" with nothing to diagnose from.
+      console.log(
+        `[phase1-onboarding e2e] turn ${i + 1}: asked=${msg.body.asked_question_id ?? "(none)"} ` +
+          `kind=${msg.body.question_kind ?? "?"} ready=${ready}`,
+      );
     }
     const turns = sentTexts.length;
-    expect(ready).toBe(true); // interview reached extraction-ready
+    expect(
+      ready,
+      `interview never reached extraction-ready in ${turns} turns; asked ids: ${JSON.stringify(askedIds)}`,
+    ).toBe(true);
 
     // Interview advanced and never repeated Q1.
-    expect(askedIds[0]).toBe("role"); // both engines open with the role question
+    // First real CI run (this suite had never executed) found this stale: no question pack
+    // has ever had a "role" question_key (grepped every packages/db/data/question-packs/
+    // packs/*.json) -- the machining pack's actual first item is `primary_trade`.
+    expect(askedIds[0]).toBe("primary_trade");
     const nonNullAsked = askedIds.filter((a): a is string => a !== null);
     expect(new Set(nonNullAsked).size).toBe(nonNullAsked.length); // no topic re-asked
 
-    // DB: session is active and carries the advanced interview state.
-    const sessionRow = (await client.db.select().from(chatSessions)).find((s) => s.id === sessionId);
+    // DB: session carries the advanced interview state. Status is "ended", not "active":
+    // flush-at-end (chat.dto.ts's `session_ended` field) has `finalizeInterview` set
+    // chat_sessions.status = "ended" once the interview reaches extraction-ready -- a
+    // deliberate terminal state (chat.repository.ts) this test predates, not a bug.
+    const sessionRow = (await client.db.select().from(chatSessions)).find(
+      (s) => s.id === sessionId,
+    );
     expect(sessionRow).toBeTruthy();
-    expect(sessionRow!.status).toBe("active");
-    const convState = sessionRow!.conversationState as
-      | { turn_count?: number; asked_question_ids?: string[] }
-      | null;
+    expect(sessionRow!.status).toBe("ended");
+    const convState = sessionRow!.conversationState as { turn_count?: number } | null;
     expect(convState?.turn_count).toBe(turns); // one engine turn per message
-    expect(convState?.asked_question_ids?.[0]).toBe("role");
+    // NOT asserting asked_question_ids[0] here: finalizeInterview (chat.service.ts)
+    // writes a DIFFERENT state shape once a session ends -- role_family/turn_count/
+    // captured/answered_topics/answer_map, projected from the buffer via
+    // toConversationStatePatch, never asked_question_ids. That field only exists on
+    // the LIVE, mid-interview state this test predates. The claim it was checking
+    // (the interview opens with primary_trade) is already proven above via the live
+    // API response order (askedIds[0]).
 
     // DB: every turn persisted one inbound + one outbound message, bodies intact.
     const msgRows = (await client.db.select().from(chatMessages))
@@ -273,7 +347,14 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     // ──────────── STAGE 4 — Profile extraction (AUTOMATIC, no manual call) ────────────
     // Reaching extraction_ready above auto-triggered extraction from the chat
     // service — there is NO POST /profile/extract. Poll the auto-created job to done.
-    const { aiJobId, profileId } = await pollAutoExtraction(client, workerId);
+    //
+    // 240 attempts (60s), not the 60/15s default: this suite's own test-login rewire is the
+    // FIRST time this exact path (test-login-authenticated worker -> chat -> auto-extraction)
+    // has ever run in CI -- it was `it.skip` before. A cold BullMQ worker + mocked AI-service
+    // round trip on a shared CI runner is a different latency profile from local dev, where
+    // 15s was apparently enough. If 60s is ever insufficient too, that is a real signal
+    // (queue never processes the job at all) rather than a timing margin to keep padding.
+    const { aiJobId, profileId } = await pollAutoExtraction(client, workerId, 240);
     expect(aiJobId).toBeTruthy();
     expect(profileId).toBeTruthy();
 
@@ -462,7 +543,10 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(JSON.stringify(await client.db.select().from(aiJobs))).not.toContain(WORKER_NAME);
 
     expect(count("worker.created")).toBe(1);
-    expect(count("worker.otp_verified")).toBe(1);
+    // NOT worker.otp_verified: STAGE 1 uses the D-3 test-login seam, which emits the
+    // DISTINCT worker.test_login event instead (auth.service.ts's own doc comment: "never
+    // worker.otp_verified" -- so an auditor can always tell a real login from a test one).
+    expect(count("worker.test_login")).toBe(1);
     expect(count("worker.name_recorded")).toBe(1); // emitted once on the name write
     expect(count("consent.accepted")).toBe(1);
     expect(count("chat.session_started")).toBe(1);
@@ -495,19 +579,23 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     const eventsJson = JSON.stringify(mine);
     expect(eventsJson).not.toContain(PHONE);
     expect(eventsJson).not.toContain(NATIONAL);
-    // ...and the persisted interview state holds topic ids/counts only — never the
-    // raw worker message text, and never the phone.
+    // ...and the persisted interview state never carries the phone -- but NOT "no raw
+    // worker message text": OIE's answer_map deliberately stores each answer's
+    // value_raw ("The worker's words, verbatim" -- packages/ai-contracts/src/oie.ts's
+    // own AnswerRecordSchema comment) as the parse call's evidence store, the same
+    // tier as chat_messages.bodyText (already asserted verbatim above). Pseudonymization
+    // guards the AI-BOUNDARY crossing (the LLM parse-call payload), not this platform's
+    // own Postgres row -- CLAUDE.md's invariant is "no raw PII crosses AI boundaries",
+    // not "no worker content in our own database". This assertion predates answer_map
+    // and asserted a narrower, no-longer-true shape.
     const stateJson = JSON.stringify(sessionRow!.conversationState ?? {});
     expect(stateJson).not.toContain(PHONE);
     expect(stateJson).not.toContain(NATIONAL);
-    for (const text of sentTexts) {
-      expect(stateJson).not.toContain(text);
-    }
     // ...and the async job refs carry ids only, no phone.
     const jobJson = JSON.stringify({ in: jobRow!.inputRef, out: jobRow!.outputRef });
     expect(jobJson).not.toContain(PHONE);
     expect(jobJson).not.toContain(NATIONAL);
-  });
+  }, 90_000); // suite default is 30s; STAGE 4's own poll budget alone can take up to 60s.
 
   it("RLS: workers is locked to the backend role — anon/authenticated/service_role denied", async () => {
     // The backend connection (postgres / BYPASSRLS) reads fine...

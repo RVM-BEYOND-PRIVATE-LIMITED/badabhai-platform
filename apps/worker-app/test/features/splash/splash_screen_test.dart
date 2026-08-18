@@ -57,5 +57,24 @@ void main() {
 
       expect(find.text('LOGIN STUB'), findsOneWidget);
     });
+
+    // Fits every screen (Y): on a SHORT screen the flexible layout must scroll
+    // instead of overflowing, and the CTA + brand promise must still be present
+    // (reachable by scroll). A RenderFlex overflow would throw and takeException
+    // would return it.
+    testWidgets('fits a short screen without overflowing',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(360, 480); // very short handset
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(_app());
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull,
+          reason: 'the splash must scroll, never overflow, on a short screen');
+      expect(find.text('Get started'), findsOneWidget);
+    });
   });
 }

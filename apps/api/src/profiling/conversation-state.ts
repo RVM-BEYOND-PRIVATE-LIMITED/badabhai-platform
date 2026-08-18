@@ -160,6 +160,35 @@ export interface LastTurn {
    * said about the dropped chips too, and this cache promises the response it claims to repeat.
    */
   readonly inputMode: InputMode;
+  /**
+   * How many times THIS stamped reply has already been served as a replay. 0 on a fresh stamp.
+   *
+   * THE BUG THIS CLOSES. `inboundHash` is `(sessionId, rev, text)`, and `rev` advances in lock
+   * step with the turn count regardless of what the text says — so it does NOT distinguish "a
+   * network retry of the message that just landed" from "the worker's next, genuinely different
+   * turn happens to use the same words". A worker who answers two consecutive questions with the
+   * same short phrase ("haan", "theek hai", "pata nahi" — exactly the vocabulary a low-literacy
+   * conversational UI lives on) produces a SECOND inbound whose `(sessionId, rev, text)` is
+   * byte-identical to the first's stamp, because nothing else advanced `rev` in between. Unbounded,
+   * every further identical submission matches the same stamp again — since a replay itself writes
+   * nothing, the stamp NEVER goes stale, and the interview is stuck re-serving the question that
+   * was on screen for `REPLY_CACHE_WINDOW_MS` measured from that ONE original turn, however many
+   * genuinely new turns arrive inside it. Measured: an interview asked a `max_asks: 1` question,
+   * got a generic affirmative back, and never moved again for the rest of a 30-turn bound.
+   *
+   * `MAX_REPLAYS_PER_TURN` bounds it: once THIS stamp has already been replayed that many times,
+   * the next identical submission is no longer treated as a retry — it runs the turn for real
+   * instead of matching the same cache entry again. A genuine flaky-link retry still gets the
+   * byte-identical response for free; a worker's actual next answer, however plainly it echoes
+   * their last one, is never trapped behind it for longer than that.
+   *
+   * THE COUNTER IS NOT THE ONLY GATE, AND IT IS NOT THIS FIELD'S JOB TO BE (#858). Running the
+   * turn for real is right for a worker's echo and wrong for a client firing one submission three
+   * times, and the counter cannot tell them apart. {@link RETRY_STORM_FLOOR_MS} holds the second
+   * gate — an elapsed-time floor below which a spent budget still replays — so this number stays
+   * what it says it is: how many times a stamp may be replayed, not how long.
+   */
+  readonly replays: number;
 }
 
 /**
@@ -188,8 +217,143 @@ export function inboundHash(sessionId: string, rev: number, text: string): strin
  * Sized for a double-tap and a 2G round trip, not for a worker's considered second thought: past
  * this a repeated message is a real new turn, and replaying would look like the assistant ignoring
  * them.
+ *
+ * ⚠ THIS IS NO LONGER THE OUTER BOUND OF THE CACHE — see {@link STALE_RESPONSE_WINDOW_MS}. It is
+ * the bound of the FRESH window, inside which a match is confidently a retry and the reply is
+ * served as an ordinary replay. Between here and the stale window the answer is the same but the
+ * REASON is different, and the budget no longer applies.
  */
 export const REPLY_CACHE_WINDOW_MS = 10_000;
+
+/**
+ * How long a matching submission is still served from the cache instead of ANSWERING THE QUESTION
+ * NOW ON SCREEN. The outer bound of the reply cache.
+ *
+ * ── THE DEFECT THIS CLOSES (#869) ──────────────────────────────────────────────────────────────
+ *
+ * {@link REPLY_CACHE_WINDOW_MS} is 10 s. The shipped worker app's own HTTP deadline is 15 s
+ * (`kRequestTimeout`, `apps/worker-app/lib/core/api/api_client.dart`). So the ONE retry that
+ * client is designed to produce — a POST that landed server-side but whose response was lost,
+ * timing out at 15 s and re-sent byte-identically — arrived OUTSIDE the window every single time.
+ * `replayOf` rejected it on the age test, the turn ran for real, and the worker's words for
+ * question A were captured against question B, which A's own success had already put on screen.
+ *
+ * It needed N = 2, not a storm, so neither {@link MAX_REPLAYS_PER_TURN} nor
+ * {@link RETRY_STORM_FLOOR_MS} could see it: both live PAST the age test that rejected it.
+ *
+ * ── WHY WIDENING THE FRESH WINDOW WAS THE WRONG FIX ────────────────────────────────────────────
+ *
+ * Simply raising `REPLY_CACHE_WINDOW_MS` past 15 s would trade this defect for the one its own
+ * comment exists to prevent: a worker who genuinely repeats themselves after twelve seconds would
+ * get a replay instead of a turn, and the assistant would look like it ignored them. The two
+ * windows want different sizes because they answer different questions.
+ *
+ * ── THE RULE THAT SEPARATES THEM: ASYMMETRY OF HARM, NOT CONFIDENCE ────────────────────────────
+ *
+ * A hash match proves the text is identical AND that no turn has intervened (the stamp is written
+ * at `rev + 1`, so any real turn in between changes the key). Past 10 s that leaves exactly two
+ * readings, and the server genuinely cannot tell them apart:
+ *
+ *   (a) a stale client retry — the worker never saw the new question;
+ *   (b) the worker's next answer, which happens to reuse the same words.
+ *
+ * Guessing costs wildly different amounts:
+ *
+ *   guess (b), truth (a) → words captured against a question the worker never saw. On a
+ *                          `max_asks: 1` item `isSettled` makes that PERMANENT and SILENT — the
+ *                          worker cannot see it, so they cannot correct it. Durable corruption.
+ *   guess (a), truth (b) → the worker sees their previous question again and answers it once
+ *                          more. One wasted round trip, immediately visible, self-correcting.
+ *
+ * Fail toward the recoverable outcome (§3, fail closed). That is the whole rule.
+ *
+ * ── SIZING ────────────────────────────────────────────────────────────────────────────────────
+ *
+ * 30 s: double the client's 15 s deadline, so the retry lands well inside it even when the
+ * original response was still in flight over a 2G link. It must EXCEED that deadline or it fixes
+ * nothing; it should not be so long that reading (b) as (a) becomes routine.
+ *
+ * ── IT EXPIRES ON ITS OWN ─────────────────────────────────────────────────────────────────────
+ *
+ * A stale replay writes nothing and never refreshes `last.at`, so `age` only ever grows. The
+ * window closes by the clock whether or not this path touches Redis — the same property
+ * {@link RETRY_STORM_FLOOR_MS} relies on, and the reason no budget is needed out here.
+ *
+ * ── INTERIM ───────────────────────────────────────────────────────────────────────────────────
+ *
+ * The durable fix is a per-submission client id, which removes the ambiguity entirely instead of
+ * ruling on it, and is time-independent. It needs the worker app to send one (see the companion
+ * frontend issue). This window is what protects workers until that ships, and should be revisited
+ * — not silently kept — when it does.
+ */
+export const STALE_RESPONSE_WINDOW_MS = 30_000;
+
+/**
+ * How many times ONE stamped reply may be served as a replay before a further identical
+ * submission is treated as a real, new turn instead. See {@link LastTurn.replays}.
+ *
+ * ONE — matching the window above: this cache is sized for a single flaky-link retry, not a
+ * retry storm, so one absorbed duplicate is the whole of the intended protection. A worker whose
+ * actual next answer echoes their last one pays for at most ONE extra round trip before the
+ * interview advances, instead of being stuck for the whole ten-second window.
+ */
+export const MAX_REPLAYS_PER_TURN = 1;
+
+/**
+ * How soon after a stamped reply an identical submission is still assumed to be the SAME physical
+ * submission arriving again, rather than a worker's next answer that happens to use the same words.
+ *
+ * THE GAP THIS CLOSES (#858), which is the residue of the budget above. `MAX_REPLAYS_PER_TURN`
+ * caps how many times one stamp may be replayed; past the cap a further identical submission runs
+ * a REAL turn — and a real turn answers whatever question is on screen NOW. For a worker's own
+ * echo that is exactly right: the question moved on because they answered the last one, and their
+ * next words belong to the new question. For a broken client firing the same physical submission
+ * three or more times, it is exactly wrong: the first duplicate's own success is what advanced the
+ * question, so copy three of text meant for question A is captured as the answer to question B —
+ * spending B's ask budget, or settling B outright, with content the worker never gave for it.
+ *
+ * NOTHING IN THE REQUEST DISTINGUISHES THE TWO. Same session, same words, same hash; `rev` counts
+ * turns and carries no information about content. The one discriminator left is the CLOCK: a
+ * worker's next answer requires them to have SEEN the next question — a round trip, a render, and
+ * a read by someone the product exists to serve because reading is hard for them — while a retry
+ * storm is one tap or one client-side loop, and lands in milliseconds. Below this floor the human
+ * reading is not merely unlikely, it is not physically available; above it the two are genuinely
+ * indistinguishable and the turn is run for real, exactly as {@link MAX_REPLAYS_PER_TURN} says.
+ *
+ * 750 ms, AND THE NUMBER IS SIZED TO THE MACHINE, WHICH IS THE ONLY DUPLICATE IT CAN HONESTLY
+ * CLAIM. Duplicates come in two cadences and this separates only one of them:
+ *
+ *   - PROGRAMMATIC — one submission posted repeatedly because nothing debounced it: a submit
+ *     handler without a latch, a double-tap, a client-side loop. These land tens of milliseconds
+ *     apart, orders of magnitude under any human, and they are what this floor catches.
+ *   - HUMAN-PACED — the worker tapping a rendered retry affordance after a failed-looking send.
+ *     These land SECONDS apart, and at that cadence a duplicate and a worker whose next answer
+ *     genuinely echoes their last are the same measurement. This floor does not catch them and no
+ *     larger value could: a floor wide enough to cover a retry tap re-creates #857's trap, which
+ *     is strictly the worse bug. See the note below.
+ *
+ * SO THE FLOOR SITS JUST ABOVE THE MACHINE AND FAR BELOW THE HUMAN, and erring long is not free.
+ * Since #761 the client renders the next question optimistically from the lookahead, so a worker
+ * tapping a repeated chip label ("Haan", then "Haan") CAN return inside a second on a good link;
+ * every millisecond of floor beyond what a programmatic burst needs taxes exactly that worker —
+ * the engaged one §2 counts — for no additional coverage. 750 ms clears an undebounced multi-post
+ * by an order of magnitude while staying under a perceive-render-and-tap cycle.
+ *
+ * MEASURED FROM `LastTurn.at`, WHICH A REPLAY NEVER REFRESHES, and that is what keeps this bounded
+ * rather than a second way to hang an interview. The anchor is the original real turn, so the age
+ * this is compared against only ever GROWS while duplicates arrive: the floor expires on the wall
+ * clock, deterministically, whether or not anything is written. That is the whole difference
+ * between this and the pre-#857 cache, which never went stale because going stale was a WRITE's
+ * job and a replay performed none.
+ *
+ * WHAT THIS DOES NOT CLOSE, STATED RATHER THAN IMPLIED. Past the floor a storm resumes costing one
+ * mis-capture per two posts, and nothing server-side can do better: elapsed time is the only
+ * signal the two cases do not share, and past a second they share that too. The exact fix is an
+ * id minted per PHYSICAL submission by the client, which makes "one action retried" and "two
+ * actions with identical words" distinguishable by construction instead of by inference. That is
+ * Frontend-owned work and is raised separately (§6).
+ */
+export const RETRY_STORM_FLOOR_MS = 750;
 
 /**
  * One chip in an outstanding disambiguation offer, WITH the id it resolves to.
@@ -562,6 +726,12 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     // ABSENT NARROWS TO `text`, the same "degrade to today's behaviour" rule `kind` follows: an
     // entry written before this field existed described a turn on which typing was allowed.
     inputMode: v.inputMode === "options_only" ? "options_only" : "text",
+    // ABSENT NARROWS TO 0, matching a stamp written before this field existed: nothing has replayed
+    // it yet as far as this record can say, so it gets the same one-through-`MAX_REPLAYS_PER_TURN`
+    // budget a freshly-stamped turn would. Clamped rather than trusted verbatim for the same reason
+    // `askCount` clamps at 0 — a negative or non-finite value read back from Redis must not buy a
+    // replay budget the field's own type says cannot exist.
+    replays: Number.isInteger(v.replays) && (v.replays as number) >= 0 ? (v.replays as number) : 0,
   };
 }
 

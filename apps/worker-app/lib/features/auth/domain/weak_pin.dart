@@ -1,12 +1,16 @@
-/// Client-side weak-PIN heuristic — for a GENTLE hint only, never a block.
+/// Client-side weak-PIN heuristic — the HARD CLIENT BLOCK on the set/reset-PIN
+/// screens for the few PINs no worker should ever pick.
 ///
-/// The server is the real policy authority (it can reject a weak PIN on
-/// `pin/set`). This local check just lets the set-PIN screen nudge the worker
-/// ("1111 / 1234 jaise PIN na chunein") before they submit, so a low-literacy
-/// user is not surprised by a server rejection.
+/// The server remains the real policy authority (it can reject other weak PINs
+/// on `pin/set` that this narrow heuristic does not know about — see the
+/// screens' failure dialogs). This local check exists so the most obvious cases
+/// (1111 / 1234) are stopped IMMEDIATELY with a centred, readable explanation,
+/// rather than sailing through to a late, confusing server rejection — and, on
+/// the reset flow, before they waste the worker's one-time OTP.
 ///
-/// Returns true for an all-same run (1111) or a strict ascending / descending
-/// sequence (1234 / 4321). Anything else passes (no hint).
+/// It is deliberately NARROW to avoid a false block on a perfectly good PIN:
+/// returns true only for an all-same run (1111) or a strict ascending /
+/// descending sequence (1234 / 4321). Anything else passes.
 bool isWeakPin(String pin) {
   if (pin.length < 2) return false;
   final List<int> digits = pin.split('').map(int.tryParse).whereType<int>().toList();

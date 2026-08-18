@@ -27,6 +27,23 @@ export type PostMessageDto = z.infer<typeof PostMessageSchema>;
 export const PostMessageResponseSchema = z.object({
   session_id: uuidSchema,
   reply: z.string(),
+  /**
+   * `reply` in DEVANAGARI, for read-aloud only (#896) — never displayed, never echoed back.
+   *
+   * WHY THE SHOWN STRING CANNOT BE SPOKEN. `reply` is romanized Hinglish ("…resume banate
+   * hain") and no on-device voice pronounces it: a `hi-IN` voice is built for Devanagari and
+   * mangles the Latin, an `en-IN` voice reads it as English. Verified on device. A worker who
+   * cannot read the screen has no way to catch either failure, so the spoken string has to be
+   * in the script the voice expects.
+   *
+   * SAME CONTENT, DIFFERENT SCRIPT — not a translation and not a summary. The two strings say
+   * the same sentence, so a worker who reads and a worker who listens answer the same question.
+   *
+   * OPTIONAL IN THE STRICT SENSE: ABSENT, never null, when no Devanagari is authored for this
+   * reply yet. The client falls back to speaking `reply`, which is exactly today's behaviour, so
+   * the corpus can fill in progressively without a client release. See `question-tts-text.ts`.
+   */
+  tts_text: z.string().optional(),
   blocked: z.boolean(),
   is_mock: z.boolean(),
   suggested_followups: z.array(z.string()).default([]),
@@ -164,6 +181,8 @@ export const PostMessageResponseSchema = z.object({
         /** `close` means the prediction is that the interview ends on this answer. */
         question_kind: z.enum(["ask", "close"]),
         prompt_text: z.string(),
+        /** `prompt_text` in Devanagari for read-aloud (#896); absent when unauthored. */
+        tts_text: z.string().optional(),
         why_text: z.string().nullable(),
         // THE SAME CLOSED SET the voice form uses for the identical field. An open `z.string()`
         // here would let a contract mismatch reach a client as a value it cannot switch on,
@@ -207,6 +226,15 @@ export const StartSessionResponseSchema = z.object({
   status: z.string(),
   started_at: z.union([z.string(), z.date()]),
   opening_text: z.string().optional(),
+  /**
+   * `opening_text` in Devanagari for read-aloud (#896) — the first thing a worker ever hears.
+   *
+   * Until this existed the client had to carry its own hard-coded Devanagari opener, because
+   * turn one is the one question never served through the reply path. That copy could only
+   * drift from the server's; served here, both sides read one string. Absent when
+   * `opening_text` is absent, or when no twin is authored for it.
+   */
+  opening_tts_text: z.string().optional(),
 });
 export type StartSessionResponse = z.infer<typeof StartSessionResponseSchema>;
 
@@ -238,6 +266,19 @@ export const SessionMessageSchema = z.object({
   // before its transcript lands (`body_text` still NULL). The client renders the
   // bubble as pending rather than dropping the turn.
   body_text: z.string().nullable(),
+  /**
+   * `body_text` in Devanagari for read-aloud (#896) — assistant lines only, absent otherwise.
+   *
+   * A REPLAYED question has to read aloud as correctly as a live one: the worker who unlocks
+   * the app and taps the speaker on turn three is the same worker, and the transcript is the
+   * only copy they have. Resolved by looking the stored `body_text` up in the sidecar, which is
+   * why that table is keyed by reply text — the durable row carries no question_key, and its
+   * `metadata` JSONB is a closed slug set that must never hold worker-authored text.
+   *
+   * NEVER on an inbound line. Those are the worker's own words, already in whatever script they
+   * typed, and nothing reads them back to them.
+   */
+  tts_text: z.string().optional(),
   created_at: z.string(),
 });
 export const SessionMessagesResponseSchema = z.object({

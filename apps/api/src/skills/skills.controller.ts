@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, HttpCode, Post, UseGuards } from "@nestjs/common";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { SkillsInternalGuard } from "./skills-internal.guard";
 import { SkillsService } from "./skills.service";
@@ -9,6 +9,7 @@ import {
   type NearestDomainsDto,
   RecordUnresolvedDtoSchema,
   type RecordUnresolvedDto,
+  toAliasSearchScope,
 } from "./skills.dto";
 
 /**
@@ -27,13 +28,28 @@ import {
 export class SkillsController {
   constructor(private readonly skills: SkillsService) {}
 
-  /** Domain-scoped nearest-alias ANN lookup. Read-only — no event. */
+  /**
+   * Domain-scoped nearest-alias ANN lookup. Read-only — no event.
+   *
+   * The body carries EXACTLY ONE of `domain_id` (legacy 11-slug skill domain) or
+   * `job_domain_id` (canonical `jd_*`); the schema 400s on neither and on both. The
+   * response shape is unchanged: `{ candidates: [{ skill_id, score }] }`.
+   */
   @Post("nearest-aliases")
   @HttpCode(200)
   async nearestAliases(
     @Body(new ZodValidationPipe(NearestAliasesDtoSchema)) dto: NearestAliasesDto,
   ) {
-    const candidates = await this.skills.nearestAliases(dto.domain_id, dto.vector, dto.k);
+    const scope = toAliasSearchScope(dto);
+    // Unreachable behind the schema's exactly-one-of refine, and kept anyway: the ONE
+    // outcome that must never happen is a domainless search over the whole vocabulary,
+    // so the fallback is a 400 rather than a default scope. Fail closed.
+    if (scope === null) {
+      throw new BadRequestException(
+        "exactly one of domain_id or job_domain_id is required",
+      );
+    }
+    const candidates = await this.skills.nearestAliases(scope, dto.vector, dto.k);
     return { candidates };
   }
 

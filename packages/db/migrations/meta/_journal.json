@@ -526,6 +526,20 @@
       "when": 1786626283988,
       "tag": "0074_youthful_zaran",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1786780800000,
+      "tag": "0075_job_postings_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1786873547157,
+      "tag": "0076_canonical_domain_skill_taxonomy",
+      "breakpoints": true
     }
   ]
 }

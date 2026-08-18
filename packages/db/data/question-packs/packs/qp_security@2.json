@@ -1,0 +1,110 @@
+{
+  "_why": "Trade pack for Security. The first question is the disambiguator: retrieval pins the FAMILY, this settles which occupation within it, in the worker's own vocabulary.",
+  "_v2": "REMOVES `tools_owned`. 'Kya aapke paas apne auzaar hain?' has no referent in a service, sales, care or supervision role — a cashier, a ward attendant and a security guard do not carry a tool kit to work, and every one of them was asked anyway. The item was never authored FOR this pack: Phase 6 (#615) stamped one shared four-question block onto every cluster it could not differentiate, and this is the row that block got wrong. An irrelevant question costs a paid provider call, one of 24 engine asks, and the worker's trust that the interview knows what they do.",
+  "pack_id": "qp_security",
+  "version": 2,
+  "family_id": "fam_security",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "v2 removes tools_owned (service cluster). v1 is deprecated in the same commit — the corpus validator refuses a second ACTIVE pack for one family+locale, because the resolver must never have to choose.",
+  "items": [
+    {
+      "question_key": "guard_place",
+      "prompt_text": "Aap kahaan guard ka kaam karte hain?",
+      "why_text": "Har jagah ki duty alag hoti hai.",
+      "target_kind": "rfs",
+      "target_field": "skills",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "society",
+          "label_text": "Society ya flat",
+          "value_text": "society"
+        },
+        {
+          "option_key": "office",
+          "label_text": "Office",
+          "value_text": "office"
+        },
+        {
+          "option_key": "factory",
+          "label_text": "Factory",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "bank",
+          "label_text": "Bank ya ATM",
+          "value_text": "bank"
+        },
+        {
+          "option_key": "event",
+          "label_text": "Event",
+          "value_text": "event"
+        }
+      ]
+    },
+    {
+      "question_key": "armed_duty",
+      "prompt_text": "Kya aap hathiyar wali duty kar sakte hain?",
+      "why_text": "Armed guard ka vetan zyada hota hai.",
+      "target_kind": "attribute",
+      "target_field": "armed_duty",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "cctv_operation",
+      "prompt_text": "Kya aap CCTV dekh sakte hain?",
+      "why_text": "CCTV wale ko control room milta hai.",
+      "target_kind": "attribute",
+      "target_field": "cctv_operation",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "psara_licence",
+      "prompt_text": "Kya aapke paas guard ka licence hai?",
+      "why_text": "Licence wale ko badi company rakhti hai.",
+      "target_kind": "attribute",
+      "target_field": "psara_licence",
+      "answer_type": "boolean",
+      "is_core": false,
+      "max_asks": 1
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "shop",
+          "label_text": "Dukan ya showroom",
+          "value_text": "shop"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se",
+          "value_text": "home"
+        }
+      ]
+    }
+  ]
+}

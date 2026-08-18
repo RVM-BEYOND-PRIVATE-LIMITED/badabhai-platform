@@ -137,15 +137,13 @@ function make(
   const ai = {
     // OIE Phase 8 — the ONE LLM call left.
     //
-    // THE DEFAULT IS A HEALTHY PARSE THAT FOUND NOTHING, not `null`, and the difference is
-    // now load-bearing. `AiService.parseProfile` returns `null` on exactly one class of
-    // event — the call did not come back (non-OK, timeout, off-contract body) — so `null`
-    // means OUTAGE, and the processor retries it rather than writing a profile that only
-    // looks empty because the model was unreachable. That is the whole point of the fix:
-    // "the worker said nothing" and "we could not ask" stopped being the same value.
-    //
-    // Most cases here are about the answer-map path and want a parse that ran and simply
-    // added no overlay. Pass `parsed: null` explicitly to exercise the outage path.
+    // THE DEFAULT IS A HEALTHY PARSE THAT FOUND NOTHING, not `null` — most cases here are
+    // about the answer-map path and want a parse that ran and simply added no overlay.
+    // `AiService.parseProfile` returns `null` when the call never came back at all (non-OK,
+    // our own abort, or an off-contract body) — that is a TRANSPORT signal, not the model
+    // being reached and failing, so it does NOT retry (see `outageCode` in the processor
+    // and "a null parse is a transport failure, not an LLM outage" below). Pass `parsed:
+    // null` explicitly to exercise that immediate-fallback path.
     parseProfile: vi
       .fn()
       .mockResolvedValue(
@@ -1082,8 +1080,13 @@ describe("the 77% reaches worker_attributes", () => {
    * dropped on the floor. A live 13-turn welding interview produced 10 typed answers and
    * ZERO rows here: the original 77% defect, moved one layer later and no less total.
    *
-   * `workplace_type` (100 items), `tools_owned` (99), `safety_training` (17) and
+   * `workplace_type` (100 items), `tools_owned` (59), `safety_training` (17) and
    * `shift_work` (14) are matching inputs under §2. An unwritten row ranks nobody.
+   *
+   * `tools_owned` reads 59 rather than the 99 this comment carried when the defect was found:
+   * 40 packs were cut to v2 with the item removed, because a cashier and a bus driver were
+   * being asked whether they own their own auzaar. The RATIO in the name above is the one
+   * measured at the time and is left alone; today's is 319 of 426 active items.
    */
   const attributeMap = (over: Record<string, unknown> = {}) => ({
     conversationState: {
@@ -1663,15 +1666,33 @@ describe("an LLM outage retries instead of completing", () => {
     expect(aiJobs.markCompleted).not.toHaveBeenCalled();
   });
 
-  it("a null parse — the ai-service unreachable — is an outage too", async () => {
-    // `AiService.parseProfile` returns null on exactly one class of event: the call did not
-    // come back. There is no healthy path that produces it.
-    const { proc, profiles } = make({ ...withMap(), parsed: null });
+  it("a null parse is a transport failure, not an LLM outage — it completes on attempt 1, not a 5-15 minute retry ladder", async () => {
+    // THE BUG THIS PINS DOWN. `AiService.parseProfile` returns `null` on exactly one class
+    // of event: the call never came back — a non-OK response, our own 25s abort, or an
+    // off-contract body. That collapses two very different situations into one signal this
+    // side cannot tell apart: "the ai-service is up but this one call misbehaved" and "the
+    // ai-service process was never reachable at all" (nothing listening on the port —
+    // exactly what apps/api's e2e CI job does on purpose, per its "AI service is
+    // intentionally NOT started" comment).
+    //
+    // This USED TO throw `LlmUnavailableError("parse_service_unreachable")` here, which
+    // BullMQ retries on `EXTRACTION_JOB_OPTS`'s 5-then-10-minute backoff — a ladder sized
+    // for a provider RATE LIMIT clearing on a timer (that docstring's own words: "THIS IS
+    // NOT WHAT BOUNDS THE STORM"), not for an endpoint with no listener at all. A worker
+    // whose interview had already finished sat with `ai_jobs.status = "running"` for the
+    // full ladder before the third, final attempt wrote the profile anyway — the exact
+    // outcome attempt 1 could have produced immediately.
+    //
+    // Consistent with the legacy `extract_service_unreachable` leg (`outageCodeOf` already
+    // narrowed that one to null): a transport failure completes on the FIRST attempt, from
+    // the answer map alone, exactly like a healthy parse that simply found nothing.
+    const { proc, profiles, aiJobs } = make({ ...withMap(), parsed: null });
 
-    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow(
-      "parse_service_unreachable",
-    );
-    expect(profiles.create).not.toHaveBeenCalled();
+    const res = await proc.process(makeJob({ attemptsMade: 0, attempts: 3 }));
+
+    expect(res).toEqual({ profile_id: PROFILE });
+    expect(profiles.create).toHaveBeenCalledOnce();
+    expect(aiJobs.markCompleted).toHaveBeenCalled();
   });
 
   it("does NOT retry when the parse failed but Phase C's overlay landed", async () => {

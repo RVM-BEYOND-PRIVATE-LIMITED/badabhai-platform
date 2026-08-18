@@ -262,6 +262,54 @@ describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
     }
   });
 
+  // BL-23: additive widen so "spent ₹X successfully" is distinguishable from "spent
+  // ₹X and the call still failed". Defaults preserve the OLD implicit reading of every
+  // historical row (no failure signal existed, so nothing ever looked like a failure).
+  it("ai.cost_recorded defaults success=true/error_code=null/failure_reason=null (old-shape rows stay valid)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_A,
+        task_type: "profile_extraction",
+        model: "m",
+        provider: "p",
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.cost_recorded") {
+      expect(result.event.payload.success).toBe(true);
+      expect(result.event.payload.error_code).toBeNull();
+      expect(result.event.payload.failure_reason).toBeNull();
+    }
+  });
+
+  it("ai.cost_recorded carries a failed call's closed-set error_code/failure_reason", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_A,
+        task_type: "profile_extraction",
+        model: "m",
+        provider: "p",
+        success: false,
+        error_code: "retry_budget_exhausted",
+        failure_reason: "LlmTransportError",
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.cost_recorded") {
+      expect(result.event.payload.success).toBe(false);
+      expect(result.event.payload.error_code).toBe("retry_budget_exhausted");
+      expect(result.event.payload.failure_reason).toBe("LlmTransportError");
+    }
+  });
+
   it("rejects ai.cost_recorded with an unknown task_type", () => {
     const evt = {
       ...workerCreatedEvent(),
@@ -2435,9 +2483,59 @@ describe("job_posting_chat.* (ADR-0035)", () => {
   });
 });
 
+describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", () => {
+  const abandoned = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "chat.session_abandoned",
+    event_version: 1,
+    occurred_at: "2026-08-14T10:00:00.000Z",
+    // The SWEEP closed this session, not the worker — the actor is the system.
+    actor: { actor_type: "system" },
+    subject: { subject_type: "chat_session", subject_id: UUID_C },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = {
+    session_id: UUID_C,
+    worker_id: UUID_A,
+    transcript_recovered: true,
+    messages_preserved: 12,
+    answers_preserved: 4,
+    idle_minutes: 380,
+  };
+
+  it("accepts ids, counts and the recovery flag", () => {
+    expect(validateEvent(abandoned(valid)).success).toBe(true);
+  });
+
+  it("carries NO message text — a stray free-text field is rejected, not passed through", () => {
+    // The transcript is raw PII and lives in `chat_messages`. If this ever starts accepting
+    // prose, an abandoned interview's words would land in the events table (§2).
+    const withText = { ...valid, last_message: "mera naam Ramesh hai, 9876543210" };
+    const result = validateEvent(abandoned(withText));
+    if (result.success) {
+      expect(result.event.payload).not.toHaveProperty("last_message");
+    }
+  });
+
+  it("rejects negative counts (a count is evidence; a negative one is a bug)", () => {
+    expect(validateEvent(abandoned({ ...valid, messages_preserved: -1 })).success).toBe(false);
+    expect(validateEvent(abandoned({ ...valid, idle_minutes: -5 })).success).toBe(false);
+  });
+
+  it("requires the recovery flag — 'transcript lost' must never be silently omitted", () => {
+    const { transcript_recovered: _omitted, ...withoutFlag } = valid;
+    expect(validateEvent(abandoned(withoutFlag)).success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 157 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback)", () => {
-    expect(EVENT_NAMES).toHaveLength(157);
+  it("exposes all 159 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned)", () => {
+    expect(EVENT_NAMES).toHaveLength(159);
     // The LLM-led opening handed back to the deterministic engine. Designed to be invisible to
     // the worker, so this event is the only place a degraded ai-service becomes visible at all.
     expect(isEventName("profile.llm_interview_fallback")).toBe(true);

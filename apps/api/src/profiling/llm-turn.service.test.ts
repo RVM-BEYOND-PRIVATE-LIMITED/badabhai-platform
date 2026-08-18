@@ -50,10 +50,13 @@ const ENTRY = {
 };
 
 function make(over: { turn?: unknown; enabled?: boolean } = {}) {
-  // Typed to TAKE its argument, so a test can assert on what was sent — `vi.fn(async () => …)`
-  // infers a zero-arg signature and `mock.calls[0][0]` is then a compile error.
+  // Typed to TAKE its arguments, so a test can assert on what was sent — `vi.fn(async () => …)`
+  // infers a zero-arg signature and `mock.calls[0][0]` is then a compile error. The second
+  // parameter is BL-19's optional trace ctx, asserted on below.
   const ai = {
-    llmTurn: vi.fn(async (_input: unknown) => ("turn" in over ? over.turn : TURN())),
+    llmTurn: vi.fn(async (_input: unknown, _ctx?: unknown) =>
+      "turn" in over ? over.turn : TURN(),
+    ),
   };
   const config = { CHAT_LLM_INTERVIEW_ENABLED: over.enabled ?? true };
   const cost = { record: vi.fn(async () => undefined) };
@@ -131,6 +134,20 @@ describe("the caps — the API owns termination, never the model", () => {
     const { svc, ai } = make();
     await svc.take(env({ llmAsks: 3 }), "haan", [], CTX);
     expect(ai.llmTurn.mock.calls[0]?.[0]).toMatchObject({ force_close: false });
+  });
+
+  it("BL-19: forwards the turn's correlation/request ids, so the far side is ONE trace", async () => {
+    // WITHOUT THIS, `AiService.post` mints a fresh uuid per call and a twelve-turn interview
+    // lands as twelve unrelated traces — the same ids the cost record already carries, so a
+    // disagreement here also splits the spend from the call that caused it.
+    // The ids are the SAME pair the cost record already asserts on further down, which is the
+    // point: spend and trace must name one id, not two.
+    const { svc, ai } = make();
+    await svc.take(env(), "cook hu", [], CTX);
+    expect(ai.llmTurn.mock.calls[0]?.[1]).toEqual({
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
   });
 
   it("ends Phase A once the experience cap is reached, without a call", async () => {
@@ -274,6 +291,66 @@ describe("the draft accumulates rather than overwrites", () => {
       CTX,
     );
     expect(out?.patch.llmDraft?.domain_label).toBe("cooking");
+  });
+});
+
+describe("the gate never opens on a trade nobody has named", () => {
+  // #917. An `experience_entry` may arrive on ANY turn — the composite opener invites exactly
+  // that — and it opens the Yes/No gate immediately. Nothing required a label first, so a worker
+  // could be looking at "Aur koi experience jodna hai?" while the draft asserted no trade at all.
+  // The entry already carries the role; borrowing it costs no turn and no token.
+  const NAMELESS = {
+    domain_label: null,
+    role_label: null,
+    skills: [],
+    experiences: [],
+  };
+
+  it("borrows the entry's role when the turn and the draft both name nothing", async () => {
+    const { svc } = make({ turn: TURN({ domain_label: null, experience_entry: ENTRY }) });
+    const out = await svc.take(env({ llmDraft: NAMELESS }), "3 saal tandoor pe kaam kiya", [], CTX);
+    // The gate IS what this turn serves — the point is that it no longer serves it nameless.
+    expect(out).toMatchObject({ kind: "ask", reply: EXPERIENCE_GATE_PROMPT });
+    expect(out?.patch.llmDraft?.role_label).toBe(ENTRY.role_label);
+  });
+
+  it("borrows nothing when there is no entry — an absent label stays absent", async () => {
+    // The fallback must not invent a role on ordinary turns; `settleFromLlmDraft` treats a label
+    // as the worker's answer of record, so a fabricated one is worse than the pack question.
+    const { svc } = make({ turn: TURN({ domain_label: null }) });
+    const out = await svc.take(env({ llmDraft: NAMELESS }), "haan", [], CTX);
+    expect(out?.patch.llmDraft?.role_label).toBeNull();
+  });
+
+  it("lets the turn's OWN role_label beat the entry's — the model named it properly", async () => {
+    const { svc } = make({
+      turn: TURN({ role_label: "pipe fitter welder", experience_entry: ENTRY }),
+    });
+    const out = await svc.take(env({ llmDraft: NAMELESS }), "welding ka kaam", [], CTX);
+    expect(out?.patch.llmDraft?.role_label).toBe("pipe fitter welder");
+  });
+
+  it("does not let an EARLIER job rename the worker's trade", async () => {
+    // Entry two onwards is a previous job ("uske pehle main helper tha"). The draft already holds
+    // a role by then, and that precedence is the whole reason the fallback sits last.
+    const { svc } = make({
+      turn: TURN({ role_label: null, experience_entry: { ...ENTRY, role_label: "helper" } }),
+    });
+    const out = await svc.take(
+      env({
+        llmDraft: { ...NAMELESS, role_label: "tandoor cook", experiences: [ENTRY] },
+      }),
+      "uske pehle main helper tha",
+      [],
+      CTX,
+    );
+    expect(out?.patch.llmDraft?.role_label).toBe("tandoor cook");
+  });
+
+  it("borrows the ROLE only — the domain is not something an entry can answer", async () => {
+    const { svc } = make({ turn: TURN({ domain_label: null, experience_entry: ENTRY }) });
+    const out = await svc.take(env({ llmDraft: NAMELESS }), "3 saal", [], CTX);
+    expect(out?.patch.llmDraft?.domain_label).toBeNull();
   });
 });
 

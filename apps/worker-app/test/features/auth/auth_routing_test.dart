@@ -63,6 +63,12 @@ Future<void> _pumpUntil(WidgetTester tester, Finder finder,
 }
 
 Future<void> _enterPin(WidgetTester tester, String pin) async {
+  // Set-PIN pops a "re-enter the same PIN" dialog on the confirm step; dismiss
+  // it so the keypad behind the modal barrier is tappable.
+  if (find.text('Theek hai').evaluate().isNotEmpty) {
+    await tester.tap(find.text('Theek hai'));
+    await tester.pumpAndSettle();
+  }
   for (final String d in pin.split('')) {
     await tester.tap(find.descendant(
       of: find.byType(BbPinKeypad),
@@ -342,6 +348,10 @@ void main() {
     expect(find.textContaining('tries'), findsNothing);
     expect(find.textContaining('minute'), findsNothing);
     expect(find.text('PIN daalein'), findsOneWidget); // still on the PIN screen
+
+    // Acknowledge the wrong-PIN dialog so the keypad behind it is tappable again.
+    await tester.tap(find.text('Theek hai'));
+    await tester.pumpAndSettle();
 
     // The keypad is NOT disabled (no lockout) — another digit registers.
     await tester.tap(find.descendant(

@@ -12,7 +12,7 @@ overrides:
   brace-expansion@>=5.0.0 <5.0.9: ^5.0.9
   fast-uri@<3.1.5: ^3.1.5
   js-yaml@<4.3.1: ^4.3.1
-  nanoid@<3.3.17: ^3.3.17
+  nanoid@<3.3.18: ^3.3.18
   postcss@<8.5.18: ^8.5.18
   sharp@<0.35.0: ^0.35.0
   shell-quote@<1.8.5: ^1.8.5
@@ -185,6 +185,28 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^3.0.0
         version: 3.2.7(vitest@3.2.7(@types/node@22.19.20)(terser@5.48.0)(tsx@4.22.4))
+
+  apps/marketing-web:
+    dependencies:
+      next:
+        specifier: ^15.5.21
+        version: 15.5.22(@types/node@22.19.20)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.17)
+      vitest:
+        specifier: ^3.2.7
+        version: 3.2.7(@types/node@22.19.20)(terser@5.48.0)(tsx@4.22.4)
 
   apps/payer-web:
     dependencies:
@@ -2852,8 +2874,8 @@ packages:
     resolution: {integrity: sha512-WWdIxpyjEn+FhQJQQv9aQAYlHoNVdzIzUySNV1gHUPDSdZJ3yZn7pAAbQcV7B56Mvu881q9FZV+0Vx2xC44VWA==}
     engines: {node: ^18.17.0 || >=20.5.0}
 
-  nanoid@3.3.17:
-    resolution: {integrity: sha512-xQLf0A3HOMlgHq0n247/LRuAOYmB7dXJ/DvAxGvsSBij45XtBSmQycu+F8ODbHwns/XyFZagyL1+J0Offw1E0g==}
+  nanoid@3.3.18:
+    resolution: {integrity: sha512-DTg4MJbGMWkfi6VZFdNt2/caMbQy4Ou+Op/hJQvGEWcnVfoA1QA+xzRKAzw9jD6+GVOOeYr/mIcuDSdug6F6+w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -5851,7 +5873,7 @@ snapshots:
 
   make-dir@4.0.0:
     dependencies:
-      semver: 7.8.2
+      semver: 7.8.5
 
   math-intrinsics@1.1.0: {}
 
@@ -5924,7 +5946,7 @@ snapshots:
 
   mute-stream@2.0.0: {}
 
-  nanoid@3.3.17: {}
+  nanoid@3.3.18: {}
 
   natural-compare@1.4.0: {}
 
@@ -6083,7 +6105,7 @@ snapshots:
 
   postcss@8.5.25:
     dependencies:
-      nanoid: 3.3.17
+      nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
@@ -6239,8 +6261,7 @@ snapshots:
 
   semver@7.8.2: {}
 
-  semver@7.8.5:
-    optional: true
+  semver@7.8.5: {}
 
   send@1.2.1:
     dependencies:

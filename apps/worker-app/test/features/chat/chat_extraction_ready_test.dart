@@ -89,7 +89,7 @@ void main() {
 
   group('ChatState.extractionReady (#421)', () {
     test('a reply with extraction_ready: true flips the state ready', () async {
-      when(() => repo.sendMessage(any())).thenAnswer(
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
         (_) async => const ChatTurn(reply: 'Bas ho gaya.', extractionReady: true),
       );
       final ChatBloc bloc = ChatBloc(repo);
@@ -104,7 +104,7 @@ void main() {
 
     test('a reply with extraction_ready: false leaves the state not ready',
         () async {
-      when(() => repo.sendMessage(any()))
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
       final ChatBloc bloc = ChatBloc(repo);
       addTearDown(bloc.close);
@@ -118,7 +118,7 @@ void main() {
     test('readiness LATCHES — a later not-ready turn cannot un-ready the CTA',
         () async {
       int calls = 0;
-      when(() => repo.sendMessage(any())).thenAnswer((_) async {
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer((_) async {
         calls++;
         // Ready first, then a degraded turn with no readiness flag.
         return ChatTurn(reply: 'r$calls', extractionReady: calls == 1);

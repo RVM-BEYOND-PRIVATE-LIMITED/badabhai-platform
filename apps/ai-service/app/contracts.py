@@ -10,7 +10,14 @@ import math
 import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 # INTERVIEW-1 §7 parity: Zod's `z.number().int().nonnegative()` REJECTS -1 and the
 # string "2". Plain `int` here would accept both (Pydantic coerces "2" -> 2), so the
@@ -844,13 +851,86 @@ class WorkerProfileDraft(BaseModel):
 
 
 # --- Skill canonicalization (ADR-0030 / TAX-4) -----------------------------
+def exactly_one_skill_scope(domain_id: str | None, job_domain_id: str | None) -> bool:
+    """The Phase 1.5 scope rule, in ONE place so the two validators below (and
+    ``app.ai.canonicalize``'s defence-in-depth guard) can never drift apart.
+
+    PRESENCE, not truthiness: ``domain_id=""`` counts as SUPPLIED. That is deliberate —
+    an empty slug scopes the search to a domain that owns no aliases (zero rows →
+    UNRESOLVED), which is safe, whereas treating it as absent would 422 a caller whose
+    behaviour is unchanged today. The rule that matters is that *neither* id is refused."""
+    return (domain_id is None) != (job_domain_id is None)
+
+
+_SKILL_SCOPE_ERROR = (
+    "exactly one of domain_id (legacy skill-domain slug) or "
+    "job_domain_id (canonical jd_*) is required"
+)
+
+
 class SkillCanonicalizationInput(BaseModel):
-    """One skill phrase to canonicalize within a domain. ``phrase`` is a skill LABEL the
-    extraction proposed; it is pseudonymized before the embed regardless (SG-2)."""
+    """One skill phrase to canonicalize within EXACTLY ONE domain scope. ``phrase`` is a
+    skill LABEL the extraction proposed; it is pseudonymized before the embed regardless
+    (SG-2). Mirrors ``SkillCanonicalizationInputSchema`` in ai-contracts.
+
+    TWO ID SPACES, EXACTLY ONE PER REQUEST (Phase 1.5 canonicalizer cutover).
+    ``domain_id`` is the LEGACY 11-slug skill domain ("cnc-machining") denormalized onto
+    ``skill_alias.domain_id`` — migration 0076 made that column NULLABLE, so a canonical
+    skill minted by the taxonomy bootstrap carries no slug and is INVISIBLE to a
+    ``WHERE domain_id = $1`` scan. ``job_domain_id`` is the canonical ``jd_*`` id and
+    resolves candidates through ``job_domain_skill`` instead.
+
+    NEITHER IS A REJECT, NOT A WILDCARD. Making both optional without this rule would let
+    "no domain" degrade into "search the entire skill vocabulary" and a cook would be
+    offered lathe skills. Both is also a reject — two scopes have no defined precedence.
+    """
 
     phrase: str
-    domain_id: str
+    # LEGACY 11-slug skill domain. Optional as of Phase 1.5; still fully supported and
+    # still the only path that reads `skill_alias.domain_id`.
+    domain_id: str | None = None
+    # CANONICAL `jd_*` job domain — candidates come from `job_domain_skill`.
+    #
+    # `validate_default=True` so the field validator below RUNS when the caller omits the
+    # field, which is exactly the "neither supplied" case it exists to catch.
+    job_domain_id: str | None = Field(default=None, validate_default=True)
     lang: str = "en"
+
+    @field_validator("job_domain_id")
+    @classmethod
+    def _scope_rule_without_echoing_the_phrase(
+        cls, value: str | None, info: ValidationInfo
+    ) -> str | None:
+        """THE SAME RULE AS THE MODEL VALIDATOR BELOW, LOCATED ON A FIELD ON PURPOSE — this
+        is a PII control, not a duplicate.
+
+        MEASURED (pydantic 2.13.4 / fastapi 0.139.2): a ``ValueError`` raised from a
+        ``model_validator(mode="after")`` is reported with ``input`` = the whole model
+        input, and FastAPI's 422 body is ``{"detail": exc.errors()}`` — so a scope-less
+        request came back as
+        ``{"type":"value_error","loc":["body"],...,"input":{"phrase":"call me on 9876543210"}}``,
+        echoing the RAW phrase. Raised from THIS field, the same rejection reports
+        ``loc:["body","job_domain_id"]`` and ``input: null`` — the phrase never appears.
+        A field validator runs BEFORE the model validator, so this is the error a caller
+        actually receives.
+
+        Order-dependent (it reads ``domain_id`` out of ``info.data``, which requires
+        ``domain_id`` to be DECLARED FIRST). That dependency fails LOUDLY, not silently:
+        reorder the fields and the legacy ``domain_id``-only tests reject and go red.
+        """
+        if not exactly_one_skill_scope(info.data.get("domain_id"), value):
+            raise ValueError(_SKILL_SCOPE_ERROR)
+        return value
+
+    @model_validator(mode="after")
+    def _exactly_one_domain_scope(self) -> SkillCanonicalizationInput:
+        """The authoritative, order-independent form of the rule (the field validator
+        above is the same check, sited where its error cannot echo the phrase). Kept so
+        the invariant survives a field reorder or a direct ``model_construct``-adjacent
+        edit — never remove one without the other."""
+        if not exactly_one_skill_scope(self.domain_id, self.job_domain_id):
+            raise ValueError(_SKILL_SCOPE_ERROR)
+        return self
 
 
 class SkillCanonicalization(BaseModel):
@@ -1155,10 +1235,18 @@ class ResumeGenerationInput(BaseModel):
 
 
 class ResumeGenerationOutput(BaseModel):
+    # THE DETERMINISTIC `Label: value` TEMPLATE, on every path (#909). `build_resume` is the
+    # only thing that produces it, and the worker app parses it to render the sectioned résumé
+    # — so this field is a CONTRACT ABOUT SHAPE, not merely "some résumé text". The LLM's prose
+    # goes to `summary` below; it must never replace this.
     resume_text: str
     resume_json: dict = Field(default_factory=dict)
     format: Literal["text", "json"] = "text"
     is_mock: bool = True
+    # The model's 2-4 sentence blurb, or None when no provider was called (mock posture, a
+    # pseudonymize block, a cap). ADDITIVE and optional: nothing renders it yet, and the
+    # sectioned résumé does not depend on it.
+    summary: str | None = None
     # #745: `router.run` has always produced this metadata here — the route simply dropped
     # it on the floor, so resume spend reached no ledger. Same additive/defaulted shape as
     # the STT fix (#738). None on the pseudonymize-blocked path, where the route completes

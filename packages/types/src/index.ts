@@ -96,7 +96,22 @@ export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 export const CURRENT_CONSENT_VERSION = "2026-06-01" as const;
 
 // ---- Chat ----
-export const CHAT_SESSION_STATUSES = ["active", "ended"] as const;
+/**
+ * `active` → running. `ended` → the worker finished the interview. `abandoned` → they
+ * stopped answering and the idle sweep closed the session on their behalf.
+ *
+ * WHY `abandoned` IS ITS OWN VALUE rather than `ended` + a reason in
+ * `conversation_state`. "What share of workers finish the interview?" is a funnel
+ * question the product asks constantly, and it has to be answerable by a column filter
+ * over a plain index — not a JSONB probe. Conflating the two would also make every
+ * completion metric silently count drop-offs as successes.
+ *
+ * ADDITIVE AND MIGRATION-FREE: `chat_sessions.status` is plain `text` with no CHECK, and
+ * every existing reader either compares against `"active"` or treats anything else as
+ * over (`ChatService.postMessage` → `session_over`). A pre-existing row can never hold
+ * this value, so no backfill.
+ */
+export const CHAT_SESSION_STATUSES = ["active", "ended", "abandoned"] as const;
 export type ChatSessionStatus = (typeof CHAT_SESSION_STATUSES)[number];
 
 export const MESSAGE_DIRECTIONS = ["inbound", "outbound"] as const;

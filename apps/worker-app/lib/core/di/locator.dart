@@ -45,9 +45,11 @@ import '../../features/settings/presentation/cubit/account_delete_cubit.dart';
 import '../../features/voice/data/record_package_voice_recorder.dart';
 import '../../features/voice/data/session_voice_recorder.dart';
 import '../../features/voice/data/speech_dictation_impl.dart';
+import '../../features/voice/data/speech_reader_impl.dart';
 import '../../features/voice/data/voice_note_repository_impl.dart';
 import '../../features/voice/data/voice_pipeline_impl.dart';
 import '../../features/voice/domain/speech_dictation.dart';
+import '../../features/voice/domain/speech_reader.dart';
 import '../../features/voice/domain/voice_note_repository.dart';
 import '../../features/voice/domain/voice_pipeline.dart';
 import '../../features/voice/domain/voice_recorder.dart';
@@ -303,6 +305,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // first use, never at DI-wiring time.
   locator.registerLazySingleton<SpeechDictation>(
       () => RealSpeechDictation());
+  // On-device text-to-speech: reads bada bhai's chat questions aloud when the
+  // worker taps the speaker icon on a bot bubble. Device TTS engine, no server.
+  // Lazy: the plugin is constructed on first use, never at DI-wiring time.
+  locator.registerLazySingleton<SpeechReader>(() => RealSpeechReader());
   // The voice-FORM session recorder (#625) — registered under its OWN type, so
   // the single-shot flow's shared [VoiceRecorder] singleton is never touched.
   // Lazy: constructing the plugin touches no platform channel until first use.

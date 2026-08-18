@@ -315,6 +315,47 @@ class Settings(BaseSettings):
     # ("skill_embedding"); the default path is a deterministic MOCK embedding (zero spend).
     embedding_model: str = "gemini-embedding-001"
 
+    # ── offline corpus embed: throughput controls (Phase 6, TAX-3) ──────────────
+    #
+    # WHAT ACTUALLY THROTTLES THIS, measured rather than assumed. Across the 201 real
+    # Langfuse observations from the Phase 5 corpus embed, request SIZE does not predict
+    # failure — a 100-text request succeeded while a 50-text one was refused. What
+    # predicts it is how many texts went out in the preceding minute: the largest 60s
+    # window whose requests all succeeded carried 148 texts, and every refusal sits in a
+    # window that was already full. The provider counts each content inside a
+    # batchEmbedContents against the per-minute embed quota, so the meter runs on TEXTS.
+    #
+    # Two quotas therefore pull in opposite directions and each has its own control:
+    #   - per-DAY REQUESTS (1000 on the free tier) -> keep the batch LARGE.
+    #     ai_embed_request_batch=100 puts the 9121-alias corpus at ~92 requests; at one
+    #     text per request it needs 9121 and takes ten days.
+    #   - per-MINUTE TEXTS -> pace, do not shrink the batch. Shrinking spends the same
+    #     text budget in more requests, which is strictly worse for the daily quota.
+    ai_embed_request_batch: int = 100
+    # Texts per minute the offline embed may send. 0 = UNPACED, which is the historical
+    # behaviour and stays the default deliberately: a paid tier has a far higher quota
+    # and must not be throttled to a free-tier number by an upgrade. Free-tier operators
+    # set this (~90 leaves headroom under the ~100 observed) and the corpus then embeds
+    # at roughly 90 aliases/minute with no refusals. The retry policy below is on by
+    # default because, unlike pacing, it is an improvement at every tier.
+    ai_embed_texts_per_minute: int = 0
+    # Total additional attempts after the first. A cap, not a per-error budget.
+    ai_embed_max_retries: int = 2
+    ai_embed_backoff_base_seconds: float = 2.0
+    ai_embed_backoff_max_seconds: float = 90.0
+    # A 429 waits out the RATE WINDOW rather than doubling from two seconds inside it —
+    # a refused attempt still consumes the per-minute quota, so retrying early spends
+    # more budget to earn another refusal. Overridden by the provider's Retry-After.
+    ai_embed_rate_limit_cooldown_seconds: float = 60.0
+    # A read timeout means the request WAS sent and its outcome is unknown, so retrying
+    # risks paying for the same texts twice. Off by default; the resumable runner will
+    # pick the row up on the next pass at no extra cost.
+    ai_embed_retry_on_read_timeout: bool = False
+    # Ceiling on time spent WAITING for the pacer within one HTTP request. The db-side
+    # runner holds the connection for at most 10 minutes; blowing that loses the whole
+    # batch to a client timeout, whereas giving up here costs one resumable retry.
+    ai_embed_max_pacing_wait_seconds: float = 300.0
+
     # ADR-0030 / TAX-4: skill-phrase canonicalization (vector match against skill_alias,
     # floor-gated). `enabled` is the WIRING flag — when False the extraction path keeps the
     # status quo (local gazetteer only, raw phrase preserved); rollback = flip it off. `floor`
@@ -584,6 +625,27 @@ class Settings(BaseSettings):
     # pollute the production dashboards and evaluators by accident — a staging box
     # mislabelled as prod silently corrupts every cost and quality metric read off it.
     langfuse_tracing_environment: str = "development"
+
+    # Fetch production prompts from Langfuse Prompt Management instead of using the
+    # in-image text. OFF BY DEFAULT, and the default is the whole safety argument: with
+    # it off the committed behaviour is byte-identical to before prompt management
+    # existed, and prompt VERSIONS are still recorded on every generation (as a content
+    # hash of the local text — see ai/prompt_registry.py). Turning it on lets a prompt be
+    # edited outside the deploy, which is the point AND the risk: `interview_system_prompt`
+    # is generated from the signed-off persona.json, and a Langfuse override bypasses the
+    # build-time gate that keeps the two in sync. Every failure mode of the fetch (network,
+    # missing prompt, unsupported SDK, empty body) falls back to the local text, so this
+    # flag can never make the service depend on Langfuse being reachable.
+    langfuse_prompts_enabled: bool = False
+    # How long a fetched prompt is reused before re-checking. Bounds both the request-path
+    # latency a prompt fetch can add and how stale a rollout can be.
+    langfuse_prompt_cache_ttl_seconds: int = Field(default=300, ge=0, le=86_400)
+
+    # The build this trace came from — the dimension that makes "did the deploy on Tuesday
+    # change extraction quality?" answerable at all. A trace with no version is
+    # uncomparable to any other trace once anything ships. Defaults to the FastAPI app
+    # version in main.py; a deploy should override it with a git sha.
+    app_version: str = "0.1.0"
 
     ai_service_port: int = 8000
 

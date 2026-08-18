@@ -276,6 +276,85 @@ services:
       # VOICE_NOTES_BUCKET: unset expands to empty and compose still starts clean.
       WORKER_PHOTOS_BUCKET: ${WORKER_PHOTOS_BUCKET:-}
 
+      # ---- BL-22: 12 REAL-PROVIDER/FEATURE BOOLEAN GATES, PREVIOUSLY UNREACHABLE FROM THE BOX.
+      #
+      # THE SAME FAILURE CLASS AS EVERY BLOCK ABOVE (WORKER_PHOTOS_BUCKET #794,
+      # CHAT_LLM_INTERVIEW_ENABLED #798, RESUME_RENDER_ENABLED #793, ZEPTOMAIL_API_URL #813) —
+      # generalized rather than fixed one flag at a time. A forensic audit
+      # (docs/audit/22_REMEDIATION_BACKLOG.md BL-22) found none of the 13 names below declared
+      # anywhere in this block: an operator following this repo's own documented arming pattern
+      # (`export FLAG=true`, re-run the deploy) for any of them would see no change at all,
+      # silently, with `loadServerConfig` quietly serving the schema default instead. Not a live
+      # incident — all 13 correctly read `false` today, same as before this block existed — but
+      # the next real-provider integration would hit this dead end blind, exactly as
+      # #793/#794/#798/#813 each did before they got their own line.
+      #
+      # #872 CUT MEMBER_INVITES_ENABLE_REAL BACK OUT OF THIS BLOCK (was 13, now 12). "Undeclared
+      # is always safe" turned out to be false for THIS box specifically: the Lightsail box's
+      # persistent shell/.env already carried `MEMBER_INVITES_ENABLE_REAL=true` — a stale leftover
+      # from ADR-0027 B5.4 manual testing that was silently INERT the whole time, because before
+      # this block existed the name had no path into the container regardless of what the box
+      # exported. The moment this line landed and gave it that path, `assertMemberInvitesConfig`
+      # (packages/config/src/server.ts, called from apps/api/src/main.ts) correctly refused to
+      # boot: the flag was reachable-true but its required `MEMBER_INVITE_ACCEPT_URL` companion
+      # (one of the 14 deferred string secrets below) was not, and that assert fails CLOSED on
+      # purpose. Every deploy since 6896cde5 (#859) crash-looped on this — see #872 for the
+      # incident. Re-wiring this one line is safe ONLY once a human either (a) unsets the stray
+      # `MEMBER_INVITES_ENABLE_REAL` on the box (most likely — ADR-0027 B5.4 invites are still
+      # flag-OFF by design), or (b) deliberately arms it by also setting `MEMBER_INVITE_ACCEPT_URL`
+      # in the same box change. Until then it stays undeclared here — exactly the pre-#859 state —
+      # so the box's already-set `true` stays inert instead of crash-looping every deploy.
+      #
+      # ALL 12 REMAINING ARE `booleanFromString`-TYPED (packages/config/src/server.ts), which is
+      # why they are safe to pass through as `${VAR:-false}` in one mechanical batch:
+      # `booleanFromString` explicitly treats an EMPTY string as `false` in its transform, so an
+      # unset box export resolves to the exact same `false` these flags already read today — this
+      # line changes REACHABILITY, not behavior, for a box that does not export any of them. (That
+      # guarantee holds only for a box exporting nothing for the name — MEMBER_INVITES_ENABLE_REAL
+      # above is the counter-example: a box that already exports `true` gets exactly that.)
+      #
+      # 14 STRING-SECRET SIBLINGS THE SAME AUDIT FOUND ARE DELIBERATELY NOT HERE:
+      # PAYMENTS_PROVIDER_KEY/SECRET, RAZORPAY_WEBHOOK_SECRET, WHATSAPP_API_KEY/PHONE_NUMBER_ID,
+      # FCM_SERVICE_ACCOUNT_B64/PROJECT_ID, MEMBER_INVITE_ACCEPT_URL, TEST_LOGIN_TOKEN,
+      # PAYER_TEST_LOGIN_TOKEN, SKILLS_INTERNAL_TOKEN, GEMINI_FLASH_API_KEY, ANTHROPIC_API_KEY,
+      # LITELLM_API_KEY. Every one is a bare `.optional()` / `.min(1).optional()` in the schema,
+      # NOT the `optionalSecret()` helper (.env.example / BL-21) that treats an empty string as
+      # unset — so a `${VAR:-}` pass-through for any of them would make the box set it to a
+      # DECLARED EMPTY STRING the moment this file merges, which `.optional()` REJECTS (only
+      # `undefined` passes, not `""`), crashing every boot on this box. Wiring those 14 needs
+      # each field converted to `optionalSecret()` FIRST, in its own reviewed change — not a
+      # mechanical batch like this one (see #858 for the tracking issue).
+      #
+      # TEST_LOGIN_ENABLED / PAYER_TEST_LOGIN_ENABLED SPECIFICALLY: reachable here does NOT arm
+      # the seam. Both guards (apps/api/src/auth/test-login.guard.ts,
+      # apps/api/src/payers/payer-test-login.guard.ts) check the flag FIRST but then require
+      # their TOKEN counterpart to be >= 32 chars before accepting anything — "never arm
+      # vacuously" (TD67's fix, reused here). The token stays one of the 14 deferred secrets
+      # above, so a box that exports only `TEST_LOGIN_ENABLED=true` still gets the same neutral
+      # 404 every unauthenticated caller sees today; the seam needs BOTH names reachable to open.
+      #
+      # AI_ENABLE_REAL_CALLS HERE IS THE API-SIDE COPY, NOT AI-SERVICE'S (below, already wired).
+      # `health.service.ts` confirms this copy feeds ONLY `GET /health`'s `ai_posture`
+      # observability field — it does not itself gate an LLM call (the api never calls a
+      # provider directly; see the api-side CHAT_LLM_INTERVIEW_ENABLED block above for the flag
+      # that actually does). Using the SAME shell variable name as the ai-service block below is
+      # deliberate: a single box-level `export AI_ENABLE_REAL_CALLS=true` now arms both — the
+      # actual gate AND its own health observability — instead of `ai_posture` staying stuck on
+      # "mock" forever regardless of ai-service's real, correctly-wired posture.
+      PAYMENTS_ENABLE_REAL: ${PAYMENTS_ENABLE_REAL:-false}
+      MESSAGING_ENABLE_REAL: ${MESSAGING_ENABLE_REAL:-false}
+      PUSH_ENABLE_REAL: ${PUSH_ENABLE_REAL:-false}
+      AGENCY_PAYOUTS_ENABLED: ${AGENCY_PAYOUTS_ENABLED:-false}
+      # MEMBER_INVITES_ENABLE_REAL: deliberately NOT declared — see the #872 note above.
+      MATCH_V1_ENABLED: ${MATCH_V1_ENABLED:-false}
+      CAPACITY_ENFORCEMENT_ENABLED: ${CAPACITY_ENFORCEMENT_ENABLED:-false}
+      PACE_ENABLED: ${PACE_ENABLED:-false}
+      TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}
+      PAYER_TEST_LOGIN_ENABLED: ${PAYER_TEST_LOGIN_ENABLED:-false}
+      AUTH_ROLLING_TIERS_ENABLED: ${AUTH_ROLLING_TIERS_ENABLED:-false}
+      AI_JOBS_RETENTION_DELETE_ENABLED: ${AI_JOBS_RETENTION_DELETE_ENABLED:-false}
+      AI_ENABLE_REAL_CALLS: ${AI_ENABLE_REAL_CALLS:-false}
+
       # ---- KNOWN-SURVIVING DEV VALUE (deliberate for now — R27 owner queue). The base
       # file's `PAYER_LOGIN_METHOD: whatsapp` survives this merge, and the WhatsApp
       # channel is the MOCK provider (ADR-0020) — so payer/agency login is functionally
@@ -459,6 +538,60 @@ services:
       # The name is AI_SPEND_REDIS_URL, NOT REDIS_URL (AI-ENV-1) — the api's
       # REDIS_URL is a different, mandatory store and cannot reach these Settings.
       AI_SPEND_REDIS_URL: ${AI_SPEND_REDIS_URL:-}
+
+      # ---- Langfuse observability. DECLARED-BUT-EMPTY, which is the #798/#794 lesson
+      # applied before it bites rather than after: compose forwards ONLY the names a
+      # service's `environment:` block declares, so until this block existed the box
+      # could export LANGFUSE_PUBLIC_KEY all day and the container would never see it.
+      # The integration was not "off" in staging — it was UNREACHABLE, and nothing said so.
+      #
+      # EMPTY IS STILL OFF. `langfuse_enabled` requires BOTH keys to be non-empty, so this
+      # block changes nothing until an operator exports real keys; it only gives them a
+      # path in. Same posture as GEMINI_FLASH_API_KEY two dozen lines up.
+      #
+      # BEFORE EXPORTING KEYS — this is a NEW EXTERNAL PROCESSOR, not just a dashboard.
+      # Pseudonymized worker text (and, once R30/R32 are considered, whatever those
+      # residuals let through) leaves the VPC for Langfuse's servers. ADR-0030 §7(e)
+      # requires recorded data-retention / no-train terms before a new external
+      # PII-egress surface goes live, and NO ADR covers Langfuse as a processor today.
+      # Get that written down first; `user_id` here is the opaque worker_ref, but a trace
+      # store still becomes a DSAR/erasure-relevant location and ADR-0026/ADR-0031's
+      # deletion sweeps do not reach it.
+      #
+      # NOT DECLARED ON THE `api` SERVICE, deliberately: nothing in apps/api reads these,
+      # and packages/config types them `.min(1).optional()` — a `${VAR:-}` pass-through
+      # would hand Zod an EMPTY STRING and crash-loop the api at boot. Same trap as
+      # AI_INTERNAL_TOKEN documents below.
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      # RESTATED WITH A DEFAULT, not passed through empty — the SARVAM_TTS_MODEL lesson
+      # eight lines up: both are non-optional `str` with real defaults, so a bare
+      # `${VAR:-}` would overwrite them with "" and point the exporter at nothing.
+      LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}"
+      # THE DEFAULT HERE IS `staging`, NOT the Settings default of `development`. An
+      # unset deployment tracing into `development` silently mixes staging traffic into
+      # the dashboards, cost totals and evaluator inputs that describe dev — this file
+      # knows which environment it is, so it says so.
+      LANGFUSE_TRACING_ENVIRONMENT: "${LANGFUSE_TRACING_ENVIRONMENT:-staging}"
+      # Prompt management stays OFF through the flip: prompt versions are recorded either
+      # way (content hash of the local text), so the baseline is fully attributable
+      # without handing prompt control to a second system on the day real calls arm.
+      LANGFUSE_PROMPTS_ENABLED: ${LANGFUSE_PROMPTS_ENABLED:-false}
+      # The deployed build, so traces from different releases are distinguishable. Without
+      # it, "did the last deploy change quality?" is unanswerable no matter how much else
+      # is measured.
+      #
+      # DEFAULTS TO "unknown", NOT to empty and NOT to the Settings default. Empty would
+      # overwrite a non-optional `str` with "" (the SARVAM_TTS_MODEL trap, three fields
+      # up), and inheriting "0.1.0" would be worse than useless — it would stamp every
+      # staging trace with a version number that is not a build and cannot be looked up.
+      # "unknown" is at least true, and it is greppable when someone asks why.
+      APP_VERSION: "${APP_VERSION:-unknown}"
+
+      # ---- TD27 independent kill switch. Also previously undeclared and therefore
+      # unreachable from the box — the emergency OFF for real calls that outranks
+      # AI_ENABLE_REAL_CALLS could not actually be thrown without a code change.
+      AI_REAL_CALLS_KILL_SWITCH: ${AI_REAL_CALLS_KILL_SWITCH:-false}
 
       # ---- TD67 service token. Inherited VALUELESS (compose pass-through form)
       # from the base file for BOTH this service and the api, which is what makes

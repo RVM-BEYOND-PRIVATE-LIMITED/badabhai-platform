@@ -1,0 +1,14 @@
+-- #822 — GET /jobs/search needs a matchable STATE bucket on job_postings.
+--
+-- ADDITIVE AND REVERSIBLE (CLAUDE.md §10). A nullable text column with no default and no
+-- backfill: every existing row reads NULL, no reader changes behaviour, and the rollback is
+-- `ALTER TABLE "job_postings" DROP COLUMN "state";`.
+--
+-- WHY NOT DERIVED FROM `location_label`. That column is poster free text and may hold an
+-- address, a landmark, or nothing at all. Parsing a matchable filter field out of it would put
+-- unvalidated data exactly where a query trusts it — the same reason `city` was added as its
+-- own coarse bucket rather than parsed from the same string.
+--
+-- PRIVACY: a coarse state bucket ("Maharashtra"), never an address. Same classification as
+-- `city`, which is already worker-visible on the feed.
+ALTER TABLE "job_postings" ADD COLUMN IF NOT EXISTS "state" text;

@@ -1,0 +1,1703 @@
+{
+  "generated_from": "skill.label_en absent from skill_alias.text_norm",
+  "normalizer": "normalizeOccupationText (the function that fills text_norm)",
+  "skill_statuses": [
+    "active",
+    "provisional"
+  ],
+  "generic_min_df": 8,
+  "competitor_threshold": 0.84,
+  "competition_assessed_for": 119,
+  "sharpest_token_df": {
+    "p50": 0,
+    "p90": 1,
+    "max": 2,
+    "check_inert": true,
+    "note": "GENERIC_LABEL cannot fire on this corpus; zero findings is not evidence of specificity"
+  },
+  "broadest_candidates": [
+    {
+      "skill_id": "skill_control_panel_wiring",
+      "label": "Control panel wiring",
+      "df": 2
+    },
+    {
+      "skill_id": "skill_pipe_bending",
+      "label": "Pipe bending",
+      "df": 2
+    },
+    {
+      "skill_id": "skill_assembly_line_sequencing",
+      "label": "Assembly line sequencing",
+      "df": 1
+    },
+    {
+      "skill_id": "skill_brake_system_servicing",
+      "label": "Brake system servicing",
+      "df": 1
+    },
+    {
+      "skill_id": "skill_chassis_fitting",
+      "label": "Chassis fitting",
+      "df": 1
+    },
+    {
+      "skill_id": "skill_chemical_handling_safety",
+      "label": "Chemical handling safety",
+      "df": 1
+    },
+    {
+      "skill_id": "skill_cmm",
+      "label": "CMM operation",
+      "df": 1
+    },
+    {
+      "skill_id": "skill_cutting_tool_selection",
+      "label": "Cutting tool selection",
+      "df": 1
+    },
+    {
+      "skill_id": "skill_deburring",
+      "label": "Deburring / finishing",
+      "df": 1
+    },
+    {
+      "skill_id": "skill_distribution_board_assembly",
+      "label": "Distribution board assembly",
+      "df": 1
+    }
+  ],
+  "provider_calls": 0,
+  "label_vectors_from_cache": 119,
+  "totals": {
+    "candidates": 119,
+    "block": 0,
+    "review": 35,
+    "ok": 84
+  },
+  "findings_by_code": {
+    "COMPOUND_LABEL": 34,
+    "SINGLE_TOKEN_LABEL": 1
+  },
+  "corpus_delta_if_ok_only": {
+    "rows_added": 84,
+    "by_lang": {
+      "en": 84
+    },
+    "skills_touched": 84,
+    "domains_touched": 27,
+    "texts_to_embed": 84,
+    "provider_requests_at_batch_100": 1
+  },
+  "status": "NOT INGESTED — requires review and separate authorization",
+  "candidates": [
+    {
+      "skill_id": "skill_assembly_line_sequencing",
+      "label": "Assembly line sequencing",
+      "lang": "en",
+      "text_norm": "assembly line sequencing",
+      "domains": [
+        "jd_nco_8211_1200"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_barcode_scanning",
+      "label": "Barcode scanning",
+      "lang": "en",
+      "text_norm": "barcode scanning",
+      "domains": [
+        "jd_nco_4321_0601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_battery_capacity_checking",
+      "label": "Battery capacity checking",
+      "lang": "en",
+      "text_norm": "battery capacity checking",
+      "domains": [
+        "jd_nco_8212_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_battery_cell_stacking",
+      "label": "Battery cell stacking",
+      "lang": "en",
+      "text_norm": "battery cell stacking",
+      "domains": [
+        "jd_nco_8212_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_battery_pack_leak_testing",
+      "label": "Battery pack leak testing",
+      "lang": "en",
+      "text_norm": "battery pack leak testing",
+      "domains": [
+        "jd_nco_8212_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_battery_terminal_crimping",
+      "label": "Battery terminal crimping",
+      "lang": "en",
+      "text_norm": "battery terminal crimping",
+      "domains": [
+        "jd_nco_8212_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_bearing_replacement",
+      "label": "Bearing replacement",
+      "lang": "en",
+      "text_norm": "bearing replacement",
+      "domains": [
+        "jd_isco_7233",
+        "jd_nco_7233_0101"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_belt_and_chain_drive_alignment",
+      "label": "Belt and chain drive alignment",
+      "lang": "en",
+      "text_norm": "belt and chain drive alignment",
+      "domains": [
+        "jd_isco_7233"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_bin_location_management",
+      "label": "Bin location management",
+      "lang": "en",
+      "text_norm": "bin location management",
+      "domains": [
+        "jd_isco_4321",
+        "jd_nco_4321_0100",
+        "jd_nco_4321_0601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_body_panel_alignment",
+      "label": "Body panel alignment",
+      "lang": "en",
+      "text_norm": "body panel alignment",
+      "domains": [
+        "jd_nco_7231_0400"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_brake_system_servicing",
+      "label": "Brake system servicing",
+      "lang": "en",
+      "text_norm": "brake system servicing",
+      "domains": [
+        "jd_nco_7231_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_brazing_of_copper_lines",
+      "label": "Brazing of copper lines",
+      "lang": "en",
+      "text_norm": "brazing of copper lines",
+      "domains": [
+        "jd_isco_7127",
+        "jd_nco_7421_0401"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_brick_and_block_laying",
+      "label": "Brick and block laying",
+      "lang": "en",
+      "text_norm": "brick and block laying",
+      "domains": [
+        "jd_nco_7112_0100",
+        "jd_nco_7112_0601"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_cable_termination_and_jointing",
+      "label": "Cable termination and jointing",
+      "lang": "en",
+      "text_norm": "cable termination and jointing",
+      "domains": [
+        "jd_nco_7411_0100",
+        "jd_nco_7412_0200"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_cad_interpretation",
+      "label": "CAD / technical drawing interpretation",
+      "lang": "en",
+      "text_norm": "cad technical drawing interpretation",
+      "domains": [
+        "jd_nco_8211_1200",
+        "jd_nco_7231_0400",
+        "jd_nco_7223_6003",
+        "jd_nco_7412_0200",
+        "jd_isco_7213",
+        "jd_nco_7224_0102"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" / \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_cam_software",
+      "label": "CAM software (Mastercam/Fusion/etc.)",
+      "lang": "en",
+      "text_norm": "cam software mastercam/fusion/etc",
+      "domains": [
+        "jd_nco_7223_6003"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_chassis_fitting",
+      "label": "Chassis fitting",
+      "lang": "en",
+      "text_norm": "chassis fitting",
+      "domains": [
+        "jd_nco_7231_0400"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_chemical_handling_safety",
+      "label": "Chemical handling safety",
+      "lang": "en",
+      "text_norm": "chemical handling safety",
+      "domains": [
+        "jd_nco_8212_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_clutch_and_gearbox_repair",
+      "label": "Clutch and gearbox repair",
+      "lang": "en",
+      "text_norm": "clutch and gearbox repair",
+      "domains": [
+        "jd_nco_7231_0100"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_cmm",
+      "label": "CMM operation",
+      "lang": "en",
+      "text_norm": "cmm operation",
+      "domains": [
+        "jd_nco_7543_2001"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_compressor_replacement",
+      "label": "Compressor replacement",
+      "lang": "en",
+      "text_norm": "compressor replacement",
+      "domains": [
+        "jd_isco_7127"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_concrete_curing",
+      "label": "Concrete curing",
+      "lang": "en",
+      "text_norm": "concrete curing",
+      "domains": [
+        "jd_nco_7112_0100",
+        "jd_nco_7112_0601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_conduit_bending_and_laying",
+      "label": "Conduit bending and laying",
+      "lang": "en",
+      "text_norm": "conduit bending and laying",
+      "domains": [
+        "jd_nco_7411_0100",
+        "jd_nco_7412_0200"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_control_panel_wiring",
+      "label": "Control panel wiring",
+      "lang": "en",
+      "text_norm": "control panel wiring",
+      "domains": [
+        "jd_nco_7412_0200"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_coolant_management",
+      "label": "Coolant management",
+      "lang": "en",
+      "text_norm": "coolant management",
+      "domains": [
+        "jd_nco_7223_0701",
+        "jd_nco_7223_6002"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_customer_site_handover",
+      "label": "Customer site handover",
+      "lang": "en",
+      "text_norm": "customer site handover",
+      "domains": [
+        "jd_nco_7421_0401"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_cutting_tool_selection",
+      "label": "Cutting tool selection",
+      "lang": "en",
+      "text_norm": "cutting tool selection",
+      "domains": [
+        "jd_nco_7223_0701",
+        "jd_nco_7223_6003"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_deburring",
+      "label": "Deburring / finishing",
+      "lang": "en",
+      "text_norm": "deburring finishing",
+      "domains": [
+        "jd_nco_7223_0701",
+        "jd_isco_7213",
+        "jd_nco_7223_2400"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" / \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_dispatch_documentation",
+      "label": "Dispatch documentation",
+      "lang": "en",
+      "text_norm": "dispatch documentation",
+      "domains": [
+        "jd_isco_4321",
+        "jd_nco_4321_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_distortion_control_in_weldments",
+      "label": "Distortion control in weldments",
+      "lang": "en",
+      "text_norm": "distortion control in weldments",
+      "domains": [
+        "jd_nco_7212_0100",
+        "jd_nco_7212_0300",
+        "jd_nco_7212_0301"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_distribution_board_assembly",
+      "label": "Distribution board assembly",
+      "lang": "en",
+      "text_norm": "distribution board assembly",
+      "domains": [
+        "jd_nco_7411_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_drainage_systems",
+      "label": "Drainage systems",
+      "lang": "en",
+      "text_norm": "drainage systems",
+      "domains": [
+        "jd_nco_7126_0101"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_drain_cleaning_and_unclogging",
+      "label": "Drain cleaning and unclogging",
+      "lang": "en",
+      "text_norm": "drain cleaning and unclogging",
+      "domains": [
+        "jd_nco_7126_0101"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_ducting_installation",
+      "label": "Ducting installation",
+      "lang": "en",
+      "text_norm": "ducting installation",
+      "domains": [
+        "jd_isco_7127"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_earthing_and_bonding",
+      "label": "Earthing and bonding",
+      "lang": "en",
+      "text_norm": "earthing and bonding",
+      "domains": [
+        "jd_nco_7411_0100",
+        "jd_nco_7412_0200"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_electrical_fault_finding",
+      "label": "Electrical fault finding",
+      "lang": "en",
+      "text_norm": "electrical fault finding",
+      "domains": [
+        "jd_nco_7411_0100",
+        "jd_nco_7412_0200"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_electrical_safety_and_lockout",
+      "label": "Electrical safety and lockout",
+      "lang": "en",
+      "text_norm": "electrical safety and lockout",
+      "domains": [
+        "jd_nco_7411_0100"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_electrode_selection",
+      "label": "Electrode selection",
+      "lang": "en",
+      "text_norm": "electrode selection",
+      "domains": [
+        "jd_nco_7212_0301"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_electrolyte_filling",
+      "label": "Electrolyte filling",
+      "lang": "en",
+      "text_norm": "electrolyte filling",
+      "domains": [
+        "jd_nco_8212_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_engine_overhauling",
+      "label": "Engine overhauling",
+      "lang": "en",
+      "text_norm": "engine overhauling",
+      "domains": [
+        "jd_nco_7231_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_fanuc",
+      "label": "Fanuc control operation",
+      "lang": "en",
+      "text_norm": "fanuc control operation",
+      "domains": [
+        "jd_nco_7223_6002",
+        "jd_nco_7223_6003"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_fastener_selection_and_tightening",
+      "label": "Fastener selection and tightening",
+      "lang": "en",
+      "text_norm": "fastener selection and tightening",
+      "domains": [
+        "jd_nco_8211_1200"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_first_piece_approval",
+      "label": "First piece approval",
+      "lang": "en",
+      "text_norm": "first piece approval",
+      "domains": [
+        "jd_nco_7223_0701",
+        "jd_nco_7223_6002"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_fixture_setup",
+      "label": "Fixture / job setup",
+      "lang": "en",
+      "text_norm": "fixture job setup",
+      "domains": [
+        "jd_nco_7223_6002"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" / \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_forklift_operation",
+      "label": "Forklift operation",
+      "lang": "en",
+      "text_norm": "forklift operation",
+      "domains": [
+        "jd_nco_4321_0601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_gas_torch_flame_setting",
+      "label": "Gas torch flame setting",
+      "lang": "en",
+      "text_norm": "gas torch flame setting",
+      "domains": [
+        "jd_nco_7212_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_gdt_reading",
+      "label": "GD&T / drawing reading",
+      "lang": "en",
+      "text_norm": "gd t drawing reading",
+      "domains": [
+        "jd_nco_7223_0701",
+        "jd_nco_7223_6002",
+        "jd_nco_7223_6003",
+        "jd_nco_7224_0102",
+        "jd_nco_7126_0301",
+        "jd_nco_7313_2601",
+        "jd_nco_7543_2001",
+        "jd_nco_7212_0301"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" / \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_go_no_go_gauge_checking",
+      "label": "Go no-go gauge checking",
+      "lang": "en",
+      "text_norm": "go no-go gauge checking",
+      "domains": [
+        "jd_nco_7313_2601",
+        "jd_nco_7543_2001"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_goods_receipt_verification",
+      "label": "Goods receipt verification",
+      "lang": "en",
+      "text_norm": "goods receipt verification",
+      "domains": [
+        "jd_isco_4321",
+        "jd_nco_4321_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_grinding_ops",
+      "label": "Grinding (surface / cylindrical)",
+      "lang": "en",
+      "text_norm": "grinding surface cylindrical",
+      "domains": [
+        "jd_nco_7224_0102",
+        "jd_nco_7212_0100",
+        "jd_nco_7212_0301"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" / \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_hardness_testing",
+      "label": "Hardness testing",
+      "lang": "en",
+      "text_norm": "hardness testing",
+      "domains": [
+        "jd_nco_7543_2001"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_house_wiring_installation",
+      "label": "House wiring installation",
+      "lang": "en",
+      "text_norm": "house wiring installation",
+      "domains": [
+        "jd_nco_7411_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_hydraulics_pneumatics",
+      "label": "Hydraulics / pneumatics",
+      "lang": "en",
+      "text_norm": "hydraulics pneumatics",
+      "domains": [
+        "jd_nco_7231_0100",
+        "jd_isco_7233",
+        "jd_nco_7233_0101"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" / \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_indoor_unit_servicing_and_cleaning",
+      "label": "Indoor unit servicing and cleaning",
+      "lang": "en",
+      "text_norm": "indoor unit servicing and cleaning",
+      "domains": [
+        "jd_nco_7421_0401"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_inspection_report_recording",
+      "label": "Inspection report recording",
+      "lang": "en",
+      "text_norm": "inspection report recording",
+      "domains": [
+        "jd_nco_7313_2601",
+        "jd_nco_7543_2001"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_insulation_resistance_testing",
+      "label": "Insulation resistance testing",
+      "lang": "en",
+      "text_norm": "insulation resistance testing",
+      "domains": [
+        "jd_nco_7411_0100",
+        "jd_nco_7412_0200"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_inventory_record_keeping",
+      "label": "Inventory record keeping",
+      "lang": "en",
+      "text_norm": "inventory record keeping",
+      "domains": [
+        "jd_isco_4321",
+        "jd_nco_4321_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_issue_and_requisition_control",
+      "label": "Issue and requisition control",
+      "lang": "en",
+      "text_norm": "issue and requisition control",
+      "domains": [
+        "jd_nco_4321_0100"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_lathe_chuck_mounting",
+      "label": "Lathe chuck mounting",
+      "lang": "en",
+      "text_norm": "lathe chuck mounting",
+      "domains": [
+        "jd_nco_7223_0701"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_leak_repair_in_water_lines",
+      "label": "Leak repair in water lines",
+      "lang": "en",
+      "text_norm": "leak repair in water lines",
+      "domains": [
+        "jd_nco_7126_0101",
+        "jd_nco_7126_0301"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_lubrication_schedule_execution",
+      "label": "Lubrication schedule execution",
+      "lang": "en",
+      "text_norm": "lubrication schedule execution",
+      "domains": [
+        "jd_isco_7233",
+        "jd_nco_7233_0101"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_machine_maintenance",
+      "label": "Machine maintenance",
+      "lang": "en",
+      "text_norm": "machine maintenance",
+      "domains": [
+        "jd_nco_7223_6002",
+        "jd_nco_7223_2400",
+        "jd_isco_7233",
+        "jd_nco_7233_0101",
+        "jd_nco_7212_0300"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_material_handling_equipment_operation",
+      "label": "Material handling equipment operation",
+      "lang": "en",
+      "text_norm": "material handling equipment operation",
+      "domains": [
+        "jd_isco_4321",
+        "jd_nco_4321_0100",
+        "jd_nco_4321_0601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_measuring_instruments",
+      "label": "Micrometer / Vernier / gauge usage",
+      "lang": "en",
+      "text_norm": "micrometer vernier gauge usage",
+      "domains": [
+        "jd_nco_7231_0400",
+        "jd_nco_7223_0701",
+        "jd_nco_7223_6002",
+        "jd_isco_7213",
+        "jd_nco_7223_2400",
+        "jd_nco_7224_0102",
+        "jd_nco_7233_0101",
+        "jd_nco_7313_2601",
+        "jd_nco_7543_2001"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" / \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_mitsubishi",
+      "label": "Mitsubishi control operation",
+      "lang": "en",
+      "text_norm": "mitsubishi control operation",
+      "domains": [
+        "jd_nco_7223_6003"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_mortar_mixing",
+      "label": "Mortar mixing",
+      "lang": "en",
+      "text_norm": "mortar mixing",
+      "domains": [
+        "jd_nco_7112_0100",
+        "jd_nco_7112_0601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_motor_connection_and_starter_wiring",
+      "label": "Motor connection and starter wiring",
+      "lang": "en",
+      "text_norm": "motor connection and starter wiring",
+      "domains": [
+        "jd_nco_7411_0100",
+        "jd_nco_7412_0200"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_non_destructive_testing_of_castings",
+      "label": "Non-destructive testing of castings",
+      "lang": "en",
+      "text_norm": "non-destructive testing of castings",
+      "domains": [
+        "jd_nco_7543_2001"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_order_picking_and_packing",
+      "label": "Order picking and packing",
+      "lang": "en",
+      "text_norm": "order picking and packing",
+      "domains": [
+        "jd_nco_4321_0601"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_oxy_acetylene_cylinder_handling",
+      "label": "Oxy-acetylene cylinder handling",
+      "lang": "en",
+      "text_norm": "oxy-acetylene cylinder handling",
+      "domains": [
+        "jd_nco_7212_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_pallet_stacking_and_loading",
+      "label": "Pallet stacking and loading",
+      "lang": "en",
+      "text_norm": "pallet stacking and loading",
+      "domains": [
+        "jd_isco_4321",
+        "jd_nco_4321_0601"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_pipe_bending",
+      "label": "Pipe bending",
+      "lang": "en",
+      "text_norm": "pipe bending",
+      "domains": [
+        "jd_nco_7126_0101",
+        "jd_nco_7126_0301"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_pipe_support_and_clamping",
+      "label": "Pipe support and clamping",
+      "lang": "en",
+      "text_norm": "pipe support and clamping",
+      "domains": [
+        "jd_nco_7126_0301"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_plastering",
+      "label": "Plastering",
+      "lang": "en",
+      "text_norm": "plastering",
+      "domains": [
+        "jd_nco_7112_0100"
+      ],
+      "findings": [
+        {
+          "code": "SINGLE_TOKEN_LABEL",
+          "severity": "REVIEW",
+          "detail": "a one-word alias (\"plastering\") matches broadly; GP-04 was lost to the bare token \"turning\""
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_press_brake_bending",
+      "label": "Press brake bending",
+      "lang": "en",
+      "text_norm": "press brake bending",
+      "domains": [
+        "jd_isco_7213",
+        "jd_nco_7223_2400"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_pressure_testing_of_pipelines",
+      "label": "Pressure testing of pipelines",
+      "lang": "en",
+      "text_norm": "pressure testing of pipelines",
+      "domains": [
+        "jd_nco_7126_0101",
+        "jd_nco_7126_0301"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_program_editing",
+      "label": "Program editing (G & M codes)",
+      "lang": "en",
+      "text_norm": "program editing g m codes",
+      "domains": [
+        "jd_nco_7223_6002",
+        "jd_nco_7223_6003"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" & \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_pump_and_valve_repair",
+      "label": "Pump and valve repair",
+      "lang": "en",
+      "text_norm": "pump and valve repair",
+      "domains": [
+        "jd_isco_7233"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_punching_machine_operation",
+      "label": "Punching machine operation",
+      "lang": "en",
+      "text_norm": "punching machine operation",
+      "domains": [
+        "jd_nco_7223_2400"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_quality_control",
+      "label": "Quality control (QC)",
+      "lang": "en",
+      "text_norm": "quality control qc",
+      "domains": [
+        "jd_nco_7313_2601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_refrigerant_charging",
+      "label": "Refrigerant charging",
+      "lang": "en",
+      "text_norm": "refrigerant charging",
+      "domains": [
+        "jd_isco_7127",
+        "jd_nco_7421_0401"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_refrigerant_leak_detection",
+      "label": "Refrigerant leak detection",
+      "lang": "en",
+      "text_norm": "refrigerant leak detection",
+      "domains": [
+        "jd_isco_7127",
+        "jd_nco_7421_0401"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_rejection_tagging_and_segregation",
+      "label": "Rejection tagging and segregation",
+      "lang": "en",
+      "text_norm": "rejection tagging and segregation",
+      "domains": [
+        "jd_nco_7313_2601",
+        "jd_nco_7543_2001"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_sanitary_fixture_installation",
+      "label": "Sanitary fixture installation",
+      "lang": "en",
+      "text_norm": "sanitary fixture installation",
+      "domains": [
+        "jd_nco_7126_0101"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_scaffolding_erection",
+      "label": "Scaffolding erection",
+      "lang": "en",
+      "text_norm": "scaffolding erection",
+      "domains": [
+        "jd_nco_7112_0100",
+        "jd_nco_7112_0601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_shaft_and_coupling_alignment",
+      "label": "Shaft and coupling alignment",
+      "lang": "en",
+      "text_norm": "shaft and coupling alignment",
+      "domains": [
+        "jd_nco_7233_0101"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_shearing_machine_operation",
+      "label": "Shearing machine operation",
+      "lang": "en",
+      "text_norm": "shearing machine operation",
+      "domains": [
+        "jd_isco_7213",
+        "jd_nco_7223_2400"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_sheet_metal",
+      "label": "Sheet-metal fabrication",
+      "lang": "en",
+      "text_norm": "sheet-metal fabrication",
+      "domains": [
+        "jd_isco_7213",
+        "jd_nco_7223_2400"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_sheet_metal_marking_and_layout",
+      "label": "Sheet metal marking and layout",
+      "lang": "en",
+      "text_norm": "sheet metal marking and layout",
+      "domains": [
+        "jd_isco_7213",
+        "jd_nco_7223_2400",
+        "jd_nco_7224_0102"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_siemens",
+      "label": "Siemens control operation",
+      "lang": "en",
+      "text_norm": "siemens control operation",
+      "domains": [
+        "jd_nco_7223_6002",
+        "jd_nco_7223_6003"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_site_material_stacking",
+      "label": "Site material stacking",
+      "lang": "en",
+      "text_norm": "site material stacking",
+      "domains": [
+        "jd_nco_7112_0601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_solvent_cement_jointing",
+      "label": "Solvent cement jointing",
+      "lang": "en",
+      "text_norm": "solvent cement jointing",
+      "domains": [
+        "jd_nco_7126_0101"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_split_unit_installation",
+      "label": "Split unit installation",
+      "lang": "en",
+      "text_norm": "split unit installation",
+      "domains": [
+        "jd_nco_7421_0401"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_stock_counting",
+      "label": "Stock counting",
+      "lang": "en",
+      "text_norm": "stock counting",
+      "domains": [
+        "jd_isco_4321",
+        "jd_nco_4321_0100",
+        "jd_nco_4321_0601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_stone_dressing",
+      "label": "Stone dressing",
+      "lang": "en",
+      "text_norm": "stone dressing",
+      "domains": [
+        "jd_nco_7112_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_stone_joint_pointing",
+      "label": "Stone joint pointing",
+      "lang": "en",
+      "text_norm": "stone joint pointing",
+      "domains": [
+        "jd_nco_7112_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_structural_fit_up_and_tacking",
+      "label": "Structural fit-up and tacking",
+      "lang": "en",
+      "text_norm": "structural fit-up and tacking",
+      "domains": [
+        "jd_nco_7224_0102"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_sub_assembly_quality_checking",
+      "label": "Sub-assembly quality checking",
+      "lang": "en",
+      "text_norm": "sub-assembly quality checking",
+      "domains": [
+        "jd_nco_8211_1200"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_surface_finish_inspection",
+      "label": "Surface finish inspection",
+      "lang": "en",
+      "text_norm": "surface finish inspection",
+      "domains": [
+        "jd_nco_7313_2601"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_suspension_and_steering_repair",
+      "label": "Suspension and steering repair",
+      "lang": "en",
+      "text_norm": "suspension and steering repair",
+      "domains": [
+        "jd_nco_7231_0100",
+        "jd_nco_7231_0400"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_switchgear_installation",
+      "label": "Switchgear installation",
+      "lang": "en",
+      "text_norm": "switchgear installation",
+      "domains": [
+        "jd_nco_7412_0200"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_tapping_threading",
+      "label": "Tapping / threading",
+      "lang": "en",
+      "text_norm": "tapping threading",
+      "domains": [
+        "jd_nco_7223_0701",
+        "jd_nco_7126_0301"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" / \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_thermostat_and_control_wiring",
+      "label": "Thermostat and control wiring",
+      "lang": "en",
+      "text_norm": "thermostat and control wiring",
+      "domains": [
+        "jd_isco_7127",
+        "jd_nco_7421_0401"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_tool_offset_setting",
+      "label": "Tool offset setting",
+      "lang": "en",
+      "text_norm": "tool offset setting",
+      "domains": [
+        "jd_nco_7223_6002",
+        "jd_nco_7223_6003"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_torque_wrench_operation",
+      "label": "Torque wrench operation",
+      "lang": "en",
+      "text_norm": "torque wrench operation",
+      "domains": [
+        "jd_nco_8211_1200",
+        "jd_nco_8212_0100",
+        "jd_nco_7231_0400"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_turning",
+      "label": "Turning (lathe operation)",
+      "lang": "en",
+      "text_norm": "turning lathe operation",
+      "domains": [
+        "jd_nco_7223_0701",
+        "jd_nco_7223_6002"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_vacuum_pump_evacuation",
+      "label": "Vacuum pump evacuation",
+      "lang": "en",
+      "text_norm": "vacuum pump evacuation",
+      "domains": [
+        "jd_isco_7127"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_vehicle_diagnostic_scanning",
+      "label": "Vehicle diagnostic scanning",
+      "lang": "en",
+      "text_norm": "vehicle diagnostic scanning",
+      "domains": [
+        "jd_nco_7231_0100"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_vibration_and_noise_fault_diagnosis",
+      "label": "Vibration and noise fault diagnosis",
+      "lang": "en",
+      "text_norm": "vibration and noise fault diagnosis",
+      "domains": [
+        "jd_isco_7233",
+        "jd_nco_7233_0101"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_visual_defect_identification",
+      "label": "Visual defect identification",
+      "lang": "en",
+      "text_norm": "visual defect identification",
+      "domains": [
+        "jd_nco_7313_2601",
+        "jd_nco_7543_2001"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_wall_plumb_and_level_checking",
+      "label": "Wall plumb and level checking",
+      "lang": "en",
+      "text_norm": "wall plumb and level checking",
+      "domains": [
+        "jd_nco_7112_0100",
+        "jd_nco_7112_0601"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_water_supply",
+      "label": "Water supply systems",
+      "lang": "en",
+      "text_norm": "water supply systems",
+      "domains": [
+        "jd_nco_7126_0101"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_weld_bead_inspection",
+      "label": "Weld bead inspection",
+      "lang": "en",
+      "text_norm": "weld bead inspection",
+      "domains": [
+        "jd_nco_7212_0100",
+        "jd_nco_7212_0300",
+        "jd_nco_7212_0301"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_welding_joint_preparation",
+      "label": "Welding joint preparation",
+      "lang": "en",
+      "text_norm": "welding joint preparation",
+      "domains": [
+        "jd_nco_7212_0100",
+        "jd_nco_7212_0300",
+        "jd_nco_7212_0301"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_welding_machine_consumable_changeover",
+      "label": "Welding machine consumable changeover",
+      "lang": "en",
+      "text_norm": "welding machine consumable changeover",
+      "domains": [
+        "jd_nco_7212_0300"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_weld_program_parameter_setting",
+      "label": "Weld program parameter setting",
+      "lang": "en",
+      "text_norm": "weld program parameter setting",
+      "domains": [
+        "jd_nco_7212_0300"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_weld_spatter_cleaning",
+      "label": "Weld spatter cleaning",
+      "lang": "en",
+      "text_norm": "weld spatter cleaning",
+      "domains": [
+        "jd_nco_7212_0100",
+        "jd_nco_7212_0300"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    },
+    {
+      "skill_id": "skill_wheel_alignment_and_balancing",
+      "label": "Wheel alignment and balancing",
+      "lang": "en",
+      "text_norm": "wheel alignment and balancing",
+      "domains": [
+        "jd_nco_7231_0100"
+      ],
+      "findings": [
+        {
+          "code": "COMPOUND_LABEL",
+          "severity": "REVIEW",
+          "detail": "the label enumerates more than one concept (matched \" and \"); as a single alias it represents neither half well. Consider splitting into separate aliases."
+        }
+      ],
+      "verdict": "REVIEW"
+    },
+    {
+      "skill_id": "skill_wiring_harness_routing",
+      "label": "Wiring harness routing",
+      "lang": "en",
+      "text_norm": "wiring harness routing",
+      "domains": [
+        "jd_nco_8211_1200"
+      ],
+      "findings": [],
+      "verdict": "OK"
+    }
+  ]
+}

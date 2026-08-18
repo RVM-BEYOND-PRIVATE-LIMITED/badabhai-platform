@@ -413,6 +413,17 @@ jobs:
       # it grants nothing beyond this ephemeral job's own database.
       TEST_LOGIN_ENABLED: "true"
       TEST_LOGIN_TOKEN: e2e-test-login-token-not-a-secret-32ch
+      # ---- PAYER test-login seam (BL-18) — the `/payer/*` analogue of TEST_LOGIN_* above ----
+      # Payer login is EMAIL OTP with no dev echo (real-only, ZeptoMail), so payer-tenancy.e2e
+      # and payer-capacity.e2e were dead-`describe.skip`ped: nothing could complete a payer
+      # login in CI. `POST /payer/test-login` (PayerTestLoginGuard) is the seam built for
+      # exactly this — same two-part discipline as TEST_LOGIN_* (assertPayerAuthConfig refuses
+      # to BOOT when armed outside development/test/staging, or with a token under 32 chars).
+      # The value below is a throwaway CI literal, not a secret; it grants nothing beyond this
+      # ephemeral job's own database, and the guard additionally restricts minted sessions to
+      # the reserved `@e2e.badabhai.invalid` domain (isSyntheticPayerEmail) regardless of token.
+      PAYER_TEST_LOGIN_ENABLED: "true"
+      PAYER_TEST_LOGIN_TOKEN: e2e-payer-test-login-token-not-a-secret-32ch
       # BL-18: re-arming to VERIFY (not assume) whether TD129's blocker still holds. This
       # comment block's own claim above ("the API cannot read the locked workers/events
       # tables in this job") directly contradicts live evidence from TODAY's CI: a
@@ -1111,13 +1122,47 @@ jobs:
             # state) and the job goes RED — and it is strictly better than shipping
             # an api that silently answers from the mock, which is the exact
             # failure this ticket exists to end.
+            # #872: FAIL LOUD AS SOON AS A CONTAINER HAS ACTUALLY CRASHED, not only once the
+            # full poll budget is exhausted. A boot-time fail-closed assert (e.g.
+            # assertMemberInvitesConfig, assertAuthConfig, ...) exits the process in well under
+            # a second — every remaining poll attempt after that is dead time, and the eventual
+            # "never became healthy" message reads identically whether the container is merely
+            # slow or has been crash-looping the whole wait. `restart: unless-stopped` (base
+            # compose file) means a crashed container cycles back to `restarting`, which is a
+            # distinguishable, checkable state — so check it and short-circuit instead of
+            # waiting out the clock. Two consecutive `restarting`/`exited` reads (not one) avoid
+            # a false positive on the single instant between `created` and `running` on an
+            # otherwise-healthy first boot.
+            container_crashed() {
+              # $1: compose service name. Empty/missing output (service not up yet) is NOT a
+              # crash signal — only an explicit restarting/exited state is.
+              cid="$($COMPOSE ps -q "$1" 2>/dev/null || true)"
+              [ -z "$cid" ] && return 1
+              status="$(docker inspect -f '{{.State.Status}}' "$cid" 2>/dev/null || true)"
+              case "$status" in
+                restarting|exited) return 0 ;;
+                *) return 1 ;;
+              esac
+            }
+
             echo "Waiting for the AI service to become healthy..."
             ai_healthy=0
+            ai_crash_streak=0
             for i in $(seq 1 15); do
               if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
                 ai_healthy=1
                 echo "AI service healthy after attempt ${i}"
                 break
+              fi
+              if container_crashed ai-service; then
+                ai_crash_streak=$((ai_crash_streak + 1))
+              else
+                ai_crash_streak=0
+              fi
+              if [ "$ai_crash_streak" -ge 2 ]; then
+                echo "::error::AI service container crashed during boot (not just slow) — dumping container logs"
+                $COMPOSE logs --tail=100 ai-service
+                exit 1
               fi
               sleep 2
             done
@@ -1133,14 +1178,26 @@ jobs:
             # CD-3: health-gate the deploy — the job must go RED when the API does not
             # come up (the old unconditional success echo could never fail). Poll on
             # the box itself: localhost sidesteps the instance firewall. Same poll
-            # pattern as the e2e job's /health wait above. ~60s budget (30 x 2s).
+            # pattern as the e2e job's /health wait above. ~60s budget (30 x 2s), short-
+            # circuited early on a confirmed crash (see container_crashed above — #872).
             echo "Waiting for the API to become healthy..."
             healthy=0
+            api_crash_streak=0
             for i in $(seq 1 30); do
               if curl -sf http://localhost:3001/health >/dev/null 2>&1; then
                 healthy=1
                 echo "API healthy after attempt ${i}"
                 break
+              fi
+              if container_crashed api; then
+                api_crash_streak=$((api_crash_streak + 1))
+              else
+                api_crash_streak=0
+              fi
+              if [ "$api_crash_streak" -ge 2 ]; then
+                echo "::error::API container crashed during boot (not just slow) — dumping container logs"
+                $COMPOSE logs --tail=100 api
+                exit 1
               fi
               sleep 2
             done

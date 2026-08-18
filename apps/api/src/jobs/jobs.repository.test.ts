@@ -156,3 +156,186 @@ describe("findWorkerVisibleJobById — the PII-free SHOW set (ADR-0024 §Surface
     }
   });
 });
+
+// =============================================================================================
+// searchOpenPostings (#822)
+// =============================================================================================
+
+/**
+ * WHY THIS BLOCK EXISTS. `jobs.service.test.ts` drives `searchJobs` against a MOCKED repository,
+ * so every acceptance criterion of #822 that lives in SQL rather than in the mapper was
+ * unverified: partial-and-case-insensitive city, the state filter, the deterministic order, and
+ * the already-decided exclusion. Each is a one-word edit away from silently regressing — `ILIKE`
+ * to `=` narrows a worker's results to nothing, and the whole api suite stays green.
+ *
+ * Statement facts, like the blocks above: this asserts the SQL the repository BUILDS, not what
+ * Postgres does with it.
+ */
+const WORKER_ID = "11111111-1111-4111-8111-111111111111";
+
+interface SearchQuery extends Query {
+  orderBy?: unknown[];
+  offset?: number;
+}
+
+/** The search chain is `select().from().where().orderBy().limit().offset()` — offset resolves. */
+function makeSearchDb(rows: unknown[] = []) {
+  const queries: SearchQuery[] = [];
+  const db = {
+    select: vi.fn((selection?: Record<string, unknown>) => {
+      const q: SearchQuery = { selection };
+      queries.push(q);
+      const node: Record<string, unknown> = {
+        from: (t: unknown) => ((q.from = t), node),
+        where: (c: unknown) => ((q.where = c), node),
+        orderBy: (...o: unknown[]) => ((q.orderBy = o), node),
+        limit: (n: number) => ((q.limit = n), node),
+        offset: (n: number) => ((q.offset = n), Promise.resolve(rows)),
+      };
+      return node;
+    }),
+  };
+  return { repo: new JobsRepository(db as never), queries };
+}
+
+const SEARCH_ARGS = {
+  workerId: WORKER_ID,
+  q: null as string | null,
+  city: null as string | null,
+  state: null as string | null,
+  limit: 20,
+  offset: 0,
+};
+
+/** Compile a node to `{ sql, params }` — the params matter for the wildcard assertions. */
+const compile = (node: unknown) => {
+  const c = dialect.sqlToQuery(sql`${node}` as SQL);
+  return { sql: c.sql.replace(/\s+/g, " "), params: c.params };
+};
+
+describe("searchOpenPostings — the filters #822 specifies", () => {
+  it("ALWAYS gates on status='open', with or without filters", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings(SEARCH_ARGS);
+    expect(compile(queries[0]!.where).sql).toMatch(/"status" = \$\d/);
+  });
+
+  it("city is a PARTIAL, case-insensitive match — never the feed's exact equality", async () => {
+    // The one-word regression this pins: ILIKE '%pune%' becoming = 'pune' turns "pun" from a
+    // search into zero results, which reads to a worker as "there are no jobs".
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, city: "pun" });
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(text).toMatch(/"city" ilike \$\d/i);
+    expect(params).toContain("%pun%");
+  });
+
+  it("state filters the same way", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, state: "maha" });
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(text).toMatch(/"state" ilike \$\d/i);
+    expect(params).toContain("%maha%");
+  });
+
+  it("q matches the role title OR a skill phrase", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, q: "welder" });
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(text).toMatch(/"role_title" ilike \$\d/i);
+    expect(text).toMatch(/jsonb_array_elements_text/i);
+    expect(params).toContain("%welder%");
+  });
+
+  it("a worker's wildcards are LITERAL — the term is a parameter, never interpolated", async () => {
+    // Interpolating would let a search box become a wildcard the worker never asked for and —
+    // with the term inside the statement text — an injection surface.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, q: "100%_operator" });
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(text).not.toContain("100%_operator");
+    expect(params).toContain("%100%_operator%");
+  });
+
+  it("omits every filter clause when no filter is given", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings(SEARCH_ARGS);
+    expect(compile(queries[0]!.where).sql).not.toMatch(/ilike/i);
+  });
+
+  it("EXCLUDES what the worker already applied to or skipped, scoped to that worker", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings(SEARCH_ARGS);
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(text).toMatch(/not exists/i);
+    expect(text).toMatch(/job_posting_id/);
+    // Keyed on the BEARER's worker id — the exclusion must never be shapeable from a query param.
+    expect(params).toContain(WORKER_ID);
+  });
+});
+
+describe("searchOpenPostings — deterministic order and paging (§3: AI must not rank)", () => {
+  it("orders by relevance, then published_at DESC NULLS LAST, then id — a total order", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, q: "welder" });
+    const order = queries[0]!.orderBy!.map((o) => compile(o).sql);
+
+    expect(order).toHaveLength(3);
+    expect(order[0]).toMatch(/case when/i); // the relevance ladder
+    expect(order[1]).toMatch(/"published_at" DESC NULLS LAST/i);
+    // `id` LAST is what makes the order TOTAL. Without it two postings published in the same
+    // transaction tie, and page 2 can repeat or drop a row page 1 already showed.
+    expect(order[2]).toMatch(/"id"/);
+  });
+
+  it("ranks a prefix title hit above a substring hit", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, q: "weld" });
+    const { params } = compile(queries[0]!.orderBy![0]);
+    // Prefix (`weld%`) is tier 0; contains (`%weld%`) is tier 1; anything else is tier 2.
+    expect(params).toContain("weld%");
+    expect(params).toContain("%weld%");
+  });
+
+  it("is a CONSTANT order with no query — never random, never AI-scored", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings(SEARCH_ARGS);
+    const order = queries[0]!.orderBy!.map((o) => compile(o).sql).join(" ");
+    expect(order).not.toMatch(/random|score|embedding|similarity/i);
+  });
+
+  it("probes limit+1 to learn has_more, and returns only `limit` rows", async () => {
+    // 21 rows back for a limit of 20: the 21st exists ONLY to answer "is there another page?"
+    const rows = Array.from({ length: 21 }, (_, i) => ({ id: `job-${i}` }));
+    const { repo, queries } = makeSearchDb(rows);
+
+    const out = await repo.searchOpenPostings({ ...SEARCH_ARGS, limit: 20, offset: 40 });
+
+    expect(queries[0]!.limit).toBe(21);
+    expect(queries[0]!.offset).toBe(40);
+    expect(out.rows).toHaveLength(20);
+    expect(out.hasMore).toBe(true);
+  });
+
+  it("reports has_more=false when the probe row does not come back", async () => {
+    const rows = Array.from({ length: 20 }, (_, i) => ({ id: `job-${i}` }));
+    const { repo } = makeSearchDb(rows);
+    const out = await repo.searchOpenPostings({ ...SEARCH_ARGS, limit: 20 });
+    expect(out.rows).toHaveLength(20);
+    expect(out.hasMore).toBe(false);
+  });
+});
+
+describe("searchOpenPostings — the PII-free projection", () => {
+  it("selects NO employer identity, payer id, or free-text location", async () => {
+    // Same rule the detail read enforces: one added column here reaches every worker's search
+    // results, and the service maps whatever it is handed.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings(SEARCH_ARGS);
+    const projection = projectionOf(queries[0]!).toLowerCase();
+
+    for (const forbidden of ["org_label", "payer_id", "location_label", "contact", "employer"]) {
+      expect(projection, `${forbidden} must never be selected`).not.toContain(forbidden);
+    }
+  });
+});

@@ -133,25 +133,20 @@ async function consent(token: string, purposes: string[]): Promise<void> {
 // on CI run 30699229574: the suite executed, sessions minted, and F-3 PASSED end to end.
 // Authentication is solved.
 //
-// A DIFFERENT blocker was underneath it, and un-skipping is what exposed it. 6 of 8 tests
-// failed with `POST /consent/accept -> 500`, and the Postgres log gives the cause:
-//     ERROR: permission denied for table workers
-//     ERROR: permission denied for table events
-// `workers` and `events` are deliberately locked — FORCE RLS + `REVOKE ALL ... FROM
-// PUBLIC, anon, authenticated, service_role` (migration 0004, ADR-0004) — and the API as
-// the e2e job runs it cannot read them. This is NOT a defect in this suite: it is the
-// e2e environment's database role, and it is pre-existing.
+// A DIFFERENT blocker was underneath it, and un-skipping is what exposed it, for one run:
+// 6 of 8 tests failed with `POST /consent/accept -> 500`, and the Postgres log gave the
+// cause: `ERROR: permission denied for table workers` / `... for table events`. `workers`
+// and `events` are deliberately locked — FORCE RLS + `REVOKE ALL ... FROM PUBLIC, anon,
+// authenticated, service_role` (migration 0004, ADR-0004).
 //
-// It was invisible until now because NOTHING in CI had ever exercised a worker-touching
-// flow: the one test that does (`phase1-onboarding.e2e.test.ts:141`, "logs in → consents
-// → chats → …") is itself `it.skip`. The OTP skip was masking an environment gap, so
-// fixing the OTP half revealed rather than removed the obstacle.
-//
-// So the gate is now EXPLICIT and narrow rather than a blanket skip: set
-// `E2E_UNLOCK_SUITE=1` (with RUN_E2E=1) to run it. Deliberately NOT armed in CI — the
-// remaining work is granting the e2e API role read access to the locked PII spine, which
-// is a security-boundary decision (ADR-0004 / TD4), not a test change. Arming it before
-// that lands would only re-create the red. See the tech-debt register.
+// RESOLVED — the failure was environment-specific, not a standing gap: the e2e job's
+// Postgres service container connects as the `postgres` superuser (`DATABASE_URL` in
+// ci.yml), and a superuser always bypasses RLS and REVOKE regardless of FORCE ROW LEVEL
+// SECURITY — the migration's REVOKE targets Supabase's `anon`/`authenticated`/
+// `service_role`, never the CI role. `E2E_UNLOCK_SUITE=1` (with `RUN_E2E=1`) IS ARMED in
+// ci.yml and this suite runs — and passes — on every CI run that touches the e2e job's
+// path filter (verify against `origin/main`'s ci.yml, not this comment, if that ever
+// changes again).
 const RUN_UNLOCK = RUN && process.env.E2E_UNLOCK_SUITE === "1";
 describe.skipIf(!RUN_UNLOCK)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
   let client!: DbClient;

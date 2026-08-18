@@ -16,18 +16,22 @@ INVARIANTS (ADR-0030):
 - Dimension **768** matches ``skill_alias.embedding`` (Vertex text-multilingual-embedding-002
   / the configured Gemini embedding model — confirm at the staging real run, §7).
 
-The batch operates over an :class:`AliasStore` seam so the (DB-free by design) ai-service
-does not gain a DB client here: the DB read/write of ``skill_alias`` is provided by the
-caller. Resumable = ``fetch_unembedded`` only ever returns rows whose embedding is NULL.
+The batch embed itself is a db-side runner in ``packages/db`` (``embed-skill-aliases.ts``,
+the live ``/embeddings/skill-alias`` endpoint) rather than an in-process ai-service batch —
+this module stays DB-free by design and exposes only the per-text primitives below.
 """
 
 from __future__ import annotations
 
 import hashlib
 import math
+import random
 import struct
-from dataclasses import dataclass, field
-from typing import Protocol
+import threading
+import time
+from collections import deque
+from collections.abc import Callable
+from dataclasses import dataclass
 
 import httpx
 
@@ -36,7 +40,6 @@ from ..logging_config import get_logger
 from ..pseudonymize import pseudonymize
 from . import cost_tracker
 from .langfuse_tracing import EMBED_TEXT, get_tracer
-from .model_config import rate_inr_per_1k
 
 logger = get_logger("ai.embeddings")
 
@@ -50,40 +53,192 @@ MOCK_MODEL = "mock-embedding"
 _GEMINI_EMBED_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 _TIMEOUT_SECONDS = 30.0
 
-# Texts per ``batchEmbedContents`` call (provider cap).
+# Texts per ``batchEmbedContents`` call — the DEFAULT for settings.ai_embed_request_batch.
 #
-# THIS IS A QUOTA FIX, not a latency tweak. The provider meters embedding REQUESTS,
-# not texts (`EmbedContentRequestsPerDayPerProjectPerModel`, 1000/day on the free
-# tier), so one request per alias put the 9121-row job 10 days wide and stalled a
-# real run at 998 rows mid-corpus. At 100 texts per request the same corpus is ~92
-# requests. The per-text price is identical either way — this buys request headroom
-# and wall-clock, and changes nothing about what is sent.
+# THIS IS A QUOTA FIX, not a latency tweak, and it addresses the per-DAY request
+# quota (`EmbedContentRequestsPerDayPerProjectPerModel`, 1000/day on the free tier):
+# at one request per alias the 9121-row corpus needs 9121 requests and stalled a real
+# run at 998 rows. At 100 texts per request the same corpus is ~92 requests. The
+# per-text price is identical either way.
+#
+# IT IS NOT THE CONTROL FOR THROTTLING, and Phase 6 measurement says so directly.
+# Across 201 real Langfuse observations the batch SIZE does not separate success from
+# failure: a 100-text request succeeded (3594 ms) while a 50-text one failed, and the
+# failures line up instead with how many texts had been sent in the preceding minute.
+# See _TextRateLimiter for the constraint that does bind.
 EMBED_REQUEST_BATCH = 100
 # A 100-text batch does ~100x the work of a single embed, so it gets its own
 # ceiling; _TIMEOUT_SECONDS is sized for one text and would trip on a full batch.
 _BATCH_TIMEOUT_SECONDS = 300.0
+# Rolling window the per-minute text quota is measured over.
+_RATE_WINDOW_SECONDS = 60.0
+
+
+def embed_request_batch(settings: Settings) -> int:
+    """Texts per provider request, clamped to something a single HTTP call can carry."""
+    return max(1, min(250, int(settings.ai_embed_request_batch)))
 
 
 class ProviderEmbedError(RuntimeError):
     """A provider embed call failed, carrying the HTTP status when there was one.
 
-    Exists for exactly one decision: whether splitting a failed batch can rescue the
-    rest of it. ``isolatable`` marks failures plausibly caused by ONE text in the
-    batch (a 4xx other than 429 — malformed content, too-long input); those are worth
-    bisecting, because the alternative is letting one bad alias discard the 99 good
-    embeds beside it. A 429, a 5xx, or a transport failure hits every text in the
-    request equally, so splitting there would multiply requests against a provider
-    that is already refusing them — precisely the wrong move when the binding
-    constraint is a per-day REQUEST quota.
+    Drives two decisions, and they are deliberately different questions.
+
+    ``isolatable`` — can splitting the batch rescue the rest of it? True for a 4xx
+    other than 429 (malformed content, too-long input), which is plausibly caused by
+    ONE text; the alternative is letting one bad alias discard the 99 good embeds
+    beside it. False for 429/5xx/transport, which hit every text equally, so splitting
+    would multiply requests against a provider already refusing them.
+
+    ``retryable`` — is re-sending the SAME request safe and likely to help? True when
+    the provider demonstrably did no work: a 429 (refused), a 5xx (failed server-side,
+    and embeddings are not billed on error), or a connect failure (never sent). It is
+    deliberately FALSE for a read timeout: the request WAS sent and the response is
+    unknown, so a retry can pay for the same texts twice. That case is opt-in via
+    ``ai_embed_retry_on_read_timeout`` rather than a default, because "no duplicate
+    billing from uncontrolled retries" outranks recovering a rare hung request.
     """
 
-    def __init__(self, message: str, *, status: int | None = None) -> None:
+    def __init__(self, message: str, *, status: int | None = None, retryable: bool = False,
+                 retry_after: float | None = None) -> None:
         super().__init__(message)
         self.status = status
+        self._retryable = retryable
+        self.retry_after = retry_after
 
     @property
     def isolatable(self) -> bool:
         return self.status is not None and 400 <= self.status < 500 and self.status != 429
+
+    @property
+    def retryable(self) -> bool:
+        if self.status is not None:
+            return self.status == 429 or self.status >= 500
+        return self._retryable
+
+    @property
+    def rate_limited(self) -> bool:
+        return self.status == 429
+
+
+class _TextRateLimiter:
+    """A rolling-window budget on TEXTS SENT, shared process-wide.
+
+    ---------------------------------------------------------------------------
+    WHY TEXTS, AND WHY A SHARED BUCKET
+    ---------------------------------------------------------------------------
+    The provider counts each content inside a ``batchEmbedContents`` against the
+    per-minute embed quota, so the meter runs on texts, not on HTTP calls. Phase 6
+    measured this on our own traces: the largest 60-second window whose requests all
+    succeeded carried 148 texts, and every failure sits where the preceding minute was
+    already full. Pacing the requests is therefore the control; the batch size only
+    decides how quickly the budget is spent, and (separately) how many requests the
+    per-DAY quota sees.
+
+    The quota is per PROJECT, so the bucket is a module singleton rather than
+    per-request state — two concurrent runner batches share one provider allowance,
+    and a per-request limiter would let them each stay "under" it while together going
+    over.
+
+    ---------------------------------------------------------------------------
+    A REFUSED REQUEST STILL COSTS QUOTA
+    ---------------------------------------------------------------------------
+    ``charge`` is called for attempts that FAILED as well as ones that succeeded. This
+    is the finding that makes naive retrying actively harmful: in the Phase 5 traces a
+    50-text request was rejected at +211s when only 55 texts had SUCCEEDED in the prior
+    minute — but 194 texts had been attempted and refused in that same window. Retrying
+    into a window the failed attempts have already exhausted spends more quota to
+    produce more failures.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._events: deque[tuple[float, int]] = deque()
+
+    def _prune(self, now: float) -> None:
+        while self._events and now - self._events[0][0] >= _RATE_WINDOW_SECONDS:
+            self._events.popleft()
+
+    def charge(self, texts: int, now: float | None = None) -> None:
+        """Record texts sent to the provider, successfully or not."""
+        with self._lock:
+            t = time.monotonic() if now is None else now
+            self._prune(t)
+            self._events.append((t, texts))
+
+    def delay_for(self, texts: int, limit: int, now: float | None = None) -> float:
+        """Seconds to wait before `texts` more may be sent. 0 when there is room."""
+        if limit <= 0:
+            return 0.0
+        with self._lock:
+            t = time.monotonic() if now is None else now
+            self._prune(t)
+            used = sum(n for _, n in self._events)
+            if used + texts <= limit:
+                return 0.0
+            # Wait for enough of the oldest entries to age out that this request fits.
+            # A single request larger than the whole limit can never fit; it is released
+            # once the window is empty rather than deadlocking, and the provider's own
+            # 429 remains the backstop for that misconfiguration.
+            need = used + texts - limit
+            freed = 0
+            for ts, n in self._events:
+                freed += n
+                if freed >= need:
+                    return max(0.0, _RATE_WINDOW_SECONDS - (t - ts))
+            # Draining the ENTIRE window still would not make room, i.e. this single
+            # request is larger than the whole per-minute limit. Waiting cannot help, so
+            # release it once the window is clear rather than blocking forever; with the
+            # window already empty there is nothing to wait for at all. The provider's
+            # own 429 stays the backstop for that misconfiguration.
+            if not self._events:
+                return 0.0
+            return max(0.0, _RATE_WINDOW_SECONDS - (t - self._events[0][0]))
+
+    def reset(self) -> None:
+        with self._lock:
+            self._events.clear()
+
+
+# Process-wide: the quota being modelled belongs to the provider project, not to a request.
+_rate_limiter = _TextRateLimiter()
+
+
+def get_rate_limiter() -> _TextRateLimiter:
+    """The shared limiter. Exposed so tests can reset it between cases."""
+    return _rate_limiter
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """`Retry-After` in delta-seconds form. A malformed header is ignored, not fatal."""
+    if not value:
+        return None
+    try:
+        seconds = float(value.strip())
+    except ValueError:
+        return None
+    return seconds if seconds >= 0 else None
+
+
+def _backoff_delay(attempt: int, exc: ProviderEmbedError, settings: Settings) -> float:
+    """How long to wait before retry `attempt` (1-based), bounded and jittered.
+
+    A 429 is treated differently from a 5xx on purpose. Exponential backoff from a
+    couple of seconds retries INSIDE the same rate window, where the budget is already
+    spent and the failed attempt has spent more of it — so a rate-limit refusal waits
+    out the window instead (the provider's own ``Retry-After`` when it sends one,
+    otherwise a configured cooldown). Jitter is full-range on the exponential path so
+    that several runners recovering from one provider blip do not resynchronise into a
+    thundering herd.
+    """
+    if exc.rate_limited:
+        base = exc.retry_after if exc.retry_after is not None else float(
+            settings.ai_embed_rate_limit_cooldown_seconds
+        )
+    else:
+        base = float(settings.ai_embed_backoff_base_seconds) * (2 ** (attempt - 1))
+        base = random.uniform(base / 2.0, base)  # noqa: S311 - jitter, not cryptography
+    return max(0.0, min(base, float(settings.ai_embed_backoff_max_seconds)))
 
 
 @dataclass
@@ -190,11 +345,28 @@ def _real_embedding_batch(texts: list[str], settings: Settings) -> list[list[flo
         ]
     }
     headers = {"x-goog-api-key": api_key}  # header, never a ?key= (avoids URL-log leak)
-    with httpx.Client(timeout=_BATCH_TIMEOUT_SECONDS) as client:
-        resp = client.post(url, headers=headers, json=body)
+    try:
+        with httpx.Client(timeout=_BATCH_TIMEOUT_SECONDS) as client:
+            resp = client.post(url, headers=headers, json=body)
+    except httpx.ConnectError as exc:
+        # Never reached the provider, so nothing was embedded and nothing was billed.
+        raise ProviderEmbedError(
+            f"skill_embedding transport: {type(exc).__name__}", retryable=True
+        ) from exc
+    except httpx.TimeoutException as exc:
+        # The request WAS sent and the outcome is unknown. Retrying can pay twice for
+        # the same texts, so this is retryable only when explicitly opted into.
+        raise ProviderEmbedError(
+            f"skill_embedding timeout: {type(exc).__name__}",
+            retryable=bool(settings.ai_embed_retry_on_read_timeout),
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise ProviderEmbedError(f"skill_embedding transport: {type(exc).__name__}") from exc
     if resp.status_code < 200 or resp.status_code >= 300:
         raise ProviderEmbedError(
-            f"skill_embedding provider HTTP {resp.status_code}", status=resp.status_code
+            f"skill_embedding provider HTTP {resp.status_code}",
+            status=resp.status_code,
+            retry_after=_parse_retry_after(resp.headers.get("retry-after")),
         )
     embeddings = resp.json().get("embeddings") or []
     if len(embeddings) != len(texts):
@@ -214,6 +386,105 @@ def _real_embedding_batch(texts: list[str], settings: Settings) -> list[list[flo
             raise RuntimeError("skill_embedding: zero-norm vector from provider")
         vectors.append([v / norm for v in vector])
     return vectors
+
+
+@dataclass
+class _AttemptOutcome:
+    """What the paced/retrying wrapper did, for the trace and the log."""
+
+    vectors: list[list[float]] | None
+    attempts: int
+    waited_seconds: float
+    rate_limited: bool
+    error: Exception | None
+
+
+def _embed_batch_paced(
+    safe_texts: list[str],
+    settings: Settings,
+    sleep: Callable[[float], None] | None = None,
+) -> _AttemptOutcome:
+    """One provider batch, PACED against the per-minute text budget and retried a bounded
+    number of times.
+
+    THE FOUR REQUIREMENTS THIS EXISTS TO SATISFY, and where each one lives:
+
+    - *No retry storm.* Attempts are capped by ``ai_embed_max_retries`` (a total, not a
+      per-error budget) and only ``retryable`` failures are retried at all. An isolatable
+      4xx is raised straight back so the caller can bisect it, which is a different and
+      cheaper recovery than re-sending.
+    - *Bounded exponential backoff.* ``_backoff_delay`` clamps to
+      ``ai_embed_backoff_max_seconds`` and jitters the exponential path; a 429 waits out
+      the rate window instead of doubling from two seconds inside it.
+    - *No duplicate billing.* Only failures where the provider demonstrably did no work
+      are retried. A read timeout is excluded by default — see ProviderEmbedError.
+    - *Resumability.* Exhausting the retries returns ``vectors=None`` rather than raising
+      past the caller, so those slots stay None, the rows stay NULL, and the next run
+      picks them up. Nothing here can turn a transient failure into a lost alias.
+
+    The pacing wait is itself bounded: the db-side runner holds an HTTP request open for
+    at most ten minutes, so a limiter configured tighter than the batch size could hang
+    the caller until it times out and lose the whole batch. Past
+    ``ai_embed_max_pacing_wait_seconds`` this gives up cleanly instead, which costs a
+    resumable retry rather than a client timeout.
+    """
+    # Resolved at CALL time, not bound as a default: a default argument captures
+    # time.sleep at import, which would make the waits unpatchable and every retry test
+    # spend its backoff in real seconds.
+    nap = time.sleep if sleep is None else sleep
+    limit = int(settings.ai_embed_texts_per_minute)
+    max_retries = max(0, int(settings.ai_embed_max_retries))
+    limiter = get_rate_limiter()
+    waited = 0.0
+    rate_limited = False
+    last_error: Exception | None = None
+    attempts_made = 0
+
+    for attempt in range(1, max_retries + 2):
+        # ── pace BEFORE sending: stay under the budget rather than discover it ──
+        if limit > 0:
+            delay = limiter.delay_for(len(safe_texts), limit)
+            if delay > 0:
+                if waited + delay > float(settings.ai_embed_max_pacing_wait_seconds):
+                    last_error = ProviderEmbedError(
+                        "skill_embedding: pacing wait would exceed the per-request ceiling"
+                    )
+                    break
+                logger.info(
+                    "embed_texts: pacing for the per-minute text budget",
+                    extra={"extra": {"texts": len(safe_texts), "wait_seconds": round(delay, 2),
+                                     "limit_per_minute": limit}},
+                )
+                nap(delay)
+                waited += delay
+        try:
+            # Charge BEFORE the call. The provider counts the attempt whatever its
+            # outcome, so crediting only successes would let a run of 429s look free to
+            # the limiter and keep it sending into an exhausted window.
+            limiter.charge(len(safe_texts))
+            attempts_made = attempt
+            vectors = _real_embedding_batch(safe_texts, settings)
+            return _AttemptOutcome(vectors, attempt, waited, rate_limited, None)
+        except ProviderEmbedError as exc:
+            last_error = exc
+            if exc.isolatable:
+                raise  # the caller bisects; re-sending the same batch would just refail
+            if not exc.retryable or attempt > max_retries:
+                break
+            rate_limited = rate_limited or exc.rate_limited
+            delay = _backoff_delay(attempt, exc, settings)
+            logger.warning(
+                "embed_texts: provider refused a batch; backing off",
+                extra={"extra": {"texts": len(safe_texts), "attempt": attempt,
+                                 "status": exc.status, "backoff_seconds": round(delay, 2)}},
+            )
+            nap(delay)
+            waited += delay
+        except Exception as exc:  # noqa: BLE001 - classified by the caller, never retried
+            last_error = exc
+            break
+
+    return _AttemptOutcome(None, attempts_made, waited, rate_limited, last_error)
 
 
 def embed_texts(texts: list[str], settings: Settings) -> list[EmbeddingResult | None]:
@@ -275,9 +546,9 @@ def embed_texts(texts: list[str], settings: Settings) -> list[EmbeddingResult | 
     # isolatable). Worst case for a single poison text is ~2*log2(batch) extra
     # requests instead of losing the whole chunk; a transient failure never splits,
     # so the request-quota cost of the common path is unchanged.
+    request_batch = embed_request_batch(settings)
     stack: list[list[tuple[int, str]]] = [
-        pending[start : start + EMBED_REQUEST_BATCH]
-        for start in range(0, len(pending), EMBED_REQUEST_BATCH)
+        pending[start : start + request_batch] for start in range(0, len(pending), request_batch)
     ]
     stack.reverse()  # keep corpus order on the happy path (pop() takes from the end)
 
@@ -288,32 +559,70 @@ def embed_texts(texts: list[str], settings: Settings) -> list[EmbeddingResult | 
             name=EMBED_TEXT, as_type="embedding", input={"texts": len(safe_texts)}, model=model
         ) as obs:
             try:
-                vectors = _real_embedding_batch(safe_texts, settings)
-            except Exception as exc:
+                outcome = _embed_batch_paced(safe_texts, settings)
+            except ProviderEmbedError as exc:
+                # Isolatable 4xx: probably ONE bad text. _embed_batch_paced re-raises
+                # these rather than retrying, because re-sending an identical malformed
+                # batch just spends quota to fail again. Split so the good ones still
+                # land; the bad one converges to a single-item call that fails alone.
                 obs.update(level="WARNING", status_message=f"provider_failed: {type(exc).__name__}")
-                if isinstance(exc, ProviderEmbedError) and exc.isolatable and len(chunk) > 1:
-                    # Probably one bad text. Split and retry both halves so the good
-                    # ones still land; the bad one converges to a single-item call
-                    # that fails alone.
+                if len(chunk) > 1:
                     mid = len(chunk) // 2
                     stack.append(chunk[mid:])
                     stack.append(chunk[:mid])
                     continue
-                # Whole-chunk failure (429 / 5xx / transport, or a single text that
-                # genuinely cannot be embedded). Leave these slots as None so the
-                # rows stay NULL for the next resumable run, and keep going — one
-                # bad chunk must not discard the batches that already succeeded.
-                # Never logs the text; the message is provider/status only.
                 logger.warning(
-                    "embed_texts: provider batch failed; rows left unembedded for a later run",
-                    extra={"extra": {"texts": len(safe_texts), "error": type(exc).__name__}},
+                    "embed_texts: provider rejected a single text; row left unembedded",
+                    extra={"extra": {"texts": 1, "status": exc.status}},
                 )
                 continue
+            if outcome.vectors is None:
+                exc = outcome.error
+                # Whole-chunk failure that survived the retry policy (429 / 5xx /
+                # transport). Leave these slots as None so the rows stay NULL for the
+                # next resumable run, and keep going — one bad chunk must not discard
+                # the batches that already succeeded. Never logs the text.
+                obs.update(
+                    level="WARNING",
+                    status_message=f"provider_failed: {type(exc).__name__ if exc else 'unknown'}",
+                    # The retry story travels WITH the failure. "Provider failed" alone
+                    # cannot tell an operator whether the policy gave up early or fought
+                    # for ninety seconds first, which is the difference between a
+                    # misconfiguration and a genuinely unavailable provider.
+                    metadata={
+                        "attempts": outcome.attempts,
+                        "waited_seconds": round(outcome.waited_seconds, 2),
+                        "rate_limited": outcome.rate_limited,
+                        "status": getattr(exc, "status", None),
+                    },
+                )
+                logger.warning(
+                    "embed_texts: provider batch failed; rows left unembedded for a later run",
+                    extra={"extra": {
+                        "texts": len(safe_texts),
+                        "error": type(exc).__name__ if exc else "unknown",
+                        "attempts": outcome.attempts,
+                        "waited_seconds": round(outcome.waited_seconds, 2),
+                        "rate_limited": outcome.rate_limited,
+                    }},
+                )
+                continue
+            vectors = outcome.vectors
             obs.update(
                 # NOT the vectors: 768 floats x100 would dwarf every other payload.
                 output={"texts": len(vectors), "dimensions": EMBEDDING_DIMENSION, "is_mock": False},
                 usage_details={"input": sum(cost_tracker.estimate_tokens(t) for t in safe_texts)},
-                metadata={"tokens_estimated": True, "batched": True},
+                # Throttling stays visible even when the batch eventually SUCCEEDED. A
+                # run that only got through because it waited 60s per request is healthy
+                # by every count and is telling you the limit is wrong; recording it only
+                # on failure would hide exactly that.
+                metadata={
+                    "tokens_estimated": True,
+                    "batched": True,
+                    "attempts": outcome.attempts,
+                    "waited_seconds": round(outcome.waited_seconds, 2),
+                    "rate_limited": outcome.rate_limited,
+                },
             )
         # strict=True: a length mismatch here would pair a vector with the WRONG
         # alias, which is undetectable at rest. _real_embedding_batch already
@@ -369,140 +678,3 @@ def embed_text(text: str, settings: Settings) -> EmbeddingResult:
         )
     return EmbeddingResult(vector=vector, blocked=False, is_mock=is_mock, model=model, text=safe)
 
-
-class AliasStore(Protocol):
-    """The DB seam the batch reads/writes. The ai-service stays DB-free — the caller
-    (a db-side runner with the owner connection) supplies this. `fetch_unembedded` MUST
-    return only rows whose embedding is NULL, which is what makes the batch resumable."""
-
-    def fetch_unembedded(
-        self, limit: int, exclude_ids: frozenset[str] = frozenset()
-    ) -> list[tuple[str, str]]:
-        """Return up to ``limit`` (alias_id, text) rows whose embedding is NULL AND whose
-        id is NOT in ``exclude_ids``. The exclude set carries the rows this run already
-        attempted-and-BLOCKED: a blocked row is never embedded, so it stays NULL and a
-        naive ``WHERE embedding IS NULL LIMIT n`` would re-return it every batch — clogging
-        the window (starving rows behind it) and re-counting it. Excluding them makes the
-        batch strictly progress-or-stop. SQL shape: ``... WHERE embedding IS NULL AND id <>
-        ALL($exclude) ORDER BY id LIMIT $limit``."""
-        ...
-
-    def save_embedding(self, alias_id: str, vector: list[float]) -> None:
-        """Persist the vector for one alias (sets embedding for that row)."""
-        ...
-
-
-@dataclass
-class EmbedBatchReport:
-    embedded: int = 0
-    blocked: int = 0
-    is_mock: bool = True
-    model: str = MOCK_MODEL
-    estimated_cost_inr: float = 0.0
-    blocked_alias_ids: list[str] = field(default_factory=list)
-    # True when the REAL batch stopped early because the projected spend would exceed
-    # the batch budget (TD64 interim guard). Remaining rows stay NULL — resume later.
-    budget_stopped: bool = False
-    # True when the store violated the exclude_ids contract (a fetch window contained
-    # ONLY already-blocked ids): the batch still terminates, but rows behind the clogged
-    # window were NOT processed this run — the store's SQL needs fixing.
-    store_nonconforming: bool = False
-
-
-def embed_aliases(
-    store: AliasStore,
-    settings: Settings,
-    *,
-    batch_size: int = 100,
-    max_rows: int | None = None,
-    budget_inr: float | None = None,
-) -> EmbedBatchReport:
-    """Embed all NULL-embedding aliases (resumable, idempotent, pseudonymize-first).
-
-    Idempotent: a re-run only sees rows still NULL, so a completed corpus is a no-op. A
-    blocked (fail-closed) phrase is left NULL + counted, never embedded.
-
-    ``budget_inr`` bounds the REAL batch's estimated spend (TD64 interim guard — the full
-    SpendLedger reserve/record wiring is the precondition for the §7 staging run). Default
-    = ``settings.ai_max_daily_cost_inr``. When the accumulated estimate reaches it the
-    batch STOPS (``budget_stopped=True``); remaining rows stay NULL and a later run
-    resumes. The mock path spends nothing and is never budget-stopped.
-
-    TD68: any future AliasStore caller of THIS library batch must do the TD27 SpendLedger
-    reserve/record itself (``would_exceed_spend`` -> ``record_spend``) — ``budget_inr``
-    alone is NOT the TD27 cap (the live ``/embeddings/skill-alias`` endpoint path already
-    wires the ledger).
-    """
-    report = EmbedBatchReport(is_mock=not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE))
-    report.model = settings.embedding_model if not report.is_mock else MOCK_MODEL
-    if budget_inr is None:
-        budget_inr = settings.ai_max_daily_cost_inr
-    processed = 0
-    # Rows attempted this run and BLOCKED. They stay NULL (never embedded), so they must be
-    # excluded from every subsequent fetch — otherwise a window of blocked NULL rows would
-    # be re-returned forever (infinite loop) or re-counted each batch. Each iteration then
-    # strictly makes progress: it either embeds >=1 clean row (that row leaves the NULL set)
-    # or adds >=1 id to `blocked` (that id leaves the fetchable set) — so the loop always
-    # drains and terminates.
-    blocked: set[str] = set()
-    while True:
-        limit = batch_size
-        if max_rows is not None:
-            limit = min(limit, max_rows - processed)
-        if limit <= 0:
-            break
-        fetched = store.fetch_unembedded(limit, frozenset(blocked))
-        # Defensive vs a NON-CONFORMING store that ignores ``exclude_ids``: drop ids we
-        # already attempted-and-blocked, so termination never depends on the store honoring
-        # the contract (a mis-written SQL runner must not hang or double-count).
-        rows = [(aid, text) for aid, text in fetched if aid not in blocked]
-        if not rows:
-            if fetched:
-                # The window held ONLY already-blocked ids — the store ignored exclude_ids.
-                # Terminate (never hang), but SAY so: rows behind the clog were skipped.
-                report.store_nonconforming = True
-                logger.warning(
-                    "embed_aliases: store ignored exclude_ids — terminating with "
-                    "unprocessed rows behind a blocked window",
-                    extra={"extra": {"blocked": len(blocked)}},
-                )
-            break
-        for alias_id, text in rows:
-            processed += 1
-            res = embed_text(text, settings)
-            if res.blocked or res.vector is None:
-                report.blocked += 1
-                report.blocked_alias_ids.append(alias_id)
-                blocked.add(alias_id)  # exclude from future fetches — no re-count, no loop
-                continue
-            store.save_embedding(alias_id, res.vector)
-            report.embedded += 1
-            if not res.is_mock:
-                # Cost on the PSEUDONYMIZED text actually sent (res.text), not the raw
-                # input — accumulated UNROUNDED per row: alias texts are ~3-token strings
-                # whose per-row estimate_cost_inr (4-dp rounding) is exactly 0.0, which
-                # would zero the whole batch estimate AND blind the budget stop.
-                in_rate, _out = rate_inr_per_1k(settings.embedding_model)
-                tokens = cost_tracker.estimate_tokens(res.text or "")
-                report.estimated_cost_inr += (tokens / 1000.0) * in_rate
-                if report.estimated_cost_inr >= budget_inr:
-                    # Hard stop: never let an unattended corpus batch spend past the budget.
-                    report.budget_stopped = True
-                    break
-        if report.budget_stopped:
-            break
-    # Round once on the TOTAL (6 dp — embeds are sub-paisa) so the report is stable while
-    # per-row accumulation stayed exact.
-    report.estimated_cost_inr = round(report.estimated_cost_inr, 6)
-    logger.info(
-        "embed_aliases done",
-        extra={
-            "extra": {
-                "embedded": report.embedded,
-                "blocked": report.blocked,
-                "is_mock": report.is_mock,
-                "model": report.model,
-            }
-        },
-    )
-    return report

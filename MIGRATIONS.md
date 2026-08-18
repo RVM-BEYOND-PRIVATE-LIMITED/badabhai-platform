@@ -26,18 +26,66 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0071_outstanding_monster_badoon`** (journal has 72 entries, `idx` 0–71).
+**`0076_canonical_domain_skill_taxonomy`** (journal has 77 entries, `idx` 0–76).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
 | `0067`        | Divyanshu | **APPLIED** — Phase 1 retrieval foundations                   |
-| `0068`        | Prakash   | **CLAIMED** — W1 referral link metadata on `agency_invites`    |
+| `0068`        | Prakash   | **APPLIED** — W1 referral link metadata on `agency_invites`    |
 | `0069`        | Divyanshu | **APPLIED** — Occupation Intelligence question packs (5 tables) |
 | `0070`        | Prakash   | **MERGED** — worker notification prefs + Alerts watermark (#646) |
 | `0071`        | Prakash   | **MERGED** — voice profiling form data spine (V1)              |
-| `0072`–`0074` | Divyanshu | Occupation Intelligence — taxonomy, retrieval, remaining slots |
-| `0075`–`0079` | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
+| `0072`–`0073` | Divyanshu | **MERGED** — OIE P8 cutover: `unresolved_phrase.scope`, pack answers (#650) |
+| `0074`        | Prakash   | **MERGED** — `.enableRLS()` model markers, 31 tables (BL-26, #839) |
+| `0075`        | Divyanshu | **MERGED** — `job_postings` state for `GET /jobs/search` (#822, #856) |
+| `0076`        | Prakash   | **ON `main`** — canonical Domain→Skill taxonomy, Phase 1 (`fca0ef9c`; see notes below) |
+| `0077`–`0079` | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
 | `0080`+       | unclaimed | claim in a PR of its own, so the claim is reviewable          |
+
+### `0076` deploy ordering and rollback — 2026-08-16
+
+Two operational facts that the migration header does not carry, recorded here because both
+were found by review rather than by anyone hitting them.
+
+**MIGRATE BEFORE YOU DEPLOY.** `0076` adds `job_postings.job_domain_id`, and `schema/job.ts`
+adds the matching Drizzle column. Drizzle enumerates columns explicitly on `.select()`, so a
+`@badabhai/db` build containing that column, deployed against a database that has not run
+`0076`, fails **every** `job_postings` read with `column "job_domain_id" does not exist` — not
+merely the new canonical arm. There is no application-level feature flag that avoids this; the
+ordering is the control.
+
+**THE ROLLBACK IS NO LONGER SINGLE-COMMIT.** The recipe in the migration header was written at
+Phase 1 and is correct in isolation. `ef73ce70` then made
+`apps/api/src/skills/skills.repository.ts` query `job_domain_skill` directly, so reverting
+`0076` now requires reverting `ef73ce70` in the same operation. Today the blast radius is
+compile/deploy-time rather than request-time — nothing writes `job_postings.job_domain_id`
+yet, so the canonical arm is unreachable at runtime — but the pairing is real and the header
+does not mention it.
+
+### The `0076` claim, and the stale table that preceded it — 2026-08-16
+
+Two things were wrong here and both are worth recording, because the second is the kind of
+error this file exists to prevent.
+
+**The head was stale by five migrations.** This table claimed `0071` / 72 entries while the
+journal actually held 76 entries through `0075_job_postings_state`. Anyone trusting it for
+"the next free number" would have minted `0072` and collided with a merged migration. The
+protocol's whole premise is that git will not warn you — a reservation table that lags the
+journal is worse than no table, because it is confidently wrong. **Refresh the head in the
+same PR that claims a block, not later.**
+
+**`0075`–`0079` was reserved for OIE, and `0076` was taken anyway.** Deliberately, and on
+this evidence: the OIE sprint plan documents its own nominal `0075`/`0076` claims being
+renumbered down to `0071`/`0072` (drizzle-kit assigns sequentially, so a reservation cannot
+survive contact with the generator); `0075` was then consumed by an unrelated job-search
+change under a different owner; no branch of the 86 on `origin` holds a `0076`+ file; and
+`.github/workflows/supabase-checks.yml` enforces contiguous prefixes, so skipping to the
+unclaimed `0080` is not reachable — there is exactly one legal next number.
+
+The block reservation was already not being honoured as written. Rather than pretend
+otherwise, the remaining OIE slots are renumbered to `0077`–`0079` above. **If that conflicts
+with in-flight OIE work, this is the line to argue with** — the migration itself is
+additive and its rollback is documented in its own header.
 
 ### The `0070` collision — 2026-08-07, and it happened exactly as this file predicted
 

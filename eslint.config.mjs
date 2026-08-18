@@ -92,7 +92,13 @@ export default tseslint.config(
     // admin-web ships on the SAME token layer (its tokens.css is a port of the design
     // system), so it is gated identically — a portal built with raw hex would not flip
     // under [data-theme="ink"] and would drift from payer-web on the first restyle.
-    files: ["apps/payer-web/src/**/*.{ts,tsx}", "apps/admin-web/src/**/*.{ts,tsx}"],
+    // marketing-web (the public badabhai.ai site) ships on a trimmed port of the SAME
+    // token values (apps/marketing-web/src/styles/tokens.css) for the same reason.
+    files: [
+      "apps/payer-web/src/**/*.{ts,tsx}",
+      "apps/admin-web/src/**/*.{ts,tsx}",
+      "apps/marketing-web/src/**/*.{ts,tsx}",
+    ],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -115,6 +121,7 @@ export default tseslint.config(
       "apps/payer-web/**/*.{test,spec}.{ts,tsx}",
       "apps/payer-web/**/*.stories.{ts,tsx}",
       "apps/admin-web/**/*.{test,spec}.{ts,tsx}",
+      "apps/marketing-web/**/*.{test,spec}.{ts,tsx}",
     ],
     rules: {
       "no-restricted-syntax": "off",

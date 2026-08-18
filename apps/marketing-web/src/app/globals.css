@@ -1,0 +1,244 @@
+/* BadaBhai Design System token layer — imported FIRST so every rule below
+ * resolves from tokens. Source of truth for the values: apps/payer-web/src/styles/tokens.css. */
+@import "../styles/tokens.css";
+
+/* ------------------------------------------------------------------
+ * PAGE-LOCAL COMPONENT LAYER (prefixed `mkt-` — these are NOT the shared
+ * `.bb-*` design-system primitives; those live only inside apps/payer-web's
+ * component layer today. Every value below still resolves from a token.
+ * ------------------------------------------------------------------ */
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.mkt-container {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding-inline: var(--gutter-web);
+}
+
+/* ---- header ---- */
+.mkt-header {
+  border-bottom: var(--border-hairline) solid var(--border-subtle);
+  background: var(--surface-card);
+}
+.mkt-header__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: 4.5rem;
+}
+.mkt-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+}
+.mkt-nav a {
+  color: var(--text-secondary);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
+}
+.mkt-nav a:hover {
+  color: var(--text-primary);
+}
+
+/* ---- brand mark ---- */
+.bb-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-decoration: none;
+  color: var(--text-primary);
+}
+.bb-logo:hover {
+  text-decoration: none;
+}
+.bb-logo__word {
+  font-family: var(--font-display);
+  font-weight: var(--weight-extrabold);
+  letter-spacing: var(--tracking-tight);
+  line-height: 1;
+}
+
+/* ---- hero ---- */
+.mkt-hero {
+  padding-block: var(--space-12) var(--space-11);
+}
+.mkt-hero__inner {
+  max-width: var(--reading-max);
+  display: grid;
+  gap: var(--space-5);
+}
+.mkt-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-on-brand);
+  background: var(--brand-tint);
+  border: var(--border-hairline) solid var(--brand-border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-wide);
+  width: fit-content;
+}
+.mkt-hero__title {
+  font-size: var(--text-4xl);
+  line-height: var(--leading-tight);
+}
+.mkt-hero__sub {
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+  max-width: 56ch;
+}
+.mkt-hero__ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+/* ---- buttons ---- */
+.mkt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  border: var(--border-hairline) solid transparent;
+  transition: var(--transition-control);
+  cursor: pointer;
+}
+.mkt-btn:hover {
+  text-decoration: none;
+}
+.mkt-btn--primary {
+  background: var(--brand);
+  color: var(--text-on-brand);
+  border-color: var(--brand);
+}
+.mkt-btn--primary:hover {
+  background: var(--brand-hover);
+}
+.mkt-btn--secondary {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+.mkt-btn--secondary:hover {
+  background: var(--surface-sunken);
+}
+
+/* ---- "what BadaBhai does" split section ---- */
+.mkt-section {
+  padding-block: var(--space-11);
+  border-top: var(--border-hairline) solid var(--border-subtle);
+}
+.mkt-section__head {
+  max-width: var(--reading-max);
+  margin-bottom: var(--space-8);
+}
+.mkt-section__title {
+  font-size: var(--text-2xl);
+  margin-bottom: var(--space-2);
+}
+.mkt-section__sub {
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+}
+.mkt-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: var(--space-6);
+}
+.mkt-panel {
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: var(--space-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.mkt-panel__title {
+  font-size: var(--text-xl);
+}
+.mkt-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.mkt-panel__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+.mkt-panel__item-mark {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--success-tint);
+  color: var(--success);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  margin-top: 2px;
+}
+.mkt-panel__cta {
+  margin-top: var(--space-2);
+  align-self: flex-start;
+}
+
+/* ---- footer ---- */
+.mkt-footer {
+  margin-top: auto;
+  border-top: var(--border-hairline) solid var(--border-subtle);
+  background: var(--surface-card);
+  padding-block: var(--space-8);
+}
+.mkt-footer__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.mkt-footer__tagline {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  max-width: 60ch;
+}
+.mkt-footer__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 640px) {
+  .mkt-hero__title {
+    font-size: var(--text-3xl);
+  }
+  .mkt-nav {
+    gap: var(--space-4);
+  }
+}

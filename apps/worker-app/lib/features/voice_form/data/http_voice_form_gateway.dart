@@ -1,3 +1,5 @@
+import 'package:uuid/uuid.dart';
+
 import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
@@ -66,6 +68,14 @@ class HttpVoiceFormGateway implements VoiceFormGateway {
       // prevent, performed by the client.
       'question_key': questionKey,
       'answer': _answerJson(answer),
+      // #870 — one id per PHYSICAL answer, minted here where the answer commits to
+      // the wire. `_answerJson`/`_post` build this body ONCE and the api client's
+      // only re-send (a 401 auth-renewal) replays the same encoded body, so a
+      // transport retry carries the SAME id; the 409 arm below re-attaches with a
+      // GET and re-POSTs nothing, so there is no per-attempt id to leak. A fresh
+      // answer runs `submit` again and gets a NEW id — exactly the distinction the
+      // server needs. Always present (a v4 UUID is never null).
+      'submission_id': const Uuid().v4(),
     };
     try {
       final Map<String, dynamic> json =

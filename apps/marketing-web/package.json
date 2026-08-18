@@ -1,0 +1,24 @@
+{
+  "name": "@badabhai/marketing-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BadaBhai public marketing site (badabhai.ai root domain) — static, single-page, no auth, no backend calls.",
+  "scripts": {
+    "dev": "next dev -p 3004",
+    "build": "next build",
+    "start": "next start -p 3004",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rimraf --glob .next .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "next": "^15.5.21",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "vitest": "^3.2.7"
+  }
+}

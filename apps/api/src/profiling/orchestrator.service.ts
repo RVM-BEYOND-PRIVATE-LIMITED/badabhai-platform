@@ -46,7 +46,7 @@ import {
   toPackOption,
 } from "./identify.service";
 import { LlmTurnService } from "./llm-turn.service";
-import { captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
+import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
 import {
   answerSetHash,
   isSettled,
@@ -63,9 +63,12 @@ import {
   answersOf,
   emptyProfilingEnvelope,
   inboundHash,
+  MAX_REPLAYS_PER_TURN,
+  RETRY_STORM_FLOOR_MS,
   narrowAnswerRecords,
   recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
+  STALE_RESPONSE_WINDOW_MS,
   TURN_KINDS,
   toEngineState,
   withAnswers,
@@ -406,7 +409,77 @@ export class ProfilingOrchestrator {
       // beat us may have been this same worker's duplicate submit, in which case the right answer
       // is their own previous reply rather than a second turn spent on the same words.
       const replay = replayOf(envelope, input);
-      if (replay) return replay;
+      // `replayOf` only ever returns non-null when `envelope.lastTurn` is itself non-null — `last`
+      // here is that guarantee made explicit, not a new fact.
+      if (replay && envelope.lastTurn) {
+        // A RETRY-STORM REPLAY IS SERVED AND NOTHING IS WRITTEN (#858). The budget is already
+        // spent, so there is no unit left to consume; what bounds this is `RETRY_STORM_FLOOR_MS`
+        // expiring against `lastTurn.at`, which no replay refreshes and which therefore runs out
+        // on the wall clock without any write to help it. Writing anyway would put one CAS per
+        // duplicate on the exact path a broken client hammers, and — because a consume re-stamps
+        // against the new rev — would do it to buy nothing at all.
+        //
+        // This is NOT the pre-#857 unbounded replay it resembles. That one never went stale
+        // because going stale was a write's job and a replay performed none; this one is stale by
+        // the clock in at most `RETRY_STORM_FLOOR_MS`, after which `replayOf` declines and the
+        // very next identical submission runs a real turn.
+        //
+        // AND IT IS LOGGED, because this branch is the only evidence that a client is duplicating
+        // submissions at all — everything downstream of it looks like a healthy session precisely
+        // because the damage was absorbed here. Ids and counters only: the worker's words live in
+        // the transcript, which is the one place they belong (§2).
+        if (!replay.consumesBudget) {
+          this.logger.warn(
+            `retry storm absorbed session=${input.sessionId} rev=${envelope.rev} ` +
+              `replays=${envelope.lastTurn.replays} question=${envelope.servedQuestionKey ?? "-"}; ` +
+              `duplicate served from cache and NOT captured — the client is posting one ` +
+              `submission more than once`,
+          );
+          return replay.result;
+        }
+
+        // CONSUME ONE UNIT OF THE REPLAY BUDGET before serving it. A replay itself writes nothing,
+        // so without this the stamp this matched would never go stale and every further identical
+        // submission — including the worker's own next, unrelated turn, if it happens to use the
+        // same words — would match it forever, for the whole of `REPLY_CACHE_WINDOW_MS`.
+        //
+        // THE HASH IS RE-STAMPED, NOT LEFT ALONE, against the rev this write produces — the exact
+        // rule `turn()` stamps a fresh reply by. Bumping `rev` without re-stamping would invalidate
+        // the entry after this ONE serve regardless of `replays`, silently capping the budget at
+        // one no matter what `MAX_REPLAYS_PER_TURN` says: a second genuine retry, arriving after
+        // THIS write landed, would compute a hash against the new rev that no longer matches the
+        // stale one and would incorrectly run a real turn instead of replaying. Re-stamping keeps
+        // the entry matchable at the new rev, so `replays` — not `rev` drift — is what decides when
+        // the budget runs out.
+        //
+        // `at` IS DELIBERATELY LEFT UNTOUCHED. It anchors the window to the ORIGINAL real turn, so
+        // the total time this session may spend replaying one stamp is bounded at
+        // `REPLY_CACHE_WINDOW_MS` regardless of how many retries land inside it — refreshing it
+        // here would let each consume buy the window another `REPLY_CACHE_WINDOW_MS`, which is the
+        // unbounded-loop failure this whole mechanism exists to close.
+        const last = envelope.lastTurn;
+        const consumed: TranscriptBuffer = {
+          ...buffer,
+          profiling: {
+            ...envelope,
+            lastTurn: {
+              ...last,
+              inboundHash: inboundHash(input.sessionId, envelope.rev + 1, input.text),
+              replays: last.replays + 1,
+            },
+          },
+        };
+        const held = await this.buffer.saveWithCas(input.sessionId, consumed, envelope.rev);
+        if (held) return replay.result;
+        // Lost the race — someone else already wrote (a real turn, or another caller consuming the
+        // same replay slot). Reload and re-evaluate against whatever landed, exactly as a lost CAS
+        // does below.
+        this.logger.log(
+          `replay-consume lost session=${input.sessionId} rev=${envelope.rev} ` +
+            `attempt=${attempt + 1}; reloading and re-evaluating against the winner's state`,
+        );
+        continue;
+      }
 
       const decided = await this.decide(buffer, envelope, input);
       if (!decided) return unavailable();
@@ -1009,7 +1082,13 @@ export class ProfilingOrchestrator {
         // `done` — Phase A is over. What the model gathered becomes ANSWERS before the engine is
         // consulted, or the template tail opens by asking a worker their trade immediately after
         // a conversation that was largely about it.
-        answers = settleFromLlmDraft(answers, next.llmDraft, items, turn);
+        answers = settleFromLlmDraft(
+          answers,
+          next.llmDraft,
+          next.occupation?.label ?? null,
+          items,
+          turn,
+        );
         next = withAnswers(next, answers);
         // FALL THROUGH so the engine serves the template pack's first question on THIS turn:
         // returning the model's closing words here would cost the worker a round trip to see a
@@ -1604,6 +1683,9 @@ export class ProfilingOrchestrator {
         // render, on exactly the flaky link that caused the retry.
         lookahead: result.lookahead ?? null,
         inputMode: result.inputMode ?? "text",
+        // A FRESH STAMP. This reply has not been served as a replay yet, so it gets the whole
+        // budget — see `LastTurn.replays`.
+        replays: 0,
       },
     };
     const at = input.now.toISOString();
@@ -1644,15 +1726,75 @@ function withTurnLatency(buffer: TranscriptBuffer, elapsedMs: number): Transcrip
   };
 }
 
+/**
+ * A cache hit, and WHAT SERVING IT COSTS.
+ *
+ * The two are returned together because they are one decision made from one set of facts, and the
+ * caller can re-derive neither: `replayOf` owns every rule about the stamp — the hash, the window,
+ * the budget, the storm floor — and a `takeTurn` that re-tested `replays` to decide whether to
+ * write would be a second copy of the budget rule, free to disagree with the first.
+ */
+interface Replay {
+  readonly result: TurnResult;
+  /**
+   * Whether serving this replay must WRITE, spending one unit of the stamp's budget.
+   *
+   * True for a replay served FROM the budget: without the write the stamp would never go stale and
+   * the interview would sit on one reply for the whole window (#857). False for a retry-storm
+   * replay, whose budget is already spent — there is nothing left to consume, and what bounds it
+   * is `RETRY_STORM_FLOOR_MS` running out on the wall clock rather than a counter running down.
+   */
+  readonly consumesBudget: boolean;
+}
+
 /** Layer A: the same message, at the same rev, inside the window. */
-function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | null {
+function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null {
   const last = envelope.lastTurn;
   if (!last) return null;
   if (last.inboundHash !== inboundHash(input.sessionId, envelope.rev, input.text)) return null;
   const age = input.now.getTime() - new Date(last.at).getTime();
   // A NEGATIVE age is not a hit. Clock skew between instances would otherwise make a stale entry
   // look arbitrarily fresh, and replaying an old reply is worse than spending a turn.
-  if (!Number.isFinite(age) || age < 0 || age > REPLY_CACHE_WINDOW_MS) return null;
+  //
+  // AND THIS TEST GUARDS THE STORM FLOOR BELOW TOO, which is why the floor is expressed here and
+  // not in `takeTurn`: `age` is only a floor on human turnaround once it is known to be a real,
+  // forward-running elapsed time. A skewed clock handing back −60 s satisfies "less than 1.5 s"
+  // perfectly, and would turn clock skew into a free way to suppress turns indefinitely.
+  if (!Number.isFinite(age) || age < 0 || age > STALE_RESPONSE_WINDOW_MS) return null;
+  // PAST THE FRESH WINDOW BUT INSIDE THE STALE ONE (#869) — still served from the cache, but for a
+  // different reason, so the budget below does not apply to it.
+  //
+  // Inside `REPLY_CACHE_WINDOW_MS` a match is confidently one physical submission arriving twice.
+  // Out here it is genuinely ambiguous: either the shipped client's own 15 s timeout retry (whose
+  // worker never saw the question this would otherwise answer), or the worker's next answer reusing
+  // the same words. The server cannot tell — so it is decided by which mistake is recoverable.
+  // Replaying at a worker who really did repeat themselves costs one visible round trip; running
+  // the turn for a stale retry captures their words against a question they never saw and, on a
+  // `max_asks: 1` item, settles it forever. See STALE_RESPONSE_WINDOW_MS for the full argument.
+  const stale = age > REPLY_CACHE_WINDOW_MS;
+  // THE REPLAY BUDGET (see `LastTurn.replays`). `rev` does not distinguish a network retry of
+  // THIS reply from the worker's next, genuinely different turn happening to use the same words —
+  // a replay writes nothing, so an unbudgeted stamp would match every further identical submission
+  // for the whole of `REPLY_CACHE_WINDOW_MS`, however many real turns that is. Past the budget a
+  // matching submission runs the turn for real instead of matching this stamp again.
+  //
+  // ...UNLESS IT LANDED TOO FAST TO BE A HUMAN (#858). Running the turn for real answers whatever
+  // question is on screen NOW, and for the third copy of ONE physical submission that is the wrong
+  // question — the FIRST duplicate's own success is what advanced it. The worker never gave those
+  // words for it, and the engine cannot tell, so the words are captured against it anyway: B's ask
+  // budget spent, or B settled outright, on content meant for A. Inside `RETRY_STORM_FLOOR_MS` the
+  // worker cannot have seen B at all, so the submission is still the same physical one and is
+  // still answered from the cache. Past the floor the two cases are genuinely indistinguishable
+  // and the budget decides, exactly as it did before.
+  const spent = last.replays >= MAX_REPLAYS_PER_TURN;
+  // `&& !stale` IS THE FIX (#869), and it is why the budget is scoped rather than removed. The
+  // budget exists to stop ONE stamp trapping an interview while it is being replayed cheaply
+  // inside the fresh window. Out in the stale window there is nothing to trap: a stale replay
+  // consumes no budget, writes nothing, and never refreshes `last.at`, so the window shuts by the
+  // clock on its own. Letting the budget fall through to here would re-open exactly this defect —
+  // the spent stamp would run the turn for real and capture the stale retry against the question
+  // it was never meant for, which is the whole bug.
+  if (spent && age >= RETRY_STORM_FLOOR_MS && !stale) return null;
   // AN OFFER THAT LOST ITS CHIPS IS NOT A REPLAY, IT IS A DEAD END — fail closed (§3).
   //
   // `narrowLastTurn` parses cached options all-or-nothing, so any chip the contract rejects empties
@@ -1663,37 +1805,48 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): TurnResult | n
   // per-chip narrowing — a PARTIAL offer would hide the same failure behind a plausible screen.
   if (last.kind === "disambiguate" && last.options.length === 0) return null;
   return {
-    reply: last.reply,
-    // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
-    // link is an ordinary event, and re-deriving `ask` here would turn the second delivery of a
-    // disambiguation offer into an ordinary question with a chip scroller — the byte-identical
-    // replay this cache promises, silently downgraded on exactly the connections that need it.
-    kind: last.kind,
-    questionKey: last.questionKey,
-    // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
-    // replay a strictly WORSE response than the one it claims to repeat: same words, no chips, no
-    // progress. On chat that costs a scroller and a progress bar; on the voice form it strands a
-    // worker who cannot type in front of a question that can only be answered by tapping.
-    options: last.options,
-    progress: last.progress,
-    whyText: last.whyText,
-    answerType: last.answerType,
-    inputMode: last.inputMode,
-    unansweredEssentials: [],
-    complete: false,
-    completionReason: null,
-    replayed: true,
-    excludeFromParse: false,
-    unavailable: false,
-    // FROM THE CACHE, like the four above and for the identical reason (#766 item 2). The
-    // lookahead is part of what the client draws — it renders the next question from it on the
-    // tap — so replaying the words without it is the same silent downgrade `options` and
-    // `progress` used to suffer here. `null` on a record written before the field existed, which
-    // is simply the round trip the client already falls back to.
-    lookahead: last.lookahead,
-    // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
-    // client retrying on a flaky connection drive one Postgres UPDATE per retry.
-    checkpointDue: false,
+    // A STORM REPLAY WRITES NOTHING, and it is the clock that makes that safe. `last.at` is the
+    // ORIGINAL real turn and no replay ever refreshes it, so `age` only grows: the floor above
+    // expires on its own, whether or not this path ever touches Redis. Consuming budget here
+    // instead would buy nothing — the budget is already spent — while putting one CAS write per
+    // duplicate on exactly the path a storm hammers.
+    // `&& !stale`: a stale replay costs no budget. Consuming it would put one CAS write on every
+    // duplicate of a retry storm — the same reason a spent storm replay writes nothing — and would
+    // buy nothing, since out there the budget no longer gates anything (see the check above).
+    consumesBudget: !spent && !stale,
+    result: {
+      reply: last.reply,
+      // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
+      // link is an ordinary event, and re-deriving `ask` here would turn the second delivery of a
+      // disambiguation offer into an ordinary question with a chip scroller — the byte-identical
+      // replay this cache promises, silently downgraded on exactly the connections that need it.
+      kind: last.kind,
+      questionKey: last.questionKey,
+      // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
+      // replay a strictly WORSE response than the one it claims to repeat: same words, no chips,
+      // no progress. On chat that costs a scroller and a progress bar; on the voice form it
+      // strands a worker who cannot type in front of a question only answerable by tapping.
+      options: last.options,
+      progress: last.progress,
+      whyText: last.whyText,
+      answerType: last.answerType,
+      inputMode: last.inputMode,
+      unansweredEssentials: [],
+      complete: false,
+      completionReason: null,
+      replayed: true,
+      excludeFromParse: false,
+      unavailable: false,
+      // FROM THE CACHE, like the four above and for the identical reason (#766 item 2). The
+      // lookahead is part of what the client draws — it renders the next question from it on the
+      // tap — so replaying the words without it is the same silent downgrade `options` and
+      // `progress` used to suffer here. `null` on a record written before the field existed,
+      // which is simply the round trip the client already falls back to.
+      lookahead: last.lookahead,
+      // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
+      // client retrying on a flaky connection drive one Postgres UPDATE per retry.
+      checkpointDue: false,
+    },
   };
 }
 
@@ -1735,7 +1888,11 @@ function outstandingOffer(
 function outstandingLlmAsk(
   envelope: ProfilingEnvelope,
   leads: boolean,
-): { prompt: string; options: readonly QuestionPackOption[]; answerType: AnswerType | null } | null {
+): {
+  prompt: string;
+  options: readonly QuestionPackOption[];
+  answerType: AnswerType | null;
+} | null {
   if (!leads) return null;
   if (envelope.llmAsks === 0 && !envelope.llmGateOpen) return null;
   const last = envelope.lastTurn;
@@ -1788,14 +1945,35 @@ function unavailable(): TurnResult {
  * model could not put a number on understates a worker's experience, and understating it is the
  * one direction that costs them jobs — so a partial answer is left for the pack question to ask
  * properly rather than filled in with a number nobody can defend.
+ *
+ * THE PINNED OCCUPATION IS THE LAST TRADE FALLBACK, and it is what closes the bug this function
+ * was already written to prevent. Both draft labels default to `null`, and an `experience_entry`
+ * may arrive on ANY turn — including the first, which the composite opener actively invites
+ * ("aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?"). An entry opens the
+ * Yes/No gate immediately, so a worker can reach "Aur koi experience jodna hai?" with both labels
+ * still null, answer "nahi", and be asked "Aap kaunsa kaam karte hain?" as the very next line —
+ * after a conversation that was entirely about their trade.
+ *
+ * `occupation.label` is safe to spend here in a way a model's free text would not be: it is
+ * RETRIEVAL's pin, the same deterministic decision that chose the pack whose questions are about
+ * to be served. Last in precedence, because the model's own labels are more specific when present.
+ *
+ * SKILLS ARE MATCHED AGAINST THE PACK'S OWN VOCABULARY, never written through verbatim. The draft
+ * carries free text ("MIG welding") and the skills items are `multi_select` over a closed option
+ * list, so the model's words are run through {@link matchOptions} — the SAME matcher a typed
+ * answer goes through — and only the options that actually land are settled. A skill that matches
+ * nothing settles nothing and the question is still asked, which is the correct outcome: §11 says
+ * validate AI output before business logic consumes it, and `answer_option_keys` is read by the
+ * matcher as pack vocabulary. Writing "MIG welding" into it would be a value no option means.
  */
 function settleFromLlmDraft(
   answers: AnswerMap,
   draft: ProfilingEnvelope["llmDraft"],
+  occupationLabel: string | null,
   items: readonly QuestionPackItem[],
   turn: number,
 ): AnswerMap {
-  const trade = (draft.role_label ?? draft.domain_label ?? "").trim();
+  const trade = (draft.role_label ?? draft.domain_label ?? occupationLabel ?? "").trim();
   const months = draft.experiences.map((entry) => entry.duration_months);
   const years =
     months.length > 0 && months.every((m): m is number => typeof m === "number")
@@ -1824,6 +2002,41 @@ function settleFromLlmDraft(
 
   if (trade) settle("trade", trade, trade);
   if (years !== null) settle("experience_years", `${years}`, years);
+
+  // EVERY skills item, not the first one `settle` would have found: a pack may carry more than one
+  // (`welding_process` and a materials question both target `skills`), and they ask about different
+  // things. One joined string is scanned for each, because `matchOptions` masks negation and
+  // consumes matched characters per item — running it per skill would let a two-word option lose to
+  // a one-word fragment scanned in a different call.
+  const skillsText = draft.skills.join(", ").trim();
+  if (skillsText) {
+    for (const item of items) {
+      if (item.target_field !== "skills" || isSettled(next, item.question_key)) continue;
+      const matched = matchOptions(item, skillsText);
+      // MIRRORS THE CAPTURE RULES EXACTLY (`normalizeFor`): a multi_select holds the list, a
+      // single_select holds exactly one — two option labels in one draft is not an answer to a
+      // single-choice question, and picking the first would be picking at random. Anything else
+      // (a free-text skills item) is left for the question to ask properly.
+      const value =
+        item.answer_type === "multi_select" && matched.length > 0
+          ? matched
+          : item.answer_type === "single_select" && matched.length === 1
+            ? matched[0]
+            : undefined;
+      if (value === undefined) continue;
+      next = recordAnswer(
+        next,
+        {
+          questionKey: item.question_key,
+          targetField: "skills",
+          valueRaw: skillsText,
+          valueNormalized: value,
+          evidence: null,
+        },
+        turn,
+      );
+    }
+  }
   return next;
 }
 

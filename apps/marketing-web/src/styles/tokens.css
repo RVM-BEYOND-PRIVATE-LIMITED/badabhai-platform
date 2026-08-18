@@ -1,0 +1,297 @@
+/* ============================================================
+   BadaBhai Design System — TOKEN LAYER (trimmed port for marketing-web)
+   ------------------------------------------------------------
+   Source of truth for the VALUES below: apps/payer-web/src/styles/tokens.css
+   (docs/design/ — the design-system doc itself — is not on `main` yet; see #864).
+   This is a faithful port of the values that a single static marketing page
+   actually uses: color, typography, spacing, radius, elevation (banned →
+   `none`), motion, and the base reset. Every rule here resolves through a
+   custom property — component/page CSS in this app must never use a raw hex
+   or px literal (DS adherence, enforced by the root ESLint config).
+
+   DELIBERATELY DROPPED vs. the payer-web port:
+     - The self-hosted Roboto Mono @font-face block (--font-mono still
+       resolves, to a system monospace stack) — this page renders no ₹ amounts
+       or tabular data, so there is no self-hosted font to ship for it.
+     - The "UI-1 · ENTERPRISE PORTAL LAYER" density-role block (--ui-h1-size
+       etc.) — that is the authenticated-console reading mode; a marketing
+       hero uses the generous mobile-first scale below, same as the worker-
+       facing /i/<code> page in payer-web.
+   Anek (display) + Inter (body) load via next/font/google in layout.tsx —
+   self-hosted at build time, so no external render-blocking request (an
+   improvement on the payer-web async-<link> pattern for a page with no
+   cookie-driven theme to resolve first).
+   ============================================================ */
+
+/* ============================================================
+   COLOR — same values as apps/payer-web/src/styles/tokens.css.
+   Blue-dominant structure · haldi = the ONE CTA · green = verified/money ·
+   cool neutral ink · canvas/white surfaces.
+   ============================================================ */
+:root {
+  /* ---- Blue (structure) ---- */
+  --blue-50: #e9f0fb;
+  --blue-100: #c7d6f0;
+  --blue-300: #6e93d6;
+  --blue-500: #123d8c;
+  --blue-600: #0d2d68;
+  --blue-700: #0a2350;
+
+  /* ---- Vermilion → haldi ramp (the one-CTA color) ---- */
+  --vermilion-50: #fff7e0;
+  --vermilion-100: #ffecb3;
+  --vermilion-200: #ffe08a;
+  --vermilion-300: #ffd24d;
+  --vermilion-500: #ffc400;
+  --vermilion-600: #e0ac00;
+  --vermilion-700: #b88a00;
+  --vermilion-800: #8a6800;
+
+  /* ---- Green (go / verified) ---- */
+  --green-500: #1e7a3c;
+  --green-600: #145c2d;
+
+  /* ---- Crimson (danger, unused here but kept for parity) ---- */
+  --red-500: #c62828;
+
+  /* ---- Ink (cool neutrals) ---- */
+  --ink-950: #0b1220;
+  --ink-900: #101828;
+  --ink-700: #2e3a50;
+  --ink-600: #475069;
+  --ink-500: #667085;
+  --ink-400: #8a92a6;
+  --ink-300: #b9c0ce;
+  --ink-200: #d8dee9;
+  --ink-100: #edf0f5;
+
+  /* ---- Paper (canvas / white surfaces) ---- */
+  --paper-0: #ffffff;
+  --paper-1: #ffffff;
+  --paper-2: #f2f4f8;
+  --paper-3: #edf0f5;
+
+  /* ---- SEMANTIC ALIASES — reference these in components ---- */
+  --text-primary: var(--ink-900);
+  --text-secondary: var(--ink-600);
+  --text-muted: var(--ink-500);
+  --text-inverse: var(--paper-1);
+  --text-on-brand: var(--blue-500); /* text on haldi is ALWAYS deep blue */
+  --text-link: var(--blue-600);
+
+  --surface-page: var(--paper-2);
+  --surface-card: var(--paper-0);
+  --surface-sunken: var(--paper-3);
+  --surface-ink: var(--blue-500);
+  --surface-ink-2: var(--blue-600);
+
+  --brand: var(--vermilion-500);
+  --brand-hover: var(--vermilion-600);
+  --brand-press: var(--vermilion-700);
+  --brand-tint: var(--vermilion-50);
+  --brand-border: var(--vermilion-200);
+
+  --success: var(--green-500);
+  --success-tint: #e9f5ec;
+
+  --border-subtle: #edf0f5;
+  --border-default: #d8dee9;
+  --border-strong: #c3cbda;
+  --divider: var(--ink-100);
+
+  /* focus ring — sober blue (never haldi; haldi fails 3:1 as a focus indicator) */
+  --ring: rgba(18, 61, 140, 0.35);
+}
+
+/* ============================================================
+   TYPOGRAPHY — Anek (display) · Inter (body). Families map to the
+   next/font/google-generated CSS variables set on <html> in layout.tsx.
+   ============================================================ */
+:root {
+  --font-display: var(--font-anek), "Anek Latin", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: var(--font-inter), "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* type scale — mobile-first, generous (same values as payer-web) */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-md: 18px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 30px;
+  --text-3xl: 38px;
+  --text-4xl: 48px;
+  --text-5xl: 60px;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-extrabold: 800;
+
+  --leading-tight: 1.1;
+  --leading-snug: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  --tracking-tight: -0.015em;
+  --tracking-wide: 0.04em;
+  --tracking-wider: 0.09em;
+}
+
+/* ============================================================
+   SPACING — 4px grid; --tap is the minimum interactive-target floor.
+   ============================================================ */
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --space-10: 64px;
+  --space-11: 80px;
+  --space-12: 96px;
+  --space-14: 160px;
+
+  --tap: 48px; /* WCAG 2.2 AA target-size floor */
+
+  --gutter: 20px;
+  --gutter-web: 32px;
+  --content-max: 1200px;
+  --reading-max: 68ch;
+}
+
+/* ============================================================
+   RADIUS — same values as payer-web (JUL31 spec).
+   ============================================================ */
+:root {
+  --radius-sm: 10px;
+  --radius-md: 10px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
+}
+
+/* ============================================================
+   ELEVATION — the DS bans shadows; separation is a 1px hairline.
+   ============================================================ */
+:root {
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --ring-focus: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--ring);
+  --border-hairline: 1px;
+}
+
+/* ============================================================
+   MOTION — confident ease-out; collapses under prefers-reduced-motion.
+   ============================================================ */
+:root {
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --duration-fast: 140ms;
+  --duration-base: 220ms;
+  --transition-control:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+  }
+}
+
+/* ============================================================
+   BASE — reset + brand-inheriting globals (same as payer-web tokens.css).
+   ============================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background-color: var(--surface-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--text-link);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: var(--radius-sm);
+}
+
+/* Visually hidden, still read by assistive tech (skip link, sr-only labels). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.sr-only-focusable:focus {
+  position: fixed;
+  top: var(--space-2);
+  left: var(--space-2);
+  width: auto;
+  height: auto;
+  padding: var(--space-2) var(--space-4);
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--ring-focus);
+  z-index: 100;
+}

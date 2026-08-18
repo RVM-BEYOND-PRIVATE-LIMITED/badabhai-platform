@@ -1,0 +1,522 @@
+{
+  "status": "DRAFT — not ratified, nothing applied",
+  "generated_against_fixture": "taxonomy-retrieval-v1 v2",
+  "merges": [
+    {
+      "id": "TD-01",
+      "from": [
+        "skill_gdt_reading"
+      ],
+      "into": "skill_drawing_reading (NEW)",
+      "status": "DECIDED",
+      "note": "merge GD&T reading + the READING portion of CAD interpretation; CAD software usage stays separate",
+      "sources": [
+        {
+          "skill_id": "skill_gdt_reading",
+          "exists": true,
+          "label": "GD&T / drawing reading",
+          "status": "active",
+          "aliases": [
+            {
+              "text": "blueprint reading",
+              "lang": "en",
+              "embedded": 1
+            },
+            {
+              "text": "drawing reading",
+              "lang": "en",
+              "embedded": 1
+            },
+            {
+              "text": "GD&T",
+              "lang": "en",
+              "embedded": 1
+            },
+            {
+              "text": "geometric dimensioning and tolerancing",
+              "lang": "en",
+              "embedded": 1
+            }
+          ],
+          "embedded": 4,
+          "domains": [
+            "jd_nco_7223_0701",
+            "jd_nco_7223_6002",
+            "jd_nco_7223_6003",
+            "jd_nco_7224_0102",
+            "jd_nco_7126_0301",
+            "jd_nco_7313_2601",
+            "jd_nco_7543_2001",
+            "jd_nco_7212_0301"
+          ],
+          "fixture_cases": []
+        }
+      ],
+      "target": null
+    },
+    {
+      "id": "TD-02",
+      "from": [
+        "skill_dimensional_inspection"
+      ],
+      "into": "skill_quality_control",
+      "status": "DECIDED",
+      "note": "merge at current blue-collar JD granularity",
+      "sources": [
+        {
+          "skill_id": "skill_dimensional_inspection",
+          "exists": true,
+          "label": "Dimensional inspection",
+          "status": "active",
+          "aliases": [
+            {
+              "text": "dimensional inspection",
+              "lang": "en",
+              "embedded": 1
+            },
+            {
+              "text": "inspection",
+              "lang": "en",
+              "embedded": 1
+            },
+            {
+              "text": "quality check",
+              "lang": "en",
+              "embedded": 1
+            }
+          ],
+          "embedded": 3,
+          "domains": [
+            "jd_nco_7313_2601",
+            "jd_nco_7543_2001"
+          ],
+          "fixture_cases": [
+            "US-04"
+          ]
+        }
+      ],
+      "target": {
+        "skill_id": "skill_quality_control",
+        "exists": true,
+        "label": "Quality control (QC)",
+        "status": "active",
+        "aliases": [
+          {
+            "text": "QC",
+            "lang": "en",
+            "embedded": 1
+          },
+          {
+            "text": "quality check karna",
+            "lang": "hi",
+            "embedded": 1
+          },
+          {
+            "text": "quality control",
+            "lang": "en",
+            "embedded": 1
+          }
+        ],
+        "embedded": 3,
+        "domains": [
+          "jd_nco_7313_2601"
+        ],
+        "fixture_cases": []
+      }
+    },
+    {
+      "id": "TD-03",
+      "from": [
+        "skill_boring"
+      ],
+      "into": "skill_turning",
+      "status": "DECIDED_CONDITIONAL",
+      "note": "merge unless a JD explicitly requires a dedicated boring-machine operator",
+      "sources": [
+        {
+          "skill_id": "skill_boring",
+          "exists": true,
+          "label": "Boring",
+          "status": "active",
+          "aliases": [
+            {
+              "text": "boring",
+              "lang": "en",
+              "embedded": 1
+            }
+          ],
+          "embedded": 1,
+          "domains": [
+            "jd_nco_7223_0701"
+          ],
+          "fixture_cases": []
+        }
+      ],
+      "target": {
+        "skill_id": "skill_turning",
+        "exists": true,
+        "label": "Turning (lathe operation)",
+        "status": "active",
+        "aliases": [
+          {
+            "text": "CNC turning",
+            "lang": "en",
+            "embedded": 1
+          },
+          {
+            "text": "kharad",
+            "lang": "hi",
+            "embedded": 1
+          },
+          {
+            "text": "kharad ka kaam",
+            "lang": "hi",
+            "embedded": 1
+          },
+          {
+            "text": "lathe operation",
+            "lang": "en",
+            "embedded": 1
+          },
+          {
+            "text": "turning",
+            "lang": "en",
+            "embedded": 1
+          }
+        ],
+        "embedded": 5,
+        "domains": [
+          "jd_nco_7223_0701",
+          "jd_nco_7223_6002"
+        ],
+        "fixture_cases": []
+      }
+    },
+    {
+      "id": "TD-04",
+      "from": [
+        "skill_go_no_go_gauge_checking"
+      ],
+      "into": "skill_measuring_instruments",
+      "status": "DEFERRED",
+      "note": "line-inspector/JD decision required from trainer/ops",
+      "sources": [
+        {
+          "skill_id": "skill_go_no_go_gauge_checking",
+          "exists": true,
+          "label": "Go no-go gauge checking",
+          "status": "provisional",
+          "aliases": [
+            {
+              "text": "plug gauge check",
+              "lang": "en",
+              "embedded": 1
+            },
+            {
+              "text": "गेज से जांच",
+              "lang": "hi",
+              "embedded": 1
+            }
+          ],
+          "embedded": 2,
+          "domains": [
+            "jd_nco_7313_2601",
+            "jd_nco_7543_2001"
+          ],
+          "fixture_cases": []
+        }
+      ],
+      "target": {
+        "skill_id": "skill_measuring_instruments",
+        "exists": true,
+        "label": "Micrometer / Vernier / gauge usage",
+        "status": "active",
+        "aliases": [
+          {
+            "text": "gauge",
+            "lang": "en",
+            "embedded": 1
+          },
+          {
+            "text": "measuring instruments",
+            "lang": "en",
+            "embedded": 1
+          },
+          {
+            "text": "micrometer",
+            "lang": "en",
+            "embedded": 1
+          },
+          {
+            "text": "micrometer se naapna",
+            "lang": "hi",
+            "embedded": 1
+          },
+          {
+            "text": "naap tol",
+            "lang": "hi",
+            "embedded": 1
+          },
+          {
+            "text": "vernier caliper",
+            "lang": "en",
+            "embedded": 1
+          }
+        ],
+        "embedded": 6,
+        "domains": [
+          "jd_nco_7231_0400",
+          "jd_nco_7223_0701",
+          "jd_nco_7223_6002",
+          "jd_isco_7213",
+          "jd_nco_7223_2400",
+          "jd_nco_7224_0102",
+          "jd_nco_7233_0101",
+          "jd_nco_7313_2601",
+          "jd_nco_7543_2001"
+        ],
+        "fixture_cases": []
+      }
+    },
+    {
+      "id": "TD-05",
+      "from": [
+        "skill_fixture_setup",
+        "skill_tool_offset_setting"
+      ],
+      "into": "skill_cnc_setup (NEW, only if JDs do not distinguish)",
+      "status": "DEFERRED",
+      "note": "confirm whether RVM JDs distinguish workholding setup from tool-offset setting",
+      "sources": [
+        {
+          "skill_id": "skill_fixture_setup",
+          "exists": true,
+          "label": "Fixture / job setup",
+          "status": "active",
+          "aliases": [
+            {
+              "text": "fixture setup",
+              "lang": "en",
+              "embedded": 1
+            },
+            {
+              "text": "job setting",
+              "lang": "hi",
+              "embedded": 1
+            },
+            {
+              "text": "job setup",
+              "lang": "en",
+              "embedded": 1
+            },
+            {
+              "text": "setting karna",
+              "lang": "hi",
+              "embedded": 1
+            },
+            {
+              "text": "workholding",
+              "lang": "en",
+              "embedded": 1
+            }
+          ],
+          "embedded": 5,
+          "domains": [
+            "jd_nco_7223_6002"
+          ],
+          "fixture_cases": []
+        },
+        {
+          "skill_id": "skill_tool_offset_setting",
+          "exists": true,
+          "label": "Tool offset setting",
+          "status": "active",
+          "aliases": [
+            {
+              "text": "offset setting",
+              "lang": "en",
+              "embedded": 1
+            },
+            {
+              "text": "tool offset",
+              "lang": "en",
+              "embedded": 1
+            }
+          ],
+          "embedded": 2,
+          "domains": [
+            "jd_nco_7223_6002",
+            "jd_nco_7223_6003"
+          ],
+          "fixture_cases": []
+        }
+      ],
+      "target": null
+    },
+    {
+      "id": "TD-06",
+      "from": [
+        "skill_chassis_fitting"
+      ],
+      "into": "skill_mechanical_assembly",
+      "status": "DEFERRED",
+      "note": "confirm whether automotive JDs specifically require chassis-fitting experience",
+      "sources": [
+        {
+          "skill_id": "skill_chassis_fitting",
+          "exists": true,
+          "label": "Chassis fitting",
+          "status": "provisional",
+          "aliases": [
+            {
+              "text": "chassis assembly",
+              "lang": "en",
+              "embedded": 1
+            },
+            {
+              "text": "चेसिस जोड़ना",
+              "lang": "hi",
+              "embedded": 1
+            }
+          ],
+          "embedded": 2,
+          "domains": [
+            "jd_nco_7231_0400"
+          ],
+          "fixture_cases": []
+        }
+      ],
+      "target": {
+        "skill_id": "skill_mechanical_assembly",
+        "exists": true,
+        "label": "Mechanical assembly",
+        "status": "active",
+        "aliases": [
+          {
+            "text": "assembly",
+            "lang": "en",
+            "embedded": 1
+          },
+          {
+            "text": "mechanical assembly",
+            "lang": "en",
+            "embedded": 1
+          }
+        ],
+        "embedded": 2,
+        "domains": [
+          "jd_nco_8211_1200",
+          "jd_nco_8212_0100",
+          "jd_nco_7231_0400"
+        ],
+        "fixture_cases": []
+      }
+    },
+    {
+      "id": "TD-07",
+      "from": [],
+      "into": "generic welding node (MISSING)",
+      "status": "GAP",
+      "note": "taxonomy gap; bare \"welding\" must NOT be silently mapped to arc welding",
+      "sources": [],
+      "target": null
+    }
+  ],
+  "alias_additions": [
+    {
+      "text": "CO2 welding",
+      "skill": "skill_mig_welding",
+      "verdict": "ok"
+    },
+    {
+      "text": "CO2 वेल्डिंग",
+      "skill": "skill_mig_welding",
+      "verdict": "ok"
+    },
+    {
+      "text": "patra",
+      "skill": "skill_sheet_metal",
+      "verdict": "ok"
+    },
+    {
+      "text": "पतरे का काम",
+      "skill": "skill_sheet_metal",
+      "verdict": "ok"
+    },
+    {
+      "text": "M70",
+      "skill": "skill_mitsubishi",
+      "verdict": "ok"
+    },
+    {
+      "text": "M80",
+      "skill": "skill_mitsubishi",
+      "verdict": "ok"
+    },
+    {
+      "text": "828D",
+      "skill": "skill_siemens",
+      "verdict": "ok"
+    },
+    {
+      "text": "840D",
+      "skill": "skill_siemens",
+      "verdict": "ok"
+    },
+    {
+      "text": "thread marna",
+      "skill": "skill_tapping_threading",
+      "verdict": "ok"
+    },
+    {
+      "text": "offset lagana",
+      "skill": "skill_tool_offset_setting",
+      "verdict": "ok"
+    },
+    {
+      "text": "assembly ka kaam",
+      "skill": "skill_mechanical_assembly",
+      "verdict": "ok"
+    },
+    {
+      "text": "असेंबली",
+      "skill": "skill_mechanical_assembly",
+      "verdict": "ok"
+    },
+    {
+      "text": "hydraulic ka kaam",
+      "skill": "skill_hydraulics_pneumatics",
+      "verdict": "ok"
+    }
+  ],
+  "alias_removals": [
+    {
+      "text": "fitting",
+      "skill": "skill_bench_fitting",
+      "matched": [
+        {
+          "id": "247c0811-bdc7-5be0-86c9-bbd701177541",
+          "text": "fitting",
+          "lang": "en",
+          "is_searchable": false,
+          "embedded": true
+        }
+      ],
+      "remaining_aliases": 2
+    },
+    {
+      "text": "gauge",
+      "skill": "skill_measuring_instruments",
+      "matched": [
+        {
+          "id": "2de64a29-18d0-518d-85af-bf7604cca68b",
+          "text": "gauge",
+          "lang": "en",
+          "is_searchable": false,
+          "embedded": true
+        }
+      ],
+      "remaining_aliases": 5
+    }
+  ]
+}

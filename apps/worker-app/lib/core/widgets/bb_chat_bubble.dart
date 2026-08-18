@@ -21,10 +21,15 @@ class BbChatBubble extends StatelessWidget {
     required this.fromWorker,
     this.failed = false,
     this.onRetry,
+    this.trailing,
   });
 
   final String text;
   final bool fromWorker;
+
+  /// An optional control rendered just to the RIGHT of the bubble (e.g. the
+  /// read-aloud speaker on bada bhai's questions). Null on most bubbles.
+  final Widget? trailing;
 
   /// The message did not reach the server. Renders a warning tint + a
   /// tap-to-retry footer instead of looking delivered.
@@ -93,8 +98,11 @@ class BbChatBubble extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                const Icon(Icons.error_outline,
-                    size: 16, color: AppColors.red600),
+                const Icon(
+                  Icons.error_outline,
+                  size: 16,
+                  color: AppColors.red600,
+                ),
                 const SizedBox(width: AppSpacing.s1),
                 Flexible(
                   child: Text(
@@ -114,21 +122,32 @@ class BbChatBubble extends StatelessWidget {
       ),
     );
 
+    // A failed bubble is the retry control itself — the whole bubble is the
+    // tap target, so it comfortably clears the 48px minimum.
+    final Widget content = failed && onRetry != null
+        ? Semantics(
+            button: true,
+            label: '$text — $kChatSendFailedLabel',
+            child: InkWell(
+              onTap: onRetry,
+              borderRadius: BorderRadius.circular(AppRadii.lg),
+              child: bubble,
+            ),
+          )
+        : bubble;
+
     return Align(
       alignment: fromWorker ? Alignment.centerRight : Alignment.centerLeft,
-      // A failed bubble is the retry control itself — the whole bubble is the
-      // tap target, so it comfortably clears the 48px minimum.
-      child: failed && onRetry != null
-          ? Semantics(
-              button: true,
-              label: '$text — $kChatSendFailedLabel',
-              child: InkWell(
-                onTap: onRetry,
-                borderRadius: BorderRadius.circular(AppRadii.lg),
-                child: bubble,
-              ),
-            )
-          : bubble,
+      child: trailing == null
+          ? content
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Flexible(child: content),
+                trailing!,
+              ],
+            ),
     );
   }
 }

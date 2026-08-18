@@ -41,6 +41,11 @@
     "db:seed:packs": "tsx src/seed-question-packs.ts",
     "db:verify:packs": "tsx src/verify-question-packs.ts",
     "db:gen:aliases": "tsx src/generate-domain-aliases.ts",
+    "db:gen:domain-skills": "tsx src/generate-domain-skills.ts",
+    "db:seed:domain-skills": "tsx src/seed-domain-skills.ts",
+    "db:verify:taxonomy": "tsx src/taxonomy-corpus.ts",
+    "db:report:taxonomy": "tsx src/taxonomy-quality-gate.ts",
+    "db:eval:taxonomy": "tsx src/taxonomy-retrieval-eval.ts",
     "db:mine:aliases": "tsx src/mine-chat-aliases.ts",
     "db:growth:cluster": "tsx src/growth-cluster.ts",
     "db:growth:occupation": "tsx src/growth-occupation.ts",
@@ -62,7 +67,13 @@
     "db:verify:match-v1": "tsx src/verify-match-v1.ts",
     "clean": "rimraf --glob dist .turbo *.tsbuildinfo",
     "db:audit:domains": "tsx src/audit-job-domains.ts",
-    "db:score:wedge": "tsx src/score-wedge.ts"
+    "db:score:wedge": "tsx src/score-wedge.ts",
+    "db:scale:taxonomy": "tsx src/taxonomy-scale-sim.ts",
+    "db:promote:skills": "tsx src/promote-skills.ts",
+    "db:sweep:floor": "tsx src/taxonomy-floor-sweep.ts",
+    "db:experiment:alias": "tsx src/taxonomy-alias-experiment.ts",
+    "db:audit:labels": "tsx src/taxonomy-label-audit.ts",
+    "db:review-pack:fixture": "tsx src/taxonomy-fixture-review-pack.ts"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",

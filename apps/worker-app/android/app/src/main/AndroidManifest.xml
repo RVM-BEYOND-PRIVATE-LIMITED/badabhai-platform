@@ -177,5 +177,11 @@
         <intent>
             <action android:name="android.speech.RecognitionService"/>
         </intent>
+        <!-- On-device text-to-speech (read bada bhai's chat questions aloud,
+             flutter_tts): lets the app resolve the device's TextToSpeech engine
+             under the Android 11+ package-visibility rules. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
     </queries>
 </manifest>

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { formatInr } from "@badabhai/pricing";
 import {
   creditReasonLabel,
   formatCount,
@@ -154,6 +155,17 @@ describe("formatPayBand — a missing bound is never invented", () => {
 
   it("a genuine zero is still a figure, not an absence", () => {
     expect(formatPayBand(0, 0)).toBe("₹0");
+  });
+
+  it("round-trips through the shared formatInr (BL-10 fast-follow) — no bespoke ₹ string", () => {
+    // formatPayBand used to hand-roll its own `₹${formatCount(n)}` closure instead of
+    // calling @badabhai/pricing's formatInr, the ONE source every other ₹ figure in this
+    // app already goes through. This pins the visible output to formatInr's own output
+    // directly, so the two can never silently diverge again.
+    expect(formatPayBand(18000, 25000)).toBe(`${formatInr(18000)}–${formatInr(25000)}`);
+    expect(formatPayBand(20000, 20000)).toBe(formatInr(20000));
+    expect(formatPayBand(18000, null)).toBe(`from ${formatInr(18000)}`);
+    expect(formatPayBand(null, 25000)).toBe(`up to ${formatInr(25000)}`);
   });
 });
 

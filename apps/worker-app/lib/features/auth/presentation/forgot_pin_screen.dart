@@ -12,27 +12,38 @@ import '../../../core/otp/sms_otp_autofill.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_blue_header.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_spinner.dart';
 import '../../../router.dart';
 import '../domain/auth_session_manager.dart';
+import '../domain/weak_pin.dart';
 import 'enter_pin_screen.dart' show kPinLength;
 import 'widgets/bb_pin_keypad.dart';
 import 'widgets/bb_pin_view.dart';
 
 /// Forgot-PIN: the dedicated PIN-RESET flow (NOT the normal OTP login).
 ///
-/// Three phases:
-///  1. phone   → [AuthSessionManager.requestPinReset] (POST /auth/pin/reset/request)
-///  2. pin     → enter + confirm a brand-new 4-digit PIN on the [BbPinKeypad]
-///  3. confirm → [AuthSessionManager.confirmPinReset] (POST /auth/pin/reset/confirm)
-///     with {phone, otp, newPin} in ONE call.
+/// Three phases, in the order a worker expects — the OTP comes BEFORE the new
+/// PIN:
+///  1. phone → [AuthSessionManager.requestPinReset] (POST /auth/pin/reset/request)
+///  2. otp   → enter the code that just arrived (Android SMS auto-fills it)
+///  3. pin   → enter + confirm a brand-new 4-digit PIN, then
+///     [AuthSessionManager.confirmPinReset] (POST /auth/pin/reset/confirm) with
+///     {phone, otp, newPin} in ONE call.
 ///
-/// It never calls verifyOtp and never routes through set-PIN. On a bad/expired
-/// OTP (401 → otpInvalid) it shows neutral OTP copy and returns to the OTP step;
-/// on a weak/format PIN (400 → pinWeak) it re-collects the PIN. On success it
-/// routes to [Routes.pin] — the redirect bounces to /login if the worker is now
-/// loggedOut (no surviving refresh token).
+/// EVERY error on every step is a CENTRED, blocking [showBbAlert] with a single
+/// "Theek hai" button — a couldn't-send-OTP, a missing code, a bad/expired code,
+/// a guessable PIN, a confirm mismatch, a server weak-PIN. There is no tiny
+/// inline red text a first-time, low-literacy worker would scroll past.
+///
+/// The backend verifies the OTP only at that final `/confirm` (there is no
+/// standalone reset-OTP verify), so a wrong/expired code surfaces there and
+/// returns the worker to the OTP step; a weak/format PIN re-collects the PIN. On
+/// success it routes to [Routes.pin] — the redirect bounces to /login if the
+/// worker is now loggedOut. A guessable PIN (1111 / 1234) is BLOCKED CLIENT-SIDE
+/// the moment it is entered, so it never reaches the confirm call.
 class ForgotPinScreen extends StatefulWidget {
   const ForgotPinScreen({super.key});
 
@@ -40,7 +51,7 @@ class ForgotPinScreen extends StatefulWidget {
   State<ForgotPinScreen> createState() => _ForgotPinScreenState();
 }
 
-enum _Phase { phone, pin, confirm }
+enum _Phase { phone, otp, pin }
 
 /// Sub-step within the PIN phase: enter a PIN, then re-enter to confirm it.
 enum _PinStep { enter, confirm }
@@ -64,7 +75,20 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   String _newPin = ''; // the confirmed PIN, held only until the confirm call
 
   bool _busy = false;
-  String? _error;
+
+  /// True during the loader beat between the first PIN and the confirm step —
+  /// the keypad is swapped for a loader and input is ignored, so the worker
+  /// registers they have advanced to "confirm" instead of the step flipping
+  /// instantly. Mirrors the set-PIN screen.
+  bool _processing = false;
+
+  /// How long the loader shows before the confirm step (mirrors set-PIN). The
+  /// instant switch was too fast for a worker to register the change.
+  static const Duration _confirmDelay = Duration(seconds: 2);
+
+  /// True while an alert dialog is open, so a rapid tap or a rebuild can't stack
+  /// a second dialog on top of the first.
+  bool _dialogOpen = false;
 
   /// Android SMS auto-read for the reset OTP. Null when the locator has no
   /// instance (tests) — the screen stays usable by typing.
@@ -85,12 +109,14 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     _codeSub = autofill.codes.listen(_onSmsCode);
   }
 
-  /// Fill the reset OTP from the SMS. Not auto-submitted: confirm needs the new
-  /// PIN too, and a wrong code would burn a verify attempt.
+  /// Fill the reset OTP from the SMS. Not auto-submitted: the worker still picks
+  /// a new PIN after this, so there is nothing to submit yet.
   void _onSmsCode(String code) {
     if (!mounted) return;
-    _otp.text = code;
-    _otp.selection = TextSelection.collapsed(offset: _otp.text.length);
+    setState(() {
+      _otp.text = code;
+      _otp.selection = TextSelection.collapsed(offset: _otp.text.length);
+    });
   }
 
   @override
@@ -102,13 +128,19 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     super.dispose();
   }
 
+  /// The one error surface: a centred, blocking dialog with a "Theek hai"
+  /// button. Guarded by [_dialogOpen] so a fast retry can't stack dialogs.
+  Future<void> _showErrorAlert(String title, String message) async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+    await showBbAlert(context, title: title, message: message);
+    if (mounted) _dialogOpen = false;
+  }
+
   // --- phase 1: phone -------------------------------------------------------
 
   Future<void> _sendReset() async {
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
+    setState(() => _busy = true);
     try {
       // Opened BEFORE the request (User Consent only matches an SMS that lands
       // after the window opens) and NOT awaited — a wedged Play Services must
@@ -116,10 +148,11 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       unawaited(_openOtpAutofillWindow());
       await _manager.requestPinReset(toE164(_phone.text));
       if (!mounted) return;
-      setState(() => _phase = _Phase.pin);
+      // OTP FIRST — the worker enters the code before choosing a new PIN.
+      setState(() => _phase = _Phase.otp);
     } on AuthFailure catch (f) {
       if (!mounted) return;
-      setState(() => _error = authErrorMessage(f, 'hi'));
+      unawaited(_showErrorAlert('OTP nahi bhej paye', authErrorMessage(f, 'hi')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -133,12 +166,23 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     }
   }
 
-  // --- phase 2: choose a new PIN (enter + confirm) --------------------------
+  // --- phase 2: enter the OTP ------------------------------------------------
+
+  /// Move on to choose a new PIN once a code has been entered. The code itself
+  /// is verified with the new PIN at [_confirmReset] (the backend has no
+  /// standalone reset-OTP verify), so a wrong code returns here from that step.
+  void _otpContinue() {
+    // The CTA is disabled until a code is entered (see [_otpView]), so there is
+    // no empty-OTP error to surface here.
+    setState(() => _phase = _Phase.pin);
+  }
+
+  // --- phase 3: choose a new PIN (enter + confirm) --------------------------
 
   void _onDigit(String d) {
+    if (_processing) return;
     if (_buffer.length >= kPinLength) return;
     setState(() {
-      _error = null;
       if (_pinStep == _PinStep.enter) {
         _first += d;
       } else {
@@ -149,8 +193,8 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   }
 
   void _onBackspace() {
+    if (_processing) return;
     setState(() {
-      _error = null;
       if (_pinStep == _PinStep.enter && _first.isNotEmpty) {
         _first = _first.substring(0, _first.length - 1);
       } else if (_pinStep == _PinStep.confirm && _confirm.isNotEmpty) {
@@ -159,41 +203,99 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     });
   }
 
-  void _advancePin() {
+  Future<void> _advancePin() async {
     if (_pinStep == _PinStep.enter) {
-      setState(() => _pinStep = _PinStep.confirm);
+      // HARD client block: catch a guessable PIN HERE, before it reaches the
+      // confirm call the worker won't understand a rejection from. Blocked
+      // immediately — no pop beat — so the dialog is instant.
+      if (isWeakPin(_first)) {
+        _blockWeakPin();
+        return;
+      }
+      _startConfirmTransition();
       return;
     }
+    // Confirm step filled — let the 4th dot pop before we act on it, then match.
+    await Future<void>.delayed(BbPinView.fillPopSettle);
+    if (!mounted || _confirm.length != kPinLength) return;
     if (_confirm != _first) {
-      setState(() {
-        _error = 'PIN match nahi hua. Dobara try karein.';
-        _first = '';
-        _confirm = '';
-        _pinStep = _PinStep.enter;
-      });
+      _mismatchPin();
       return;
     }
+    // Both entries match — submit the OTP (already entered) + the new PIN.
     setState(() {
       _newPin = _first;
       _first = '';
       _confirm = '';
-      _phase = _Phase.confirm;
+    });
+    _confirmReset();
+  }
+
+  /// Enter step filled with a strong PIN: let the 4th dot finish its fill-pop,
+  /// hold a brief loader beat so the worker registers they've advanced, THEN
+  /// move to the confirm step. Input is frozen during the beat ([_processing]).
+  Future<void> _startConfirmTransition() async {
+    // The pop first — clearing/switching in the same frame masks the 4th dot.
+    await Future<void>.delayed(BbPinView.fillPopSettle);
+    // A backspace during that beat drops the buffer below full — abort and let
+    // the worker keep typing rather than advancing a partial PIN.
+    if (!mounted || _first.length != kPinLength) return;
+    setState(() => _processing = true);
+    await Future<void>.delayed(_confirmDelay);
+    if (!mounted) return;
+    setState(() {
+      _processing = false;
+      _pinStep = _PinStep.confirm;
     });
   }
 
-  // --- phase 3: confirm OTP + new PIN ---------------------------------------
-
-  Future<void> _confirmReset() async {
+  /// Guessable PIN — block it, explain in a dialog, and stay on the enter step.
+  /// The buffer is cleared SYNCHRONOUSLY (before the await) so a re-tap while the
+  /// dialog animates in can't re-fire this.
+  Future<void> _blockWeakPin() async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
     setState(() {
-      _busy = true;
-      _error = null;
+      _first = '';
+      _confirm = '';
+      _pinStep = _PinStep.enter;
     });
+    await showBbAlert(
+      context,
+      title: 'Yeh PIN aasan hai',
+      message: '1234 ya 1111 jaisa PIN koi bhi aasani se guess kar sakta hai. '
+          'Aisa 4-digit PIN chunein jo sirf aap jaante hain.',
+    );
+    if (mounted) _dialogOpen = false;
+  }
+
+  /// The two entries differed — explain, and send the worker back to the start.
+  Future<void> _mismatchPin() async {
+    if (_dialogOpen) return;
+    _dialogOpen = true;
+    setState(() {
+      _first = '';
+      _confirm = '';
+      _pinStep = _PinStep.enter;
+    });
+    await showBbAlert(
+      context,
+      title: 'PIN alag hai',
+      message: 'Dono baar ek jaisa PIN daalein. '
+          'Pehli baar aur confirm wala PIN abhi alag hain.',
+    );
+    if (mounted) _dialogOpen = false;
+  }
+
+  /// Submit {phone, otp, newPin}. The OTP is verified here (there is no earlier
+  /// verify), so a bad/expired code returns to the OTP step; a weak PIN re-opens
+  /// the PIN step. Every failure is a dialog.
+  Future<void> _confirmReset() async {
+    setState(() => _busy = true);
     try {
       await _manager.confirmPinReset(
         // E.164, exactly as the request step sent it. The controller holds only
-        // the national digits now, so composing here is mandatory — passing the
-        // raw text would send a bare 10-digit number and fail the reset AFTER
-        // the worker had already spent their OTP.
+        // the national digits now, so composing here is mandatory.
         toE164(_phone.text),
         _otp.text.trim(),
         _newPin,
@@ -205,16 +307,33 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       context.go(Routes.pin);
     } on AuthFailure catch (f) {
       if (!mounted) return;
-      setState(() {
-        _error = authErrorMessage(f, 'hi');
-        // 401 (bad/expired OTP) → back to the OTP step; 400 (weak/format PIN) →
-        // re-collect the PIN.
-        if (f.code == AuthErrorCode.pinWeak) {
+      if (f.code == AuthErrorCode.pinWeak) {
+        // Server weak-PIN → re-collect the PIN behind a dialog.
+        setState(() {
           _newPin = '';
+          _first = '';
+          _confirm = '';
           _pinStep = _PinStep.enter;
           _phase = _Phase.pin;
-        }
-      });
+        });
+        unawaited(_showErrorAlert('Yeh PIN aasan hai', authErrorMessage(f, 'hi')));
+      } else {
+        // Bad/expired OTP (401 → otpInvalid) or anything else → back to the OTP
+        // step with the honest reason in a dialog, so the worker fixes the code
+        // (their new PIN is not lost to a code they already typed).
+        final bool badOtp = f.code == AuthErrorCode.otpInvalid;
+        setState(() {
+          _newPin = '';
+          _first = '';
+          _confirm = '';
+          _pinStep = _PinStep.enter;
+          _phase = _Phase.otp;
+        });
+        unawaited(_showErrorAlert(
+          badOtp ? 'OTP sahi nahi' : 'Kuch gadbad ho gayi',
+          authErrorMessage(f, 'hi'),
+        ));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -224,20 +343,19 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   /// carries the heading, so the phase bodies below start at the first control).
   String get _headerTitle => switch (_phase) {
         _Phase.phone => 'Apna number daalein',
+        _Phase.otp => 'OTP daalein',
         _Phase.pin => _pinStep == _PinStep.confirm
             ? 'PIN dobara daalein'
             : 'Naya 4-digit PIN banayein',
-        _Phase.confirm => 'OTP daalein',
       };
 
   String get _headerSubtitle => switch (_phase) {
         _Phase.phone =>
           'Hum aapke number par OTP bhejenge — fir naya PIN bana sakte hain.',
+        _Phase.otp => 'Number par aaya 6-digit OTP daalein.',
         _Phase.pin => _pinStep == _PinStep.confirm
             ? 'Confirm karne ke liye wahi PIN dobara daalein.'
             : 'Yeh naya PIN aapke purane PIN ko badal dega.',
-        _Phase.confirm =>
-          'Number par aaya OTP daalein — naya PIN set ho jayega.',
       };
 
   @override
@@ -257,8 +375,8 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
               top: false,
               child: switch (_phase) {
                 _Phase.phone => _phoneView(),
+                _Phase.otp => _otpView(),
                 _Phase.pin => _pinView(),
-                _Phase.confirm => _confirmView(),
               },
             ),
           ),
@@ -296,10 +414,6 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
               hintText: 'XXXXXXXXXX',
             ),
           ),
-          if (_error != null) ...<Widget>[
-            const SizedBox(height: AppSpacing.s3),
-            _errorText(_error!),
-          ],
           const SizedBox(height: AppSpacing.s7),
           BbButton(
             label: 'Send OTP',
@@ -316,30 +430,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     );
   }
 
-  Widget _pinView() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-      child: Column(
-        children: <Widget>[
-          const Spacer(flex: 1),
-          BbPinView(
-              length: kPinLength,
-              filled: _buffer.length,
-              error: _error != null),
-          const SizedBox(height: AppSpacing.s4),
-          SizedBox(
-            height: AppSpacing.s6,
-            child: _error != null ? _errorText(_error!) : null,
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          BbPinKeypad(onDigit: _onDigit, onBackspace: _onBackspace),
-          const Spacer(flex: 2),
-        ],
-      ),
-    );
-  }
-
-  Widget _confirmView() {
+  Widget _otpView() {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.gutter,
@@ -357,6 +448,7 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
             controller: _otp,
             keyboardType: TextInputType.number,
             textAlign: TextAlign.center,
+            onChanged: (_) => setState(() {}), // enable the CTA when filled
             style: AppTypography.mono(
               size: AppTypography.size2xl,
               weight: FontWeight.w700,
@@ -364,27 +456,56 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
             ),
             decoration: const InputDecoration(hintText: '— — — —'),
           ),
-          if (_error != null) ...<Widget>[
-            const SizedBox(height: AppSpacing.s3),
-            _errorText(_error!),
-          ],
           const SizedBox(height: AppSpacing.s7),
           BbButton(
-            label: 'Naya PIN set karein',
+            label: 'Aage badhein',
             block: true,
-            loading: _busy,
-            onPressed: _busy ? null : _confirmReset,
+            // Enabled once a code has been entered; the code is verified with the
+            // new PIN at the final confirm.
+            onPressed: _otp.text.trim().isEmpty ? null : _otpContinue,
           ),
         ],
       ),
     );
   }
 
-  Widget _errorText(String message) => Text(
-        message,
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
-          color: AppColors.danger,
-        ),
-      );
+  Widget _pinView() {
+    // Pin-phase errors are centred dialogs (weak-PIN block, confirm mismatch),
+    // so the body is just the masked dots + keypad. Scroll-safe: centred when
+    // there is room, scrolls (never overflows) on a short screen.
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                child: Column(
+                  children: <Widget>[
+                    const Spacer(flex: 1),
+                    BbPinView(length: kPinLength, filled: _buffer.length),
+                    const SizedBox(height: AppSpacing.s6),
+                    // During the processing beat the keypad is swapped for a
+                    // loader so the worker sees the step is advancing, not that
+                    // nothing happened.
+                    if (_processing)
+                      const Padding(
+                        padding:
+                            EdgeInsets.symmetric(vertical: AppSpacing.s6),
+                        child: BbSpinner(caption: 'PIN set kar rahe hain…'),
+                      )
+                    else
+                      BbPinKeypad(onDigit: _onDigit, onBackspace: _onBackspace),
+                    const Spacer(flex: 2),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
