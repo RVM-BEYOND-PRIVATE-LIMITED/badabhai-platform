@@ -806,6 +806,28 @@ export const AiCostRecordedPayload = z.object({
   ai_call_id: uuidSchema,
   request_id: requestId.nullable().default(null),
   ai_job_id: uuidSchema.nullable().default(null),
+  // ── ATTRIBUTION (Phase 4) — additive widen, same shape/discipline as BL-23 below ──
+  //
+  // WHY THE `ai_job_id` JOIN WAS NOT ENOUGH. "What did this worker's profile cost?" was
+  // answerable for exactly ONE task type: `profile_extraction`, whose `ai_jobs.input_ref`
+  // carries `worker_id`/`session_id`. The DOMINANT profiling cost driver — the per-turn
+  // interview call (`profiling_chat_turn`) — is emitted with `ai_job_id: null` BY DESIGN (an
+  // interview turn is synchronous; there is no async job row to join through), and so are
+  // `resume_generation`, `skill_embedding` and `job_posting_chat_turn`. Those four surfaces
+  // had NO path back to a subject at all, so the single most-asked cost question read as
+  // "₹0" rather than "not attributed" — the same silence-as-answer failure this event was
+  // created to end.
+  //
+  // NULLABLE, AND THE NULL IS MEANINGFUL: payer-side spend (`skill_embedding` on a posting
+  // write, `job_posting_chat_turn`) genuinely has no worker, and inventing one would be
+  // worse than a null. A cost row is still valid with neither field, so every historical
+  // row stays valid and no consumer breaks.
+  //
+  // §2 PRIVACY: both are OPAQUE INTERNAL UUIDs — the same identifier `subject_id` already
+  // carries on dozens of events and the same one `ai_jobs.input_ref` already stores. No
+  // name, phone, prompt, completion or transcript is added here, and none ever may be.
+  worker_id: uuidSchema.nullable().default(null),
+  session_id: uuidSchema.nullable().default(null),
   task_type: aiTaskType,
   model: z.string().min(1).max(128),
   provider: z.string().min(1).max(64),
