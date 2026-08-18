@@ -121,6 +121,10 @@ const LOCKED_TABLES = [
   "job_domain_skill", // 0076: the canonical trade -> skill materialization the employer's picker reads — reference data, PII-free (jd_*/skill_* ids, relevance, confidence); RLS+FORCE+REVOKE in migration 0076
   "worker_profile_skill", // 0076: per-worker extracted skills keyed by an opaque worker_id — same class as worker_skill; evidence_ref is an OPAQUE INTERNAL ID, never a quote or transcript fragment; RLS+FORCE+REVOKE in migration 0076
   "job_posting_skill", // 0076: the requirement an employer actually chose per posting — opaque posting id + closed-vocabulary skill id, PII-free; RLS+FORCE+REVOKE in migration 0076
+  // ── AI cost attribution (migration 0077) ────────────────────────────────────
+  "worker_ai_cost_totals", // 0077: per-worker running AI spend — opaque worker_id + ₹ + integer counts, no PII; the worker_id cascade IS the DSAR coverage; RLS+FORCE+REVOKE in migration 0077
+  "session_ai_cost_totals", // 0077: per-profiling-session running AI spend — opaque session/worker ids + ₹ + counts, never a transcript; RLS+FORCE+REVOKE in migration 0077
+  "platform_ai_cost_totals", // 0077: platform spend by (provider, task_type) — no worker linkage at all, locked anyway because the posture here is table-DEFAULT; RLS+FORCE+REVOKE in migration 0077
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

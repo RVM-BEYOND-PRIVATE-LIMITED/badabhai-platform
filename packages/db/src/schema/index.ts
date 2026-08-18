@@ -111,6 +111,11 @@ import {
   pushDeliveries,
   workerFlags,
 } from "./ops";
+import {
+  platformAiCostTotals,
+  sessionAiCostTotals,
+  workerAiCostTotals,
+} from "./ai-cost";
 
 export * from "./worker";
 export * from "./skill";
@@ -126,6 +131,7 @@ export * from "./payer";
 export * from "./match";
 export * from "./referral";
 export * from "./ops";
+export * from "./ai-cost";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -254,6 +260,13 @@ export type WorkerPackAnswer = typeof workerPackAnswers.$inferSelect;
 export type NewWorkerPackAnswer = typeof workerPackAnswers.$inferInsert;
 export type NewUnresolvedPhrase = typeof unresolvedPhrases.$inferInsert;
 
+export type WorkerAiCostTotal = typeof workerAiCostTotals.$inferSelect;
+export type NewWorkerAiCostTotal = typeof workerAiCostTotals.$inferInsert;
+export type SessionAiCostTotal = typeof sessionAiCostTotals.$inferSelect;
+export type NewSessionAiCostTotal = typeof sessionAiCostTotals.$inferInsert;
+export type PlatformAiCostTotal = typeof platformAiCostTotals.$inferSelect;
+export type NewPlatformAiCostTotal = typeof platformAiCostTotals.$inferInsert;
+
 /** All tables, handy for migrations/tests. */
 export const schema = {
   workers,
@@ -324,4 +337,7 @@ export const schema = {
   referralClicks,
   workerAttributes,
   profilingVoiceAnswers,
+  workerAiCostTotals,
+  sessionAiCostTotals,
+  platformAiCostTotals,
 };

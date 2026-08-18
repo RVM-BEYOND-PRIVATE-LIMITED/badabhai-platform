@@ -26,7 +26,7 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0076_canonical_domain_skill_taxonomy`** (journal has 77 entries, `idx` 0–76).
+**`0077_ai_cost_running_totals`** (journal has 78 entries, `idx` 0–77).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
@@ -39,8 +39,29 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0074`        | Prakash   | **MERGED** — `.enableRLS()` model markers, 31 tables (BL-26, #839) |
 | `0075`        | Divyanshu | **MERGED** — `job_postings` state for `GET /jobs/search` (#822, #856) |
 | `0076`        | Prakash   | **ON `main`** — canonical Domain→Skill taxonomy, Phase 1 (`fca0ef9c`; see notes below) |
-| `0077`–`0079` | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
+| `0077`        | Prakash   | **CLAIMED** — AI cost attribution: three running-total tables (admin Phase 4) |
+| `0078`–`0079` | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
 | `0080`+       | unclaimed | claim in a PR of its own, so the claim is reviewable          |
+
+### `0077` — additive, no ordering constraint, no backfill — 2026-08-18
+
+**NOT apply-before-deploy.** It creates three empty tables (`worker_ai_cost_totals`,
+`session_ai_cost_totals`, `platform_ai_cost_totals`) that nothing reads yet. Deploying the app
+before applying it does not break a request: the only writer is `AiCostRecorder.record()`, which
+already swallows its own failures so cost observability can never fail the work it observes. The
+cost is accuracy (uncounted spend), not uptime.
+
+**No backfill ships with it.** The tables accrue from the moment they exist; spend already on the
+event spine is not counted, so every figure derived from them means "since 0077" until a backfill
+is separately authorised and run against `events WHERE event_name = 'ai.cost_recorded'`.
+
+**Rollback is three `DROP TABLE`s** in any order — nothing references them, and the event spine
+they are derived from is untouched, so a re-apply plus a backfill reconstructs every figure
+exactly.
+
+**It takes the head of the OIE block.** `0077`–`0079` was reserved for Occupation Intelligence;
+that workstream has not minted `0077` on any branch, and this file's own rule is that the claim is
+recorded in the change that takes it. OIE's remaining slots are `0078`–`0079`.
 
 ### `0076` deploy ordering and rollback — 2026-08-16
 
