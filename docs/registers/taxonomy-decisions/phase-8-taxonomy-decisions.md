@@ -1,7 +1,19 @@
 # Phase 8 taxonomy decisions — DRAFT register
 
-**Status: DRAFT. Nothing here has been applied. No row has been written, no alias added or
-removed, no vector embedded.**
+**Status: DRAFT, except TD-02 and TD-03 (see below), which are RATIFIED AND APPLIED.** No
+alias has been added or removed, no vector embedded, and every other entry (TD-01, TD-04..
+TD-07, §3's alias add/remove list, §4's canonical-label writes) remains exactly as it was —
+nothing else has been applied.
+
+**2026-08-18 — TD-02 and TD-03 ratified by Prakash (Backend Platform owner, TL) for immediate
+application, scoped to `packages/taxonomy` + `packages/db` only.** Applied as a corpus
+`status: "deprecated"` + `replacedBy` pointer (ADR-0030 TAX-9 crosswalk — the codebase's
+established non-destructive retire pattern: the row and its immutable `skill_id` are kept
+forever per SG-5, nothing is deleted, and `pnpm db:retag:skills` is the separate, later,
+explicitly-gated step that moves any *stored* worker/job-posting references and re-homes the
+alias rows onto the terminal skill in a live database). TD-01 stays exactly as drafted below —
+its per-alias split of `skill_cad_interpretation` is still undecided and nothing about it was
+touched. See §7 for exactly what shipped.
 
 Every entry requires RVM trade-trainer / ops ratification before it becomes actionable. This
 register exists so that ratification happens against measured impact rather than against a
@@ -51,29 +63,54 @@ Measured support for the merge: `"read engineering drawings"` (cad) and `"bluepr
 (gdt) sit at cosine **0.7985**, and `"drawing padhna"` vs `"drawing reading"` likewise at
 **0.7985** — among the closest cross-skill pairs in the corpus.
 
-### TD-02 — `skill_dimensional_inspection` → `skill_quality_control` · **DECIDED**
+### TD-02 — `skill_dimensional_inspection` → `skill_quality_control` · **RATIFIED AND APPLIED (2026-08-18)**
 
 - source: active, 3 aliases (3 embedded), 2 domains
-- target: active, 3 aliases, 1 domain
+- target: active, **3 aliases** (see the alias-count note below — 2 in `skill-corpus.ts` +
+  1 TAX-5 wedge alias), 1 domain
 
-⚠️ **Breaks a fixture case.** `US-04` (`unembedded_shipped`) names
-`skill_dimensional_inspection` as its expected skill. When the merge lands, that reference
-dangles and the fixture validator fails with an unknown-skill problem. The fixture edit must
-ship in the same change as the merge, not after it.
+⚠️ **Broke a fixture case — repaired in the same change.** `US-04` (`unembedded_shipped`)
+named `skill_dimensional_inspection` as its expected skill. `packages/db/data/taxonomy/eval/
+retrieval-v2.jsonl` (the mutable "current" fixture — `retrieval-v1.jsonl` is the immutable
+Phase-5 baseline instrument and is SHA-256-hash-pinned by
+`taxonomy-eval-fixture.test.ts`, never edited) is the SOURCE that was re-pointed: US-04 now
+expects `skill_quality_control`, rescoped from `jd_nco_7543_2001` to `jd_nco_7313_2601` — the
+only domain `skill_quality_control` is actually wired to in `domain-skills.jsonl`
+(`skill_dimensional_inspection`'s old domain has no `skill_quality_control` edge, so keeping
+the old domain would have failed `EXPECTED_SKILL_NOT_IN_SCOPE`). The correction is declared in
+the v2 manifest's `corrections` array (same convention as the existing DC-18 entry), which is
+what keeps `taxonomy-eval-fixture.test.ts`'s "changes EXACTLY the declared cases and nothing
+else" invariant green. `phase-8-decision-impact.json` and the `EXP-P8-*`/`EXP-BASELINE`/
+`EXP-EVAL-CORRECTION` experiment JSON files are measured/generated snapshots, not sources, and
+were left untouched.
+
+**Applied as:** `skill_dimensional_inspection` in `packages/taxonomy/src/skill-corpus.ts` is
+now `status: "deprecated"`, `replacedBy: "skill_quality_control"`. The row, its id and its own
+`aliases` array are unchanged (SG-5 — ids are never deleted or renamed); a live-DB alias/row
+move is `pnpm db:retag:skills`, a separate later step this change does not perform.
 
 Measured support: `"quality check"` (dimensional_inspection) vs `"quality check karna"`
 (quality_control) at cosine **0.8219** — the second-closest cross-skill pair in the corpus.
 
-### TD-03 — `skill_boring` → `skill_turning` · **DECIDED, CONDITIONAL**
+### TD-03 — `skill_boring` → `skill_turning` · **RATIFIED AND APPLIED (2026-08-18)**
 
-Conditional on no JD requiring a dedicated boring-machine operator.
+Conditional on no JD requiring a dedicated boring-machine operator — condition accepted as
+satisfied by the ratifying owner; no such JD exists in the corpus (`skill_boring` carries 0
+fixture cases and a single generic alias).
 
 - `skill_boring` — active, **1 alias**, 1 domain, 0 fixture cases
 - `skill_turning` — active, 5 aliases, 2 domains
 
-Lowest-risk merge on the list. Note `skill_turning` is the skill that took GP-04 from
-`skill_coolant_management`; widening it slightly increases that pressure, so GP-04 should be
-re-measured after this merge rather than assumed unaffected.
+Lowest-risk merge on the list. `packages/taxonomy/src/match-skills.ts:454` already maps
+`skill_boring: []` (no master-skill signal), so nothing is lost from matching, and the
+`ATTRIBUTE_TO_MATCH_SKILLS` map did not need to change — it stays EXHAUSTIVE over
+`SKILL_CORPUS` by id regardless of status, and `skill_boring`'s entry is unchanged.
+
+**Applied as:** `skill_boring` in `skill-corpus.ts` is now `status: "deprecated"`,
+`replacedBy: "skill_turning"`, row/id/aliases otherwise unchanged — same TAX-9 pattern as TD-02.
+
+`skill_turning` is the skill that took GP-04 from `skill_coolant_management`; widening it
+slightly increases that pressure, so GP-04 was re-measured for this merge specifically — see §7.
 
 ### TD-04 — `skill_go_no_go_gauge_checking` + `skill_measuring_instruments` · **DEFERRED**
 
@@ -183,7 +220,10 @@ invalidates a queued alias, so running these concurrently would corrupt one with
 
 ```
 1  taxonomy freeze      TD-01..TD-07 ratified; TD-01 alias split assigned; TD-07 gap resolved
-2  fixture repair       US-04 re-pointed in the same change as TD-02
+                        — PARTIAL 2026-08-18: TD-02 + TD-03 ratified and applied in isolation
+                        (see §7). TD-01/TD-04..TD-07 remain exactly as drafted; the "freeze"
+                        as a whole is still open.
+2  fixture repair       US-04 re-pointed in the same change as TD-02 — DONE 2026-08-18 (§7)
 3  alias update         13 additions minus any blocked; 2 demotions        [STOP — authorization]
 4  canonical labels     the 81, re-audited after the merges                [STOP — authorization]
 5  embed                approved set only, Gate B safeguards + fresh Langfuse
@@ -201,9 +241,102 @@ taxonomy, the aliases and the fixture at once cannot attribute its own result.
 
 ## 6. Unchanged
 
-`skill_canonicalize_enabled = false` · floor **0.75** · `NO_REGRESSION` enforced · no skill
-promoted · 4,071-domain generation NOT AUTHORIZED · the 33 provisional-skill aliases remain
-unembedded · `EXP-P8-BASELINE` and `EXP-P8-CANONICAL-LABEL` untouched.
+Except for TD-02 and TD-03's `status`/`replacedBy` corpus write (§7), **everything below still
+holds exactly as before**: `skill_canonicalize_enabled = false` · floor **0.75** ·
+`NO_REGRESSION` enforced · no skill promoted · 4,071-domain generation NOT AUTHORIZED · the 33
+provisional-skill aliases remain unembedded · `EXP-P8-BASELINE` and `EXP-P8-CANONICAL-LABEL`
+untouched · TD-01 and TD-04..TD-07 untouched · the §3 alias add/remove list NOT applied · the
+§4 canonical-label writes NOT applied · no vector embedded · no live-database row moved
+(`pnpm db:retag:skills` was not run against any shared/remote database — that is a separate,
+later, explicitly-gated ops step).
 
 The measured GP-04 repair sits at **0.7509**, nine ten-thousandths above the floor. The floor
 does not move to accommodate it.
+
+---
+
+## 7. TD-02 / TD-03 application record (2026-08-18)
+
+Scope: `packages/taxonomy/src/skill-corpus.ts`, `packages/db/data/taxonomy/eval/
+retrieval-v2.jsonl`, this register. Nothing in `apps/ai-service`, `apps/worker-app`, or
+`domain-skills.jsonl`'s edges was touched (see the ownership-boundary + Mobile/AI findings in
+[`phase-8-dependency-findings.md`](./phase-8-dependency-findings.md), PR #933 — merged; its
+cross-boundary findings for TD-01/TD-04/TD-05 do not implicate TD-02/TD-03, confirmed
+independently by a repo-wide grep for both skill ids outside `packages/`).
+
+**Corpus (`skill-corpus.ts`).** `skill_dimensional_inspection` and `skill_boring` moved to
+`status: "deprecated"` with `replacedBy` set to their TD-02/TD-03 successor. This is the
+codebase's existing TAX-9 crosswalk pattern (`retag-skills.ts`, migration 0039) — additive and
+reversible: the row, its immutable `skill_id`, and its own `aliases` array are untouched, so
+every existing FK (`job_domain_skill.skill_id`, any stored `worker_profiles.skills` /
+`job_postings.skill_ids` entry) stays valid. `ATTRIBUTE_TO_MATCH_SKILLS` in `match-skills.ts`
+was deliberately NOT edited: the map is asserted EXHAUSTIVE over `SKILL_CORPUS` **by id**,
+independent of status, so both ids keep their existing (harmless — see TD-03 above) entries.
+`domain-skills.jsonl`'s edges to the two deprecated ids (`jd_nco_7223_0701`→`skill_boring`,
+`jd_nco_7313_2601`/`jd_nco_7543_2001`→`skill_dimensional_inspection`) were left as-is: they
+remain structurally valid (deprecated ids are legal edge targets — `SHIPPED_SKILL_IDS`
+includes them by design) and re-pointing them is a `job_domain_skill` decision the register
+never authorized; it is a known follow-up, not a defect this change introduced.
+
+**Alias-count discrepancy, resolved.** The register said `skill_quality_control` carries "3
+aliases"; `skill-corpus.ts` shows only 2 (`QC`, `quality control`). The third is a TAX-5
+vernacular alias in `packages/taxonomy/src/wedge-aliases.ts:79` —
+`{ skillId: "skill_quality_control", alias: hi("quality check karna"), ratified: true }` —
+seeded by the SAME `pnpm db:seed:skills` run (`seed-skills.ts` inserts both `SKILL_CORPUS`'s
+own aliases AND `ratifiedWedgeAliases()` into `skill_alias`). `wedge-aliases.ts` is a real,
+separate source of alias vocabulary, not a duplicate of `skill-corpus.ts` — confirmed by the
+same pattern on `skill_turning` (3 `skill-corpus.ts` aliases + 2 wedge aliases, `kharad` /
+`kharad ka kaam` = the register's stated 5). Neither `skill_boring` nor
+`skill_dimensional_inspection` has a wedge alias, so this discrepancy does not affect TD-03.
+
+**US-04 fixture repair.** See TD-02 above for the full mechanics. Verified live by running the
+suite, not merely edited-and-assumed: `pnpm --filter @badabhai/db test` — 35 files, **846/846
+passed**, including `taxonomy-eval-fixture.test.ts`'s 60 cases (the v1-hash-pin, the "changes
+EXACTLY the declared cases" invariant, and "both versions still pass the ground-truth gate
+against the real corpus" — which loads `retrieval-v1.jsonl` AND the edited `retrieval-v2.jsonl`
+against the live `domain-skills.jsonl`/`skills.jsonl` corpus with `validateEvalFixture`, with
+zero problems on both). `pnpm --filter @badabhai/db exec tsx src/taxonomy-corpus.ts`
+(`db:verify:taxonomy`, file-only, no DB) also PASSes post-change: 98 skills, 238 edges, 0
+problems.
+
+**GP-04 re-verification (TD-03).** GP-04 (`jd_nco_7223_6002`, query "keeping the coolant level
+right on the turning machine") is the corpus's most fragile passing case — `skill_turning` is
+exactly the competitor TD-03 widens. No local Postgres or `ai-service` was reachable in this
+session (`Test-NetConnection localhost:5432` → false), so the live `db:sweep:floor` /
+`db:experiment:alias` re-embed could not be executed here; that gap is stated rather than
+papered over. The best available evidence is PR #933
+(`docs/taxonomy-phase-8-dependency-findings`, merged), which recomputed this exact
+case against real provider vectors:
+
+```
+ 1. 0.7509  skill_coolant_management  "Coolant management" (proposed label, not yet applied)
+ 2. 0.7031  skill_turning             "CNC turning"
+ 3. 0.6661  skill_turning             "lathe operation"
+ …
+ 7. 0.5307  skill_turning             "boring"  <- arrives via TD-03
+```
+
+`skill_boring`'s one alias scores **0.5307** against the GP-04 query — rank 7, below both
+`skill_turning`'s own incumbent alias (0.7031, TODAY's top-1) and the corrected
+`skill_coolant_management` score (0.7509, a SEPARATE, NOT-applied simulated fix —
+`EXP-P8-CANONICAL-LABEL` — not part of this change; see §6). Important to state plainly:
+GP-04 is ALREADY WRONG today, before this change (top-1 = `skill_turning` "CNC turning" at
+0.7031, expected `skill_coolant_management` — the pre-existing Gate-B regression documented in
+`docs/operations/taxonomy-gp04-diagnosis.md`, Recall@1 0.9912). TD-03 does not fix that and was
+never claimed to. What it must not do is make it WORSE, and it provably does not: retrieval's
+top-1 is an argmax over per-candidate cosine scores against a FIXED query vector and UNCHANGED
+existing vectors (`taxonomy-retrieval-eval.ts`'s `CANONICAL_RETRIEVAL_SQL`,
+`taxonomy-alias-experiment.ts`'s `topSkill`) — adding one more candidate that scores below the
+current winner (0.5307 < 0.7031) cannot change which existing candidate wins the argmax, and
+cannot itself become a new false-positive top-1. Whether or not `EXP-P8-CANONICAL-LABEL` is
+ever separately applied, `skill_boring`'s arrival stays below both the current wrong answer and
+the simulated fixed one, at every point checked by PR #933. **No regression is introduced by
+TD-03**; the pre-existing GP-04/coolant-management gap is unrelated to and unmoved by this
+change, and remains exactly as fragile (0.0009 over the floor, in the simulated-fixed state) as
+it already was.
+
+**Not run in this session (infra-gated, not code-gated):** `pnpm db:sweep:floor --run`,
+`pnpm db:eval:taxonomy --run` and `pnpm db:retag:skills` all require a live `DATABASE_URL` +
+reachable `ai-service`; neither was available. `pnpm --filter @badabhai/taxonomy test`,
+`pnpm --filter @badabhai/db test`, `pnpm --filter @badabhai/match-engine test`, and
+`typecheck`/`build` for all three packages were run and are green (see above).
