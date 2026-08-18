@@ -4,6 +4,17 @@
 > no provider call, no election, no predicate, no canonicalization.
 > Measured against `origin/main` and the live dev corpus on **2026-08-18**.
 
+> ### ⚠ CORRECTION 2026-08-18 — read §0.1 before §2, §3, §4, §15, §16 or §18
+>
+> This plan was authored while TD-01/02/03/04/06 were still open and **merged after they had
+> already been ratified and applied** (last TD merge 13:20 IST; this document 14:02 IST). It
+> therefore records five taxonomy decisions as BLOCKED-on-trainer that were, at merge time,
+> already settled. Every such line is annotated in place below — the original text is kept,
+> never silently rewritten, per the same convention
+> [`phase-8-taxonomy-decisions.md`](./phase-8-taxonomy-decisions.md) used for TD-01's
+> superseded split table. **§0.1 is the authoritative decision state; where this document
+> disagrees with it, §0.1 wins.**
+
 ---
 
 ## 0. How to read this document
@@ -18,6 +29,70 @@ Three words are used strictly and never interchangeably:
 
 An artifact that mixes two of these is a defect. `skill-alias-election-manifest-PROPOSED.json`
 carries `PROPOSED` in its filename and a `status` field for exactly this reason.
+
+---
+
+## 0.1 Authoritative Phase-8 decision state (correction, 2026-08-18)
+
+This section supersedes every TD status statement elsewhere in this document. It is the
+single source the other four Phase-9 documents also point at.
+
+| Decision | Status | Applied as |
+|---|---|---|
+| **TD-01** `skill_gdt_reading` + `skill_cad_interpretation` → **new** `skill_drawing_reading` | **RATIFIED AND APPLIED** | #948 `97a418af` — full merge, *not* the split this document drafted in §4 |
+| **TD-02** `skill_dimensional_inspection` → `skill_quality_control` | **RATIFIED AND APPLIED** | #940 `dabeaa8d` + US-04 fixture repair |
+| **TD-03** `skill_boring` → `skill_turning` | **RATIFIED AND APPLIED** | #940 `dabeaa8d` |
+| **TD-04** `skill_go_no_go_gauge_checking` → `skill_measuring_instruments` | **RATIFIED AND APPLIED** | #957 `01fc510c` — growth-corpus crosswalk |
+| **TD-05** `skill_fixture_setup` ↔ `skill_tool_offset_setting` | **DEFERRED — keep split** | nothing applied |
+| **TD-06** `skill_chassis_fitting` → `skill_mechanical_assembly` | **RATIFIED AND APPLIED** | #957 `01fc510c` |
+| **TD-07** generic welding node | **GAP — unresolved** | nothing applied |
+
+Companion changes, both merged: AI lexicon retarget #950 `05b2cbfc` (closing #935), worker-app
+relabels #941 `161b9a63` / #951 `d0f45938` (closing #936).
+
+### Authorization basis
+
+**Owner-direct ratification by Prakash, Backend Platform owner / TL.** The Phase-8 register's
+drafted gate read *"Every entry requires RVM trade-trainer / ops ratification before it
+becomes actionable."* The required trade-trainer artifacts — the line-inspector JD sample for
+TD-04, the employer-mix evidence for TD-06, the term rulings for TD-01 — **were not
+independently supplied**; the owner ratification superseded those artifact requirements for
+these five decisions. That is recorded here as the provenance of the decisions, not as
+equivalent evidence: §4's evidence gaps were **closed by authority, not by measurement**, and
+this document should not be read as claiming otherwise.
+
+TD-05 and TD-07 were **not** covered by that ratification and remain open on their original
+terms.
+
+### Five states, never collapsed
+
+The word "applied" in the table above means the **first** of these and nothing further:
+
+| # | State | TD-01…06 today |
+|---|---|---|
+| 1 | **Corpus application** — the `.ts`/`.jsonl` source files on `main` | ✅ done |
+| 2 | **Database seeding** — `db:seed:skills` / `db:seed:domain-skills` / `db:retag:skills` | ❌ not run against any shared or production database |
+| 3 | **Embedding** — provider vectors for the new/changed aliases | ❌ none |
+| 4 | **Retrieval activation** — the predicate, the election, Path A serving | ❌ unchanged |
+| 5 | **Production rollout** — corpus deployed, flags flipped | ❌ both flags `false` |
+
+No live-database row has been created, moved, or deprecated by any TD. Everything downstream
+of state 1 still requires its own explicit authorization.
+
+### Explicitly outside the ratified scope
+
+- **TD-01's 14 `job_domain_skill` edge re-point is NOT authorized.** The 8 `skill_gdt_reading`
+  and 6 `skill_cad_interpretation` edges still point at the two now-deprecated ids, and
+  `skill_drawing_reading` carries **zero** edges. `canonicalAliasRows` requires both
+  `s.status = 'active'` **and** the `job_domain_skill` join, so once seeded neither side is
+  reachable through Path A. This is a `job_domain_skill` decision the Phase-8 register
+  deliberately declined to authorize; it is characterized by the offline replay and decided
+  separately, never silently repaired.
+- §3's alias add/remove list — **unapplied**.
+- §4's canonical-label writes — **unapplied**.
+- The `skill_alias` election — **unapplied**, still `PROPOSED`.
+- The retrieval predicate — **unchanged**.
+- `SKILL_CANONICALIZE_ENABLED` and `DOMAIN_MATCH_ENABLED` — both **`false`**.
 
 ---
 
@@ -87,7 +162,8 @@ The proposed ordering is **wrong or incomplete in six places**. Corrections are 
     ⚠B  │ N1  job_domain_alias normalize → embed → elect       │  ← missing entirely
         └──────────────────────────┬───────────────────────────┘
                                    ↓
-     N2  taxonomy decisions (TD-01…TD-07)  ──── blocked on human evidence
+     N2  taxonomy decisions (TD-01…TD-07)  ──── ✅ TD-01/02/03/04/06 RATIFIED AND APPLIED
+                                                  (§0.1); TD-05 deferred, TD-07 open
                                    ↓
     ⚠C  N3  AI (#935) + Mobile (#936) merge FIRST   ← reversed from the proposed order
                                    ↓
@@ -168,28 +244,43 @@ edge generation costs. Renaming the node changes its risk profile and its author
 
 ## 3. Decision matrix
 
-| Decision | Evidence held | Human required | Blocking? | Next action |
-|---|---|---|---|---|
-| **TD-01** gdt_reading + reading-part of cad_interpretation → `skill_drawing_reading` | Partial. `cad` (bare) is a prefix of `cad drafting` on a *different* skill — two CAD concepts confirmed to exist | **Yes** — term list unresolved (§4) | **Yes** | Resolve `technical drawing`; rule on GD&T; decide bare `cad` |
-| **TD-02** quality_control → dimensional_inspection | Partial. `inspection` (bare) shadows 2 other skills | Trainer ratification | Yes | Confirm merge direction + alias cleanup |
-| **TD-03** boring → turning | **Sufficient.** `skill_boring` absent from `jd_nco_7223_6002`; single alias `boring` scores 0.5307 @ rank 7 | Ratification only | No | Execute in N4 |
-| **TD-04** go_no_go_gauge_checking ↔ measuring_instruments | **Insufficient** — see §4 | **Yes** | Yes | Blocked |
-| **TD-05** fixture_setup ↔ tool_offset_setting | **Sufficient — KEEP SPLIT.** Profiling keyword table already orders `tool offset` before `offset`; someone met this ambiguity and solved it by ordering | None | No | **No change.** Do not revisit without new evidence |
-| **TD-06** chassis_fitting ↔ mechanical_assembly | **Insufficient** — see §4 | **Yes** | Yes | Blocked |
-| **TD-07** generic welding parent/default | **Insufficient** — see §4 | **Yes** | Yes | Blocked |
-| Canonical labels 84 OK | Audit complete; simulation only | Authorization | Yes | Re-measure after N4/N5 |
-| Canonical labels 35 REVIEW | 34 compound, 1 single-token | **Yes** | Yes | Classify per §7 |
-| `finishing` collision | Measured | **Yes** | Yes | §6 |
-| `fitting` / `gauge` demotion | Measured; rehearsed safely | Authorization | Yes | After TD-04 |
-| Fixture v3 | 52 empty slots, 115 questions | **Trainer** | Yes | §10 |
+**CORRECTED 2026-08-18.** The "evidence held" column is preserved as written — it records what
+was measured at authoring time and remains accurate as evidence. The **status** column is the
+correction: five decisions were ratified by the owner and applied. Where evidence was judged
+insufficient here and the decision was applied anyway, the gap was closed by owner authority,
+not by new measurement — stated plainly rather than retro-fitted. See §0.1.
+
+| Decision | Evidence held at authoring | Status now | Next action |
+|---|---|---|---|
+| **TD-01** gdt_reading + cad_interpretation → `skill_drawing_reading` | Partial. `cad` (bare) is a prefix of `cad drafting` on a *different* skill — two CAD concepts confirmed to exist | ✅ **RATIFIED AND APPLIED** #948. Ratified as a **FULL merge**, superseding this row's drafted split and §4's term model. Term rulings never supplied; owner ratification superseded them | Characterize the zero-edge condition (§0.1) in the offline replay |
+| **TD-02** `dimensional_inspection` → `quality_control` — ⚠ **this row previously stated the direction backwards** | Partial. `inspection` (bare) shadows 2 other skills | ✅ **RATIFIED AND APPLIED** #940 + US-04 fixture repair | Alias cleanup stays deferred to N5 |
+| **TD-03** boring → turning | **Sufficient.** `skill_boring` absent from `jd_nco_7223_6002`; single alias `boring` scores 0.5307 @ rank 7 | ✅ **RATIFIED AND APPLIED** #940 | — |
+| **TD-04** go_no_go_gauge_checking → measuring_instruments | **Insufficient** — see §4 | ✅ **RATIFIED AND APPLIED** #957. JD condition accepted as satisfied by the ratifying owner; the JD sample §4 asked for was not supplied | — |
+| **TD-05** fixture_setup ↔ tool_offset_setting | **Sufficient — KEEP SPLIT.** Profiling keyword table already orders `tool offset` before `offset`; someone met this ambiguity and solved it by ordering | **DEFERRED — keep split.** Unchanged | **No change.** Do not revisit without new evidence |
+| **TD-06** chassis_fitting → mechanical_assembly | **Insufficient** — see §4 | ✅ **RATIFIED AND APPLIED** #957. Employer-mix condition accepted as satisfied by the ratifying owner | — |
+| **TD-07** generic welding parent/default | **Insufficient** — see §4 | **GAP — unresolved.** Not covered by the ratification | Still product + trainer (§4) |
+| Canonical labels 84 OK | Audit complete; simulation only | Unapplied | Re-measure after N5 |
+| Canonical labels 35 REVIEW | 34 compound, 1 single-token | Unapplied | Classify per §7 |
+| `finishing` collision | Measured | Unresolved | §6 |
+| `fitting` / `gauge` demotion | Measured; rehearsed safely | Unapplied | Authorization; TD-04 no longer blocks it |
+| Fixture v3 | 52 empty slots, 115 questions | Unapplied | §10 — still trainer |
 
 ---
 
 ## 4. Missing evidence for TD-04, TD-06, TD-07 — stated precisely
 
+> **SUPERSEDED IN PART, 2026-08-18 — kept verbatim as the record of what was asked for.**
+> TD-04 and TD-06 were subsequently **ratified by the owner and applied** (§0.1) *without* the
+> evidence below being supplied; the ratifying owner accepted their JD/employer-mix conditions
+> as satisfied. TD-01's term model below was superseded outright — the ratified shape is a full
+> merge, so `technical drawing`, `GD&T` and bare `CAD` all resolve to `skill_drawing_reading`
+> and no CAD-usage skill survives. **TD-07 alone remains genuinely blocked on the evidence
+> described here.** The *coupled defects* noted in each entry — the bare `gauge`, `assembly`
+> and `welding` aliases — are unaffected by the ratifications and still stand (§5).
+
 Each of these is **BLOCKED**, not "pending my judgement". No assumption will be recorded.
 
-### TD-04 — `go_no_go_gauge_checking` ↔ `measuring_instruments`
+### TD-04 — `go_no_go_gauge_checking` ↔ `measuring_instruments` · *evidence never supplied; applied by owner ratification*
 
 *Missing:* whether employers in the target set hire separately for **attribute** gauging
 (go/no-go: pass-fail, no reading taken) versus **variable** measurement (vernier,
@@ -200,7 +291,7 @@ metrology; whether they are different *jobs* here is an employer question.
 *Coupled defect:* the bare alias `gauge` sits on `measuring_instruments` and shadows
 `go_no_go_gauge_checking`. Whatever the merge decision, that alias must be resolved.
 
-### TD-06 — `chassis_fitting` ↔ `mechanical_assembly`
+### TD-06 — `chassis_fitting` ↔ `mechanical_assembly` · *evidence never supplied; applied by owner ratification*
 
 *Missing:* whether chassis fitting is a distinct hiring category in the target employer mix
 or a specialisation of general mechanical assembly.
@@ -209,7 +300,7 @@ or a specialisation of general mechanical assembly.
 *Coupled defect:* the bare alias `assembly` on `mechanical_assembly` shadows
 `chassis_fitting` and `sub_assembly_quality_checking`.
 
-### TD-07 — generic welding parent/default
+### TD-07 — generic welding parent/default · **STILL BLOCKED — the one entry in this section that is not superseded**
 
 *Missing:* the **policy** for a bare "welding" utterance. Three defensible answers, and the
 choice is a product decision, not an engineering one:
@@ -226,7 +317,15 @@ without also creating an edge.
 **Standing instruction honoured:** absence of a generic-welding parent is recorded as a
 *taxonomy gap*. Bare "welding" is **not** silently mapped to arc welding.
 
-### TD-01 — explicit term model
+### TD-01 — explicit term model · **SUPERSEDED — the ratified shape is a full merge**
+
+> The table below proposed a *split*. The applied decision (#948) is a **full merge**: all 8
+> aliases of both predecessors — including `technical drawing`, `GD&T` and bare `CAD` — now
+> resolve to `skill_drawing_reading`, and `skill_cad_interpretation` ceases to exist as an
+> active skill. The concern this section raised about collapsing CAD *software usage* into
+> drawing *reading* was overridden by owner ratification, not answered by evidence. It is
+> retained verbatim because it names a real risk that the replay should look for: if
+> software-usage traffic starts landing on a reading skill, this is where that was predicted.
 
 Requested terms, modelled rather than collapsed:
 
@@ -280,18 +379,26 @@ catalogue's aliases are single-token.
 
 **Every open taxonomy decision has a generic alias sitting on top of it.**
 
-| Decision | Its generic alias |
-|---|---|
-| TD-01 | `cad` |
-| TD-02 | `inspection` |
-| TD-04 | `gauge` |
-| TD-06 | `assembly` |
-| TD-07 | `welding` |
+| Decision | Its generic alias | Decision status (§0.1) | Alias status |
+|---|---|---|---|
+| TD-01 | `cad` | ✅ applied | **still open** — now sits on a *deprecated* skill |
+| TD-02 | `inspection` | ✅ applied | **still open** — now sits on a *deprecated* skill |
+| TD-04 | `gauge` | ✅ applied | **still open** |
+| TD-06 | `assembly` | ✅ applied | **still open** |
+| TD-07 | `welding` | **unresolved** | **still open** |
 
 These are not two problems. They are one problem observed twice — a skill boundary nobody
 has settled, and a bare token that papers over it. **Resolving the TD settles the alias; the
 alias should not be resolved first.** That is why N5 (alias cleanup) sits *below* N2/N4 in
 the graph and not above.
+
+**Corrected 2026-08-18 — the ordering premise held, and the aliases are now unblocked but
+changed in character.** Four of the five owning decisions are settled, so §3's alias list is
+no longer gated on them. But the merges *moved* the problem rather than removing it: `cad` and
+`inspection` now sit on rows whose parent skill is `deprecated`, which excludes them from Path
+A by status rather than by any alias decision. Whether that counts as resolution or as an
+accidental demotion is exactly what the offline replay must measure — it is not assumed here
+in either direction. `gauge`, `assembly` and `welding` are unmoved.
 
 ---
 
@@ -423,7 +530,7 @@ Prioritisation for the 26 dark skills — **ordered by risk, not alphabetically*
 | Tier | Criterion | Skills |
 |---|---|---|
 | **1** | Carries or is shadowed by a generic alias | those in §5B |
-| **2** | Involved in an open taxonomy merge | TD-01/02/04/06/07 members |
+| **2** | Involved in a taxonomy merge — **applied** ones now rank *higher*, not lower: a merge that shipped without fixture coverage is measured by nothing | TD-01/02/03/04/06 members (applied), TD-07 members (open) |
 | **3** | Cross-domain ambiguity risk | `finishing` pair |
 | **4** | No positive evidence of any kind | remainder of the 26 |
 | **5** | Everything else | — |
@@ -483,6 +590,14 @@ Rule: **no embedding of an alias whose skill is subject to an unresolved taxonom
 Embedding `skill_boring`'s aliases before TD-03 executes spends quota on a vector that a
 merge invalidates.
 
+**Corrected 2026-08-18 — the rule now bites differently.** TD-01/02/03/04/06 are applied, so
+their aliases are no longer *unresolved*; they are attached to skills that are now
+`deprecated` and therefore excluded from Path A by `s.status = 'active'`. **Embedding a
+deprecated skill's aliases is quota spent on a vector nothing can retrieve** — a stricter
+consequence than the original rule, not a relaxation of it. The seven alias texts duplicated
+onto `skill_drawing_reading` are the case to watch: embedding both copies would pay twice for
+one surface, and the zero-edge condition (§0.1) means neither copy is reachable today.
+
 ---
 
 ## 13. Canonicalization
@@ -519,11 +634,11 @@ strategy · dry-run output · validation criteria · incremental rollout.
 | **PR-3** | Domain-alias normalizer (mirrors the skill one) | code | merge | PR-2 |
 | **WRITE-1** | `job_domain_alias` normalize + elect | **DB write** | **you** | PR-3 |
 | **EMBED-1** | Domain-alias corpus, ~92 requests | **provider** | **you** | WRITE-1 |
-| — | *TD-04 / TD-06 / TD-07 / TD-01 terms* | decision | **trainer + product** | **BLOCKED** |
-| **ISSUE** | AI #935 → Mobile #936 | cross-team | AI + Mobile owners | TD resolution |
-| **PR-4** | Backend taxonomy merges (TD-01/02/03) | code + data | **you** | #935 + #936 merged |
-| **EVAL-E1** | taxonomy-only | eval | auto | PR-4 |
-| **PR-5** | Alias cleanup + generic-alias demotions | data | **you** | TD-04/06/07 |
+| ~~—~~ | ~~*TD-04 / TD-06 / TD-07 / TD-01 terms* — trainer + product, BLOCKED~~ → **CORRECTED:** TD-04/TD-06/TD-01 ✅ ratified by owner and applied; **TD-07 alone remains blocked** on product + trainer | decision | owner (done) / product + trainer (TD-07) | §0.1 |
+| ~~**ISSUE**~~ | ~~AI #935 → Mobile #936~~ → ✅ **both closed** (#950, #941/#951) | cross-team | AI + Mobile owners | done |
+| ~~**PR-4**~~ | ~~Backend taxonomy merges (TD-01/02/03)~~ → ✅ **merged** as #940 + #948; TD-04/TD-06 followed as #957 | code + data | **you** | done |
+| **EVAL-E1** | taxonomy-only — **now measurable; this is the next eval rung** | eval | auto | PR-4 ✅ |
+| **PR-5** | Alias cleanup + generic-alias demotions | data | **you** | ~~TD-04/06/07~~ → **TD-07 only** |
 | **EVAL-E2** | alias-only | eval | auto | PR-5 |
 | **WRITE-2** | Election apply | **DB write** | **you** | PR-1, PR-5 |
 | **PR-6** | Retrieval predicate (separate PR — election must stay attributable) | code | **you** | WRITE-2 verified |
@@ -546,10 +661,12 @@ strategy · dry-run output · validation criteria · incremental rollout.
 |---|---|---|
 | **Autonomous** | reads, dry runs, `--rollback` rehearsals, manifests, tests, docs, PRs, offline sims, GP-04 re-measurement, static analysis | me |
 | **Your authorization** | any DB write, provider run, predicate change, promotion, canonicalization, domain generation | you |
-| **RVM trainer** | TD-04, TD-06, TD-07, TD-01 terms, `drawing padhna` form, 16 draft-reviewed skills, 52 paraphrase slots, 35 REVIEW labels, `finishing` | trainer |
-| **AI owner** | #935 — `signals.py`, `canonicalization_gold.py`, `miss_attribution.py`, `lexicon_data/skills.json` | AI |
-| **Mobile owner** | #936 — `taxonomy_labels.dart` | Mobile |
-| **Product** | TD-07 policy | product |
+| **Backend owner / TL** | **TD-01, TD-02, TD-03, TD-04, TD-06 — exercised 2026-08-18** (§0.1), superseding the trainer-artifact requirement for those five | Prakash |
+| **RVM trainer** | ~~TD-04, TD-06, TD-01 terms~~ (superseded — see above) · **TD-07**, `drawing padhna` form, 16 draft-reviewed skills, 52 paraphrase slots, 35 REVIEW labels, `finishing` | trainer |
+| ~~**AI owner**~~ | ~~#935~~ ✅ closed by #950 — `signals.py`, `canonicalization_gold.py`, `miss_attribution.py`, `lexicon_data/skills.json` | AI |
+| ~~**Mobile owner**~~ | ~~#936~~ ✅ closed by #941/#951 — `taxonomy_labels.dart` | Mobile |
+| **Product** | TD-07 policy — **still open** | product |
+| **Domain-edge owner** | **TD-01's 14 `job_domain_skill` edges — NOT authorized** (§0.1); a separate decision, evidence-led, never a silent repair | you |
 | **Quota-gated** | EMBED-1, EMBED-2, PILOT | quota + you |
 
 ---
@@ -588,7 +705,10 @@ I stop and ask before:
 
 I stop and record **BLOCKED** (no assumption) when:
 
-7. a taxonomy decision lacks trainer/product evidence — TD-04, TD-06, TD-07, TD-01 terms;
+7. a taxonomy decision lacks trainer/product evidence **and no owner ratification has been
+   recorded for it** — ~~TD-04, TD-06, TD-01 terms~~ (owner-ratified 2026-08-18, §0.1);
+   **TD-07** still qualifies. A recorded owner ratification lifts the BLOCKED state; it does
+   not convert into the missing evidence, and the distinction is kept in the register;
 8. ground truth would have to be authored by engineering;
 9. a threshold would have to be invented without evidence.
 
@@ -609,3 +729,12 @@ Never mutation + evaluation + promotion in one operation.
 
 Neither mutates anything. The election stays PROPOSED until PR-1 lands and TD-04/06/07 are
 answered — it is *not* the next action, and treating it as one is what this plan replaces.
+
+**Updated 2026-08-18.** PR-1 ✅ #953 and PR-2 ✅ #954 are both merged, as are the D0 decision
+(#955), the unified alias architecture (#956), the lifecycle engine (#958) and the inert flag
+bridge (#959/#960). With TD-01/02/03/04/06 applied (§0.1), the next action is the **offline
+Path-A replay** against `main` as a frozen baseline — the shadow evidence that D0 requires and
+that the live endpoint cannot supply while canonicalization is off. The election still stays
+`PROPOSED`: the condition was never "TD-04/06/07 answered" alone but "the taxonomy boundary
+settled *and* the corpus measured", and only the first half has moved. **TD-07 remains open,
+and TD-01's zero-edge condition is unmeasured until the replay runs.**

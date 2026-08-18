@@ -6,6 +6,21 @@
 > [PR-2 investigation](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/pull/954) ·
 > [risk register](./phase-9-pr2-risk-register.md) · [master plan](./phase-9-master-plan.md)
 
+> ### ⚠ CORRECTION 2026-08-18 — taxonomy decision state (affects §5 stage B, §6, §8)
+>
+> Authored while TD-01/02/03/04/06 were open; merged after they had been ratified and applied.
+> **TD-01, TD-02, TD-03, TD-04 and TD-06 are RATIFIED AND APPLIED** by owner-direct
+> ratification (Prakash, Backend Platform owner / TL), superseding the trade-trainer artifact
+> requirement for those five — the artifacts were never independently supplied. **TD-05 stays
+> deferred (keep split); TD-07 remains an unresolved gap.** Authoritative statement:
+> [`phase-9-master-plan.md` §0.1](./phase-9-master-plan.md#01-authoritative-phase-8-decision-state-correction-2026-08-18).
+>
+> **The D0 recommendation itself is unchanged.** Path A remains the target and production
+> still runs Path B. What changed is that Stage B's gate ("taxonomy decisions settled") is now
+> *partly* satisfied, and that the settled decisions introduced a new Path-A-specific defect —
+> `skill_drawing_reading` has **zero `job_domain_skill` edges** — which must be characterized
+> before Stage B, not after. **The TD-01 edge re-point is NOT authorized.**
+
 ---
 
 ## 1. D0 decision
@@ -219,7 +234,7 @@ holds.
 | Stage | Mutations | Expected rows | Invariants | Comparison metric | Rollback | Must be true first |
 |---|---|---|---|---|---|---|
 | **A — Observe** | none | — | Path B remains the only live path | Baseline: Path B recall over its 22-alias universe; volume of canonicalization calls | n/a | D0-Q1/Q2 answered |
-| **B — Backfill** | deploy taxonomy corpus to production: `skill`, `skill_alias`, `job_domain_skill`; then normalize + elect | +95 skills, +230 aliases, +238 edges | Additive only. No existing row's `domain_id`, `embedding` or `status` changes. Path B's 22-alias universe is **bit-identical** afterwards | Path B result set before vs after must be **unchanged** | Delete the added rows by id set; edges are the only new table content | Taxonomy decisions settled (TD-01…07); gate repair merged |
+| **B — Backfill** | deploy taxonomy corpus to production: `skill`, `skill_alias`, `job_domain_skill`; then normalize + elect | +95 skills, +230 aliases, +238 edges | Additive only. No existing row's `domain_id`, `embedding` or `status` changes. Path B's 22-alias universe is **bit-identical** afterwards | Path B result set before vs after must be **unchanged** | Delete the added rows by id set; edges are the only new table content | ~~Taxonomy decisions settled (TD-01…07)~~ → **CORRECTED:** TD-01/02/03/04/06 settled ✅, TD-05 deferred, **TD-07 still open**; gate repair merged ✅ #953; **plus R19 — the `skill_drawing_reading` zero-edge condition — measured by the offline replay and explicitly decided.** Stage B must not import an unmeasured Path-A defect |
 | **C — Dual-read / shadow** | none | — | Path A computed and logged, Path B still authoritative | Per-request: top-1 agreement, score delta, Path A empty-rate | Disable the shadow flag | Phase B verified |
 | **D — Parity verification** | none | — | — | Agreement ≥ an agreed threshold **derived from the shadow data**, not invented in advance; every disagreement classified | n/a | ≥ N shadow requests, N agreed with you |
 | **E — Read switch** | caller change: pass `job_domain_id` where domain match produced one | — | Fall back to Path B when domain match yields nothing | Same metrics, now on the live path | Revert the caller change (config/deploy, no DB) | Phase D passed |
@@ -275,14 +290,29 @@ production performance and must not be presented as such.
 
 ### Taxonomy
 
-Unchanged and still blocked: TD-04, TD-06, TD-07, TD-01 `technical drawing` / `GD&T` /
-`drawing padhna`. TD-05 stays split. `finishing` stays pending. The generic aliases —
+~~Unchanged and still blocked: TD-04, TD-06, TD-07, TD-01 `technical drawing` / `GD&T` /
+`drawing padhna`.~~
+
+**CORRECTED 2026-08-18.** TD-01, TD-02, TD-03, TD-04 and TD-06 are **RATIFIED AND APPLIED**
+(owner-direct; see the banner and §0.1 of the master plan). **TD-07 is the only taxonomy
+decision still blocked.** TD-05 stays split. `finishing` stays pending. The generic aliases —
 `cad`, `inspection`, `gauge`, `assembly`, `welding`, `fitting` — remain downstream of the
 taxonomy boundary and are **not** to be cleaned up.
 
 D0 adds one consideration: under Path B those aliases are mostly unreachable anyway (10
 skills). Their risk is entirely a **Path A** risk, which strengthens the case for settling
 the boundary before Phase B rather than after.
+
+**A second Path-A-only consideration now applies, and it points the same way.** The applied
+merges deprecated four skills and minted one, `skill_drawing_reading`, with **zero
+`job_domain_skill` edges**. Path B ignores all of this — it reads `skill_alias.domain_id` and
+never joins `job_domain_skill`, so production's live behaviour is untouched. Under **Path A**
+the same corpus loses 8 previously-reachable drawing-reading aliases and gains none, because
+`canonicalAliasRows` requires both `s.status = 'active'` and the edge join. So the deployment
+decision D0 recommends would import a defect that the path it replaces does not have. That is
+not an argument against Path A; it is an argument that **Stage B must not run until the
+zero-edge condition is measured and explicitly decided** — see R19 in the risk register. The
+edge re-point remains unauthorized.
 
 ---
 
@@ -312,9 +342,12 @@ the boundary before Phase B rather than after.
   local dev-env repair: normalize + embed domain aliases      (isolated, needs authorization)
         ↓
   ══════════ PHASE 8 completion (local, Path A) ══════════
-  trainer decisions: TD-04 / TD-06 / TD-07 / TD-01 terms      ← TRAINER
+  ✅ TD-01/02/03/04/06 ratified (OWNER) + applied · TD-05 deferred
+     TD-07 still open                                          ← TRAINER + PRODUCT
         ↓
-  AI #935 → Mobile #936 → backend taxonomy merges
+  ✅ AI #935 (#950) → Mobile #936 (#941/#951) → merges (#940/#948/#957)
+        ↓
+  offline Path-A replay on frozen main — shadow evidence + TD-01 zero-edge (R19)
         ↓                      ↓
       EVAL-E1            alias cleanup + generic aliases → EVAL-E2
         ↓
