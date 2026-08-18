@@ -68,10 +68,10 @@ export const WEDGE_ALIASES: readonly WedgeAliasProposal[] = [
   { skillId: "skill_cnc_programming", alias: hi("program banana"), ratified: true },
   { skillId: "skill_program_editing", alias: hi("program sudharna"), ratified: true },
   {
-    skillId: "skill_cad_interpretation",
+    skillId: "skill_drawing_reading",
     alias: hi("drawing padhna"),
     ratified: true,
-    note: "RATIFIED Q-B (owner, 2026-07-16): the phrase implies reading CAD/digital models on their floors → remapped skill_gdt_reading ➜ skill_cad_interpretation.",
+    note: "RATIFIED Q-B (owner, 2026-07-16): the phrase implies reading CAD/digital models on their floors → remapped skill_gdt_reading ➜ skill_cad_interpretation. REPOINTED 2026-08-18 for TD-01 (Phase 8 taxonomy register, RATIFIED — Prakash, Backend Platform owner): skill_cad_interpretation itself fully merged into skill_drawing_reading, so this alias moves with it to stay resolving to an active skill; the Q-B mapping judgment is unchanged.",
   },
   // --- measurement / quality -----------------------------------------------------------
   { skillId: "skill_measuring_instruments", alias: hi("naap tol"), ratified: true },
