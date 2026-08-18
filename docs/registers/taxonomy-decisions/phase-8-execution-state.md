@@ -34,18 +34,55 @@ tokens would keep winning exactly the matches they were demoted for.
 | **B** — `DELETE` | yes | nothing | destroys provenance; rejected |
 | **C** — add `AND sa.is_searchable` to both retrieval paths | yes | everything | a production retrieval change: two paths in `skills.repository.ts`, `CANONICAL_RETRIEVAL_SQL`, and the byte-for-byte divergence pin |
 
-**Recommended: C, as its own PR, before the demotion.** It makes the flag mean the same thing on
-both alias tables, which is what a reader already assumes, and it is the only option that is
-reversible without spending quota. Phase 6 established that the scoped skill query never uses
-HNSW at this corpus size — the planner seq-scans and sorts exactly — so adding the predicate
-cannot cost an index path it was not using.
-
 **Not recommended: A as a shortcut.** It is reversible only in principle; in practice the
 re-embed needs provider budget, which is the resource currently blocking this whole phase.
 
-Until C lands, `fitting` and `gauge` stay as they are. Demoting them with a flag that retrieval
-ignores would be worse than not demoting them, because the register would record the hazard as
-closed.
+### Option C was implemented, measured, and REVERTED — it destroys retrieval
+
+C was authorized and built: the predicate on both paths, the harness constant, per-path
+divergence pins, and regression tests. Every test passed. It was then verified against the live
+corpus inside a rolled-back transaction, and the verification refuted it.
+
+```
+skill_alias                       328 rows
+  text_norm populated             197
+  is_searchable = true            197   <- exactly the same rows
+  is_searchable = false           131
+
+embedded aliases by skill status
+  provisional   197 embedded,   0 hidden
+  active         98 embedded,  98 hidden   <- ALL of them
+```
+
+`is_searchable` **defaults to `false`** and nothing maintains it for `skill_alias`. The
+normalizer that computes it (`db:normalize:aliases`) targets `job_domain_alias`; the 131 rows
+with no `text_norm` were never processed, and that set contains **every one of the 98 aliases
+Gate B embedded**.
+
+Shipping the predicate would have made **all 30 active skills completely unreachable** — the
+entire shipped catalogue, silently, with a green build.
+
+The codebase already knew. `skills.repository.ts` records that migration 0076 deliberately left
+`skill_alias_embedding_hnsw` non-partial because *"a `WHERE is_searchable` predicate would have
+unindexed all 131 live rows."* The change would have inflicted exactly the harm the original
+authors declined to inflict.
+
+### What the fix actually is
+
+The gap is real — the flag means "retired from retrieval" on one alias table and nothing on the
+other — but the predicate is the last step, not the first:
+
+1. **Maintain the projection for `skill_alias`.** Populate `text_norm` and compute
+   `is_searchable` across all 328 rows, as `normalize-job-domain-aliases.ts` does for domain
+   aliases. Until that runs, the flag carries no information about this table.
+2. **Verify** the 98 Gate B aliases come out searchable and the intended demotions do not.
+3. **Then** add the predicate, with the per-path pins.
+
+Steps 1–2 are a runner plus a data pass and are safe to build. Step 3 stays blocked on them.
+
+Until then `fitting` and `gauge` stay as they are — and more importantly, **`is_searchable =
+false` on a skill alias should not be read as meaning anything today.** It mostly means
+"inserted after the last normalizer run".
 
 ---
 
@@ -134,12 +171,14 @@ the alias write is therefore behaviourally inert until the embed is authorized.
 | item | state |
 |---|---|
 | Cross-team issues #935, #936 | **DONE** |
+| Retrieval-predicate change (authorized) | **REVERTED** — would hide all 98 active-catalogue aliases; see §1 |
+| `skill_alias` text_norm / is_searchable normalizer | **NOT STARTED** — prerequisite for the predicate |
 | TD-05 | **PENDING HUMAN REVIEW** — kept split; keyword-table evidence recorded |
 | TD-01, TD-02, TD-03 | **AWAITING AUTHORIZATION** — blocked on #935 + #936 landing together |
 | TD-01 `technical drawing` term | **BLOCKED** — unresolved, not guessed |
 | TD-04, TD-06, TD-07 | **PENDING HUMAN REVIEW** |
 | 13 alias additions | **AWAITING AUTHORIZATION** — manifest above |
-| `fitting` / `gauge` demotion | **BLOCKED** — needs the retrieval-predicate change (§1 option C) first |
+| `fitting` / `gauge` demotion | **BLOCKED** — option C measured and reverted; needs a `skill_alias` normalizer first (§1) |
 | Fanuc model aliases | **DROPPED** |
 | Canonical labels 84 → 81 | **AWAITING AUTHORIZATION** — recompute after merges |
 | 52 paraphrase slots, 35 REVIEW labels | **PENDING HUMAN REVIEW** |
