@@ -1,8 +1,11 @@
 import Link from "next/link";
 import type { JobPostingListItem, PayerDetail } from "../lib/entities";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../lib/format";
+import { can, type AdminCapability } from "../lib/auth/capabilities";
 import { StatusPill } from "./status-pill";
 import { DetailList } from "./detail-list";
+import { PayerDetailHeader } from "./payer-detail-header";
+import { PayerCreditsPanel } from "./payer-credits-panel";
 
 /**
  * One payer account — shared by Companies and Agencies, which differ only by `role`.
@@ -19,49 +22,54 @@ export function PayerDetailView({
   postings,
   kind,
   backHref,
+  capabilities,
 }: {
   payer: PayerDetail;
   /** This payer's postings, or null when that read failed. */
   postings: JobPostingListItem[] | null;
   kind: "Company" | "Agency";
   backHref: string;
+  capabilities: readonly AdminCapability[];
 }) {
   // Distinct labels this payer has published under, most recent first.
   const labels = postings ? [...new Set(postings.map((p) => p.org_label))] : [];
+  // Phase 1's per-entity timeline route. `backHref` is /companies or /agencies, so this
+  // resolves to the section's own timeline page rather than the subject-type-wide feed.
+  const timelineHref = `${backHref}/${payer.id}/timeline`;
+
+  const title = (
+    <div>
+      <p className="page__eyebrow">
+        <Link className="link" href={backHref}>
+          {kind === "Company" ? "Companies" : "Agencies"}
+        </Link>
+      </p>
+      <h1 className="page__title mono">{shortId(payer.id)}</h1>
+      <p className="page__sub">
+        One {kind === "Company" ? "employer" : "agency"} account — what it has posted and
+        spent, not who registered it.{" "}
+        {labels.length > 0 ? (
+          <>
+            Publishes as <strong>{labels.slice(0, 3).join(", ")}</strong>
+            {labels.length > 3 && ` and ${labels.length - 3} more`} — self-declared on their
+            job postings, not a verified name.
+          </>
+        ) : (
+          <>No job postings yet, so there is no self-declared label to identify this account by.</>
+        )}
+      </p>
+    </div>
+  );
 
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href={backHref}>
-              {kind === "Company" ? "Companies" : "Agencies"}
-            </Link>
-          </p>
-          <h1 className="page__title mono">{shortId(payer.id)}</h1>
-          <p className="page__sub">
-            One {kind === "Company" ? "employer" : "agency"} account — what it has posted
-            and spent, not who registered it.{" "}
-            {labels.length > 0 ? (
-              <>
-                Publishes as <strong>{labels.slice(0, 3).join(", ")}</strong>
-                {labels.length > 3 && ` and ${labels.length - 3} more`} — self-declared on
-                their job postings, not a verified name.
-              </>
-            ) : (
-              <>
-                No job postings yet, so there is no self-declared label to identify this
-                account by.
-              </>
-            )}
-          </p>
-        </div>
-        <div className="page__actions">
-          <Link className="btn btn--ghost" href={`${backHref}/${payer.id}/timeline`}>
-            View event timeline
-          </Link>
-        </div>
-      </header>
+      <PayerDetailHeader
+        title={title}
+        payerId={payer.id}
+        status={payer.status}
+        canSuspend={can(capabilities, "suspend_payer")}
+        timelineHref={timelineHref}
+      />
 
       {payer.status === "suspended" && (
         <section className="notice notice--bad" role="status">
@@ -139,6 +147,14 @@ export function PayerDetailView({
           </div>
         </section>
       </div>
+
+      {can(capabilities, "grant_credits") && (
+        <PayerCreditsPanel
+          payerId={payer.id}
+          suspended={payer.status === "suspended"}
+          timelineHref={timelineHref}
+        />
+      )}
 
       <section className="panel" aria-labelledby="p-postings">
         <div className="panel__head panel__head--row">
