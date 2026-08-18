@@ -47,11 +47,25 @@ function apiSourceFiles(dir: string): string[] {
  * breaks Prettier introduces — `aiCost.record(` and its arguments are routinely split across five
  * lines, so a single-line regex would find one of the three real call sites and silently report
  * the other two as missing.
+ *
+ * RECEIVER-NAME-AGNOSTIC (`this.<anything>.record`), AND THAT IS A FIX FOR A MEASURED BLINDNESS.
+ * The previous pattern enumerated receiver names — `aiCost.record`, `this.aiCost.record`,
+ * `this.recordAiCost` — and `LlmTurnService` injected the recorder as `cost`. So
+ * `this.cost.record(..., "profiling_chat_turn", ...)` matched NOTHING, the interview turn's
+ * emitter was invisible here, and the list below carried `profiling_chat_turn` as a known gap
+ * with the explanation "no apps/api caller" from the day #785 gave it one. The check reported
+ * an unledgered surface that had been ledgered for months — the exact inversion of the failure
+ * it exists to catch. A name-coupled matcher over source text is the wrong contract; the field
+ * was ALSO renamed to `aiCost` for consistency, but this pattern is what makes the check hold
+ * if someone renames it again.
+ *
+ * Two unrelated `this.X.record(` calls exist in apps/api (`actions.record`,
+ * `erasureAudit.record`); neither carries a quoted lowercase literal in its argument window, so
+ * neither contributes. The pinned set in the first test below is what keeps that true.
  */
 function emittedTaskTypes(): Set<string> {
   const found = new Set<string>();
-  const call =
-    /\b(?:aiCost\.record|this\.recordAiCost|this\.aiCost\.record)\s*\(([\s\S]{0,400}?)\)/g;
+  const call = /\b(?:this\.[\w$]+\.record|this\.recordAiCost)\s*\(([\s\S]{0,400}?)\)/g;
   for (const file of apiSourceFiles(join(__dirname, ".."))) {
     const src = readFileSync(file, "utf8");
     for (const match of src.matchAll(call)) {
@@ -103,30 +117,31 @@ const ALL_TASK_TYPES = AiCostRecordedPayload.shape.task_type.options as readonly
  *
  *   tts_synthesis       no apps/api caller at all; spend originates in the render CLI (#701)
  *   domain_match        no apps/api caller; routed inside the ai-service
- *   profiling_chat_turn no apps/api caller — the WORKER profiling chat (`/profiling/respond`)
- *                       is routed inside the ai-service and this app never calls it (the
- *                       interview's only LLM call reaching us is `profile_parse`). It was
- *                       briefly absent from this list because the payer job-posting chat
- *                       emitter borrowed its name; those are two different chats, and the
- *                       payer one now has its own `job_posting_chat_turn`. Restoring it here
- *                       is what stops a borrowed label from reading as coverage.
+ *
+ * `profiling_chat_turn` LEFT THIS LIST, AND IT SHOULD HAVE LEFT IT MONTHS AGO. The entry said
+ * "no apps/api caller — the WORKER profiling chat is routed inside the ai-service and this app
+ * never calls it". That stopped being true when #785 shipped `LlmTurnService`, which makes the
+ * `/profiling/respond` Phase A call FROM THIS APP and has emitted for it ever since. Nothing
+ * noticed because the matcher above enumerated receiver names and that service called the
+ * recorder `this.cost`, not `this.aiCost` — so the emitter was invisible and the stale entry
+ * looked like a deliberate, current decision. Two lessons, both encoded above rather than
+ * narrated here: a source-text matcher must not be coupled to a variable name, and an entry on
+ * this list is a claim about TODAY that has to be re-derived, not inherited.
  */
-const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = [
-  "domain_match",
-  "tts_synthesis",
-  "profiling_chat_turn",
-];
+const KNOWN_UNLEDGERED: readonly AiCostTaskType[] = ["domain_match", "tts_synthesis"];
 
 describe("every task type that can spend is either emitted or named as unledgered (#738)", () => {
   it("finds the real emitter call sites — without this the coverage check is vacuous", () => {
     // `emittedTaskTypes` reads source text, so a moved file, a renamed method or a reformat that
     // outruns the window would quietly return an empty set and make the classification test below
-    // pass by finding nothing to classify. Pin the six that exist today (#745 added three).
+    // pass by finding nothing to classify. Pin the seven that exist today (#745 added three;
+    // `profiling_chat_turn` was always the seventh and the matcher simply could not see it).
     const emitted = emittedTaskTypes();
     expect([...emitted].sort()).toEqual([
       "job_posting_chat_turn",
       "profile_extraction",
       "profile_parse",
+      "profiling_chat_turn",
       "resume_generation",
       "skill_embedding",
       "stt_transcription",
