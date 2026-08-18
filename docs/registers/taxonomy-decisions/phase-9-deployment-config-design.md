@@ -288,9 +288,21 @@ only once Path A has been proven to serve correctly.
 **verify CLEAN ≠ canonicalization READY.** Production `skill_alias` is clean because it is
 entirely unprocessed; no production mutation is indicated at this checkpoint.
 
-Blocked as before: TD-04, TD-06, TD-07, TD-01 terms, TD-05 split, `finishing`, the six
+~~Blocked as before: TD-04, TD-06, TD-07, TD-01 terms, TD-05 split, `finishing`, the six
 generic aliases, election, predicate, embedding, promotion, canonicalization, the
-4,071-domain surface.
+4,071-domain surface.~~
+
+**CORRECTED 2026-08-18.** TD-01, TD-02, TD-03, TD-04 and TD-06 are **RATIFIED AND APPLIED** —
+owner-direct ratification by Prakash (Backend Platform owner / TL), superseding the
+trade-trainer artifact requirement for those five. **Blocked: TD-07 only.** TD-05 stays split.
+`finishing` stays pending. Authoritative statement:
+[`phase-9-master-plan.md` §0.1](./phase-9-master-plan.md#01-authoritative-phase-8-decision-state-correction-2026-08-18).
+
+**Nothing in this document's own subject matter changes.** The taxonomy ratifications are
+corpus-source-file changes; they touch no deployment variable, no secret, no compose file and
+no flag. Still blocked, exactly as before: the six generic aliases, the election, the
+predicate, embedding, promotion, canonicalization and the 4,071-domain surface — plus the
+TD-01 `job_domain_skill` edge re-point, which the ratification did **not** cover.
 
 ---
 

@@ -3,6 +3,20 @@
 > **Read-only.** Every figure below was obtained with `SELECT`. Nothing was written, no
 > provider was called, no index was rebuilt. Measured **2026-08-18**.
 
+> ### ⚠ CORRECTION 2026-08-18 — taxonomy decision state
+>
+> This register was authored while TD-01/02/03/04/06 were open and merged after they had been
+> ratified and applied. **TD-01, TD-02, TD-03, TD-04 and TD-06 are RATIFIED AND APPLIED** by
+> owner-direct ratification (Prakash, Backend Platform owner / TL), which superseded the
+> trade-trainer artifact requirement for those five; the artifacts were never independently
+> supplied. **TD-05 stays deferred (keep split); TD-07 remains an unresolved gap.** Applied
+> means the corpus source files only — no seeding, no embedding, no retrieval change, both
+> production flags still `false`. **TD-01's 14 `job_domain_skill` edge re-point is NOT
+> authorized.** Authoritative statement:
+> [`phase-9-master-plan.md` §0.1](./phase-9-master-plan.md#01-authoritative-phase-8-decision-state-correction-2026-08-18).
+> The measurements below are unaffected — they remain accurate as evidence of the state
+> measured on 2026-08-18.
+
 ---
 
 ## 0. The headline: production and the dev corpus are different systems
@@ -86,7 +100,7 @@ decision stays with the trainer:
 | **R8** | Production `skill_alias.embedding_model` is NULL on all 98 | High | `skill_alias` | Probe | No provenance: a mock vector is indistinguishable from a real one; `FULLY_EMBEDDED` cannot verify model coherence | Re-embed with provenance, or record the 98 as legacy-unattributable | R6 | **Yes, later** |
 | **R9** | Production `skill_alias` has 0 `text_norm` / 0 `is_searchable` | High | `skill_alias` | Probe | The Phase 8 normalization was applied to **dev only**. L0 unavailable in production | Run the normalizer against production, under the same manifest discipline | After R6 | **Yes, later** |
 | **R10** | Local dev has 0 normalized / 0 embedded / 0 searchable domain aliases against a **partial** HNSW index | Medium | `job_domain_alias`, `nearestDomains` | Probe; index is `WHERE is_searchable` | Domain resolution is dead **locally**, so local end-to-end evaluation of the full chain is not possible | Run `db:normalize:aliases` + `db:embed:domains` against docker | Dev-env task | Dev only |
-| **R11** | `fitting` shadows 4 skills; `welding` 3; `inspection`/`assembly` 2 each | High | `skill_alias` | Generic-alias report | Bare tokens win matches meant for specific skills | Resolve the owning TD first, then the alias | After TD-01/02/04/06/07 | **Yes, later** |
+| **R11** | `fitting` shadows 4 skills; `welding` 3; `inspection`/`assembly` 2 each | High | `skill_alias` | Generic-alias report | Bare tokens win matches meant for specific skills | Resolve the owning TD first, then the alias | ~~After TD-01/02/04/06/07~~ → **TD-07 only.** TD-01/02/04/06 applied; `cad` and `inspection` now sit on *deprecated* skills, which excludes them from Path A by status rather than by an alias decision — measure before calling that resolved | **Yes, later** |
 | **R12** | `finishing` cross-skill collision | Medium | `skill_alias` | §1 | **Latent** — 0 shared domains, and `furniture_finishing` has no edges | Trainer decision; re-check if it gains an edge | Human review | No (yet) |
 | **R13** | 3 active skills have no active edge (`welder_`/`fitter_`/`machinist_occupation`) | Medium | `skill`, `job_domain_skill` | Local probe | "Active" does not imply "reachable"; TD-07 option 1 is unavailable | Decide whether occupation-level skills should be edged or retired | TD-07 | **Yes, later** |
 | **R14** | GP-04 margin is **+0.0009** over the floor | High | eval fixture | `EXP-P8-BASELINE` | A rounding accident on the right side of the line | Re-measure at every rung; trend the margin, never threshold it | Every eval | No |
@@ -94,6 +108,9 @@ decision stays with the trainer:
 | **R16** | Evidence overwrite | High | evidence artifacts | Happened once, recovered from git | An immutable record silently replaced | `writeArtifact()` refuses to overwrite | Fixed | No |
 | **R17** | Invisible control characters in SQL templates | Medium | `packages/db/src` | Happened twice (NUL, U+0001) | Digest mismatches that look like corruption | Repo-wide scan test; explicit `chr(1)` | Fixed | No |
 | **R18** | Quota spent on vectors a later taxonomy decision invalidates | Medium | provider | — | Wasted daily quota | No embedding under an unresolved TD; `--plan` first | Every embed | No |
+| **R19** | **TD-01 minted an active skill with zero `job_domain_skill` edges.** `skill_drawing_reading` has 0 edges; the 8 + 6 predecessor edges still point at the two now-`deprecated` ids | **High** | `skill`, `job_domain_skill`, `skill_alias`, `canonicalAliasRows` | Reconciliation 2026-08-18; `domain-skills.jsonl` grep; SQL read | **Zero today** — corpus-file only, nothing seeded. Once seeded, all 8 drawing-reading aliases fail Path A: 7 stranded under a deprecated parent (`s.status = 'active'`), 8 under a 0-edge skill (the `job_domain_skill` join). 8 previously-reachable aliases → 0 | Characterize in the offline replay, then decide the edge re-point as a **separate authorized** taxonomy/domain-edge decision. Never a silent `job_domain_skill` mutation | **Replay → decision** | **Not authorized** |
+| **R20** | **TD-01 will create 7 cross-skill duplicate alias texts at seed time.** `seed-skills.ts:101` iterates `s.aliases` with no status filter and SG-5 keeps the deprecated rows' arrays intact | Medium | `skill_alias`, `alias-lifecycle.ts` | Reconciliation 2026-08-18 | `CAD`, `technical drawing`, `read engineering drawings`, `drawing reading`, `GD&T`, `geometric dimensioning and tolerancing`, `blueprint reading` each land under two `skill_id`s. The partial unique index is per-skill so nothing conflicts — but this is the collision class the lifecycle engine adjudicates, and it multiplies the current count of 1 | Exercise the election over the post-TD-01 corpus before any seed; confirm `findCrossSkillCollisions` classifies all 7 | Before any `skill_alias` seed | **Yes, later** |
+| **R21** | **No validator requires a `SKILL_CORPUS` skill to carry an edge.** `SKILL_ORPHAN` covers only the growth corpus; `SHIPPED_SKILL_IDS` treats `deprecated` ids as legal edge targets by design | Medium | `taxonomy-corpus.ts` | Reconciliation 2026-08-18 | R19 shipped green through CI, `db:verify:taxonomy` (0 problems) and 968 db tests. The gap is structural, not a one-off | Decide whether the reachability invariant belongs in `db:verify:taxonomy` or stays a promotion-gate concern — `FULLY_EMBEDDED`'s `reachable_aliases > 0` (PR-1) already refuses to promote such a skill | After the replay | No |
 
 ---
 
@@ -116,9 +133,13 @@ decision stays with the trainer:
         │     answered — it is a decision, not a task.                 │
         └───────────────────────────┬──────────────────────────────────┘
                                     ↓
-   TD-04 / TD-06 / TD-07 / TD-01 terms ──── BLOCKED on trainer + product
+   ✅ TD-01 / TD-02 / TD-03 / TD-04 / TD-06  RATIFIED AND APPLIED  (owner-direct)
+      TD-05 deferred · TD-07 ──── STILL BLOCKED on trainer + product
                                     ↓
-   AI #935  ──▶  Mobile #936  ──▶  Backend taxonomy merges (TD-01/02/03)
+   ✅ AI #935 (#950)  ──▶  ✅ Mobile #936 (#941/#951)  ──▶  ✅ merges (#940/#948/#957)
+                                    ↓
+   NEW  offline Path-A replay against frozen main — the shadow D0 requires,
+        and the only way to measure TD-01's zero-edge condition
                                     ↓
                                   EVAL-E1  (taxonomy only)
                                     ↓

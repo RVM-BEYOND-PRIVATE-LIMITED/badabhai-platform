@@ -189,9 +189,34 @@ Steps 2 and 3 are safe and autonomous. Everything from 4 on needs authorization.
 
 ## 7. Unchanged
 
-Blocked: TD-04, TD-06, TD-07, TD-01 `technical drawing` / `GD&T` / `drawing padhna`. TD-05
-split. `finishing` pending. Generic aliases (`cad`, `inspection`, `gauge`, `assembly`,
-`welding`, `fitting`) stay until the taxonomy boundary is settled.
+> **CORRECTED 2026-08-18.** This section was written while the taxonomy decisions were open
+> and merged after five of them had been ratified and applied. Authoritative statement:
+> [`phase-9-master-plan.md` §0.1](./phase-9-master-plan.md#01-authoritative-phase-8-decision-state-correction-2026-08-18).
+
+~~Blocked: TD-04, TD-06, TD-07, TD-01 `technical drawing` / `GD&T` / `drawing padhna`.~~
+
+**TD-01, TD-02, TD-03, TD-04 and TD-06 are RATIFIED AND APPLIED** — owner-direct ratification
+by Prakash (Backend Platform owner / TL), superseding the trade-trainer artifact requirement
+for those five; the artifacts were never independently supplied. Applied means the corpus
+source files only: **no seeding, no embedding, no election, no retrieval change, both
+production flags `false`.** **Blocked: TD-07 only.** TD-05 split. `finishing` pending. Generic
+aliases (`cad`, `inspection`, `gauge`, `assembly`, `welding`, `fitting`) stay until the
+taxonomy boundary is settled.
+
+**Two consequences land directly on this document's engine.** Both are for the election to
+classify, not for the engine to fix:
+
+1. **TD-01's 14 `job_domain_skill` edges are NOT re-pointed, and that is outside the ratified
+   scope.** `skill_drawing_reading` carries zero edges while its predecessors' 8 + 6 edges
+   still point at now-`deprecated` ids. This is a *retrieval* deletion, not a schema deletion
+   — the distinction §4 draws — and the engine must keep representing it as such.
+2. **Seeding the post-TD-01 corpus would create 7 cross-skill duplicate `text_norm` values**
+   (`CAD`, `technical drawing`, `read engineering drawings`, `drawing reading`, `GD&T`,
+   `geometric dimensioning and tolerancing`, `blueprint reading`), each under both a
+   deprecated predecessor and the new active skill. `findCrossSkillCollisions` should
+   enumerate all 7; the partial unique index is per-skill, so none of them conflicts on
+   insert. Today's corpus has exactly one such collision (`finishing`), so this is the first
+   real exercise of that code path at scale.
 
 Frozen evidence: `EXP-P8-BASELINE` (R@1 0.9912, MRR 0.9956 — **local, Path A**),
 `EXP-P8-CANONICAL-LABEL`, the normalization manifest, the post-normalization verification,
