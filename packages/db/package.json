@@ -48,6 +48,7 @@
     "db:verify:taxonomy": "tsx src/taxonomy-corpus.ts",
     "db:report:taxonomy": "tsx src/taxonomy-quality-gate.ts",
     "db:eval:taxonomy": "tsx src/taxonomy-retrieval-eval.ts",
+    "db:replay:path-a": "tsx src/replay-path-a.ts",
     "db:mine:aliases": "tsx src/mine-chat-aliases.ts",
     "db:growth:cluster": "tsx src/growth-cluster.ts",
     "db:growth:occupation": "tsx src/growth-occupation.ts",
