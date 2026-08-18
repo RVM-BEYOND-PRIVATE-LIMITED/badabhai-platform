@@ -28,6 +28,34 @@ import {
   type Criterion,
   type PromotionReport,
 } from "./promote-skills";
+import type { CorpusFingerprint } from "./corpus-fingerprint";
+
+/** Two fingerprints differing ONLY in the skill_alias component — the election's signature. */
+const FP_A: CorpusFingerprint = {
+  skill_alias: "aaaa",
+  skill: "bbbb",
+  job_domain_skill: "cccc",
+  job_domain: "dddd",
+  job_domain_alias: "eeee",
+  counts: {
+    skill_alias_rows: 328,
+    skill_alias_normalized: 328,
+    skill_alias_searchable: 197,
+    skill_alias_embedded: 295,
+    skills_total: 146,
+    skills_active: 33,
+    job_domain_skill_active_edges: 238,
+    job_domain_alias_rows: 9121,
+    job_domain_alias_searchable: 0,
+    job_domain_alias_embedded: 0,
+  },
+};
+/** What the corpus looks like AFTER election: only is_searchable moved. */
+const FP_B_SEARCHABLE: CorpusFingerprint = {
+  ...FP_A,
+  skill_alias: "aaaa-after-election",
+  counts: { ...FP_A.counts, skill_alias_searchable: 326 },
+};
 
 /** A candidate that passes everything. Each test breaks exactly one thing. */
 const ok = (o: Partial<CandidateFacts> = {}): CandidateFacts => ({
@@ -42,6 +70,8 @@ const ok = (o: Partial<CandidateFacts> = {}): CandidateFacts => ({
   best_correct_score: 0.92,
   no_regression: true,
   regression_detail: "meets the reference",
+  evidence_stale: false,
+  reachable_aliases: 2,
   ...o,
 });
 
@@ -217,6 +247,8 @@ describe("the audit report", () => {
       observed_mrr: 1,
       delta_recall_at_1: 0,
       delta_mrr: 0,
+      stale: false,
+      drift: [],
     },
     sweep_record: "sweep.json",
     eval_record: "eval.json",
@@ -498,39 +530,141 @@ describe("judgeRegression — evidence must be CURRENT", () => {
     ...o,
   });
 
-  it("accepts an evaluation taken AFTER the corpus last changed", () => {
-    const v = judgeRegression(rec(), new Date("2026-08-17T09:41:00.000Z"));
+  it("accepts an evaluation whose corpus_fingerprint MATCHES the live corpus", () => {
+    const v = judgeRegression(rec({ corpus_fingerprint: FP_A }), FP_A);
     expect(v.passed).toBe(true);
+    expect(v.stale).toBe(false);
   });
 
-  it("REFUSES an evaluation that PREDATES the corpus it is clearing", () => {
-    // Caught in review of this gate. The first demonstration run passed NO_REGRESSION using
-    // the pre-Gate-B record while the live corpus had already regressed to 0.9912 — the gate
-    // reported PASS on evidence that could not possibly have seen the regression. Pointing at
-    // an old record is the easiest way to defeat this gate without touching any code.
-    const v = judgeRegression(
-      rec({ recorded_at: "2026-08-17T06:33:38.652Z" }),
-      new Date("2026-08-17T09:41:42.150Z"),
-    );
+  it("REFUSES an evaluation whose fingerprint describes a DIFFERENT corpus", () => {
+    // Replaces the old timestamp check, which compared recorded_at against
+    // max(embedded_at) and was therefore blind to text_norm, is_searchable, alias
+    // add/remove, skill status, domain edges and domain aliases. Election — the next
+    // authorized mutation — moves none of those timestamps.
+    const v = judgeRegression(rec({ corpus_fingerprint: FP_A }), FP_B_SEARCHABLE);
     expect(v.passed).toBe(false);
-    expect(v.detail).toMatch(/PREDATES/);
+    expect(v.stale).toBe(true);
+    expect(v.drift).toEqual(["skill_alias"]);
+    expect(v.detail).toMatch(/DIFFERENT corpus/);
   });
 
-  it("REFUSES a record with no parsable recorded_at — it cannot prove it is current", () => {
-    expect(judgeRegression(rec({ recorded_at: undefined }), new Date()).passed).toBe(false);
-    expect(judgeRegression(rec({ recorded_at: "not a date" }), new Date()).passed).toBe(false);
+  it("REFUSES a record with no corpus_fingerprint — it cannot prove what it measured", () => {
+    // EXP-P8-BASELINE and every earlier record are in this class. They stay valid as
+    // EVIDENCE of the state they measured; they can never clear a freshness gate. Never
+    // backfill a fingerprint — that fabricates the proof the field exists to provide.
+    const v = judgeRegression(rec(), FP_A);
+    expect(v.passed).toBe(false);
+    expect(v.stale).toBe(true);
+    expect(v.detail).toMatch(/no corpus_fingerprint/);
   });
 
-  it("skips the freshness check only when the corpus has never been embedded", () => {
-    // null means there is no embedding to be stale against, not "assume fresh".
-    expect(judgeRegression(rec({ recorded_at: "2020-01-01T00:00:00.000Z" }), null).passed).toBe(true);
+  it("skips the freshness check only when no live fingerprint was supplied", () => {
+    expect(judgeRegression(rec(), null).passed).toBe(true);
+  });
+
+  it("detects a change in EVERY fingerprint component, not just skill_alias", () => {
+    // The old signal watched one column of one table. Each of these is a way to change what
+    // retrieval returns while max(embedded_at) stands still.
+    for (const [component, live] of [
+      ["skill_alias", FP_B_SEARCHABLE],
+      ["skill", { ...FP_A, skill: "changed" }],
+      ["job_domain_skill", { ...FP_A, job_domain_skill: "changed" }],
+      ["job_domain", { ...FP_A, job_domain: "changed" }],
+      ["job_domain_alias", { ...FP_A, job_domain_alias: "changed" }],
+    ] as const) {
+      const v = judgeRegression(rec({ corpus_fingerprint: FP_A }), live);
+      expect(v.passed, component).toBe(false);
+      expect(v.drift, component).toEqual([component]);
+    }
   });
 
   it("staleness outranks good numbers — a perfect stale score still blocks", () => {
     const v = judgeRegression(
-      rec({ recall_at_1: 1.0, mrr: 1.0, recorded_at: "2026-01-01T00:00:00.000Z" }),
-      new Date("2026-08-17T09:41:00.000Z"),
+      rec({ recall_at_1: 1.0, mrr: 1.0, corpus_fingerprint: FP_A }),
+      FP_B_SEARCHABLE,
     );
     expect(v.passed).toBe(false);
+    expect(v.stale).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────
+// PR-1 — the loopholes found in the Phase 9 gate audit, each pinned by the failure it
+// permitted. Every test here corresponds to a way promotion could previously have said
+// "eligible" about a skill that was not.
+// ─────────────────────────────────────────────────────────────────────────────────────
+
+describe("gate repair — a skill is not promotable merely because it has an embedding", () => {
+  it("BLOCKS a fully-embedded skill whose aliases are all unreachable", () => {
+    // THE INVARIANT THIS WHOLE WORKSTREAM EXISTS FOR. Every alias embedded, one model, no
+    // mock sentinel — and not one of them retrievable under the semantics in force. Before
+    // this, FULLY_EMBEDDED passed and the skill went live and unfindable.
+    const v = judge(ok({ aliases: 4, unembedded_aliases: 0, reachable_aliases: 0 }));
+    expect(v.eligible).toBe(false);
+    expect(v.blocking).toContain("FULLY_EMBEDDED");
+    expect(v.criteria.find((c) => c.criterion === "FULLY_EMBEDDED")?.detail).toMatch(
+      /live and unreachable/,
+    );
+  });
+
+  it("passes when at least one alias is reachable", () => {
+    expect(judge(ok({ aliases: 4, reachable_aliases: 1 })).eligible).toBe(true);
+  });
+
+  it("still reports the ORIGINAL embedding failures, not just reachability", () => {
+    expect(judge(ok({ unembedded_aliases: 1, reachable_aliases: 1 })).blocking).toContain("FULLY_EMBEDDED");
+    expect(judge(ok({ embedding_models: ["mock-embedding"], reachable_aliases: 1 })).blocking).toContain("FULLY_EMBEDDED");
+    expect(judge(ok({ embedding_models: ["a", "b"], reachable_aliases: 1 })).blocking).toContain("FULLY_EMBEDDED");
+    expect(judge(ok({ aliases: 0, reachable_aliases: 0 })).criteria.find((c) => c.criterion === "FULLY_EMBEDDED")?.detail)
+      .toBe("no aliases at all");
+  });
+});
+
+describe("gate repair — stale evidence is NOT waivable", () => {
+  it("refuses to let --waive NO_REGRESSION absorb a STALE record", () => {
+    // One flag used to grant two very different permissions: "I have reviewed this measured
+    // regression and accept it" and "I accept a number that may not be about this corpus".
+    // The first is a judgement a human can make. The second is not a judgement at all.
+    const stale = ok({ no_regression: false, evidence_stale: true, regression_detail: "corpus moved" });
+    const v = judge(stale, new Set<Criterion>(["NO_REGRESSION"]));
+    expect(v.eligible).toBe(false);
+    expect(v.blocking).toContain("NO_REGRESSION");
+    expect(v.criteria.find((c) => c.criterion === "NO_REGRESSION")?.waived).toBe(false);
+  });
+
+  it("still lets --waive NO_REGRESSION absorb a FRESH, reviewed regression", () => {
+    const fresh = ok({ no_regression: false, evidence_stale: false, regression_detail: "R@1 0.9912" });
+    const v = judge(fresh, new Set<Criterion>(["NO_REGRESSION"]));
+    expect(v.eligible).toBe(true);
+    expect(v.criteria.find((c) => c.criterion === "NO_REGRESSION")?.waived).toBe(true);
+  });
+
+  it("does not make OTHER criteria unwaivable when evidence is stale", () => {
+    const v = judge(
+      ok({ eval_covered: false, evidence_stale: true }),
+      new Set<Criterion>(["EVAL_COVERED"]),
+    );
+    expect(v.criteria.find((c) => c.criterion === "EVAL_COVERED")?.waived).toBe(true);
+  });
+});
+
+describe("gate repair — the criteria list is closed and unchanged", () => {
+  it("is exactly the seven canonical criteria, in order", () => {
+    // No ABOVE_FLOOR, no NO_COLLISION. The reachability invariant is folded into
+    // FULLY_EMBEDDED (already a composite) and freshness into NO_REGRESSION's staleness
+    // flag, rather than growing the closed set.
+    expect([...CRITERIA]).toEqual([
+      "GATE_ACCEPTED",
+      "IS_PROVISIONAL",
+      "ACTIVE_EDGE",
+      "FULLY_EMBEDDED",
+      "EVAL_COVERED",
+      "RESOLVABLE_ABOVE_FLOOR",
+      "NO_REGRESSION",
+    ]);
+  });
+
+  it("judges every criterion for every candidate, passing or not", () => {
+    expect(judge(ok()).criteria.map((c) => c.criterion)).toEqual([...CRITERIA]);
   });
 });
