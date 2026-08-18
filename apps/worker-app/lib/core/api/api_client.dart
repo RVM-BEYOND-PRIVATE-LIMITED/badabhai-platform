@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../../features/job_search/domain/job_search_item.dart';
 import '../../features/swipe/domain/job_detail.dart';
 import '../config/app_config.dart' show resolveApiBaseUrl;
+import '../config/build_info.dart';
 import 'api_models.dart';
 
 // Re-export the response models so screens that import this file get them too.
@@ -1199,9 +1200,16 @@ class ApiClient {
   }
 
   /// Builds request headers, adding the bearer token only when present.
+  ///
+  /// EVERY request carries `x-app-build` (#966) — a PII-free commit SHA / build
+  /// number — so the server can attribute a request to a specific app build from
+  /// its logs and a client-side bug can be tied to a build without asking the
+  /// tester to dig. This is the single choke-point for outbound headers, so the
+  /// stamp rides uniformly on every call.
   Map<String, String> _headers({required bool contentType, String? authToken}) {
     final Map<String, String> headers = <String, String>{
       'accept': 'application/json',
+      'x-app-build': kAppBuild,
     };
     if (contentType) headers['content-type'] = 'application/json';
     if (authToken != null && authToken.isNotEmpty) {
