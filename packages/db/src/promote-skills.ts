@@ -39,17 +39,26 @@
  *                        is unreachable and promoting it changes nothing except the audit
  *                        trail's honesty.
  *   C4 FULLY_EMBEDDED  — every alias has a non-NULL embedding, none is the mock sentinel,
- *                        and they all carry the SAME model. A partially-embedded active
- *                        skill is the worst of both worlds: live, and findable only through
- *                        whichever aliases happen to have vectors.
+ *                        they all carry the SAME model, AND at least one is retrievable
+ *                        under the retrieval semantics currently in force. A
+ *                        partially-embedded active skill is the worst of both worlds: live,
+ *                        and findable only through whichever aliases happen to have vectors.
+ *                        The reachability condition is the invariant this gate was missing —
+ *                        A SKILL MUST NOT BECOME PROMOTABLE MERELY BECAUSE IT HAS AN
+ *                        EMBEDDING. See `PRODUCTION_RETRIEVAL_SEMANTICS`.
  *   C5 EVAL_COVERED    — the skill appears as an `expected_skill_id` or an
- *                        `acceptable_skill_ids` entry in the evaluation fixture. This is the
- *                        strict one: it means we only promote what we have actually
- *                        MEASURED. On the current corpus it admits 61 of 98 and blocks 37,
- *                        so it is the criterion most likely to be argued about — which is
- *                        exactly why it is a named, waivable rule (`--waive EVAL_COVERED`)
- *                        that records the waiver in the report, rather than a silent
- *                        default either way.
+ *                        `acceptable_skill_ids` entry in a REVIEWED evaluation case. This is
+ *                        the strict one: it means we only promote what we have actually
+ *                        MEASURED. Mechanical `corpus_alias:*` cases do NOT count — they are
+ *                        exact echoes of a skill's own alias, so a skill covered only by one
+ *                        is self-certifying. It is a named, waivable rule
+ *                        (`--waive EVAL_COVERED`) that records the waiver in the report.
+ *
+ * FRESHNESS IS NOT A CRITERION AND IS NOT WAIVABLE. Evidence must prove it describes the
+ * CURRENT corpus, by carrying a matching `corpus_fingerprint` (see `corpus-fingerprint.ts`).
+ * A human may waive a measured REGRESSION — that is a reviewed judgement about a real
+ * number. Nobody may waive the question of whether the number is about this corpus at all.
+ * Both used to hang off `--waive NO_REGRESSION`.
  *
  * FAIL-CLOSED: `--apply` promotes NOTHING unless every selected skill passes every
  * non-waived criterion. A partial promotion is how a corpus ends up in a state nobody
@@ -60,11 +69,21 @@ import { dirname, join } from "node:path";
 
 import { config } from "dotenv";
 import { and, eq, inArray } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 import { createDbClient } from "./client";
 import { skills } from "./schema";
 import { batchScopeSkillIds, hasFlag, requiredArg } from "./embed-skill-aliases";
-import { loadEvalFixture } from "./taxonomy-eval-fixture";
+import {
+  CORPUS_FINGERPRINT_SQL,
+  PRODUCTION_RETRIEVAL_SEMANTICS,
+  describeFingerprintDrift,
+  fingerprintDiff,
+  toFingerprint,
+  type CorpusFingerprint,
+  type FingerprintComponent,
+} from "./corpus-fingerprint";
+import { isScoreable, loadEvalFixture } from "./taxonomy-eval-fixture";
 import { DEFAULT_FIXTURE, MOCK_MODEL_TAG } from "./taxonomy-retrieval-eval";
 
 config({ path: "../../.env" });
@@ -176,6 +195,23 @@ export interface RegressionVerdict {
   observed_mrr: number | null;
   delta_recall_at_1: number | null;
   delta_mrr: number | null;
+  /**
+   * The evidence could not be shown to describe the CURRENT corpus.
+   *
+   * Split out from `passed` because staleness is NOT WAIVABLE and a regression is.
+   *
+   * The loophole this closes: freshness used to live inside NO_REGRESSION with no separate
+   * signal, so `--waive NO_REGRESSION` — a legitimate act, for a human who has reviewed a
+   * specific regression and accepts it — ALSO switched off the check that the numbers being
+   * accepted came from this corpus at all. One flag, two very different permissions.
+   *
+   * A human can accept a measured regression. Nobody can accept a measurement of a corpus
+   * that no longer exists, because there is nothing to accept: the number is not about the
+   * thing being promoted.
+   */
+  stale: boolean;
+  /** Which fingerprint components moved, when `stale` is set for that reason. */
+  drift: FingerprintComponent[];
 }
 
 /**
@@ -186,20 +222,26 @@ export interface RegressionVerdict {
  * measurement artifact presented as a safety verdict — precisely the defect Phase 6 existed
  * to remove.
  */
-export function judgeRegression(evalRecord: unknown, corpusChangedAt: Date | null = null): RegressionVerdict {
+export function judgeRegression(
+  evalRecord: unknown,
+  liveFingerprint: CorpusFingerprint | null = null,
+): RegressionVerdict {
   const r = evalRecord as {
     recall_at_1?: number | null;
     mrr?: number | null;
     evaluator_version?: number;
     fixture_version?: number | null;
+    corpus_fingerprint?: CorpusFingerprint;
   };
-  const none = (detail: string): RegressionVerdict => ({
+  const none = (detail: string, stale = false, drift: FingerprintComponent[] = []): RegressionVerdict => ({
     passed: false,
     detail,
     observed_recall_at_1: r?.recall_at_1 ?? null,
     observed_mrr: r?.mrr ?? null,
     delta_recall_at_1: null,
     delta_mrr: null,
+    stale,
+    drift,
   });
   if (r === null || typeof r !== "object") return none("no evaluation record supplied");
   if (r.evaluator_version !== REGRESSION_BASELINE.evaluator_version) {
@@ -217,21 +259,36 @@ export function judgeRegression(evalRecord: unknown, corpusChangedAt: Date | nul
   if (typeof r.recall_at_1 !== "number" || typeof r.mrr !== "number") {
     return none("evaluation record carries no recall_at_1/mrr — nothing to compare");
   }
-  // STALENESS. An evaluation taken before the corpus last changed describes a corpus that no
-  // longer exists, and pointing the gate at one is the easiest way to defeat it without
-  // touching any code. Caught in review of this very gate: the first demonstration run passed
-  // NO_REGRESSION using the PRE-Gate-B record, while the live corpus had already regressed to
-  // 0.9912 — the gate reported PASS on evidence that could not have seen the regression.
-  if (corpusChangedAt !== null) {
-    const taken = Date.parse(String((r as { recorded_at?: string }).recorded_at ?? ""));
-    if (!Number.isFinite(taken)) {
-      return none("evaluation record has no parsable recorded_at — cannot prove it is current");
-    }
-    if (taken < corpusChangedAt.getTime()) {
+  // STALENESS — by CORPUS FINGERPRINT, not by timestamp.
+  //
+  // The old check compared `recorded_at` against `max(embedded_at)` on skill_alias. That
+  // moves only when a VECTOR is written, so it was blind to text_norm, is_searchable, alias
+  // add/remove, skill status, domain edges and domain aliases — six ways to change what
+  // retrieval returns without advancing the signal. Election, the next authorized mutation,
+  // is one of them: it would have left a pre-election evaluation looking current.
+  //
+  // Equality of fingerprints answers the actual question — "was this measured against THIS
+  // corpus?" — with no clock and no reliance on future writers remembering to touch a
+  // timestamp column.
+  if (liveFingerprint !== null) {
+    if (r.corpus_fingerprint === undefined) {
+      // Records written before fingerprinting cannot prove currency. They are still valid
+      // EVIDENCE of the state they measured; they simply cannot clear this gate. Never
+      // backfill one — that would fabricate the proof the field exists to provide.
       return none(
-        `evaluation was recorded ${new Date(taken).toISOString()} but the corpus last changed ` +
-          `${corpusChangedAt.toISOString()} — this evidence PREDATES the corpus it is being used ` +
-          `to clear. Re-run db:eval:taxonomy --run --experiment and use the fresh record.`,
+        "evaluation record carries no corpus_fingerprint, so it cannot prove which corpus it " +
+          "measured. Records predating fingerprinting (EXP-P8-BASELINE and earlier) can never " +
+          "clear this gate; re-run db:eval:taxonomy --run --experiment against the current corpus.",
+        true,
+      );
+    }
+    const drift = fingerprintDiff(r.corpus_fingerprint, liveFingerprint);
+    if (drift.length > 0) {
+      return none(
+        `evaluation describes a DIFFERENT corpus — ${describeFingerprintDrift(drift)}. This ` +
+          "evidence cannot clear the corpus it is being used against.",
+        true,
+        drift,
       );
     }
   }
@@ -250,6 +307,8 @@ export function judgeRegression(evalRecord: unknown, corpusChangedAt: Date | nul
     observed_mrr: r.mrr,
     delta_recall_at_1: d1,
     delta_mrr: dm,
+    stale: false,
+    drift: [],
   };
 }
 
@@ -271,6 +330,18 @@ export interface CandidateFacts {
   no_regression: boolean;
   /** Human-readable regression detail, carried so the report explains itself. */
   regression_detail: string;
+  /** Batch-level: the evidence could not be shown to describe the current corpus.
+   *  Makes NO_REGRESSION UNWAIVABLE for this run — see `RegressionVerdict.stale`. */
+  evidence_stale: boolean;
+  /**
+   * How many of this skill's aliases production could ACTUALLY return, under the retrieval
+   * semantics currently in force (`PRODUCTION_RETRIEVAL_SEMANTICS`).
+   *
+   * Distinct from `aliases - unembedded_aliases`: today they coincide, because no retrieval
+   * path filters `is_searchable`. The moment one does, they diverge, and this is the number
+   * that stays correct.
+   */
+  reachable_aliases: number;
 }
 
 export interface CriterionResult {
@@ -298,7 +369,12 @@ export interface Verdict {
 export function judge(facts: CandidateFacts, waived: ReadonlySet<Criterion> = new Set()): Verdict {
   const results: CriterionResult[] = [];
   const add = (criterion: Criterion, passed: boolean, detail: string): void => {
-    results.push({ criterion, passed, waived: waived.has(criterion), detail });
+    // STALE EVIDENCE IS NOT WAIVABLE. `--waive NO_REGRESSION` is a legitimate act — a human
+    // reviewed a specific measured regression and accepts it. It is NOT permission to accept
+    // a measurement of a corpus that no longer exists, because such a number is not about the
+    // thing being promoted at all. One flag used to grant both.
+    const canWaive = !(criterion === "NO_REGRESSION" && facts.evidence_stale);
+    results.push({ criterion, passed, waived: canWaive && waived.has(criterion), detail });
   };
 
   add(
@@ -317,14 +393,31 @@ export function judge(facts: CandidateFacts, waived: ReadonlySet<Criterion> = ne
     `${facts.active_edges} active job_domain_skill edge(s)`,
   );
 
-  // FULLY_EMBEDDED is three conditions, reported as one criterion with a detail that says
-  // which of them failed — "not fully embedded" alone sends an operator to the wrong place.
+  // FULLY_EMBEDDED is now FOUR conditions, reported as one criterion whose detail says which
+  // failed — the existing composite shape, extended. "Not fully embedded" alone sends an
+  // operator to the wrong place, so each branch names its own cause.
+  //
+  // THE FOURTH CONDITION IS REACHABILITY, and it is the invariant this gate was missing:
+  // A SKILL MUST NOT BECOME PROMOTABLE MERELY BECAUSE IT HAS AN EMBEDDING.
+  //
+  // Embeddings and retrievability are different facts. Today they coincide, because no
+  // retrieval path filters `is_searchable` — which is exactly why this is NOT implemented as
+  // a blunt `is_searchable = true` requirement. All 98 active-catalogue aliases have the flag
+  // false and are nonetheless fully retrievable (measured: `fitting` and `gauge` return rank
+  // 1 at cosine 1.0000 through production's own statement). Demanding the flag today would
+  // block every active skill for a reason that is not true yet.
+  //
+  // Instead `reachable_aliases` is computed against PRODUCTION_RETRIEVAL_SEMANTICS, which is
+  // pinned by test to the actual repository SQL. Add `AND sa.is_searchable` there and the pin
+  // fails until the semantics flag is flipped — and flipping it tightens this gate in the
+  // same commit. The gate cannot drift behind production.
   const embedded = facts.aliases > 0 && facts.unembedded_aliases === 0;
   const mock = facts.embedding_models.includes(MOCK_MODEL_TAG);
   const mixed = facts.embedding_models.length > 1;
+  const reachable = facts.reachable_aliases > 0;
   add(
     "FULLY_EMBEDDED",
-    embedded && !mock && !mixed,
+    embedded && !mock && !mixed && reachable,
     facts.aliases === 0
       ? "no aliases at all"
       : facts.unembedded_aliases > 0
@@ -333,7 +426,11 @@ export function judge(facts: CandidateFacts, waived: ReadonlySet<Criterion> = ne
           ? `embedding_model is the '${MOCK_MODEL_TAG}' sentinel`
           : mixed
             ? `aliases span ${facts.embedding_models.length} models (${facts.embedding_models.join(", ")})`
-            : `${facts.aliases} alias(es), model ${facts.embedding_models[0] ?? "(unstamped)"}`,
+            : !reachable
+              ? `${facts.aliases} alias(es) embedded but NONE is retrievable under the retrieval ` +
+                "semantics in force — promoting it would make it live and unreachable"
+              : `${facts.aliases} alias(es), ${facts.reachable_aliases} reachable, ` +
+                `model ${facts.embedding_models[0] ?? "(unstamped)"}`,
   );
   add(
     "EVAL_COVERED",
@@ -487,23 +584,58 @@ async function main(): Promise<void> {
     // When the corpus last changed. Any evaluation older than this cannot have observed the
     // current state, whatever its numbers say.
     const changedRows = (await sql.unsafe(
-      `SELECT max(embedded_at) AS at FROM skill_alias WHERE embedding IS NOT NULL`,
-    )) as unknown as { at: string | null }[];
-    const corpusChangedAt = changedRows[0]?.at ? new Date(changedRows[0].at as string) : null;
+      new PgDialect().sqlToQuery(CORPUS_FINGERPRINT_SQL).sql,
+    )) as unknown as Record<string, unknown>[];
+    const liveFingerprint = changedRows[0] ? toFingerprint(changedRows[0]) : null;
 
     const bestScores =
       sweepPath === null ? new Map<string, number>() : bestCorrectScores(JSON.parse(readFileSync(sweepPath, "utf8")));
     const regression =
       evalPath === null
-        ? { passed: false, detail: "no evaluation supplied", observed_recall_at_1: null, observed_mrr: null, delta_recall_at_1: null, delta_mrr: null }
-        : judgeRegression(JSON.parse(readFileSync(evalPath, "utf8")), corpusChangedAt);
+        ? {
+            passed: false,
+            detail: "no evaluation supplied",
+            observed_recall_at_1: null,
+            observed_mrr: null,
+            delta_recall_at_1: null,
+            delta_mrr: null,
+            // No record at all cannot prove currency either, so it is stale AND unwaivable.
+            stale: true,
+            drift: [],
+          }
+        : judgeRegression(JSON.parse(readFileSync(evalPath, "utf8")), liveFingerprint);
+
+    // FLOOR-SWEEP FRESHNESS. `RESOLVABLE_ABOVE_FLOOR` reads a recorded sweep by path and used
+    // to check nothing about when it was taken — the same staleness class as the regression
+    // gate, but entirely unguarded. A sweep from before an alias change describes resolutions
+    // that may no longer happen.
+    const sweepRecord = sweepPath === null ? null : (JSON.parse(readFileSync(sweepPath, "utf8")) as { corpus_fingerprint?: CorpusFingerprint });
+    const sweepDrift = sweepPath === null ? [] : fingerprintDiff(sweepRecord?.corpus_fingerprint, liveFingerprint);
+    const sweepStale = sweepPath !== null && sweepDrift.length > 0;
 
     const fixturePath = requiredArg(argv, "--fixture") ?? DEFAULT_FIXTURE;
     const fixture = loadEvalFixture(fixturePath);
+    // EVAL_COVERED counts ONLY human-reviewed cases.
+    //
+    // It used to count every case, including the 39 `corpus_alias:*` MECHANICAL ones, which
+    // are exact echoes of a skill's own alias. A skill covered solely by those is
+    // self-certifying: the "measurement" proves only that an exact string matches itself,
+    // which is true of every alias in the corpus and evidence about none of them.
+    // `isScoreable` is the same predicate the evaluator uses to decide what counts toward a
+    // metric, so coverage and scoring can no longer disagree about what a real case is.
     const covered = new Set<string>();
+    const coverageOnly = new Set<string>();
     for (const c of fixture.cases) {
-      if (c.expected_skill_id !== null) covered.add(c.expected_skill_id);
-      for (const a of c.acceptable_skill_ids ?? []) covered.add(a);
+      const sink = isScoreable(c) ? covered : coverageOnly;
+      if (c.expected_skill_id !== null) sink.add(c.expected_skill_id);
+      for (const a of c.acceptable_skill_ids ?? []) sink.add(a);
+    }
+    const demoted = [...coverageOnly].filter((s) => !covered.has(s));
+    if (demoted.length > 0) {
+      console.log(
+        `[${SCRIPT}] ${demoted.length} skill(s) are touched ONLY by mechanical/pending cases and ` +
+          "therefore do NOT count as EVAL_COVERED. They need a reviewed case.",
+      );
     }
 
     const rows = (await sql.unsafe(
@@ -512,18 +644,27 @@ async function main(): Promise<void> {
               (SELECT count(*) FROM job_domain_skill j WHERE j.skill_id = s.skill_id AND j.status = 'active')::int AS active_edges,
               (SELECT count(*) FROM skill_alias a WHERE a.skill_id = s.skill_id)::int AS aliases,
               (SELECT count(*) FROM skill_alias a WHERE a.skill_id = s.skill_id AND a.embedding IS NULL)::int AS unembedded,
+              (SELECT count(*) FROM skill_alias a
+                WHERE a.skill_id = s.skill_id
+                  AND (NOT $2::bool OR a.embedding IS NOT NULL)
+                  AND (NOT $3::bool OR a.is_searchable))::int AS reachable,
               COALESCE((SELECT array_agg(DISTINCT a.embedding_model)
                         FROM skill_alias a
                         WHERE a.skill_id = s.skill_id AND a.embedding IS NOT NULL AND a.embedding_model IS NOT NULL),
                        '{}')::text[] AS models
        FROM skill s WHERE s.skill_id = ANY($1::text[])`,
-      [scope],
+      [
+        scope,
+        PRODUCTION_RETRIEVAL_SEMANTICS.requiresEmbedding,
+        PRODUCTION_RETRIEVAL_SEMANTICS.requiresSearchable,
+      ],
     )) as unknown as {
       skill_id: string;
       status: string;
       active_edges: number;
       aliases: number;
       unembedded: number;
+      reachable: number;
       models: string[];
     }[];
     const byId = new Map(rows.map((r) => [r.skill_id, r]));
@@ -541,8 +682,12 @@ async function main(): Promise<void> {
           embedding_models: [...(r?.models ?? [])].sort(),
           eval_covered: covered.has(id),
           best_correct_score: bestScores.get(id) ?? null,
-          no_regression: regression.passed,
-          regression_detail: regression.detail,
+          reachable_aliases: r?.reachable ?? 0,
+          no_regression: regression.passed && !sweepStale,
+          regression_detail: sweepStale
+            ? `${regression.detail} | FLOOR SWEEP IS STALE: ${describeFingerprintDrift(sweepDrift)}`
+            : regression.detail,
+          evidence_stale: regression.stale || sweepStale,
         },
         waived,
       );
@@ -557,7 +702,8 @@ async function main(): Promise<void> {
     console.log(`  waived criteria          = ${waived.size === 0 ? "(none)" : [...waived].join(", ")}`);
     console.log(`  floor sweep              = ${sweepPath ?? "(waived)"}`);
     console.log(`  evaluation               = ${evalPath ?? "(waived)"}`);
-    console.log(`  corpus last changed      = ${corpusChangedAt?.toISOString() ?? "(never embedded)"}`);
+    console.log(`  corpus fingerprint       = ${liveFingerprint ? JSON.stringify(liveFingerprint.counts) : "(unavailable)"}`);
+    console.log(`  evidence freshness       = ${regression.stale || sweepStale ? "STALE (NOT WAIVABLE)" : "current"}`);
     console.log(`  regression verdict       = ${regression.passed ? "PASS" : "BLOCK"} — ${regression.detail}`);
     console.log(`  candidates               = ${verdicts.length}`);
     console.log(`  eligible                 = ${eligible.length}`);
