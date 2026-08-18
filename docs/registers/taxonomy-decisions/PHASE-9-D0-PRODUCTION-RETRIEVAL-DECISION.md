@@ -305,14 +305,26 @@ the boundary before Phase B rather than after.
 
 **A second Path-A-only consideration now applies, and it points the same way.** The applied
 merges deprecated four skills and minted one, `skill_drawing_reading`, with **zero
-`job_domain_skill` edges**. Path B ignores all of this — it reads `skill_alias.domain_id` and
-never joins `job_domain_skill`, so production's live behaviour is untouched. Under **Path A**
-the same corpus loses 8 previously-reachable drawing-reading aliases and gains none, because
-`canonicalAliasRows` requires both `s.status = 'active'` and the edge join. So the deployment
-decision D0 recommends would import a defect that the path it replaces does not have. That is
-not an argument against Path A; it is an argument that **Stage B must not run until the
-zero-edge condition is measured and explicitly decided** — see R19 in the risk register. The
-edge re-point remains unauthorized.
+`job_domain_skill` edges**.
+
+> **Correction, 2026-08-18.** An earlier revision of this paragraph said "Path B ignores all of
+> this — it reads `skill_alias.domain_id` and never joins `job_domain_skill`". The second half
+> is right and the first half is wrong: `legacyAliasRows` carries **`AND s.status = 'active'`**
+> too, so a deprecation removes a skill's aliases from the legacy path as well. Path B has no
+> edge join, which is a different thing from being unaffected by a merge. Production's *live*
+> behaviour is genuinely untouched — but because this corpus is not deployed there, not because
+> Path B is immune. `path-a-replay.test.ts` now pins both predicate sets so the claim cannot
+> drift again.
+
+The zero-edge condition is nonetheless **Path-A-specific**, and it is measured rather than
+argued: `canonicalAliasRows` requires both `s.status = 'active'` and the edge join, so across
+the 28 fixture domains the drawing-reading surface goes **56 reachable aliases → 0**. Path B,
+which never joins edges, keeps serving its own (unrelated) 32-candidate universe. So the
+deployment D0 recommends would import a defect the path it replaces does not have. That is not
+an argument against Path A; it is an argument that **Stage B must not run until the zero-edge
+condition is decided** — see R19, and the replay evidence in
+[`data/taxonomy/replay/`](../../../packages/db/data/taxonomy/replay/). The edge re-point
+remains unauthorized.
 
 ---
 
