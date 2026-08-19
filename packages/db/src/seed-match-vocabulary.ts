@@ -268,8 +268,14 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- `SCRIPT` is a module-level string constant declared in this file, never input. This is the CLI's terminal error line; no user- or worker-supplied value reaches the template.
-  console.error(`[${NAME}] failed:`, err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+// GUARDED ENTRYPOINT. This file exports `MATCH_CONFIG_V1`, which is exactly the kind of thing
+// another module wants to read — and `packages/taxonomy/src/match-skills.test.ts` already
+// duplicates those values in a comment rather than importing them. Unguarded, the import that
+// would remove that duplication SEEDS THE MATCH VOCABULARY instead.
+if (require.main === module) {
+  main().catch((err) => {
+    // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- `SCRIPT` is a module-level string constant declared in this file, never input. This is the CLI's terminal error line; no user- or worker-supplied value reaches the template.
+    console.error(`[${NAME}] failed:`, err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}

@@ -38,13 +38,13 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0072`–`0073` | Divyanshu | **MERGED** — OIE P8 cutover: `unresolved_phrase.scope`, pack answers (#650) |
 | `0074`        | Prakash   | **MERGED** — `.enableRLS()` model markers, 31 tables (BL-26, #839) |
 | `0075`        | Divyanshu | **MERGED** — `job_postings` state for `GET /jobs/search` (#822, #856) |
-| `0076`        | Prakash   | **ON `main`** — canonical Domain→Skill taxonomy, Phase 1 (`fca0ef9c`; see notes below) |
-| `0077`        | Prakash   | **CLAIMED** — AI cost attribution: three running-total tables (admin Phase 4) |
-| `0078`        | Prakash   | **CLAIMED** — S3-C / D-6: `unresolved_phrase.job_domain_id` (see notes below) |
+| `0076`        | Prakash   | **APPLIED IN PRODUCTION** — canonical Domain→Skill taxonomy, Phase 1 (`fca0ef9c`; verified 2026-08-19) |
+| `0077`        | Prakash   | **APPLIED IN PRODUCTION** — AI cost attribution: three running-total tables (verified 2026-08-19) |
+| `0078`        | Prakash   | **ON `main`, NOT APPLIED IN PRODUCTION** — S3-C / D-6: `unresolved_phrase.job_domain_id`. The code IS deployed; see the note below |
 | `0079`        | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
 | `0080`+       | unclaimed | claim in a PR of its own, so the claim is reviewable          |
 
-### `0078` — additive, no ordering constraint, no backfill — 2026-08-18
+### `0078` — additive, APPLY BEFORE DEPLOY, no backfill — 2026-08-18
 
 **It takes the second slot of the OIE block**, exactly as `0077` took the head, and for the same
 reason: the block was reserved before either workstream existed, and leaving a hole to preserve a
@@ -67,9 +67,31 @@ catastrophic — `identify.service.ts` wraps the call in try/catch and logs "the
 unaffected", so the failure mode is **growth signal silently lost**, not a 500 for the worker. That
 is a fail-soft worth having and not a reason the ordering claim was acceptable.
 
-**Moot in practice: `0078` was applied to production on 2026-08-19, before the code carrying it
-reached the box.** The note is corrected anyway, because it is the instruction a fresh environment,
-a rollback, or the next reader follows — and there it is load-bearing.
+**NOT moot. An earlier version of this note said `0078` had been applied to production on
+2026-08-19 ahead of the code. That was recorded on report and never verified; it is false.**
+Measured against production on 2026-08-19: `unresolved_phrase` has no `job_domain_id`,
+`unresolved_phrase_scope_uq` is still the four-column form, and
+`unresolved_phrase_one_domain_chk` does not exist. `0076` and `0077` are applied; `0078` is not.
+
+Meanwhile the code IS deployed — `9bb12992` is an ancestor of `63b84fad`, `a14b10d2` and
+`43ca4bd7`, all deployed successfully that day. So the ordering hazard described above is not
+hypothetical and is not historical: it is the current production state. Every unresolved write is
+failing, the interview path swallows it as designed, and `POST /skills/unresolved` and
+`POST /occupation/unresolved` return 500.
+
+**Do not take a migration's application on report.** `drizzle.__drizzle_migrations` will not
+settle it either — production shows 76 applied rows against 79 files, because earlier migrations
+were baselined, so the count reads as alarming and means nothing. Ask for the OBJECTS:
+
+```bash
+pnpm --filter @badabhai/db db:audit:schema-contract   # read-only; exits 1 if the DB is behind
+```
+
+That check is manifest-driven (`packages/db/src/schema-contract.ts`) and covers every object the
+deployed code names unconditionally. It verifies the unique index's SHAPE, not merely its
+existence — a same-named index with the old four-column list is the quieter failure, because two
+canonical misses of one phrase in different job domains would merge into a single summed row with
+nothing raised anywhere.
 
 The reverse order is still safe: applying `0078` ahead of the code changes nothing, since the
 column is nullable with no default and the pre-`0078` SQL never mentions it.
