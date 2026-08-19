@@ -22,7 +22,18 @@ class _ScriptedCreditsApi extends MockPayerApiClient {
   Object? throwOnBalance;
   Object? throwOnLedger;
 
+  /// Buy control: the balance the buy returns, or an error to throw.
+  int buyBalance = 250;
+  Object? throwOnBuy;
+
   final List<String> calls = <String>[];
+
+  @override
+  Future<int> buyCreditPack(String code) async {
+    calls.add('buy:$code');
+    if (throwOnBuy != null) throw throwOnBuy!;
+    return buyBalance;
+  }
 
   @override
   Future<int> fetchCreditBalance() async {
@@ -137,5 +148,49 @@ void main() {
 
     expect(cubit.state.status, CreditsScreenStatus.ready);
     expect(cubit.state.balance, 199);
+  });
+
+  test('load also fetches the buyable packs (server-priced)', () async {
+    await cubit.load();
+    // The MockPayerApiClient base returns canned packs; a real screen shows them.
+    expect(cubit.state.packs, isNotEmpty);
+  });
+
+  test('buyPack applies the new balance, re-reads the ledger, flags purchased',
+      () async {
+    await cubit.load();
+    api
+      ..buyBalance = 400
+      ..ledger = const <LedgerEntry>[
+        LedgerEntry(
+          label: 'Pack purchase',
+          amount: '+200',
+          direction: LedgerDirection.credit,
+        ),
+      ];
+
+    await cubit.buyPack('growth');
+
+    expect(cubit.state.balance, 400);
+    expect(cubit.state.purchasing, isNull);
+    expect(cubit.state.purchased, isTrue);
+    expect(cubit.state.purchaseFailed, isFalse);
+    expect(cubit.state.ledger.first.label, 'Pack purchase',
+        reason: 'the purchase row must appear — the ledger is re-read');
+    expect(api.calls.contains('buy:growth'), isTrue);
+  });
+
+  test('a failed buy flags purchaseFailed and never touches the balance',
+      () async {
+    await cubit.load();
+    final int? known = cubit.state.balance;
+    api.throwOnBuy = const PayerApiException(503);
+
+    await cubit.buyPack('growth');
+
+    expect(cubit.state.purchaseFailed, isTrue);
+    expect(cubit.state.purchasing, isNull);
+    expect(cubit.state.balance, known,
+        reason: 'a failed purchase must not change the shown balance');
   });
 }
