@@ -50,7 +50,18 @@ export function captureQueries(rows: unknown[] = []): CapturedQuery {
   };
 
   const chain: Record<string, unknown> = {
-    from: () => chain,
+    /**
+     * CAPTURED, not ignored (BP-5). A repository's SOURCE is as much a property of the read as
+     * its projection: "this aggregate reads `platform_ai_cost_totals`, never
+     * `worker_ai_cost_totals`" is a correctness claim (the worker table cannot see payer-side
+     * spend), and it is unassertable if the FROM clause is thrown away. Drizzle's `sql`
+     * template renders a `Table` as its quoted name and a `Subquery` as its whole body, so this
+     * also brings a `DISTINCT ON` subquery's ORDER BY into the captured text.
+     */
+    from: (src: unknown) => {
+      capture(src);
+      return chain;
+    },
     innerJoin: () => chain,
     leftJoin: () => chain,
     groupBy: (...args: unknown[]) => {
@@ -66,11 +77,40 @@ export function captureQueries(rows: unknown[] = []): CapturedQuery {
       return chain;
     },
     limit: async () => rows,
+    /**
+     * Name this select as a SUBQUERY, so the caller can `from(sub)` and project `sub.column`.
+     *
+     * The real drizzle `.as()` returns a subquery whose column properties are aliased columns.
+     * Here they are rendered fragments — a Proxy is used because the stub does not know the
+     * projection's key set at this point, and a fixed object would silently yield `undefined`
+     * (which `capture` skips) for any column the test did not anticipate: a vacuous pass.
+     */
+    as: (alias: string) =>
+      new Proxy(
+        {},
+        {
+          get: (_target, prop) => {
+            if (typeof prop !== "string") return undefined;
+            const column = prop.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+            return sql.raw(`"${alias}"."${column}"`);
+          },
+        },
+      ),
     then: (resolve: (v: unknown[]) => unknown) => resolve(rows),
   };
 
   const db = {
     select: (projection?: Record<string, unknown>) => {
+      if (projection) Object.values(projection).forEach(capture);
+      return chain;
+    },
+    /**
+     * `DISTINCT ON (...)` — the form `CURRENT_PROFILE_ORDER` is designed to be the tail of.
+     * Both the DISTINCT-ON expressions and the projection are captured, so a read that silently
+     * lost its per-worker dedup shows up as a missing fragment rather than as a passing test.
+     */
+    selectDistinctOn: (on: unknown[], projection?: Record<string, unknown>) => {
+      on.forEach(capture);
       if (projection) Object.values(projection).forEach(capture);
       return chain;
     },

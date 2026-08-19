@@ -36,6 +36,9 @@ import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminDirectoryRepository } from "./admin-directory.repository";
 import { AdminDirectoryService } from "./admin-directory.service";
 import { AdminDirectoryController } from "./admin-directory.controller";
+import { AdminDashboardRepository } from "./admin-dashboard.repository";
+import { AdminDashboardService } from "./admin-dashboard.service";
+import { AdminDashboardController } from "./admin-dashboard.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -75,6 +78,14 @@ import { AdminDirectoryController } from "./admin-directory.controller";
  * env/deploy-gated, §2 #5); there is no enable/resume/toggle route by construction. OBS-4 (migrating the existing
  * ops read routes behind a dual-accept guard) is DEFERRED — this module does NOT touch the
  * existing ops/InternalService routes or `apps/web`. SSE live-tail is DEFERRED to ADMIN-7.
+ * BP-5 adds the DASHBOARD SUMMARY (`AdminDashboardController`/`AdminDashboardService`/
+ * `AdminDashboardRepository`): `GET /admin/dashboard/summary`, `read_entities`-gated — the same
+ * capability the finance aggregates declare, chosen by the DATA (live system-of-record state +
+ * money; only the cap-breach block reads the spine). SELECT-ONLY and ID-FREE: AI spend from 0077's
+ * `platform_ai_cost_totals` (total, by provider, by task type) carrying an explicit
+ * `accruing_since` marker — those totals START at 0077 and no backfill has run — plus cap
+ * breaches split by `ai.spend_cap_exceeded`'s `reason` and unfiltered volume counts. It has its
+ * OWN read repository; the WRITER (`AiCostTotalsRepository`) stays unexported from `AiModule`.
  */
 @Module({
   imports: [
@@ -104,6 +115,7 @@ import { AdminDirectoryController } from "./admin-directory.controller";
     AdminEntitiesController,
     AdminFinanceController,
     AdminDirectoryController,
+    AdminDashboardController,
   ],
   providers: [
     AdminRepository,
@@ -144,6 +156,14 @@ import { AdminDirectoryController } from "./admin-directory.controller";
     // of the authorization table. SELECT-ONLY; never projects email/name/mfa_secret.
     AdminDirectoryRepository,
     AdminDirectoryService,
+    // BP-5: the dashboard summary (platform AI spend by provider/task/breach-reason + volume
+    // counts) behind `read_entities`, the same capability the finance aggregates declare.
+    // SELECT-ONLY, with its OWN read-only repository over `platform_ai_cost_totals` —
+    // `AiCostTotalsRepository` is the single WRITER of that table and stays unexported from
+    // `AiModule`. The cap-breach split reuses `AdminEventsRepository` so `events` keeps exactly
+    // one admin reader (build-blocked in `admin-static-guards.test.ts`).
+    AdminDashboardRepository,
+    AdminDashboardService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

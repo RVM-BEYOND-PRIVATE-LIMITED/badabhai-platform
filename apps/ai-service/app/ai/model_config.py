@@ -239,7 +239,16 @@ def provider_for_model(model: str) -> str:
     """Coarse provider label used for BOTH cost/observability metadata AND the
     router's provider dispatch: "google" -> direct Gemini (``gemini_client``),
     "anthropic" -> Claude via the SDK (``anthropic_client``). Other labels have
-    no live transport and are metadata-only."""
+    no live transport HERE and are metadata-only — including "sarvam", whose
+    calls are real but are made by their own adapters (``stt.py``, ``tts.py``,
+    ``translate.py``) and never enter the LLM router's candidate list.
+
+    ORDER IS LOAD-BEARING, and the two transport-bearing labels come first on
+    purpose: ``providers.complete`` dispatches on this return value, so a branch
+    that could ever divert a routed model away from "google"/"anthropic" would
+    turn a working call into "no live transport". Metadata-only labels are
+    matched after them, and ``"unknown"`` stays the honest fallback for a model
+    id no rule recognises."""
     m = model.lower()
     if "gemini" in m or "vertex" in m:
         return "google"
@@ -247,6 +256,20 @@ def provider_for_model(model: str) -> str:
         return "anthropic"
     if "gpt" in m or "openai" in m:
         return "openai"
+    # Sarvam (the Indic STT/TTS/translate surfaces). Matched on the MODEL FAMILY,
+    # which is the stable half of the id — "saarika:v2.5" becomes "saarika:v3"
+    # without becoming a different provider: saarika (ASR) and saaras (the ASR
+    # swap config.py already names), bulbul (TTS), mayura (translate), plus a bare
+    # "sarvam" for the text models (``sarvam-m``) and any vendor-prefixed alias.
+    #
+    # WITHOUT THIS BRANCH EVERY RUPEE OF SARVAM SPEND ACCRUED AS "unknown". That is
+    # not merely an unhelpful label: `platform_ai_cost_totals` is keyed on
+    # (provider, task_type), so Sarvam's spend was pooled with the spend of models
+    # that genuinely have no rule — the one bucket a reader cannot attribute.
+    # The correction is NOT retroactive: rows already accrued under "unknown" stay
+    # there, and only calls made after this ships land under "sarvam".
+    if "saarika" in m or "saaras" in m or "bulbul" in m or "mayura" in m or "sarvam" in m:
+        return "sarvam"
     return "unknown"
 
 

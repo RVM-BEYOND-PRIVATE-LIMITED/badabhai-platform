@@ -1157,6 +1157,22 @@ jobs:
       #                    fake db also cannot judge: the relevance ladder, DESC NULLS LAST,
       #                    the id tiebreak, the limit+1 has_more probe, and that the
       #                    already-decided anti-join EVALUATES.
+      #   * admin-dashboard.db — BP-5, the two claims behind `GET /admin/dashboard/summary`
+      #                    that only a real database can settle. (a) THE PLATFORM AI-SPEND
+      #                    TOTAL INCLUDES SPEND NO WORKER OWNS. `worker_ai_cost_totals` and
+      #                    `platform_ai_cost_totals` carry identical column names, so summing
+      #                    the wrong one compiles, typechecks and returns a plausible ₹ figure
+      #                    — and silently omits every payer-side call (`skill_embedding` on a
+      #                    posting write, `job_posting_chat_turn`), which exist ONLY in the
+      #                    platform table. The gate accrues one worker-attributed AND one
+      #                    payer-side call through the real writer and asserts the dashboard
+      #                    moved by BOTH, and explicitly NOT by the worker one alone.
+      #                    (b) profile progress counts a re-interviewed worker ONCE, under
+      #                    `CURRENT_PROFILE_ORDER` — so the newest row, which after an
+      #                    ai-service outage is an EMPTY draft placeholder, does not report a
+      #                    fully-profiled worker as unprofiled. Both are properties of a
+      #                    `FROM` clause and an `ORDER BY` EVALUATING, which a stubbed drizzle
+      #                    handle cannot show.
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
       # this job's service container gets the whole chain (journal-driven, 0000 → head —
@@ -1170,7 +1186,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1179,7 +1195,7 @@ jobs:
           # `test -- rank-parity` runs `vitest run -- rank-parity`, where vitest
           # ignores the filter and reruns the whole 2820-test suite. Measured, not
           # assumed — that is what the first push of this branch actually did.
-          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1187,11 +1203,12 @@ jobs:
           #     their whole life while proving nothing. Assert per FILE, because a
           #     suite-wide "some test passed" check is satisfied by unrelated tests.
           # The directory alternation must list EVERY directory a gate file lives in:
-          # `ai-cost-totals.db` sits under src/ai and `jobs-search-sql` under src/jobs, and
-          # against a regex missing either one this loop reports "did not run at all" on a
-          # perfectly good run. Widen it whenever a gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql; do
-            line=$(grep -E "src/(ai|match|profiles|jobs)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          # `ai-cost-totals.db` sits under src/ai, `jobs-search-sql` under src/jobs and
+          # `admin-dashboard.db` under src/admin, and against a regex missing any one of them
+          # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
+          # gate lands in a new directory.
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db; do
+            line=$(grep -E "src/(ai|admin|match|profiles|jobs)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -1208,8 +1225,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +6 passed \(6\)' db-gates.log; then
-            echo "::error::Expected exactly the 6 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +7 passed \(7\)' db-gates.log; then
+            echo "::error::Expected exactly the 7 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
