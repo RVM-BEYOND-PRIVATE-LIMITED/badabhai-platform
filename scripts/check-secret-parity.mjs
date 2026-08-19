@@ -47,6 +47,15 @@ const WORKFLOW_TARGETS = [
     label: "ci.yml",
     file: path.join(REPO_ROOT, ".github", "workflows", "ci.yml"),
     job: "deploy-lightsail",
+    // #994: the deploy BODY no longer lives in the job block — it moved into this script
+    // because the inline version had reached ~97% of GitHub's ~21 KB step-input ceiling,
+    // past which the whole workflow silently stops parsing. Reading only the job block
+    // would now describe half a deploy: this check asks "does the deploy bridge every
+    // required var", and the answer must not depend on which file the text happens to sit
+    // in. (The three *_IMAGE vars it reports today are a PRE-EXISTING gap, unchanged by
+    // that move — they are exported, not bridged, in both layouts.) Same scope note as the
+    // header: names only, never values.
+    alsoScan: [path.join(REPO_ROOT, "scripts", "deploy", "staging-deploy.sh")],
   },
   {
     label: "staging-cd.yml",
@@ -145,7 +154,9 @@ export function parseWorkflowJobSecrets(workflowText, jobName) {
   const jobs = extractIndentedBlocks(workflowText, "jobs");
   const block = jobs.get(jobName);
   if (block === undefined) {
-    throw new Error(`job "${jobName}" not found under jobs: (found: ${[...jobs.keys()].join(", ")})`);
+    throw new Error(
+      `job "${jobName}" not found under jobs: (found: ${[...jobs.keys()].join(", ")})`,
+    );
   }
   return extractSecretRefs(block);
 }
@@ -194,6 +205,13 @@ function main() {
   for (const target of WORKFLOW_TARGETS) {
     const workflowText = readFileSync(target.file, "utf8");
     const secretRefs = parseWorkflowJobSecrets(workflowText, target.job);
+    // #994: fold in any file the job delegates its body to (see `alsoScan`). The extracted
+    // script is plain shell, not YAML, so the same name-extraction runs over its raw text.
+    for (const extraFile of target.alsoScan ?? []) {
+      for (const name of extractSecretRefs(readFileSync(extraFile, "utf8"))) {
+        secretRefs.add(name);
+      }
+    }
     const missing = findMissing(requiredByService, secretRefs);
     for (const line of formatReport(target.label, target.job, missing)) console.log(line);
     if (missing.size > 0) anyMissing = true;
@@ -208,7 +226,9 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  console.log("[secret-parity] PASS — both deploy workflows bridge every docker-compose.staging.yml required var.");
+  console.log(
+    "[secret-parity] PASS — both deploy workflows bridge every docker-compose.staging.yml required var.",
+  );
 }
 
 // Only run when this file is executed directly (`node scripts/check-secret-parity.mjs`)
