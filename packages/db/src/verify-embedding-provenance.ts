@@ -382,7 +382,13 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e: unknown) => {
-  console.error(e instanceof Error ? e.message : e);
-  process.exit(1);
-});
+// GUARDED ENTRYPOINT — this module exports `verifyRow`, `cosine`, `summarize` and friends, so
+// it is imported by its own test. Unguarded, that import RUNS the script: in CI it exits 1 on
+// the absent DATABASE_URL, and on a laptop whose environment points at production it opens a
+// connection to production during a unit-test run. Both of those actually happened.
+if (require.main === module) {
+  main().catch((e: unknown) => {
+    console.error(e instanceof Error ? e.message : e);
+    process.exit(1);
+  });
+}
