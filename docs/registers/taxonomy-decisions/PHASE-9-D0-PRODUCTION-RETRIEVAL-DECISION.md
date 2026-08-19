@@ -219,8 +219,9 @@ track one (domains) and has not started track two (skills).
 
 **Supporting both paths permanently is the option to reject.** The risks are concrete: two
 candidate sets with no defined precedence; a skill reachable through one and not the other;
-`unresolved_phrase` unable to record a canonical-scoped miss (the DTO requires a non-null
-`domain_id`, documented at `skills.dto.ts`); and two retrieval semantics for the promotion
+~~`unresolved_phrase` unable to record a canonical-scoped miss~~ (**CLOSED** — migration 0078
+added `job_domain_id`, widened the unique key, and added `skill.phrase_unresolved_v2`); and two
+retrieval semantics for the promotion
 gate to pin, when PR-1 assumes one. Dual paths are acceptable **only** as the Phase C shadow
 window, with an explicit end date.
 
@@ -337,7 +338,7 @@ remains unauthorized.
 | D-3 | Shadow doubles query load on the canonicalization path | Flagged, sampled, one extra query bounded by the same `LIMIT` |
 | D-4 | Path A returns empty where Path B returned a match (domain match fails, or no edge) | Explicit fallback in Phase E; empty-rate is a Phase D metric |
 | D-5 | Production's 76 vectors have NULL `embedding_model`, so Path A candidates could mix models | Re-embed under provenance, or exclude unattributed vectors from the target universe |
-| D-6 | `unresolved_phrase` cannot record a canonical-scoped miss | Known and documented; needs `job_domain_id` on that table before Phase E |
+| D-6 | ~~`unresolved_phrase` cannot record a canonical-scoped miss~~ | **CLOSED 2026-08-18** — migration 0078 adds `job_domain_id` + FK, widens `unresolved_phrase_scope_uq` to 5 columns (without which two canonical misses in different domains merge into one row), adds `unresolved_phrase_one_domain_chk`, and adds `skill.phrase_unresolved_v2` rather than relaxing v1's required `domain_id`. NOT applied to production |
 | D-7 | The decision is made on an unverified flag state | **D0-Q1 / D0-Q2 must be answered first** |
 
 ---

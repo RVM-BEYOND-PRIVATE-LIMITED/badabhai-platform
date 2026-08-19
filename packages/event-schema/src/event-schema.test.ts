@@ -2629,8 +2629,11 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 160 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned + the duplicate submission)", () => {
-    expect(EVENT_NAMES).toHaveLength(160);
+  it("exposes all 161 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned + the duplicate submission + skill.phrase_unresolved_v2)", () => {
+    expect(EVENT_NAMES).toHaveLength(161);
+    // S3-C / D-6 — the canonical-scope generation of the skill-miss event. A SECOND
+    // registry entry rather than a v1 mutation; see the payload's own note.
+    expect(isEventName("skill.phrase_unresolved_v2")).toBe(true);
     // #931 — one physical submission arriving twice. Invisible on the spine otherwise: a
     // duplicate returns before the engine is consulted, so it writes no `chat_messages` row and
     // emits no `chat.message_received`, and everything downstream looks like a healthy session
@@ -2814,7 +2817,13 @@ describe("registry", () => {
    * `validateEvent` allows exactly one version per name, so the shipped v1 payload stays
    * live and unmodified as history (invariant #8) while V1 emits the new generation.
    */
-  const VERSIONED_PAYLOADS: Readonly<Record<string, number>> = { "feed.shown_v2": 2 };
+  const VERSIONED_PAYLOADS: Readonly<Record<string, number>> = {
+    "feed.shown_v2": 2,
+    // S3-C / D-6: the canonical-scope generation of `skill.phrase_unresolved`. Same
+    // reason as `feed.shown_v2` — v1's `domain_id` is REQUIRED and a Path A miss has no
+    // legacy slug, so the alternative was relaxing a shipped required field.
+    "skill.phrase_unresolved_v2": 2,
+  };
 
   it("every registry entry is version 1 except the ADR-versioned payloads", () => {
     for (const name of EVENT_NAMES) {
@@ -3008,6 +3017,111 @@ describe("referral.bonus_accrued payload (X.6) — ₹ + opaque ids only, strict
       "referral.link_clicked",
       "referral.link_created",
     ]);
+  });
+});
+
+describe("skill.phrase_unresolved_v2 (S3-C / D-6) — the canonical-scope generation", () => {
+  const HASH = "b".repeat(64);
+  const make = (payload: object) =>
+    createEvent({
+      event_name: "skill.phrase_unresolved_v2",
+      actor: { actor_type: "ai_service" },
+      subject: { subject_type: "skill_phrase", subject_id: UUID_A },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: payload as never,
+    });
+
+  it("accepts a CANONICAL-scoped miss (job_domain_id set, domain_id null)", () => {
+    const event = make({
+      phrase_hash: HASH,
+      domain_id: null,
+      job_domain_id: "jd_nco_7223_0100",
+      lang: "hi",
+      count: 1,
+    });
+    expect(validateEvent(event).success).toBe(true);
+  });
+
+  it("accepts a LEGACY-scoped miss too — v2 is a superset, not a replacement", () => {
+    // The service only emits v2 for canonical misses today, but the payload must be able
+    // to express both or a future consolidation would need a v3.
+    const event = make({
+      phrase_hash: HASH,
+      domain_id: "cnc-machining",
+      job_domain_id: null,
+      lang: "en",
+      count: 7,
+    });
+    expect(validateEvent(event).success).toBe(true);
+  });
+
+  it("REJECTS both scopes at once — an event must say which vocabulary failed", () => {
+    expect(() =>
+      make({
+        phrase_hash: HASH,
+        domain_id: "cnc-machining",
+        job_domain_id: "jd_nco_7223_0100",
+        lang: "en",
+        count: 1,
+      }),
+    ).toThrow(EventValidationException);
+  });
+
+  it("REJECTS neither scope — mirrors unresolved_phrase_one_domain_chk's intent", () => {
+    // Both-null is legal in the TABLE (that is the occupation scope, which has its own
+    // event) but meaningless on THIS event, which exists to attribute a skill miss.
+    expect(() =>
+      make({ phrase_hash: HASH, domain_id: null, job_domain_id: null, lang: "en", count: 1 }),
+    ).toThrow(EventValidationException);
+  });
+
+  it("stays hash-only — .strict() blocks the phrase riding the spine", () => {
+    expect(() =>
+      make({
+        phrase_hash: HASH,
+        domain_id: null,
+        job_domain_id: "jd_nco_7223_0100",
+        lang: "en",
+        count: 1,
+        phrase: "[EMPLOYER_1] drawing padhna",
+      }),
+    ).toThrow(EventValidationException);
+  });
+
+  /**
+   * THE WHOLE POINT OF A SECOND ENTRY. If a later edit "simplifies" things by relaxing
+   * v1's `domain_id` to nullable, this fails — and it should, because every shipped
+   * consumer reading `payload.domain_id` without a null check breaks on the first such
+   * event. v1 is history and history does not change (invariant #8).
+   */
+  it("leaves v1 EXACTLY as shipped — domain_id still REQUIRED there", () => {
+    const v1 = EVENT_REGISTRY["skill.phrase_unresolved"];
+    expect(v1.version).toBe(1);
+    expect(
+      v1.payload.safeParse({ phrase_hash: HASH, domain_id: "cnc-machining", lang: "en", count: 1 })
+        .success,
+    ).toBe(true);
+    // A null domain_id is still refused by v1 — that refusal is what forced v2 to exist.
+    expect(
+      v1.payload.safeParse({ phrase_hash: HASH, domain_id: null, lang: "en", count: 1 }).success,
+    ).toBe(false);
+    // v1 has never heard of job_domain_id, and .strict() keeps it that way.
+    expect(
+      v1.payload.safeParse({
+        phrase_hash: HASH,
+        domain_id: "cnc-machining",
+        job_domain_id: "jd_nco_7223_0100",
+        lang: "en",
+        count: 1,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("is registered as a distinct name, so both generations can coexist", () => {
+    expect(isEventName("skill.phrase_unresolved")).toBe(true);
+    expect(isEventName("skill.phrase_unresolved_v2")).toBe(true);
+    expect(EVENT_REGISTRY["skill.phrase_unresolved_v2"].domain).toBe("skill");
   });
 });
 

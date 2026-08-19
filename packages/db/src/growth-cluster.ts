@@ -462,6 +462,9 @@ async function main(): Promise<void> {
         count: unresolvedPhrases.count,
         embedding: unresolvedPhrases.embedding,
         domainId: unresolvedPhrases.domainId,
+        // S3-C: read the canonical scope so a Path A miss is REPORTED rather than
+        // mis-diagnosed. Not clustered here — see the split below.
+        jobDomainId: unresolvedPhrases.jobDomainId,
       })
       .from(unresolvedPhrases)
       .where(
@@ -473,11 +476,32 @@ async function main(): Promise<void> {
       )
       .orderBy(unresolvedPhrases.id);
 
-    const noDomain = open.filter((r) => r.domainId === null);
+    // A NULL `domain_id` used to mean exactly one thing — "nobody recorded a domain" — and
+    // the advice was "backfill it". Since 0078 it means one of TWO things, and giving the
+    // canonical case the legacy advice would send an operator to backfill a slug onto a row
+    // that is correctly scoped by `job_domain_id` and would then violate
+    // `unresolved_phrase_one_domain_chk`. Split them so each gets a true message.
+    const canonicalScoped = open.filter((r) => r.domainId === null && r.jobDomainId !== null);
+    if (canonicalScoped.length > 0) {
+      const byDomain = new Map<string, number>();
+      for (const r of canonicalScoped) {
+        byDomain.set(r.jobDomainId as string, (byDomain.get(r.jobDomainId as string) ?? 0) + 1);
+      }
+      console.log(
+        `[growth] ${canonicalScoped.length} open row(s) are CANONICAL-scoped (job_domain_id) ` +
+          "across " +
+          `${byDomain.size} domain(s) — NOT clustered by this runner. Clustering promotes a ` +
+          "phrase to a `skill_alias` under a legacy `domain_id`; the canonical equivalent is a " +
+          "`job_domain_skill` edge, which is a different write and a different review. Tracked " +
+          "as the S3-C follow-up. Do NOT backfill domain_id onto these rows — the CHECK forbids " +
+          "carrying both.",
+      );
+    }
+    const noDomain = open.filter((r) => r.domainId === null && r.jobDomainId === null);
     if (noDomain.length > 0) {
       console.log(
-        `[growth] WARNING: skipping ${noDomain.length} open row(s) with NULL domain_id — ` +
-          "clustering is domain-scoped; backfill domain_id or resolve them by hand.",
+        `[growth] WARNING: skipping ${noDomain.length} open row(s) with NO domain of either ` +
+          "kind — clustering is domain-scoped; backfill domain_id or resolve them by hand.",
       );
     }
     const domains = [...new Set(open.map((r) => r.domainId).filter((d): d is string => d !== null))].sort();

@@ -20,6 +20,9 @@ import {
 import type {
   LanguageCode,
 } from "@badabhai/types";
+// `unresolved_phrase.job_domain_id` FKs the canonical domain table (0078). One-way:
+// `occupation.ts` imports no local schema module, so this cannot cycle.
+import { jobDomains } from "./occupation";
 
 // ===========================================================================
 // ADR-0030 / TAX-1 — embedding-based skill canonicalization vocabulary
@@ -254,6 +257,17 @@ export const unresolvedPhrases = pgTable(
     phrase: text("phrase").notNull(), // PSEUDONYMIZED text only (SG-1)
     lang: text("lang").$type<LanguageCode>(),
     domainId: text("domain_id"),
+    // WHICH CANONICAL DOMAIN THE PHRASE FAILED IN (migration 0078, S3-C / D-6).
+    //
+    // The Path A counterpart of `domain_id` above. Path A scopes retrieval by
+    // `job_domain_id`; Path B by the legacy slug. Before this column a canonical-scoped
+    // MISS had nowhere to record its domain, so flipping the read switch would have made
+    // Path A's failures invisible in the table that exists to catch failures.
+    //
+    // MUTUALLY EXCLUSIVE with `domainId` — a CHECK enforces at most one (a row scoped by
+    // both would not answer "which vocabulary did it fail in"). Both NULL is the
+    // occupation scope, legal since 0070.
+    jobDomainId: text("job_domain_id").references(() => jobDomains.jobDomainId),
     count: integer("count").notNull().default(1),
     firstSeen: timestamp("first_seen", { withTimezone: true }).notNull().defaultNow(),
     lastSeen: timestamp("last_seen", { withTimezone: true }).notNull().defaultNow(),
@@ -278,19 +292,41 @@ export const unresolvedPhrases = pgTable(
     embedding: vector("embedding", { dimensions: 768 }),
   },
   (t) => [
-    // One row per distinct (scope, phrase, domain, lang) — enables the atomic
+    // One row per distinct (scope, phrase, domain, job_domain, lang) — enables the atomic
     // count-increment upsert. The migration adds NULLS NOT DISTINCT (PG15) by hand — this
     // drizzle version can't model it — so NULL domain/lang phrases still dedupe to one row.
     //
     // `scope` LEADS the index deliberately: the ops queue is always read one scope at a
     // time ("show me unresolved occupations"), so it is the highest-selectivity prefix.
-    uniqueIndex("unresolved_phrase_scope_uq").on(t.scope, t.phrase, t.domainId, t.lang),
+    //
+    // `jobDomainId` JOINED THE KEY IN 0078 AND HAD TO. Two canonical misses of the same
+    // phrase in different job domains both carry `domain_id IS NULL`; under the old
+    // four-column key they collided and merged into one row, destroying the distinction
+    // the column exists to record. Widening the key is what makes the column load-bearing
+    // rather than decorative — and because every pre-0078 row has `job_domain_id = NULL`
+    // and the index is NULLS NOT DISTINCT, the equivalence classes over existing rows are
+    // unchanged, so no historical row split or merged.
+    uniqueIndex("unresolved_phrase_scope_uq").on(
+      t.scope,
+      t.phrase,
+      t.domainId,
+      t.jobDomainId,
+      t.lang,
+    ),
     index("unresolved_phrase_status_idx").on(t.status),
+    // FK-referencing column + the canonical-scope ops read. Postgres does not auto-index it.
+    index("unresolved_phrase_job_domain_id_idx").on(t.jobDomainId),
     check(
       "unresolved_phrase_status_chk",
       sql`${t.status} IN ('open', 'clustered', 'resolved')`,
     ),
     check("unresolved_phrase_scope_chk", sql`${t.scope} IN ('skill', 'occupation')`),
+    // At most ONE vocabulary scopes a row. Legal: legacy (domain_id), canonical
+    // (job_domain_id), occupation (neither). Illegal: both.
+    check(
+      "unresolved_phrase_one_domain_chk",
+      sql`${t.domainId} IS NULL OR ${t.jobDomainId} IS NULL`,
+    ),
   ],
 ).enableRLS();
 

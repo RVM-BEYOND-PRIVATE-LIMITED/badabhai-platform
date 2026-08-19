@@ -76,6 +76,13 @@ export class SkillsController {
   async recordUnresolved(
     @Body(new ZodValidationPipe(RecordUnresolvedDtoSchema)) dto: RecordUnresolvedDto,
   ): Promise<void> {
-    await this.skills.recordUnresolved(dto.phrase, dto.domain_id, dto.lang);
+    // The DTO's refine guarantees exactly one is present; `?? null` narrows the optionals
+    // to the service's nullable contract without re-deciding anything here (HTTP only).
+    await this.skills.recordUnresolved(
+      dto.phrase,
+      dto.domain_id ?? null,
+      dto.lang,
+      dto.job_domain_id ?? null,
+    );
   }
 }

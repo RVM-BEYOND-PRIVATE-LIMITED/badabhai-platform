@@ -246,11 +246,22 @@ only way to get parity against real traffic rather than a fixture.
 Available: `unresolved_phrase` (`scope`, `phrase`, `domain_id`, `lang`, `count`, `last_seen`) and
 Langfuse tracing.
 
-**Gap, already known (D-6):** `unresolved_phrase` has no `job_domain_id` column —
-`skills.dto.ts:115` names the unblocker. **A canonical-scoped miss cannot currently be recorded.**
-Flipping the switch without it means Path A's failures are invisible in exactly the table built
-to catch failures. Adding the column plus widening its unique key is a **prerequisite of S3-C**,
-not a follow-up.
+**D-6 — CLOSED (migration 0078, PR for `feat/s3c-unresolved-phrase-job-domain-id`).**
+`unresolved_phrase` now models `job_domain_id`, so a canonical-scoped miss records WHICH domain
+it missed in. Path A's failures are no longer invisible in the table built to catch failures,
+and the prerequisite this section named is satisfied. What shipped:
+
+| piece | why it was not optional |
+|---|---|
+| `job_domain_id text NULL` + FK to `job_domain` | the column itself; nullable/defaultless, so catalogue-only, no rewrite |
+| `unresolved_phrase_scope_uq` widened to 5 columns | **the load-bearing half.** Two canonical misses of one phrase in different domains both carry `domain_id IS NULL`; under the old 4-column key they collided and merged into one row with a summed `count`. The column would have been decorative — and wrong in the direction that makes Path A look healthier than it is |
+| `unresolved_phrase_one_domain_chk` | at most one vocabulary per row; makes the illegal state unrepresentable for every future writer, not just the one that reads the DTO |
+| `skill.phrase_unresolved_v2` | v1's `domain_id` is `z.string().min(1)` REQUIRED and a canonical miss has no legacy slug. A second registry entry (the `feed.shown_v2` precedent) rather than relaxing a shipped required field, which CLAUDE.md §3 forbids |
+| growth runner split | a NULL `domain_id` used to mean one thing; since 0078 it means two. The runner now reports canonical-scoped rows separately instead of advising a backfill that the CHECK would reject |
+
+Still deliberately NOT done: the runner does not CLUSTER canonical rows. Clustering promotes a
+phrase to a `skill_alias` under a legacy slug; the canonical equivalent is a `job_domain_skill`
+edge — a different write and a different review. Tracked as the S3-C follow-up.
 
 Per-request shadow metrics: top-1 agreement, score delta, Path A empty-rate, latency delta.
 
@@ -323,7 +334,7 @@ softened to let the plan pass.
 |---|---|
 | 11 provider cases — contract approved, **you** execute; no sandbox calls, guard untouched | S3-B's evidence completeness |
 | 5 TD-01 trainer slots — **empty**, no fabricated ground truth; mechanical cases stay reachability diagnostics and are never promoted to recall evidence | fixture credibility for the merged skill |
-| `unresolved_phrase.job_domain_id` | **S3-C** |
+| ~~`unresolved_phrase.job_domain_id`~~ — **CLOSED**, migration 0078 | ~~S3-C~~ |
 | 76 NULL `embedding_model` rows | S5 |
 | `cnc-programming` scope decision | S3-D |
 | **TD-07 — GAP, product + trainer** | S3-A's P8 keeps it from being resolved implicitly |

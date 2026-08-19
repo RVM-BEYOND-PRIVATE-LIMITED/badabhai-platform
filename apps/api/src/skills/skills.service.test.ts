@@ -49,7 +49,7 @@ describe("SkillsService (ADR-0030 / FORK-B-1 seam A)", () => {
     const phrase = "[EMPLOYER_1] ke saath polish work"; // already-pseudonymized (SG-1)
     await service.recordUnresolved(phrase, "cnc-machining", "hi");
 
-    expect(repo.recordUnresolved).toHaveBeenCalledWith(phrase, "cnc-machining", "hi");
+    expect(repo.recordUnresolved).toHaveBeenCalledWith(phrase, "cnc-machining", "hi", "skill", null);
     expect(events.emit).toHaveBeenCalledTimes(1);
     const emitted = events.emit.mock.calls[0]?.[0];
     expect(emitted.event_name).toBe("skill.phrase_unresolved");
@@ -87,7 +87,7 @@ describe("SkillsService (ADR-0030 / FORK-B-1 seam A)", () => {
     const phrase = "[EMPLOYER_1] ke saath fabrication";
     await service.recordUnresolved(phrase, "cnc-machining", "hi");
 
-    expect(repo.recordUnresolved).toHaveBeenCalledWith(phrase, "cnc-machining", "hi");
+    expect(repo.recordUnresolved).toHaveBeenCalledWith(phrase, "cnc-machining", "hi", "skill", null);
     const emitted = events.emit.mock.calls[0]?.[0];
     expect(emitted.payload.domain_id).toBe("cnc-machining");
     expect(emitted.payload.phrase_hash).toBe(
@@ -159,13 +159,11 @@ describe("SkillsController — exactly-one-of scope (Phase 1.5)", () => {
     expect(skills.nearestAliases).not.toHaveBeenCalled();
   });
 
-  it("refuses a NULL domain_id at the boundary — the v1 event payload requires a string", () => {
-    // INVERTED with the Architect's ruling. This used to assert the controller forwarded a
-    // null through. It cannot: `SkillsService.recordUnresolved` emits `skill.phrase_unresolved`,
-    // whose v1 payload declares `domain_id: z.string().min(1)`, and mutating a shipped event
-    // schema is a CLAUDE.md §3 non-negotiable. Accepting null here would write the queue row
-    // and THEN throw on event validation — a queued phrase with no event, which is a worse
-    // outcome than refusing the write. So the refusal happens before anything is written.
+  it("still refuses an explicit NULL domain_id — omit the key, do not null it", () => {
+    // S3-C reopened the canonical path, but `null` was never the way in and still is not.
+    // `domain_id` is OPTIONAL (absent) rather than nullable, so a caller states its scope
+    // by which key it sends. An explicit null is a caller bug — most likely a client that
+    // means "unscoped", which is not a thing a skill miss can be.
     expect(
       RecordUnresolvedDtoSchema.safeParse({
         phrase: "[EMPLOYER_1] fabrication",
@@ -176,7 +174,9 @@ describe("SkillsController — exactly-one-of scope (Phase 1.5)", () => {
   });
 
   it("still forwards a legacy domain_id unchanged", async () => {
-    // The regression pin for the path that actually runs in production today.
+    // The regression pin for the path that actually runs in production today. S3-C widened
+    // the signature; this asserts the legacy call arrives EXACTLY as it always did, with
+    // the canonical slot explicitly null rather than accidentally carrying the slug.
     const { controller, skills } = makeController();
     const dto = RecordUnresolvedDtoSchema.parse({
       phrase: "[EMPLOYER_1] fabrication",
@@ -188,6 +188,23 @@ describe("SkillsController — exactly-one-of scope (Phase 1.5)", () => {
       "[EMPLOYER_1] fabrication",
       "cnc-machining",
       "hi",
+      null,
+    );
+  });
+
+  it("forwards a CANONICAL job_domain_id, with the legacy slot null (S3-C)", async () => {
+    const { controller, skills } = makeController();
+    const dto = RecordUnresolvedDtoSchema.parse({
+      phrase: "[EMPLOYER_1] drawing padhna",
+      job_domain_id: "jd_nco_7223_0100",
+      lang: "hi",
+    });
+    await controller.recordUnresolved(dto);
+    expect(skills.recordUnresolved).toHaveBeenCalledWith(
+      "[EMPLOYER_1] drawing padhna",
+      null,
+      "hi",
+      "jd_nco_7223_0100",
     );
   });
 });
@@ -304,40 +321,147 @@ describe("skills DTOs — boundary validation", () => {
     expect(ok.success && ok.data.lang).toBe("en"); // default
   });
 
-  it("unresolved REQUIRES a non-null domain_id — the v1 event payload is not negotiable", () => {
-    // INVERTED with the Architect's ruling: keep `skill.phrase_unresolved` at v1 with
-    // `domain_id: z.string().min(1)`, and close the canonical-scoped MISS path rather than
-    // widen a shipped event schema (CLAUDE.md §3). A `job_domain_id`-scoped miss therefore
-    // has nowhere to be queued until `unresolved_phrase` grows a `job_domain_id` column —
-    // the ai-service skips the call rather than firing a doomed one.
-    const ok = RecordUnresolvedDtoSchema.safeParse({
+  it("unresolved requires EXACTLY ONE scope — legacy or canonical, never both, never neither", () => {
+    // RE-INVERTED by S3-C. The previous revision of this test asserted the canonical path
+    // was CLOSED, and its comment explained why: v1's `domain_id: z.string().min(1)` meant
+    // a `job_domain_id`-scoped miss had nowhere to go, and widening a shipped event schema
+    // is a CLAUDE.md §3 non-negotiable. Migration 0078 + `skill.phrase_unresolved_v2` open
+    // it WITHOUT breaking that rule — a second registry entry, v1 untouched.
+    const legacy = RecordUnresolvedDtoSchema.safeParse({
       phrase: "[EMPLOYER_1] polish work",
       domain_id: "cnc-machining",
     });
-    expect(ok.success).toBe(true);
-    expect(ok.success && ok.data.domain_id).toBe("cnc-machining");
+    expect(legacy.success).toBe(true);
+    expect(legacy.success && legacy.data.domain_id).toBe("cnc-machining");
+    expect(legacy.success && legacy.data.job_domain_id).toBeUndefined();
 
-    // null is refused...
+    const canonical = RecordUnresolvedDtoSchema.safeParse({
+      phrase: "[EMPLOYER_1] polish work",
+      job_domain_id: "jd_nco_7223_0100",
+    });
+    expect(canonical.success).toBe(true);
+    expect(canonical.success && canonical.data.job_domain_id).toBe("jd_nco_7223_0100");
+    expect(canonical.success && canonical.data.domain_id).toBeUndefined();
+
+    // BOTH is refused — a row that claims two vocabularies answers neither question, and
+    // the DB CHECK `unresolved_phrase_one_domain_chk` would refuse it one layer down.
+    const both = RecordUnresolvedDtoSchema.safeParse({
+      phrase: "[EMPLOYER_1] polish work",
+      domain_id: "cnc-machining",
+      job_domain_id: "jd_nco_7223_0100",
+    });
+    expect(both.success).toBe(false);
+
+    // NEITHER is refused, so a caller cannot land an unattributable phrase by omitting both.
+    expect(
+      RecordUnresolvedDtoSchema.safeParse({ phrase: "[EMPLOYER_1] polish work" }).success,
+    ).toBe(false);
+    // An explicit null is not a way in for either field.
     expect(
       RecordUnresolvedDtoSchema.safeParse({
         phrase: "[EMPLOYER_1] polish work",
         domain_id: null,
       }).success,
     ).toBe(false);
-    // ...and so is absent, so a caller cannot route around the refusal by omitting the key.
     expect(
-      RecordUnresolvedDtoSchema.safeParse({ phrase: "[EMPLOYER_1] polish work" }).success,
+      RecordUnresolvedDtoSchema.safeParse({
+        phrase: "[EMPLOYER_1] polish work",
+        job_domain_id: null,
+      }).success,
     ).toBe(false);
-    // An empty string was never a domain either.
+    // An empty string was never a domain of either kind.
     expect(
       RecordUnresolvedDtoSchema.safeParse({ phrase: "polish work", domain_id: "" }).success,
     ).toBe(false);
-    // The residual-digit gate is independent of the domain and still fires.
+    expect(
+      RecordUnresolvedDtoSchema.safeParse({ phrase: "polish work", job_domain_id: "" }).success,
+    ).toBe(false);
+    // The residual-digit gate is independent of the scope and still fires on BOTH paths.
     expect(
       RecordUnresolvedDtoSchema.safeParse({
         phrase: "call me 9876543210",
         domain_id: "cnc-machining",
       }).success,
     ).toBe(false);
+    expect(
+      RecordUnresolvedDtoSchema.safeParse({
+        phrase: "call me 9876543210",
+        job_domain_id: "jd_nco_7223_0100",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("SkillsService.recordUnresolved — scope decides the event GENERATION (S3-C)", () => {
+  const makeService = () => {
+    const repo = {
+      recordUnresolved: vi
+        .fn()
+        .mockResolvedValue({ id: "22222222-2222-4222-8222-222222222222", count: 2 }),
+    };
+    const events = { emit: vi.fn().mockResolvedValue(undefined) };
+    return { service: new SkillsService(repo as never, events as never), repo, events };
+  };
+
+  it("a CANONICAL miss emits skill.phrase_unresolved_v2, hash-only", async () => {
+    const { service, repo, events } = makeService();
+    const phrase = "[EMPLOYER_1] drawing padhna";
+    await service.recordUnresolved(phrase, null, "hi", "jd_nco_7223_0100");
+
+    expect(repo.recordUnresolved).toHaveBeenCalledWith(
+      phrase,
+      null,
+      "hi",
+      "skill",
+      "jd_nco_7223_0100",
+    );
+    const emitted = events.emit.mock.calls[0]?.[0];
+    expect(emitted.event_name).toBe("skill.phrase_unresolved_v2");
+    expect(emitted.payload).toEqual({
+      phrase_hash: createHash("sha256").update(phrase, "utf8").digest("hex"),
+      domain_id: null,
+      job_domain_id: "jd_nco_7223_0100",
+      lang: "hi",
+      count: 2,
+    });
+    // The phrase text never rides the spine, on either generation.
+    expect(JSON.stringify(emitted)).not.toContain("drawing padhna");
+    expect(emitted.idempotencyKey).toBe(
+      "skill.phrase_unresolved_v2:22222222-2222-4222-8222-222222222222:2",
+    );
+  });
+
+  it("a LEGACY miss still emits v1 — no shipped consumer sees a change", async () => {
+    const { service, events } = makeService();
+    await service.recordUnresolved("[EMPLOYER_1] polish", "cnc-machining", "en");
+    const emitted = events.emit.mock.calls[0]?.[0];
+    expect(emitted.event_name).toBe("skill.phrase_unresolved");
+    // v1's shape is EXACTLY four keys — no job_domain_id leaking into the old generation.
+    expect(Object.keys(emitted.payload).sort()).toEqual([
+      "count",
+      "domain_id",
+      "lang",
+      "phrase_hash",
+    ]);
+  });
+
+  it("the two generations cannot collide on an idempotency key", async () => {
+    // Same row id, same count, different scope — the key must still differ, or a legacy
+    // and a canonical miss could suppress one another on retry.
+    const a = makeService();
+    await a.service.recordUnresolved("[EMPLOYER_1] x", "cnc-machining", "en");
+    const b = makeService();
+    await b.service.recordUnresolved("[EMPLOYER_1] x", null, "en", "jd_nco_7223_0100");
+    expect(a.events.emit.mock.calls[0]?.[0].idempotencyKey).not.toBe(
+      b.events.emit.mock.calls[0]?.[0].idempotencyKey,
+    );
+  });
+
+  it("refuses a skill miss with NO scope rather than emitting an unattributable event", async () => {
+    const { service, events } = makeService();
+    await expect(service.recordUnresolved("[EMPLOYER_1] x", null, "en", null)).rejects.toThrow(
+      /either domainId or jobDomainId/,
+    );
+    expect(events.emit).not.toHaveBeenCalled();
   });
 });
