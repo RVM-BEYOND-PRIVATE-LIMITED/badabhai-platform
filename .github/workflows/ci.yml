@@ -29,6 +29,7 @@ jobs:
       worker-app: ${{ steps.filter.outputs.worker-app }}
       payer-app: ${{ steps.filter.outputs.payer-app }}
       payer-web: ${{ steps.filter.outputs.payer-web }}
+      admin-web: ${{ steps.filter.outputs.admin-web }}
       sast: ${{ steps.filter.outputs.sast }}
       deps: ${{ steps.filter.outputs.deps }}
       # #965: the value baked into api / ai-service / payer-web as `GIT_COMMIT_SHA` and
@@ -146,6 +147,21 @@ jobs:
               - 'packages/validators/**'
               - 'packages/types/**'
               - '.github/workflows/ci.yml'
+            # apps/admin-web (the INTERNAL admin portal) — same contract as the payer-web
+            # filter above, gating ONLY the admin-web leg of `image-gate`. The workspace
+            # packages are the ones admin-web's Dockerfile actually builds, enumerated from
+            # its package.json and its @badabhai/* imports rather than copied from payer-web:
+            # @badabhai/config (the /shared subpath), @badabhai/pricing, @badabhai/validators,
+            # plus validators' own @badabhai/types. Same four as payer-web by coincidence,
+            # not by inheritance — a change to any of them can break the image with zero
+            # admin-web edits.
+            admin-web:
+              - 'apps/admin-web/**'
+              - 'packages/config/**'
+              - 'packages/pricing/**'
+              - 'packages/validators/**'
+              - 'packages/types/**'
+              - '.github/workflows/ci.yml'
             # SAST (#773). Mirrors the filter security-scan.yml used while the job lived
             # there, plus the two workflow files that now decide whether it runs at all —
             # same reasoning as the e2e and Flutter entries above: a change to the gate
@@ -229,8 +245,16 @@ jobs:
           MATRIX_JSON='[
             {"app":"api","context":".","file":"apps/api/Dockerfile","image":"badabhai-api","cache-scope":"buildkit","next-public":false,"gate":""},
             {"app":"ai-service","context":"apps/ai-service","file":"apps/ai-service/Dockerfile","image":"badabhai-ai-service","cache-scope":"ai-service","next-public":false,"gate":"ai-service"},
-            {"app":"payer-web","context":".","file":"apps/payer-web/Dockerfile","image":"badabhai-payer-web","cache-scope":"payer-web","next-public":true,"gate":"payer-web"}
+            {"app":"payer-web","context":".","file":"apps/payer-web/Dockerfile","image":"badabhai-payer-web","cache-scope":"payer-web","next-public":true,"gate":"payer-web"},
+            {"app":"admin-web","context":".","file":"apps/admin-web/Dockerfile","image":"badabhai-admin-web","cache-scope":"admin-web","next-public":false,"gate":"admin-web"}
           ]'
+          # admin-web carries `"next-public":false` and that is the security-relevant field
+          # in the row, not an omission: the two `build-args:` lines this switch controls
+          # name PAYER_WEB_NEXT_PUBLIC_API_URL / _SITE_URL *literally* (secrets cannot be
+          # indexed from a matrix), so `true` would bake the PAYER portal's origins into the
+          # ADMIN portal's bundle. admin-web needs no public var — its api origin is
+          # ADMIN_API_BASE_URL, server-only and read at container start. If it ever needs
+          # one it gets its OWN ADMIN_WEB_NEXT_PUBLIC_* secrets and ARGs, never a ride here.
 
           if ! MATRIX="$(printf '%s' "$MATRIX_JSON" | jq -c .)"; then
             echo "::error::the image build matrix is not valid JSON — every image build would be skipped."
@@ -1605,7 +1629,7 @@ jobs:
 
           # The services the remote script below actually deploys. KEEP IN STEP with its
           # `pull_image` / `image_present` blocks — that is what this step enforces.
-          DEPLOYS="api ai-service payer-web"
+          DEPLOYS="api ai-service payer-web admin-web"
 
           # `tr -d '\r'` is defensive, not decorative. THIS CHECK CAN BLOCK EVERY DEPLOY,
           # so it must never fail for a reason unrelated to what it is asserting. Caught
@@ -1710,6 +1734,13 @@ jobs:
           # unrelated missing secret. See the service block in docker-compose.staging.yml
           # for the measured proof.
           PAYER_WEB_PORT: ${{ secrets.PAYER_WEB_PORT }}
+          # admin-web's box port — identical contract to PAYER_WEB_PORT above: OPTIONAL, an
+          # override only, `:-3003` defaulted in compose rather than fail-loud, for the same
+          # measured reason. It does not exist as a secret today and need not: 3003 is free
+          # on this box and is the compose default. Bridged anyway so that compose and the
+          # deploy script's health poll read ONE channel — otherwise creating the secret
+          # later would move the published port while the poll still checked 3003.
+          ADMIN_WEB_PORT: ${{ secrets.ADMIN_WEB_PORT }}
           # #994 — the four values scripts/deploy/staging-deploy.sh needs that are RUNNER-SIDE
           # GitHub context and therefore unknowable on the box. They used to be `${{ }}`
           # interpolated straight into the inline script; with the script in a file they must
@@ -1732,7 +1763,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,PAYER_WEB_PORT,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,PAYER_WEB_PORT,ADMIN_WEB_PORT,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN
           # #994 — THE BODY OF THIS DEPLOY LIVES IN scripts/deploy/staging-deploy.sh.
           #
           # It is not inlined here because GitHub Actions caps a single step input at
