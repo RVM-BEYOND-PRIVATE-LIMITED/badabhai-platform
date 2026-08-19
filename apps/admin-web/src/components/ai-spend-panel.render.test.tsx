@@ -20,6 +20,19 @@ import { AiSpendPanel } from "./ai-spend-panel";
 
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 
+/**
+ * Every `.stat__value` tile in the markup, in order.
+ *
+ * Needed because "no ₹ was rendered" is a claim about the TILES, and the panel legitimately
+ * renders one non-₹ tile (the cap-breach count, which reads the event spine) in the very state
+ * where no ₹ may appear. `not.toContain("stat__value")` used to stand in for both, and it
+ * cannot any more without also forbidding the tile that has to be there.
+ */
+const statValues = (out: string) =>
+  [...out.matchAll(/<span class="stat__value">([^<]*)<\/span>/g)].map((m) => m[1]!);
+
+const rupeeTiles = (out: string) => statValues(out).filter((v) => v.includes("₹"));
+
 const COST: AiCostSummary = {
   accruing_since: "2026-08-17T01:00:00.000Z",
   is_lifetime_total: false,
@@ -108,10 +121,63 @@ describe("AI spend — no ₹ figure is ever rendered without its basis", () => 
       />,
     );
     // NOT `not.toContain("₹")` — the explanation deliberately says the words "not a
-    // measured ₹0". What must be absent is a rendered FIGURE, i.e. any `.stat__value` tile.
-    expect(out).not.toContain("stat__value");
+    // measured ₹0". What must be absent is a rendered ₹ FIGURE, so the assertion is on the
+    // tile VALUES rather than on the class name: the cap-breach tile is a different data
+    // source and stays, which `not.toContain("stat__value")` would have forbidden.
+    expect(rupeeTiles(out)).toEqual([]);
+    expect(out).not.toContain("Spend recorded");
+    expect(out).not.toContain("Calls recorded");
     expect(out).toContain("No AI spend recorded yet");
     expect(out).toContain("not a measured");
+  });
+});
+
+describe("AI spend — a cap breach is reported even when nothing has accrued", () => {
+  /*
+   * ⚠ `cap_breaches` IS NOT DERIVED FROM THE COST TABLE. The API counts
+   * `ai.spend_cap_exceeded` over the EVENT SPINE in a rolling window; `accruing_since` comes
+   * from `platform_ai_cost_totals`. So `accruing_since: null` says nothing whatsoever about
+   * whether a cap was breached, and two reachable states have both at once:
+   *
+   *   1. the breach window reaches back past migration 0077, where the totals table starts
+   *      empty and was never backfilled — the state this platform is in today; and
+   *   2. the documented accrual-failure path in `ai-cost-recorder.service.ts`, where the
+   *      events commit while the savepointed `accrue()` fails and the totals trail the spine.
+   *
+   * Gating the breach block on the ₹ basis hid `kill_switch_engaged` and
+   * `cumulative_cap_exceeded` — the most operationally urgent numbers on the page — behind
+   * "Nothing has accrued yet", and dropped the in-band scope sentence with them.
+   */
+  const NOTHING_ACCRUED_WITH_BREACH: AiCostSummary = {
+    ...COST,
+    accruing_since: null,
+    total_cost_inr: "0",
+    total_calls: 0,
+    real_calls: 0,
+    by_provider: [],
+    by_task_type: [],
+    cap_breaches: {
+      ...COST.cap_breaches,
+      total: 1,
+      by_reason: [{ reason: "kill_switch_engaged", count: 1 }],
+    },
+  };
+
+  it("renders the breach count and its scope sentence with no ₹ figure beside them", () => {
+    const out = html(<AiSpendPanel cost={NOTHING_ACCRUED_WITH_BREACH} />);
+
+    // The count, in the tile and in the reason breakdown.
+    expect(out).toContain("Cap breaches (last 30 days)");
+    expect(statValues(out)).toContain("1");
+    expect(out).toContain("Kill switch engaged");
+    expect(out).toContain("provider calls stopped");
+
+    // THE SCOPE SHIPS WITH THE NUMBER — the reason the DTO puts it in band at all.
+    expect(out).toContain("PROFILE EXTRACTION");
+
+    // …and rule 2 still holds for the money: no ₹ tile, and the absence is stated.
+    expect(rupeeTiles(out)).toEqual([]);
+    expect(out).toContain("No AI spend recorded yet");
   });
 });
 
