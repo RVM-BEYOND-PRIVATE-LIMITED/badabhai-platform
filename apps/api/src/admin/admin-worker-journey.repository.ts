@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, desc, eq, inArray, lt, max, min, or, sql } from "drizzle-orm";
+import { and, asc, count, countDistinct, desc, eq, inArray, lt, max, min, or, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
+import type { ChatSessionStatus } from "@badabhai/types";
 import {
   CURRENT_PROFILE_ORDER,
   aiJobs,
@@ -9,8 +10,10 @@ import {
   chatSessions,
   events,
   generatedResumes,
+  profilingFamilyBindings,
   profilingVoiceAnswers,
   questionPackItems,
+  questionPacks,
   sessionAiCostTotals,
   workerPackAnswers,
   workerProfiles,
@@ -27,7 +30,12 @@ import {
   type AdminSessionAnswer,
   type AdminSessionVoiceAnswer,
 } from "./admin-worker-journey.dto";
-import type { StuckAnswerStatus, StuckQuestionItem } from "./admin-worker-journey.stuck";
+import {
+  SETTLED_ANSWER_STATUSES,
+  STUCK_ANSWER_STATUSES,
+  type StuckAnswerStatus,
+  type StuckQuestionItem,
+} from "./admin-worker-journey.stuck";
 
 /**
  * SELECT-ONLY data access for the ADMIN WORKER JOURNEY (Phase 6).
@@ -411,7 +419,11 @@ export class AdminWorkerJourneyRepository {
    */
   async listSessions(
     workerId: string,
-    filter: { status?: string },
+    // TYPED, not `string`: the column is `$type<ChatSessionStatus>()` and the DTO's
+    // `z.enum(["active","ended","abandoned"])` already validates to exactly this set, so
+    // `eq()` type-checks with no cast. The `as never` this replaced would have accepted any
+    // string the DTO ever stopped constraining, silently.
+    filter: { status?: ChatSessionStatus },
     cursor: KeysetCursor | null,
     limit: number,
   ): Promise<
@@ -427,7 +439,7 @@ export class AdminWorkerJourneyRepository {
     }>
   > {
     const clauses: SQL[] = [eq(chatSessions.workerId, workerId)];
-    if (filter.status) clauses.push(eq(chatSessions.status, filter.status as never));
+    if (filter.status) clauses.push(eq(chatSessions.status, filter.status));
     if (cursor) clauses.push(AdminWorkerJourneyRepository.beforeSession(cursor));
 
     return this.db
@@ -463,13 +475,34 @@ export class AdminWorkerJourneyRepository {
     return new Map(rows.map((r) => [r.sessionId, r.n]));
   }
 
-  /** Settled-answer counts for a whole page of sessions — one grouped query. */
+  /**
+   * SETTLED-answer counts for a whole page of sessions — one grouped query.
+   *
+   * ⚠ ONE DEFINITION OF `answer_count`, SHARED WITH THE DETAIL READ. This is
+   * `count(distinct question_key) where status in (answered, declined)` — exactly what
+   * {@link listSettledKeys} returns for a single session, so the number on the list row and the
+   * number on the detail page are the same number by construction.
+   *
+   * It used to be a bare `count(*)`. The two agreed only because nothing writes an
+   * `unanswered` row today (`packAnswerRowFor` returns null for one) and nothing writes two
+   * rows for one question in a session — both properties of the current flush, neither
+   * enforced by the schema, and `AdminJourneyProfilingStep.unanswered_count` exists precisely
+   * because the first is expected to stop holding.
+   */
   async countAnswersBySession(sessionIds: readonly string[]): Promise<Map<string, number>> {
     if (sessionIds.length === 0) return new Map();
     const rows = await this.db
-      .select({ sessionId: workerPackAnswers.chatSessionId, n: count() })
+      .select({
+        sessionId: workerPackAnswers.chatSessionId,
+        n: countDistinct(workerPackAnswers.questionKey),
+      })
       .from(workerPackAnswers)
-      .where(inArray(workerPackAnswers.chatSessionId, [...sessionIds]))
+      .where(
+        and(
+          inArray(workerPackAnswers.chatSessionId, [...sessionIds]),
+          inArray(workerPackAnswers.status, [...SETTLED_ANSWER_STATUSES]),
+        ),
+      )
       .groupBy(workerPackAnswers.chatSessionId);
     return new Map(
       rows.flatMap((r) => (r.sessionId === null ? [] : [[r.sessionId, r.n] as const])),
@@ -558,6 +591,23 @@ export class AdminWorkerJourneyRepository {
   }
 
   /**
+   * The shape a `question_key` is allowed to have on the way OUT of this jsonb.
+   *
+   * ⚠ THE KEY IS AS UNTRUSTED AS THE VALUE, and it is the half that reaches the response.
+   * These maps come out of `conversation_state`, which is loose jsonb written by the
+   * orchestrator, by older builds and by the abandonment sweep — nothing in Postgres
+   * constrains its object KEYS. They are then returned verbatim as `question_key` and as
+   * `stuck.candidates[].question_key`, so a key is a value this surface publishes.
+   *
+   * This is the SAME filter every other reader of that column applies —
+   * `AnswerRecordSchema.question_key` is `/^[a-z_]+$/` capped at 40, and
+   * `qpi_question_key_chk` is the identical CHECK on the pack row the key names. A key that
+   * fails it cannot be a real question, so dropping it loses nothing and keeps free text out
+   * of an admin response by construction.
+   */
+  private static readonly QUESTION_KEY_RE = /^[a-z_]{1,40}$/;
+
+  /**
    * jsonb → a `question_key → count` map, narrowed entry by entry.
    *
    * Clamped to a non-negative integer for the same reason the engine's `askCount` clamps: this
@@ -568,6 +618,7 @@ export class AdminWorkerJourneyRepository {
     const out: Record<string, number> = {};
     if (typeof value !== "object" || value === null) return out;
     for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      if (!AdminWorkerJourneyRepository.QUESTION_KEY_RE.test(key)) continue;
       const n = typeof raw === "number" ? raw : Number(raw);
       if (!Number.isFinite(n)) continue;
       out[key] = Math.max(0, Math.trunc(n));
@@ -575,12 +626,13 @@ export class AdminWorkerJourneyRepository {
     return out;
   }
 
-  /** jsonb → `question_key → status`, dropping anything outside the closed status set. */
+  /** jsonb → `question_key → status`, dropping anything outside the closed key/status sets. */
   private static narrowAnswerStatuses(value: unknown): Record<string, StuckAnswerStatus> {
-    const known: readonly string[] = ["answered", "declined", "unanswered", "superseded"];
+    const known: readonly string[] = STUCK_ANSWER_STATUSES;
     const out: Record<string, StuckAnswerStatus> = {};
     if (typeof value !== "object" || value === null) return out;
     for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+      if (!AdminWorkerJourneyRepository.QUESTION_KEY_RE.test(key)) continue;
       if (typeof raw === "string" && known.includes(raw)) out[key] = raw as StuckAnswerStatus;
     }
     return out;
@@ -694,10 +746,19 @@ export class AdminWorkerJourneyRepository {
    * `session_id` at all — transcription keys on `voice_note_id`. Dropping it would trade an
    * index scan for a sequential scan of a table with no retention policy and find nothing.
    *
-   * ⚠ `created_at DESC NULLS LAST`, spelled out. Postgres defaults DESC to NULLS FIRST and
-   * pathkeys compare `nulls_first` strictly, so a bare `desc()` does NOT match that index and
-   * the planner adds a Sort. `findExtractionDedupeCandidate` is written the same way; keep
-   * them in step.
+   * ⚠ THE SORT IS NOT INDEX-SUPPLIED HERE, AND THAT IS FINE. `ai_jobs_extraction_session_idx`
+   * is `((input_ref->>'session_id'), (input_ref->>'worker_id'), created_at DESC NULLS LAST)`.
+   * This query constrains only the FIRST column, so the second is unconstrained and the index
+   * cannot produce a `created_at` pathkey — the planner will scan the session's entries and
+   * Sort them, whatever this ORDER BY says. The index still does the work that matters (it
+   * turns a sequential scan of an unpruned table into a handful of entries), and a session's
+   * extraction jobs are a handful of rows, so the Sort is free.
+   *
+   * `created_at desc nulls last` is spelled out anyway, for a DIFFERENT reason than the one
+   * `findExtractionDedupeCandidate` has: THERE the extra `worker_id` predicate does make the
+   * index ordering usable, so the `nulls_first` mismatch would cost a Sort. Here it is only so
+   * the two reads of the same table order identically and neither drifts. `ai_jobs.created_at`
+   * is NOT NULL today, so the null direction changes no row order in either.
    */
   async listSessionAiJobs(
     sessionId: string,
@@ -822,8 +883,62 @@ export class AdminWorkerJourneyRepository {
   }
 
   /**
+   * The ACTIVE universal pack head — the tail EVERY interview runs, whatever the trade.
+   *
+   * ⚠ WHY THIS QUERY HAS TO EXIST AT ALL. `chat_sessions.pack_id` pins only the OCCUPATION
+   * pack; the universal pack is resolved fresh each turn and is never pinned. So the pack
+   * pairs a session can be shown to have used — its settled answers, its voice attempts, its
+   * own pin — cover the universal tail ONLY if something universal already settled or was
+   * recorded. In a text-mode session abandoned in the universal block, NOTHING does: every
+   * universal key in `ask_counts` then resolves to no item, and the stuck ranking is blind to
+   * exactly the population it exists for.
+   *
+   * RESOLVED THE WAY THE ORCHESTRATOR RESOLVES IT: `PackRegistryService.loadUniversal` is
+   * `resolveForOccupation(null, …)`, whose only matching binding is the `is_universal` one
+   * (`pfb_universal_uq` permits exactly one row), and it then takes that family's ACTIVE pack
+   * in the configured locale (`question_pack_active_uq` permits exactly one). This is the same
+   * two-table question, asked directly — no registry, no Redis, no pack cache pulled into an
+   * admin read path.
+   *
+   * ⚠ AND IT IS THE *CURRENT* ACTIVE VERSION, WHICH IS AN APPROXIMATION FOR AN OLD SESSION.
+   * That is why it is used ONLY as a LAST resort — the caller puts the session's own stamped
+   * pairs first, and `deriveStuckQuestion` takes the first item it sees for a key — and why
+   * the result still reports `unresolved_count` for whatever this does not cover. It is
+   * deliberately NOT used for the profiling DENOMINATOR, where the same substitution would
+   * silently move a finished worker's progress bar on every reseed (see the DTO header).
+   */
+  async findActiveUniversalPack(
+    locale: string,
+  ): Promise<{ packId: string; packVersion: number } | null> {
+    const rows = await this.db
+      .select({ packId: questionPacks.packId, packVersion: questionPacks.version })
+      .from(questionPacks)
+      .innerJoin(
+        profilingFamilyBindings,
+        eq(profilingFamilyBindings.familyId, questionPacks.familyId),
+      )
+      .where(
+        and(
+          eq(profilingFamilyBindings.isUniversal, true),
+          eq(questionPacks.locale, locale),
+          eq(questionPacks.status, "active"),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    return row ? { packId: row.packId, packVersion: row.packVersion } : null;
+  }
+
+  /**
    * The items of the given pack versions, reduced to what the stuck ranking needs:
-   * `max_asks` (the ceiling) and `display_order` (the engine's serve position).
+   * `max_asks` (the ceiling), `display_order`, and the two flags that decide WHICH of
+   * `selectItem`'s three passes serves an item — `is_mandatory` and `is_core`.
+   *
+   * `is_mandatory` is not optional detail: it is the difference between "one ask and the
+   * engine can never serve this again" (606 of the corpus's 611 items) and "re-askable up to
+   * the ceiling" (the other 5). Without it the ranking's second leg reads `max_asks` as if it
+   * governed re-serves, which it does not.
    *
    * NO `prompt_text`, NO `why_text`, NO `retry_text` — the journey needs to name WHICH
    * question, not to reproduce the interview copy, and the keys are the stable identifier
@@ -851,6 +966,8 @@ export class AdminWorkerJourneyRepository {
         packVersion: questionPackItems.packVersion,
         displayOrder: questionPackItems.displayOrder,
         maxAsks: questionPackItems.maxAsks,
+        isMandatory: questionPackItems.isMandatory,
+        isCore: questionPackItems.isCore,
       })
       .from(questionPackItems)
       .where(clauses.length === 1 ? clauses[0] : or(...clauses))
@@ -867,6 +984,8 @@ export class AdminWorkerJourneyRepository {
       packVersion: r.packVersion,
       displayOrder: r.displayOrder,
       maxAsks: r.maxAsks,
+      isMandatory: r.isMandatory,
+      isCore: r.isCore,
     }));
   }
 
@@ -878,10 +997,11 @@ export class AdminWorkerJourneyRepository {
       .where(
         and(
           eq(workerPackAnswers.chatSessionId, sessionId),
-          // `answered` OR `declined` — EXACTLY `isSettled`'s definition in `answer-map.ts`.
+          // `answered` OR `declined` — EXACTLY `isSettled`'s definition in `answer-map.ts`,
+          // taken from the SHARED constant so the three readers of it cannot drift.
           // `unanswered` is deliberately excluded: it means the engine asked and moved on,
           // which is the opposite of settled.
-          inArray(workerPackAnswers.status, ["answered", "declined"]),
+          inArray(workerPackAnswers.status, [...SETTLED_ANSWER_STATUSES]),
         ),
       )
       .groupBy(workerPackAnswers.questionKey)

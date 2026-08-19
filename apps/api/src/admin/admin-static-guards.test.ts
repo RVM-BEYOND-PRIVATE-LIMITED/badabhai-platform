@@ -789,14 +789,46 @@ describe("Phase 6 journey routes — guarded, read-only, and transcript-free", (
       "photoStorageKey:",
       "voiceNoteId:",
       "errorMessage:",
-      // The whole jsonb blob: it CONTAINS the answer map. Only `-> 'ask_counts'` and the
-      // status lateral may touch it, and neither renders as a bare projection key.
-      "conversationState:",
     ]) {
       expect(src, `admin-worker-journey.repository must not project ${forbidden}`).not.toContain(
         forbidden,
       );
     }
+
+    // The whole jsonb blob gets its own rule, because the `"<key>:"` form above is defeated by
+    // one rename: `state: chatSessions.conversationState` projects the entire answer map — and
+    // every `value_raw` in it — while containing no `conversationState:` substring at all.
+    //
+    // So match the COLUMN REFERENCE and require that it be immediately consumed by an
+    // extraction or a null test. `${chatSessions.conversationState} -> 'ask_counts'` and
+    // `${chatSessions.conversationState} IS NOT NULL` pass; any other use — under any alias —
+    // fails. Comment lines are already stripped from `src`.
+    const bareConversationState =
+      /chatSessions\.conversationState(?!\s*\}\s*(->|IS\s+NOT\s+NULL))/i;
+    expect(
+      bareConversationState.test(src),
+      "admin-worker-journey.repository must never project `conversation_state` itself — it " +
+        "holds the answer map, whose records carry the worker's verbatim words. Only " +
+        "`-> 'ask_counts'`, the status lateral, and an IS NOT NULL test may touch it.",
+    ).toBe(false);
+  });
+
+  it("...and that conversation_state rule is CAPABLE of failing (an ALIASED projection is caught)", () => {
+    // The rule above is the one a rename defeats, so prove it fires on the exact shape the
+    // `"conversationState:"` literal it replaced could not see.
+    const bareConversationState =
+      /chatSessions\.conversationState(?!\s*\}\s*(->|IS\s+NOT\s+NULL))/i;
+    expect(bareConversationState.test("state: chatSessions.conversationState,")).toBe(true);
+    expect(bareConversationState.test("conversationState: chatSessions.conversationState,")).toBe(
+      true,
+    );
+    // ...and does NOT fire on the two forms the repository legitimately uses.
+    expect(
+      bareConversationState.test("sql`${chatSessions.conversationState} -> 'ask_counts'`"),
+    ).toBe(false);
+    expect(
+      bareConversationState.test("sql<boolean>`${chatSessions.conversationState} IS NOT NULL`"),
+    ).toBe(false);
   });
 
   it("the journey DTO names no transcript field (the CONTRACT, not just the query)", () => {

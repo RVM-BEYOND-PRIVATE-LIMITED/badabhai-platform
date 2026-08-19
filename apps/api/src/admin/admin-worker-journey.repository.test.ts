@@ -48,6 +48,17 @@ const REDUCED_ONLY: Array<[string, RegExp]> = [
   ["photo_storage_key", /"photo_storage_key"(?!\s+IS\s+NOT\s+NULL)/i],
   ["voice_note_id", /"voice_note_id"(?!\s+IS\s+NOT\s+NULL)/i],
   ["error_message", /"error_message"(?!\s+IS\s+NOT\s+NULL)/i],
+  // `conversation_state` is the WHOLE jsonb blob and it CONTAINS the answer map, whose
+  // records carry `value_raw` — "the worker's words, verbatim". It may appear only followed
+  // by a `->` extraction or an `IS NOT NULL` test; a bare reference means the column itself
+  // was projected and the worker's answers came into this process.
+  //
+  // ⚠ THIS LIVES HERE, IN `REDUCED_ONLY`, RATHER THAN IN ONE TEST. It used to be a local
+  // regex inside the `findSession` case, which meant it checked exactly the one read someone
+  // remembered to point it at — every future read on this surface was uncovered by
+  // construction. As an entry here, `expectNoRawText` applies it to every captured read,
+  // present and future, which is the same guarantee `RAW_TEXT_COLUMNS` already has.
+  ["conversation_state", /"conversation_state"(?!\s*(->|IS\s+NOT\s+NULL))/i],
 ];
 
 function expectNoRawText(captured: ReturnType<typeof captureQueries>): void {
@@ -135,9 +146,10 @@ describe("NO read on this surface projects raw worker text", () => {
     const sql = c.sql();
     expect(sql).toContain("ask_counts");
     expect(sql).toContain("answer_map");
-    // ...and it only ever appears followed by a `->` extraction or an IS NOT NULL test.
-    const bare = /"conversation_state"(?!\s*(->|IS\s+NOT\s+NULL))/i;
-    expect(bare.test(sql), "conversation_state must never be projected whole").toBe(false);
+    // ...and it only ever appears followed by a `->` extraction or an IS NOT NULL test. The
+    // rule itself now lives in REDUCED_ONLY, so `expectNoRawText` applies it to EVERY read on
+    // this surface; this call is the named case that documents which read it came from.
+    expectNoRawText(c);
     // The lateral projects exactly two scalars per answer record — never a value field.
     expect(sql).toContain("'question_key'");
     expect(sql).toContain("'status'");
@@ -199,12 +211,25 @@ describe("predicates match the indexes they were written for", () => {
     expect(c.sql()).toMatch(/"input_ref"\s*->>\s*'session_id'/i);
   });
 
-  it("the ai_jobs sort spells out DESC NULLS LAST, matching the index's own ordering", async () => {
-    // Postgres defaults DESC to NULLS FIRST and pathkeys compare `nulls_first` STRICTLY, so a
-    // bare `desc()` does not match the index and the planner adds a Sort.
+  it("the ai_jobs sort is a DETERMINISTIC total order — NOT an index-supplied one", async () => {
+    /**
+     * ⚠ WHAT THIS DOES AND DOES NOT CLAIM. `ai_jobs_extraction_session_idx` is
+     * `((input_ref->>'session_id'), (input_ref->>'worker_id'), created_at DESC NULLS LAST)`.
+     * This query constrains only the FIRST column, so the second is unconstrained and the
+     * index CANNOT supply a `created_at` pathkey — the planner sorts, whatever the ORDER BY
+     * says. An earlier version of this test asserted the `nulls last` spelling as evidence of
+     * an index match; it was evidence of nothing.
+     *
+     * What is actually pinned: the order is TOTAL (a `created_at` tie falls to `id`), so two
+     * reads of one session return the same rows in the same order — which matters because the
+     * list is capped and a truncated read must be a stable prefix. The `nulls last` spelling
+     * stays so this read and `findExtractionDedupeCandidate` — where the extra `worker_id`
+     * predicate DOES make the index ordering usable — cannot drift apart.
+     */
     const c = captureQueries();
     await repo(c).listSessionAiJobs(SESSION);
     expect(c.sql()).toMatch(/created_at"?\s+desc\s+nulls\s+last/i);
+    expect(c.sql()).toMatch(/"id"\s+desc/i);
   });
 
   it("the worker-subject event read filters on (subject_type, subject_id) — the indexed pair", async () => {
@@ -305,6 +330,33 @@ describe("pack-version derivation — the denominator's SQL", () => {
     expect(sql).toContain("question_key");
     expect(sql).not.toContain("prompt_text");
   });
+
+  it("listPackItems projects `is_mandatory` — the flag that decides re-servability", async () => {
+    // `selectItem` re-serves ONLY mandatory items; the other two passes require
+    // `askCount === 0`. Without this column the ranking reads `max_asks` as if it governed
+    // re-serves, which it does not for 606 of the corpus's 611 items.
+    const c = captureQueries();
+    await repo(c).listPackItems([{ packId: "qp_welding", packVersion: 1 }]);
+    expect(c.sql()).toContain("is_mandatory");
+    // ...and `is_core`, which separates selectItem's pass 2 from its pass 3.
+    expect(c.sql()).toContain("is_core");
+  });
+
+  it("the universal-pack read joins the is_universal binding to the ACTIVE pack in one locale", async () => {
+    // The same two-table question `PackRegistryService.loadUniversal` asks — the universal
+    // binding (`pfb_universal_uq` permits exactly one) then that family's active pack
+    // (`question_pack_active_uq` permits exactly one per family+locale).
+    const c = captureQueries();
+    await repo(c).findActiveUniversalPack("hi-IN");
+    const sql = c.sql();
+    expect(sql).toContain("is_universal");
+    expect(sql).toContain("locale");
+    expect(sql).toContain("status");
+    expect(c.params).toContain("hi-IN");
+    expect(c.params).toContain("active");
+    // It reads pack IDENTITY only — no items, no copy.
+    expect(sql).not.toContain("prompt_text");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -320,6 +372,87 @@ describe("settled keys", () => {
     // `unanswered` means the engine asked and gave up — the opposite of settled. Including it
     // would make every skipped question look like a completion.
     expect(c.params).not.toContain("unanswered");
+  });
+
+  it("the per-page `answer_count` uses THE SAME definition — distinct keys, answered|declined", async () => {
+    /**
+     * ⚠ ONE DEFINITION, TWO READ PATHS. The list row's `answer_count` and the detail page's
+     * both have to mean the same thing. This was a bare `count(*)` and the detail path a
+     * status-filtered DISTINCT count; they agreed only because nothing writes an `unanswered`
+     * row yet and nothing writes two rows for one question in a session — properties of
+     * today's flush, not of the schema, and `unanswered_count` exists on the funnel step
+     * precisely because the first is expected to stop holding.
+     */
+    const c = captureQueries();
+    await repo(c).countAnswersBySession([SESSION]);
+    const sql = c.sql();
+    expect(sql).toMatch(/count\(distinct/i);
+    expect(sql).toContain("question_key");
+    expect(c.params).toContain("answered");
+    expect(c.params).toContain("declined");
+    expect(c.params).not.toContain("unanswered");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The jsonb keys are as untrusted as the values.
+// ---------------------------------------------------------------------------
+
+describe("conversation_state narrowing — the KEY is validated, not just the value", () => {
+  /**
+   * The narrowers are private statics, so they are exercised through `findSession` with the
+   * capture stub configured to return a row. The keys of this jsonb are unconstrained by
+   * anything in Postgres and they reach the response verbatim as `question_key` — so a key is
+   * a value this surface publishes, and it gets the same `^[a-z_]{1,40}$` filter every other
+   * reader of the column applies (`AnswerRecordSchema`, `qpi_question_key_chk`).
+   */
+  async function narrowedSession(askCounts: unknown, answerStatuses: unknown) {
+    const c = captureQueries([
+      {
+        id: SESSION,
+        workerId: WORKER,
+        status: "ended",
+        startedAt: new Date(),
+        endedAt: null,
+        lastMessageAt: null,
+        packId: null,
+        packVersion: null,
+        hasConversationState: true,
+        askCounts,
+        answerStatuses,
+      },
+    ]);
+    return repo(c).findSession(SESSION);
+  }
+
+  it("drops a key that is not a question key, in BOTH narrowers", async () => {
+    const bad: Record<string, number> = {
+      salary_expected: 1,
+      "Ramesh Kumar 9876543210": 3,
+      "drop table": 1,
+      UPPER_CASE: 1,
+      ["a".repeat(41)]: 1,
+    };
+    const badStatuses = {
+      salary_expected: "unanswered",
+      "Ramesh Kumar 9876543210": "unanswered",
+    } as Record<string, string>;
+
+    const row = await narrowedSession(bad, badStatuses);
+    expect(Object.keys(row!.askCounts)).toEqual(["salary_expected"]);
+    expect(Object.keys(row!.answerStatuses)).toEqual(["salary_expected"]);
+  });
+
+  it("keeps a legal key of exactly 40 characters (the boundary is inclusive)", async () => {
+    const key = "a".repeat(40);
+    const row = await narrowedSession({ [key]: 2 }, { [key]: "answered" });
+    expect(row!.askCounts[key]).toBe(2);
+    expect(row!.answerStatuses[key]).toBe("answered");
+  });
+
+  it("still drops an out-of-set STATUS (the value filter did not regress)", async () => {
+    const row = await narrowedSession({ ok: 1 }, { ok: "made_up_status" });
+    expect(row!.answerStatuses).toEqual({});
   });
 });
 

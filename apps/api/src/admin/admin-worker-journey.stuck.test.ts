@@ -14,13 +14,19 @@ import {
  * ended", reconstructed from `ask_counts` + the answer map + the durable answer rows.
  *
  * Every case below is a SHAPE the live interview actually produces, not a synthetic one:
- * a clean completion, an abandonment mid-question, a question that burned its `max_asks` and
- * was skipped, and the multi-candidate case that the tie-break exists for.
+ * a clean completion, a COMPLETED interview that failed a question on the way, an
+ * abandonment mid-question, a question that burned its `max_asks`, and the multi-candidate
+ * case that the tie-break exists for.
  */
 
 const OCCUPATION_PACK = "qp_welding";
 const UNIVERSAL_PACK = "qp_universal";
 
+/**
+ * A pack item. The defaults describe the MODAL corpus row — non-mandatory, non-core — because
+ * 606 of the corpus's 611 items are non-mandatory and 487 declare `max_asks: 1`. A test that
+ * wants the re-askable shape must say `isMandatory: true` explicitly, which is the point.
+ */
 function item(
   questionKey: string,
   overrides: Partial<StuckQuestionItem> = {},
@@ -31,8 +37,18 @@ function item(
     packVersion: 1,
     displayOrder: 0,
     maxAsks: 2,
+    isMandatory: false,
+    isCore: false,
     ...overrides,
   };
+}
+
+/** The 5-of-611 shape: the engine may re-serve this one, up to its ceiling. */
+function mandatory(
+  questionKey: string,
+  overrides: Partial<StuckQuestionItem> = {},
+): StuckQuestionItem {
+  return item(questionKey, { isMandatory: true, ...overrides });
 }
 
 function input(overrides: Partial<StuckQuestionInput> = {}): StuckQuestionInput {
@@ -63,8 +79,9 @@ describe("askCeilingOf mirrors the engine's askCeiling (no second definition of 
 
   it("an UNRESOLVABLE item falls back to the engine ceiling (errs toward 'still on screen')", () => {
     // A retired pack version leaves an answer key with no item. Falling back to the ceiling
-    // makes a once-asked question NOT exhausted, i.e. a live candidate — which can name a
-    // question that had actually been skipped, but can never HIDE the one on screen.
+    // makes a once-asked question NOT exhausted — but `unservable` does NOT follow it there,
+    // because `is_mandatory` (the input it needs) has no defensible default. See the
+    // three-valued leg-2 tests below.
     expect(askCeilingOf(null)).toBe(MAX_ASKS_PER_QUESTION);
   });
 });
@@ -139,6 +156,89 @@ describe("a clean completion", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Case 1b — a COMPLETED interview that failed a question. The modal shape, and the one
+// that used to render as "stuck on" the question the worker got past.
+// ---------------------------------------------------------------------------
+
+describe("a COMPLETED interview containing an unsettled question", () => {
+  /**
+   * ⚠ THE DEFECT THIS BLOCK PINS.
+   *
+   * `orchestrator.service.ts` records `unanswered` whenever the new decision's `questionKey`
+   * differs from what was on screen — and a `close` decision carries `questionKey: null`,
+   * which ALWAYS differs. So on every session the engine closed, EVERY unsettled asked key is
+   * engine-advanced-past and there is no candidate the engine was still serving. Naming one
+   * anyway reported a worker who FINISHED the interview as stuck on the one question they
+   * failed, which is the opposite of the truth and the modal case for `max_asks: 1` items.
+   */
+  it("names NO stuck question when the engine had advanced past every unsettled key", () => {
+    const result = deriveStuckQuestion(
+      input({
+        askCounts: { trade_years: 1, machine_types: 1, salary_expected: 1 },
+        settledKeys: ["trade_years", "salary_expected"],
+        answerMapStatuses: {
+          trade_years: "answered",
+          salary_expected: "answered",
+          // The engine asked it, could not use the answer, and moved on — then closed.
+          machine_types: "unanswered",
+        },
+        items: [item("machine_types", { maxAsks: 1 }), item("trade_years"), item("salary_expected")],
+      }),
+    );
+
+    expect(result.outcome).toBe("engine_advanced_past_all");
+    expect(result.stuck_question).toBeNull();
+    // ...and the candidate is STILL reported, flagged for exactly what it is. "Which questions
+    // did this worker never settle" is the useful question in this shape.
+    expect(result.candidates.map((c) => c.question_key)).toEqual(["machine_types"]);
+    expect(result.candidates[0]!.engine_advanced_past).toBe(true);
+    expect(result.asked_count).toBe(3);
+    expect(result.settled_count).toBe(2);
+  });
+
+  it("is DISTINCT from a clean completion — the two outcomes are not collapsed", () => {
+    const clean = deriveStuckQuestion(
+      input({
+        askCounts: { q1: 1 },
+        settledKeys: ["q1"],
+        answerMapStatuses: { q1: "answered" },
+        items: [item("q1")],
+      }),
+    );
+    const withFailure = deriveStuckQuestion(
+      input({
+        askCounts: { q1: 1, q2: 1 },
+        settledKeys: ["q1"],
+        answerMapStatuses: { q1: "answered", q2: "unanswered" },
+        items: [item("q1"), item("q2")],
+      }),
+    );
+    // "Everything settled" and "finished, but one question never landed" are different facts
+    // and must not render identically.
+    expect(clean.outcome).toBe("all_settled");
+    expect(withFailure.outcome).toBe("engine_advanced_past_all");
+    expect(clean.candidates).toEqual([]);
+    expect(withFailure.candidates).toHaveLength(1);
+    expect(withFailure.stuck_question).toBeNull();
+  });
+
+  it("ONE not-advanced-past candidate among many flips it back to resolved", () => {
+    // The contrast case: the abandonment sweep persists the live envelope with
+    // `servedQuestionKey` unadvanced, so the question on screen carries no `unanswered`
+    // record even when everything around it does.
+    const result = deriveStuckQuestion(
+      input({
+        askCounts: { skipped_a: 1, skipped_b: 1, on_screen: 1 },
+        answerMapStatuses: { skipped_a: "unanswered", skipped_b: "unanswered" },
+        items: [item("skipped_a"), item("skipped_b"), item("on_screen")],
+      }),
+    );
+    expect(result.outcome).toBe("resolved");
+    expect(result.stuck_question?.question_key).toBe("on_screen");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Case 2 — abandonment mid-question.
 // ---------------------------------------------------------------------------
 
@@ -185,41 +285,154 @@ describe("an abandonment mid-question", () => {
 });
 
 // ---------------------------------------------------------------------------
+// `unservable` — the engine's ACTUAL re-serve rule, which is not the ask ceiling.
+// ---------------------------------------------------------------------------
+
+describe("`unservable` is `is_mandatory`-aware, because `selectItem` is", () => {
+  /**
+   * ⚠ WHY THIS IS NOT `asks >= ask_ceiling`.
+   *
+   * `selectItem` runs three passes. Only the FIRST re-serves — the other two both require
+   * `askCount(state, key) === 0`. So a NON-MANDATORY item is never served twice, whatever its
+   * `max_asks` says, and 606 of the corpus's 611 items are non-mandatory. Ranking on the
+   * ceiling alone therefore had leg 2 backwards for essentially the whole corpus: it treated
+   * the 119 non-mandatory `max_asks: 2` items as "still servable" forever, and every
+   * `max_asks: 1` item — including the one actually on screen — as un-servable from its FIRST
+   * ask.
+   */
+  it("a NON-mandatory item is un-servable after ONE ask, even under max_asks: 2", () => {
+    const result = deriveStuckQuestion(
+      input({ askCounts: { experience_years: 1 }, items: [item("experience_years", { maxAsks: 2 })] }),
+    );
+    const c = result.candidates[0]!;
+    expect(c.asks).toBe(1);
+    expect(c.ask_ceiling).toBe(2);
+    // The literal ceiling test still says "budget left"...
+    expect(c.exhausted).toBe(false);
+    // ...and the engine still can never serve it again.
+    expect(c.unservable).toBe(true);
+    expect(c.is_mandatory).toBe(false);
+  });
+
+  it("a MANDATORY item at the same ask count is still servable (the 5-of-611 shape)", () => {
+    const result = deriveStuckQuestion(
+      input({ askCounts: { primary_trade: 1 }, items: [mandatory("primary_trade", { maxAsks: 2 })] }),
+    );
+    const c = result.candidates[0]!;
+    expect(c.asks).toBe(1);
+    expect(c.unservable).toBe(false);
+    expect(c.is_mandatory).toBe(true);
+  });
+
+  it("a mandatory item AT its ceiling is un-servable — the ceiling still binds pass 1", () => {
+    const result = deriveStuckQuestion(
+      input({ askCounts: { primary_trade: 2 }, items: [mandatory("primary_trade", { maxAsks: 2 })] }),
+    );
+    expect(result.candidates[0]!.unservable).toBe(true);
+    expect(result.candidates[0]!.exhausted).toBe(true);
+  });
+
+  it("an UNRESOLVED item reports null — `is_mandatory` is unknown, so this is too", () => {
+    const result = deriveStuckQuestion(input({ askCounts: { orphan: 1 }, items: [] }));
+    const c = result.candidates[0]!;
+    expect(c.unservable).toBeNull();
+    expect(c.is_mandatory).toBeNull();
+    expect(c.is_core).toBeNull();
+    expect(c.max_asks).toBeNull();
+    expect(result.unresolved_count).toBe(1);
+  });
+
+  it("...but an unresolved item AT the fallback ceiling is un-servable whatever it is", () => {
+    const result = deriveStuckQuestion(input({ askCounts: { orphan: 2 }, items: [] }));
+    expect(result.candidates[0]!.unservable).toBe(true);
+  });
+});
+
+describe("leg 2 ranks servable > unknown > un-servable (the three-valued order)", () => {
+  it("a provably-servable mandatory item beats an unresolved one", () => {
+    const result = deriveStuckQuestion(
+      input({
+        askCounts: { orphan: 1, primary_trade: 1 },
+        // display_order deliberately favours the loser, so a pass cannot come from leg 5.
+        items: [mandatory("primary_trade", { displayOrder: 0 })],
+      }),
+    );
+    expect(result.candidates.map((c) => c.question_key)).toEqual(["primary_trade", "orphan"]);
+  });
+
+  it("an unresolved item beats a provably UN-servable one", () => {
+    // The old behaviour ranked an unresolved key as `exhausted: false`, i.e. it beat every
+    // resolved candidate outright — which is how the universal tail systematically won leg 2
+    // in a text-mode session. It now sits BETWEEN the two provable answers.
+    const result = deriveStuckQuestion(
+      input({
+        askCounts: { orphan: 1, burned: 2 },
+        items: [item("burned", { maxAsks: 2, displayOrder: 9 })],
+      }),
+    );
+    expect(result.candidates.map((c) => c.question_key)).toEqual(["orphan", "burned"]);
+  });
+
+  it("counts every unresolved candidate, so the blindness is REPORTED not absorbed", () => {
+    const result = deriveStuckQuestion(
+      input({
+        askCounts: { known: 1, orphan_a: 1, orphan_b: 1 },
+        items: [mandatory("known")],
+      }),
+    );
+    expect(result.unresolved_count).toBe(2);
+    expect(result.candidates).toHaveLength(3);
+  });
+
+  it("unresolved_count is 0 when every candidate resolved", () => {
+    const result = deriveStuckQuestion(
+      input({ askCounts: { known: 1 }, items: [mandatory("known")] }),
+    );
+    expect(result.unresolved_count).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Case 3 — a question that exhausted max_asks and was skipped.
 // ---------------------------------------------------------------------------
 
 describe("a question that burned its ask budget and was skipped", () => {
   it("is NOT named as the stuck question when another candidate is still servable", () => {
-    // `machine_types` was asked twice (its ceiling), the engine gave up and recorded
-    // `unanswered`, and moved on to `salary_expected`, which is where the session died. The
-    // exhausted one has the HIGHER ask pressure (2/2 vs 1/2) — so a ranking that led with
+    // `welding_process` (mandatory) was asked twice — its ceiling — the engine gave up and
+    // recorded `unanswered`, and moved on to `primary_trade`, where the session died. The
+    // exhausted one has the HIGHER ask pressure (2/2 vs 1/2), so a ranking that led with
     // pressure would name the wrong question. It leads with the two disqualifiers instead.
     const result = deriveStuckQuestion(
       input({
-        askCounts: { machine_types: 2, salary_expected: 1 },
+        askCounts: { welding_process: 2, primary_trade: 1 },
         settledKeys: [],
-        answerMapStatuses: { machine_types: "unanswered" },
+        answerMapStatuses: { welding_process: "unanswered" },
         items: [
-          item("machine_types", { displayOrder: 3, maxAsks: 2 }),
-          item("salary_expected", { displayOrder: 9, maxAsks: 2 }),
+          mandatory("welding_process", { displayOrder: 3, maxAsks: 2 }),
+          mandatory("primary_trade", { displayOrder: 9, maxAsks: 2 }),
         ],
       }),
     );
 
-    expect(result.stuck_question?.question_key).toBe("salary_expected");
+    expect(result.stuck_question?.question_key).toBe("primary_trade");
     // ...and the skipped one is still REPORTED, ranked second, flagged for what it is.
     expect(result.candidates.map((c) => c.question_key)).toEqual([
-      "salary_expected",
-      "machine_types",
+      "primary_trade",
+      "welding_process",
     ]);
     const skipped = result.candidates[1]!;
     expect(skipped.exhausted).toBe(true);
+    expect(skipped.unservable).toBe(true);
     expect(skipped.engine_advanced_past).toBe(true);
     expect(skipped.asks).toBe(2);
     expect(skipped.ask_ceiling).toBe(2);
   });
 
-  it("IS named when it is the only unsettled key (the interview ended right after it)", () => {
+  it("is NOT named even as the ONLY unsettled key — the engine had moved on from it too", () => {
+    // ⚠ THIS TEST USED TO ASSERT THE OPPOSITE, under a title claiming "the interview ended
+    // right after it" while asserting `engine_advanced_past: true` — which is the engine
+    // saying it did NOT end right after it. An `unanswered` record is a disqualification, and
+    // being the last candidate standing does not undo it.
     const result = deriveStuckQuestion(
       input({
         askCounts: { machine_types: 2, trade_years: 1 },
@@ -228,9 +441,10 @@ describe("a question that burned its ask budget and was skipped", () => {
         items: [item("machine_types", { maxAsks: 2 }), item("trade_years")],
       }),
     );
-    expect(result.outcome).toBe("resolved");
-    expect(result.stuck_question?.question_key).toBe("machine_types");
-    expect(result.stuck_question?.exhausted).toBe(true);
+    expect(result.outcome).toBe("engine_advanced_past_all");
+    expect(result.stuck_question).toBeNull();
+    expect(result.candidates[0]!.question_key).toBe("machine_types");
+    expect(result.candidates[0]!.exhausted).toBe(true);
   });
 
   it("respects an item's OWN max_asks of 1 (ask-once questions exhaust at one ask)", () => {
@@ -238,8 +452,8 @@ describe("a question that burned its ask budget and was skipped", () => {
       input({
         askCounts: { one_shot: 1, two_shot: 1 },
         items: [
-          item("one_shot", { maxAsks: 1, displayOrder: 0 }),
-          item("two_shot", { maxAsks: 2, displayOrder: 1 }),
+          mandatory("one_shot", { maxAsks: 1, displayOrder: 0 }),
+          mandatory("two_shot", { maxAsks: 2, displayOrder: 1 }),
         ],
       }),
     );
@@ -271,27 +485,31 @@ describe("multiple unsettled keys — the documented tie-break, one leg at a tim
     expect(result.stuck_question?.question_key).toBe("on_screen");
   });
 
-  it("leg 2: NOT exhausted beats exhausted, when no answer map is available to decide", () => {
+  it("leg 2: still-servable beats un-servable, when no answer map is available to decide", () => {
     // A session whose checkpoint predates the answer map (or lost it) still has ask_counts.
     const result = deriveStuckQuestion(
       input({
         askCounts: { burned: 2, live: 1 },
         answerMapStatuses: {},
-        items: [item("burned", { displayOrder: 9 }), item("live", { displayOrder: 0 })],
+        items: [
+          mandatory("burned", { displayOrder: 9 }),
+          mandatory("live", { displayOrder: 0 }),
+        ],
       }),
     );
     // `burned` has the later display order AND the higher pressure; leg 2 outranks both.
     expect(result.stuck_question?.question_key).toBe("live");
   });
 
-  it("a pack `max_asks` of 3 is CAPPED at the engine ceiling of 2 — the ceiling is the engine's", () => {
-    // The corpus check permits `max_asks` up to 3, and `askCeiling` clamps to
-    // MAX_ASKS_PER_QUESTION regardless. So a pack cannot buy a third ask, and a question
-    // asked twice under `max_asks: 3` is EXHAUSTED here exactly as it is in the engine.
+  it("a `max_asks` of 3 would be CAPPED at the engine ceiling of 2 — the ceiling is the engine's", () => {
+    // NOT a corpus observation: no pack row declares 3 today (the distribution is 487×1 and
+    // 124×2). `qpi_max_asks_chk` PERMITS 1..3 while `askCeiling` clamps to
+    // MAX_ASKS_PER_QUESTION, so this pins the clamp for the row a future author could write —
+    // a pack cannot buy a third ask.
     const result = deriveStuckQuestion(
       input({
         askCounts: { greedy: 2 },
-        items: [item("greedy", { maxAsks: 3 })],
+        items: [mandatory("greedy", { maxAsks: 3 })],
       }),
     );
     expect(result.candidates[0]!.max_asks).toBe(3);
@@ -299,8 +517,8 @@ describe("multiple unsettled keys — the documented tie-break, one leg at a tim
     expect(result.candidates[0]!.exhausted).toBe(true);
   });
 
-  it("leg 3: within the exhausted tail, higher ask PRESSURE first (asks / ceiling)", () => {
-    // Legs 1 and 2 tie (both exhausted, neither advanced past), so leg 3 decides. `over`
+  it("leg 3: within the un-servable tail, higher ask PRESSURE first (asks / ceiling)", () => {
+    // Legs 1 and 2 tie (both un-servable, neither advanced past), so leg 3 decides. `over`
     // carries an ask count ABOVE its ceiling — the real shape of an envelope written when
     // MAX_ASKS_PER_QUESTION was larger — giving it pressure 1.5 against 1.0.
     //
@@ -327,8 +545,12 @@ describe("multiple unsettled keys — the documented tie-break, one leg at a tim
         askCounts: { trade_q: 1, universal_q: 1 },
         pinnedPackId: OCCUPATION_PACK,
         items: [
-          item("trade_q", { packId: OCCUPATION_PACK, displayOrder: 40 }),
-          item("universal_q", { packId: UNIVERSAL_PACK, packVersion: 3, displayOrder: 0 }),
+          mandatory("trade_q", { packId: OCCUPATION_PACK, displayOrder: 40 }),
+          mandatory("universal_q", {
+            packId: UNIVERSAL_PACK,
+            packVersion: 3,
+            displayOrder: 0,
+          }),
         ],
       }),
     );
@@ -337,7 +559,65 @@ describe("multiple unsettled keys — the documented tie-break, one leg at a tim
     expect(result.stuck_question?.pack_version).toBe(3);
   });
 
-  it("leg 5 (cont.): within one pack, the LATER display_order wins", () => {
+  it("leg 5 (cont.): a LATER selectItem PASS beats a lower display_order", () => {
+    /**
+     * ⚠ THE PROPERTY `display_order` ALONE GOT BACKWARDS. `selectItem` picks in three passes —
+     * mandatory, then core-never-asked, then any-never-asked — and only sorts by
+     * `display_order` WITHIN a pass. So a non-core item at `display_order: 1` is reached AFTER
+     * a core item at `display_order: 9`, and "later engine position" has to mean the later
+     * PASS. The orders here are set to favour the loser under the old model.
+     */
+    const result = deriveStuckQuestion(
+      input({
+        askCounts: { core_late: 1, plain_early: 1 },
+        items: [
+          item("core_late", { isCore: true, displayOrder: 9 }),
+          item("plain_early", { displayOrder: 1 }),
+        ],
+      }),
+    );
+    expect(result.stuck_question?.question_key).toBe("plain_early");
+  });
+
+  it("leg 5 (cont.): a MANDATORY item is the EARLIEST position, not the latest", () => {
+    // Pass 1 runs first, so a mandatory item entered the conversation BEFORE a core one.
+    // Both carry `max_asks: 1` so legs 2, 3 and 4 all tie (un-servable, pressure 1.0, one
+    // ask), and `display_order` favours the loser — leg 5's PASS term is the only thing left.
+    const result = deriveStuckQuestion(
+      input({
+        askCounts: { must_ask: 1, core_q: 1 },
+        items: [
+          mandatory("must_ask", { maxAsks: 1, displayOrder: 9 }),
+          item("core_q", { isCore: true, maxAsks: 1, displayOrder: 0 }),
+        ],
+      }),
+    );
+    expect(result.candidates.map((c) => c.question_key)).toEqual(["core_q", "must_ask"]);
+  });
+
+  it("leg 2 still outranks leg 5: a servable mandatory item beats a later-pass un-servable one", () => {
+    /**
+     * ⚠ THIS IS THE RANKING CONSEQUENCE OF `unservable` BEING `is_mandatory`-AWARE, and it is
+     * built so the CEILING-ONLY reading loses. Both items carry `max_asks: 2` and one ask, so
+     * `asks >= ask_ceiling` is false for BOTH and legs 3 and 4 tie — under that reading leg 5
+     * decides and `core_q` (a later `selectItem` pass, later display order) wins. Only the
+     * engine's real rule — one ask is permanent for a NON-mandatory item — puts `must_ask`
+     * first, and `must_ask` is the one the engine could genuinely still have been serving.
+     */
+    const result = deriveStuckQuestion(
+      input({
+        askCounts: { must_ask: 1, core_q: 1 },
+        items: [
+          mandatory("must_ask", { maxAsks: 2, displayOrder: 0 }),
+          item("core_q", { isCore: true, maxAsks: 2, displayOrder: 9 }),
+        ],
+      }),
+    );
+    expect(result.stuck_question?.question_key).toBe("must_ask");
+    expect(result.candidates.map((c) => c.unservable)).toEqual([false, true]);
+  });
+
+  it("leg 5 (cont.): within one pass, the LATER display_order wins", () => {
     const result = deriveStuckQuestion(
       input({
         askCounts: { early: 1, late: 1 },

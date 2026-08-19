@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { ChatSessionStatus, AiJobStatus, AiJobType } from "@badabhai/types";
 import type { PackAnswerSource, PackAnswerStatus } from "@badabhai/db";
-import type { AdminPage } from "./admin-entities.dto";
 import type { AdminStuckQuestionResult } from "./admin-worker-journey.stuck";
 
 /**
@@ -130,6 +129,13 @@ export const JOURNEY_CAVEATS = [
    * profiling denominator is then an UNDERCOUNT, so the progress bar is not trustworthy.
    */
   "pack_version_retired",
+  /**
+   * At least one question in this session's `ask_counts` resolved to NO `question_pack_item`
+   * row, in any pack version this read could load. Its `max_asks`, `is_mandatory`, `is_core`
+   * and `display_order` are unknown, so the stuck ranking could not judge it on the two legs
+   * that need them. `stuck.unresolved_count` says how many.
+   */
+  "stuck_items_unresolved",
 ] as const;
 export type JourneyCaveat = (typeof JOURNEY_CAVEATS)[number];
 
@@ -137,23 +143,17 @@ export type JourneyCaveat = (typeof JOURNEY_CAVEATS)[number];
 // The 7-step funnel
 // ---------------------------------------------------------------------------
 
-export const JOURNEY_STEP_KEYS = [
-  "login",
-  "profiling",
-  "resume",
-  "profile_confirmed",
-  "job_search_apply",
-  "photo",
-  "interview_kit",
-] as const;
-export type JourneyStepKey = (typeof JOURNEY_STEP_KEYS)[number];
-
 /**
- * `not_tracked` is DELIBERATELY a first-class value and NOT a synonym for `not_done`.
- * "This worker did not do it" and "we have no way of knowing" are different answers, and
- * collapsing them is how a product decision gets made on a measurement that never existed.
+ * THREE VALUES, and no `not_tracked`.
+ *
+ * A "we have no way of knowing" value would be right in principle — collapsing it into
+ * `not_done` is how a product decision gets made on a measurement that never existed — but no
+ * step produces it: every one of the seven returns done / in_progress / not_done. The honest
+ * -absence channel that DOES carry real work here is {@link JOURNEY_CAVEATS}, which is per
+ * RESPONSE rather than per step and is actually populated. A fourth status nobody emits is a
+ * value the UI must render a case for and can never see.
  */
-export type AdminJourneyStepStatus = "done" | "in_progress" | "not_done" | "not_tracked";
+export type AdminJourneyStepStatus = "done" | "in_progress" | "not_done";
 
 /** What every funnel row carries, so the UI can render one component seven times. */
 interface AdminJourneyStepBase {
@@ -350,7 +350,15 @@ export interface AdminChatSessionListItem {
   pack_id: string | null;
   pack_version: number | null;
   message_count: number;
-  /** Settled `worker_pack_answer` rows attributed to THIS session. */
+  /**
+   * DISTINCT question keys this session SETTLED — `count(distinct question_key)` over
+   * `worker_pack_answer` rows with status `answered` or `declined`.
+   *
+   * ONE definition, shared by the list and the detail read: the list gets it from
+   * `countAnswersBySession`, the detail from `listSettledKeys().length`, and both are built on
+   * `SETTLED_ANSWER_STATUSES`. They used to be a `count(*)` and a filtered distinct count that
+   * agreed only because no writer emits an `unanswered` row yet.
+   */
   answer_count: number;
   /** `status === 'abandoned'` — the sweep's verdict, surfaced as its own flag. */
   abandoned: boolean;
@@ -457,5 +465,3 @@ export interface AdminChatSessionDetail extends AdminChatSessionListItem {
   stuck: AdminStuckQuestionResult;
   caveats: JourneyCaveat[];
 }
-
-export type AdminChatSessionPage = AdminPage<AdminChatSessionListItem>;
