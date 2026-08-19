@@ -138,6 +138,16 @@ class MockApiClient extends ApiClient {
   }
 
   @override
+  Future<void> submitFeedback({
+    required String authToken,
+    required String message,
+    String? category,
+  }) async {
+    // No-op: canned success so the feedback flow is walkable in mock mode.
+    await _delay();
+  }
+
+  @override
   Future<ResumeFieldsDto> getResumeFields({required String authToken}) async {
     await _delay();
     // Canned safe fields so the edit screen renders in mock mode. has_photo

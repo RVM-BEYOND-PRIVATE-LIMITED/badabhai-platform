@@ -63,6 +63,8 @@ import '../../features/voice_form/domain/question_audio_player.dart';
 import '../../features/voice_form/domain/silence_endpointer.dart';
 import '../../features/voice_form/domain/voice_form_gateway.dart';
 import '../../features/voice_form/presentation/cubit/voice_form_cubit.dart';
+import '../../features/feedback/data/feedback_repository_impl.dart';
+import '../../features/feedback/domain/feedback_repository.dart';
 import '../../features/name/data/name_repository_impl.dart';
 import '../../features/name/domain/name_repository.dart';
 import '../../features/name/presentation/cubit/name_cubit.dart';
@@ -219,6 +221,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<NameRepository>(
     () => NameRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerLazySingleton<FeedbackRepository>(
+    () => FeedbackRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
   );
   locator.registerLazySingleton<ChatRepository>(
     () => ChatRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),

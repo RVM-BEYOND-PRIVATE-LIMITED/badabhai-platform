@@ -446,6 +446,29 @@ class ApiClient {
     );
   }
 
+  /// POST /workers/me/feedback — the worker's free-text app feedback for the
+  /// admin console. Worker-scoped (WorkerAuthGuard + ConsentGuard); the worker
+  /// comes from [authToken], never the body. [category] is an OPTIONAL coarse tag
+  /// (a fixed enum wire token) and [message] is the worker's own words. The
+  /// response is only `{ ok: true }`, so nothing is parsed back.
+  ///
+  /// BACKEND: the endpoint is owned by the API/admin team (raised separately) —
+  /// this is the client half of the contract.
+  Future<void> submitFeedback({
+    required String authToken,
+    required String message,
+    String? category,
+  }) async {
+    await _post(
+      '/workers/me/feedback',
+      <String, dynamic>{
+        'message': message,
+        if (category != null) 'category': category,
+      },
+      authToken: authToken,
+    );
+  }
+
   /// GET /workers/me/resume-fields — the worker-editable "safe fields" (their OWN
   /// name spelling + display prefs) for the edit screen. Worker-scoped
   /// (WorkerAuthGuard + ConsentGuard); the worker is taken from [authToken], never
