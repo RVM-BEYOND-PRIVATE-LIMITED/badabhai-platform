@@ -168,7 +168,11 @@ describe("a row", () => {
     // Nothing is ever ONLY relative: "2 days ago" is useless in an incident review, so the
     // machine-readable instant stays on the element and the exact UTC stamp in the title.
     const out = await render();
-    expect(out).toMatch(new RegExp(`<time[^>]*datetime="${TAGGED.created_at}"`, "i"));
+    // A literal regex that CAPTURES, rather than one built from the value: it asserts the
+    // datetime the page actually emitted equals the fixture, instead of asserting only that
+    // some match exists — and it keeps semgrep's detect-non-literal-regexp satisfied.
+    const stamped = out.match(/<time[^>]*datetime="([^"]+)"/i);
+    expect(stamped?.[1]).toBe(TAGGED.created_at);
     expect(out).toContain('title="2026-08-19 09:00:00Z"');
   });
 
@@ -245,9 +249,16 @@ describe("what this screen refuses to offer", () => {
 });
 
 describe("the category chips", () => {
-  /** One chip's opening tag, whatever order React chose to emit its attributes in. */
+  /**
+   * One chip's opening tag, whatever order React chose to emit its attributes in.
+   *
+   * A literal regex for the anchors, then a plain substring match for the one we want — not
+   * a `new RegExp` built from `category`, which is the non-literal-regexp pattern semgrep
+   * blocks (and which would need `category` escaped to be correct anyway).
+   */
   const chip = (html: string, category: string) =>
-    html.match(new RegExp(`<a[^>]*/feedback\\?category=${category}[^>]*>`))?.[0] ?? "";
+    (html.match(/<a[^>]*>/g) ?? []).find((tag) => tag.includes(`/feedback?category=${category}`)) ??
+    "";
 
   it("renders one link per tag, none of them selected on the unfiltered page", async () => {
     const out = await render();
@@ -301,7 +312,10 @@ describe("the empty states, which are four different claims", () => {
    * still full. The old copy sent them to debug a submit path that was working.
    */
   it("deep-paged and empty: says THIS page is empty, not that nothing was ever sent", async () => {
-    const out = await render({ cursor: "eyJjIjoiMjAyNi0wOC0xOVQxMjowMDowMC4wMDBaIiwiaSI6IjNmMjUwNGUwLTRmODktNDFkMy05YTBjLTAzMDVlODJjMzMwMSJ9" });
+    const out = await render({
+      cursor:
+        "eyJjIjoiMjAyNi0wOC0xOVQxMjowMDowMC4wMDBaIiwiaSI6IjNmMjUwNGUwLTRmODktNDFkMy05YTBjLTAzMDVlODJjMzMwMSJ9",
+    });
     expect(out).toContain("Nothing further on this page");
     expect(out).not.toContain("No feedback submitted yet");
     // …and it offers a way back, which the old branch did not: Pager renders nothing when
@@ -312,7 +326,8 @@ describe("the empty states, which are four different claims", () => {
   it("deep-paged, filtered and empty: the way back KEEPS the filter", async () => {
     const out = await render({
       category: "problem",
-      cursor: "eyJjIjoiMjAyNi0wOC0xOVQxMjowMDowMC4wMDBaIiwiaSI6IjNmMjUwNGUwLTRmODktNDFkMy05YTBjLTAzMDVlODJjMzMwMSJ9",
+      cursor:
+        "eyJjIjoiMjAyNi0wOC0xOVQxMjowMDowMC4wMDBaIiwiaSI6IjNmMjUwNGUwLTRmODktNDFkMy05YTBjLTAzMDVlODJjMzMwMSJ9",
     });
     expect(out).toContain("Nothing further on this page");
     expect(out).toContain("/feedback?category=problem");
