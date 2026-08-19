@@ -68,9 +68,14 @@ export AI_SERVICE_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-ai-service:sha-
 # overlay before filtering by service/profile, so docker-compose.staging.yml's
 # `${PAYER_WEB_IMAGE:?}` would fail EVERY command below if it were missing.
 export PAYER_WEB_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-payer-web:sha-$(echo "$GH_SHA" | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+# GAP-XC-06 (#920): apps/admin-web (the INTERNAL admin portal), same commit,
+# same immutability rule, and NOT optional either — `${ADMIN_WEB_IMAGE:?}` in
+# the overlay would fail every command below, `pull api` included.
+export ADMIN_WEB_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-admin-web:sha-$(echo "$GH_SHA" | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
 echo "Deploying image: $API_IMAGE"
 echo "Deploying image: $AI_SERVICE_IMAGE"
 echo "Deploying image: $PAYER_WEB_IMAGE"
+echo "Deploying image: $ADMIN_WEB_IMAGE"
 
 # CD-0: base + staging overlay. The overlay pins NODE_ENV=production and
 # makes every production-required secret a fail-loud ${VAR:?} — a box
@@ -271,6 +276,9 @@ pull_image ai-service "$AI_SERVICE_IMAGE" || true
 # (docker-compose.staging.yml), since it has no base-file counterpart to
 # inherit the profile from.
 pull_image payer-web "$PAYER_WEB_IMAGE" || true
+# admin-web, same `--profile api` reasoning: it declares `profiles: ["api"]`
+# on its own service block, having no base-file counterpart to inherit from.
+pull_image admin-web "$ADMIN_WEB_IMAGE" || true
 
 # CD-1a: Redis IS box-local (owner decision) — it runs as this compose
 # project's `redis` service, so unlike postgres it MUST start here. The
@@ -476,6 +484,31 @@ if image_present payer-web; then
   echo "Waiting for payer-web to become healthy..."
   wait_healthy payer-web "http://localhost:${PAYER_WEB_PORT:-3333}/health" 15 || exit 1
   DEPLOYED_SERVICES="${DEPLOYED_SERVICES}${DEPLOYED_SERVICES:+ }payer-web"
+fi
+
+# ---- GAP-XC-06 (#920): apps/admin-web, the INTERNAL admin portal, started
+# LAST. Same no-depends_on reasoning as payer-web: start order is what keeps a
+# broken admin-web from preceding or blocking the two surfaces real users hit,
+# both of which are already deployed and health-gated by the time this runs. An
+# admin-web failure still turns the job red.
+#
+# DEPLOYING IT DOES NOT PUBLISH IT. Unlike payer-web, CD-1a DOES apply here: the
+# service publishes on `127.0.0.1:3003` only, and no nginx server block routes to
+# it, so this loopback poll is the only thing that can reach the container. Do
+# not add nginx, DNS or certbot for it — exposing an admin portal is a separate
+# owner decision needing an IP allowlist. See the service block in
+# docker-compose.staging.yml.
+#
+# `:-3003` must match that block's default EXACTLY, or an unset override leaves
+# this polling a port compose never published. ~30s budget (15 x 2s), same as
+# payer-web — an identical Next.js standalone server. /health is unauthenticated
+# by design and reads no session, no cookie and no upstream service.
+if image_present admin-web; then
+  $COMPOSE up -d --no-deps admin-web
+  $COMPOSE ps
+  echo "Waiting for admin-web to become healthy..."
+  wait_healthy admin-web "http://localhost:${ADMIN_WEB_PORT:-3003}/health" 15 || exit 1
+  DEPLOYED_SERVICES="${DEPLOYED_SERVICES}${DEPLOYED_SERVICES:+ }admin-web"
 fi
 
 # ---- THE LOUD ENDING. This is the half of the design that makes the tolerance

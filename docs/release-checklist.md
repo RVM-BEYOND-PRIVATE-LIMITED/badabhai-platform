@@ -31,12 +31,17 @@ walk a human through it.
 `ci.yml` re-runs on `push` to `main` (the same jobs as the PR run). Two additional jobs then run,
 **gated on that same run's own success** (not merely "a build exists somewhere"):
 
-1. **`build-and-push-image`** (`needs: [changes, node, ai-service, e2e]`) — builds and pushes
-   **two** images to GHCR: `badabhai-api` (context: repo root, `apps/api/Dockerfile`) and
-   `badabhai-ai-service` (context: `apps/ai-service`, its own Dockerfile). Both are tagged
-   `sha-<short7>` (immutable, the tag a rollback pins) and `main` (mutable, humans/local pulls).
+1. **`build-and-push-image`** (`needs: [changes, node, ai-service, e2e]`) — a **matrix** over
+   the `MATRIX_JSON` literal in the `changes` job, building and pushing **four** images to
+   GHCR: `badabhai-api` (context: repo root, `apps/api/Dockerfile`), `badabhai-ai-service`
+   (context: `apps/ai-service`), `badabhai-payer-web` and `badabhai-admin-web` (both context:
+   repo root — they build workspace packages). All are tagged `sha-<short7>` (immutable, the
+   tag a rollback pins) and `main` (mutable, humans/local pulls).
    **This job only runs on a direct push to `main`, never on a PR** — a PR gets no registry
    credentials, no `packages: write` permission, no tags.
+   To add a fifth app, see the four-step recipe in the `MATRIX_JSON` comment; the
+   "Assert every built image has a deploy block" step fails the deploy if you add an image
+   without a matching block in `scripts/deploy/staging-deploy.sh`.
 2. **`deploy-lightsail`** (`needs: [build-and-push-image]`, `environment: staging` — named for
    the current default; rename **and** add a required reviewer if this box is ever ruled
    production) — SSHes into the box and runs the sequence below.
@@ -52,20 +57,29 @@ broken.
 
 ## The deploy sequence (`deploy-lightsail`, in order)
 
+> **Where the deploy body lives (#994).** The ssh step only connects, `git pull`s, and runs
+> [`scripts/deploy/staging-deploy.sh`](../scripts/deploy/staging-deploy.sh). Everything from
+> step 3 down is in that file — edit it there, not in `ci.yml`. It was extracted because the
+> inline version had reached ~97% of GitHub's step-input ceiling, and crossing that ceiling
+> makes the whole workflow unparseable: no CI run is created at all.
+
 1. **SSH to the box** as the deploy user, `cd ~/deployments/badabhai-platform`, `git pull origin main`.
 2. **GHCR login** with the ephemeral job `GITHUB_TOKEN` (dies with the run — never a long-lived
    PAT on the box).
-3. **Pin the immutable image tags**: `API_IMAGE`/`AI_SERVICE_IMAGE` both set to
-   `sha-<first 7 chars of github.sha>` (lowercased). Both are exported even for an api-only
-   change — `docker-compose.staging.yml` interpolates the **whole** overlay before filtering by
-   service, so a missing `AI_SERVICE_IMAGE` would fail every command, including `pull api`.
+3. **Pin the immutable image tags**: `API_IMAGE`, `AI_SERVICE_IMAGE`, `PAYER_WEB_IMAGE` and
+   `ADMIN_WEB_IMAGE` all set to `sha-<first 7 chars of github.sha>` (lowercased). **All four**
+   are exported even for an api-only change — `docker-compose.staging.yml` interpolates the
+   **whole** overlay before filtering by service, so a single missing `*_IMAGE` fails every
+   command, including `pull api`.
 4. **Disk reclaim, before pulling** — `docker image prune -af --filter "until=72h"` (never
    touches an image a running container references, never touches
    `badabhai_pgdata`/`badabhai_redisdata` volumes), escalating to a full `docker image prune -af`
    if free space stays under 4GB after the conservative pass, and hard-failing before any pull if
    still under 2GB. This step exists because deploys **#500/#501/#503 actually died** from disk
    exhaustion mid-pull before it was added — real incidents, not a hypothetical safeguard.
-5. **Pull both images.**
+5. **Pull all four images.** Each pull is independent: a service whose image was never
+   published for this commit is SKIPPED (it keeps running its previous container) and the job
+   fails loudly at the end naming it, rather than one broken build blocking every healthy one.
 6. **Start Redis** (`up -d --no-deps redis`) — box-local, must be started explicitly (it is not
    an `api` dependency the compose graph would otherwise bring up under `--no-deps`).
 7. **Migrations are NOT run here.** `TODO(CD-2, held: 0031 human sign-off + D1)` — this is a real,
@@ -83,6 +97,14 @@ broken.
    instant) rather than waiting out the full poll budget.
 9. **Start `api`, health-gate it** (`GET http://localhost:3001/health`, 30 attempts × 2s ≈ 60s
    budget), same crash short-circuit logic.
+9b. **Start `payer-web`, then `admin-web`, health-gating each** (`GET
+    http://localhost:${PAYER_WEB_PORT:-3333}/health` and
+    `http://localhost:${ADMIN_WEB_PORT:-3003}/health`, 15 attempts × 2s ≈ 30s each). Both run
+    *after* the api's gate so a broken portal never delays the api, and neither has a
+    `depends_on` edge — the ordering here is the dependency. **`admin-web` is the internal
+    admin portal and is NOT reachable from the internet**: it publishes on `127.0.0.1:3003`
+    only and no nginx server block routes to it, so those loopback probes are the only traffic
+    it receives. Exposing it is a separate owner decision requiring an IP allowlist.
 10. On any health-gate failure, the job dumps the last 100 lines of that container's logs and
     exits red — the box is left on whatever it was running before (a failed `api up` does not
     tear down a working previous container).

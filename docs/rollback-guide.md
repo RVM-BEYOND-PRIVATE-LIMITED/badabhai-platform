@@ -25,9 +25,10 @@ previous working image, no action needed).
 
 Every deploy pins **immutable per-commit images** —
 `ghcr.io/<owner>/badabhai-platform/badabhai-api:sha-<short7>`, the `badabhai-ai-service`
-equivalent, and (as of GAP-XC-06, #920) the `badabhai-payer-web` equivalent — all three built
-from the same commit's first 7 sha characters. A rollback is: **export the previous commit's
-sha tag for ALL THREE images and re-run the same `compose up` sequence the deploy job runs.**
+equivalent, and (as of GAP-XC-06, #920) the `badabhai-payer-web` and `badabhai-admin-web`
+equivalents — all four built from the same commit's first 7 sha characters. A rollback is:
+**export the previous commit's sha tag for ALL FOUR images and re-run the same `compose up`
+sequence the deploy job runs.**
 Nothing is reverted in git; the box just points at older, already-built images.
 
 ## Procedure
@@ -42,11 +43,11 @@ Nothing is reverted in git; the box just points at older, already-built images.
      `sha-` tags (disk-reclaim prunes anything older, see the deploy job's CD-6 comment),
      so a recent-enough rollback target is likely already local and needs no re-pull.
 
-3. **Export ALL THREE image variables — never just one or two.** `docker-compose.staging.yml`
+3. **Export ALL FOUR image variables — never just one or two.** `docker-compose.staging.yml`
    interpolates the _whole_ file before filtering by service, so a compose command that
    only sets `API_IMAGE` still fails on the ai-service's `${AI_SERVICE_IMAGE:?}` gate (and,
-   as of GAP-XC-06, payer-web's `${PAYER_WEB_IMAGE:?}` gate too), even for an api-only
-   rollback:
+   as of GAP-XC-06, payer-web's `${PAYER_WEB_IMAGE:?}` and admin-web's `${ADMIN_WEB_IMAGE:?}`
+   gates too), even for an api-only rollback:
 
    ```bash
    cd ~/deployments/badabhai-platform
@@ -54,13 +55,15 @@ Nothing is reverted in git; the box just points at older, already-built images.
    export API_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-api:sha-${SHORT_SHA}"
    export AI_SERVICE_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-ai-service:sha-${SHORT_SHA}"
    export PAYER_WEB_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-payer-web:sha-${SHORT_SHA}"
+   export ADMIN_WEB_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-admin-web:sha-${SHORT_SHA}"
    ```
 
-   `PAYER_WEB_PORT` is deliberately NOT in that list: it is `${PAYER_WEB_PORT:-3333}`
-   (defaulted, not fail-loud), precisely so a missing box-specific port can never brick an
-   api-only rollback the way the image gates above would. 3333 is the current box's free
-   port (3002 is taken there), so nothing needs exporting — override only on a box where
-   3333 is unavailable.
+   Neither `PAYER_WEB_PORT` nor `ADMIN_WEB_PORT` is in that list, deliberately: both are
+   `:-` defaulted (`3333` and `3003`) rather than fail-loud, precisely so a missing
+   box-specific port can never brick an api-only rollback the way the image gates above
+   would. 3333 is the current box's free payer port (3002 is taken there) and 3003 is
+   admin-web's own port — nothing needs exporting on this box; override only where those
+   ports are unavailable.
 
 4. **Log into GHCR** (the package is private; an expired/missing login 401s the pull):
 
@@ -78,6 +81,7 @@ Nothing is reverted in git; the box just points at older, already-built images.
    $COMPOSE pull api
    $COMPOSE pull ai-service
    $COMPOSE pull payer-web
+   $COMPOSE pull admin-web
    $COMPOSE up -d --no-deps redis        # box-local; must be started explicitly
    $COMPOSE up -d --no-deps ai-service
    curl -sf http://localhost:8000/health  # must return 200 before continuing
@@ -85,17 +89,25 @@ Nothing is reverted in git; the box just points at older, already-built images.
    curl -sf http://localhost:3001/health  # must return 200
    $COMPOSE up -d --no-deps payer-web
    curl -sf "http://localhost:${PAYER_WEB_PORT:-3333}/health"  # must return 200
+   $COMPOSE up -d --no-deps admin-web
+   curl -sf "http://localhost:${ADMIN_WEB_PORT:-3003}/health"  # must return 200
    ```
+
+   admin-web is rolled back LAST for the same reason it deploys last: it is the internal
+   admin portal, publishes on `127.0.0.1:3003` only, and no nginx server block routes to it,
+   so it must never delay restoring the two surfaces real users hit. Being loopback-bound is
+   exactly why that `curl`, running on the box, is the only thing that can reach it.
 
    `--no-deps` on every `up` is deliberate: it is what keeps the compose-internal
    throwaway Postgres/Adminer from ever starting on this box — staging's `DATABASE_URL`
    is the real (Supabase) Postgres, never the compose-internal one.
 
-6. **Verify.** All three `/health` endpoints 200, and `$COMPOSE ps` shows all three
+6. **Verify.** All four `/health` endpoints 200, and `$COMPOSE ps` shows all four
    containers `Up`/`healthy`. api's and ai-service's `/health` check connectivity
-   (`SELECT 1` + Redis `PING`); payer-web's `/health` is a bare liveness probe
-   (`apps/payer-web/src/app/health/route.ts` — no upstream call). None of the three
-   proves the rolled-back code is _correct_, only that it booted.
+   (`SELECT 1` + Redis `PING`); payer-web's and admin-web's are bare liveness probes
+   (`apps/payer-web/src/app/health/route.ts`, `apps/admin-web/src/app/health/route.ts` — no
+   upstream call, no session read). None of the four proves the rolled-back code is
+   _correct_, only that it booted.
 
 7. **Log out of GHCR** when done (`docker logout ghcr.io`) — never leave a registry
    credential on the box, matching the deploy job's own `trap ... EXIT` discipline.
@@ -127,7 +139,7 @@ locally-cached image.
 
 Rolling back a `staging-cd.yml` deploy (a different, `workflow_dispatch`-only pipeline
 for a _persistent_ staging host — see that workflow's own header comments); provisioning
-a new box from scratch; anything about `apps/web`/`apps/admin-web` — see
-`docs/operations/COMMANDS.md` (BL-1): neither is deployed anywhere as of this writing.
-`apps/payer-web` IS now deployed by this same `deploy-lightsail` job (GAP-XC-06, #920) —
-see the rollback steps above, which now cover all three images.
+a new box from scratch; anything about `apps/web` — see `docs/operations/COMMANDS.md`
+(BL-1): it is not deployed anywhere as of this writing. `apps/payer-web` AND
+`apps/admin-web` ARE both now deployed by this same `deploy-lightsail` job
+(GAP-XC-06, #920) — see the rollback steps above, which now cover all four images.

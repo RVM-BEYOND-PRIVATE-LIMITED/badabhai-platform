@@ -723,3 +723,121 @@ services:
       # if a human ever exports them, it does not change what they currently read.
       PAYMENTS_ENABLE_REAL: ${PAYMENTS_ENABLE_REAL:-false}
       AGENCY_SUPPLY_ENABLED: ${AGENCY_SUPPLY_ENABLED:-false}
+
+  # ---- apps/admin-web — the INTERNAL admin portal, ON THE BOX ----
+  #
+  # UNEXPOSED, AND THAT IS THE ENTIRE POINT. Unlike payer-web above — whose v1 goal was
+  # reachability from a real browser — this service is deployed so that a push to main
+  # UPDATES it, not so anyone can reach it. The box's security group opens ONLY 80/443
+  # (measured: 3001 / 8000 / 3333 all refuse an external connection), and nginx fronts
+  # nothing but the payer portal and the api. Publishing 3003 below therefore makes this
+  # container reachable from THE BOX ITSELF and nowhere else, which is exactly what the
+  # deploy's health gate needs and nothing more.
+  #
+  # DO NOT add an nginx server block, a DNS record, or a certbot step for this service.
+  # Exposing an admin portal is a separate owner decision that needs an IP allowlist (or a
+  # VPN / SSH tunnel / mTLS equivalent) and it is NOT authorized. Nothing here weakens the
+  # portal's own auth either: ADMIN_MFA_REQUIRED is untouched, and admin-web keeps reading
+  # its httpOnly `bb_admin_token` cookie exactly as it does today.
+  #
+  # DEFINED ONLY HERE, NOT in the base docker-compose.yml — same reasoning as payer-web:
+  # admin-web is pure Next.js/Node, `pnpm dev` already runs it on any OS, so there is no
+  # local-Docker use case. Because it has NO base-file counterpart, `profiles: ["api"]` is
+  # declared directly on this block (there is no base definition to merge a `profiles:`
+  # list from), so `--profile api pull/up admin-web` resolves without depending on any
+  # newer compose "auto-enable" behaviour.
+  #
+  # NO depends_on, matching payer-web and ai-service: this container's own boot does not
+  # need api to be up (Next's standalone server starts and serves `/health` regardless of
+  # whether a downstream server-action call would currently succeed), so a missing or
+  # unhealthy api must never block THIS container from starting. The api's readiness is
+  # enforced by ORDER in the deploy script — admin-web is started LAST, after payer-web —
+  # not by a depends_on edge.
+  admin-web:
+    profiles: ["api"]
+    # CD-4, mirroring api/ai-service/payer-web: pin the IMMUTABLE per-commit ghcr
+    # `sha-<short7>` tag exported by build-and-push-image / deploy-lightsail. Rollback =
+    # export the previous sha tag and re-run `up` (docs/rollback-guide.md).
+    image: ${ADMIN_WEB_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-admin-web:sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
+    restart: unless-stopped
+    ports:
+      # `:-` (DEFAULTED), never `:?` (fail-loud), and this is load-bearing rather than a
+      # style choice. Compose interpolates the ENTIRE merged file BEFORE it filters by
+      # service or profile, so a `${ADMIN_WEB_PORT:?}` here would not fail "the admin-web
+      # command" — it would fail EVERY command this file is used for, including
+      # deploy-lightsail's very first one (`$COMPOSE pull api`), taking the LIVE
+      # api/ai-service deploy down over an unrelated missing secret. MEASURED on payer-web
+      # (see the `${PAYER_WEB_PORT:-3333}` note above): `... --profile api config api`,
+      # resolving ONLY the api service and naming the web service nowhere, still died with
+      # "required variable ... is missing a value".
+      #
+      # HOST SIDE IS 3003 — owner-confirmed as free on THIS box, not a guess, and it is
+      # the app's own port so host and container match (no translation to remember).
+      #
+      # ---- LOOPBACK-BOUND (`127.0.0.1:`), UNLIKE payer-web ABOVE. This is the one place
+      # this block deliberately does NOT copy payer-web, and it is because payer-web's own
+      # comment says WHY it binds every interface: "the entire point of this v1 is
+      # reachability from OUTSIDE the box (real browser traffic), so a loopback bind would
+      # defeat it outright." admin-web's requirement is the exact opposite — it must NOT be
+      # reachable from outside the box — so applying payer-web's stated reasoning to this
+      # service yields `127.0.0.1`, not `0.0.0.0`. The pattern being copied is the
+      # structure, not a binding whose justification does not transfer.
+      #
+      # This follows the CD-1a precedent already in the BASE file rather than inventing
+      # one: redis (`127.0.0.1:6379:6379`) and ai-service (`127.0.0.1:8000:8000`) are both
+      # loopback-bound, and the deploy still health-gates ai-service with
+      # `curl http://localhost:8000/health` — the probe runs ON the box, so loopback is all
+      # it needs. admin-web's `wait_healthy` poll is the identical shape.
+      #
+      # WHY BOTHER, given nothing opens 3003 in the security group: because that security
+      # group is currently the ONLY thing standing between the internet and the most
+      # privileged surface in the platform, and a single console misclick would remove it.
+      # Loopback binding means an accidentally-opened 3003 still reaches nothing. Neither
+      # control is load-bearing alone; this is the cheap one, and it costs nothing —
+      # nothing outside the box legitimately dials this port today.
+      #
+      # NOT A BLOCKER FOR EVER EXPOSING IT (an owner decision needing an IP allowlist): an
+      # nginx running on the host proxies to 127.0.0.1:3003 unchanged, and an nginx running
+      # as a compose service would reach `admin-web:3003` over the compose network without
+      # any published port at all.
+      #
+      # ADMIN_WEB_PORT survives as an OVERRIDE for a future box, so nothing has to be set
+      # for this one. Unset arrives on the box as the empty string and `:-` substitutes on
+      # empty as well as on unset, so it resolves to 3003 either way.
+      #
+      # NOTE for whoever adds the next service here: `published-port-binding-compose.guard`
+      # (apps/api) enforces exactly this rule, but it reads ONLY docker-compose.yml and
+      # docker-compose.e2e.yml — it does NOT read this overlay, so it did not and cannot
+      # check this line. The bind above is a deliberate choice, not a guard-enforced one.
+      - "127.0.0.1:${ADMIN_WEB_PORT:-3003}:3003"
+    environment:
+      NODE_ENV: production
+      PORT: "3003"
+      HOSTNAME: "0.0.0.0"
+      # ---- The api, over the COMPOSE NETWORK — A LITERAL, not ${VAR:?}, mirroring
+      # PAYER_API_URL above and AI_SERVICE_URL on the api service: admin-web and api run in
+      # the SAME compose project on the SAME box, so there is exactly one correct value
+      # here — the compose service name — and making it a required secret would only add a
+      # way to get it wrong for nothing gained.
+      #
+      # THIS LINE IS NOT OPTIONAL. `apps/admin-web/src/lib/server-config.ts` defaults
+      # ADMIN_API_BASE_URL to `http://localhost:3001`, which inside this container is the
+      # container itself — every page would render the generic "The admin API is
+      # unreachable." with the underlying error deliberately suppressed, and nothing would
+      # tell an operator why. admin-web's own .env.example calls that out as step one of
+      # the deploy checklist; this is that step, done.
+      #
+      # Server-only ON PURPOSE — it is NOT a NEXT_PUBLIC_* value, so the browser never
+      # learns the internal API origin, and it is read at CONTAINER START rather than baked
+      # at `next build` time (see apps/admin-web/Dockerfile's header for why this app takes
+      # no NEXT_PUBLIC_* build args at all).
+      ADMIN_API_BASE_URL: http://api:3001
+      # ---- OPERATOR NOTE, stated because it will otherwise look like a bug the first time
+      # someone tunnels in: `NODE_ENV: production` above makes
+      # `@badabhai/config/shared`'s `shouldUseSecureCookie()` return TRUE, so the
+      # `bb_admin_token` cookie is set `Secure` and a browser will SILENTLY DROP it over
+      # plain http. Signing in at `http://<box>:3003` will therefore appear to succeed and
+      # then bounce straight back to the login page. That is the correct posture for a
+      # production build and is NOT changed here — the fix, when this portal is eventually
+      # made reachable, is TLS in front of it (an owner decision, with an IP allowlist),
+      # never relaxing the cookie. Same behaviour payer-web had before nginx fronted it.
