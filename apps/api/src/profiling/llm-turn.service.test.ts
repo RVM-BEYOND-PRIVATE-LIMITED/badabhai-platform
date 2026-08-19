@@ -516,3 +516,53 @@ describe("every Phase A turn is a billable call, and the ledger has to say so", 
     expect(cost.record).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * #1016 — "the experience gate is never asked in the worker app", reported from a real device.
+ *
+ * THE GATE IS DETERMINISTIC BUT ITS TRIGGER IS NOT. The engine owns the question, the chips and
+ * the `options_only` mode, and none of that is ever asked of the model — but the ONE condition
+ * that opens it is `out.experience_entry !== null`, which is the model's own output. So a model
+ * that runs the experience stretch conversationally and never fills the field takes the gate off
+ * the air for every session, without erroring, without falling back, and without anything in the
+ * logs that names it. That is exactly what the reported welder session did: it wrote its own
+ * gate-shaped question ("aur koi kaam jode?"), emitted no entry, and closed Phase A on the
+ * worker's "Nahi".
+ *
+ * These two tests are the coupling stated out loud, in the file that owns the branch. The fix
+ * for #1016 is in the ai-service PROMPT (`interview_system_prompt`, whose own tests pin the
+ * three instructions) — nothing here can be fixed by trying harder, because the API cannot
+ * invent a job the model did not report without fabricating a line on a worker's resume.
+ */
+describe("#1016 — what actually decides whether the worker sees the experience gate", () => {
+  it("serves the gate on the turn an entry arrives, whatever the model wrote as its reply", async () => {
+    // The model's own `reply_text` is DISCARDED here — this is the engine's turn, not its.
+    const { svc } = make({
+      turn: TURN({ experience_entry: ENTRY, reply_text: "aur koi kaam jode?" }),
+    });
+
+    const out = await svc.take(env(), "3 saal tandoor pe kaam kiya", [], CTX);
+
+    expect(out).toMatchObject({
+      kind: "ask",
+      reply: EXPERIENCE_GATE_PROMPT,
+      inputMode: "options_only",
+    });
+    expect(out?.kind === "ask" && out.chips).toEqual(["Haan", "Nahi"]);
+    expect(out?.patch.llmGateOpen).toBe(true);
+  });
+
+  it("NEVER serves it when the model omits the entry — the whole of #1016 in one assertion", async () => {
+    // The reported session: the model asks its own loop question and reports no entry. Every
+    // field the worker sees comes from the model, so the gate simply does not exist for them.
+    const { svc } = make({
+      turn: TURN({ experience_entry: null, reply_text: "aur koi kaam jode?" }),
+    });
+
+    const out = await svc.take(env(), "3 saal tandoor pe kaam kiya", [], CTX);
+
+    expect(out?.kind).toBe("ask");
+    expect(out?.kind === "ask" && out.reply).not.toBe(EXPERIENCE_GATE_PROMPT);
+    expect(out?.patch.llmGateOpen).toBeFalsy();
+  });
+});
