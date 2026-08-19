@@ -167,8 +167,15 @@ then `deriveWorkerSkills` from `packages/match-engine`.
 Two independent bridges converge on the same specific process, and there is **no generic
 `mskill_welder_*` id to land on** — unlike CNC, which has `mskill_cnc_operator_general`:
 
-- `match-skills.ts:488` — `skill_welder_occupation → mskill_mig_welder`
-- `match-skills.ts:404` — `role_welder → mskill_mig_welder`
+- `packages/taxonomy/src/match-skills.ts:488` — `skill_welder_occupation → mskill_mig_welder`
+- `packages/taxonomy/src/match-skills.ts:404` — `role_welder → mskill_mig_welder`
+
+The bridge TABLES live in `packages/taxonomy`; the function that walks them is
+`deriveWorkerSkills` in `packages/match-engine/src/derive.ts:50`. **The whole welding vocabulary
+is three ids** — `mskill_arc_welder`, `mskill_mig_welder`, `mskill_tig_welder` — and a sweep of
+`packages/taxonomy/src` and `packages/match-engine/src` for `mskill_*weld*` returns exactly those
+three. There is no generic welder id to land on, which is why an unspecific signal has to pick a
+specific process.
 
 **Measured outputs:**
 
@@ -189,6 +196,18 @@ protects only the ROLE bridge. `_detect_welding` is ungated, so the attribute br
 
 The write lands in `worker_skill.skill_id` with `source='derived_coarse'`, plus
 `job_reach.matched_skill_id`.
+
+### The blast radius is wider than the write, because MIG is pre-ticked-related to the others
+
+`MATCH_SKILL_RELATION_PAIRS` (`packages/taxonomy/src/match-skills.ts:315-343`) makes the welding
+family **mutually related** — `(arc, mig)`, `(arc, tig)`, `(mig, tig)`, three edges — and
+`relatedSkillsDefault` is **`"on"` by default** (`packages/match-engine/src/config.ts:46`), so
+related skills arrive **pre-ticked** on the payer's side
+(`apps/api/src/match/match-skills.service.ts:145`).
+
+So the TIG-only worker in row 3 is not merely recorded as a MIG welder. Their MIG row is, by
+default, related to arc welding as well — and the payer has to actively untick to exclude it.
+The incorrect assignment propagates one hop further than the row it was written into.
 
 **Engineering has no view on the remedy.** What it can say is that TD-07 was framed as a *gap* —
 "there is no generic welding skill" — and the measured behaviour is not a gap but an **incorrect
@@ -211,3 +230,33 @@ framing predates this measurement.
 scoring cases under production semantics, against Path B's 0. Most canonical skills are still
 `provisional`, so Path A has no candidates in those domains. **S3-D cannot be flipped before
 promotion** — not because a threshold was breached, but because there is nothing to rank.
+
+---
+
+## The pre-switch `unresolved_phrase` baseline — read now, so the post-switch count means something
+
+The shadow report names this as a signal it structurally cannot produce: *"a production time
+series, not a corpus property — needs the pre-switch count (read it now) compared against the
+post-switch count."* Read-only against production, **2026-08-19**:
+
+| scope | rows | occurrences | legacy `domain_id` | `job_domain_id` | earliest | latest |
+|---|---|---|---|---|---|---|
+| `occupation` | 14 | 14 | 0 | **0** | 2026-08-12 | **2026-08-19 10:29** |
+| `skill` | 2 | 3 | 2 (both `cnc-machining`) | **0** | 2026-07-14 | 2026-07-14 |
+
+All 16 rows are `status = 'open'`. Three things fall out of this table:
+
+1. **`job_domain_id` is non-null on zero rows**, which is the correct pre-switch state and the
+   thing the post-switch count is measured against. Any non-zero value after the flip is Path A
+   miss volume, and there is now a producer that can create one (§1.1).
+2. **The occupation arm is live and writing today.** The latest row is from this morning, after
+   0078 landed — so the table, the write path, the v1 event and the widened unique index are all
+   healthy in production. That is stronger evidence than a code read: the 0078 window had every
+   `unresolved_phrase` write failing silently, and this is what recovery looks like.
+3. **The skill arm has recorded nothing since 2026-07-14** — dormant by flag, not broken.
+   `SKILL_CANONICALIZE_ENABLED=false`, so the pass does not run at all. The `skill`-scope
+   baseline for the switch is therefore effectively **zero**, and any post-switch volume is new
+   signal rather than a delta against a moving number.
+
+The one row with `count = 2` (skill scope, 2 rows / 3 occurrences) is also the only direct
+evidence in production that the `NULLS NOT DISTINCT` dedupe works on this table.
