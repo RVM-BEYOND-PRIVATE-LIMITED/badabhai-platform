@@ -11,6 +11,7 @@ import { AdminEntitiesController } from "./admin-entities.controller";
 import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
+import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { type AdminCapability } from "./admin-capabilities";
@@ -689,5 +690,159 @@ describe("BP-5 dashboard route — guarded, read-only, and off the cost WRITER",
     expect(src).toContain("platformAiCostTotals");
     expect(src).not.toContain("workerAiCostTotals");
     expect(src).not.toContain("sessionAiCostTotals");
+  });
+});
+
+/**
+ * Phase 6 worker-journey routes — guarded, read-only, and TRANSCRIPT-FREE.
+ *
+ * The last of those is why this block is longer than its siblings. `chat_messages.body_text`
+ * and `voice_notes.transcript_text` hold the worker's own words UNMASKED (pseudonymization
+ * happens transiently at the LLM-call boundary and never on the way into those rows), so a
+ * projection added here would be a materially larger PII exposure than anything the admin
+ * portal does today — and it would look exactly like ordinary, helpful code in a diff.
+ *
+ * A SOURCE SCAN is the right layer for that, because the SQL-shape tests only see the queries
+ * a test happens to call, while this sees every line in the file.
+ */
+describe("Phase 6 journey routes — guarded, read-only, and transcript-free", () => {
+  const proto = AdminWorkerJourneyController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminWorkerJourneyController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers the three journey routes (no route silently dropped)", () => {
+    expect(routeMethods.sort()).toEqual(
+      ["getChatSession", "getJourneySummary", "listChatSessions"].sort(),
+    );
+  });
+
+  it("EVERY journey route carries AdminAuthGuard AND AdminRolesGuard", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminWorkerJourneyController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("EVERY journey route declares a METHOD-level @RequireAdminRole('read_entities')", () => {
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminWorkerJourneyController) as
+      | AdminCapability
+      | undefined;
+    expect(
+      onClass,
+      "AdminWorkerJourneyController must NOT declare a class-level capability",
+    ).toBeUndefined();
+    for (const method of routeMethods) {
+      const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as
+        | AdminCapability
+        | undefined;
+      expect(onMethod, `${method} must declare a method-level @RequireAdminRole`).toBe(
+        "read_entities",
+      );
+    }
+  });
+
+  it("the surface is READ-ONLY by construction — every route is a GET", () => {
+    for (const method of routeMethods) {
+      expect(Reflect.getMetadata("method", proto[method] as object) as number).toBe(0);
+    }
+  });
+
+  it("the journey repository issues no write against any table", () => {
+    const repo = readFileSync(join(ADMIN_DIR, "admin-worker-journey.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(repo).not.toMatch(/\.select\(\s*\)/); // never an unprojected whole-row read
+  });
+
+  it("the journey repository NEVER projects raw worker text (the build-blocker)", () => {
+    // Comment lines are stripped first: this file and the repository both NAME these columns
+    // in prose explaining why they are absent, and matching that would be unfixable.
+    const src = readFileSync(join(ADMIN_DIR, "admin-worker-journey.repository.ts"), "utf8")
+      .split("\n")
+      .filter((l) => {
+        const t = l.trimStart();
+        return !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*");
+      })
+      .join("\n");
+
+    for (const forbidden of [
+      // The two unmasked transcript columns. THE reason this test exists.
+      "bodyText",
+      "transcriptText",
+      "transcriptEnglish",
+      // The four typed answer VALUE columns on `worker_pack_answer`.
+      "answerText",
+      "answerNumber",
+      "answerBool",
+      "answerOptionKeys",
+      // The worker's verbatim words inside the answer map.
+      "value_raw",
+      // Identity PII on `workers`.
+      "phoneE164",
+      "phoneHash",
+      "fullName",
+      // Reduced-to-boolean only — projecting the value under its own key is what is banned.
+      "photoStorageKey:",
+      "voiceNoteId:",
+      "errorMessage:",
+    ]) {
+      expect(src, `admin-worker-journey.repository must not project ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+
+    // The whole jsonb blob gets its own rule, because the `"<key>:"` form above is defeated by
+    // one rename: `state: chatSessions.conversationState` projects the entire answer map — and
+    // every `value_raw` in it — while containing no `conversationState:` substring at all.
+    //
+    // So match the COLUMN REFERENCE and require that it be immediately consumed by an
+    // extraction or a null test. `${chatSessions.conversationState} -> 'ask_counts'` and
+    // `${chatSessions.conversationState} IS NOT NULL` pass; any other use — under any alias —
+    // fails. Comment lines are already stripped from `src`.
+    const bareConversationState =
+      /chatSessions\.conversationState(?!\s*\}\s*(->|IS\s+NOT\s+NULL))/i;
+    expect(
+      bareConversationState.test(src),
+      "admin-worker-journey.repository must never project `conversation_state` itself — it " +
+        "holds the answer map, whose records carry the worker's verbatim words. Only " +
+        "`-> 'ask_counts'`, the status lateral, and an IS NOT NULL test may touch it.",
+    ).toBe(false);
+  });
+
+  it("...and that conversation_state rule is CAPABLE of failing (an ALIASED projection is caught)", () => {
+    // The rule above is the one a rename defeats, so prove it fires on the exact shape the
+    // `"conversationState:"` literal it replaced could not see.
+    const bareConversationState =
+      /chatSessions\.conversationState(?!\s*\}\s*(->|IS\s+NOT\s+NULL))/i;
+    expect(bareConversationState.test("state: chatSessions.conversationState,")).toBe(true);
+    expect(bareConversationState.test("conversationState: chatSessions.conversationState,")).toBe(
+      true,
+    );
+    // ...and does NOT fire on the two forms the repository legitimately uses.
+    expect(
+      bareConversationState.test("sql`${chatSessions.conversationState} -> 'ask_counts'`"),
+    ).toBe(false);
+    expect(
+      bareConversationState.test("sql<boolean>`${chatSessions.conversationState} IS NOT NULL`"),
+    ).toBe(false);
+  });
+
+  it("the journey DTO names no transcript field (the CONTRACT, not just the query)", () => {
+    const src = readFileSync(join(ADMIN_DIR, "admin-worker-journey.dto.ts"), "utf8")
+      .split("\n")
+      .filter((l) => {
+        const t = l.trimStart();
+        return !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*");
+      })
+      .join("\n");
+    for (const forbidden of ["body_text", "transcript_text", "answer_text", "value_raw"]) {
+      expect(src, `the journey response type must not declare ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
   });
 });

@@ -619,6 +619,64 @@ describe("interview_kit events (per-trade, PII-free)", () => {
     };
     expect(validateEvent(evt).success).toBe(true);
   });
+
+  // ── OPTIONAL worker attribution (admin journey step 7) ────────────────────────────────
+  // Additive widen, no version bump — the `ai.cost_recorded` precedent (26ad1598). The
+  // three tests below pin the whole contract: the field defaults to null, an anonymous
+  // download is STILL valid, and a garbage id is rejected rather than stored.
+
+  it("interview_kit.downloaded defaults worker_id to null — an ANONYMOUS download stays valid", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: { trade_key: "cnc_operator", content_version: 1, kit_id: "cnc_operator:v1" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "interview_kit.downloaded") {
+      // The route is public. "No worker id" is the ordinary case, not a validation failure —
+      // if this ever fails, an unauthenticated download has become unrecordable.
+      expect(result.event.payload.worker_id).toBeNull();
+    }
+  });
+
+  it("interview_kit.downloaded carries worker_id when a valid worker session was present", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: {
+        trade_key: "cnc_operator",
+        content_version: 1,
+        kit_id: "cnc_operator:v1",
+        worker_id: UUID_B,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "interview_kit.downloaded") {
+      expect(result.event.payload.worker_id).toBe(UUID_B);
+    }
+  });
+
+  it("rejects a non-uuid worker_id (the field is an opaque id, never free text)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: {
+        trade_key: "cnc_operator",
+        content_version: 1,
+        kit_id: "cnc_operator:v1",
+        worker_id: "Ramesh Kumar 9876543210",
+      },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
 });
 
 describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
@@ -1772,6 +1830,93 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
     if (!bad.success) expect(bad.error.stage).toBe("payload");
   });
 
+  // ── admin.worker_journey_viewed (Phase 6) — the audit of a READ ────────────────────────
+  // Behind `read_entities`, so it is the compensating control for a surface four roles can
+  // reach: a per-worker journey is a BEHAVIOURAL profile, and looking at one must name who
+  // looked and at whom. The payload is opaque ids + one enum, and these tests are what stop a
+  // "just add the question key, it's only a key" change from landing on the spine.
+
+  it("validates admin.worker_journey_viewed with ids + a view enum ONLY (Phase 6)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: { admin_id: UUID_A, subject_id: UUID_B, view: "journey_summary" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.worker_journey_viewed") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["admin_id", "chat_session_id", "subject_id", "view"].sort(),
+      );
+      // The summary read opens no session, and that reads as NULL rather than as absent.
+      expect(result.event.payload.chat_session_id).toBeNull();
+    }
+  });
+
+  it("carries the chat_session_id when ONE session was opened (which session is the audit fact)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: {
+        admin_id: UUID_A,
+        subject_id: UUID_B,
+        view: "chat_session",
+        chat_session_id: UUID_C,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.worker_journey_viewed") {
+      expect(result.event.payload.chat_session_id).toBe(UUID_C);
+    }
+  });
+
+  it("rejects a QUESTION KEY on the payload (.strict — the stall point is not spine data)", () => {
+    // WHICH question a worker stalled on is a fact about that worker. It belongs in the
+    // response to the authenticated admin, never in the append-only audit spine.
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: {
+        admin_id: UUID_A,
+        subject_id: UUID_B,
+        view: "chat_session",
+        stuck_question: "salary_expected",
+      },
+    };
+    const bad = validateEvent(evt);
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects an unknown view (a closed enum — never a free-text label)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: { admin_id: UUID_A, subject_id: UUID_B, view: "transcript" },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
+
+  it("rejects a non-uuid subject_id (opaque ids only — never a name or a phone)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: { admin_id: UUID_A, subject_id: "Ramesh Kumar", view: "journey_summary" },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
+
   it("validates admin.pii_reveal_cap_exceeded with admin_id + window enum and NO subject/value (ADMIN-3b)", () => {
     const evt = {
       ...workerCreatedEvent(),
@@ -2629,11 +2774,14 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 161 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned + the duplicate submission + skill.phrase_unresolved_v2)", () => {
-    expect(EVENT_NAMES).toHaveLength(161);
+  it("exposes all 162 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned + the duplicate submission + skill.phrase_unresolved_v2 + the admin worker-journey read audit)", () => {
+    expect(EVENT_NAMES).toHaveLength(162);
     // S3-C / D-6 — the canonical-scope generation of the skill-miss event. A SECOND
     // registry entry rather than a v1 mutation; see the payload's own note.
     expect(isEventName("skill.phrase_unresolved_v2")).toBe(true);
+    // Phase 6 — the ONE audited READ outside the PII reveal. A worker's journey is a
+    // behavioural profile, so who looked at it is spine data even though the response is not.
+    expect(isEventName("admin.worker_journey_viewed")).toBe(true);
     // #931 — one physical submission arriving twice. Invisible on the spine otherwise: a
     // duplicate returns before the engine is consulted, so it writes no `chat_messages` row and
     // emits no `chat.message_received`, and everything downstream looks like a healthy session

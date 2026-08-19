@@ -26,7 +26,7 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0078_unresolved_phrase_job_domain_id`** (journal has 79 entries, `idx` 0–78).
+**`0079_journey_read_indexes`** (journal has 80 entries, `idx` 0–79).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
@@ -41,14 +41,59 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0076`        | Prakash   | **APPLIED IN PRODUCTION** — canonical Domain→Skill taxonomy, Phase 1 (`fca0ef9c`; verified 2026-08-19) |
 | `0077`        | Prakash   | **APPLIED IN PRODUCTION** — AI cost attribution: three running-total tables (verified 2026-08-19) |
 | `0078`        | Prakash   | **APPLIED IN PRODUCTION** — S3-C / D-6: `unresolved_phrase.job_domain_id` (verified object-by-object 2026-08-19) |
-| `0079`        | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
-| `0080`+       | unclaimed | claim in a PR of its own, so the claim is reviewable          |
+| `0079`        | Prakash   | **CLAIMED** — admin worker-journey read indexes (#992; renumbered from `0078`, see notes below) |
+| `0080`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
+
+### `0079` — renumbered from `0078` after a live collision — 2026-08-19
+
+**This is the collision this file exists to describe, and it happened again.** `#992` minted
+`0078_journey_read_indexes` (two CREATE INDEX statements, nothing else) while S3-C minted
+`0078_unresolved_phrase_job_domain_id` on another branch. S3-C merged first, so `#992` moved to
+`0079` per rule 2 — taking the last slot of the OIE block, exactly as `0077` and `0078` took the
+first two, and for the reason recorded there: drizzle-kit assigns sequentially and
+`supabase-checks.yml` enforces contiguous prefixes, so there is exactly one legal next number.
+**OIE's orchestrator/profiling/parse migration is now `0080`.** The block reservation has now
+been overtaken three times; it is a record of intent, not a reservation the generator honours.
+
+**REGENERATED, NOT RENAMED** — the `0071` rule. A drizzle snapshot chains to its predecessor by
+`prevId`, so a renamed `0078_snapshot.json` would still have chained off `0077`, and the next
+`db:generate` would have diffed against a schema that skipped `0078_unresolved_phrase_job_domain_id`
+entirely. Verified after regeneration: `0079_snapshot.json.prevId == 0078_snapshot.json.id`, and a
+second `db:generate` emits nothing.
+
+**The `when` was NOT pinned, and that is the opposite of what `0071` did.** `0071` kept its
+pre-renumber timestamp because its old file had already been applied to a live database and
+drizzle's migrator is timestamp-driven (`created_at < folderMillis`), so a newer `when` would have
+re-run its `CREATE TABLE`. Here the pre-renumber file has ALSO been applied by hand to a live
+database — but the two statements are `CREATE INDEX IF NOT EXISTS`, so re-running them is a no-op,
+while pinning the old `when` (`1787058904704`) would order this entry BEFORE
+`0078_unresolved_phrase_job_domain_id` (`1787061158602`) and make every database that applied
+`0078` skip this file forever. Idempotent DDL is what makes the fresh timestamp the safe choice;
+`0071`'s was not idempotent, which is why it needed the other answer. **The journal row the manual
+apply wrote under the old timestamp must be deleted from that database** — otherwise its
+`created_at` high-water mark is `1787058904704`, which is fine, but the row claims a hash for a
+file that no longer exists.
+
+**`IF NOT EXISTS` is hand-re-appended.** `db:generate` emits both statements bare — verified on
+this regeneration, not assumed. This is the same class of hand-edit as `NULLS NOT DISTINCT` in
+`0037`/`0067`/`0072`/`0076`/`0078`, and it is load-bearing twice over: the migration's own TIMING
+note tells an operator to build `events`' index CONCURRENTLY outside the transaction and let the
+statement no-op, and the live database that took the manual apply already holds both indexes under
+these exact names.
+
+**NOT apply-before-deploy.** Both journey queries are correct without the indexes and merely slow,
+so an app deployed ahead of this file serves identical JSON off a sequential scan. It IS
+apply-before-the-page-carries-real-traffic. Rollback is two `DROP INDEX`es with the app live —
+nothing references an index, and the reads return the same rows, slower. The full reasoning,
+including the `events` write-lock caveat, is in the migration's own header.
 
 ### `0078` — additive, APPLY BEFORE DEPLOY, no backfill — 2026-08-18
 
 **It takes the second slot of the OIE block**, exactly as `0077` took the head, and for the same
 reason: the block was reserved before either workstream existed, and leaving a hole to preserve a
-stale reservation costs more than re-recording it. `0079` remains OIE's.
+stale reservation costs more than re-recording it. `0079` was OIE's last remaining slot when this
+note was written; it has since gone to `#992` (see the `0079` note above), so OIE now lands on
+`0080`.
 
 **APPLY BEFORE DEPLOY. Corrected 2026-08-19 — the first version of this note said the opposite,
 and was wrong.**
@@ -177,7 +222,8 @@ SET lock_timeout = '3s';   -- fail fast rather than stall the write path
 
 **It takes the head of the OIE block.** `0077`–`0079` was reserved for Occupation Intelligence;
 that workstream has not minted `0077` on any branch, and this file's own rule is that the claim is
-recorded in the change that takes it. OIE's remaining slot is `0079` (`0078` went to S3-C).
+recorded in the change that takes it. OIE's remaining slot is now `0080` — `0078` went to S3-C and
+`0079` to `#992`.
 
 ### `0076` deploy ordering and rollback — 2026-08-16
 

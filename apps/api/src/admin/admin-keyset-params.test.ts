@@ -4,6 +4,7 @@ import type { SQL } from "drizzle-orm";
 import type { Database } from "@badabhai/db";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminEventsRepository } from "./admin-events.repository";
+import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
 
 /**
  * REGRESSION GUARD — keyset cursors must bind DRIVER-ENCODABLE parameters.
@@ -150,5 +151,48 @@ describe("ADMIN-2 event-spine keyset binds encodable parameters (the shipped bug
       { occurredAt: CURSOR_TS, id: CURSOR_ID },
     );
     expectAllEncodable(m.params, "AdminEventsRepository.listKeyset (filtered)");
+  });
+});
+
+/**
+ * Phase 6 — the worker-journey session list is the FOURTH keyset on this surface, and the
+ * first one keyed on `started_at`. It is registered here rather than trusted to look right,
+ * because the failure mode this file documents is invisible to every other layer: identical
+ * SQL, correct-looking code, and a 500 on page two only.
+ */
+describe("Phase 6 journey keyset binds encodable parameters", () => {
+  const WORKER = "11111111-1111-4111-8111-111111111111";
+
+  it("listSessions with a cursor", async () => {
+    const m = makeDb();
+    await new AdminWorkerJourneyRepository(m.db).listSessions(
+      WORKER,
+      {},
+      { occurredAt: CURSOR_TS, id: CURSOR_ID },
+      10,
+    );
+    expectAllEncodable(m.params, "AdminWorkerJourneyRepository.listSessions");
+  });
+
+  it("listSessions binds the cursor timestamp as an ISO string", async () => {
+    const m = makeDb();
+    await new AdminWorkerJourneyRepository(m.db).listSessions(
+      WORKER,
+      {},
+      { occurredAt: CURSOR_TS, id: CURSOR_ID },
+      10,
+    );
+    expect(m.params).toContain(CURSOR_TS);
+  });
+
+  it("a status-filtered page is equally safe", async () => {
+    const m = makeDb();
+    await new AdminWorkerJourneyRepository(m.db).listSessions(
+      WORKER,
+      { status: "abandoned" },
+      { occurredAt: CURSOR_TS, id: CURSOR_ID },
+      10,
+    );
+    expectAllEncodable(m.params, "AdminWorkerJourneyRepository.listSessions (filtered)");
   });
 });

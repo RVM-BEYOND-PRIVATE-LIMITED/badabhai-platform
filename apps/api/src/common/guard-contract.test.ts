@@ -54,6 +54,7 @@ import { ReferralBonusController } from "../referrals/referral-bonus.controller"
 import { AdminDirectoryController } from "../admin/admin-directory.controller";
 import { AdminEntitiesController } from "../admin/admin-entities.controller";
 import { AdminFinanceController } from "../admin/admin-finance.controller";
+import { AdminWorkerJourneyController } from "../admin/admin-worker-journey.controller";
 import { AdminKillSwitchController } from "../admin/admin-kill-switch.controller";
 import { AdminDashboardController } from "../admin/admin-dashboard.controller";
 import { DevicesController } from "../auth/devices.controller";
@@ -117,6 +118,17 @@ const SI = "SkillsInternalGuard";
 const TL = "TestLoginGuard";
 const PTL = "PayerTestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
+/**
+ * ⚠ NOT AN AUTH GUARD. `OptionalWorkerAuthGuard` attaches `req.worker` when a valid session
+ * token happens to ride along and ALWAYS returns true — its `canActivate` has one return
+ * statement. It appears in this contract because it appears in the route metadata, NOT because
+ * the route it sits on is protected: `GET /interview-kit/:tradeKey/download` is and remains
+ * publicly reachable without a token. It exists so `interview_kit.downloaded` can carry an
+ * optional `worker_id` for the admin journey funnel.
+ *
+ * If this alias ever appears on a route that MUST be authenticated, that route is open.
+ */
+const OW = "OptionalWorkerAuthGuard";
 const RZ = "RazorpayWebhookGuard";
 const POR = "PayerOrgRoleGuard";
 
@@ -169,7 +181,10 @@ const CONTRACT: ControllerContract[] = [
   { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W] } },
   { name: "Events", ctor: EventsController, routes: { list: [I] } },
   { name: "Health", ctor: HealthController, routes: { check: [] } },
-  { name: "InterviewKit", ctor: InterviewKitController, routes: { download: [] } },
+  // The download is PUBLIC and stays public — the kit is per-trade, PII-free content a worker
+  // must be able to reach before committing to the app. `OW` is attribution only (see its
+  // declaration): it can allow, never deny, so the route's effective posture is unchanged.
+  { name: "InterviewKit", ctor: InterviewKitController, routes: { download: [OW] } },
   // Worker-scoped job detail (ADR-0024 final addendum): GET /jobs/:jobId is
   // worker-authed + consent-gated, mirroring the /feed posture. Distinct surface
   // from the ops JobPostings rows below (which stay FORBIDDEN on the worker path).
@@ -528,6 +543,18 @@ const CONTRACT: ControllerContract[] = [
     name: "AdminDashboard",
     ctor: AdminDashboardController,
     routes: { summary: [A, AR] },
+  },
+  // Phase 6 — the per-worker journey reads. Same [A, AR] as every other admin controller;
+  // the capability (`read_entities`) is asserted in admin-worker-journey.authz.test.ts, since
+  // role scoping is not this contract's concern.
+  {
+    name: "AdminWorkerJourney",
+    ctor: AdminWorkerJourneyController,
+    routes: {
+      getJourneySummary: [A, AR],
+      listChatSessions: [A, AR],
+      getChatSession: [A, AR],
+    },
   },
   // super_admin-only via @RequireAdminRole (role scoping isn't this contract's concern — it
   // asserts guard CLASSES, the same [A, AR] every admin controller carries).

@@ -580,6 +580,16 @@ export const EVENT_REGISTRY = {
     payload: p.AdminActionPerformedPayload,
   },
   "admin.pii_viewed": { version: 1, domain: "admin", payload: p.AdminPiiViewedPayload },
+  // ADR-0025 Phase 6 — an admin READ one worker's journey (the 7-step funnel, or one
+  // interview session in depth). Audited even though it is a `read_entities` read and returns
+  // no PII: it is a BEHAVIOURAL profile at much higher granularity than the entity detail, so
+  // looking at it must name who looked and at whom. PII-free: opaque admin/worker/session ids
+  // + a view enum ONLY — never a question key, a status, a count, or any free text. v1.
+  "admin.worker_journey_viewed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminWorkerJourneyViewedPayload,
+  },
   // ADR-0025 ADMIN-3b (must-fix #8) — a per-admin worker-PII reveal cap was exceeded. The
   // PII-free BREACH event: opaque admin_id + which window (hour|day) ONLY — never a worker/
   // subject id, the revealed value, or the reason note. An over-cap request reveals nothing. v1.

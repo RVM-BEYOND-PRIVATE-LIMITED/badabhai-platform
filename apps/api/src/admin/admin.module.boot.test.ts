@@ -12,6 +12,7 @@ import { AdminRolesGuard } from "./admin-roles.guard";
 import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
+import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 
@@ -87,6 +88,16 @@ describe("AdminModule wiring (DI regression guard)", () => {
   it("the auth controller has NO class-level guard (login/MFA public; refresh/logout/me guarded per-method)", () => {
     // Mirrors PayerAuthController: the class metadata is empty; AdminAuthGuard is method-level.
     expect(getMeta("__guards__", AdminAuthController)).toHaveLength(0);
+  });
+
+  it("declares the Phase 6 worker-journey controller + provides its service/repository", () => {
+    // One new module edge is all it takes to make the app fail to BOOT while typecheck, lint,
+    // build and every unit suite stay green — a controller declared with a provider missing
+    // resolves to null at container build, not at compile.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminWorkerJourneyController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminWorkerJourneyService");
+    expect(tokens).toContain("AdminWorkerJourneyRepository");
   });
 
   it("the providers reference the real classes (no accidental shadowing)", () => {

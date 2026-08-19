@@ -103,6 +103,27 @@ export const events = pgTable(
     index("events_occurred_at_idx").on(t.occurredAt),
     index("events_correlation_id_idx").on(t.correlationId),
     index("events_subject_idx").on(t.subjectType, t.subjectId),
+    // ── The interview-kit attribution read (migration 0079) ──────────────────────────────
+    //
+    // `interview_kit.downloaded` carries its worker in the PAYLOAD, not in `subject_id`: the
+    // subject is the KIT (per-trade, PII-free), and conditionally re-pointing the subject at
+    // the worker whenever a token happened to be present would break every consumer that
+    // filters `subject_type = 'interview_kit'`. So step 7 of the admin worker-journey funnel
+    // has to ask a jsonb question — and `events` is the largest table in the system, with no
+    // payload index of any kind, so unindexed that question is a sequential scan of it EVERY
+    // TIME an operator opens one worker's journey page.
+    //
+    // PARTIAL on the event name, which is what keeps it small: the index holds only the
+    // downloaded rows, not one entry per event in the spine. It is also what makes the index
+    // MATCHABLE — the funnel query carries the identical `event_name = 'interview_kit.downloaded'`
+    // predicate, so the planner can prove the partial covers it.
+    //
+    // §2: the indexed expression is an opaque internal UUID (or NULL for an anonymous
+    // download). An index stores the indexed VALUES — this one therefore holds ids and
+    // nothing else, which is the same standard `ai_jobs_extraction_session_idx` is held to.
+    index("events_interview_kit_worker_idx")
+      .on(sql`(${t.payload}->>'worker_id')`)
+      .where(sql`${t.eventName} = 'interview_kit.downloaded'`),
     // Idempotent emission: non-null keys are unique; many NULLs are allowed
     // (NULLS DISTINCT — Postgres default). See `idempotencyKey` above.
     uniqueIndex("events_idempotency_key_uq").on(t.idempotencyKey),
