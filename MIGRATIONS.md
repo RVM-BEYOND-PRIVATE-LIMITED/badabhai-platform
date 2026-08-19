@@ -50,13 +50,29 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 reason: the block was reserved before either workstream existed, and leaving a hole to preserve a
 stale reservation costs more than re-recording it. `0079` remains OIE's.
 
-**NOT apply-before-deploy, and here that is unconditional rather than conditional.** Unlike `0077`
-— whose safety rests on a SAVEPOINT catching a missing table — nothing in the shipped application
-reads or writes `unresolved_phrase.job_domain_id` unless a caller sends `job_domain_id` to
-`POST /skills/unresolved`, and nothing does: the canonical read switch is a REQUEST SHAPE that no
-production caller populates today (`job_postings.job_domain_id` is unwritten). Deploying the code
-ahead of the migration changes no behaviour on any live path. Applying the migration ahead of the
-code is equally safe — the column is nullable with no default.
+**APPLY BEFORE DEPLOY. Corrected 2026-08-19 — the first version of this note said the opposite,
+and was wrong.**
+
+The reasoning it gave ("nothing writes `job_domain_id` unless a caller sends one, and no caller
+does") describes the DTO, not the SQL. `SkillsRepository.recordUnresolved` names the column in the
+INSERT list and in the `ON CONFLICT` target **unconditionally** — a legacy or occupation miss binds
+NULL for it, but the column still has to exist. Against a database without `0078` every unresolved
+write fails, not just a canonical one: `42703 column "job_domain_id" does not exist`, or `42P10` on
+the conflict target, which must name the widened index's exact five columns.
+
+**The path that would actually have hit it is the occupation one, and it runs today.**
+`IdentifyService` → `OccupationService.recordUnresolved` → the same widened SQL, on every
+below-floor trade phrase in a live worker interview. Blast radius was bounded rather than
+catastrophic — `identify.service.ts` wraps the call in try/catch and logs "the interview is
+unaffected", so the failure mode is **growth signal silently lost**, not a 500 for the worker. That
+is a fail-soft worth having and not a reason the ordering claim was acceptable.
+
+**Moot in practice: `0078` was applied to production on 2026-08-19, before the code carrying it
+reached the box.** The note is corrected anyway, because it is the instruction a fresh environment,
+a rollback, or the next reader follows — and there it is load-bearing.
+
+The reverse order is still safe: applying `0078` ahead of the code changes nothing, since the
+column is nullable with no default and the pre-`0078` SQL never mentions it.
 
 **What it does, and the one part that is easy to get wrong:**
 
