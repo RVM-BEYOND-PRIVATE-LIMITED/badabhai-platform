@@ -242,6 +242,54 @@ this reasoning cannot silently stop being true.
 
 ---
 
+## S3-D readiness — what an adversarial sweep found
+
+Four lenses were run over the S3 plan, the harness family, the `cnc-programming` option and the
+trainer worksheet, with each serious finding independently refuted-or-confirmed. What survived:
+
+### Closed in this pass
+
+| finding | state |
+|---|---|
+| `path-a-replay` scored coverage-only cases in Recall | **fixed** — R@1 back to 0.9912 over 113, 8 tests |
+| `retag-skills` destroyed paid embeddings on deterministic-id collision | **fixed** — `onConflictDoUpdate` guarded by `isNull(embedding)`, 8 tests |
+| **P1 had no runnable implementation** | **built** — `db:verify:path-b-parity`, 17 tests, baseline captured |
+| trainer worksheet: 4 factual errors + a DC-18 leak | **fixed** — revision 2 |
+
+**P1 is now an assertion, not a promise.** It was the load-bearing safety property of the whole
+S3 sequence — *"Path B's result set before vs after must be unchanged"* — and it was verified by
+reading migrations and reasoning about them, which is exactly the check that already failed once
+this phase. The verifier digests each legacy slug's candidate set under the exact
+`legacyAliasRows` predicate (pinned against the repository source by test), so a match proves
+every Path B answer to *every possible query* is unchanged — a stronger statement than replaying
+a fixture, and one that needs no provider call.
+
+Pre-S3 baseline captured from production: **10 slugs, 76 candidate rows**,
+`phase-9-path-b-parity-BASELINE-PRE-S3.json`. Re-run with `--against=` after any stage.
+
+### Open, and each one blocks or weakens S3-D
+
+| # | finding | why it matters |
+|---|---|---|
+| 1 | **S3-D has no rollback procedure** beyond four lines of prose — no script, no manifest, no rehearsal | the stage that changes live retrieval is the one with no tested way back |
+| 2 | **`--preserve-existing-status` does not exist** in `seed-skills.ts` | S3-A is specified in terms of a flag nobody wrote, so the stage S3-D is gated on cannot be run as designed |
+| 3 | **4 of 5 S3-D abort thresholds have no instrument**, and the S3-C dual-read shadow they were to be derived from was never built | the thresholds are inherited numbers with nothing to measure them against |
+| 4 | **The worker/profile caller has no read switch** — `apps/ai-service/app/routers/profile.py` is hard-pinned to the legacy anchor slug | S3-D's "everything is tied to the switch" property does not hold for that caller |
+| 5 | `db:retag:skills` guards on `NODE_ENV`, not on the database host | the guard that stopped me reading production is the right guard keyed on the wrong thing |
+
+Items 2 and 5 are engineering-safe and small. Item 1 is engineering-safe but not small. Items 3
+and 4 need a design decision about what S3-C's shadow actually is before they can be built.
+
+### Harness-family defects, none blocking
+
+`isScoreable` / `pending_review` is honoured by 2 of 5 fixture consumers; `COVERAGE_ONLY_CATEGORIES`
+still has a private duplicate in `taxonomy-alias-experiment.ts` and a bare string literal in
+`taxonomy-floor-sweep.ts`; `--k` is validated in 1 of 5 harnesses; "which skills the fixture
+covers" is computed two incompatible ways; `promote-skills.ts`'s `EVAL_COVERED` gate admits the
+39 mechanical cases its own spec excludes. All are the same shape as the coverage-only defect
+fixed above — a rule defined in one module and re-implemented or omitted in another — and the
+`promote-skills` one makes a live promotion gate **weaker** than specified.
+
 ## Flags, unchanged
 
 `DOMAIN_MATCH_ENABLED=false`, `SKILL_CANONICALIZE_ENABLED=false`, `AI_ENABLE_REAL_CALLS=true`,
