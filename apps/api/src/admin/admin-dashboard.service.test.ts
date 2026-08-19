@@ -5,7 +5,9 @@ import type { AdminEventsRepository } from "./admin-events.repository";
 import {
   AI_COST_CAVEAT_SINCE_0077,
   ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT,
+  CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
   DASHBOARD_JOB_POSTING_STATUSES,
+  DASHBOARD_OTHER_BUCKET,
   DASHBOARD_PAYER_ROLES,
   DASHBOARD_PAYER_STATUSES,
   DASHBOARD_PROFILE_STATUSES,
@@ -15,22 +17,28 @@ import {
 /**
  * The dashboard composition — what the SERVICE decides, over faked repositories.
  *
- * Three properties are pinned here because the repository layer cannot express them:
- *   1. THE HONESTY MARKER. `accruing_since` comes from `min(first_recorded_at)` and the figures
- *      are never labelled a lifetime total. A partial number rendered as authoritative is the
- *      same failure class as a mock rupee rendered as a real one.
+ * Four properties are pinned here because the repository layer cannot express them:
+ *   1. THE HONESTY MARKERS. `accruing_since` comes from `min(first_recorded_at)` and the figures
+ *      are never labelled a lifetime total; `cap_breaches.scope` says which surfaces that count
+ *      covers. A partial number rendered as authoritative is the same failure class as a mock
+ *      rupee rendered as a real one.
  *   2. DENSIFICATION over closed enums. "0 suspended workers" and "we did not measure suspended
  *      workers" are the same JSON to a client unless every enum member is emitted.
- *   3. RAW PROVIDER LABELS. No `unknown → Sarvam` mapping is applied anywhere in the service.
+ *   3. THE `other` BUCKET, and therefore `total === count(*)`. Four of the five enums have no DB
+ *      CHECK behind them, so a drifted value is reachable; dropping it used to shrink the
+ *      headline as well as the breakdown.
+ *   4. RAW PROVIDER LABELS. No provider remapping is applied anywhere in the service.
  */
 
 const ACCRUAL_START = new Date("2026-08-18T09:00:00.000Z");
 
 /**
  * The provider labels the ai-service ACTUALLY produces (`provider_for_model` in
- * apps/ai-service/app/ai/model_config.py) — `google`, `anthropic`, `openai`, `unknown`. Sarvam
- * STT's model (`saarika:v2.5`) matches none of that function's substring rules, so its spend
- * arrives labelled `unknown`. These fixtures are those real values, not a tidied-up guess.
+ * apps/ai-service/app/ai/model_config.py) — `google`, `anthropic`, `openai`, `sarvam`,
+ * `unknown`. Both Sarvam-relevant labels are in these fixtures on purpose: the table is a
+ * running sum with no backfill, so STT spend that accrued BEFORE `provider_for_model` learned
+ * the Sarvam families is still filed under `unknown`, while everything since is `sarvam`. The
+ * read layer must pass BOTH through untouched.
  */
 const PROVIDER_ROWS = [
   {
@@ -48,11 +56,21 @@ const PROVIDER_ROWS = [
     first_recorded_at: new Date("2026-08-19T00:00:00.000Z"),
   },
   {
-    provider: "unknown",
+    // Post-fix Sarvam STT spend.
+    provider: "sarvam",
     total_cost_inr: "3.000000",
     call_count: 12,
     real_call_count: 12,
     first_recorded_at: new Date("2026-08-19T01:00:00.000Z"),
+  },
+  {
+    // PRE-fix Sarvam STT spend, plus any genuinely unrecognised model id. Same table, same
+    // rupees, permanently under a different label because nothing backfills a running sum.
+    provider: "unknown",
+    total_cost_inr: "1.000000",
+    call_count: 4,
+    real_call_count: 4,
+    first_recorded_at: new Date("2026-08-17T01:00:00.000Z"),
   },
 ];
 
@@ -148,22 +166,29 @@ describe("AI cost — the provider split", () => {
     expect(out.ai_cost.by_provider.map((p) => p.provider)).toEqual([
       "google",
       "anthropic",
+      "sarvam",
       "unknown",
     ]);
   });
 
-  it("invents NO Sarvam/Gemini/Claude mapping — `unknown` stays `unknown`", async () => {
+  it("keeps the pre-fix `unknown` bucket SEPARATE from `sarvam` — no read-time remapping", async () => {
     const out = await makeService().summary(DTO);
     const labels = out.ai_cost.by_provider.map((p) => p.provider);
-    // Sarvam STT is labelled `unknown` by the ai-service (see the fixture header). Renaming it
-    // here would be a read-layer guess that ALSO mislabels every genuinely-unlabelled call.
+    // Both survive as stored. Folding `unknown` into `sarvam` would move money between buckets
+    // after the fact AND mislabel every genuinely-unrecognised model id, which still lands in
+    // `unknown` by design.
+    expect(labels).toContain("sarvam");
     expect(labels).toContain("unknown");
-    for (const guessed of ["sarvam", "Sarvam", "gemini", "Gemini", "claude", "Claude"]) {
+    expect(out.ai_cost.by_provider.find((p) => p.provider === "unknown")?.total_cost_inr).toBe(
+      "1.000000",
+    );
+    // …and no display-name guessing either.
+    for (const guessed of ["Sarvam", "gemini", "Gemini", "claude", "Claude"]) {
       expect(labels).not.toContain(guessed);
     }
   });
 
-  it("carries the per-task split, which is what makes the `unknown` bucket readable", async () => {
+  it("carries the per-task split, which is what makes the historical `unknown` bucket readable", async () => {
     const out = await makeService().summary(DTO);
     expect(out.ai_cost.by_task_type.map((t) => t.task_type)).toContain("stt_transcription");
   });
@@ -194,6 +219,18 @@ describe("AI cost — cap breaches by reason", () => {
     expect(out.ai_cost.cap_breaches.total).toBe(0);
   });
 
+  it("ships the SCOPE marker in band — a zero here is not 'nothing anywhere hit a cap'", async () => {
+    // One emitter (`ProfileExtractionProcessor`), so the count covers profile extraction only.
+    // The spend figures got `caveat`/`is_lifetime_total` for exactly this reason; a UI given a
+    // bare `0` renders the strongest reading, which is the wrong one.
+    const zero = await makeService({ breaches: [] }).summary(DTO);
+    expect(zero.ai_cost.cap_breaches.scope).toBe(CAP_BREACH_SCOPE_PROFILE_EXTRACTION);
+    const nonZero = await makeService().summary(DTO);
+    expect(nonZero.ai_cost.cap_breaches.scope).toBe(CAP_BREACH_SCOPE_PROFILE_EXTRACTION);
+    // A STABLE machine code, not prose — the portal keys a caption off it.
+    expect(CAP_BREACH_SCOPE_PROFILE_EXTRACTION).toBe("cap_breaches_cover_profile_extraction_only");
+  });
+
   it("surfaces an UNKNOWN reason rather than dropping it (fail-open on the label only)", async () => {
     const out = await makeService({
       breaches: [{ key: "some_future_reason", count: 3 }],
@@ -203,37 +240,112 @@ describe("AI cost — cap breaches by reason", () => {
 });
 
 describe("volume — every closed enum is reported in full", () => {
-  it("emits every worker status, including the ones at zero", async () => {
+  it("emits every worker status, including the ones at zero, then `other`", async () => {
     const out = await makeService({ workerStatuses: [{ key: "active", count: 7 }] }).summary(DTO);
     expect(out.volume.workers.by_status).toEqual([
       { key: "pending", count: 0 },
       { key: "active", count: 7 },
       { key: "suspended", count: 0 },
+      { key: "other", count: 0 },
     ]);
-    expect(out.volume.workers.by_status.map((b) => b.key)).toEqual([...DASHBOARD_WORKER_STATUSES]);
+    expect(out.volume.workers.by_status.map((b) => b.key)).toEqual([
+      ...DASHBOARD_WORKER_STATUSES,
+      DASHBOARD_OTHER_BUCKET,
+    ]);
   });
 
   it("emits every profile status, every posting status, every payer role and status", async () => {
     const out = await makeService().summary(DTO);
     expect(out.volume.worker_profiles.by_status.map((b) => b.key)).toEqual([
       ...DASHBOARD_PROFILE_STATUSES,
+      DASHBOARD_OTHER_BUCKET,
     ]);
     expect(out.volume.job_postings.by_status.map((b) => b.key)).toEqual([
       ...DASHBOARD_JOB_POSTING_STATUSES,
+      DASHBOARD_OTHER_BUCKET,
     ]);
-    expect(out.volume.payers.by_role.map((b) => b.key)).toEqual([...DASHBOARD_PAYER_ROLES]);
-    expect(out.volume.payers.by_status.map((b) => b.key)).toEqual([...DASHBOARD_PAYER_STATUSES]);
+    expect(out.volume.payers.by_role.map((b) => b.key)).toEqual([
+      ...DASHBOARD_PAYER_ROLES,
+      DASHBOARD_OTHER_BUCKET,
+    ]);
+    expect(out.volume.payers.by_status.map((b) => b.key)).toEqual([
+      ...DASHBOARD_PAYER_STATUSES,
+      DASHBOARD_OTHER_BUCKET,
+    ]);
   });
 
-  it("drops a bucket whose key is not in the enum (corrupt data never reaches a typed key)", async () => {
+  it("the `other` sentinel collides with NO enum member (it would double a bucket if it did)", () => {
+    for (const members of [
+      DASHBOARD_WORKER_STATUSES,
+      DASHBOARD_PROFILE_STATUSES,
+      DASHBOARD_JOB_POSTING_STATUSES,
+      DASHBOARD_PAYER_ROLES,
+      DASHBOARD_PAYER_STATUSES,
+    ]) {
+      expect([...(members as readonly string[])]).not.toContain(DASHBOARD_OTHER_BUCKET);
+    }
+  });
+
+  it("a key outside the enum lands in `other` — never dropped, never merged into a member", async () => {
     const out = await makeService({
       workerStatuses: [
         { key: "active", count: 7 },
         { key: "not_a_status", count: 99 },
       ],
     }).summary(DTO);
-    expect(out.volume.workers.by_status.map((b) => b.key)).toEqual([...DASHBOARD_WORKER_STATUSES]);
-    expect(out.volume.workers.total).toBe(7);
+    expect(out.volume.workers.by_status).toEqual([
+      { key: "pending", count: 0 },
+      { key: "active", count: 7 },
+      { key: "suspended", count: 0 },
+      { key: "other", count: 99 },
+    ]);
+    // THE POINT: the headline still equals `count(*)`. Dropping the drifted row used to make
+    // this 7 — a silent undercount in the one number a reader trusts without checking.
+    expect(out.volume.workers.total).toBe(106);
+  });
+
+  it("several drifted keys collapse into ONE `other` bucket, summed", async () => {
+    const out = await makeService({
+      payerStatuses: [
+        { key: "active", count: 5 },
+        { key: "archived", count: 3 },
+        { key: "", count: 2 },
+      ],
+      payerRoles: [{ key: "employer", count: 10 }],
+    }).summary(DTO);
+    expect(out.volume.payers.by_status.filter((b) => b.key === "other")).toEqual([
+      { key: "other", count: 5 },
+    ]);
+    // by_status and by_role are two views of the same table, so both must reach the same total.
+    const statusTotal = out.volume.payers.by_status.reduce((n, b) => n + b.count, 0);
+    expect(statusTotal).toBe(10);
+    expect(out.volume.payers.total).toBe(10);
+  });
+
+  it("every enum-bucketed list sums to its own headline, drift included", async () => {
+    const out = await makeService({
+      workerStatuses: [
+        { key: "active", count: 7 },
+        { key: "zombie", count: 1 },
+      ],
+      profileStatuses: [
+        { key: "confirmed", count: 4 },
+        { key: "half_baked", count: 2 },
+      ],
+      postingStatuses: [
+        { key: "open", count: 3 },
+        { key: "archived", count: 5 },
+      ],
+    }).summary(DTO);
+    const sum = (bs: { count: number }[]) => bs.reduce((n, b) => n + b.count, 0);
+    expect(out.volume.workers.total).toBe(sum(out.volume.workers.by_status));
+    expect(out.volume.workers.total).toBe(8);
+    expect(out.volume.worker_profiles.workers_with_profile).toBe(
+      sum(out.volume.worker_profiles.by_status),
+    );
+    expect(out.volume.worker_profiles.workers_with_profile).toBe(6);
+    expect(out.volume.job_postings.total).toBe(sum(out.volume.job_postings.by_status));
+    expect(out.volume.job_postings.total).toBe(8);
   });
 });
 

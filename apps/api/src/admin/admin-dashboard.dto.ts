@@ -38,22 +38,27 @@ import type { PayerRole, PayerStatus } from "@badabhai/db";
  * ── PROVIDER LABELS ARE RAW, AND NOT AN ENUM ────────────────────────────────────────────
  * `platform_ai_cost_totals.provider` is a `text` column fed from `AICallMetadata.provider`,
  * which the ai-service derives with `provider_for_model()`. The values that function can
- * actually produce today are `"google"`, `"anthropic"`, `"openai"` and `"unknown"` — plus the
+ * produce are `"google"`, `"anthropic"`, `"openai"`, `"sarvam"` and `"unknown"` — plus the
  * literal `"unknown"` that `AiCostRecorder` substitutes for an empty label. So:
  *
  *   - Gemini  → `"google"`
  *   - Claude  → `"anthropic"`
- *   - Sarvam  → **`"unknown"`**. Sarvam STT is priced per call, not per token, and its model
- *     name (`saarika:v2.5`) matches none of `provider_for_model`'s substring rules, so every
- *     rupee of STT spend lands in the `unknown` bucket. That is a defect in the ai-service's
- *     label derivation (out of this module's boundary — apps/ai-service is not ours to edit),
- *     and it is REPORTED rather than papered over: mapping `unknown → Sarvam` here would be a
- *     read-layer guess that also silently mislabels every genuinely-unlabelled call.
+ *   - Sarvam  → `"sarvam"` — as of the `provider_for_model` fix that matches the model FAMILY
+ *     (`saarika`/`saaras` STT, `bulbul` TTS, `mayura` translate). Before that fix every Sarvam
+ *     call fell through to `"unknown"`.
  *
- * `by_task_type` is what makes that bucket readable in the meantime — STT spend is exactly the
- * `stt_transcription` row — which is why the (provider, task_type) PK's other half is surfaced
- * rather than dropped. This DTO does NOT hardcode either list: both are open sets, and an enum
- * here would silently drop the first provider added after it was written.
+ * SARVAM SPEND IS THEREFORE SPLIT ACROSS TWO BUCKETS, AND WILL STAY THAT WAY. This table is a
+ * running SUM with no backfill, so rupees accrued before that fix deployed remain filed under
+ * `"unknown"` for ever; only calls made after it land under `"sarvam"`. A reader looking at
+ * historical STT spend must expect it in the `unknown` row. NO REMAPPING IS APPLIED HERE:
+ * rewriting `unknown → sarvam` at read time would also silently relabel every genuinely
+ * unlabelled call (an unrecognised model id still falls through to `"unknown"`, which is the
+ * honest fallback), and it would move money between buckets after the fact.
+ *
+ * `by_task_type` is what makes the historical `unknown` bucket readable — pre-fix STT spend is
+ * exactly its `stt_transcription` row — which is why the (provider, task_type) PK's other half
+ * is surfaced rather than dropped. This DTO does NOT hardcode either list: both are open sets,
+ * and an enum here would silently drop the first provider added after it was written.
  */
 
 /** Hard cap on the breach-count window (mirrors the finance summary's cap). */
@@ -65,6 +70,24 @@ export const ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT = 30;
  * portal keys a caption off it, and prose that changes shape breaks a caption silently.
  */
 export const AI_COST_CAVEAT_SINCE_0077 = "totals_accrue_from_migration_0077_no_backfill" as const;
+
+/**
+ * The machine-readable SCOPE marker for the cap-breach counts — the same device as
+ * {@link AI_COST_CAVEAT_SINCE_0077}, for the same reason, on the block one field away.
+ *
+ * `ai.spend_cap_exceeded` has exactly ONE emitter in `apps/api` today:
+ * `ProfileExtractionProcessor`. So `cap_breaches.total: 0` means "profile extraction hit no
+ * cap", NOT "no surface anywhere hit a cap" — the profiling-chat, résumé, embedding and
+ * payer-chat surfaces have no emitter yet. A UI given a bare `0` renders the second reading,
+ * which is the strongest possible claim and the wrong one. Widening the coverage is an
+ * EMITTER-side change; until it lands, the number ships with its scope attached.
+ *
+ * A STABLE STRING, not prose: the portal keys a caption off it. When another surface starts
+ * emitting, this constant changes value (and this is the line that says so) — it is not a
+ * boolean that silently keeps meaning something narrower than it reads.
+ */
+export const CAP_BREACH_SCOPE_PROFILE_EXTRACTION =
+  "cap_breaches_cover_profile_extraction_only" as const;
 
 /**
  * GET /admin/dashboard/summary
@@ -154,6 +177,12 @@ export interface AdminAiCostSummary {
   cap_breaches: {
     window_days: number;
     total: number;
+    /**
+     * WHICH SURFACES THIS COUNT COVERS — see {@link CAP_BREACH_SCOPE_PROFILE_EXTRACTION}. In
+     * band, next to the number, because a `0` with no scope reads as "nothing anywhere hit a
+     * cap" and only one surface emits the event today.
+     */
+    scope: typeof CAP_BREACH_SCOPE_PROFILE_EXTRACTION;
     by_reason: AdminCapBreachBucket[];
   };
 }
@@ -172,10 +201,43 @@ export interface AdminCountBucket<K extends string> {
   count: number;
 }
 
+/**
+ * The catch-all bucket for a stored value that is NOT a member of the enum.
+ *
+ * WHY IT EXISTS. Of the five enums this dashboard densifies, exactly ONE is enforced in the
+ * database: `job_postings_status_chk`. `workers.status`, `worker_profiles.profile_status`,
+ * `payers.role` and `payers.status` are plain `text` columns typed only in TypeScript
+ * (`$type<...>()`), so a bad write, a migration, a manual `UPDATE` or an older deploy can put a
+ * value there that no member matches. Dropping such a row — the original behaviour — removed it
+ * from `by_status` AND from `total`, because the totals are summed from the densified buckets.
+ * The headline then quietly stopped equalling `count(*)`: the same silent-undercount failure
+ * this whole surface exists to prevent for spend.
+ *
+ * ALWAYS EMITTED, zero included, for the same reason every enum member is: an absent bucket and
+ * a zero bucket are the same JSON. Its presence is what makes `total === count(*)` structural
+ * rather than conditional — the total is still summed from the buckets the response carries, so
+ * it cannot disagree with its own breakdown, and now it cannot silently shrink either. A client
+ * may hide the row while it is zero; it must NOT hide a non-zero one, which is data corruption
+ * asking to be looked at.
+ */
+export const DASHBOARD_OTHER_BUCKET = "other" as const;
+export type DashboardOtherBucket = typeof DASHBOARD_OTHER_BUCKET;
+
+/**
+ * The densified bucket list for a closed enum: every member, plus {@link DASHBOARD_OTHER_BUCKET}.
+ * The `"other"` member is part of the UNION on purpose — a client switch-casing on the key is
+ * forced by the type to handle it, rather than meeting it at runtime.
+ */
+export type AdminEnumBuckets<K extends string> = AdminCountBucket<K | DashboardOtherBucket>[];
+
 export interface AdminVolumeSummary {
   workers: {
+    /**
+     * `count(*)` over the table, and provably so: it is summed from `by_status`, which now
+     * carries an `other` bucket for out-of-enum values, so no row can fall out of the total.
+     */
     total: number;
-    by_status: AdminCountBucket<WorkerStatus>[];
+    by_status: AdminEnumBuckets<WorkerStatus>;
     /** Workers with a deletion scheduled (DPDP erasure in flight) — a real operational number. */
     pending_deletion: number;
   };
@@ -187,11 +249,11 @@ export interface AdminVolumeSummary {
    */
   worker_profiles: {
     workers_with_profile: number;
-    by_status: AdminCountBucket<ProfileStatus>[];
+    by_status: AdminEnumBuckets<ProfileStatus>;
   };
   job_postings: {
     total: number;
-    by_status: AdminCountBucket<JobPostingStatus>[];
+    by_status: AdminEnumBuckets<JobPostingStatus>;
   };
   applications: {
     /** Every decision row — applies AND skips. */
@@ -202,8 +264,8 @@ export interface AdminVolumeSummary {
   payers: {
     total: number;
     /** `employer` = company, `agent` = agency. */
-    by_role: AdminCountBucket<PayerRole>[];
-    by_status: AdminCountBucket<PayerStatus>[];
+    by_role: AdminEnumBuckets<PayerRole>;
+    by_status: AdminEnumBuckets<PayerStatus>;
   };
   /**
    * Contact unlocks ISSUED (`granted` or `revealed`) — the demand side of the marketplace.
