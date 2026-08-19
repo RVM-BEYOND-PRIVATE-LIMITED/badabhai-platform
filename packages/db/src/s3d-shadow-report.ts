@@ -147,7 +147,13 @@ export const UNMEASURABLE_OFFLINE: readonly { signal: string; why: string; needs
   {
     signal: "real query distribution",
     why: "the fixture is 127 curated cases, not traffic",
-    needs: "captured (phrase, job_domain_id) pairs from production, which nothing records today",
+    // WAS "which nothing records today", and that was the sharper problem: the ai-service
+    // `record_unresolved` seam had no `job_domain_id` parameter at all, so a Path A miss was
+    // discarded before it reached `unresolved_phrase` — flipping the switch would have hidden
+    // exactly the failures this signal is derived from. That seam now carries the id end to
+    // end (ProfileExtractionInput -> canonicalize_labels -> record_unresolved -> the v2 event),
+    // so what remains is traffic, not plumbing.
+    needs: "captured (phrase, job_domain_id) pairs from a caller that populates the canonical scope",
   },
 ];
 

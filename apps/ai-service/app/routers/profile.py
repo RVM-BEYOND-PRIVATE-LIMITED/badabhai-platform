@@ -254,6 +254,21 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     embed_cost_records: list[AICallMetadata] = []
     if settings.skill_canonicalize_enabled:
         labels = rich.skills + rich.controllers
+        # THE S3-C READ SWITCH, AND IT IS THE REQUEST SHAPE — not a flag. Supplying
+        # `job_domain_id` scopes the whole pass to Path A (candidates through
+        # `job_domain_skill`, so a canonical skill with no legacy slug is reachable);
+        # omitting it leaves Path B exactly as it has always been, scoped by the
+        # configured default slug. Exactly one is non-None by construction here, which is
+        # what `canonicalize_labels` requires — the alternative shape, both set, is a
+        # refusal that would cost every label its embed.
+        #
+        # NOTHING POPULATES `body.job_domain_id` TODAY, so this is inert: every caller
+        # takes the legacy branch and the pass is byte-identical to before. Flipping the
+        # switch for this caller is one field at the call site in apps/api.
+        canonical_scope = body.job_domain_id
+        legacy_scope = (
+            None if canonical_scope is not None else settings.skill_canonicalize_default_domain
+        )
         # TD68 (TD27 SpendLedger wiring, REAL embed path only): reserve the projected
         # cost of the WHOLE label pass before it runs; on a ledger block SKIP the pass
         # entirely — labels stay raw, the NullSkillStore status quo (extraction is
@@ -291,8 +306,13 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
             with get_tracer().task(
                 task_type="skill_canonicalization_batch",
                 input={
+                    # BOTH keys, so the trace says which PATH ran rather than always
+                    # naming the legacy default — a trace that reports the configured
+                    # slug on a canonical-scoped pass is worse than no trace, because it
+                    # reads as evidence that Path B was used.
                     "labels": len(labels),
-                    "domain_id": settings.skill_canonicalize_default_domain,
+                    "domain_id": legacy_scope,
+                    "job_domain_id": canonical_scope,
                 },
                 user_ref=body.worker_ref,
                 real_call=not embed_is_mock,
@@ -306,9 +326,10 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
                     assigned, _unresolved, embed_cost_records = await asyncio.to_thread(
                         canonicalize_labels,
                         labels,
-                        settings.skill_canonicalize_default_domain,
+                        legacy_scope,
                         get_skill_store(settings),
                         settings,
+                        job_domain_id=canonical_scope,
                     )
                     # Leave the full reservation recorded as the actual spend (conservative).
                     actual_inr = reserved_inr
